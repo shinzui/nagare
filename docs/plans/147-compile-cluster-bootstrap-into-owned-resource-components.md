@@ -32,6 +32,11 @@ provenance:
       at: 2026-09-22T20:48:56Z
       mode: "implement"
       note: "Compile direct database objects into stable typed declarations"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-23T16:01:31Z
+      mode: "implement"
+      note: "Route supported bootstrap recipes through retained inventory reviews"
 ---
 
 # Compile cluster bootstrap into owned resource components
@@ -129,6 +134,7 @@ A component is an independently identified group of resources and operations, su
 - [x] (2026-09-22) M3 partial: Authorized same-name namespace requests now compose to one platform-owned declaration with a stable owner identity and a complete contributor set; Kubernetes/system foundation namespace requests refuse. The CLI materializes these generated Namespaces into canonical private native bytes before review and tests two application contributors sharing one result. Contribution-vector revalidation during execution remains open.
 - [x] (2026-09-23) M3/M4 disposable native proof: A fresh isolated k3d v1.34.11 cluster converged the full local bootstrap from a 17-scope, 208-operation reviewed plan. The run used the installed Nagare 0.4.0 Attic/controller archives, fixture observability credentials, and the operator-selected local en, Shomei, and nagare-access image digests. CRD and certificate readiness pauses resumed under the same transaction; the final marker was written only after every prerequisite completed. Shomei, en, nagare-access, MinIO, Knative Serving, Kourier, and the five Helm releases were running.
 - [x] (2026-09-23) M4 accepted replay proof: The same disposable context produced a 205-operation review with 204 read-only Kubernetes/Helm verifications, one idempotent controller-image publication operation, zero resource updates, and zero barriers. Its transaction converged. Replays normalize dependency set order and canonical Helm spec encoding, compare Knative controller-generated webhook rules by bounded admission coverage, preserve the accepted version-marker install time, and tolerate status-only Kubernetes resourceVersion churn while still refusing changed UID, owner, or desired digest. The final full CLI suite passes (695 tests).
+- [x] (2026-09-23) M4 recipe migration: The supported `cluster-bootstrap`, `local-bootstrap`, `nix-cache-bootstrap`, `job-runs-bootstrap`, `local-minio`, and `observability` recipes now call a retained public review followed by inventory apply. Their recipes no longer issue direct Kubernetes or Helm writes. The certificate and Knative shell checks assert this route; standalone installer scripts and the explicit cloud TLS transition remain open.
 - [x] (2026-09-22) M3 partial: Planning now reconstructs accepted effective declarations through the same closed contribution composer used for candidates. A committed first Namespace contributor followed by a second contributor leaves the shared Namespace untouched; malformed accepted contributions refuse planning. Auth backend/routes, Shomei settings, and execution-time contribution-vector revalidation remain open.
 - [x] (2026-09-22) M3 partial: Database and cache component inputs can name a foundation Namespace resource. Every direct namespaced member then carries an explicit dependency on that resource; a two-scope cache/foundation fixture composes and verifies those edges. The CLI and DSL suites pass. Bootstrap still needs to construct this candidate from the active context and replace the imperative entry points.
 - [x] (2026-09-22) M3 partial: Add `compileBootstrapCandidate` to compose foundation plus optional cache against one snapshot and return all exact native members for private review. The enabled fixture yields two scopes and 18 native objects; the disabled fixture keeps the three-object foundation scope only. Remaining components and active-context input resolution must join this compiler before public command replacement.

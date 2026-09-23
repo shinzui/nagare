@@ -145,41 +145,11 @@ k3s_image := "rancher/k3s:v1.34.6-k3s1"
 # Assumes KUBECONFIG points at the cluster (see the MasterPlan access note: an
 # SSH local-forward to 127.0.0.1:6443 until Tailscale is joined) and that the
 # Pulumi stack output `baseDomain` is the real apps domain.
-# Install cert-manager, Knative Serving, Kourier + wire ConfigMaps (HTTP-first).
+# Review and reconcile the complete cloud platform bootstrap inventory.
 [group('cluster')]
 cluster-bootstrap:
     @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform guard; fi
-    nagarectl cluster guard
-    for ns in cert-manager knative-serving kourier-system personal nagare-system; do \
-      kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -; \
-    done
-    kubectl label namespace personal nagare.dev/app-namespace=true --overwrite
-    kubectl apply -f cluster/bootstrap/vendor/cert-manager-v1.20.2.yaml
-    kubectl -n cert-manager rollout status deploy/cert-manager-webhook --timeout=5m
-    bash scripts/wait-cert-manager-api.sh
-    issuer="$(mktemp)"; trap 'rm -f "$issuer"' EXIT; \
-      cluster/bootstrap/render-context-template.sh cluster/bootstrap/cert-manager/letsencrypt-dns.yaml.tmpl > "$issuer" && \
-      kubectl apply -f "$issuer"
-    kubectl apply -f cluster/bootstrap/vendor/serving-crds-v1.22.0.yaml
-    kubectl apply -f cluster/bootstrap/vendor/serving-core-v1.22.0.yaml
-    kubectl -n knative-serving rollout status deploy/webhook --timeout=5m
-    kubectl apply -f cluster/bootstrap/vendor/kourier-v1.22.0.yaml
-    scripts/retry-knative-configmap-patch.sh config-network --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-network.yaml)"
-    BASE_DOMAIN="$(pulumi -C infra/pulumi stack output baseDomain)"; \
-      : "${BASE_DOMAIN:?empty baseDomain — run 'pulumi -C infra/pulumi up' (or 'pulumi config set baseDomain …') before cluster-bootstrap}"; \
-      scripts/retry-knative-configmap-patch.sh config-domain --type merge --patch "{\"data\":{\"$BASE_DOMAIN\":\"\"}}"; \
-      kubectl -n knative-serving patch configmap config-domain --type=json -p '[{"op":"remove","path":"/data/svc.cluster.local"}]' || true
-    kubectl apply -f cluster/bootstrap/vendor/net-certmanager-v1.14.0.yaml
-    kubectl -n knative-serving rollout status deploy/net-certmanager-webhook --timeout=5m
-    scripts/install-net-certmanager-controller.sh
-    scripts/retry-knative-configmap-patch.sh config-certmanager --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-certmanager.yaml)"
-    scripts/retry-knative-configmap-patch.sh config-features --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-features.yaml)"
-    REGISTRY_HOST="${NAGARE_REGISTRY_HOST:-us-west1-docker.pkg.dev}"; \
-      scripts/retry-knative-configmap-patch.sh config-deployment --type merge \
-        --patch "{\"data\":{\"registriesSkippingTagResolving\":\"kind.local,ko.local,dev.local,${REGISTRY_HOST}\"}}"
-    nagarectl cluster certificate-policy
-    @if [ "${NAGARE_NIX_CACHE_ENABLED:-0}" = "1" ]; then cluster/bootstrap/nix-cache/install.sh; fi
-    @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform stamp; fi
+    scripts/run-reviewed-bootstrap.sh
 
 # Create or rotate the context-owned sops ciphertext for Attic storage/JWT credentials.
 [group('cluster')]
@@ -192,12 +162,11 @@ nix-cache-publish:
     @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform guard; fi
     cluster/bootstrap/nix-cache/publish-image.sh
 
-# Reconcile the enabled Attic cache without re-running the rest of cluster bootstrap.
+# Reconcile the enabled Attic cache through the reviewed platform inventory.
 [group('cluster')]
 nix-cache-bootstrap:
     @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform guard; fi
-    nagarectl cluster guard
-    cluster/bootstrap/nix-cache/install.sh
+    scripts/run-reviewed-bootstrap.sh
 
 # Report Attic image, database, rollout, trust, retention, schedules, and client digest.
 [group('cluster')]
@@ -205,15 +174,11 @@ nix-cache-status:
     nagarectl cluster guard
     cluster/bootstrap/nix-cache/status.sh
 
-# EP-95: install the two-slot ResourceQuota for deadline-bounded one-shot Jobs.
-# Create/update the personal namespace and bounded Job-run quota.
+# Reconcile the complete inventory, including the personal Job-run quota.
 [group('cluster')]
 job-runs-bootstrap:
     @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform guard; fi
-    nagarectl cluster guard
-    kubectl create namespace personal --dry-run=client -o yaml | kubectl apply -f -
-    kubectl label namespace personal nagare.dev/app-namespace=true --overwrite
-    kubectl apply -f cluster/bootstrap/job-runs/resourcequota.yaml
+    scripts/run-reviewed-bootstrap.sh
 
 # EP-95: show current quota usage and the admission events used as backpressure.
 # Inspect the bounded Job-run quota, admitted Pods, and recent Job events.
@@ -274,70 +239,25 @@ local-up:
 local-down:
     k3d cluster delete nagare-local
 
-# EP-82: install the SAME ingress stack the cloud uses (cert-manager + Knative
-# Serving + Kourier + net-certmanager, at the pins above) onto the local k3d
-# cluster, with a laptop-local CA for HTTPS. This is `cluster-bootstrap` minus the
-# three cloud-coupled steps:
-#   - SKIP cluster/bootstrap/cert-manager/letsencrypt-dns.yaml.tmpl (renders a GCP
-#     project + needs ambient GCE creds); local TLS issuer is EP-85's job (IP-5).
-#   - REPLACE the public config-certmanager patch with the `nagare-local-ca`
-#     issuer and enable external-domain TLS without contacting ACME.
-#   - read the apps domain from NAGARE_BASE_DOMAIN (profile) instead of `pulumi
-#     stack output baseDomain`, and put the LOCAL registry host into
-#     registriesSkippingTagResolving.
-# Requires the cluster (`just local-up`) and local mode active in the shell
-# (NAGARE_MODE=local; copy nagare.local.env.example to nagare.local.env).
-# Install Knative + Kourier + cert-manager on the local cluster with local TLS.
+# Reconcile the complete local bootstrap inventory against the selected k3d
+# context, including its local CA, object store, auth plane, and observability.
+# Requires the local context profile and immutable auth image references.
 [group('local')]
 local-bootstrap:
     @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform guard; fi
-    for ns in cert-manager knative-serving kourier-system personal nagare-system; do \
-      kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -; \
-    done
-    kubectl label namespace personal nagare.dev/app-namespace=true --overwrite
-    kubectl apply -f cluster/bootstrap/vendor/cert-manager-v1.20.2.yaml
-    kubectl -n cert-manager rollout status deploy/cert-manager-webhook --timeout=5m
-    bash scripts/wait-cert-manager-api.sh
-    # The public DNS-01 issuer is intentionally skipped. Install the local CA
-    # counterpart so explicit DomainMappings can be exercised over trusted TLS.
-    kubectl apply -f cluster/bootstrap/local-tls/clusterissuer.yaml
-    kubectl -n cert-manager wait --for=condition=Ready certificate/nagare-local-ca --timeout=120s
-    kubectl apply -f cluster/bootstrap/vendor/serving-crds-v1.22.0.yaml
-    kubectl apply -f cluster/bootstrap/vendor/serving-core-v1.22.0.yaml
-    kubectl -n knative-serving rollout status deploy/webhook --timeout=5m
-    kubectl apply -f cluster/bootstrap/vendor/kourier-v1.22.0.yaml
-    scripts/retry-knative-configmap-patch.sh config-network --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-network.yaml)"
-    BASE_DOMAIN="${NAGARE_BASE_DOMAIN:?set NAGARE_MODE=local and copy nagare.local.env.example to nagare.local.env}"; \
-      scripts/retry-knative-configmap-patch.sh config-domain --type merge --patch "{\"data\":{\"$BASE_DOMAIN\":\"\"}}"; \
-      kubectl -n knative-serving patch configmap config-domain --type=json -p '[{"op":"remove","path":"/data/svc.cluster.local"}]' || true
-    kubectl apply -f cluster/bootstrap/vendor/net-certmanager-v1.14.0.yaml
-    scripts/install-net-certmanager-controller.sh
-    scripts/retry-knative-configmap-patch.sh config-certmanager --type merge --patch "$(cat cluster/bootstrap/local-tls/config-certmanager-local.yaml)"
-    scripts/retry-knative-configmap-patch.sh config-network --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-network-tls.yaml)"
-    scripts/retry-knative-configmap-patch.sh config-features --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-features.yaml)"
-    REGISTRY_HOST="${NAGARE_REGISTRY_HOST:-k3d-registry.localhost:5000}"; \
-      scripts/retry-knative-configmap-patch.sh config-deployment --type merge \
-        --patch "{\"data\":{\"registriesSkippingTagResolving\":\"kind.local,ko.local,dev.local,${REGISTRY_HOST}\"}}"
-    @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform stamp; fi
+    scripts/run-reviewed-bootstrap.sh
 
 # EP-84 (docs/plans/84-local-data-services-and-gcs-free-backups-and-snapshots-for-nagare.md):
-# install the local MinIO object store — the S3-compatible stand-in for GCS that
-# `db backup`/`db restore` and `storage snapshot`/`storage restore` move data
-# through in local mode. Run AFTER `just local-bootstrap`; it does not duplicate
-# any cluster setup. In-cluster S3 endpoint:
+# reconcile the complete local inventory, including the MinIO object store used
+# by `db backup`/`db restore` and `storage snapshot`/`storage restore`.
+# In-cluster S3 endpoint:
 # http://minio.nagare-system.svc.cluster.local:9000 (bucket nagare-backups) — the
 # NAGARE_LOCAL_OBJECT_STORE contract value.
 # Install the local MinIO object store for backups/snapshots (EP-84).
 [group('local')]
 local-minio:
-    # Ensure the default app/db namespace exists so the seeded credentials Secret
-    # applies even if local-minio is run before local-bootstrap.
-    kubectl create namespace personal --dry-run=client -o yaml | kubectl apply -f -
-    kubectl label namespace personal nagare.dev/app-namespace=true --overwrite
-    kubectl apply -f cluster/local/minio/minio.yaml
-    kubectl -n nagare-system rollout status deploy/minio
-    kubectl -n nagare-system wait --for=condition=complete --timeout=120s job/minio-make-bucket
-    @echo "MinIO ready at http://minio.nagare-system.svc.cluster.local:9000 (bucket: nagare-backups)"
+    @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform guard; fi
+    scripts/run-reviewed-bootstrap.sh
 
 # EP-5 (docs/plans/5-victoria-observability-stack-and-grafana.md): install the
 # VictoriaMetrics/Logs/Traces stack + OpenTelemetry Collector + Grafana via Helm.
@@ -347,8 +267,7 @@ local-minio:
 [group('cluster')]
 observability:
     @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform guard; fi
-    nagarectl cluster guard
-    cluster/observability/install.sh
+    scripts/run-reviewed-bootstrap.sh
 
 # EP-4 ships the sample app; this applies it as a smoke test. Apply the
 # Kubernetes manifests explicitly (the app contract is the typed

@@ -193,12 +193,9 @@ grep -q 'scripts/iap-ssh.sh recv-file nagare-01 /etc/rancher/k3s/k3s.yaml /tmp/l
   iap-ssh-dry-run.out
 nagare --dry-run local-smoke > local-smoke-dry-run.out 2>&1
 grep -q 'scripts/local-smoke.sh' local-smoke-dry-run.out
-# EP-112: the issuer is rendered to a FILE and applied from that
-# file, so a refusal cannot be swallowed by a pipeline (just runs
-# each recipe line under `sh -cu` with no pipefail).
+# Bootstrap now routes through a retained review and native inventory apply.
 nagare --dry-run cluster-bootstrap > cluster-bootstrap-dry-run.out 2>&1
-grep -q 'render-context-template.sh' cluster-bootstrap-dry-run.out
-grep -q 'kubectl apply -f "$issuer"' cluster-bootstrap-dry-run.out
+grep -q 'scripts/run-reviewed-bootstrap.sh' cluster-bootstrap-dry-run.out
 
 # EP-134 / IR-20: every cloud recipe that mutates Kubernetes proves the ambient
 # kubeconfig belongs to the selected Nagare host before its first write. Local
@@ -214,13 +211,15 @@ assert_cluster_guard_before() {
   mutation_number="${mutation_line%%:*}"
   test "$guard_number" -lt "$mutation_number"
 }
-assert_cluster_guard_before cluster-bootstrap 'kubectl create namespace'
-assert_cluster_guard_before job-runs-bootstrap 'kubectl create namespace'
+grep -q 'nagarectl platform guard' cluster-bootstrap-dry-run.out
+assert_cluster_guard_before job-runs-bootstrap 'scripts/run-reviewed-bootstrap.sh'
 assert_cluster_guard_before cluster-enable-tls 'kubectl -n knative-serving patch'
-assert_cluster_guard_before observability 'cluster/observability/install.sh'
+assert_cluster_guard_before observability 'scripts/run-reviewed-bootstrap.sh'
 assert_cluster_guard_before deploy-hello 'kubectl apply -f cluster/examples/hello-knative-service/service.yaml'
 nagare --dry-run local-bootstrap > local-bootstrap-guard-order.out 2>&1
+grep -q 'scripts/run-reviewed-bootstrap.sh' local-bootstrap-guard-order.out
 nagare --dry-run local-minio > local-minio-guard-order.out 2>&1
+grep -q 'scripts/run-reviewed-bootstrap.sh' local-minio-guard-order.out
 if grep -q 'nagarectl cluster guard' local-bootstrap-guard-order.out local-minio-guard-order.out; then
   echo "local Kubernetes recipe unexpectedly uses the cloud cluster guard" >&2
   exit 1

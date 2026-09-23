@@ -112,58 +112,15 @@ local_dry_run="$test_root/local-bootstrap"
 just --justfile "$repo_root/justfile" --dry-run cluster-bootstrap > "$cloud_dry_run" 2>&1
 just --justfile "$repo_root/justfile" --dry-run local-bootstrap > "$local_dry_run" 2>&1
 
-line_of() {
-  local transcript="$1"
-  local needle="$2"
-  awk -v needle="$needle" 'index($0, needle) { print NR; exit }' "$transcript"
-}
-
-assert_order() {
-  local transcript="$1"
-  shift
-  local previous=0
-  local needle line
-  for needle in "$@"; do
-    line="$(line_of "$transcript" "$needle")"
-    if [ -z "$line" ] || [ "$line" -le "$previous" ]; then
-      echo "FAIL: expected '$needle' after line $previous in $transcript" >&2
-      exit 1
-    fi
-    previous="$line"
-  done
-}
-
-assert_order "$cloud_dry_run" \
-  '/serving-core-v1.22.0.yaml' \
-  'rollout status deploy/webhook --timeout=5m' \
-  'retry-knative-configmap-patch.sh config-network'
-assert_order "$cloud_dry_run" \
-  '/net-certmanager-v1.14.0.yaml' \
-  'rollout status deploy/net-certmanager-webhook --timeout=5m' \
-  'retry-knative-configmap-patch.sh config-certmanager' \
-  'retry-knative-configmap-patch.sh config-deployment' \
-  'nagarectl platform stamp'
-assert_order "$local_dry_run" \
-  '/serving-core-v1.22.0.yaml' \
-  'rollout status deploy/webhook --timeout=5m' \
-  'retry-knative-configmap-patch.sh config-network' \
-  'retry-knative-configmap-patch.sh config-deployment' \
-  'nagarectl platform stamp'
-
 for transcript in "$cloud_dry_run" "$local_dry_run"; do
-  assert_order "$transcript" \
-    'rollout status deploy/cert-manager-webhook --timeout=5m' \
-    'bash scripts/wait-cert-manager-api.sh'
+  grep -Fxq 'scripts/run-reviewed-bootstrap.sh' "$transcript"
+  if grep -Eq 'kubectl (apply|patch)|nagarectl platform stamp' "$transcript"; then
+    echo 'FAIL: bootstrap bypasses reviewed inventory' >&2
+    exit 1
+  fi
 done
-assert_order "$local_dry_run" \
-  'bash scripts/wait-cert-manager-api.sh' \
-  'kubectl apply -f cluster/bootstrap/local-tls/clusterissuer.yaml'
+grep -Fq 'nagarectl platform bootstrap plan --out "$review_dir"' "$repo_root/scripts/run-reviewed-bootstrap.sh"
+grep -Fq 'nagarectl platform bootstrap apply "$review_dir" --yes' "$repo_root/scripts/run-reviewed-bootstrap.sh"
 
-[ "$(grep -Fc 'rollout status deploy/cert-manager-webhook --timeout=5m' "$cloud_dry_run")" -eq 1 ]
-[ "$(grep -Fc 'rollout status deploy/cert-manager-webhook --timeout=5m' "$local_dry_run")" -eq 1 ]
-[ "$(grep -Fc 'rollout status deploy/webhook --timeout=5m' "$cloud_dry_run")" -eq 1 ]
-[ "$(grep -Fc 'rollout status deploy/webhook --timeout=5m' "$local_dry_run")" -eq 1 ]
-[ "$(grep -Fc 'rollout status deploy/net-certmanager-webhook --timeout=5m' "$cloud_dry_run")" -eq 1 ]
-
-echo "ok: cloud and local bootstrap wait before dependent patches"
+echo "ok: cloud and local bootstrap use reviewed inventory"
 echo "knative bootstrap readiness tests: PASS"

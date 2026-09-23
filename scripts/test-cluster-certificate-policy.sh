@@ -28,38 +28,14 @@ just --justfile "$repo_root/justfile" --dry-run cluster-bootstrap >"$cloud_dry_r
 just --justfile "$repo_root/justfile" --dry-run local-bootstrap >"$local_dry_run" 2>&1
 
 for transcript in "$cloud_dry_run" "$local_dry_run"; do
-  grep -Fxq 'kubectl label namespace personal nagare.dev/app-namespace=true --overwrite' "$transcript"
-  if grep -Eq 'kubectl label namespace (cert-manager|knative-serving|kourier-system|nagare-system|monitoring)' "$transcript"; then
-    echo "FAIL: bootstrap opts a system namespace into public wildcard certificates" >&2
+  grep -Fxq 'scripts/run-reviewed-bootstrap.sh' "$transcript"
+  if grep -Eq 'kubectl (apply|patch|label)|nagarectl platform stamp' "$transcript"; then
+    echo "FAIL: bootstrap bypasses reviewed inventory" >&2
     exit 1
   fi
 done
-
-line_of() {
-  local transcript="$1"
-  local needle="$2"
-  awk -v needle="$needle" 'index($0, needle) { print NR; exit }' "$transcript"
-}
-
-assert_order() {
-  local transcript="$1"
-  shift
-  local previous=0
-  local needle line
-  for needle in "$@"; do
-    line="$(line_of "$transcript" "$needle")"
-    if [ -z "$line" ] || [ "$line" -le "$previous" ]; then
-      echo "FAIL: expected '$needle' after line $previous in $transcript" >&2
-      exit 1
-    fi
-    previous="$line"
-  done
-}
-
-assert_order "$cloud_dry_run" \
-  'retry-knative-configmap-patch.sh config-certmanager' \
-  'nagarectl cluster certificate-policy' \
-  'nagarectl platform stamp'
+grep -Fq '"nagare.dev/app-namespace" .= ("true" :: Text) | name == "personal"' \
+  "$repo_root/cli/nagarectl/src/Nagare/Inventory/Components/Foundation.hs"
 
 tls_dry_run="$(just --justfile "$repo_root/justfile" --dry-run cluster-enable-tls 2>&1)"
 case "$tls_dry_run" in
