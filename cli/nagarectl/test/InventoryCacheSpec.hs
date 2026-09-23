@@ -17,6 +17,7 @@ import Nagare.Inventory.Cache
 import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapCandidate, compilePinnedBootstrap)
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), compileFoundation, foundationNamespaceId)
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCache, compilePackagedCacheWithVerifiedImage)
+import Nagare.Inventory.Components.ControllerImage (compileControllerImage)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), mkOperationId)
 import Nagare.Inventory.KubernetesSources (validateSuppliedKubernetesMembers)
@@ -29,13 +30,28 @@ import Nagare.Resource.Types
 import Test.Tasty
 import Test.Tasty.HUnit
 import System.FilePath ((</>))
+import System.Environment (lookupEnv)
 import System.IO.Temp (withSystemTempDirectory)
 import System.Posix.Files (setFileMode)
 import System.Directory (copyFile, createDirectoryIfMissing, doesFileExist, listDirectory)
 
 inventoryCacheTests :: TestTree
 inventoryCacheTests = testGroup "cache inventory adapter"
-  [ testCase "packaged Attic image publication orders the complete cache scope" $
+  [ testCase "installed payload binds both released image archives" $ do
+      payload <- lookupEnv "NAGARE_TEST_RELEASE_PAYLOAD"
+      forM_ payload $ \root -> do
+        let foundation = FoundationInput (ok (mkScopeId Platform "foundation")) fixtureCluster
+              (root </> "cluster/bootstrap/job-runs/resourcequota.yaml") []
+        (imageScope, cacheScope, native) <- compilePackagedCache root foundation "project"
+          "registry.example/project/nagare" "backups" "nix-cache-bucket" >>= expectRight
+        assertBool "released cache scope has no native members" (Map.size native >= 15)
+        assertBool "released Attic image has no publication declaration"
+          (not (null (concatMap declarations (scopeBundles imageScope))))
+        assertBool "released cache scope has no declarations"
+          (not (null (concatMap declarations (scopeBundles cacheScope))))
+        _ <- compileControllerImage root "registry.example/project/nagare" >>= expectRight
+        pure ()
+  , testCase "packaged Attic image publication orders the complete cache scope" $
       withSystemTempDirectory "nagare-cache-payload" $ \root -> do
         let source = "../../cluster/bootstrap/nix-cache"
             destination = root </> "cluster/bootstrap/nix-cache"
