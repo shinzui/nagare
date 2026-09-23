@@ -55,6 +55,7 @@ while read -r release namespace chart values; do
       helm template "${release}" "${repo_root}/cluster/observability/vendor/${chart}" \
         --namespace "${namespace}" \
         -f "${repo_root}/cluster/observability/${values}" \
+        --skip-crds \
         --post-renderer nagare-capture-manifests > /dev/null
   done
   if ! cmp -s "${work}/${release}-1.yaml" "${work}/${release}-2.yaml"; then
