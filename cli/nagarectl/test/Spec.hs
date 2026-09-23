@@ -44,6 +44,7 @@ import InventoryFoundationSpec (inventoryFoundationTests)
 import InventoryUpstreamSpec (inventoryUpstreamTests)
 import InventoryAuthSpec (inventoryAuthTests)
 import InventoryObservabilitySpec (inventoryObservabilityTests)
+import InventoryObjectOpsSpec (inventoryObjectOpsTests)
 import InventoryCloudSpec (inventoryCloudTests)
 import InventoryHostSpec (inventoryHostTests)
 import InventoryKubernetesSpec (inventoryKubernetesTests)
@@ -343,6 +344,7 @@ import Nagare.Target
   , ContextName
   , Mode (..)
   , PulumiBackendKind (..)
+  , InventoryStoreKind (..)
   , PulumiEnv (..)
   , TargetProfile (..)
   , VmShape (..)
@@ -352,15 +354,18 @@ import Nagare.Target
   , contextFilePath
   , contextNameText
   , defaultGcsPulumiBackendUrl
+  , defaultGcsInventoryStoreUrl
   , defaultVmShape
   , deleteContext
   , effectivePulumiBackend
+  , effectiveInventoryStore
   , listContexts
   , mkContextName
   , parseAcmeDirectory
   , parseContextEnv
   , parseMode
   , parsePulumiBackendKind
+  , parseInventoryStoreKind
   , profileFromContextMap
   , pulumiEnvFor
   , readContextProfile
@@ -437,6 +442,7 @@ main = do
             , inventoryHostTests
             , inventoryKubernetesTests
             , inventoryStatusTests
+            , inventoryObjectOpsTests
             , inventoryTests
             , inventoryTransactionTests
             , platformTests
@@ -571,6 +577,8 @@ initProfile =
     , localObjectStore = ""
     , pulumiBackend = PulumiBackendLocal
     , pulumiBackendUrl = ""
+    , inventoryStore = InventoryStoreLocal
+    , inventoryStoreUrl = ""
     , acmeEmail = "ops@acme.example"
     , acmeDirectory = "production"
     , platformVersion = Just "0.1.0"
@@ -806,6 +814,15 @@ initTests =
             tp = profileFromContextMap ctx
         tp ^. #pulumiBackend @?= PulumiBackendGcs
         tp ^. #pulumiBackendUrl @?= "gs://acme-prod-nagare-pulumi-state/nagare/prod"
+    , testCase "inventory store selection is explicit and local mode downgrades GCS" $ do
+        parseInventoryStoreKind Nothing @?= InventoryStoreLocal
+        parseInventoryStoreKind (Just "gcs") @?= InventoryStoreGcs
+        let cloud = (initProfile :: TargetProfile) {inventoryStore = InventoryStoreGcs}
+            local = cloud {mode = Local}
+        effectiveInventoryStore cloud @?= InventoryStoreGcs
+        effectiveInventoryStore local @?= InventoryStoreLocal
+        defaultGcsInventoryStoreUrl "labs" cloud @?=
+          "gs://acme-prod-nagare-pulumi-state/nagare/labs/inventory"
     , -- EP-113: the launcher has no .envrc, so `nagarectl context env` must emit
       -- the whole contract, Pulumi selection included, safely quoted.
       testCase "renderContextShellEnv emits the local backend's per-context file URL" $ do
@@ -929,6 +946,8 @@ defaultInitOpts =
     , nixCacheBucket = Nothing
     , pulumiBackend = Nothing
     , pulumiBackendUrl = Nothing
+    , inventoryStore = Nothing
+    , inventoryStoreUrl = Nothing
     , pulumiBackendMember = Nothing
     , acmeEmail = Nothing
     , acmeDirectory = Nothing
@@ -1385,6 +1404,20 @@ pulumiBackendBootstrapTests =
               .~ "gs://custom-bucket/state/labs"
           )
           @?= Just "custom-bucket"
+    , testCase "inventory-only GCS context bootstraps its state bucket" $ do
+        calls <- newIORef ([] :: [[String]])
+        let record args = modifyIORef' calls (<> [args])
+            ops = GcloudOps
+              { capture = \args -> do
+                  record args
+                  pure (Just "12345")
+              , execute = \_ args -> record args >> pure (Right ())
+              }
+            profile = initProfile & #inventoryStore .~ InventoryStoreGcs
+        bootstrapPulumiStateBucketWith ops False "labs" profile Nothing >>= (@?= Right ())
+        observed <- readIORef calls
+        assertBool "inventory GCS bucket was checked" (any
+          (\args -> take 3 args == ["storage", "buckets", "describe"]) observed)
     , testCase "bucketCreateArgs sets location, uniform access, and public-access prevention" $
         bucketCreateArgs "acme-prod-nagare-pulumi-state" "acme-prod" "us-west1"
           @?= [ "storage"
@@ -1581,6 +1614,8 @@ tnbProfile =
     , localObjectStore = ""
     , pulumiBackend = PulumiBackendLocal
     , pulumiBackendUrl = ""
+    , inventoryStore = InventoryStoreLocal
+    , inventoryStoreUrl = ""
     , acmeEmail = ""
     , acmeDirectory = "production"
     , platformVersion = Nothing
@@ -1615,6 +1650,7 @@ targetProfileTests =
         registryPrefix tp0 @?= "us-west1-docker.pkg.dev/tan-nb-exp/nagare"
         tp0 ^. #targetPlatform @?= "linux/amd64" -- EP-3: default is the node's arch
         tp0 ^. #localObjectStore @?= "" -- EP-84: unset unless local profile sets it
+        tp0 ^. #inventoryStore @?= InventoryStoreLocal
         tp0 ^. #machineType @?= "e2-standard-2"
         tp0 ^. #bootDiskType @?= "pd-balanced"
         -- (2) project + region override; host derives from region, buckets from project.
@@ -1669,6 +1705,8 @@ targetProfileTests =
       , "NAGARE_DATA_DISK_SIZE_GB"
       , "NAGARE_TARGET_PLATFORM"
       , "NAGARE_LOCAL_OBJECT_STORE"
+      , "NAGARE_INVENTORY_STORE"
+      , "NAGARE_INVENTORY_STORE_URL"
       , "NAGARE_PLATFORM_VERSION"
       ]
 
@@ -1866,6 +1904,8 @@ contextResolutionTests =
       , "NAGARE_DATA_DISK_SIZE_GB"
       , "NAGARE_TARGET_PLATFORM"
       , "NAGARE_LOCAL_OBJECT_STORE"
+      , "NAGARE_INVENTORY_STORE"
+      , "NAGARE_INVENTORY_STORE_URL"
       ]
     contextName :: Text -> ContextName
     contextName = unsafe . mkContextName

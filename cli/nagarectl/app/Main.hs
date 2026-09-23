@@ -239,6 +239,7 @@ import Nagare.Init
   , writeTargetEnv
   )
 import Nagare.Inventory.Adapter qualified as InventoryAdapter
+import Nagare.Inventory.Digest qualified as InventoryDigest
 import Nagare.Inventory.Adapters.Artifact (mkArtifactAdapter)
 import Nagare.Inventory.Adapters.ArtifactRuntime
 import Nagare.Inventory.Adapters.Cache (cacheSpecsFromDeclarations, mkCacheAdapter)
@@ -416,6 +417,7 @@ import Nagare.Target
   , ContextName
   , Mode (..)
   , PulumiBackendKind (..)
+  , InventoryStoreKind (..)
   , PulumiEnv (..)
   , TargetProfile (..)
   , VmShape (..)
@@ -425,15 +427,19 @@ import Nagare.Target
   , contextExists
   , contextFilePath
   , contextNameText
+  , defaultGcsInventoryStoreUrl
   , contextsDir
   , deleteContext
   , effectivePulumiBackend
+  , effectiveInventoryStore
+  , inventoryStoreToken
   , listContexts
   , mergeContextOverrides
   , mkContextName
   , nagareStateDir
   , parseAcmeDirectory
   , parsePulumiBackendKind
+  , parseInventoryStoreKind
   , profileFromContextMap
   , pulumiBackendToken
   , pulumiEnvFor
@@ -451,6 +457,7 @@ import Nagare.Target
   , validateVmShape
   , vmShapeOf
   , writeContextPlatformVersion
+  , writeContextInventoryStore
   )
 import Nagare.Task.Delete (TaskDeleteParams (..), runTaskDelete)
 import Nagare.Task.Discover (AppScope (..))
@@ -661,10 +668,12 @@ data Command
   | InventoryCompile FilePath FilePath Bool
   | InventoryPlan FilePath FilePath
   | InventoryApply FilePath Bool
-  | InventoryResume String Bool
+  | InventoryResume String Bool Bool
   | InventoryExport FilePath
   | InventoryStatus Bool
   | InventoryExplain String Bool
+  | InventoryStoreStatus Bool
+  | InventoryStoreMigrate String Bool Bool
   | PlatformRoot Bool
   | PlatformStatusCmd Bool
   | PlatformGuard
@@ -820,6 +829,8 @@ data ContextCreateOpts = ContextCreateOpts
   , localObjectStore :: !(Maybe String)
   , pulumiBackend :: !(Maybe String)
   , pulumiBackendUrl :: !(Maybe String)
+  , inventoryStore :: !(Maybe String)
+  , inventoryStoreUrl :: !(Maybe String)
   , pulumiBackendMember :: !(Maybe String)
   , acmeEmail :: !(Maybe String)
   , acmeDirectory :: !(Maybe String)
@@ -1131,6 +1142,8 @@ initOptsParser =
     <*> optional (strOption (long "nix-cache-bucket" <> metavar "BUCKET" <> help "Attic GCS bucket (default <project>-nagare-nix-cache)"))
     <*> optional (strOption (long "pulumi-backend" <> metavar "BACKEND" <> help "local | gcs Pulumi state backend (default local; gcs is cloud-only)"))
     <*> optional (strOption (long "pulumi-backend-url" <> metavar "GS_URL" <> help "Explicit gs://bucket/path backend URL (default gs://<project>-nagare-pulumi-state/nagare/<context>)"))
+    <*> optional (strOption (long "inventory-store" <> metavar "STORE" <> help "local | gcs resource inventory history store (default local)"))
+    <*> optional (strOption (long "inventory-store-url" <> metavar "GS_URL" <> help "Explicit gs://bucket/prefix inventory history URL"))
     <*> optional (strOption (long "pulumi-backend-member" <> metavar "PRINCIPAL" <> help "Grant this principal objectAdmin on the state bucket during bootstrap (not persisted)"))
     <*> optional (strOption (long "acme-email" <> metavar "ADDRESS" <> help "Let's Encrypt contact address for this context (REQUIRED; prompted if absent on a TTY)"))
     <*> optional (strOption (long "acme-directory" <> metavar "ENDPOINT" <> help "production | staging | https:// ACME directory URL (default production)"))
@@ -1167,6 +1180,8 @@ contextCreateOptsParser =
     <*> optional (strOption (long "local-object-store" <> metavar "URL" <> help "Local S3 endpoint/bucket (local mode only)"))
     <*> optional (strOption (long "pulumi-backend" <> metavar "BACKEND" <> help "local | gcs Pulumi state backend (default local; gcs is cloud-only)"))
     <*> optional (strOption (long "pulumi-backend-url" <> metavar "GS_URL" <> help "Explicit gs://bucket/path backend URL (default gs://<project>-nagare-pulumi-state/nagare/<context>)"))
+    <*> optional (strOption (long "inventory-store" <> metavar "STORE" <> help "local | gcs resource inventory history store (default local)"))
+    <*> optional (strOption (long "inventory-store-url" <> metavar "GS_URL" <> help "Explicit gs://bucket/prefix inventory history URL"))
     <*> optional (strOption (long "pulumi-backend-member" <> metavar "PRINCIPAL" <> help "Grant this principal objectAdmin on the state bucket during --use bootstrap (not persisted)"))
     <*> optional (strOption (long "acme-email" <> metavar "ADDRESS" <> help "Let's Encrypt contact address (no default; required to render the cluster issuer)"))
     <*> optional (strOption (long "acme-directory" <> metavar "ENDPOINT" <> help "production | staging | https:// ACME directory URL (default production)"))
@@ -1844,7 +1859,8 @@ opts =
                   (info (InventoryApply <$> strArgument (metavar "REVIEW_DIRECTORY") <*> switch (long "yes") <**> helper) (progDesc "Apply an issued inventory review"))
                 <> command
                   "resume"
-                  (info (InventoryResume <$> strArgument (metavar "TRANSACTION") <*> switch (long "yes") <**> helper) (progDesc "Resume an unresolved inventory transaction"))
+                  (info (InventoryResume <$> strArgument (metavar "TRANSACTION") <*> switch (long "yes")
+                    <*> switch (long "take-over") <**> helper) (progDesc "Resume an unresolved inventory transaction"))
                 <> command
                   "export"
                   (info (InventoryExport <$> strOption (long "out" <> metavar "DIRECTORY") <**> helper) (progDesc "Export the complete private inventory store under lock"))
@@ -1854,6 +1870,14 @@ opts =
                 <> command
                   "explain"
                   (info (InventoryExplain <$> strArgument (metavar "RESOURCE_ID") <*> switch (long "json") <**> helper) (progDesc "Explain one accepted resource and its current observation"))
+                <> command "store" (info (subparser
+                  (command "status" (info (InventoryStoreStatus <$> switch (long "json") <**> helper)
+                    (progDesc "Read the selected inventory history store and executor claim"))
+                  <> command "migrate" (info
+                    (InventoryStoreMigrate <$> strOption (long "to" <> metavar "gcs|local")
+                      <*> switch (long "dry-run") <*> switch (long "yes") <**> helper)
+                    (progDesc "Copy inventory history and tombstone the source store"))) <**> helper)
+                  (progDesc "Inspect the selected inventory history store"))
             )
             <**> helper
         )
@@ -2716,10 +2740,12 @@ main = do
     InventoryCompile input output json -> Inventory.compileInventory input output json
     InventoryPlan input output -> runInventoryPlan mctx input output
     InventoryApply directory yes -> runInventoryApply mctx directory yes
-    InventoryResume transaction yes -> runInventoryResume mctx (T.pack transaction) yes
+    InventoryResume transaction yes takeOver -> runInventoryResume mctx (T.pack transaction) yes takeOver
     InventoryExport output -> activeTarget mctx >>= \target -> Inventory.exportInventory target output
     InventoryStatus json -> runInventoryStatus mctx Nothing json
     InventoryExplain resource json -> runInventoryStatus mctx (Just resource) json
+    InventoryStoreStatus json -> runInventoryStoreStatus mctx json
+    InventoryStoreMigrate destination dryRun yes -> runInventoryStoreMigrate mctx destination dryRun yes
 
 runVersion :: VersionOpts -> IO ()
 runVersion options = do
@@ -4421,6 +4447,59 @@ runInventoryStatus mctx requested json = do
       if json then LBC.putStrLn (Aeson.encode explanation)
         else TIO.putStrLn (T.pack (show finding))
 
+runInventoryStoreStatus :: Maybe String -> Bool -> IO ()
+runInventoryStoreStatus mctx json = do
+  active <- activeTarget mctx
+  store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+  headValue <- InventoryStore.readHead store >>= either (dieT . T.pack . show) pure
+    >>= maybe (dieT "inventory history is not initialized") pure
+  rawHead <- InventoryStore.readObject store "head.json" >>= either (dieT . T.pack . show) pure
+    >>= maybe (dieT "inventory history head disappeared") pure
+  verified <- InventoryStore.readHead store >>= either (dieT . T.pack . show) pure
+  unless (verified == Just headValue) (dieT "inventory history changed during status")
+  let profile = active ^. #profile
+      kind = effectiveInventoryStore profile
+      context = contextNameText (active ^. #contextName)
+      url = case kind of
+        InventoryStoreLocal -> "local"
+        InventoryStoreGcs -> if T.null (profile ^. #inventoryStoreUrl)
+          then defaultGcsInventoryStoreUrl context profile
+          else profile ^. #inventoryStoreUrl
+      report = Aeson.object
+        [ "kind" Aeson..= inventoryStoreToken kind
+        , "url" Aeson..= url
+        , "binding" Aeson..= InventoryStore.headBinding headValue
+        , "headDigest" Aeson..= InventoryDigest.contentDigest rawHead
+        , "generation" Aeson..= InventoryStore.headGeneration headValue
+        , "activeTransaction" Aeson..= InventoryStore.headActiveTransaction headValue
+        , "executorClaim" Aeson..= InventoryStore.headExecutorClaim headValue
+        , "migration" Aeson..= InventoryStore.headMigration headValue
+        ]
+  if json then LBC.putStrLn (Aeson.encode report)
+    else TIO.putStrLn ("Inventory store " <> inventoryStoreToken kind <> " at " <> url
+      <> ", generation " <> T.pack (show (InventoryStore.headGeneration headValue)))
+
+runInventoryStoreMigrate :: Maybe String -> String -> Bool -> Bool -> IO ()
+runInventoryStoreMigrate mctx destination dryRun yes = do
+  kind <- case destination of
+    "gcs" -> pure InventoryStoreGcs
+    "local" -> pure InventoryStoreLocal
+    _ -> dieT "--to must be gcs or local"
+  unless (dryRun || yes) (dieT "inventory store migration requires --yes or --dry-run")
+  active <- activeTarget mctx
+  when (kind == InventoryStoreGcs && effectiveInventoryStore (active ^. #profile) == InventoryStoreLocal
+    && active ^. #profile . #mode == Local)
+    (dieT "local-mode contexts cannot use a GCS inventory store")
+  label <- Inventory.migrateTargetStore active kind dryRun >>= either (dieT . T.pack . show) pure
+  if dryRun
+    then TIO.putStrLn ("Inventory migration is ready for " <> label)
+    else do
+      let url = case kind of
+            InventoryStoreLocal -> ""
+            InventoryStoreGcs -> label
+      writeContextInventoryStore (active ^. #contextName) kind url >>= either dieT pure
+      TIO.putStrLn ("Inventory history migrated to " <> label <> "; reload the context shell")
+
 runInventoryPlan :: Maybe String -> FilePath -> FilePath -> IO ()
 runInventoryPlan mctx candidateDirectory output = do
   target <- activeTarget mctx
@@ -4451,10 +4530,10 @@ runInventoryApply mctx reviewDirectory yes = do
   target <- activeTarget mctx
   Inventory.applyInventoryWithFactory (inventoryExecutionRegistry mctx) target reviewDirectory yes
 
-runInventoryResume :: Maybe String -> Text -> Bool -> IO ()
-runInventoryResume mctx transaction yes = do
+runInventoryResume :: Maybe String -> Text -> Bool -> Bool -> IO ()
+runInventoryResume mctx transaction yes takeOver = do
   target <- activeTarget mctx
-  Inventory.resumeInventoryWithFactory (inventoryExecutionRegistry mctx) target transaction yes
+  Inventory.resumeInventoryWithFactoryTakeover (inventoryExecutionRegistry mctx) target transaction yes takeOver
 
 inventoryExecutionRegistry :: Maybe String -> InventoryPlan.ReviewBundle -> IO InventoryAdapter.AdapterRegistry
 inventoryExecutionRegistry mctx bundle = do
@@ -5173,6 +5252,10 @@ runLegacyInit mctx o = do
           .~ parsePulumiBackendKind (o ^. #pulumiBackend)
           & #pulumiBackendUrl
           .~ maybe "" T.pack (o ^. #pulumiBackendUrl)
+          & #inventoryStore
+          .~ parseInventoryStoreKind (o ^. #inventoryStore)
+          & #inventoryStoreUrl
+          .~ maybe "" T.pack (o ^. #inventoryStoreUrl)
           & #nixCacheEnabled
           .~ maybe (defs ^. #nixCacheEnabled) (== "1") (o ^. #nixCacheEnabled)
           & #nixCacheBucket
@@ -5289,6 +5372,8 @@ exportProfileEnv name tp = mapM_ (uncurry setOrUnset) fields
       , ("NAGARE_LOCAL_OBJECT_STORE", tp ^. #localObjectStore)
       , ("NAGARE_PULUMI_BACKEND", pulumiBackendToken (effectivePulumiBackend tp))
       , ("NAGARE_PULUMI_BACKEND_URL", tp ^. #pulumiBackendUrl)
+      , ("NAGARE_INVENTORY_STORE", inventoryStoreToken (effectiveInventoryStore tp))
+      , ("NAGARE_INVENTORY_STORE_URL", tp ^. #inventoryStoreUrl)
       , ("NAGARE_REGISTRY_PREFIX", registryPrefix tp)
       , ("NAGARE_PULUMI_STACK", context)
       ]
@@ -5634,6 +5719,8 @@ contextEnvPairs o =
     , pair "NAGARE_LOCAL_OBJECT_STORE" (o ^. #localObjectStore)
     , pair "NAGARE_PULUMI_BACKEND" (o ^. #pulumiBackend)
     , pair "NAGARE_PULUMI_BACKEND_URL" (o ^. #pulumiBackendUrl)
+    , pair "NAGARE_INVENTORY_STORE" (o ^. #inventoryStore)
+    , pair "NAGARE_INVENTORY_STORE_URL" (o ^. #inventoryStoreUrl)
     , pair "NAGARE_ACME_EMAIL" (o ^. #acmeEmail)
     , pair "NAGARE_ACME_DIRECTORY" (o ^. #acmeDirectory)
     ]

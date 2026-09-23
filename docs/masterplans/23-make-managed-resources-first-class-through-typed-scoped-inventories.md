@@ -51,6 +51,11 @@ provenance:
       at: 2026-09-23T17:24:05Z
       mode: "implement"
       note: "Start lifecycle policy child after cluster ownership proofs"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-23T17:51:23Z
+      mode: "implement"
+      note: "Record current model contribution to accepted inventory status and shared store progress"
 ---
 
 # Make managed resources first-class through typed scoped inventories
@@ -95,7 +100,7 @@ Rejected alternatives were isolated platform/application inventories without sha
 | 148 | Route application and data lifecycles through independent resource scopes | docs/plans/148-route-application-and-data-lifecycles-through-independent-resource-scopes.md | EP-146, EP-147, EP-149 | EP-151 | Not Started |
 | 149 | Explain drift and execute reviewed adoption migration and retirement | docs/plans/149-explain-drift-and-execute-reviewed-adoption-migration-and-retirement.md | EP-144, EP-145 | EP-146, EP-147 | In Progress |
 | 150 | Integrate resource inventories into upgrades and release verification | docs/plans/150-integrate-resource-inventories-into-upgrades-and-release-verification.md | EP-146, EP-147, EP-148, EP-149, EP-151 | None | Not Started |
-| 151 | Store inventory history in the context state bucket with conditional writes | docs/plans/151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes.md | EP-145 | EP-146 | Not Started |
+| 151 | Store inventory history in the context state bucket with conditional writes | docs/plans/151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes.md | EP-145 | EP-146 | In Progress |
 
 Hard dependencies must be Complete before starting the dependent child; soft dependencies supply additional real-adapter coverage but allow independent fixture-backed work. Registry status values are Not Started, In Progress, Complete, or Cancelled.
 
@@ -202,6 +207,8 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-22) EP-147 M2/M4 partial: Planning now refuses a new review over an unresolved transaction, retains unchanged migration proof after Job TTL expiry, repairs confirmed missing accepted stateless resources, and refuses automatic recreation of missing durable data. Kubernetes and Helm observations report drift and foreign ownership. Complete bootstrap replay schedules read-only native checks of accepted cluster resources and gates the unchanged marker on them; 688 CLI tests pass. Database-specific ambiguous migration recovery, native full-bootstrap apply, and legacy entry-point retirement remain open.
 - [x] (2026-09-23) EP-147 M3/M4 disposable proof: The full local bootstrap converged in an isolated k3d context from a 17-scope, 208-operation immutable review, using the installed 0.4.0 payload archives and the selected local auth images. A subsequent 205-operation accepted-state review scheduled zero resource updates and converged with 204 read-only checks plus idempotent controller-image publication. Certificate/issuer, webhook, Shomei key, and status-only HPA replay failures exposed by this run are corrected with focused regressions.
 - [x] (2026-09-23) EP-149 M1 partial: Read-only inventory status reconstructs accepted native evidence and observes all six registered executors. The disposable 17-scope bootstrap reports all 205 accepted resources converged, zero unavailable providers, and no active transaction; an absent store is never initialized by status. Historical retention and separate health remain open.
+- [x] (2026-09-23) EP-151 M1/M2 partial: Generation-conditional GCS object operations and a context-bound object-store backend pass the existing store condition fixture over a shared fake, including stale cross-client head refusal and unreadable-list refusal. The `labs` probe dry run is prepared; live GCS semantics and full transaction conformance remain open.
+- [x] (2026-09-23) EP-151 M2/M3/M4 partial: Context fields and guarded GCS opening, a per-state-root client identity and local process lock, explicit takeover with a pre-effect claim check, and two-way verified migration with source tombstones pass the focused object-store fixtures. Status, the bounded live probe, a gated real-bucket test, and a two-state-root rehearsal have dry-run or fixture coverage; the live cloud steps await the plan's operator go-ahead.
 - [ ] EP-147 M2c: Complete cache/database composition and inventory execution.
 - [ ] EP-147 M3: Remaining bootstrap, contributions, and delegation.
 - [ ] EP-147 M4: Removed orchestration and component resume.

@@ -52,6 +52,7 @@ import Nagare.Platform.Paths (PlatformRootSource (..))
 import Nagare.Target
   ( ContextName
   , Mode (..)
+  , InventoryStoreKind (..)
   , PulumiBackendKind (..)
   , TargetProfile (..)
   , VmShape (..)
@@ -59,6 +60,8 @@ import Nagare.Target
   , contextNameText
   , defaultGcsPulumiBackendUrl
   , effectivePulumiBackend
+  , inventoryStoreToken
+  , parseInventoryStoreKind
   , mergeContextOverrides
   , pulumiBackendToken
   , readContextMap
@@ -88,6 +91,8 @@ data InitOpts = InitOpts
   , nixCacheBucket :: !(Maybe String)
   , pulumiBackend :: !(Maybe String)
   , pulumiBackendUrl :: !(Maybe String)
+  , inventoryStore :: !(Maybe String)
+  , inventoryStoreUrl :: !(Maybe String)
   , pulumiBackendMember :: !(Maybe String)
   , acmeEmail :: !(Maybe String)
   , acmeDirectory :: !(Maybe String)
@@ -119,6 +124,8 @@ initFlagPairs o =
     , pair "NAGARE_NIX_CACHE_BUCKET" (o ^. #nixCacheBucket)
     , pair "NAGARE_PULUMI_BACKEND" (o ^. #pulumiBackend)
     , pair "NAGARE_PULUMI_BACKEND_URL" (o ^. #pulumiBackendUrl)
+    , pair "NAGARE_INVENTORY_STORE" (o ^. #inventoryStore)
+    , pair "NAGARE_INVENTORY_STORE_URL" (o ^. #inventoryStoreUrl)
     , pair "NAGARE_ACME_EMAIL" (o ^. #acmeEmail)
     , pair "NAGARE_ACME_DIRECTORY" (o ^. #acmeDirectory)
     ]
@@ -228,7 +235,8 @@ requiredInitTools o backend =
     needsGcloud =
       not (o ^. #skipPreflight)
         || not (o ^. #skipEnable)
-        || (not (o ^. #skipSeed) && backend == PulumiBackendGcs)
+        || (not (o ^. #skipSeed) && (backend == PulumiBackendGcs
+            || parseInventoryStoreKind (o ^. #inventoryStore) == InventoryStoreGcs))
 
 -- | Return the requested executable names that cannot be resolved on PATH.
 findMissingTools :: [String] -> IO [String]
@@ -322,6 +330,8 @@ renderTargetEnv tp =
     , "export NAGARE_LOCAL_OBJECT_STORE=" <> tp ^. #localObjectStore
     , "export NAGARE_PULUMI_BACKEND=" <> pulumiBackendToken (tp ^. #pulumiBackend)
     , "export NAGARE_PULUMI_BACKEND_URL=" <> tp ^. #pulumiBackendUrl
+    , "export NAGARE_INVENTORY_STORE=" <> inventoryStoreToken (tp ^. #inventoryStore)
+    , "export NAGARE_INVENTORY_STORE_URL=" <> tp ^. #inventoryStoreUrl
     ]
       <> maybe [] (\version -> ["export NAGARE_PLATFORM_VERSION=" <> version]) (tp ^. #platformVersion)
   where

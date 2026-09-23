@@ -96,8 +96,8 @@ that will outlive the plans.
    command that takes the lock.
 6. **The store's correctness rests on conditional writes only.** Publish-if-absent,
    append-at-sequence, and replace-head-if-generation-matches are sufficient, and the transaction
-   tests run against a store that has nothing else. The filesystem remains the only implementation,
-   and no distributed exclusion is claimed, but a shared store needs no protocol change.
+   tests run against a store that has nothing else. The initial implementation was filesystem-only;
+   the later object store uses the same contract and adds generation-conditional writes.
 
 No type with a hidden constructor derives `Generic`, identity newtypes included: `GHC.Generics.to`
 rebuilds such a value without naming its constructor. This is the narrow exception to
@@ -115,6 +115,17 @@ narrow: one writer, refusal of a second machine through the head's conditional r
 explicit operator takeover instead of a lease, and the filesystem store retained for local mode and
 for a new context's first transaction. It does not detect whether another executor is alive.
 ExecPlan 151 amends ADR 13 when the store exists.
+
+## Amendment — 2026-09-23: shared-store implementation
+
+The conditional-write contract supported a GCS object implementation without
+changing the review or journal protocol. Each context prefix has a binding
+object, immutable members, and a generation-guarded head. A local process
+lock serializes writers on one workstation; a persistent client identity and
+executor claim prevent another workstation from resuming silently. Takeover
+is explicit and advances the claim epoch. A source head tombstone closes the
+old write path before the context selection changes. This prevents two
+histories from accepting new ownership changes during migration.
 
 ## Amendment — 2026-09-22: the read-only foundation
 

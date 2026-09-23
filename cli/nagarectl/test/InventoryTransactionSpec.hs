@@ -1,4 +1,4 @@
-module InventoryTransactionSpec (inventoryTransactionTests, runInventoryLockHoldProbe, runInventoryLockProbe) where
+module InventoryTransactionSpec (inventoryTransactionTests, exerciseStore, fixtureBinding, preparedFixtureWith, recordingRegistryWith, runInventoryLockHoldProbe, runInventoryLockProbe) where
 
 import Control.Concurrent (threadDelay)
 import Control.Monad (forM_)
@@ -676,7 +676,7 @@ inventoryTransactionTests =
           restored <- newMemoryStore
           readHead restored >>= (@?= Right Nothing)
           _ <- restoreStore restored backup >>= expectRight
-          readHead restored >>= expectRight >>= (@?= Just (HeadManifest 1 0 0 fixtureBinding "client-test" Map.empty Map.empty Nothing Nothing))
+          readHead restored >>= expectRight >>= (@?= Just (HeadManifest 1 0 0 fixtureBinding "client-test" Map.empty Map.empty Nothing Nothing Nothing))
           removeFile (backup </> "head.json")
           incomplete <- newMemoryStore
           refused <- restoreStore incomplete backup

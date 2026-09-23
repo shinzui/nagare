@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-09-23
+* **Update**: Document the opt-in shared inventory history store, conditional migration, explicit takeover, backup coverage, and bucket-reader access to private native reviews.
+
 ## 2026-09-15
 * **Update**: Document the optional context-owned Attic provider, signed producer-to-Job flow, trust and secret boundaries, operations, rotation, recovery, and protected retirement.
 * **Update**: Separate GCE instance, generated NixOS attribute, and logical Tailscale SSH identities in direct host switches and staged platform upgrades.

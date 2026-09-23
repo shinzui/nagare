@@ -24,7 +24,7 @@ import Nagare.Cluster.Kubeconfig
 import Nagare.Dsl.Prelude
 import Nagare.Host.AgeKey
 import Nagare.Host.Config
-import Nagare.Target (ContextName, Mode (..), PulumiBackendKind (..), TargetProfile (..), contextNameText, mkContextName)
+import Nagare.Target (ContextName, InventoryStoreKind (..), Mode (..), PulumiBackendKind (..), TargetProfile (..), contextNameText, mkContextName)
 import Nagare.Version (BuildVersion (..))
 import System.Directory
   ( Permissions (executable, readable)
@@ -444,6 +444,8 @@ fixtureProfile =
     , localObjectStore = ""
     , pulumiBackend = PulumiBackendLocal
     , pulumiBackendUrl = ""
+    , inventoryStore = InventoryStoreLocal
+    , inventoryStoreUrl = ""
     , acmeEmail = "ops@example.com"
     , acmeDirectory = "production"
     , platformVersion = Just "0.2.2"

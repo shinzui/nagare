@@ -42,6 +42,7 @@ _NAGARE_CONTEXT_VARS=(
   NAGARE_BUILDER_PROJECT NAGARE_BUILDER_ZONE NAGARE_BUILDER_INSTANCE
   NAGARE_MODE NAGARE_LOCAL_OBJECT_STORE
   NAGARE_PULUMI_BACKEND NAGARE_PULUMI_BACKEND_URL
+  NAGARE_INVENTORY_STORE NAGARE_INVENTORY_STORE_URL
   NAGARE_PLATFORM_VERSION
   NAGARE_ACME_EMAIL NAGARE_ACME_DIRECTORY
 )
@@ -285,12 +286,21 @@ _nagare_resolve_context() {
   # and warn, mirroring the Haskell resolver's effectivePulumiBackend.
   export NAGARE_PULUMI_BACKEND="${NAGARE_PULUMI_BACKEND:-local}"
   export NAGARE_PULUMI_BACKEND_URL="${NAGARE_PULUMI_BACKEND_URL:-}"
+  export NAGARE_INVENTORY_STORE="${NAGARE_INVENTORY_STORE:-local}"
+  export NAGARE_INVENTORY_STORE_URL="${NAGARE_INVENTORY_STORE_URL:-}"
   # Empty means a legacy source-managed context. Never infer the running CLI's
   # version here because doing so would hide release skew.
   export NAGARE_PLATFORM_VERSION="${NAGARE_PLATFORM_VERSION:-}"
   if [ "${NAGARE_MODE}" = "local" ] && [ "${NAGARE_PULUMI_BACKEND}" = "gcs" ]; then
     echo "nagare: local context '${name}' cannot use NAGARE_PULUMI_BACKEND=gcs; using local file state." >&2
     export NAGARE_PULUMI_BACKEND="local"
+  fi
+  if [ "${NAGARE_MODE}" = "local" ] && [ "${NAGARE_INVENTORY_STORE}" = "gcs" ]; then
+    echo "nagare: local context '${name}' cannot use NAGARE_INVENTORY_STORE=gcs; using local inventory history." >&2
+    export NAGARE_INVENTORY_STORE="local"
+  fi
+  if [ "${NAGARE_INVENTORY_STORE}" = "gcs" ] && [ -z "${NAGARE_INVENTORY_STORE_URL}" ]; then
+    export NAGARE_INVENTORY_STORE_URL="gs://${CLOUDSDK_CORE_PROJECT}-nagare-pulumi-state/nagare/${NAGARE_CONTEXT:-default}/inventory"
   fi
 
   if [ "${NAGARE_MODE}" = "local" ]; then

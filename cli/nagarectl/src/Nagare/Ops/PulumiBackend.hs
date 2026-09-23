@@ -41,18 +41,23 @@ module Nagare.Ops.PulumiBackend
 where
 
 import Cradle (addArgs, cmd, run)
+import Control.Monad (foldM)
 import Data.Function ((&))
 import Data.Generics.Labels ()
 import Data.Maybe (isJust)
+import Data.List (nub)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Nagare.Dsl.Prelude
 import Nagare.Target
   ( PulumiBackendKind (..)
+  , InventoryStoreKind (..)
   , TargetProfile (..)
   , defaultGcsPulumiBackendUrl
+  , defaultGcsInventoryStoreUrl
   , effectivePulumiBackend
+  , effectiveInventoryStore
   )
 import System.Exit (ExitCode (..))
 import System.Process (readProcessWithExitCode)
@@ -207,20 +212,25 @@ realGcloudOps = GcloudOps {capture = captureGcloud, execute = runGcloud}
 
 -- | 'bootstrapPulumiStateBucket' with the @gcloud@ effects supplied by the caller.
 bootstrapPulumiStateBucketWith :: GcloudOps -> Bool -> Text -> TargetProfile -> Maybe Text -> IO (Either Text ())
-bootstrapPulumiStateBucketWith ops dryRun ctx tp mMember =
-  case effectivePulumiBackend tp of
-    PulumiBackendLocal -> pure (Right ())
-    PulumiBackendGcs -> case pulumiStateBucket ctx tp of
-      Nothing ->
-        pure (Left ("cannot derive a GCS bucket from backend URL " <> pulumiStateBackendUrl ctx tp))
-      Just bucket
-        | dryRun -> do
-            TIO.putStrLn ("  # ensure the Pulumi state bucket gs://" <> bucket <> " exists (idempotent):")
-            mapM_
-              (\a -> TIO.putStrLn ("  gcloud " <> T.pack (unwords a)))
-              (bootstrapCommands bucket (tp ^. #project) (tp ^. #region) mMember)
-            pure (Right ())
-        | otherwise -> runBootstrap ops bucket (tp ^. #project) (tp ^. #region) mMember
+bootstrapPulumiStateBucketWith ops dryRun ctx tp mMember = case traverse bucketFor urls of
+  Left err -> pure (Left err)
+  Right buckets -> foldM ensure (Right ()) (nub buckets)
+  where
+    urls =
+      [pulumiStateBackendUrl ctx tp | effectivePulumiBackend tp == PulumiBackendGcs]
+        <> [inventoryUrl | effectiveInventoryStore tp == InventoryStoreGcs]
+    inventoryUrl = if T.null (tp ^. #inventoryStoreUrl)
+      then defaultGcsInventoryStoreUrl ctx tp
+      else tp ^. #inventoryStoreUrl
+    bucketFor url = maybe (Left ("cannot derive a GCS bucket from backend URL " <> url)) Right (gcsBucketOfUrl url)
+    ensure (Left err) _ = pure (Left err)
+    ensure (Right ()) bucket
+      | dryRun = do
+          TIO.putStrLn ("  # ensure the context state bucket gs://" <> bucket <> " exists (idempotent):")
+          mapM_ (\args -> TIO.putStrLn ("  gcloud " <> T.pack (unwords args)))
+            (bootstrapCommands bucket (tp ^. #project) (tp ^. #region) mMember)
+          pure (Right ())
+      | otherwise = runBootstrap ops bucket (tp ^. #project) (tp ^. #region) mMember
 
 -- | The bootstrap sequence. The ownership assertion sits between the
 -- create-if-missing step and the update, exactly where its Bash twin

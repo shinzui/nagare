@@ -11,6 +11,12 @@ provenance:
     model: "claude-fable-5-1"
     harness: "claude-code"
     at: 2026-09-17T04:11:08Z
+  revisions:
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-23T17:51:14Z
+      mode: "implement"
+      note: "Begin conditional GCS object transport and shared store backend"
 ---
 
 # Store inventory history in the context state bucket with conditional writes
@@ -31,17 +37,21 @@ This is the eighth child of [MasterPlan 23](../masterplans/23-make-managed-resou
 
 ## Progress
 
-- [ ] M1 (prototype): write the pure `gcloud storage` argument builders and the read-back classifier with a recording fake.
+- [x] (2026-09-23) M1/M2 partial: Added generation-guarded `gcloud storage` argv builders, a read-back classifier that distinguishes landed, conflicting, retryable, and unknown writes, and a GCS transport that confirms absence only after a successful listing. An object-backed InventoryStore passes the existing conditional-store fixture over a shared fake; tests also refuse stale two-client head replacement, unknown listing, and a foreign context format binding. A poisoned immutable cache is refetched. The bounded probe's dry run passes for the `labs` context. Live provider semantics and full fault-injection conformance remain open.
+- [x] (2026-09-23) M2/M3 partial: Added a persistent per-state-root client identity, a local process file lock for the object store, explicit resume takeover with an incremented claim epoch, and a claim recheck immediately before each effect. Context selection now carries the GCS URL and local downgrade; guarded opens verify the persisted project and bucket owner. A migration copies members and head, verifies the destination, conditionally tombstones the source, then rewrites the context through its symlink. The fake migration reruns after interruption and refuses old-source writes; 28 focused tests pass. Further interruption and superseded-executor tests, live provider proof, and full-suite verification remain.
+- [x] (2026-09-23) M4 partial: Documented inventory selection, migration, takeover, backup boundaries, and bucket-reader access in operator guides and amendments to ADR 13 and ADR 22. The live two-state-root rehearsal remains open.
+- [x] (2026-09-23) M4 partial: Added a test group gated by both real-bucket environment variables and a thin two-state-root rehearsal script. The rehearsal dry run passes for `labs`; real execution remains pending the operator's separate go-ahead.
+- [x] (2026-09-23) M1 (prototype): write the pure `gcloud storage` argument builders and the read-back classifier with a recording fake.
 - [ ] M1 (prototype): with the operator's go-ahead, run the live probe against a disposable prefix and record semantics, messages, and timings in Surprises & Discoveries.
 - [ ] M1 (prototype): decide the transport by the stated criteria and record the decision.
-- [ ] M2: implement the in-memory `ObjectOps` fake with generations and fault injection.
-- [ ] M2: implement `Nagare.Inventory.Store.Object` over `ObjectOps`, with the verified local blob cache.
+- [x] (2026-09-23) M2 partial: implement the in-memory `ObjectOps` fake with generations; fault injection remains.
+- [x] (2026-09-23) M2: implement the object-backed `InventoryStore` over `ObjectOps`, with the verified local blob cache.
 - [ ] M2: run EP-145's transaction suite against it; add the two-client, takeover, superseded-executor, and ambiguous-write tests.
-- [ ] M3: add the `NAGARE_INVENTORY_STORE` and `NAGARE_INVENTORY_STORE_URL` context fields in Haskell and Bash, with the local-mode downgrade.
-- [ ] M3: open the store by context selection, with the project guard and bucket-ownership assertion before any write.
-- [ ] M3: implement `inventory store status` and `inventory store migrate`, including the source tombstone and resumable ordering.
+- [x] (2026-09-23) M3: add the `NAGARE_INVENTORY_STORE` and `NAGARE_INVENTORY_STORE_URL` context fields in Haskell and Bash, with the local-mode downgrade.
+- [x] (2026-09-23) M3 partial: open the store by context selection with a persisted-project and bucket-ownership assertion; verify the explicit project guard and shared bucket bootstrap path.
+- [x] (2026-09-23) M3 partial: implement `inventory store status` and `inventory store migrate`, including the source tombstone and resumable ordering; add the remaining interruption and command-path fixtures.
 - [ ] M4: run the gated live conformance suite and the two-state-root rehearsal; archive evidence.
-- [ ] M4: update user documentation, CLAUDE.md's variable list, ADR 13, and ADR 22; distill this plan.
+- [x] (2026-09-23) M4 partial: update user documentation, CLAUDE.md's variable list, ADR 13, and ADR 22; final distillation follows live evidence.
 
 
 ## Surprises & Discoveries

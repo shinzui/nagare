@@ -10,6 +10,7 @@ module Nagare.Inventory.Execute
   , execute
   , applyReviewed
   , resumeTransaction
+  , resumeTransactionWithTakeover
   )
 where
 
@@ -76,7 +77,8 @@ admit locked registry reviewed = do
             firstError : rest -> pure (Left (firstError :| rest))
             [] -> do
               now <- timestamp
-              let claim = ExecutorClaim (transactionIdText transaction) (headClientIdentity headValue) 1 now
+              let client = maybe (headClientIdentity headValue) id (storeClientIdentity store)
+                  claim = ExecutorClaim (transactionIdText transaction) client 1 now
                   activated =
                     headValue
                       { headGeneration = headGeneration headValue + 1
@@ -132,7 +134,10 @@ applyReviewed store registry reviewed = do
     Right result -> result
 
 resumeTransaction :: InventoryStore -> AdapterRegistry -> TransactionId -> IO (Either (NonEmpty AdmissionError) TransactionResult)
-resumeTransaction store registry transaction = do
+resumeTransaction store registry transaction = resumeTransactionWithTakeover store registry transaction False
+
+resumeTransactionWithTakeover :: InventoryStore -> AdapterRegistry -> TransactionId -> Bool -> IO (Either (NonEmpty AdmissionError) TransactionResult)
+resumeTransactionWithTakeover store registry transaction takeOver = do
   locked <- withProcessLock store $ \lock -> resumeLocked lock
   pure $ case locked of
     Left err -> failure "process-lock" (showText err)
@@ -156,7 +161,7 @@ resumeTransaction store registry transaction = do
                     then pure (Right (Converged transaction))
                     else pure (failure "inactive-transaction" "transaction is not active in the store head")
               | otherwise -> do
-                  claimed <- acquireResumeClaim store transaction headValue
+                  claimed <- acquireResumeClaim store transaction headValue takeOver
                   case claimed of
                     Left err -> pure (Left err)
                     Right () -> do
@@ -217,28 +222,43 @@ runOperations locked registry transaction reviewed initialEvents operations = go
               case intent of
                 Left _ -> pure (Just (StoppedAmbiguous transaction operationId))
                 Right intentEvent -> do
-                  result <- withAdapterEnv transaction operation (adapterExecute adapter operation prepared)
-                  case result of
-                    AdapterEffectFailed failureClass -> do
-                      let state = case failureClass of KnownNoEffect _ -> Failed failureClass; PartialOrUnknown _ -> Ambiguous
-                      appended <- appendEvent locked transaction (Just operationId) state "adapter execution stopped"
-                      pure $ Just $ case (failureClass, appended) of
-                        (KnownNoEffect _, Right _) -> StoppedFailed transaction operationId failureClass
-                        _ -> StoppedAmbiguous transaction operationId
-                    AdapterEffectAmbiguous _ -> do
-                      _ <- appendEvent locked transaction (Just operationId) Ambiguous "adapter result was ambiguous"
-                      pure (Just (StoppedAmbiguous transaction operationId))
-                    AdapterEffectCompleted -> do
-                      verification <- withAdapterEnv transaction operation (adapterVerify adapter operation prepared)
-                      case verification of
-                        Left _ -> do
-                          _ <- appendEvent locked transaction (Just operationId) Ambiguous "adapter completion could not be verified"
+                  currentClaim <- executorStillClaimed locked transaction
+                  if not currentClaim
+                    then pure (Just (StoppedAmbiguous transaction operationId))
+                    else do
+                      result <- withAdapterEnv transaction operation (adapterExecute adapter operation prepared)
+                      case result of
+                        AdapterEffectFailed failureClass -> do
+                          let state = case failureClass of KnownNoEffect _ -> Failed failureClass; PartialOrUnknown _ -> Ambiguous
+                          appended <- appendEvent locked transaction (Just operationId) state "adapter execution stopped"
+                          pure $ Just $ case (failureClass, appended) of
+                            (KnownNoEffect _, Right _) -> StoppedFailed transaction operationId failureClass
+                            _ -> StoppedAmbiguous transaction operationId
+                        AdapterEffectAmbiguous _ -> do
+                          _ <- appendEvent locked transaction (Just operationId) Ambiguous "adapter result was ambiguous"
                           pure (Just (StoppedAmbiguous transaction operationId))
-                        Right proof -> do
-                          appended <- appendEvent locked transaction (Just operationId) (Completed proof) "operation completion verified"
-                          case appended of
-                            Left _ -> pure (Just (StoppedAmbiguous transaction operationId))
-                            Right completedEvent -> go (events <> [intentEvent, completedEvent]) rest
+                        AdapterEffectCompleted -> do
+                          verification <- withAdapterEnv transaction operation (adapterVerify adapter operation prepared)
+                          case verification of
+                            Left _ -> do
+                              _ <- appendEvent locked transaction (Just operationId) Ambiguous "adapter completion could not be verified"
+                              pure (Just (StoppedAmbiguous transaction operationId))
+                            Right proof -> do
+                              appended <- appendEvent locked transaction (Just operationId) (Completed proof) "operation completion verified"
+                              case appended of
+                                Left _ -> pure (Just (StoppedAmbiguous transaction operationId))
+                                Right completedEvent -> go (events <> [intentEvent, completedEvent]) rest
+
+executorStillClaimed :: LockedStore s -> TransactionId -> IO Bool
+executorStillClaimed locked transaction = do
+  let store = lockedStore locked
+  current <- readHead store
+  pure $ case current of
+    Right (Just headValue) -> case headExecutorClaim headValue of
+      Just claim -> claimTransaction claim == transactionIdText transaction
+        && claimClientIdentity claim == maybe (headClientIdentity headValue) id (storeClientIdentity store)
+      Nothing -> False
+    _ -> False
 
 preflightOperations :: AdapterRegistry -> ReviewedPlan -> Map OperationId OperationState -> IO [AdmissionError]
 preflightOperations registry reviewed previous = fmap concat $ forM (reviewOperations (reviewedDocument reviewed)) $ \reviewOperation -> do
@@ -281,24 +301,33 @@ appendEvent locked transaction operation state detail = do
     Left err -> pure (Left err)
     Right Nothing -> pure (Left (StoreConditionFailed "inventory store is not initialized"))
     Right (Just headValue) -> do
-      previous <- previousDigest store (headSequence headValue)
-      case previous of
-        Left err -> pure (Left err)
-        Right prior -> do
-          now <- timestamp
-          let event = JournalEvent 1 (headSequence headValue) prior transaction operation state now detail
-              key = journalKey (headSequence headValue)
-          existing <- readObject store key
-          case existing of
+      let claimed = case storeClientIdentity store of
+            Nothing -> True
+            Just client -> case headExecutorClaim headValue of
+              Just owner -> claimClientIdentity owner == client
+                && claimTransaction owner == transactionIdText transaction
+              Nothing -> False
+      if not claimed
+        then pure (Left (StoreConditionFailed "inventory executor claim belongs to another client"))
+        else do
+          previous <- previousDigest store (headSequence headValue)
+          case previous of
             Left err -> pure (Left err)
-            Right (Just bytes) -> case decodeJournalEvent bytes of
-              Left err -> pure (Left (StoreInvalidObject key err))
-              Right old
-                | sameEventMeaning old event -> advance headValue old
-                | otherwise -> pure (Left (StoreObjectConflict key))
-            Right Nothing -> do
-              published <- appendAtSequence store (headSequence headValue) (encodeJournalEvent event)
-              case published of Left err -> pure (Left err); Right _ -> advance headValue event
+            Right prior -> do
+              now <- timestamp
+              let event = JournalEvent 1 (headSequence headValue) prior transaction operation state now detail
+                  key = journalKey (headSequence headValue)
+              existing <- readObject store key
+              case existing of
+                Left err -> pure (Left err)
+                Right (Just bytes) -> case decodeJournalEvent bytes of
+                  Left err -> pure (Left (StoreInvalidObject key err))
+                  Right old
+                    | sameEventMeaning old event -> advance headValue old
+                    | otherwise -> pure (Left (StoreObjectConflict key))
+                Right Nothing -> do
+                  published <- appendAtSequence store (headSequence headValue) (encodeJournalEvent event)
+                  case published of Left err -> pure (Left err); Right _ -> advance headValue event
   where
     advance headValue event = do
       let replacement = headValue {headGeneration = headGeneration headValue + 1, headSequence = headSequence headValue + 1}
@@ -344,23 +373,27 @@ operationStates transaction =
 transactionConverged :: TransactionId -> [JournalEvent] -> Bool
 transactionConverged transaction = any (\event -> eventTransaction event == transaction && isNothing (eventOperation event) && "converged" `T.isInfixOf` eventDetail event)
 
-acquireResumeClaim :: InventoryStore -> TransactionId -> HeadManifest -> IO (Either (NonEmpty AdmissionError) ())
-acquireResumeClaim store transaction headValue = do
+acquireResumeClaim :: InventoryStore -> TransactionId -> HeadManifest -> Bool -> IO (Either (NonEmpty AdmissionError) ())
+acquireResumeClaim store transaction headValue takeOver = do
   now <- timestamp
   case headExecutorClaim headValue of
-    Just claim | claimClientIdentity claim /= headClientIdentity headValue -> pure (failure "executor-claim" "transaction is claimed by a different store client; explicit takeover is required")
+    Just claim | claimClientIdentity claim /= localClient && not takeOver ->
+      pure (failure "executor-claim" "transaction is claimed by a different store client; explicit takeover is required")
     claim -> do
       let epoch = maybe 1 ((+ 1) . claimEpoch) claim
-          replacement = headValue {headGeneration = headGeneration headValue + 1, headExecutorClaim = Just (ExecutorClaim (transactionIdText transaction) (headClientIdentity headValue) epoch now)}
+          replacement = headValue {headGeneration = headGeneration headValue + 1, headExecutorClaim = Just (ExecutorClaim (transactionIdText transaction) localClient epoch now)}
       result <- replaceHeadIfGenerationMatches store (Just (headGeneration headValue)) replacement
       pure $ case result of Left err -> failure "head-condition" (showText err); Right () -> Right ()
+  where
+    localClient = maybe (headClientIdentity headValue) id (storeClientIdentity store)
 
 releaseClaim :: LockedStore s -> TransactionId -> Bool -> IO Bool
 releaseClaim locked transaction converged = do
   let store = lockedStore locked
   headResult <- readHead store
   case headResult of
-    Right (Just headValue) | headActiveTransaction headValue == Just (transactionIdText transaction) -> do
+    Right (Just headValue) | headActiveTransaction headValue == Just (transactionIdText transaction),
+      maybe True (\client -> maybe False ((== client) . claimClientIdentity) (headExecutorClaim headValue)) (storeClientIdentity store) -> do
       let replacement =
             headValue
               { headGeneration = headGeneration headValue + 1

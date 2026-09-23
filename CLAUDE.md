@@ -44,7 +44,8 @@ become anything but fail-closed.
    `NAGARE_REGISTRY_HOST`, `NAGARE_ARTIFACT_REGISTRY_ID`,
    `NAGARE_IMAGE_BUCKET`, `NAGARE_BACKUP_BUCKET`, `NAGARE_BASE_DOMAIN`,
    `NAGARE_INSTANCE_NAME`, `NAGARE_TARGET_PLATFORM`, `NAGARE_MODE`, and
-   `NAGARE_LOCAL_OBJECT_STORE`. Selection precedence: `--context` /
+   `NAGARE_LOCAL_OBJECT_STORE`, `NAGARE_INVENTORY_STORE`, and
+   `NAGARE_INVENTORY_STORE_URL`. Selection precedence: `--context` /
    `NAGARE_CONTEXT` > current-context pointer > in-repo profile > built-in
    default. Per-field precedence: environment > context/profile > default.
 

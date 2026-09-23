@@ -21,6 +21,7 @@ module Nagare.Target
   , AcmeDirectory (..)
   , PulumiEnv (..)
   , PulumiBackendKind (..)
+  , InventoryStoreKind (..)
   , ContextName
   , mkContextName
   , contextNameText
@@ -37,6 +38,7 @@ module Nagare.Target
   , clearCurrentContext
   , deleteContext
   , writeContextPlatformVersion
+  , writeContextInventoryStore
   , parseMode
   , parseAcmeDirectory
   , acmeDirectoryToken
@@ -53,6 +55,10 @@ module Nagare.Target
   , pulumiBackendToken
   , defaultGcsPulumiBackendUrl
   , effectivePulumiBackend
+  , parseInventoryStoreKind
+  , inventoryStoreToken
+  , effectiveInventoryStore
+  , defaultGcsInventoryStoreUrl
   , resolveActiveContext
   , resolveActiveTarget
   , resolveTargetProfile
@@ -124,6 +130,18 @@ parsePulumiBackendKind m = case fmap (map toLower) m of
 pulumiBackendToken :: PulumiBackendKind -> Text
 pulumiBackendToken PulumiBackendLocal = "local"
 pulumiBackendToken PulumiBackendGcs = "gcs"
+
+data InventoryStoreKind = InventoryStoreLocal | InventoryStoreGcs
+  deriving stock (Eq, Show)
+
+parseInventoryStoreKind :: Maybe String -> InventoryStoreKind
+parseInventoryStoreKind raw = case fmap (map toLower) raw of
+  Just "gcs" -> InventoryStoreGcs
+  _ -> InventoryStoreLocal
+
+inventoryStoreToken :: InventoryStoreKind -> Text
+inventoryStoreToken InventoryStoreLocal = "local"
+inventoryStoreToken InventoryStoreGcs = "gcs"
 
 -- | Which ACME service a context's issuer talks to (EP-112). 'AcmeProduction' is
 -- Let's Encrypt's real service; 'AcmeStaging' issues certificates that are NOT
@@ -340,6 +358,39 @@ writeContextPlatformVersion name version = do
        in "export NAGARE_PLATFORM_VERSION=" `T.isPrefixOf` stripped
             || "NAGARE_PLATFORM_VERSION=" `T.isPrefixOf` stripped
 
+-- | Commit inventory migration after the source head has been tombstoned.
+-- Resolve symlinks so a context in the private operator repository is edited
+-- at its target, leaving the link in place.
+writeContextInventoryStore :: ContextName -> InventoryStoreKind -> Text -> IO (Either Text ())
+writeContextInventoryStore name kind url = do
+  path <- contextFilePath name
+  exists <- doesFileExist path
+  if not exists
+    then pure (Left ("context '" <> contextNameText name <> "' does not exist"))
+    else do
+      result <- try $ do
+        realPath <- canonicalizePath path
+        contents <- TIO.readFile realPath
+        let retained = filter (not . isInventoryLine) (T.lines contents)
+            rendered = T.unlines
+              (retained <> ["export NAGARE_INVENTORY_STORE=" <> shellQuote (inventoryStoreToken kind)
+                         , "export NAGARE_INVENTORY_STORE_URL=" <> shellQuote url])
+            temporary = realPath <> ".inventory-migrate"
+        TIO.writeFile temporary rendered
+        renameFile temporary realPath
+      pure $ case result of
+        Left (err :: IOException) -> Left ("could not update inventory store in " <> T.pack path <> ": " <> T.pack (show err))
+        Right () -> Right ()
+  where
+    isInventoryLine line =
+      let stripped = T.stripStart line
+       in any (`T.isPrefixOf` stripped)
+            [ "export NAGARE_INVENTORY_STORE="
+            , "NAGARE_INVENTORY_STORE="
+            , "export NAGARE_INVENTORY_STORE_URL="
+            , "NAGARE_INVENTORY_STORE_URL="
+            ]
+
 -- | The four values that determine the GCE instance's compute and disk shape.
 -- They live in the target context so a later change to a Pulumi-program fallback
 -- cannot silently change an existing stack.
@@ -475,6 +526,10 @@ data TargetProfile = TargetProfile
   -- ^ NAGARE_PULUMI_BACKEND_URL (EP-93), an explicit @gs://\<bucket>/\<path>@ backend
   -- URL. Default @""@; when empty and the backend is GCS, the URL is derived by
   -- 'defaultGcsPulumiBackendUrl'.
+  , inventoryStore :: !InventoryStoreKind
+  -- ^ NAGARE_INVENTORY_STORE; local unless a cloud context explicitly selects GCS.
+  , inventoryStoreUrl :: !Text
+  -- ^ NAGARE_INVENTORY_STORE_URL; empty selects the context state-bucket prefix.
   , acmeEmail :: !Text
   -- ^ NAGARE_ACME_EMAIL (EP-112), the contact address the cluster's Let's
   -- Encrypt account is registered under. Default @""@, which means NOT
@@ -521,6 +576,15 @@ effectivePulumiBackend :: TargetProfile -> PulumiBackendKind
 effectivePulumiBackend tp = case tp ^. #mode of
   Local -> PulumiBackendLocal
   Cloud -> tp ^. #pulumiBackend
+
+effectiveInventoryStore :: TargetProfile -> InventoryStoreKind
+effectiveInventoryStore tp = case tp ^. #mode of
+  Local -> InventoryStoreLocal
+  Cloud -> tp ^. #inventoryStore
+
+defaultGcsInventoryStoreUrl :: Text -> TargetProfile -> Text
+defaultGcsInventoryStoreUrl ctx tp =
+  defaultGcsPulumiBackendUrl ctx tp <> "/inventory"
 
 -- | The default GCS Pulumi backend URL for a context when @NAGARE_PULUMI_BACKEND=gcs@
 -- is set without an explicit URL: @gs://\<project>-nagare-pulumi-state/nagare/\<context>@.
@@ -588,6 +652,8 @@ renderContextShellEnv name tp penv =
     , line "NAGARE_LOCAL_OBJECT_STORE" (tp ^. #localObjectStore)
     , line "NAGARE_PULUMI_BACKEND" (pulumiBackendToken (effectivePulumiBackend tp))
     , line "NAGARE_PULUMI_BACKEND_URL" (tp ^. #pulumiBackendUrl)
+    , line "NAGARE_INVENTORY_STORE" (inventoryStoreToken (effectiveInventoryStore tp))
+    , line "NAGARE_INVENTORY_STORE_URL" (tp ^. #inventoryStoreUrl)
     , line "NAGARE_REGISTRY_PREFIX" (registryPrefix tp)
     , line "PULUMI_HOME" (T.pack (penv ^. #home))
     , line "PULUMI_BACKEND_URL" (penv ^. #backendUrl)
@@ -792,6 +858,8 @@ profileFromContextMap ctx =
       localObjectStore = mapOr ctx "NAGARE_LOCAL_OBJECT_STORE" ""
       pulumiBackend = parsePulumiBackendKind (mapRaw ctx "NAGARE_PULUMI_BACKEND")
       pulumiBackendUrl = mapOr ctx "NAGARE_PULUMI_BACKEND_URL" ""
+      inventoryStore = parseInventoryStoreKind (mapRaw ctx "NAGARE_INVENTORY_STORE")
+      inventoryStoreUrl = mapOr ctx "NAGARE_INVENTORY_STORE_URL" ""
       acmeEmail = mapOr ctx "NAGARE_ACME_EMAIL" ""
       acmeDirectory = mapOr ctx "NAGARE_ACME_DIRECTORY" "production"
       platformVersion = T.pack <$> mapRaw ctx "NAGARE_PLATFORM_VERSION"
@@ -817,6 +885,8 @@ profileFromContextMap ctx =
         , localObjectStore = localObjectStore
         , pulumiBackend = pulumiBackend
         , pulumiBackendUrl = pulumiBackendUrl
+        , inventoryStore = inventoryStore
+        , inventoryStoreUrl = inventoryStoreUrl
         , acmeEmail = acmeEmail
         , acmeDirectory = acmeDirectory
         , platformVersion = platformVersion
@@ -845,6 +915,8 @@ resolveProfileFrom ctx = do
   localObjectStore <- ctxOr ctx "NAGARE_LOCAL_OBJECT_STORE" ""
   pulumiBackend <- parsePulumiBackendKind <$> ctxRaw ctx "NAGARE_PULUMI_BACKEND"
   pulumiBackendUrl <- ctxOr ctx "NAGARE_PULUMI_BACKEND_URL" ""
+  inventoryStore <- parseInventoryStoreKind <$> ctxRaw ctx "NAGARE_INVENTORY_STORE"
+  inventoryStoreUrl <- ctxOr ctx "NAGARE_INVENTORY_STORE_URL" ""
   acmeEmail <- ctxOr ctx "NAGARE_ACME_EMAIL" ""
   acmeDirectory <- ctxOr ctx "NAGARE_ACME_DIRECTORY" "production"
   platformVersion <- fmap T.pack <$> ctxRaw ctx "NAGARE_PLATFORM_VERSION"
@@ -871,6 +943,8 @@ resolveProfileFrom ctx = do
       , localObjectStore = localObjectStore
       , pulumiBackend = pulumiBackend
       , pulumiBackendUrl = pulumiBackendUrl
+      , inventoryStore = inventoryStore
+      , inventoryStoreUrl = inventoryStoreUrl
       , acmeEmail = acmeEmail
       , acmeDirectory = acmeDirectory
       , platformVersion = platformVersion
@@ -894,7 +968,9 @@ resolveActiveTarget arg = do
       let storedProfile = profileFromContextMap ctx
       pure (ActiveTarget name (profile
         & #platformVersion .~ (storedProfile ^. #platformVersion)
-        & #externalDomainTlsEnabled .~ (storedProfile ^. #externalDomainTlsEnabled)))
+        & #externalDomainTlsEnabled .~ (storedProfile ^. #externalDomainTlsEnabled)
+        & #inventoryStore .~ (storedProfile ^. #inventoryStore)
+        & #inventoryStoreUrl .~ (storedProfile ^. #inventoryStoreUrl)))
 
 -- | Back-compat entry point for consumers that only need the target bundle.
 resolveActiveContext :: Maybe Text -> IO TargetProfile

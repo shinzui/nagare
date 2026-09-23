@@ -86,6 +86,21 @@ secret that must be treated as exposed is rotated in a follow-up plan.
 With an empty passphrase, the secret-marked values in `tan-nb-exp` state are readable by anyone
 with read access to the state bucket. That access is limited to principals in `tan-nb-exp`.
 
+## Amendment — 2026-09-23: inventory history can share the state bucket
+
+Cloud contexts may place their resource inventory history under a separate
+prefix in the context state bucket. The context explicitly selects local or
+GCS storage. A GCS head uses generation-conditional replacement; numbered
+journal events and digest-addressed reviews are published only if absent.
+Migration copies and verifies the complete history, then conditionally marks
+the source head as migrated before changing the context file. This restores
+the new-machine consequence for inventory ownership as well as Pulumi state:
+the second machine needs the two repositories, context links, and bucket
+credentials, then reads the same accepted inventory head. Bucket readers can
+read private native review bundles. An unresolved executor claim requires
+explicit takeover; the store does not establish whether the old executor is
+still alive. Implemented by [ExecPlan 151](../plans/151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes.md).
+
 ## Amendment — 2026-09-13: the Pulumi stack config has a context-owned home
 
 Nagare 0.2.0 showed that point 2's checkout symlink is not enough. The installed CLI and

@@ -433,6 +433,44 @@ The bucket-ownership check reads the bucket's owning project number with
 `gcloud storage buckets describe --raw`; current gcloud releases omit that field from
 the formatted output.
 
+### Shared inventory history (cloud contexts)
+
+Resource inventory history defaults to a private local directory under
+`${XDG_STATE_HOME:-$HOME/.local/state}/nagare/<context>/inventory`. A cloud
+context may use its state bucket instead:
+
+```bash
+export NAGARE_INVENTORY_STORE=gcs
+# optional: defaults to gs://<project>-nagare-pulumi-state/nagare/<context>/inventory
+export NAGARE_INVENTORY_STORE_URL=gs://my-bucket/nagare/prod/inventory
+```
+
+Use `nagarectl inventory store status --json` to see the selected store's
+binding, head digest, generation, active transaction, and executor claim.
+The GCS store uses conditional object generations, and an active transaction
+belongs to one client identity. A second workstation must explicitly run
+`nagarectl inventory resume TRANSACTION --take-over --yes` after deciding the
+previous executor is no longer active. There is no remote heartbeat or liveness
+test. A local-mode context always uses the local inventory store.
+
+Move an existing history before selecting another store:
+
+```bash
+nagarectl inventory store migrate --to gcs --dry-run
+nagarectl inventory store migrate --to gcs --yes
+# To return to local history later:
+nagarectl inventory store migrate --to local --dry-run
+nagarectl inventory store migrate --to local --yes
+```
+
+Migration copies and verifies all members before it marks the source head as
+migrated, then updates the context file through its symlink. If interrupted
+after marking the source, repeat the same command to finish the context update.
+Reload every shell after migration; a stale shell is refused by the source
+tombstone. No bucket objects are deleted by migration. Any inventory mutation
+using GCS needs bucket access. Principals who can read that prefix can also
+read private native review bundles, including sensitive provider inputs.
+
 ## Cluster and host rendering
 
 The active context also feeds bootstrap rendering:

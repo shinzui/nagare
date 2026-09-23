@@ -23,7 +23,7 @@ import Nagare.App.Deploy
 import Nagare.Dsl.Load (loadApplication)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (mkImageRef)
-import Nagare.Target (Mode (..), PulumiBackendKind (..), TargetProfile (..))
+import Nagare.Target (InventoryStoreKind (..), Mode (..), PulumiBackendKind (..), TargetProfile (..))
 import System.Exit (ExitCode (..))
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -81,6 +81,8 @@ testProfile =
     , localObjectStore = ""
     , pulumiBackend = PulumiBackendLocal
     , pulumiBackendUrl = ""
+    , inventoryStore = InventoryStoreLocal
+    , inventoryStoreUrl = ""
     , acmeEmail = "ops@example.com"
     , acmeDirectory = "production"
     , platformVersion = Nothing
