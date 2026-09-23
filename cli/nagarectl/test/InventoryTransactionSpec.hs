@@ -256,6 +256,15 @@ inventoryTransactionTests =
         (reviewed, registry) <- preparedFixtureWith store executeOnce (\operation _ -> pure (RecoveryProvedComplete (proof operation)))
         stopped <- applyReviewed store registry reviewed >>= expectRight
         transaction <- case stopped of StoppedAmbiguous value _ -> pure value; other -> assertFailure (show other) >> undefined
+        history <- loadInventoryHistory store >>= expectRight
+        bytes <- BS.readFile "test/fixtures/inventory/valid.json"
+        let CandidateInput snapshot changes = ok (decodeCandidateInput bytes)
+            candidate = ok (composeInventory snapshot changes)
+            observations = ok (observationSet [])
+        case planChanges candidate noLifecycleDecisions history observations of
+          Left errors -> assertBool "new planning did not refuse the unresolved transaction"
+            (any ((== "active-transaction") . planErrorCode) (NE.toList errors))
+          Right _ -> assertFailure "new planning admitted an unresolved transaction"
         resumed <- resumeTransaction store registry transaction >>= expectRight
         case resumed of Converged value -> value @?= transaction; other -> assertFailure (show other)
         length <$> readIORef calls >>= (@?= 1)

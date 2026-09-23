@@ -241,6 +241,8 @@ planChanges candidate decisions history observations = do
     historyGenerations = fmap (revisionGeneration . fst) (historyAccepted history)
     structuralErrors =
       [PlanError "context-binding" "candidate belongs to a different context or provider target" [] | inventoryBinding (candidateInventory candidate) /= headBinding (historyHead history)]
+        <> [PlanError "active-transaction" "resume or resolve the active inventory transaction before planning another review" []
+           | Just _ <- [headActiveTransaction (historyHead history)]]
         <> [PlanError "base-revision" "candidate base scope generations do not match the accepted store head" [] | candidateBase candidate /= historyGenerations]
         <> [PlanError "accepted-contributions" "accepted scopes cannot be composed into their effective resources" [] | either (const True) (const False) (historyComposition history)]
         <> [PlanError "observation-coverage" "required resource was not observed" missing | not (null missing)]
