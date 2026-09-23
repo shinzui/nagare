@@ -29,9 +29,7 @@ test "$(yq -r '.grafana.adminPassword' "$values")" = null
 case "${1:-}" in
   '') ;;
   --render)
-    version="$(sed -n 's/^VMKS_VERSION="\([^"]*\)".*/\1/p' "$root/cluster/observability/install.sh")"
-    test -n "$version"
-    rendered="$(helm template vmks vm/victoria-metrics-k8s-stack --version "$version" \
+    rendered="$(helm template vmks "$root/cluster/observability/vendor/victoria-metrics-k8s-stack-0.81.0.tgz" \
       --namespace monitoring -f "$values")"
     test "$(yq -Nr 'select(.kind == "ConfigMap" and .metadata.name == "vmks-grafana") | .data.plugins' <<< "$rendered")" = "$expected"
     test "$(yq -Nr 'select(.kind == "Deployment" and .metadata.name == "vmks-grafana") | .spec.template.spec.containers[] | select(.name == "grafana") | .env[] | select(.name == "GF_PLUGINS_PREINSTALL_SYNC") | .valueFrom.configMapKeyRef.key' <<< "$rendered")" = plugins

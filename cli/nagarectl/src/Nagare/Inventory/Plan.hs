@@ -241,8 +241,9 @@ planChanges candidate decisions history observations = do
     historyGenerations = fmap (revisionGeneration . fst) (historyAccepted history)
     structuralErrors =
       [PlanError "context-binding" "candidate belongs to a different context or provider target" [] | inventoryBinding (candidateInventory candidate) /= headBinding (historyHead history)]
-        <> [PlanError "active-transaction" "resume or resolve the active inventory transaction before planning another review" []
-           | Just _ <- [headActiveTransaction (historyHead history)]]
+        <> [ PlanError "active-transaction" "resume or resolve the active inventory transaction before planning another review" []
+           | Just _ <- [headActiveTransaction (historyHead history)]
+           ]
         <> [PlanError "base-revision" "candidate base scope generations do not match the accepted store head" [] | candidateBase candidate /= historyGenerations]
         <> [PlanError "accepted-contributions" "accepted scopes cannot be composed into their effective resources" [] | either (const True) (const False) (historyComposition history)]
         <> [PlanError "observation-coverage" "required resource was not observed" missing | not (null missing)]
@@ -259,25 +260,27 @@ buildOperations candidate (LifecycleDecisions decisions) history observations =
     oldDeclarations = Map.fromList [(declarationId declaration, declaration) | declaration <- historyDeclarations history]
     -- Converged scope revisions retain proof of unchanged forward-only
     -- migrations after Kubernetes TTL removes their Job objects.
-    provenMigrations = Map.fromList
-      [ (operation ^. #identity, operation)
-      | (scope, (revision, declaration)) <- Map.toAscList (historyAccepted history)
-      , Map.lookup scope (historyConverged history) == Just revision
-      , bundle <- scopeBundles declaration
-      , operation <- bundle ^. #operations
-      , operation ^. #operationKind == SchemaMigration
-      ]
+    provenMigrations =
+      Map.fromList
+        [ (operation ^. #identity, operation)
+        | (scope, (revision, declaration)) <- Map.toAscList (historyAccepted history)
+        , Map.lookup scope (historyConverged history) == Just revision
+        , bundle <- scopeBundles declaration
+        , operation <- bundle ^. #operations
+        , operation ^. #operationKind == SchemaMigration
+        ]
     migrationIsProven operation =
       operation ^. #operationKind == SchemaMigration
         && Map.lookup (operation ^. #identity) provenMigrations == Just operation
-    provenMigrationJobs = Set.fromList
-      [ resource
-      | scope <- Map.elems (inventoryScopes (candidateInventory candidate))
-      , bundle <- scopeBundles scope
-      , operation <- bundle ^. #operations
-      , migrationIsProven operation
-      , resource <- NE.toList (operation ^. #affects)
-      ]
+    provenMigrationJobs =
+      Set.fromList
+        [ resource
+        | scope <- Map.elems (inventoryScopes (candidateInventory candidate))
+        , bundle <- scopeBundles scope
+        , operation <- bundle ^. #operations
+        , migrationIsProven operation
+        , resource <- NE.toList (operation ^. #affects)
+        ]
     observed = observationMap observations
     desiredManaged = [(resource ^. #identity, resource, Map.lookup (resource ^. #identity) oldDeclarations, Map.lookup (resource ^. #identity) observed) | Managed resource <- Map.elems desiredDeclarations]
     retired = [(resource, declaration) | (resource, declaration@(Managed _)) <- Map.toAscList oldDeclarations, Map.notMember resource desiredDeclarations]
@@ -285,10 +288,11 @@ buildOperations candidate (LifecycleDecisions decisions) history observations =
     errors = concatMap fst classified <> concatMap retireError retired
     preliminary = mapMaybe snd classified <> mapMaybe retireOperation retired
     operationByResource = Map.fromList [(resource, plannedOperationId operation) | operation <- preliminary, resource <- NE.toList (plannedResources operation)]
-    operationByDeclaration = Map.fromList
-      [ (declaredOperation ^. #identity, plannedOperationId operation)
-      | (declaredOperation, operation) <- declaredSeeds
-      ]
+    operationByDeclaration =
+      Map.fromList
+        [ (declaredOperation ^. #identity, plannedOperationId operation)
+        | (declaredOperation, operation) <- declaredSeeds
+        ]
     operationByDependency = Map.union operationByResource operationByDeclaration
     addDependencies operation =
       operation
@@ -303,20 +307,27 @@ buildOperations candidate (LifecycleDecisions decisions) history observations =
               ]
         }
     declaredSeeds = concatMap scopeDeclared (Map.elems (inventoryScopes (candidateInventory candidate)))
-    cacheOutputOperations = Map.fromList
-      [ (resource, plannedOperationId planned)
-      | (declaredOperation, planned) <- declaredSeeds
-      , declaredOperation ^. #operationKind == CreateLogicalCache
-      , resource <- NE.toList (declaredOperation ^. #affects)
-      ]
+    cacheOutputOperations =
+      Map.fromList
+        [ (resource, plannedOperationId planned)
+        | (declaredOperation, planned) <- declaredSeeds
+        , declaredOperation ^. #operationKind == CreateLogicalCache
+        , resource <- NE.toList (declaredOperation ^. #affects)
+        ]
     operationForDependency dependency = case dependency of
-      Consumes ref | refCapability ref == NixCachePublicKey ->
-        Map.lookup (dependencyResource dependency) cacheOutputOperations
+      Consumes ref
+        | refCapability ref == NixCachePublicKey ->
+            Map.lookup (dependencyResource dependency) cacheOutputOperations
       _ -> Map.lookup (dependencyResource dependency) operationByDependency
     refCapability (SomeRef ref) = let (_, _, capability, _, _) = refSignature (SomeRef ref) in capability
-    scopeDeclared declaration = mapMaybe declared
-      [ operation | bundle <- scopeBundles declaration, operation <- bundle ^. #operations,
-        not (migrationIsProven operation)]
+    scopeDeclared declaration =
+      mapMaybe
+        declared
+        [ operation
+        | bundle <- scopeBundles declaration
+        , operation <- bundle ^. #operations
+        , not (migrationIsProven operation)
+        ]
     declared operation = do
       executor <- listToMaybe [resource ^. #executor | resourceId <- NE.toList (operation ^. #affects), Just (Managed resource) <- [Map.lookup resourceId desiredDeclarations]]
       let digest = contentDigest (canonicalBytes (toJSON operation))
@@ -335,8 +346,11 @@ buildOperations candidate (LifecycleDecisions decisions) history observations =
        in (operation, planned {plannedDependencies = Set.toAscList (Set.fromList (affectedChanges <> prerequisites))})
     sameManaged old resource = case old of
       Managed previous ->
-        let canonicalDependencies value = value
-              {dependencies = Set.toAscList (Set.fromList (value ^. #dependencies))}
+        let canonicalDependencies value =
+              value
+                { dependencies = Set.toAscList (Set.fromList (value ^. #dependencies))
+                , source = SourceLocation "" ""
+                }
          in canonicalBytes (toJSON (Managed (canonicalDependencies previous)))
               == canonicalBytes (toJSON (Managed (canonicalDependencies resource)))
       _ -> False
@@ -353,17 +367,29 @@ buildOperations candidate (LifecycleDecisions decisions) history observations =
       (_, Just (ObservedForeign _)) -> ([PlanError "foreign-resource" "resource address is occupied by an object without accepted ownership" [resourceId]], Nothing)
       (Nothing, Just (ObservationUnavailable _)) -> ([PlanError "observation-unavailable" "resource observation is unavailable" [resourceId]], Nothing)
       (Just old, Just (ConfirmedAbsent _)) -> case resource ^. #dataPolicy of
-        Stateless | Set.member resourceId provenMigrationJobs
+        Stateless
+          | Set.member resourceId provenMigrationJobs
           , sameManaged old resource
-          , isMigrationJob (resource ^. #address) -> ([], Nothing)
+          , isMigrationJob (resource ^. #address) ->
+              ([], Nothing)
         Stateless -> ([], Just (resourceOperation CreateResource resource))
-        Durable _ -> ([PlanError "durable-resource-missing"
-          "accepted durable resource is absent; recover its data before replanning" [resourceId]], Nothing)
+        Durable _ ->
+          (
+            [ PlanError
+                "durable-resource-missing"
+                "accepted durable resource is absent; recover its data before replanning"
+                [resourceId]
+            ]
+          , Nothing
+          )
       (Just _, Just (ObservedDrifted _ _)) -> ([], Just (resourceOperation UpdateResource resource))
       (Just old, _)
         | sameManaged old resource ->
-            ([], if bootstrapReview && resource ^. #executor `elem` [KubernetesExecutor, HelmExecutor]
-              then Just (resourceOperation VerifyResource resource) else Nothing)
+            ( []
+            , if bootstrapReview && resource ^. #executor `elem` [KubernetesExecutor, HelmExecutor]
+                then Just (resourceOperation VerifyResource resource)
+                else Nothing
+            )
       (Just _, Just (ObservationUnavailable _)) -> ([PlanError "observation-unavailable" "resource observation is unavailable" [resourceId]], Nothing)
       (Just _, _) -> ([], Just (resourceOperation UpdateResource resource))
       (_, Nothing) -> ([PlanError "observation-coverage" "resource was not observed" [resourceId]], Nothing)

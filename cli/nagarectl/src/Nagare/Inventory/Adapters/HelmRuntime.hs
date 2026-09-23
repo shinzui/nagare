@@ -3,10 +3,11 @@
 module Nagare.Inventory.Adapters.HelmRuntime
   ( HelmRuntimeConfig (..)
   , helmRuntimeOps
-  ) where
+  )
+where
 
 import Control.Exception (IOException, try)
-import Data.Aeson (Value (..), eitherDecodeStrict', fromJSON, Result (..))
+import Data.Aeson (Result (..), Value (..), eitherDecodeStrict', fromJSON)
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
@@ -27,7 +28,7 @@ import Nagare.Resource.Types
 import System.Directory (createDirectory, createDirectoryLink, makeAbsolute)
 import System.Environment (getEnvironment)
 import System.Exit (ExitCode (..))
-import System.FilePath ((</>))
+import System.FilePath (isAbsolute, splitDirectories, takeDirectory, (</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Process (CreateProcess (env), proc, readCreateProcessWithExitCode)
 
@@ -40,10 +41,11 @@ data HelmRuntimeConfig = HelmRuntimeConfig
   }
 
 helmRuntimeOps :: HelmRuntimeConfig -> HelmAdapterOps
-helmRuntimeOps config = HelmAdapterOps
-  { helmObserve = observeRelease config
-  , helmMutateConditional = mutateRelease config
-  }
+helmRuntimeOps config =
+  HelmAdapterOps
+    { helmObserve = observeRelease config
+    , helmMutateConditional = mutateRelease config
+    }
 
 observeRelease :: HelmRuntimeConfig -> ResourceId -> IO HelmState
 observeRelease config resource = do
@@ -57,8 +59,19 @@ observeGuarded config resource = case Map.lookup resource (helmDeclarations conf
   Nothing -> pure (HelmUnavailable "Helm declaration is absent from runtime")
   Just declaration -> case declaration ^. #address of
     Helm _ namespace release -> do
-      status <- run "helm" ["status", T.unpack (nameText release), "--kube-context", T.unpack (helmKubeContext config)
-        , "--namespace", T.unpack (nameText namespace), "-o", "json"] Nothing
+      status <-
+        run
+          "helm"
+          [ "status"
+          , T.unpack (nameText release)
+          , "--kube-context"
+          , T.unpack (helmKubeContext config)
+          , "--namespace"
+          , T.unpack (nameText namespace)
+          , "-o"
+          , "json"
+          ]
+          Nothing
       case status of
         Left reason -> pure (HelmUnavailable reason)
         Right (ExitFailure _, _, err)
@@ -68,9 +81,20 @@ observeGuarded config resource = case Map.lookup resource (helmDeclarations conf
         Right (ExitSuccess, output, _) -> case parseStatus config resource (TE.encodeUtf8 (T.pack output)) of
           Left reason -> pure (HelmForeign reason)
           Right (revision, digest) -> do
-            secret <- run "kubectl" ["--context", T.unpack (helmKubeContext config), "-n", T.unpack (nameText namespace)
-              , "get", "secret", "sh.helm.release.v1." <> T.unpack (nameText release) <> ".v" <> T.unpack revision
-              , "-o", "json"] Nothing
+            secret <-
+              run
+                "kubectl"
+                [ "--context"
+                , T.unpack (helmKubeContext config)
+                , "-n"
+                , T.unpack (nameText namespace)
+                , "get"
+                , "secret"
+                , "sh.helm.release.v1." <> T.unpack (nameText release) <> ".v" <> T.unpack revision
+                , "-o"
+                , "json"
+                ]
+                Nothing
             pure $ case secret of
               Left reason -> HelmUnavailable reason
               Right (ExitFailure _, _, err) -> HelmUnavailable (T.pack err)
@@ -115,24 +139,57 @@ mutateRelease config mutation = do
         case preflight of
           Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
           Right (chart, values, renderDigest) -> do
-            result <- try (withSystemTempDirectory "nagare-helm-apply" $ \temporary -> do
-              let plugins = temporary </> "plugins"
-              createDirectory plugins
-              plugin <- makeAbsolute (helmVerifyPlugin config)
-              createDirectoryLink plugin (plugins </> "nagare-reviewed-manifests")
-              environment <- getEnvironment
-              let clean = filter (\(key, _) -> key `notElem` ["HELM_PLUGINS", "NAGARE_HELM_REVIEW_SHA256"]) environment
-                  description = T.unpack (T.intercalate "|"
-                    ["nagare-inventory-v1", contextIdText (helmContextId config)
-                    , resourceIdText (helmMutationResource mutation), digestText (helmMutationContractDigest mutation)])
-                  arguments = ["upgrade", "--install", T.unpack (nameText release), chart
-                    , "--kube-context", T.unpack (helmKubeContext config)
-                    , "--namespace", T.unpack (nameText namespace)
-                    , "--values", values, "--skip-crds", "--post-renderer", "nagare-reviewed-manifests"
-                    , "--description", description, "--wait", "--wait-for-jobs", "--timeout", "10m"]
-              run "helm" arguments (Just (("HELM_PLUGINS", plugins) :
-                ("NAGARE_HELM_REVIEW_SHA256", T.unpack (digestText renderDigest)) : clean)))
-              :: IO (Either IOException (Either Text (ExitCode, String, String)))
+            result <-
+              try
+                ( withSystemTempDirectory "nagare-helm-apply" $ \temporary -> do
+                    let plugins = temporary </> "plugins"
+                    createDirectory plugins
+                    plugin <- makeAbsolute (helmVerifyPlugin config)
+                    createDirectoryLink plugin (plugins </> "nagare-reviewed-manifests")
+                    environment <- getEnvironment
+                    let clean = filter (\(key, _) -> key `notElem` ["HELM_PLUGINS", "NAGARE_HELM_REVIEW_SHA256"]) environment
+                        description =
+                          T.unpack
+                            ( T.intercalate
+                                "|"
+                                [ "nagare-inventory-v1"
+                                , contextIdText (helmContextId config)
+                                , resourceIdText (helmMutationResource mutation)
+                                , digestText (helmMutationContractDigest mutation)
+                                ]
+                            )
+                        arguments =
+                          [ "upgrade"
+                          , "--install"
+                          , T.unpack (nameText release)
+                          , chart
+                          , "--kube-context"
+                          , T.unpack (helmKubeContext config)
+                          , "--namespace"
+                          , T.unpack (nameText namespace)
+                          , "--values"
+                          , values
+                          , "--skip-crds"
+                          , "--post-renderer"
+                          , "nagare-reviewed-manifests"
+                          , "--description"
+                          , description
+                          , "--wait"
+                          , "--wait-for-jobs"
+                          , "--timeout"
+                          , "10m"
+                          ]
+                    run
+                      "helm"
+                      arguments
+                      ( Just
+                          ( ("HELM_PLUGINS", plugins)
+                              : ("NAGARE_HELM_REVIEW_SHA256", T.unpack (digestText renderDigest))
+                              : clean
+                          )
+                      )
+                ) ::
+                IO (Either IOException (Either Text (ExitCode, String, String)))
             pure $ case result of
               Left failure -> AdapterEffectAmbiguous (T.pack (show failure))
               Right (Left reason) -> AdapterEffectAmbiguous reason
@@ -154,7 +211,8 @@ mutateRelease config mutation = do
           pure $ do
             actualChart <- chartBytes
             actualValues <- valuesBytes
-            unless (contentDigest actualChart == chartDigest && contentDigest actualValues == valuesDigest)
+            unless
+              (contentDigest actualChart == chartDigest && contentDigest actualValues == valuesDigest)
               (Left "packaged Helm chart or values changed after review")
             (_, actualVersion, _) <- successful "Helm version" version
             unless (T.strip (T.pack actualVersion) == helmVersion) (Left "Helm executable version changed after review")
@@ -166,8 +224,8 @@ mutateRelease config mutation = do
             pure (T.unpack chart, T.unpack values, renderDigest)
       where
         parsed = do
-          chart <- field "chartPath" contract >>= asText "chartPath"
-          values <- field "valuesPath" contract >>= asText "valuesPath"
+          chart <- field "chartPath" contract >>= asText "chartPath" >>= resolvePath
+          values <- field "valuesPath" contract >>= asText "valuesPath" >>= resolvePath
           chartDigest <- field "chartDigest" contract >>= asText "chartDigest" >>= mkContentDigest
           valuesDigest <- field "valuesDigest" contract >>= asText "valuesDigest" >>= mkContentDigest
           renderDigest <- field "renderDigest" contract >>= asText "renderDigest" >>= mkContentDigest
@@ -175,16 +233,27 @@ mutateRelease config mutation = do
           kubeVersion <- field "kubeVersion" contract >>= asText "kubeVersion"
           hookPolicy <- field "hookPolicy" contract >>= asText "hookPolicy"
           crdPolicy <- field "crdPolicy" contract >>= asText "crdPolicy"
-          unless (hookPolicy == "include-rendered-hooks")
+          unless
+            (hookPolicy == "include-rendered-hooks")
             (Left "Helm hook policy differs from the reviewed contract")
-          unless (crdPolicy == "conditional-direct-apply-and-helm-skip-crds")
+          unless
+            (crdPolicy == "conditional-direct-apply-and-helm-skip-crds")
             (Left "Helm CRD policy differs from the reviewed contract")
           pure (chart, values, chartDigest, valuesDigest, renderDigest, helmVersion, kubeVersion)
+        resolvePath raw = case T.stripPrefix "payload:" raw of
+          Nothing -> Right raw
+          Just suffix
+            | T.null suffix || isAbsolute path || any (`elem` [".", ".."]) (splitDirectories path) ->
+                Left "reviewed Helm payload path is invalid"
+            | otherwise -> Right (T.pack (takeDirectory (helmVerifyPlugin config) </> path))
+            where
+              path = T.unpack suffix
 
 run :: FilePath -> [String] -> Maybe [(String, String)] -> IO (Either Text (ExitCode, String, String))
 run command arguments environment = do
-  result <- try (readCreateProcessWithExitCode ((proc command arguments) {env = environment}) "")
-    :: IO (Either IOException (ExitCode, String, String))
+  result <-
+    try (readCreateProcessWithExitCode ((proc command arguments) {env = environment}) "") ::
+      IO (Either IOException (ExitCode, String, String))
   pure (first (T.pack . show) result)
 
 successful :: Text -> Either Text (ExitCode, String, String) -> Either Text (ExitCode, String, String)

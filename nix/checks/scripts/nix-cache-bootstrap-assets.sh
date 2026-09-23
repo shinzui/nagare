@@ -31,7 +31,7 @@ grep -Fq 'openssl genrsa -out' "${cache_dir}/create-secret.sh"
 grep -Fq 'cd "${secrets_dir}"' "${cache_dir}/create-secret.sh"
 grep -Fq 'skopeo --policy "${policy}" inspect' "${cache_dir}/publish-image.sh"
 grep -Fq 'skopeo --policy "${policy}" copy --preserve-digests' "${cache_dir}/publish-image.sh"
-grep -Fq -- '--namespace nagare-system --system-namespace' "${cache_dir}/install.sh"
+grep -Fq 'run-reviewed-bootstrap.sh' "${cache_dir}/install.sh"
 
 # Parse all committed YAML and rendered templates as one multi-document stream.
 {

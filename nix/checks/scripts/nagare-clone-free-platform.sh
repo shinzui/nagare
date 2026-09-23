@@ -43,11 +43,7 @@ resolved_secrets="$({
   nagare_cluster_secrets_dir
 })"
 test "$resolved_secrets" = "$XDG_CONFIG_HOME/nagare/cluster-secrets/local"
-if bash "$workspace_root/cluster/observability/install.sh" > observability-missing-secret.out 2>&1; then
-  echo "observability unexpectedly accepted a missing grafana Secret" >&2
-  exit 1
-fi
-grep -q 'missing encrypted cluster secret:.*grafana-admin.yaml' observability-missing-secret.out
+grep -q 'run-reviewed-bootstrap.sh' "$workspace_root/cluster/observability/install.sh"
 # EP-112: the ACME contact is mandatory. Non-interactively, with
 # no --acme-email, `init` must refuse and name the flag; there is
 # no safe default for somebody's mailbox.

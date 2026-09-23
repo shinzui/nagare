@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Render the installer's pinned charts and check every generated workload,
+# Render the inventory's pinned charts and check every generated workload,
 # including Victoria operator CRs whose pods do not appear in Helm output.
-# Requires helm with the vm/open-telemetry repositories, yq, and jq.
+# Requires helm, yq, and jq.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -10,19 +10,16 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
 render() {
-  local release="$1" chart="$2" version_key="$3" namespace="$4" values="$5"
-  local version
-  version="$(sed -n "s/^${version_key}=\"\([^\"]*\)\".*/\1/p" "$observability/install.sh")"
-  test -n "$version"
-  helm template "$release" "$chart" --version "$version" --namespace "$namespace" \
+  local release="$1" archive="$2" namespace="$3" values="$4"
+  helm template "$release" "$observability/vendor/$archive" --namespace "$namespace" \
     -f "$observability/$values" > "$tmp/$release.yaml"
 }
 
-render vmks vm/victoria-metrics-k8s-stack VMKS_VERSION monitoring victoria-metrics/values.yaml
-render victoria-logs vm/victoria-logs-single VLOGS_VERSION logging victoria-logs/values.yaml
-render victoria-logs-collector vm/victoria-logs-collector VLOGS_COLLECTOR_VERSION logging victoria-logs/collector-values.yaml
-render victoria-traces vm/victoria-traces-single VTRACES_VERSION tracing victoria-traces/values.yaml
-render otel-collector open-telemetry/opentelemetry-collector OTEL_VERSION tracing opentelemetry-collector/values.yaml
+render vmks victoria-metrics-k8s-stack-0.81.0.tgz monitoring victoria-metrics/values.yaml
+render victoria-logs victoria-logs-single-0.13.5.tgz logging victoria-logs/values.yaml
+render victoria-logs-collector victoria-logs-collector-0.3.4.tgz logging victoria-logs/collector-values.yaml
+render victoria-traces victoria-traces-single-0.1.6.tgz tracing victoria-traces/values.yaml
+render otel-collector opentelemetry-collector-0.158.0.tgz tracing opentelemetry-collector/values.yaml
 
 yq -o=json '.' "$tmp"/*.yaml | jq -s -e '
   def bounded:

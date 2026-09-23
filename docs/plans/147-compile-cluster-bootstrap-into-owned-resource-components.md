@@ -37,6 +37,11 @@ provenance:
       at: 2026-09-23T16:01:31Z
       mode: "implement"
       note: "Route supported bootstrap recipes through retained inventory reviews"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-23T16:21:05Z
+      mode: "implement"
+      note: "Retire standalone installers and prove command-path stale review refusal and stable Helm replay"
 ---
 
 # Compile cluster bootstrap into owned resource components
@@ -135,6 +140,8 @@ A component is an independently identified group of resources and operations, su
 - [x] (2026-09-23) M3/M4 disposable native proof: A fresh isolated k3d v1.34.11 cluster converged the full local bootstrap from a 17-scope, 208-operation reviewed plan. The run used the installed Nagare 0.4.0 Attic/controller archives, fixture observability credentials, and the operator-selected local en, Shomei, and nagare-access image digests. CRD and certificate readiness pauses resumed under the same transaction; the final marker was written only after every prerequisite completed. Shomei, en, nagare-access, MinIO, Knative Serving, Kourier, and the five Helm releases were running.
 - [x] (2026-09-23) M4 accepted replay proof: The same disposable context produced a 205-operation review with 204 read-only Kubernetes/Helm verifications, one idempotent controller-image publication operation, zero resource updates, and zero barriers. Its transaction converged. Replays normalize dependency set order and canonical Helm spec encoding, compare Knative controller-generated webhook rules by bounded admission coverage, preserve the accepted version-marker install time, and tolerate status-only Kubernetes resourceVersion churn while still refusing changed UID, owner, or desired digest. The final full CLI suite passes (695 tests).
 - [x] (2026-09-23) M4 recipe migration: The supported `cluster-bootstrap`, `local-bootstrap`, `nix-cache-bootstrap`, `job-runs-bootstrap`, `local-minio`, and `observability` recipes now call a retained public review followed by inventory apply. Their recipes no longer issue direct Kubernetes or Helm writes. The certificate and Knative shell checks assert this route; standalone installer scripts and the explicit cloud TLS transition remain open.
+- [x] (2026-09-23) M4 installer migration: The standalone cache, cloud/local auth, and observability installers now delegate to the same review/apply route. Observability render tests use the vendored chart archives that the typed compiler pins. The cache asset check and observability resource/Grafana render checks pass.
+- [x] (2026-09-23) M1b/M4 command-path precondition proof: Against the disposable full bootstrap, a reviewed ConfigMap repair became stale when its resourceVersion changed after review. `platform bootstrap apply` refused in admission before any write; the ConfigMap kept the later value and Helm stayed at revision 1. A fresh review restored the ConfigMap and migrated five Helm releases to a root-independent chart/values contract; the following review had 204 read-only verifications, one idempotent publication, no resource updates, and converged. Source provenance paths no longer trigger resource updates. The CLI suite passes 697 tests.
 - [x] (2026-09-22) M3 partial: Planning now reconstructs accepted effective declarations through the same closed contribution composer used for candidates. A committed first Namespace contributor followed by a second contributor leaves the shared Namespace untouched; malformed accepted contributions refuse planning. Auth backend/routes, Shomei settings, and execution-time contribution-vector revalidation remain open.
 - [x] (2026-09-22) M3 partial: Database and cache component inputs can name a foundation Namespace resource. Every direct namespaced member then carries an explicit dependency on that resource; a two-scope cache/foundation fixture composes and verifies those edges. The CLI and DSL suites pass. Bootstrap still needs to construct this candidate from the active context and replace the imperative entry points.
 - [x] (2026-09-22) M3 partial: Add `compileBootstrapCandidate` to compose foundation plus optional cache against one snapshot and return all exact native members for private review. The enabled fixture yields two scopes and 18 native objects; the disabled fixture keeps the three-object foundation scope only. Remaining components and active-context input resolution must join this compiler before public command replacement.
@@ -215,6 +222,8 @@ A component is an independently identified group of resources and operations, su
 
 
 ## Decision Log
+
+2026-09-23: Treat source locations as provenance, outside resource equality. An installed payload checkout path can change while a resource's native specification remains byte-identical. Helm contracts use `payload:` paths relative to the packaged observability directory; the runtime resolves those paths from the selected payload and rechecks chart/values digests before mutation. The first transition from absolute-path Helm contracts required one reviewed upgrade; later source checkouts produced no resource updates.
 
 2026-09-22: Use the already pinned observability chart versions as vendored archive inputs. Let cert-manager own the VictoriaMetrics operator webhook certificate, because Helm's default generated certificate changed on every render and could never satisfy the native review-byte gate. Keep the chart and values digests in the reviewed release contract.
 

@@ -7,8 +7,8 @@ import Data.ByteString qualified as BS
 import Data.Either (isLeft)
 import Data.Generics.Labels ()
 import Data.IORef
-import Data.List.NonEmpty qualified as NE
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -21,8 +21,8 @@ import Nagare.Inventory.Execute hiding (withProcessLock)
 import Nagare.Inventory.Journal
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
-import Nagare.Resource.Inventory
 import Nagare.Resource.Cache (LogicalCacheInput (..), compileLogicalCache)
+import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
 import Nagare.Resource.Reference (Dependency (..), OutputConstraint (NonEmptyOutput), SomeRef (..), Witness (NixCachePublicKeyW), outputRef)
 import Nagare.Resource.Types
@@ -56,24 +56,76 @@ inventoryTransactionTests =
               _ -> error "test member must be managed"
             firstId = declarationId first
             secondId = declarationId second
-            original = ok (mkScopeDeclaration owner [ResourceBundle
-              [first, second, Managed (dependent {dependencies =
-                [OrderedAfter firstId, OrderedAfter secondId]})] [] [] [] [] []])
-            reordered = ok (mkScopeDeclaration owner [ResourceBundle
-              [first, second, Managed (dependent {dependencies =
-                [OrderedAfter secondId, OrderedAfter firstId]})] [] [] [] [] []])
+            original =
+              ok
+                ( mkScopeDeclaration
+                    owner
+                    [ ResourceBundle
+                        [ first
+                        , second
+                        , Managed
+                            ( dependent
+                                { dependencies =
+                                    [OrderedAfter firstId, OrderedAfter secondId]
+                                }
+                            )
+                        ]
+                        []
+                        []
+                        []
+                        []
+                        []
+                    ]
+                )
+            reordered =
+              ok
+                ( mkScopeDeclaration
+                    owner
+                    [ ResourceBundle
+                        [ first
+                        , second
+                        , Managed
+                            ( dependent
+                                { dependencies =
+                                    [OrderedAfter secondId, OrderedAfter firstId]
+                                }
+                            )
+                        ]
+                        []
+                        []
+                        []
+                        []
+                        []
+                    ]
+                )
             absent = contentDigest "absent"
-            registry = recordingRegistry (\_ _ -> pure AdapterEffectCompleted)
-              (\operation _ -> pure (RecoveryProvedComplete (proof operation)))
+            registry =
+              recordingRegistry
+                (\_ _ -> pure AdapterEffectCompleted)
+                (\operation _ -> pure (RecoveryProvedComplete (proof operation)))
         store <- newMemoryStore
         _ <- initializeStore store fixtureBinding "dependency-order-test" >>= expectRight
         initialHistory <- loadInventoryHistory store >>= expectRight
-        let initial = ok (composeInventory
-              (ok (mkScopeSnapshot fixtureBinding Map.empty Map.empty))
-              (ReplaceScope original :| []))
-            initialProposal = ok (planChanges initial noLifecycleDecisions initialHistory
-              (ok (observationSet [(resource, ConfirmedAbsent absent)
-                | resource <- Set.toAscList (requiredResources (observationRequirements initial initialHistory))])))
+        let initial =
+              ok
+                ( composeInventory
+                    (ok (mkScopeSnapshot fixtureBinding Map.empty Map.empty))
+                    (ReplaceScope original :| [])
+                )
+            initialProposal =
+              ok
+                ( planChanges
+                    initial
+                    noLifecycleDecisions
+                    initialHistory
+                    ( ok
+                        ( observationSet
+                            [ (resource, ConfirmedAbsent absent)
+                            | resource <- Set.toAscList (requiredResources (observationRequirements initial initialHistory))
+                            ]
+                        )
+                    )
+                )
         snapshot <- readStoreSnapshot store >>= expectRight
         review <- prepareReview registry snapshot initialProposal >>= expectRight
         _ <- publishReview store review >>= expectRight
@@ -81,13 +133,78 @@ inventoryTransactionTests =
         admitted <- expectRight (verifyReview published review)
         _ <- applyReviewed store registry admitted >>= expectRight
         history <- loadInventoryHistory store >>= expectRight
-        let accepted = Map.map (\(revision, value) -> (revisionGeneration revision, value))
-              (historyAccepted history)
-            replay = ok (composeInventory (ok (mkScopeSnapshot fixtureBinding accepted Map.empty))
-              (ReplaceScope reordered :| []))
-            observed = ok (observationSet
-              [(resource, ObservedPresent (ok (mkPhysicalIdentity (resourceIdText resource))))
-              | resource <- Set.toAscList (requiredResources (observationRequirements replay history))])
+        let accepted =
+              Map.map
+                (\(revision, value) -> (revisionGeneration revision, value))
+                (historyAccepted history)
+            replay =
+              ok
+                ( composeInventory
+                    (ok (mkScopeSnapshot fixtureBinding accepted Map.empty))
+                    (ReplaceScope reordered :| [])
+                )
+            observed =
+              ok
+                ( observationSet
+                    [ (resource, ObservedPresent (ok (mkPhysicalIdentity (resourceIdText resource))))
+                    | resource <- Set.toAscList (requiredResources (observationRequirements replay history))
+                    ]
+                )
+            proposal = ok (planChanges replay noLifecycleDecisions history observed)
+        proposalOperations proposal @?= []
+    , testCase "a changed payload source path does not update identical resources" $ do
+        let owner = ok (mkScopeId Platform "source-path")
+            cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+            originalMember = member owner cluster "config"
+            changedMember = case originalMember of
+              Managed resource -> Managed (resource {source = SourceLocation "payload/new-release/config.yaml" "source-path"})
+              _ -> error "test member must be managed"
+            original = ok (mkScopeDeclaration owner [ResourceBundle [originalMember] [] [] [] [] []])
+            changed = ok (mkScopeDeclaration owner [ResourceBundle [changedMember] [] [] [] [] []])
+            registry =
+              recordingRegistry
+                (\_ _ -> pure AdapterEffectCompleted)
+                (\operation _ -> pure (RecoveryProvedComplete (proof operation)))
+        store <- newMemoryStore
+        _ <- initializeStore store fixtureBinding "source-path-test" >>= expectRight
+        initialHistory <- loadInventoryHistory store >>= expectRight
+        let initial =
+              ok
+                ( composeInventory
+                    (ok (mkScopeSnapshot fixtureBinding Map.empty Map.empty))
+                    (ReplaceScope original :| [])
+                )
+            required = requiredResources (observationRequirements initial initialHistory)
+            initialObservations =
+              ok
+                ( observationSet
+                    [(resource, ConfirmedAbsent (contentDigest "absent")) | resource <- Set.toAscList required]
+                )
+            initialProposal = ok (planChanges initial noLifecycleDecisions initialHistory initialObservations)
+        snapshot <- readStoreSnapshot store >>= expectRight
+        review <- prepareReview registry snapshot initialProposal >>= expectRight
+        _ <- publishReview store review >>= expectRight
+        published <- readStoreSnapshot store >>= expectRight
+        admitted <- expectRight (verifyReview published review)
+        _ <- applyReviewed store registry admitted >>= expectRight
+        history <- loadInventoryHistory store >>= expectRight
+        let accepted =
+              Map.map
+                (\(revision, value) -> (revisionGeneration revision, value))
+                (historyAccepted history)
+            replay =
+              ok
+                ( composeInventory
+                    (ok (mkScopeSnapshot fixtureBinding accepted Map.empty))
+                    (ReplaceScope changed :| [])
+                )
+            observed =
+              ok
+                ( observationSet
+                    [ (resource, ObservedPresent (ok (mkPhysicalIdentity (resourceIdText resource))))
+                    | resource <- Set.toAscList (requiredResources (observationRequirements replay history))
+                    ]
+                )
             proposal = ok (planChanges replay noLifecycleDecisions history observed)
         proposalOperations proposal @?= []
     , testCase "a second namespace contributor does not recreate the accepted shared resource" $ do
@@ -100,11 +217,17 @@ inventoryTransactionTests =
             platform = ok (mkScopeDeclaration owner [grant])
             contributor who = ok (mkScopeDeclaration who [ResourceBundle [] [] [] [request] [] []])
             binding = ContextBinding (ok (mkContextId "test")) (ok (mkName "project"))
-            candidate = ok (composeInventory (ok (mkScopeSnapshot binding Map.empty Map.empty))
-              (ReplaceScope platform :| [ReplaceScope (contributor firstContributor)]))
+            candidate =
+              ok
+                ( composeInventory
+                    (ok (mkScopeSnapshot binding Map.empty Map.empty))
+                    (ReplaceScope platform :| [ReplaceScope (contributor firstContributor)])
+                )
             absent = ConfirmedAbsent (contentDigest "absent")
-            registry = recordingRegistry (\_ _ -> pure AdapterEffectCompleted)
-              (\operation _ -> pure (RecoveryProvedComplete (proof operation)))
+            registry =
+              recordingRegistry
+                (\_ _ -> pure AdapterEffectCompleted)
+                (\operation _ -> pure (RecoveryProvedComplete (proof operation)))
         store <- newMemoryStore
         _ <- initializeStore store binding "contribution-test" >>= expectRight
         initialHistory <- loadInventoryHistory store >>= expectRight
@@ -120,8 +243,13 @@ inventoryTransactionTests =
         applied <- applyReviewed store registry reviewed >>= expectRight
         case applied of Converged _ -> pure (); other -> assertFailure (show other)
         history <- loadInventoryHistory store >>= expectRight
-        let snapshot = ok (mkScopeSnapshot binding
-              (Map.map (\(revision, declared) -> (revisionGeneration revision, declared)) (historyAccepted history)) Map.empty)
+        let snapshot =
+              ok
+                ( mkScopeSnapshot
+                    binding
+                    (Map.map (\(revision, declared) -> (revisionGeneration revision, declared)) (historyAccepted history))
+                    Map.empty
+                )
             next = ok (composeInventory snapshot (ReplaceScope (contributor second) :| []))
             required = requiredResources (observationRequirements next history)
             present resource = ObservedPresent (ok (mkPhysicalIdentity ("accepted:" <> resourceIdText resource)))
@@ -129,8 +257,13 @@ inventoryTransactionTests =
             proposal = ok (planChanges next noLifecycleDecisions history observations)
         length (Set.toAscList required) @?= 1
         proposalOperations proposal @?= []
-        let missingObservations = ok (observationSet [(resource, absent)
-              | resource <- Set.toAscList required])
+        let missingObservations =
+              ok
+                ( observationSet
+                    [ (resource, absent)
+                    | resource <- Set.toAscList required
+                    ]
+                )
             repair = ok (planChanges next noLifecycleDecisions history missingObservations)
         case proposalOperations repair of
           [operation] -> plannedAction operation @?= CreateResource
@@ -138,17 +271,25 @@ inventoryTransactionTests =
     , testCase "missing accepted durable resource refuses automatic recreation" $ do
         let owner = ok (mkScopeId Platform "durable")
             cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
-            recovery = RecoveryIntent (ok (mkName "backup"))
-              (mkSecretRef (ok (mkName "credential")) (ok (mkName "v1")) :| [])
+            recovery =
+              RecoveryIntent
+                (ok (mkName "backup"))
+                (mkSecretRef (ok (mkName "credential")) (ok (mkName "v1")) :| [])
             protected = case member owner cluster "data" of
               Managed resource -> Managed (resource {dataPolicy = Durable recovery})
               _ -> error "expected a managed resource"
             scope = ok (mkScopeDeclaration owner [ResourceBundle [protected] [] [] [] [] []])
             binding = ContextBinding (ok (mkContextId "durable-test")) (ok (mkName "project"))
-            candidate = ok (composeInventory (ok (mkScopeSnapshot binding Map.empty Map.empty))
-              (ReplaceScope scope :| []))
-            registry = recordingRegistry (\_ _ -> pure AdapterEffectCompleted)
-              (\operation _ -> pure (RecoveryProvedComplete (proof operation)))
+            candidate =
+              ok
+                ( composeInventory
+                    (ok (mkScopeSnapshot binding Map.empty Map.empty))
+                    (ReplaceScope scope :| [])
+                )
+            registry =
+              recordingRegistry
+                (\_ _ -> pure AdapterEffectCompleted)
+                (\operation _ -> pure (RecoveryProvedComplete (proof operation)))
             absent = ConfirmedAbsent (contentDigest "absent")
         store <- newMemoryStore
         _ <- initializeStore store binding "durable-test" >>= expectRight
@@ -164,15 +305,29 @@ inventoryTransactionTests =
         result <- applyReviewed store registry reviewed >>= expectRight
         case result of Converged _ -> pure (); other -> assertFailure (show other)
         history <- loadInventoryHistory store >>= expectRight
-        let accepted = ok (mkScopeSnapshot binding
-              (Map.map (\(revision, declared) -> (revisionGeneration revision, declared))
-                (historyAccepted history)) Map.empty)
+        let accepted =
+              ok
+                ( mkScopeSnapshot
+                    binding
+                    ( Map.map
+                        (\(revision, declared) -> (revisionGeneration revision, declared))
+                        (historyAccepted history)
+                    )
+                    Map.empty
+                )
             again = ok (composeInventory accepted (ReplaceScope scope :| []))
-            missing = ok (observationSet [(resource, absent)
-              | resource <- Set.toAscList (requiredResources (observationRequirements again history))])
+            missing =
+              ok
+                ( observationSet
+                    [ (resource, absent)
+                    | resource <- Set.toAscList (requiredResources (observationRequirements again history))
+                    ]
+                )
         case planChanges again noLifecycleDecisions history missing of
-          Left errors -> assertBool "missing durable resource lacked a recovery refusal"
-            (any ((== "durable-resource-missing") . planErrorCode) (NE.toList errors))
+          Left errors ->
+            assertBool
+              "missing durable resource lacked a recovery refusal"
+              (any ((== "durable-resource-missing") . planErrorCode) (NE.toList errors))
           Right _ -> assertFailure "missing durable resource was silently recreated"
     , testCase "declared cache operation waits for its resource, database, and workload" $ do
         let owner = ok (mkScopeId Platform "cache")
@@ -184,8 +339,18 @@ inventoryTransactionTests =
             client = case member owner cluster "client" of
               Managed resource -> Managed (resource {dependencies = [Consumes (SomeRef publicKey)]})
               _ -> error "client fixture is not managed"
-            cache = compileLogicalCache (LogicalCacheInput owner cluster (ok (mkLogicalKey "cache")) (ok (mkName "cache")) (contentDigest "config")
-              (declarationId database) (declarationId workload) (SourceLocation "test" "cache"))
+            cache =
+              compileLogicalCache
+                ( LogicalCacheInput
+                    owner
+                    cluster
+                    (ok (mkLogicalKey "cache"))
+                    (ok (mkName "cache"))
+                    (contentDigest "config")
+                    (declarationId database)
+                    (declarationId workload)
+                    (SourceLocation "test" "cache")
+                )
             scope = ok (mkScopeDeclaration owner [ResourceBundle [database, workload, client] [] [] [] [] [], cache])
             binding = ContextBinding (ok (mkContextId "test")) (ok (mkName "project"))
             snapshot = ok (mkScopeSnapshot binding Map.empty Map.empty)
@@ -197,13 +362,20 @@ inventoryTransactionTests =
             observations = ok (observationSet [(resource, ConfirmedAbsent (contentDigest "absent")) | resource <- Set.toAscList (requiredResources requirements)])
             proposal = ok (planChanges candidate noLifecycleDecisions history observations)
             allOperations = proposalOperations proposal
-            creates = [plannedOperationId operation | operation <- allOperations, plannedAction operation == CreateResource,
-              declarationId client `notElem` NE.toList (plannedResources operation)]
+            creates =
+              [ plannedOperationId operation
+              | operation <- allOperations
+              , plannedAction operation == CreateResource
+              , declarationId client `notElem` NE.toList (plannedResources operation)
+              ]
         case [operation | operation <- allOperations, plannedAction operation == RunDeclaredOperation] of
           [operation] -> do
             Set.fromList (plannedDependencies operation) @?= Set.fromList creates
-            case [clientCreate | clientCreate <- allOperations, plannedAction clientCreate == CreateResource,
-                  declarationId client `elem` NE.toList (plannedResources clientCreate)] of
+            case [ clientCreate
+                 | clientCreate <- allOperations
+                 , plannedAction clientCreate == CreateResource
+                 , declarationId client `elem` NE.toList (plannedResources clientCreate)
+                 ] of
               [clientCreate] -> plannedDependencies clientCreate @?= [plannedOperationId operation]
               other -> assertFailure ("expected one client creation, got " <> show other)
           other -> assertFailure ("expected one declared cache operation, got " <> show other)
@@ -226,8 +398,9 @@ inventoryTransactionTests =
         let requirements = observationRequirements candidate history
             observations = ok (observationSet [(resource, ConfirmedAbsent (contentDigest "absent")) | resource <- Set.toAscList (requiredResources requirements)])
             allOperations = proposalOperations (ok (planChanges candidate noLifecycleDecisions history observations))
-        case ([op | op <- allOperations, plannedAction op == RunDeclaredOperation],
-              [op | op <- allOperations, plannedAction op == CreateResource, declarationId waiting `elem` NE.toList (plannedResources op)]) of
+        case ( [op | op <- allOperations, plannedAction op == RunDeclaredOperation]
+             , [op | op <- allOperations, plannedAction op == CreateResource, declarationId waiting `elem` NE.toList (plannedResources op)]
+             ) of
           ([migrationOperation], [workloadOperation]) ->
             assertBool "workload does not wait for migration" (plannedOperationId migrationOperation `elem` plannedDependencies workloadOperation)
           other -> assertFailure ("expected migration and workload operations, got " <> show other)
@@ -235,26 +408,58 @@ inventoryTransactionTests =
         let owner = ok (mkScopeId Platform "ttl-migration")
             cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
             job = case member owner cluster "migration" of
-              Managed resource -> Managed (resource {address = Kubernetes cluster "batch"
-                (ok (mkName "job")) (Just (ok (mkName "system"))) (ok (mkName "migration"))})
+              Managed resource ->
+                Managed
+                  ( resource
+                      { address =
+                          Kubernetes
+                            cluster
+                            "batch"
+                            (ok (mkName "job"))
+                            (Just (ok (mkName "system")))
+                            (ok (mkName "migration"))
+                      }
+                  )
               _ -> error "expected a managed Job"
             jobId = declarationId job
             migrationId = mintResourceId owner (ok (mkLogicalKey "migration")) (ok (mkName "proof"))
-            migration digest = DeclaredOperation migrationId (jobId :| [])
-              [ContentInput digest] VerifyBeforeRetry SchemaMigration
-            scope = ok (mkScopeDeclaration owner
-              [ResourceBundle [job] [] [] [] [migration (contentDigest "v1")] []])
+            migration digest =
+              DeclaredOperation
+                migrationId
+                (jobId :| [])
+                [ContentInput digest]
+                VerifyBeforeRetry
+                SchemaMigration
+            scope =
+              ok
+                ( mkScopeDeclaration
+                    owner
+                    [ResourceBundle [job] [] [] [] [migration (contentDigest "v1")] []]
+                )
             binding = ContextBinding (ok (mkContextId "ttl-migration")) (ok (mkName "project"))
-            candidate = ok (composeInventory (ok (mkScopeSnapshot binding Map.empty Map.empty))
-              (ReplaceScope scope :| []))
-            registry = recordingRegistry (\_ _ -> pure AdapterEffectCompleted)
-              (\operation _ -> pure (RecoveryProvedComplete (proof operation)))
+            candidate =
+              ok
+                ( composeInventory
+                    (ok (mkScopeSnapshot binding Map.empty Map.empty))
+                    (ReplaceScope scope :| [])
+                )
+            registry =
+              recordingRegistry
+                (\_ _ -> pure AdapterEffectCompleted)
+                (\operation _ -> pure (RecoveryProvedComplete (proof operation)))
             absent = ConfirmedAbsent (contentDigest "absent")
         store <- newMemoryStore
         _ <- initializeStore store binding "ttl-migration" >>= expectRight
         historyBefore <- loadInventoryHistory store >>= expectRight
-        let observations = ok (observationSet [(resource, absent) | resource <- Set.toAscList
-              (requiredResources (observationRequirements candidate historyBefore))])
+        let observations =
+              ok
+                ( observationSet
+                    [ (resource, absent)
+                    | resource <-
+                        Set.toAscList
+                          (requiredResources (observationRequirements candidate historyBefore))
+                    ]
+                )
             proposal = ok (planChanges candidate noLifecycleDecisions historyBefore observations)
         length (proposalOperations proposal) @?= 2
         before <- readStoreSnapshot store >>= expectRight
@@ -265,19 +470,36 @@ inventoryTransactionTests =
         result <- applyReviewed store registry reviewed >>= expectRight
         case result of Converged _ -> pure (); other -> assertFailure (show other)
         history <- loadInventoryHistory store >>= expectRight
-        let accepted = ok (mkScopeSnapshot binding
-              (Map.map (\(revision, declared) -> (revisionGeneration revision, declared))
-                (historyAccepted history)) Map.empty)
+        let accepted =
+              ok
+                ( mkScopeSnapshot
+                    binding
+                    ( Map.map
+                        (\(revision, declared) -> (revisionGeneration revision, declared))
+                        (historyAccepted history)
+                    )
+                    Map.empty
+                )
             again = ok (composeInventory accepted (ReplaceScope scope :| []))
-            missing = ok (observationSet [(resource, absent)
-              | resource <- Set.toAscList (requiredResources (observationRequirements again history))])
+            missing =
+              ok
+                ( observationSet
+                    [ (resource, absent)
+                    | resource <- Set.toAscList (requiredResources (observationRequirements again history))
+                    ]
+                )
             noReplay = ok (planChanges again noLifecycleDecisions history missing)
         proposalOperations noReplay @?= []
-        let updatedScope = ok (mkScopeDeclaration owner
-              [ResourceBundle [job] [] [] [] [migration (contentDigest "v2")] []])
+        let updatedScope =
+              ok
+                ( mkScopeDeclaration
+                    owner
+                    [ResourceBundle [job] [] [] [] [migration (contentDigest "v2")] []]
+                )
             updated = ok (composeInventory accepted (ReplaceScope updatedScope :| []))
             replay = ok (planChanges updated noLifecycleDecisions history missing)
-        assertBool "changed migration inputs were treated as proven"
+        assertBool
+          "changed migration inputs were treated as proven"
           (any ((== RunDeclaredOperation) . plannedAction) (proposalOperations replay))
     , testCase "reviewed execution converges and skips no completed operation" $ do
         store <- newMemoryStore
@@ -306,8 +528,10 @@ inventoryTransactionTests =
             candidate = ok (composeInventory snapshot changes)
             observations = ok (observationSet [])
         case planChanges candidate noLifecycleDecisions history observations of
-          Left errors -> assertBool "new planning did not refuse the unresolved transaction"
-            (any ((== "active-transaction") . planErrorCode) (NE.toList errors))
+          Left errors ->
+            assertBool
+              "new planning did not refuse the unresolved transaction"
+              (any ((== "active-transaction") . planErrorCode) (NE.toList errors))
           Right _ -> assertFailure "new planning admitted an unresolved transaction"
         resumed <- resumeTransaction store registry transaction >>= expectRight
         case resumed of Converged value -> value @?= transaction; other -> assertFailure (show other)
@@ -535,20 +759,22 @@ fixtureBinding :: ContextBinding
 fixtureBinding = ContextBinding (ok (mkContextId "context-1")) (ok (mkName "project"))
 
 member :: ScopeId -> ResourceId -> Text -> Declaration
-member owner cluster role = Managed ManagedResource
-  { identity = mintResourceId owner (ok (mkLogicalKey role)) (ok (mkName "resource"))
-  , owner = owner
-  , executor = KubernetesExecutor
-  , address = Kubernetes cluster "" (ok (mkName "configmap")) (Just (ok (mkName "system"))) (ok (mkName role))
-  , aliases = []
-  , spec = NativeObject (contentDigest (TE.encodeUtf8 role))
-  , lifecycle = Retain
-  , dataPolicy = Stateless
-  , sensitivity = Public
-  , dependencies = []
-  , delegations = []
-  , source = SourceLocation "test" role
-  }
+member owner cluster role =
+  Managed
+    ManagedResource
+      { identity = mintResourceId owner (ok (mkLogicalKey role)) (ok (mkName "resource"))
+      , owner = owner
+      , executor = KubernetesExecutor
+      , address = Kubernetes cluster "" (ok (mkName "configmap")) (Just (ok (mkName "system"))) (ok (mkName role))
+      , aliases = []
+      , spec = NativeObject (contentDigest (TE.encodeUtf8 role))
+      , lifecycle = Retain
+      , dataPolicy = Stateless
+      , sensitivity = Public
+      , dependencies = []
+      , delegations = []
+      , source = SourceLocation "test" role
+      }
 
 expectRight :: (Show e) => Either e a -> IO a
 expectRight result = case result of
