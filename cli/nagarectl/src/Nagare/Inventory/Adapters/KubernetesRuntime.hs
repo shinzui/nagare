@@ -17,6 +17,9 @@ module Nagare.Inventory.Adapters.KubernetesRuntime
   , certificateReady
   , knativeReady
   , materializeCredential
+  , materializeLocalObjectStoreCredential
+  , materializeLocalObjectStoreCredentialWith
+  , minioSourceData
   , credentialDataMatches
   , generatedCredentialTemplate
   , deploymentAvailable
@@ -102,7 +105,7 @@ mkKubernetesRuntimeOpsWithCacheKey config resolveCacheKey specs =
         Left reason -> pure (AdapterEffectAmbiguous ("cluster guard refused before Kubernetes write: " <> reason))
         Right () -> do
           materialized <- case mutationAction mutation of
-            CreateResource -> materializeCredential (mutationNativeJson mutation)
+            CreateResource -> materializeLocalObjectStoreCredential config (mutationNativeJson mutation)
             _ -> pure (Right (mutationNativeJson mutation))
           resolved <- case materialized of
             Left reason -> pure (Left reason)
@@ -328,6 +331,100 @@ materializeCredential native = case eitherDecodeStrict (TE.encodeUtf8 native) of
             unless (T.length password == 48) (Left "database credential generator returned an invalid password")
             fillCredential value dbName namespace engine password
 
+-- | The local object's first Secret gets fresh values only at create time.
+-- The second namespace receives those exact values after its reviewed
+-- prerequisite, without storing them in the review or a fixed manifest.
+materializeLocalObjectStoreCredential :: KubernetesRuntimeConfig -> Text -> IO (Either Text Text)
+materializeLocalObjectStoreCredential config = materializeLocalObjectStoreCredentialWith
+  (invoke config ["get", "secret", "nagare-minio-credentials", "-n", "nagare-system", "-o", "json"] "") config
+
+materializeLocalObjectStoreCredentialWith
+  :: IO (Either Text (ExitCode, String, String))
+  -> KubernetesRuntimeConfig -> Text -> IO (Either Text Text)
+materializeLocalObjectStoreCredentialWith readSource config native =
+  case eitherDecodeStrict (TE.encodeUtf8 native) of
+    Left (_ :: String) -> pure (Left "reviewed Kubernetes object is malformed")
+    Right value -> case minioCredentialKind value of
+      Left reason -> pure (Left reason)
+      Right Nothing -> materializeCredential native
+      Right (Just False) -> do
+        access <- generateAuthKey "AWS_ACCESS_KEY_ID"
+        secret <- generateAuthKey "AWS_SECRET_ACCESS_KEY"
+        pure (insertMinioData value =<< (KM.fromList <$> sequence [access, secret]))
+      Right (Just True) -> do
+        fetched <- readSource
+        pure $ do
+          (code, body, _) <- fetched
+          unless (code == ExitSuccess) (Left "local object-store source credential is unavailable")
+          source <- first (const "local object-store source credential is malformed")
+            (eitherDecodeStrict (TE.encodeUtf8 (T.pack body)))
+          expected <- minioCopySourceId value
+          fields <- minioSourceData config expected source
+          insertMinioData value fields
+
+insertMinioData :: Value -> KM.KeyMap Value -> Either Text Text
+insertMinioData (Object root) fields =
+  TE.decodeUtf8 <$> canonicalValue (Object (KM.insert "data" (Object fields) root))
+insertMinioData _ _ = Left "local object-store credential template is malformed"
+
+minioCredentialKind :: Value -> Either Text (Maybe Bool)
+minioCredentialKind value@(Object root) | KM.lookup "kind" root == Just (String "Secret") = do
+  metadata <- metadataOf value
+  annotations <- case KM.lookup "annotations" metadata of
+    Just (Object fields) -> Right fields
+    Nothing -> Right KM.empty
+    _ -> Left "local object-store credential annotations are malformed"
+  let primary = textAt "nagare.dev/minio-credential-template" annotations
+      copy = textAt "nagare.dev/minio-credential-copy" annotations
+  case (primary, copy) of
+    (Nothing, Nothing) -> Right Nothing
+    (Just "v1", Nothing) -> validate "nagare-system" False
+    (Nothing, Just "v1") -> validate "personal" True
+    _ -> Left "local object-store credential template is malformed"
+  where
+    validate expected copied = do
+      metadata <- metadataOf value
+      namespace <- fieldText "namespace" metadata
+      name <- fieldText "name" metadata
+      unless (namespace == expected && name == "nagare-minio-credentials"
+          && not (KM.member "data" root) && not (KM.member "stringData" root))
+        (Left "local object-store credential template has unexpected content")
+      pure (Just copied)
+minioCredentialKind _ = Right Nothing
+
+minioCopySourceId :: Value -> Either Text Text
+minioCopySourceId value = do
+  metadata <- metadataOf value
+  annotations <- case KM.lookup "annotations" metadata of
+    Just (Object fields) -> Right fields
+    _ -> Left "local object-store copy lacks source identity"
+  fieldText "nagare.dev/minio-source-resource-id" annotations
+
+minioSourceData :: KubernetesRuntimeConfig -> Text -> Value -> Either Text (KM.KeyMap Value)
+minioSourceData config expected source = do
+  metadata <- metadataOf source
+  name <- fieldText "name" metadata
+  namespace <- fieldText "namespace" metadata
+  annotations <- case KM.lookup "annotations" metadata of
+    Just (Object fields) -> Right fields
+    _ -> Left "local object-store source credential has no ownership stamps"
+  unless (name == "nagare-minio-credentials" && namespace == "nagare-system"
+      && textAt "nagare.dev/context-id" annotations == Just (contextIdText (runtimeContext config))
+      && textAt "nagare.dev/minio-credential-template" annotations == Just "v1"
+      && textAt "nagare.dev/resource-id" annotations == Just expected)
+    (Left "local object-store source credential is not owned by this context")
+  case source of
+    Object root -> case KM.lookup "data" root of
+      Just (Object fields) | validMinioData fields -> Right fields
+      _ -> Left "local object-store source credential lacks required data"
+    _ -> Left "local object-store source credential is malformed"
+
+validMinioData :: KM.KeyMap Value -> Bool
+validMinioData fields = Set.fromList (KM.keys fields) == Set.fromList
+  ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"]
+  && all (\case String encoded -> either (const False) (not . T.null) (b64decode encoded); _ -> False)
+    (KM.elems fields)
+
 generateAuthKey :: Text -> IO (Either Text (Key, Value))
 generateAuthKey key = do
   generated <- try (readProcessWithExitCode "openssl" ["rand", "-hex", "32"] "")
@@ -367,7 +464,8 @@ generatedCredentialTemplate native = do
   value <- first (T.pack . show) (eitherDecodeStrict (TE.encodeUtf8 native))
   auth <- authCredentialKind value
   database <- databaseCredentialKind value
-  pure (isJust auth || isJust database)
+  minio <- minioCredentialKind value
+  pure (isJust auth || isJust database || isJust minio)
 
 databaseCredentialKind :: Value -> Either Text (Maybe (Text, Text, Engine))
 databaseCredentialKind value = case value of
@@ -412,7 +510,14 @@ credentialDataMatches desired observed = case authCredentialKind desired of
   Right (Just keys) -> databaseCredentialKind desired == Right Nothing
     && dataMatches (Set.fromList (map Key.fromText keys)) observed
   Left _ -> False
-  Right Nothing -> databaseDataMatches desired observed
+  Right Nothing -> case minioCredentialKind desired of
+    Right (Just _) -> case observed of
+      Object root -> case KM.lookup "data" root of
+        Just (Object fields) -> validMinioData fields
+        _ -> False
+      _ -> False
+    Left _ -> False
+    Right Nothing -> databaseDataMatches desired observed
 
 databaseDataMatches :: Value -> Value -> Bool
 databaseDataMatches desired observed = case databaseCredentialKind desired of

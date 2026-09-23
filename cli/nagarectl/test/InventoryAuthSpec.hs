@@ -1,6 +1,10 @@
 module InventoryAuthSpec (inventoryAuthTests) where
 
-import Data.Aeson (object, (.=))
+import Data.Aeson (Value (..), eitherDecodeStrict, encode, object, (.=))
+import Data.ByteString.Char8 qualified as BC
+import Data.ByteString.Lazy qualified as LBS
+import Data.Aeson.KeyMap qualified as KM
+import Data.Text.Encoding qualified as TE
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
@@ -16,6 +20,12 @@ import Nagare.Inventory.Components.Foundation (FoundationInput (..), foundationN
 import Nagare.Inventory.Components.PackagedAuth (compilePackagedAuth, packagedAuthInputs)
 import Nagare.Inventory.Components.ControllerImage (controllerImageDeclaration)
 import Nagare.Inventory.Components.LocalObjectStore (compileLocalObjectStore)
+import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), credentialDataMatches, materializeLocalObjectStoreCredentialWith, minioSourceData, mkKubernetesRuntimeOps)
+import Nagare.Inventory.Adapters.Kubernetes (mkKubernetesAdapter)
+import Nagare.Inventory.Adapter (Adapter (..), AdapterExecution (AdapterEffectCompleted), OperationAction (CreateResource), PlannedOperation (..))
+import Nagare.Inventory.Journal (mkOperationId)
+import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Resource.Policy (RecoveryClass (Idempotent))
 import Nagare.Inventory.Components.Observability (PackagedHelmInput (..), compilePinnedObservability, pinnedObservabilityInputs)
 import Nagare.Inventory.Components.ObservabilityExtras (compileObservabilityExtras)
 import Nagare.Inventory.Components.ObservabilitySecrets (compileObservabilitySecrets)
@@ -27,6 +37,11 @@ import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Test.Tasty
 import Test.Tasty.HUnit
+import System.Exit (ExitCode (..))
+import System.Environment (lookupEnv)
+import System.Process (readProcessWithExitCode)
+import Control.Exception (finally)
+import Control.Monad (forM_)
 
 inventoryAuthTests :: TestTree
 inventoryAuthTests = testGroup "auth inventory component"
@@ -127,6 +142,123 @@ inventoryAuthTests = testGroup "auth inventory component"
             "nagare-backups" "nagare-minio-credentials"
       (scope, native) <- compileLocalObjectStore "../.." foundation store >>= expectRight
       Map.size native @?= 5
+      let credentials = [(resource, bytes) | (resource, bytes) <- Map.elems native,
+            case resource ^. #address of
+              Kubernetes _ "" kind _ name ->
+                nameText kind == "secret" && nameText name == "nagare-minio-credentials"
+              _ -> False]
+      length credentials @?= 2
+      assertBool "fixed MinIO credential leaked into reviewed native bytes"
+        (all (not . BC.isInfixOf "minioadmin" . snd) credentials)
+      let primary = [(resource, bytes) | (resource, bytes) <- credentials,
+            case resource ^. #address of
+              Kubernetes _ _ _ (Just namespaceName) _ -> nameText namespaceName == "nagare-system"
+              _ -> False]
+      [(primaryResource, primaryBytes)] <- pure primary
+      let config = KubernetesRuntimeConfig (ok (mkContextId "local-minio-fixture"))
+            "unused" (pure (Right ()))
+      materialized <- materializeLocalObjectStoreCredentialWith
+        (pure (Left "primary credential must not read Kubernetes")) config (TE.decodeUtf8 primaryBytes)
+        >>= either (assertFailure . T.unpack) pure
+      let reviewed = eitherDecodeStrict primaryBytes :: Either String Value
+          created = eitherDecodeStrict (TE.encodeUtf8 materialized) :: Either String Value
+      credentialDataMatches (either (error . show) id reviewed)
+        (either (error . show) id created) @?= True
+      let source = object
+            [ "apiVersion" .= ("v1" :: T.Text)
+            , "kind" .= ("Secret" :: T.Text)
+            , "type" .= ("Opaque" :: T.Text)
+            , "metadata" .= object
+                [ "name" .= ("nagare-minio-credentials" :: T.Text)
+                , "namespace" .= ("nagare-system" :: T.Text)
+                , "annotations" .= object
+                    [ "nagare.dev/context-id" .= contextIdText (runtimeContext config)
+                    , "nagare.dev/resource-id" .= resourceIdText (primaryResource ^. #identity)
+                    , "nagare.dev/minio-credential-template" .= ("v1" :: T.Text)
+                    ]
+                ]
+            , "data" .= object
+                [ "AWS_ACCESS_KEY_ID" .= ("dXNlcg==" :: T.Text)
+                , "AWS_SECRET_ACCESS_KEY" .= ("cGFzcw==" :: T.Text)
+                ]
+            ]
+      assertBool "owned MinIO source Secret was rejected"
+        (case minioSourceData config (resourceIdText (primaryResource ^. #identity)) source of
+          Right _ -> True; Left _ -> False)
+      assertBool "foreign MinIO source identity was accepted"
+        (case minioSourceData config "foreign-resource" source of
+          Left _ -> True; Right _ -> False)
+      let personal = [bytes | (resource, bytes) <- credentials,
+            case resource ^. #address of
+              Kubernetes _ _ _ (Just namespaceName) _ -> nameText namespaceName == "personal"
+              _ -> False]
+      [personalBytes] <- pure personal
+      let fetch = pure (Right (ExitSuccess, T.unpack (TE.decodeUtf8 (LBS.toStrict (encode source))), ""))
+      copied <- materializeLocalObjectStoreCredentialWith fetch config (TE.decodeUtf8 personalBytes)
+        >>= either (assertFailure . T.unpack) pure
+      case eitherDecodeStrict (TE.encodeUtf8 copied) of
+        Right (Object fields) -> KM.lookup "data" fields @?= case source of
+          Object sourceFields -> KM.lookup "data" sourceFields
+          _ -> Nothing
+        other -> assertFailure ("copied MinIO credential is malformed: " <> show other)
+      selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
+      case selected of
+        Nothing -> pure ()
+        Just selectedContext -> do
+          assertBool "refusing a non-disposable Kubernetes context"
+            ("k3d-nagare-inventory-" `T.isPrefixOf` T.pack selectedContext)
+          let kubectl args input = readProcessWithExitCode "kubectl"
+                (["--context", selectedContext] <> args) input
+              liveConfig = config {runtimeKubectlContext = T.pack selectedContext}
+          forM_ ["nagare-system", "personal"] $ \namespaceName -> do
+            (existingCode, existingNamespace, _) <- kubectl
+              ["get", "namespace", namespaceName, "-o", "name", "--ignore-not-found"] ""
+            existingCode @?= ExitSuccess
+            assertBool "disposable test namespace is already in use" (null existingNamespace)
+          (namespaceCode, _, namespaceError) <- kubectl ["create", "namespace", "nagare-system"] ""
+          assertBool namespaceError (namespaceCode == ExitSuccess)
+          (do
+            (personalCode, _, personalError) <- kubectl ["create", "namespace", "personal"] ""
+            assertBool personalError (personalCode == ExitSuccess)
+            let specifications = Map.fromList [(resource ^. #identity, (resource, bytes)) | (resource, bytes) <- credentials]
+                adapter = mkKubernetesAdapter specifications (mkKubernetesRuntimeOps liveConfig specifications)
+                createSecret rid = do
+                  let operationName = if rid == primaryResource ^. #identity
+                        then "op-minio-primary" else "op-minio-copy"
+                      operation = PlannedOperation (ok (mkOperationId operationName))
+                        CreateResource KubernetesExecutor (rid :| []) (contentDigest "local-minio-secret") [] Idempotent
+                  prepared <- adapterPrepare adapter operation >>= expectRight
+                  adapterPreflight adapter operation prepared >>= expectRight
+                  adapterExecute adapter operation prepared >>= (@?= AdapterEffectCompleted)
+                  _ <- adapterVerify adapter operation prepared >>= expectRight
+                  pure ()
+            createSecret (primaryResource ^. #identity)
+            case [(resource, bytes) | (resource, bytes) <- credentials,
+                  case resource ^. #address of
+                    Kubernetes _ _ _ (Just namespaceName) _ -> nameText namespaceName == "personal"
+                    _ -> False] of
+              [(personalResource, _)] -> createSecret (personalResource ^. #identity)
+              _ -> assertFailure "personal MinIO Secret is missing"
+            (primaryCode, primaryOutput, primaryError) <- kubectl
+              ["get", "secret", "nagare-minio-credentials", "-n", "nagare-system", "-o", "json"] ""
+            assertBool primaryError (primaryCode == ExitSuccess)
+            (copyCode, copyOutput, copyError) <- kubectl
+              ["get", "secret", "nagare-minio-credentials", "-n", "personal", "-o", "json"] ""
+            assertBool copyError (copyCode == ExitSuccess)
+            let observedData body = case eitherDecodeStrict (BC.pack body) of
+                  Right (Object fields) -> KM.lookup "data" fields
+                  _ -> Nothing
+            observedData copyOutput @?= observedData primaryOutput)
+            `finally` do
+              _ <- kubectl ["delete", "namespace", "nagare-system", "personal", "--wait=false"] ""
+              pure ()
+      assertBool "personal MinIO Secret lacks a dependency on generated primary"
+        (any (\(resource, bytes) -> case resource ^. #address of
+          Kubernetes _ "" kind (Just namespaceName) _ ->
+            nameText kind == "secret" && nameText namespaceName == "personal"
+              && OrderedAfter (primaryResource ^. #identity) `elem` resource ^. #dependencies
+              && BC.isInfixOf (BC.pack (T.unpack (resourceIdText (primaryResource ^. #identity)))) bytes
+          _ -> False) credentials)
       assertBool "MinIO scope omitted the bucket Job"
         (any (\(resource, _) -> case resource ^. #address of
           Kubernetes _ "batch" kind _ name -> nameText kind == "job" && nameText name == "minio-make-bucket"
