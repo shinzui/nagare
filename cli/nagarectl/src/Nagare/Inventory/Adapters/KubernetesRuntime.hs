@@ -94,6 +94,10 @@ mkKubernetesRuntimeOpsWithCacheKey config resolveCacheKey specs =
                 ""
               case result of
                 Left reason -> pure (KubernetesUnknown reason)
+                -- Before bootstrap installs a CRD, the API server can prove
+                -- that no instance of its kind is currently addressable.
+                -- Other get failures remain unknown, including authorization
+                -- and transport failures.
                 Right (ExitFailure _, _, errors)
                   | "the server doesn't have a resource type" `T.isInfixOf` T.pack errors ->
                       pure (KubernetesAbsent (contentDigest (TE.encodeUtf8 (resourceIdText resource <> ":absent"))))
