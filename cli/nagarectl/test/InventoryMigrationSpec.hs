@@ -18,6 +18,7 @@ import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTr
 import Nagare.Inventory.Journal (operationIdText)
 import Nagare.Inventory.Migration
 import Nagare.Inventory.Plan
+import Nagare.Inventory.Status qualified as Status
 import Nagare.Inventory.Store
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
@@ -58,6 +59,10 @@ inventoryMigrationTests = testGroup "inventory migration"
             bundleValue <- scopeBundles scopeValue, Managed resource <- declarations bundleValue]
       newResource `elem` active @?= True
       headActiveTransaction (historyHead after) @?= Nothing
+      let sourceFacts = ok (observationSet [(resourceId, ObservedPresent physical)])
+          collection = Status.assessCollections after (candidateInventory candidate) sourceFacts
+      assertBool "active destination failed to block source collection"
+        (any (elem "active-incarnation" . Status.collectionReasons) collection)
       let acceptedHead = historyHead after
           unproved = acceptedHead
             { headGeneration = headGeneration acceptedHead + 1

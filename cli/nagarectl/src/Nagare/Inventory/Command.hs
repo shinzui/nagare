@@ -255,6 +255,15 @@ planInventoryMigrationWith sourceRegistryFor destinationRegistryFor target input
     (decideMigration candidate proposalInput history destinations incarnationFacts)
   proposal <- either (dieText . showText . NE.toList) pure
     (planChanges candidate decisions history destinations)
+  -- A source executor absent from the desired candidate can otherwise fall
+  -- back to manifest-only preparation. Its fabricated accepted observation
+  -- must never become native migration evidence in a published review.
+  forM_ (proposalOperations proposal) $ \operation -> case plannedAction operation of
+    MigrateResource _ -> do
+      adapter <- either dieText pure (lookupAdapter destinationRegistry (plannedExecutor operation))
+      when (adapterIdentity adapter == "manifest-only")
+        (dieText "migration stage lacks an installed native provider adapter")
+    _ -> pure ()
   snapshot <- readStoreSnapshot store >>= either (dieText . showText) pure
   bundle <- prepareReview destinationRegistry snapshot proposal
     >>= either (dieText . showText . NE.toList) pure
