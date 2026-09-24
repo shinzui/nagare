@@ -10,6 +10,7 @@ module Nagare.Inventory.Application
 import Data.Aeson (Value)
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
+import Data.List (find)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -28,7 +29,7 @@ import Nagare.Inventory.Database (compileDatabaseForBackend)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Resource.Application (applicationScopeId, deploymentResourceId, domainMappingResourceId, volumeResourceId, workerResourceId)
-import Nagare.Resource.Database (DatabaseDirectInput (..))
+import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
 import Nagare.Resource.Policy (DataPolicy (..), LifecyclePolicy (..), Sensitivity (Private))
@@ -36,6 +37,21 @@ import Nagare.Resource.Policy (RecoveryIntent)
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
+
+-- | A workload may refer only to databases declared in this application.
+-- Ordering it after the StatefulSet records the typed lifecycle edge, while
+-- the database builder owns the lower-level credential and PVC prerequisites.
+databaseDependencies
+  :: Application -> ScopeId -> [DatabaseName]
+  -> (T.Text -> NonEmpty InventoryError)
+  -> Either (NonEmpty InventoryError) [ResourceId]
+databaseDependencies app owner names invalid = traverse resolve names
+  where
+    resolve dbName = do
+      database <- maybe (Left (invalid ("undeclared application database: " <> databaseNameText dbName))) Right
+        (find ((== dbName) . (^. #name)) (app ^. #databases))
+      role <- first invalid (mkName "statefulset")
+      first invalid (databaseResourceId owner role database)
 
 -- | Compile each application worker's PVCs and Deployment from one render.
 -- Recovery is keyed by the generated volume ResourceId so an unrelated
@@ -47,6 +63,7 @@ compileApplicationWorkers
   -> Either (NonEmpty InventoryError)
        ([ResourceBundle], Map ResourceId (ManagedResource, ByteString))
 compileApplicationWorkers app rollout cluster namespaceId imageId recoveryById source = do
+  _ <- first invalid (mkApplication app)
   owner <- first invalid (applicationScopeId app)
   compiled <- traverse (compileWorker owner) (app ^. #workers)
   let bundles = map fst compiled
@@ -60,6 +77,9 @@ compileApplicationWorkers app rollout cluster namespaceId imageId recoveryById s
       & #sources .~ [source])
     single errorValue = errorValue :| []
     compileWorker owner worker = do
+      unless (null (worker ^. #brokers))
+        (Left (invalid "worker broker bindings require typed broker dependencies"))
+      databasePrerequisites <- databaseDependencies app owner (worker ^. #databases) invalid
       workerKey <- maybe (first invalid (mkLogicalKey (serviceNameText (worker ^. #name)))) Right
         (worker ^. #logicalKey)
       volumeRole <- first invalid (mkName ("worker-" <> logicalKeyText workerKey <> "-pvc"))
@@ -77,7 +97,7 @@ compileApplicationWorkers app rollout cluster namespaceId imageId recoveryById s
       let volumeIds = map ((^. #identity) . fst) volumeMembers
           workerSource = source {path = path source <> "/worker/" <> serviceNameText (worker ^. #name)}
       workerMember@(declaration, _) <- bindOne owner workerId DeleteWhenUnreferenced Stateless
-        (map OrderedAfter (namespaceId : imageId : volumeIds)) workerSource workerBytes
+        (map OrderedAfter (namespaceId : imageId : volumeIds <> databasePrerequisites)) workerSource workerBytes
       expected <- first invalid (kubernetesAddress cluster "apps/v1" "Deployment"
         (Just (rollout ^. #namespace)) (serviceNameText (worker ^. #name)))
       unless (declaration ^. #address == expected)
@@ -134,8 +154,12 @@ compileApplicationService
   -> Either (NonEmpty InventoryError)
        (ResourceBundle, Map ResourceId (ManagedResource, ByteString))
 compileApplicationService app rollout cluster namespaceId imageId recoveryByVolume source = do
+  _ <- first invalid (mkApplication app)
   owner <- first invalid (applicationScopeId app)
   service <- maybe (Left (invalid "application has no web service")) Right (app ^. #service)
+  unless (null (service ^. #brokers))
+    (Left (invalid "service broker bindings require typed broker dependencies"))
+  databasePrerequisites <- databaseDependencies app owner (service ^. #databases) invalid
   unless (all ((== AutomaticTls) . (^. #tls)) (service ^. #domains))
     (Left (invalid "supplied TLS domain requires a typed secret dependency"))
   resource <- first invalid (deploymentResourceId owner (known "service") service)
@@ -154,7 +178,7 @@ compileApplicationService app rollout cluster namespaceId imageId recoveryByVolu
   volumeMembers <- traverse (compileVolume owner service) (zip volumes (map snd volumeRendered))
   let volumeIds = map ((^. #identity) . fst) volumeMembers
   serviceMember <- bindOne owner resource DeleteWhenUnreferenced Stateless
-    (map OrderedAfter (namespaceId : imageId : volumeIds)) source serviceBytes
+    (map OrderedAfter (namespaceId : imageId : volumeIds <> databasePrerequisites)) source serviceBytes
   domainMembers <- traverse (compileDomain owner resource) (zip domains (map snd domainRendered))
   let members = volumeMembers <> [serviceMember] <> domainMembers
       declarations = [Managed declaration | (declaration, _) <- members]

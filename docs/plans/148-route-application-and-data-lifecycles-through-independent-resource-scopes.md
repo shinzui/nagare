@@ -45,6 +45,7 @@ Every supported application-side mutation is either a desired-scope update, a re
 - [x] (2026-09-24) M1 partial: Service PVCs compile as separate native members with explicit durable recovery or throwaway policy, and the service waits on them.
 - [x] (2026-09-24) M1 partial: Automatic-TLS DomainMappings compile as distinct native members with exact hostname claims and service ordering; supplied TLS refuses pending a typed Secret dependency.
 - [x] (2026-09-24) M1 partial: Workers have optional stable logical keys and compile as independently identified Deployment/PVC members in the application scope, with namespace/image/PVC ordering and explicit recovery for retained PVCs.
+- [x] (2026-09-24) M1 partial: Application services and workers now order after their declared database StatefulSets; broker bindings refuse until their typed dependencies exist.
 - [ ] M1: Compile applications and standalone services into complete scopes.
 - [ ] M2: Integrate shared-owner contributions, environment intent, and publication.
 - [ ] M3: Route operational and data lifecycle commands through reviewed operations.

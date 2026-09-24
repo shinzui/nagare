@@ -24,8 +24,10 @@ import Data.Yaml qualified as Yaml
 import Nagare.App.Deploy
 import Nagare.Inventory.Application (compileApplicationService, compileApplicationWorkers)
 import Nagare.Resource.Application (applicationScopeId, volumeResourceId)
+import Nagare.Resource.Database (databaseResourceId)
 import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (Managed), ManagedResource (..), DesiredSpec (KnativeService))
 import Nagare.Resource.Policy (RecoveryIntent (..), mkSecretRef)
+import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Dsl.Load (loadApplication)
 import Nagare.Dsl.Prelude
@@ -172,6 +174,14 @@ renderTests =
       length bundles @?= 3
       Map.size native @?= 3
       owner <- either (fail . show) pure (applicationScopeId app)
+      database <- case app ^. #databases of
+        firstDatabase : _ -> pure firstDatabase
+        [] -> assertFailure "fixture has no database" >> fail "missing database"
+      databaseId <- either (fail . T.unpack) pure
+        (databaseResourceId owner (unsafe (Resource.mkName "statefulset")) database)
+      assertBool "workers wait for their declared database"
+        (all (elem (OrderedAfter databaseId) . (^. #dependencies))
+          [member | bundle <- bundles, Managed member <- declarations bundle])
       worker <- case app ^. #workers of
         firstWorker : _ -> pure firstWorker
         [] -> assertFailure "fixture has no worker" >> fail "missing worker"
