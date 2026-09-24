@@ -25,6 +25,8 @@ import Nagare.Dsl.Build
 import Nagare.Dsl.Config (encodeBroker, encodeDatabase, encodeDeployment, encodeTask)
 import Nagare.Dsl.Database
 import Nagare.Resource.Database (DatabaseDirectInput (..), compileDatabaseBundle, compileDatabaseDirect, databaseResourceId)
+import Nagare.Resource.Application (deploymentResourceId, volumeResourceId)
+import Nagare.Resource.Broker (brokerResourceId)
 import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (..), ManagedResource (..))
 import Nagare.Resource.Policy (DataPolicy (..), LifecyclePolicy (DeleteWhenUnreferenced), RecoveryIntent (..), Sensitivity (..), mkSecretRef)
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
@@ -407,6 +409,7 @@ helloDep :: Deployment
 helloDep =
   Deployment
     { name = unsafe (mkServiceName "hello")
+    , logicalKey = Nothing
     , namespace = unsafe (mkNamespace "personal")
     , image = unsafe (mkImageRef "gcr.io/knative-samples/helloworld-go")
     , build = unsafe defaultBuild
@@ -438,6 +441,7 @@ redpandaBroker :: Broker
 redpandaBroker =
   Broker
     { name = unsafe (mkBrokerName "events")
+    , logicalKey = Nothing
     , provider = Redpanda
     , version = unsafe (mkBrokerVersion Redpanda "v26.1.8")
     , namespace = unsafe (mkNamespace "personal")
@@ -458,6 +462,7 @@ largeRedpandaBroker :: Broker
 largeRedpandaBroker =
   Broker
     { name = unsafe (mkBrokerName "events")
+    , logicalKey = Nothing
     , provider = Redpanda
     , version = unsafe (mkBrokerVersion Redpanda "v26.1.8")
     , namespace = unsafe (mkNamespace "personal")
@@ -520,6 +525,13 @@ brokerTests =
       "JSON round-trip and kind discrimination"
       [ testCase "broker survives emit -> decode round-trip" $
           decodeBroker (toStrict (encodeBroker redpandaBroker)) @?= Right redpandaBroker
+      , testCase "broker logical key survives a provider name change" $ do
+          let keyed = redpandaBroker & #logicalKey .~ Just (unsafe (mkLogicalKey "event-stream"))
+              renamed = keyed & #name .~ unsafe (mkBrokerName "events-new")
+              owner = unsafe (mkScopeId Standalone "events")
+              role = unsafe (mkName "broker")
+          decodeBroker (toStrict (encodeBroker renamed)) @?= Right renamed
+          brokerResourceId owner role keyed @?= brokerResourceId owner role renamed
       , testCase "loadBroker redpanda fixture returns Right redpandaBroker" $ do
           result <- loadBroker "test/fixtures/broker/redpanda/nagare/Config.hs"
           case result of
@@ -829,6 +841,18 @@ volumeTests =
       length (volumes volumeDep) @?= 1
   , testCase "deployment with a volume survives emit -> decode round-trip" $
       decodeDeployment (toStrict (encodeDeployment volumeDep)) @?= Right volumeDep
+  , testCase "deployment and volume logical keys survive JSON round-trip" $ do
+      let keyed = volumeDep
+            & #logicalKey .~ Just (unsafe (mkLogicalKey "front-end"))
+            & #volumes . traverse . #logicalKey .~ Just (unsafe (mkLogicalKey "data-store"))
+      decodeDeployment (toStrict (encodeDeployment keyed)) @?= Right keyed
+      let owner = unsafe (mkScopeId Application "hello")
+          serviceRole = unsafe (mkName "service")
+          volumeRole = unsafe (mkName "volume")
+          renamed = keyed & #name .~ unsafe (mkServiceName "hello-new")
+          renamedVolume = head (renamed ^. #volumes) & #name .~ unsafe (mkVolumeName "data-new")
+      deploymentResourceId owner serviceRole keyed @?= deploymentResourceId owner serviceRole renamed
+      volumeResourceId owner volumeRole (head (keyed ^. #volumes)) @?= volumeResourceId owner volumeRole renamedVolume
   , testCase "duplicate volume name rejected as MarshalError volumes" $
       case decodeDeployment
         (jsonWithVolumes "[{\"name\":\"d\",\"size\":\"1Gi\",\"mountPath\":\"/a\"},{\"name\":\"d\",\"size\":\"1Gi\",\"mountPath\":\"/b\"}]") of

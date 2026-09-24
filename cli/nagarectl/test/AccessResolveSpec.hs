@@ -167,6 +167,7 @@ demoDep :: [DomainSpec] -> Deployment
 demoDep domains =
   Deployment
     { name = notes
+    , logicalKey = Nothing
     , namespace = personal
     , image = unsafe (mkImageRef "us-west1-docker.pkg.dev/tan-nb-exp/nagare/notes")
     , build = unsafe defaultBuild

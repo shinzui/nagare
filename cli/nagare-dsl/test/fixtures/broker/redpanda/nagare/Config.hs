@@ -15,6 +15,7 @@ broker :: Broker
 broker =
   Broker
     { name = unsafe (mkBrokerName "events")
+    , logicalKey = Nothing
     , provider = Redpanda
     , version = unsafe (mkBrokerVersion Redpanda "v26.1.8")
     , namespace = unsafe (mkNamespace "personal")

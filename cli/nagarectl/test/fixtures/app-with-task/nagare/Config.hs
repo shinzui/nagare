@@ -58,6 +58,7 @@ dep = first show $ do
   pure
     Deployment
       { name = name
+      , logicalKey = Nothing
       , namespace = ns
       , image = img
       , build = bld

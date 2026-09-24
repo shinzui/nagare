@@ -52,6 +52,7 @@ import Data.Text qualified as Text
 import Nagare.Dsl.Broker.Types
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (Namespace, Quantity, Resources, mkQuantity)
+import Nagare.Resource.Types (LogicalKey)
 
 data BrokerProvider = Redpanda | Tansu
   deriving stock (Generic, Eq, Ord, Show, Enum, Bounded)
@@ -157,6 +158,7 @@ mkBrokerTopic name partitions replicationFactor retentionMs
 
 data Broker = Broker
   { name :: !BrokerName
+  , logicalKey :: !(Maybe LogicalKey)
   , provider :: !BrokerProvider
   , version :: !BrokerVersion
   , namespace :: !Namespace

@@ -99,7 +99,8 @@ notesVolApp =
   notesApp
     & #volumes
     .~ [ Volume
-           { name = unsafe (mkVolumeName "uploads")
+           { logicalKey = Nothing
+           , name = unsafe (mkVolumeName "uploads")
            , size = unsafe (mkQuantity "2Gi")
            , mountPath = unsafe (mkMountPath "/data/uploads")
            , accessMode = ReadWriteOnce

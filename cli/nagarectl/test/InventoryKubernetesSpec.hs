@@ -27,6 +27,7 @@ import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), cacheClientDataMatches, certificateReady, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, credentialDataMatches, deploymentAvailable, deploymentSelectorReplacement, desiredFieldsMatch, generatedCredentialTemplate, jobCompleted, knativeReady, materializeCacheKey, materializeCredential, mkKubernetesRuntimeOps, observeCacheClientOutput, parseObserved, readinessForAddress, statefulSetImmutableReplacement, statefulSetReady, supportedUpdateAddress, withoutCacheClientData)
 import Nagare.Inventory.Database (compileDatabaseForBackend, compileDatabaseNative, compileDatabaseNativeWithBackup)
+import Nagare.Inventory.DataService (compileStandaloneDatabase)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Components.Foundation (compileContributedNamespaces)
 import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
@@ -371,6 +372,21 @@ inventoryKubernetesTests =
         assertBool "backup native member omitted" (any (\(member, _) -> case address member of
           Kubernetes _ "batch" kind _ _ -> nameText kind == "cronjob"
           _ -> False) (Map.elems bound))
+    , testCase "standalone database owns its complete scoped bundle" $ do
+        let owner = ok (mkScopeId Standalone "pg-main")
+            db = Database (ok (mkDatabaseName "pg-main")) Nothing Postgres (defaultEngineVersion Postgres)
+              (ok (Dsl.mkNamespace "personal")) (ok (Dsl.mkQuantity "10Gi")) Nothing Dsl.Retain
+            recovery = RecoveryIntent (ok (mkName "backup"))
+              (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
+            direct = DatabaseDirectInput db owner cluster Nothing recovery (SourceLocation "database" "standalone")
+            backend = GcsBackend "project" "bucket"
+            (declaration, native) = ok (compileStandaloneDatabase direct backend)
+        scopeId declaration @?= owner
+        length (concatMap declarations (scopeBundles declaration)) @?= 5
+        Map.size native @?= 5
+        case compileStandaloneDatabase (direct {directOwnerScope = scope}) backend of
+          Left (err :| _) -> code err @?= "wrong-data-scope"
+          Right _ -> assertFailure "platform scope was accepted for standalone database"
     , testCase "desired projection ignores server fields but detects changed desired data" $ do
         let desired = object
               [ "metadata" .= object ["name" .= ("config" :: Text)]

@@ -17,6 +17,11 @@ provenance:
       at: 2026-09-17T04:04:49Z
       mode: "update"
       note: "Cascaded consequences of MasterPlan 23 API validation"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-24T15:13:26Z
+      mode: "implement"
+      note: "Begin application and standalone data scope compilation"
 ---
 
 # Route application and data lifecycles through independent resource scopes
@@ -33,6 +38,7 @@ Every supported application-side mutation is either a desired-scope update, a re
 
 ## Progress
 
+- [x] (2026-09-24) M1 partial: Deployment, Broker, and Volume carry optional validated logical keys through config emission/loading; stable resource-ID helpers and a complete standalone database scope compiler are covered by DSL and operator tests.
 - [ ] M1: Compile applications and standalone services into complete scopes.
 - [ ] M2: Integrate shared-owner contributions, environment intent, and publication.
 - [ ] M3: Route operational and data lifecycle commands through reviewed operations.
@@ -41,7 +47,7 @@ Every supported application-side mutation is either a desired-scope update, a re
 
 ## Surprises & Discoveries
 
-None yet; implementation has not started.
+2026-09-24: The existing database builder already binds all five retained-database members, including the credential template and backup CronJob, to canonical native bytes. A standalone database scope can wrap this builder without reconstructing database flags. The current application deploy still renders databases from the old four-object path, so application compilation and command routing remain open. Existing config literals must initialize the new optional keys explicitly because their records have strict fields.
 
 
 ## Decision Log
@@ -55,7 +61,7 @@ None yet; implementation has not started.
 
 ## Outcomes & Retrospective
 
-Not implemented. Record scope-isolation and complete mutation-coverage evidence at completion.
+In progress. Stable identity inputs and a standalone database scope compiler are present; application compilation, command migration, scope-isolation proof, and complete mutation coverage remain open.
 
 
 ## Context and Orientation

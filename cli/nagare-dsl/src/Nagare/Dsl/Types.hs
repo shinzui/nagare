@@ -122,6 +122,7 @@ import Nagare.Dsl.Broker.Types (BrokerBinding)
 import Nagare.Dsl.Build (BuildSpec)
 import Nagare.Dsl.Cdn.Types (Cdn)
 import Nagare.Dsl.Prelude
+import Nagare.Resource.Types (LogicalKey)
 import {-# SOURCE #-} Nagare.Dsl.Task (Task)
 
 -- | A Kubernetes / RFC 1123 DNS label used as the Knative Service name.
@@ -635,6 +636,7 @@ data RetentionPolicy = Retain | Delete
 -- invariant enforced at load time (see 'Nagare.Dsl.Load'), not here.
 data Volume = Volume
   { name :: !VolumeName
+  , logicalKey :: !(Maybe LogicalKey)
   , size :: !Quantity
   , mountPath :: !MountPath
   , accessMode :: !AccessMode
@@ -649,6 +651,7 @@ data Volume = Volume
 -- types, not from hiding this record.
 data Deployment = Deployment
   { name :: !ServiceName
+  , logicalKey :: !(Maybe LogicalKey)
   , namespace :: !Namespace
   , image :: !ImageRef
   , build :: !BuildSpec

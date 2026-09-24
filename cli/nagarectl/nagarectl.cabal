@@ -117,6 +117,7 @@ library
     Nagare.Inventory.Components.PackagedCache
     Nagare.Inventory.Components.Upstream
     Nagare.Inventory.Database
+    Nagare.Inventory.DataService
     Nagare.Inventory.Digest
     Nagare.Inventory.Execute
     Nagare.Inventory.HelmReview

@@ -73,7 +73,7 @@ encodeBroker = encode . brokerJSON
 
 brokerJSON :: Broker -> Value
 brokerJSON broker =
-  object
+  object $
     [ "kind" .= ("Broker" :: Text)
     , "name" .= brokerNameText (broker ^. #name)
     , "provider" .= brokerProviderToken (broker ^. #provider)
@@ -88,6 +88,7 @@ brokerJSON broker =
     , "redpandaMemory" .= quantityText (broker ^. #sizing . #memory)
     , "topics" .= map topicJSON (broker ^. #topics)
     ]
+      <> maybe [] (\key -> ["logicalKey" .= logicalKeyText key]) (broker ^. #logicalKey)
   where
     res = broker ^. #sizing . #resources
 
@@ -249,7 +250,7 @@ jobJSON job =
 -- and @retention@ are the 'Show'-style enum tokens.
 volumeJSON :: Volume -> Value
 volumeJSON v =
-  object
+  object $
     [ "name" .= volumeNameText (v ^. #name)
     , "size" .= quantityText (v ^. #size)
     , "mountPath" .= mountPathText (v ^. #mountPath)
@@ -257,6 +258,7 @@ volumeJSON v =
     , "readOnly" .= (v ^. #readOnly)
     , "retention" .= retentionToken (v ^. #retention)
     ]
+      <> maybe [] (\key -> ["logicalKey" .= logicalKeyText key]) (v ^. #logicalKey)
   where
     accessModeToken ReadWriteOnce = "ReadWriteOnce" :: Text
     retentionToken Retain = "Retain" :: Text
@@ -443,6 +445,7 @@ deploymentJSON dep =
     , "access" .= fmap accessPolicyJSON (dep ^. #access)
     , "tasks" .= map taskJSON (sortOn (^. #name) (dep ^. #tasks))
     ]
+      <> maybe [] (\key -> ["logicalKey" .= logicalKeyText key]) (dep ^. #logicalKey)
       <> maybe [] (\c -> ["cdn" .= cdnJSON c]) (dep ^. #cdn)
   where
     resources = dep ^. #resources

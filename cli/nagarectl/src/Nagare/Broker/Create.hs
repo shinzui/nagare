@@ -65,6 +65,7 @@ buildBroker provider nameT params = do
   Right
     Broker
       { name = name'
+      , logicalKey = Nothing
       , provider = provider
       , version = version'
       , namespace = namespace'

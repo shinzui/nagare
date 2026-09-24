@@ -91,6 +91,11 @@ provenance:
       at: 2026-09-24T14:21:55Z
       mode: "implement"
       note: "Complete EP-149 provider-independent lifecycle and update dependent plan gates"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-24T15:13:26Z
+      mode: "implement"
+      note: "Begin EP-148 application and data scope migration"
 ---
 
 # Make managed resources first-class through typed scoped inventories
@@ -132,7 +137,7 @@ Rejected alternatives were isolated platform/application inventories without sha
 | 145 | Persist reviewed resource plans and resumable execution receipts | docs/plans/145-persist-reviewed-resource-plans-and-resumable-execution-receipts.md | EP-144 | None | Complete |
 | 146 | Reconcile cloud host and artifact resources through inventory adapters | docs/plans/146-reconcile-cloud-host-and-artifact-resources-through-inventory-adapters.md | EP-144, EP-145 | EP-149 | Complete |
 | 147 | Compile cluster bootstrap into owned resource components | docs/plans/147-compile-cluster-bootstrap-into-owned-resource-components.md | EP-144, EP-145 | EP-146, EP-149 | Complete |
-| 148 | Route application and data lifecycles through independent resource scopes | docs/plans/148-route-application-and-data-lifecycles-through-independent-resource-scopes.md | EP-146, EP-147, EP-149 | EP-151 | Not Started |
+| 148 | Route application and data lifecycles through independent resource scopes | docs/plans/148-route-application-and-data-lifecycles-through-independent-resource-scopes.md | EP-146, EP-147, EP-149 | EP-151 | In Progress |
 | 149 | Explain drift and execute reviewed adoption migration and retirement | docs/plans/149-explain-drift-and-execute-reviewed-adoption-migration-and-retirement.md | EP-144, EP-145 | EP-146, EP-147 | Complete |
 | 150 | Integrate resource inventories into upgrades and release verification | docs/plans/150-integrate-resource-inventories-into-upgrades-and-release-verification.md | EP-146, EP-147, EP-148, EP-149, EP-151 | None | Not Started |
 | 151 | Store inventory history in the context state bucket with conditional writes | docs/plans/151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes.md | EP-145 | EP-146 | Complete |
@@ -280,6 +285,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-23) EP-151 M2: Object-backed store passed the shared conformance suite against fake and real GCS operations.
 - [x] (2026-09-23) EP-151 M3: Context selection, guarded opening, and resumable migration.
 - [x] (2026-09-23) EP-151 M4: Live two-state-root migration, documentation, and ADR 13/22 amendments.
+- [x] (2026-09-24) EP-148 M1 partial: Stable logical keys and native-backed standalone database scope compiler.
 - [ ] EP-148 M1: Complete application/data scopes.
 - [ ] EP-148 M2: Shared contributions, env/secret intent, and publication.
 - [ ] EP-148 M3: Operational/data command coverage.

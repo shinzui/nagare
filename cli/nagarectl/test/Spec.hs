@@ -2809,6 +2809,7 @@ mkVolWith :: RetentionPolicy -> Text -> Text -> Volume
 mkVolWith ret n mp =
   Volume
     { name = orError (mkVolumeName n)
+    , logicalKey = Nothing
     , size = orError (mkQuantity "1Gi")
     , mountPath = orError (mkMountPath mp)
     , accessMode = ReadWriteOnce
@@ -2826,6 +2827,7 @@ mkVol :: Text -> Text -> Text -> Volume
 mkVol n sz mp =
   Volume
     { name = orError (mkVolumeName n)
+    , logicalKey = Nothing
     , size = orError (mkQuantity sz)
     , mountPath = orError (mkMountPath mp)
     , accessMode = ReadWriteOnce
@@ -3253,6 +3255,7 @@ mkDemoDep :: Map.Map EnvName ScopedEnvVar -> Deployment
 mkDemoDep envMap =
   Deployment
     { name = unsafe (mkServiceName "notes")
+    , logicalKey = Nothing
     , namespace = unsafe (mkNamespace "personal")
     , image = unsafe (mkImageRef "us-west1-docker.pkg.dev/tan-nb-exp/nagare/notes")
     , build = unsafe defaultBuild

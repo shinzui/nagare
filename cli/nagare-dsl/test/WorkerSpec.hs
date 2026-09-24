@@ -137,7 +137,8 @@ richWorker =
           }
     & #volumes
       .~ [ Volume
-             { name = unsafe (mkVolumeName "scratch")
+             { logicalKey = Nothing
+             , name = unsafe (mkVolumeName "scratch")
              , size = unsafe (mkQuantity "1Gi")
              , mountPath = unsafe (mkMountPath "/scratch")
              , accessMode = ReadWriteOnce
@@ -312,7 +313,8 @@ loadTests =
 helloDep :: Deployment
 helloDep =
   Deployment
-    { name = unsafe (mkServiceName "hello")
+    { logicalKey = Nothing
+    , name = unsafe (mkServiceName "hello")
     , namespace = unsafe (mkNamespace "personal")
     , image = unsafe (mkImageRef "gcr.io/knative-samples/helloworld-go")
     , build = unsafe defaultBuild

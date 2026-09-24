@@ -61,6 +61,8 @@ library
     Nagare.Dsl.Worker.Render
     Nagare.Resource.Compile
     Nagare.Resource.Database
+    Nagare.Resource.Application
+    Nagare.Resource.Broker
     Nagare.Resource.Cache
     Nagare.Resource.CacheKubernetes
     Nagare.Resource.CacheClient

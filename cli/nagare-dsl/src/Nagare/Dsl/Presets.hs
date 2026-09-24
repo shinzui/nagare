@@ -53,6 +53,7 @@ webService nameText imageText = do
   pure
     Deployment
       { name = name'
+      , logicalKey = Nothing
       , namespace = defaultNamespace
       , image = img
       , build = bld
@@ -102,6 +103,7 @@ attachVolume nameText sizeText mountText dep = do
   let v =
         Volume
           { name = vn
+          , logicalKey = Nothing
           , size = sz
           , mountPath = mp
           , accessMode = ReadWriteOnce

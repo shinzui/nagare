@@ -172,6 +172,7 @@ instance FromJSON JsonEnvEntry where
 -- Retain).
 data JsonVolume = JsonVolume
   { name :: !Text
+  , logicalKey :: !(Maybe Text)
   , size :: !Text
   , mountPath :: !Text
   , accessMode :: !(Maybe Text)
@@ -184,6 +185,7 @@ instance FromJSON JsonVolume where
   parseJSON = withObject "Volume" $ \o ->
     JsonVolume
       <$> o .: "name"
+      <*> o .:? "logicalKey"
       <*> o .: "size"
       <*> o .: "mountPath"
       <*> o .:? "accessMode"
@@ -320,6 +322,7 @@ instance FromJSON JsonHealthCheck where
 
 data JsonDeployment = JsonDeployment
   { name :: !Text
+  , logicalKey :: !(Maybe Text)
   , namespace :: !Text
   , image :: !Text
   , build :: !(Maybe JsonBuildSpec)
@@ -346,6 +349,7 @@ instance FromJSON JsonDeployment where
   parseJSON = withObject "Deployment" $ \o ->
     JsonDeployment
       <$> o .: "name"
+      <*> o .:? "logicalKey"
       <*> o .: "namespace"
       <*> o .: "image"
       <*> o .:? "build"
@@ -372,6 +376,7 @@ instance FromJSON JsonDeployment where
 toDeployment :: JsonDeployment -> Either LoadError Deployment
 toDeployment jd = do
   name' <- first (MarshalError "name") $ mkServiceName (jd ^. #name)
+  logicalKey' <- traverse (first (MarshalError "logicalKey") . mkLogicalKey) (jd ^. #logicalKey)
   ns' <- first (MarshalError "namespace") $ mkNamespace (jd ^. #namespace)
   img' <- first (MarshalError "image") $ mkImageRef (jd ^. #image)
   build' <- case jd ^. #build of
@@ -410,6 +415,7 @@ toDeployment jd = do
   Right
     Deployment
       { name = name'
+      , logicalKey = logicalKey'
       , namespace = ns'
       , image = img'
       , build = build'
@@ -585,6 +591,7 @@ checkTaskApp thisApp tk =
 toVolume :: JsonVolume -> Either LoadError Volume
 toVolume jv = do
   vn <- first (MarshalError "volumes.name") $ mkVolumeName (jv ^. #name)
+  logicalKey' <- traverse (first (MarshalError "volumes.logicalKey") . mkLogicalKey) (jv ^. #logicalKey)
   sz <- first (MarshalError "volumes.size") $ mkQuantity (jv ^. #size)
   mp <- first (MarshalError "volumes.mountPath") $ mkMountPath (jv ^. #mountPath)
   am <- case fromMaybe "ReadWriteOnce" (jv ^. #accessMode) of
@@ -597,6 +604,7 @@ toVolume jv = do
   Right
     Volume
       { name = vn
+      , logicalKey = logicalKey'
       , size = sz
       , mountPath = mp
       , accessMode = am
@@ -682,6 +690,7 @@ instance FromJSON JsonBrokerBinding where
 
 data JsonBroker = JsonBroker
   { name :: !Text
+  , logicalKey :: !(Maybe Text)
   , provider :: !Text
   , version :: !Text
   , namespace :: !Text
@@ -700,6 +709,7 @@ instance FromJSON JsonBroker where
   parseJSON = withObject "Broker" $ \o ->
     JsonBroker
       <$> o .: "name"
+      <*> o .:? "logicalKey"
       <*> o .: "provider"
       <*> o .: "version"
       <*> o .: "namespace"
@@ -715,6 +725,7 @@ instance FromJSON JsonBroker where
 toBroker :: JsonBroker -> Either LoadError Broker
 toBroker j = do
   name' <- first (MarshalError "name") $ mkBrokerName (j ^. #name)
+  logicalKey' <- traverse (first (MarshalError "logicalKey") . mkLogicalKey) (j ^. #logicalKey)
   provider' <- case parseBrokerProvider (j ^. #provider) of
     Just p -> Right p
     Nothing -> Left (MarshalError "provider" ("unknown broker provider: " <> j ^. #provider))
@@ -728,6 +739,7 @@ toBroker j = do
   Right
     Broker
       { name = name'
+      , logicalKey = logicalKey'
       , provider = provider'
       , version = version'
       , namespace = namespace'
