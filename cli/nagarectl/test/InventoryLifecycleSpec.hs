@@ -66,7 +66,15 @@ inventoryLifecycleTests = testGroup "inventory lifecycle"
       assertCode "duplicate-lifecycle-decision" (combineDecisions approved approved)
       separatelyReviewed <- expectRight (validateLifecycleDecisions
         changedCandidate history observations [])
-      assertCode "stale-lifecycle-candidate" (combineDecisions approved separatelyReviewed)
+      assertCode "stale-lifecycle-context" (combineDecisions approved separatelyReviewed)
+      otherStore <- newMemoryStore
+      _ <- initializeStore otherStore binding "other-lifecycle-test" >>= expectRight
+      otherHistory <- loadInventoryHistory otherStore >>= expectRight
+      assertCode "stale-lifecycle-history"
+        (planChanges candidate approved otherHistory observations)
+      otherReviewed <- expectRight (validateLifecycleDecisions
+        candidate otherHistory observations [])
+      assertCode "stale-lifecycle-context" (combineDecisions approved otherReviewed)
       assertCode "adoption-incarnation" (decideAdoption candidate history observations
         (input {adoptionTargets = [target {adoptionPhysical = ok (mkPhysicalIdentity "other")}] }))
       assertCode "adoption-declaration" (decideAdoption candidate history observations

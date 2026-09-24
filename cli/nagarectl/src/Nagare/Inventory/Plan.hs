@@ -237,7 +237,7 @@ data LifecycleProposal = LifecycleProposal
   }
   deriving stock (Eq, Show, Generic)
 
-data LifecycleDecisions = LifecycleDecisions !(Maybe CompositionCandidate) !(Map ResourceId LifecycleProposal)
+data LifecycleDecisions = LifecycleDecisions !(Maybe (CompositionCandidate, InventoryHistory)) !(Map ResourceId LifecycleProposal)
   deriving stock (Eq, Show)
 
 noLifecycleDecisions :: LifecycleDecisions
@@ -252,8 +252,8 @@ combineDecisions (LifecycleDecisions firstCandidate firstDecisions) (LifecycleDe
     overlapping@(_:_) -> Left (PlanError "duplicate-lifecycle-decision"
       "resource has more than one lifecycle decision" overlapping :| [])
     [] -> case (firstCandidate, secondCandidate) of
-      (Just firstReviewed, Just secondReviewed) | firstReviewed /= secondReviewed -> Left (PlanError "stale-lifecycle-candidate"
-        "lifecycle decisions were validated for different composition candidates" [] :| [])
+      (Just firstReviewed, Just secondReviewed) | firstReviewed /= secondReviewed -> Left (PlanError "stale-lifecycle-context"
+        "lifecycle decisions were validated for different candidates or inventory histories" [] :| [])
       _ -> Right (LifecycleDecisions (firstCandidate <|> secondCandidate)
         (Map.union firstDecisions secondDecisions))
 
@@ -266,7 +266,7 @@ lifecycleObservationDigest binding resource fact =
 
 validateLifecycleDecisions :: CompositionCandidate -> InventoryHistory -> ObservationSet -> [LifecycleProposal] -> Either (NonEmpty PlanError) LifecycleDecisions
 validateLifecycleDecisions candidate history observations proposals =
-  if null errors then Right (LifecycleDecisions (Just candidate) values) else Left (NE.fromList errors)
+  if null errors then Right (LifecycleDecisions (Just (candidate, history)) values) else Left (NE.fromList errors)
   where
     values = Map.fromList [(lifecycleResource proposal, proposal) | proposal <- proposals]
     desired = Map.fromList [(declarationId declaration, declaration) | declaration <- inventoryDeclarations (candidateInventory candidate)]
@@ -372,9 +372,11 @@ planChanges :: CompositionCandidate -> LifecycleDecisions -> InventoryHistory ->
 planChanges candidate decisions history observations = do
   unless (null structuralErrors) (Left (NE.fromList structuralErrors))
   case decisions of
-    LifecycleDecisions (Just reviewed) _ | reviewed /= candidate ->
-      Left (PlanError "stale-lifecycle-candidate"
-        "lifecycle decisions were validated for a different composition candidate" [] :| [])
+    LifecycleDecisions (Just (reviewed, reviewedHistory)) _
+      | reviewed /= candidate -> Left (PlanError "stale-lifecycle-candidate"
+          "lifecycle decisions were validated for a different composition candidate" [] :| [])
+      | reviewedHistory /= history -> Left (PlanError "stale-lifecycle-history"
+          "lifecycle decisions were validated for a different inventory history" [] :| [])
     _ -> pure ()
   checkedDecisions <- validateLifecycleDecisions candidate history observations
     (case decisions of LifecycleDecisions _ values -> Map.elems values)

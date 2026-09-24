@@ -432,4 +432,4 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 
 2026-09-24: Extended EP-149's no-delete retained-incarnation route to stamped Helm releases. The generic ownership model and dependency graph are unchanged; M3 remains open for migration and broader retention/collection.
 
-2026-09-24: Bound opaque lifecycle decisions to their composed candidate and revalidated them at planning. This closes candidate/observation replay within EP-149 M2 while leaving migration and dependent child gates unchanged.
+2026-09-24: Bound opaque lifecycle decisions to their composed candidate and accepted history, then revalidated them at planning. This closes candidate/history/observation replay within EP-149 M2 while leaving migration and dependent child gates unchanged.
