@@ -26,6 +26,7 @@ module Nagare.Inventory.Adapters.KubernetesRuntime
   , supportedUpdateAddress
   , credentialDataMatches
   , generatedCredentialTemplate
+  , databaseCredentialKind
   , deploymentAvailable
   , statefulSetReady
   , readinessForAddress

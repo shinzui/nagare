@@ -27,6 +27,11 @@ provenance:
       at: 2026-09-24T16:33:40Z
       mode: "implement"
       note: "Guard complete database and broker renderer membership"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-24T22:38:00Z
+      mode: "implement"
+      note: "Bind accepted standalone databases to reviewed Service and worker deploys"
 ---
 
 # Route application and data lifecycles through independent resource scopes
@@ -98,6 +103,8 @@ Implementation evidence is recorded in the commits linked to this plan and in Su
 
 2026-09-24: The application database compiler already supplies a password-free credential Secret in the same candidate. Runtime env references to that Secret now use the owned declaration directly; external Secret bindings are required only for names not owned by the application. This preserves the distinction between application-owned credential lifecycle and an accepted Secret in another scope.
 
+2026-09-24: Reviewed standalone Service and worker deploys now accept database names only when one accepted standalone scope owns the matching Service, StatefulSet, and credential Secret. The command loads their original private native review, and the resolver verifies the credential template's engine against the saved Service and StatefulSet labels. Workloads receive typed StatefulSet ordering, connection fields, and Secret references without a live name lookup. Missing history, native evidence, changed namespace, and duplicate bindings refuse; complete M1 still needs logical topics and the other unsupported resources.
+
 ## Decision Log
 
 2026-09-16: Preserve separately submitted environment/secret intent across configuration deploys. Inputs are explicit versioned intent channels composed into one owner declaration, not live cluster data silently copied into desired state.
@@ -109,6 +116,8 @@ Implementation evidence is recorded in the commits linked to this plan and in Su
 2026-09-24: Give the Application aggregate an optional logical key as well as its contained resources. The aggregate owns the ScopeId, so a display-name change needs a pinned scope key to retain accepted history; absent a key, the current name remains the backward-compatible default. This is an extension of ADR 22's resource identity rule.
 
 2026-09-24: Require an explicit owner scope for application namespace contributions and bind the request to the exact Namespace ResourceId used by its workloads. Rationale: a custom namespace belongs to the shared owner, while an application may also consume an existing Namespace without requesting a new one; neither case grants the application lifecycle ownership of the Namespace.
+
+2026-09-24: Resolve a standalone database connection's engine from the accepted private credential template and check the other native members against it. Rationale: a live label or caller-provided engine would not be bound to the reviewed scope revision, and the full typed database input is unavailable when a separate workload is deployed.
 
 
 ## Outcomes & Retrospective
@@ -231,3 +240,5 @@ DependencyExports contains typed capability witnesses and selected revision/phys
 2026-09-24: The reviewed standalone worker route now binds topic-free broker references to accepted standalone broker Services, adds explicit Deployment dependency edges, and derives connection environment from the typed binding. This advances the existing M1 broker coverage; logical topics and standalone database dependencies remain open.
 
 2026-09-24: The standalone web Service route now uses the same accepted topic-free broker binding and records a dependency from its Knative Service to the broker Service. The original M1 milestone remains open for logical topics and other incomplete resources.
+
+2026-09-24: Reviewed standalone Service and worker deploys bind accepted standalone databases through saved private native evidence. The supported subset expands, but M1 and the remaining operational command migrations stay open.

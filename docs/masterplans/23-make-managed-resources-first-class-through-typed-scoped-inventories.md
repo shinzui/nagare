@@ -101,6 +101,11 @@ provenance:
       at: 2026-09-24T16:33:40Z
       mode: "implement"
       note: "Track EP-148 renderer membership guard"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-24T22:38:00Z
+      mode: "implement"
+      note: "Track accepted database native evidence required by EP-150"
 ---
 
 # Make managed resources first-class through typed scoped inventories
@@ -375,6 +380,9 @@ amended EP-144/145/149 signatures as one stub module set      TYPECHECKS
 Two dependency facts were checked on disk through Mori rather than recalled. aeson 2.3.1.0 orders object keys only because of its manual `ordered-keymap` Cabal flag, so the canonical encoder must sort keys itself and pin golden bytes. unix offers fcntl record locks, which are lost when the process closes any descriptor for the file; base's GHC.IO.Handle.Lock has the release-on-death semantics the plan wants and needs no new dependency.
 
 One question is open and is the operator's to decide. ADR 13 moved tan-nb-exp's Pulumi state to GCS so that a new machine needs two clones and credentials. The inventory store will hold ownership history and deletion authority, and after EP-148 every application deploy needs it, yet it is a private directory on one workstation. The amended store contract keeps both answers available at no protocol cost: it is specified as conditional writes that GCS can also provide. Whether to add a shared store as an eighth child, or to accept export/restore as the way to move a context and amend ADR 13's consequence, was not decided in the validation pass. The operator decided it the same day in favor of the shared store; see the Decision Log and EP-151.
+
+
+2026-09-24: EP-148's reviewed standalone workload paths require the accepted database's private native credential template to derive its engine, and check the saved Service and StatefulSet labels against it. EP-150's application coverage and recovery rehearsal must carry this evidence through the context store; live names or labels do not reconstruct the dependency after a new workstation resumes.
 
 
 ## Decision Log

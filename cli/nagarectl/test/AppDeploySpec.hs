@@ -24,11 +24,11 @@ import Data.Text.Encoding qualified as TE
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.App.Deploy
-import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedBrokerBindings, acceptedSecretBindings, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, standaloneWorkerVolumeRecoveryBindings, nativeWorkloadOwned, compileApplicationScope, compileApplicationService, compileStandaloneService, compileStandaloneServiceWithBrokers, compileStandaloneWorker, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings, workerRetirementScope)
-import Nagare.Inventory.DataService (compileStandaloneBroker)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, standaloneWorkerVolumeRecoveryBindings, nativeWorkloadOwned, compileApplicationScope, compileApplicationService, compileStandaloneService, compileStandaloneServiceWithBrokers, compileStandaloneServiceWithDependencies, compileStandaloneWorker, compileStandaloneWorkerWithDependencies, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings, workerRetirementScope)
+import Nagare.Inventory.DataService (compileStandaloneBroker, compileStandaloneDatabase)
 import Nagare.Dsl.Broker (BrokerBinding (..), mkTopicName)
 import Nagare.Resource.Application (applicationScopeId, volumeResourceId)
-import Nagare.Resource.Database (databaseResourceId)
+import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
 import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (..), ManagedResource (..), DesiredSpec (KnativeService), Contribution (RegisterNamespace), ContributionGrant (NamespaceGrant), ScopeChange (ReplaceScope), candidateGenerations, candidateInventory, composeInventory, contributionResourceId, declarationId, inventoryDeclarations, inventoryScopes, mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeId)
 import Nagare.Resource.Policy (RecoveryIntent (..), mkSecretRef)
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
@@ -283,7 +283,7 @@ renderTests =
         (nativeWorkloadOwned "apps" "deployment" "kizashi-worker" "personal"
           [member | bundle <- bundles, Managed member <- declarations bundle])
       owner <- either (fail . show) pure (applicationScopeId app)
-      database <- case app ^. #databases of
+      boundDatabase <- case app ^. #databases of
         firstDatabase : _ -> pure firstDatabase
         [] -> assertFailure "fixture has no database" >> fail "missing database"
       databaseId <- either (fail . T.unpack) pure
@@ -538,6 +538,68 @@ renderTests =
           (Map.lookup (member ^. #identity) standaloneServiceNative)) serviceMembers)
       assertBool "standalone Service accepted an unbound broker"
         (isLeft (compileStandaloneServiceWithBrokers serviceOwner independentService serviceRollout
+          cluster namespaceId publication Map.empty Map.empty Map.empty Map.empty (scopeSource input)))
+      database <- case app ^. #databases of
+        [onlyDatabase] -> pure onlyDatabase
+        _ -> assertFailure "fixture does not have one database" >> fail "missing database"
+      let databaseOwner = unsafe (Resource.mkScopeId Resource.Standalone "database-kizashi-db")
+          databaseInput = DatabaseDirectInput
+            { directDatabase = boundDatabase
+            , directOwnerScope = databaseOwner
+            , directClusterId = cluster
+            , directNamespaceId = Just namespaceId
+            , directRecoveryIntent = recovery
+            , directSourceLocation = scopeSource input
+            }
+      (databaseScope, databaseNative) <- either (fail . show) pure
+        (compileStandaloneDatabase databaseInput (scopeBackupBackend input))
+      standaloneDatabaseSnapshot <- either (fail . show) pure (mkScopeSnapshot historyBinding
+        (Map.singleton databaseOwner (unsafe (Resource.mkScopeGeneration 1), databaseScope)) Map.empty)
+      databaseBindings <- either (fail . T.unpack) pure (acceptedDatabaseBindings
+        standaloneDatabaseSnapshot databaseNative cluster "personal" [boundDatabase ^. #name])
+      assertBool "database binding survived without its accepted private credential"
+        (isLeft (acceptedDatabaseBindings standaloneDatabaseSnapshot Map.empty cluster
+          "personal" [boundDatabase ^. #name]))
+      assertBool "database binding crossed a namespace"
+        (isLeft (acceptedDatabaseBindings standaloneDatabaseSnapshot databaseNative cluster
+          "other" [boundDatabase ^. #name]))
+      assertBool "database binding duplicated one database"
+        (isLeft (acceptedDatabaseBindings standaloneDatabaseSnapshot databaseNative cluster
+          "personal" [boundDatabase ^. #name, boundDatabase ^. #name]))
+      let workerWithDatabase = worker & #brokers .~ []
+          serviceWithDatabase = webService & #brokers .~ []
+            & #databases .~ [boundDatabase ^. #name]
+          databaseId = unsafe (databaseResourceId databaseOwner
+            (unsafe (Resource.mkName "statefulset")) boundDatabase)
+      assertBool "database binding survived without the accepted StatefulSet bytes"
+        (isLeft (acceptedDatabaseBindings standaloneDatabaseSnapshot
+          (Map.delete databaseId databaseNative) cluster "personal" [boundDatabase ^. #name]))
+      (databaseWorkerScope, databaseWorkerNative) <- either (fail . show) pure
+        (compileStandaloneWorkerWithDependencies standaloneOwner workerWithDatabase workerRollout
+          cluster namespaceId publication Map.empty Map.empty Map.empty databaseBindings (scopeSource input))
+      let databaseWorkers =
+            [member | bundle <- scopeBundles databaseWorkerScope, Managed member <- declarations bundle]
+      assertBool "standalone worker lacks its accepted database dependency"
+        (all (elem (OrderedAfter databaseId) . (^. #dependencies)) databaseWorkers)
+      assertBool "standalone worker lost generated database connection or Secret reference"
+        (any (\(_, bytes) -> BS.isInfixOf "POSTGRES_HOST" bytes
+          && BS.isInfixOf "POSTGRES_PASSWORD" bytes) (Map.elems databaseWorkerNative))
+      (databaseServiceScope, databaseServiceNative) <- either (fail . show) pure
+        (compileStandaloneServiceWithDependencies serviceOwner serviceWithDatabase serviceRollout
+          cluster namespaceId publication Map.empty Map.empty Map.empty Map.empty databaseBindings (scopeSource input))
+      let databaseServices =
+            [member | bundle <- scopeBundles databaseServiceScope, Managed member <- declarations bundle
+            , case member ^. #address of
+                Resource.Kubernetes _ "serving.knative.dev" kind _ _ ->
+                  kind == unsafe (Resource.mkName "service")
+                _ -> False]
+      assertBool "standalone Service lacks its accepted database dependency"
+        (all (elem (OrderedAfter databaseId) . (^. #dependencies)) databaseServices)
+      assertBool "standalone Service lost generated database connection or Secret reference"
+        (any (\(_, bytes) -> BS.isInfixOf "POSTGRES_HOST" bytes
+          && BS.isInfixOf "POSTGRES_PASSWORD" bytes) (Map.elems databaseServiceNative))
+      assertBool "standalone worker accepted an unbound database"
+        (isLeft (compileStandaloneWorkerWithDependencies standaloneOwner workerWithDatabase workerRollout
           cluster namespaceId publication Map.empty Map.empty Map.empty Map.empty (scopeSource input)))
       let brokerInput = input
             { scopeApplication = brokerApp

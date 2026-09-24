@@ -400,3 +400,15 @@ retention needs a typed policy and provider backup/recovery evidence before
 collection can be reviewed. The head continues to reserve a migrated source
 while its logical destination is active; source-specific collection requires
 an incarnation-aware tombstone and adapter binding in later work.
+
+## Amendment — 2026-09-24: standalone database consumer bindings
+
+A separately owned workload may consume an accepted standalone database without
+acquiring its lifecycle authority. The consumer binds one accepted Service,
+StatefulSet, and credential Secret in the same scope and cluster namespace.
+The saved private credential template identifies the engine; the saved Service
+and StatefulSet labels must agree. The workload depends on the accepted
+StatefulSet and receives connection fields plus Secret key references, while
+the credential value stays out of compilation and review output. Missing or
+inconsistent private native evidence refuses planning. A live object name or
+label alone cannot supply this binding.

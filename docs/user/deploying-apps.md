@@ -67,8 +67,12 @@ It requires the accepted namespace and image. Add
 `--env-secret-resource RESOURCE-ID` for runtime Secret references. Scheduled
 tasks join the same review when they resolve to its accepted image. Topic free
 broker references bind to accepted standalone broker Services. Database
-bindings, broker topics, access, and CDN settings currently refuse this
-single-Service route.
+references bind to an accepted standalone database in the same cluster and
+namespace. Planning checks its Service, StatefulSet, and saved credential
+template in one scope, then records the StatefulSet dependency and Secret
+references in the workload. Missing private evidence or an unknown engine
+refuses before review. Broker topics, access, and CDN settings currently
+refuse this single-Service route.
 
 For each declared application database, add
 `--database-recovery NAME=BACKUP:KEY_VERSION` to the planning command. The

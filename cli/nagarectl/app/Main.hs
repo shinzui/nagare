@@ -271,7 +271,7 @@ import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedApplicationImage, acceptedBrokerBindings, acceptedSecretBindings, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationScope, compileStandaloneServiceWithBrokers, compileStandaloneWorker, databaseRecoveryBindings, nativeWorkloadOwned, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), DatabaseBinding, acceptedApplicationImage, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationScope, compileStandaloneServiceWithDependencies, compileStandaloneWorkerWithDependencies, databaseRecoveryBindings, nativeWorkloadOwned, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, compileStandaloneDatabase, databaseNativeOwned, standaloneRetirementScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Environment (acceptedEnvChannelValues, acceptedSecretChannelValues, compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
 import Nagare.Inventory.Host qualified as InventoryHost
@@ -6461,6 +6461,21 @@ runDeploy mctx dopts = case dopts ^. #savePlan of
       (dieT "inventory resource and recovery options require --save-plan")
     runDirectDeploy mctx dopts
 
+-- | Database engine and credential authority come from the accepted private
+-- review, never from a live name lookup or an independently supplied config.
+reviewedStandaloneDatabases
+  :: ActiveTarget -> ResourceInventory.ScopeSnapshot -> Resource.ResourceId
+  -> Text -> [DatabaseName] -> IO (Map DatabaseName DatabaseBinding)
+reviewedStandaloneDatabases _ _ _ _ [] = pure Map.empty
+reviewedStandaloneDatabases active snapshot cluster namespaceName names = do
+  store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+  history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
+  inventory <- either (dieT . T.pack . show) pure
+    (ResourceInventory.composeSnapshot snapshot)
+  (native, _) <- InventoryStatus.loadAcceptedNative store history inventory
+    >>= either dieT pure
+  either dieT pure (acceptedDatabaseBindings snapshot native cluster namespaceName names)
+
 runDeployPlan :: Maybe String -> DeployOpts -> FilePath -> IO ()
 runDeployPlan mctx options output = do
   when (options ^. #dryRun || isJust (options ^. #contextOverride)
@@ -6476,10 +6491,9 @@ runDeployPlan mctx options output = do
     >>= either (dieT . Load.renderLoadError) pure
   when (requiresBuild (service ^. #build))
     (dieT "reviewed deploy requires an already published image")
-  unless (null (service ^. #databases)
-      && isNothing (service ^. #access)
+  unless (isNothing (service ^. #access)
       && isNothing (service ^. #cdn))
-    (dieT "reviewed single-Service deploy requires typed database, access, and CDN bindings")
+    (dieT "reviewed single-Service deploy requires typed access and CDN bindings")
   let app = Application
         { name = service ^. #name
         , logicalKey = service ^. #logicalKey
@@ -6506,6 +6520,8 @@ runDeployPlan mctx options output = do
     (acceptedFoundationNamespace snapshot namespaceName)
   (brokerServices, _) <- either dieT pure
     (acceptedBrokerBindings snapshot cluster namespaceName (service ^. #brokers))
+  databaseBindings <- reviewedStandaloneDatabases active snapshot cluster namespaceName
+    (service ^. #databases)
   let params = AppDeployParams
         { configPath = options ^. #file
         , tag = T.pack <$> options ^. #tag
@@ -6533,8 +6549,8 @@ runDeployPlan mctx options output = do
         (maybe (T.pack (options ^. #file)) T.pack (options ^. #source))
         (serviceNameText (service ^. #name))
   (scope, native) <- either (dieT . T.pack . show) pure
-    (compileStandaloneServiceWithBrokers owner service rollout cluster namespaceId imageId
-      volumeRecovery tlsSecrets envSecrets brokerServices source)
+    (compileStandaloneServiceWithDependencies owner service rollout cluster namespaceId imageId
+      volumeRecovery tlsSecrets envSecrets brokerServices databaseBindings source)
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
   Inventory.planInventoryCandidateWith
@@ -7764,8 +7780,6 @@ runWorkerPlan mctx options output = do
     >>= either (dieT . Load.renderLoadError) pure
   when (requiresBuild (worker ^. #build))
     (dieT "reviewed worker deploy requires an already published image")
-  unless (null (worker ^. #databases))
-    (dieT "reviewed worker deploy requires typed database bindings")
   key <- maybe (either dieT pure (Resource.mkLogicalKey (serviceNameText (worker ^. #name)))) pure
     (worker ^. #logicalKey)
   owner <- either dieT pure (Resource.mkScopeId Resource.Standalone
@@ -7780,6 +7794,8 @@ runWorkerPlan mctx options output = do
   (brokerServices, _) <- either dieT pure
     (acceptedBrokerBindings snapshot cluster
       (namespaceText (worker ^. #namespace)) (worker ^. #brokers))
+  databaseBindings <- reviewedStandaloneDatabases active snapshot cluster
+    (namespaceText (worker ^. #namespace)) (worker ^. #databases)
   let app = Application
         { name = worker ^. #name
         , logicalKey = Nothing
@@ -7812,8 +7828,8 @@ runWorkerPlan mctx options output = do
   let source = Resource.SourceLocation (T.pack (options ^. #file))
         (serviceNameText (worker ^. #name))
   (scope, native) <- either (dieT . T.pack . show) pure
-    (compileStandaloneWorker owner worker rollout cluster namespaceId imageId
-      recovery envSecrets brokerServices source)
+    (compileStandaloneWorkerWithDependencies owner worker rollout cluster namespaceId imageId
+      recovery envSecrets brokerServices databaseBindings source)
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
   Inventory.planInventoryCandidateWith

@@ -8,8 +8,10 @@ module Nagare.Inventory.Application
   , compileApplicationService
   , compileStandaloneService
   , compileStandaloneServiceWithBrokers
+  , compileStandaloneServiceWithDependencies
   , compileApplicationWorkers
   , compileStandaloneWorker
+  , compileStandaloneWorkerWithDependencies
   , compileApplicationTasks
   , applicationNativeOwned
   , nativeWorkloadOwned
@@ -18,6 +20,8 @@ module Nagare.Inventory.Application
   , databaseRecoveryBindings
   , acceptedSecretBindings
   , acceptedBrokerBindings
+  , DatabaseBinding
+  , acceptedDatabaseBindings
   , applicationVolumeRecoveryBindings
   , standaloneWorkerVolumeRecoveryBindings
   , applicationRetirementScope
@@ -25,7 +29,8 @@ module Nagare.Inventory.Application
   ) where
 
 import Control.Monad (forM_)
-import Data.Aeson (Value)
+import Data.Aeson (Value (..))
+import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
 import Data.List (find)
@@ -43,11 +48,11 @@ import Nagare.Dsl.Application (Application (..), mkApplication)
 import Nagare.Dsl.Application qualified as DslApp
 import Nagare.Dsl.Broker (BrokerBinding (..), BrokerName, BrokerProvider (Redpanda), brokerNameText)
 import Nagare.Database.Connection (ConnIdentity (..), connectionEnv, mergeConnectionEnvs)
-import Nagare.Dsl.Database (Database (..), Engine (..), dbSecretName)
+import Nagare.Dsl.Database (Database (..), Engine (..), dbSecretName, engineToken)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Render (pvcName)
 import Nagare.Dsl.Database.Render (dbConfigMapName, dbPvcName)
-import Nagare.Dsl.Types (DatabaseName, Deployment (..), DomainSpec (..), DomainTls (..), EnvScope (Runtime), EnvVar (..), ScopedEnvVar (..), SecretName, Volume (..), VolumeName, databaseNameText, domainText, mkEnvName, mkSecretName, namespaceText, runtimeScoped, secretNameText, serviceNameText, volumeNameText)
+import Nagare.Dsl.Types (DatabaseName, Deployment (..), DomainSpec (..), DomainTls (..), EnvScope (Runtime), EnvVar (..), Namespace, ScopedEnvVar (..), SecretName, Volume (..), VolumeName, databaseNameText, domainText, mkEnvName, mkSecretName, namespaceText, runtimeScoped, secretNameText, serviceNameText, volumeNameText)
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Dsl.Worker (Worker (..))
 import Nagare.Dsl.Task (Task (..), mkTask, taskResourceName)
@@ -56,6 +61,7 @@ import Nagare.Inventory.Database (compileDatabaseForBackend)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Env.Generated (mergeGenerated)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
+import Nagare.Inventory.Adapters.KubernetesRuntime (databaseCredentialKind)
 import Nagare.Resource.Application (applicationScopeId, deploymentResourceId, domainMappingResourceId, taskResourceId, volumeResourceId, workerResourceId)
 import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
 import Nagare.Resource.Inventory
@@ -297,6 +303,80 @@ acceptedBrokerBindings snapshot cluster namespaceName bindings = do
         }
       pure ((binding ^. #name, service), env)
 
+-- | A database connection is authorized by one accepted standalone scope and
+-- its original private credential template. Keep this witness opaque so a
+-- caller cannot substitute an engine or a Secret with the same display name.
+data DatabaseBinding = DatabaseBinding
+  { boundService :: !ManagedResource
+  , boundStatefulSet :: !ManagedResource
+  , boundCredential :: !ManagedResource
+  , boundEngine :: !Engine
+  }
+  deriving stock (Eq, Show)
+
+acceptedDatabaseBindings
+  :: ScopeSnapshot -> Map ResourceId (ManagedResource, ByteString)
+  -> ResourceId -> T.Text -> [DatabaseName]
+  -> Either T.Text (Map DatabaseName DatabaseBinding)
+acceptedDatabaseBindings snapshot native cluster namespaceName names = do
+  pairs <- traverse resolve names
+  let bindings = Map.fromList pairs
+  unless (length pairs == Map.size bindings)
+    (Left "database bindings repeat a database")
+  pure bindings
+  where
+    resolve name = do
+      let dbName = databaseNameText name
+      serviceAddress <- kubernetesAddress cluster "v1" "Service" (Just namespaceName) dbName
+      statefulAddress <- kubernetesAddress cluster "apps/v1" "StatefulSet" (Just namespaceName) dbName
+      credentialAddress <- kubernetesAddress cluster "v1" "Secret"
+        (Just namespaceName) (dbSecretName dbName)
+      let candidates =
+            [ (service, stateful, credential)
+            | (owner, (_, scope)) <- Map.toList (snapshotScopes snapshot)
+            , scopeKind owner == Standalone
+            , "database-" `T.isPrefixOf` nameText (scopeName owner)
+            , let resources = concatMap
+                    (\bundle -> [resource | Managed resource <- declarations bundle])
+                    (scopeBundles scope)
+            , service <- resources, service ^. #address == serviceAddress
+            , Just prefix <- [T.stripSuffix "/service" (resourceIdText (service ^. #identity))]
+            , stateful <- resources
+            , stateful ^. #address == statefulAddress
+            , resourceIdText (stateful ^. #identity) == prefix <> "/statefulset"
+            , credential <- resources
+            , credential ^. #address == credentialAddress
+            , resourceIdText (credential ^. #identity) == prefix <> "/credential"
+            ]
+      (service, stateful, credential) <- case candidates of
+        [found] -> Right found
+        _ -> Left "database has no unique accepted Service, StatefulSet, and credential in one standalone scope"
+      (_, bytes) <- case Map.lookup (credential ^. #identity) native of
+        Just pair@(member, _) | member == credential -> Right pair
+        _ -> Left "accepted database credential has no matching private native template"
+      value <- first (T.pack . show) (Yaml.decodeEither' bytes :: Either Yaml.ParseException Value)
+      engine <- databaseCredentialKind value >>= \case
+        Just (templateName, templateNamespace, parsed)
+          | templateName == dbName && templateNamespace == namespaceName -> Right parsed
+        _ -> Left "accepted database credential template differs from the requested database"
+      forM_ [service, stateful] (checkNativeLabels dbName engine)
+      pure (name, DatabaseBinding service stateful credential engine)
+    checkNativeLabels dbName engine member = do
+      (_, bytes) <- case Map.lookup (member ^. #identity) native of
+        Just pair@(accepted, _) | accepted == member -> Right pair
+        _ -> Left "accepted database member has no matching private native object"
+      value <- first (T.pack . show) (Yaml.decodeEither' bytes :: Either Yaml.ParseException Value)
+      case value of
+        Object root -> case KM.lookup "metadata" root of
+          Just (Object metadata) -> case KM.lookup "labels" metadata of
+            Just (Object labels)
+              | KM.lookup "nagare.dev/managed-by" labels == Just (String "nagarectl")
+                && KM.lookup "nagare.dev/database" labels == Just (String dbName)
+                && KM.lookup "nagare.dev/engine" labels == Just (String (engineToken engine)) -> Right ()
+            _ -> Left "accepted database native labels differ from its credential engine"
+          _ -> Left "accepted database native member has no metadata"
+        _ -> Left "accepted database native member is not an object"
+
 -- | Bind retained PVC recovery by typed Service volume name and by each
 -- worker volume's stable ResourceId. Throwaway volumes cannot borrow a
 -- recovery decision, and a missing retained volume refuses planning.
@@ -443,18 +523,63 @@ declaredConnectionEnv app names = do
     one databaseName = do
       database <- maybe (Left "workload references an undeclared database") Right
         (find ((== databaseName) . (^. #name)) (app ^. #databases))
-      let secretText = dbSecretName (databaseNameText databaseName)
-          base = connectionEnv (database ^. #engine) databaseName
-            (app ^. #namespace) (ConnIdentity Nothing Nothing)
-          extra = case database ^. #engine of
-            Postgres -> ["POSTGRES_USER", "POSTGRES_DB"]
-            Redis -> []
-            ClickHouse -> ["CLICKHOUSE_USER"]
-      secret <- mkSecretName secretText
-      fields <- traverse (\name -> do
-        key <- mkEnvName name
-        pure (key, runtimeScoped (EnvSecretRef secret))) extra
-      pure (Map.union (Map.fromList fields) base)
+      databaseConnectionEnv (database ^. #engine) databaseName (app ^. #namespace)
+
+databaseConnectionEnv :: Engine -> DatabaseName -> Namespace
+  -> Either T.Text (Map Dsl.EnvName ScopedEnvVar)
+databaseConnectionEnv engine databaseName namespace = do
+  let secretText = dbSecretName (databaseNameText databaseName)
+      base = connectionEnv engine databaseName namespace (ConnIdentity Nothing Nothing)
+      extra = case engine of
+        Postgres -> ["POSTGRES_USER", "POSTGRES_DB"]
+        Redis -> []
+        ClickHouse -> ["CLICKHOUSE_USER"]
+  secret <- mkSecretName secretText
+  fields <- traverse (\name -> do
+    key <- mkEnvName name
+    pure (key, runtimeScoped (EnvSecretRef secret))) extra
+  pure (Map.union (Map.fromList fields) base)
+
+-- | Supply generated connection fields and exact resource dependencies for
+-- separately owned databases. The binding witness can only come from accepted
+-- scope history and the original private native credential template.
+standaloneDatabaseEnvironment
+  :: ResourceId -> Namespace -> [DatabaseName] -> Map DatabaseName DatabaseBinding
+  -> (T.Text -> NonEmpty InventoryError)
+  -> Either (NonEmpty InventoryError)
+       (Map Dsl.EnvName ScopedEnvVar, [ResourceId], Map SecretName Declaration)
+standaloneDatabaseEnvironment cluster namespace names bindings invalid = do
+  unless (length names == Map.size bindings
+      && Map.keysSet bindings == Set.fromList names)
+    (Left (invalid "database dependencies must cover exactly the workload bindings"))
+  rows <- traverse one names
+  env <- first invalid (mergeConnectionEnvs [fields | (fields, _, _) <- rows])
+  pure (env, [resource | (_, resource, _) <- rows],
+    Map.fromList [secret | (_, _, secret) <- rows])
+  where
+    namespaceName = namespaceText namespace
+    one name = do
+      binding <- maybe (Left (invalid "database has no accepted binding")) Right
+        (Map.lookup name bindings)
+      let service = boundService binding
+          stateful = boundStatefulSet binding
+          credential = boundCredential binding
+          dbName = databaseNameText name
+          owners = map (^. #owner) [service, stateful, credential]
+      expectedService <- first invalid (kubernetesAddress cluster "v1" "Service"
+        (Just namespaceName) dbName)
+      expectedStateful <- first invalid (kubernetesAddress cluster "apps/v1" "StatefulSet"
+        (Just namespaceName) dbName)
+      expectedCredential <- first invalid (kubernetesAddress cluster "v1" "Secret"
+        (Just namespaceName) (dbSecretName dbName))
+      unless (map (^. #address) [service, stateful, credential]
+          == [expectedService, expectedStateful, expectedCredential]
+          && all (== service ^. #owner) owners
+          && scopeKind (service ^. #owner) == Standalone)
+        (Left (invalid "database binding has a different owner or native address"))
+      secretName <- first invalid (mkSecretName (dbSecretName dbName))
+      fields <- first invalid (databaseConnectionEnv (boundEngine binding) name namespace)
+      pure (fields, stateful ^. #identity, (secretName, Managed credential))
 
 -- | Compose the currently supported application members once, checking
 -- duplicate IDs and provider claims across component boundaries. Unsupported
@@ -734,20 +859,36 @@ compileStandaloneWorker
   -> Map BrokerName Declaration -> SourceLocation
   -> Either (NonEmpty InventoryError)
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileStandaloneWorker owner worker rollout cluster namespaceId imageId recovery envSecrets brokerServices source = do
+compileStandaloneWorker owner worker rollout cluster namespaceId imageId recovery envSecrets brokerServices =
+  compileStandaloneWorkerWithDependencies owner worker rollout cluster namespaceId imageId
+    recovery envSecrets brokerServices Map.empty
+
+compileStandaloneWorkerWithDependencies
+  :: ScopeId -> Worker -> RolloutEnv -> ResourceId -> ResourceId -> ResourceId
+  -> Map ResourceId RecoveryIntent -> Map SecretName Declaration
+  -> Map BrokerName Declaration -> Map DatabaseName DatabaseBinding -> SourceLocation
+  -> Either (NonEmpty InventoryError)
+       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileStandaloneWorkerWithDependencies owner worker rollout cluster namespaceId imageId recovery envSecrets brokerServices databaseBindings source = do
   unless (scopeKind owner == Standalone)
     (Left (invalid "worker requires a standalone owner"))
   unless (rollout ^. #appName == serviceNameText (worker ^. #name)
       && rollout ^. #namespace == namespaceText (worker ^. #namespace)
       && Map.null (rollout ^. #appEnv))
     (Left (invalid "standalone worker rollout differs from its declared identity or environment"))
-  unless (null (worker ^. #databases))
-    (Left (invalid "standalone worker database bindings need typed dependencies"))
+  (databaseEnv, databaseIds, databaseSecrets) <- standaloneDatabaseEnvironment cluster
+    (worker ^. #namespace) (worker ^. #databases) databaseBindings invalid
   brokerEnv <- standaloneBrokerEnvironment cluster
     (namespaceText (worker ^. #namespace)) (worker ^. #brokers) brokerServices invalid
-  let worker' = worker & #env %~ mergeGenerated brokerEnv
-        & #brokers .~ []
+  let worker' = worker & #env %~ mergeGenerated (mergeGenerated brokerEnv databaseEnv)
+        & #brokers .~ [] & #databases .~ []
       brokerIds = Set.toList (Set.fromList (map declarationId (Map.elems brokerServices)))
+  requiredSecrets <- first invalid (runtimeSecretNames
+    (Map.elems (worker' ^. #env)))
+  unless (Map.keysSet envSecrets == Set.fromList requiredSecrets
+      `Set.difference` Map.keysSet databaseSecrets)
+    (Left (invalid "standalone runtime Secret dependencies differ from declared external references"))
+  let allSecrets = Map.union databaseSecrets envSecrets
   let app = DslApp.Application
         { name = worker ^. #name
         , logicalKey = Nothing
@@ -763,10 +904,10 @@ compileStandaloneWorker owner worker rollout cluster namespaceId imageId recover
         }
   _ <- first invalid (mkApplication app)
   (bundles, native) <- compileWorkersWithOwner owner app rollout cluster namespaceId
-    imageId recovery envSecrets source
+    imageId recovery allSecrets source
   let addBrokerEdges resource = case resource ^. #address of
         Kubernetes _ "apps" kind _ _ | nameText kind == "deployment" ->
-          resource & #dependencies %~ (<> map OrderedAfter brokerIds)
+          resource & #dependencies %~ (<> map OrderedAfter (brokerIds <> databaseIds))
         _ -> resource
       addDeclaration = \case
         Managed resource -> Managed (addBrokerEdges resource)
@@ -935,29 +1076,41 @@ compileStandaloneServiceWithBrokers
   -> Map BrokerName Declaration -> SourceLocation
   -> Either (NonEmpty InventoryError)
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileStandaloneServiceWithBrokers owner service rollout cluster namespaceId imageId recovery tlsSecrets envSecrets brokerServices source = do
+compileStandaloneServiceWithBrokers owner service rollout cluster namespaceId imageId recovery tlsSecrets envSecrets brokerServices =
+  compileStandaloneServiceWithDependencies owner service rollout cluster namespaceId imageId
+    recovery tlsSecrets envSecrets brokerServices Map.empty
+
+compileStandaloneServiceWithDependencies
+  :: ScopeId -> Deployment -> RolloutEnv -> ResourceId -> ResourceId -> ResourceId
+  -> Map VolumeName RecoveryIntent -> Map SecretName Declaration -> Map SecretName Declaration
+  -> Map BrokerName Declaration -> Map DatabaseName DatabaseBinding -> SourceLocation
+  -> Either (NonEmpty InventoryError)
+       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileStandaloneServiceWithDependencies owner service rollout cluster namespaceId imageId recovery tlsSecrets envSecrets brokerServices databaseBindings source = do
   unless (scopeKind owner == Standalone)
     (Left (invalid "standalone service requires a standalone scope"))
   unless (rollout ^. #appName == serviceNameText (service ^. #name)
       && rollout ^. #namespace == namespaceText (service ^. #namespace)
       && Map.null (rollout ^. #appEnv))
     (Left (invalid "standalone rollout identity, namespace, or environment differs from its service"))
-  unless (null (service ^. #databases))
-    (Left (invalid "standalone database bindings require typed dependencies"))
+  (databaseEnv, databaseIds, databaseSecrets) <- standaloneDatabaseEnvironment cluster
+    (service ^. #namespace) (service ^. #databases) databaseBindings invalid
   brokerEnv <- standaloneBrokerEnvironment cluster
     (namespaceText (service ^. #namespace)) (service ^. #brokers) brokerServices invalid
-  let service' = service & #env %~ mergeGenerated brokerEnv
-        & #brokers .~ []
+  let service' = service & #env %~ mergeGenerated (mergeGenerated brokerEnv databaseEnv)
+        & #brokers .~ [] & #databases .~ []
       brokerIds = Set.toList (Set.fromList (map declarationId (Map.elems brokerServices)))
   requiredEnvSecrets <- first invalid (runtimeSecretNames
-    (Map.elems (service ^. #env)
+    (Map.elems (service' ^. #env)
       <> concatMap (Map.elems . (^. #env)) (service ^. #tasks)))
-  unless (Map.keysSet envSecrets == Set.fromList requiredEnvSecrets)
+  unless (Map.keysSet envSecrets == Set.fromList requiredEnvSecrets
+      `Set.difference` Map.keysSet databaseSecrets)
     (Left (invalid "standalone runtime Secret environment requires exactly its typed dependencies"))
+  let allSecrets = Map.union databaseSecrets envSecrets
   (bundle, native) <- compileServiceMembers owner service' rollout cluster namespaceId imageId
-    [] recovery tlsSecrets envSecrets source
+    databaseIds recovery tlsSecrets allSecrets source
   (taskBundle, taskNative) <- compileTaskMembers owner (service ^. #tasks) rollout
-    cluster namespaceId imageId envSecrets source
+    cluster namespaceId imageId allSecrets source
   let addBrokerEdges resource = case resource ^. #address of
         Kubernetes _ "serving.knative.dev" kind _ _ | nameText kind == "service" ->
           resource & #dependencies %~ (<> map OrderedAfter brokerIds)
