@@ -245,6 +245,8 @@ import Nagare.Inventory.Adapter qualified as InventoryAdapter
 import Nagare.Inventory.Digest qualified as InventoryDigest
 import Nagare.Inventory.Adapters.Artifact (mkArtifactAdapter)
 import Nagare.Inventory.Adapters.ArtifactRuntime
+import Nagare.Inventory.Adapters.Broker (TopicBinding, mkTopicAdapter, topicSpecsFromDeclarations)
+import Nagare.Inventory.Adapters.BrokerRuntime qualified as BrokerRuntime
 import Nagare.Inventory.Adapters.Cache (cacheSpecsFromDeclarations, mkCacheAdapter)
 import Nagare.Inventory.Adapters.CacheRuntime qualified as CacheRuntime
 import Nagare.Inventory.Adapters.Host (mkHostAdapter)
@@ -4579,6 +4581,8 @@ runInventoryStatus mctx requested json gcOutput = do
   registrations <- either dieT pure (InventoryCloud.registrationsFromDeclarations declarations)
   artifactSpecs <- either dieT pure (InventoryArtifact.artifactExecutionSpecsFromDeclarations declarations)
   cacheSpecs <- either dieT pure (cacheSpecsFromDeclarations declarations)
+  topicSpecs <- either dieT pure (topicSpecsFromDeclarations (declarations <>
+    [ResourceInventory.Managed resource | (_, resource) <- Map.elems (InventoryPlan.historyRetained history)]))
   hostInputs <- either dieT pure (InventoryHost.hostExecutionInputsFromScopes scopes)
   observationStartedAt <- currentTimestamp
   pulumi <- if null registrations
@@ -4590,6 +4594,8 @@ runInventoryStatus mctx requested json gcOutput = do
   host <- maybe (pure (Inventory.executionBlockedAdapterFor ResourceInventory.HostExecutor))
     (inventoryHostAdapter active workspace) hostInputs
   (cache, cacheKey) <- inventoryCacheAdapter active workspace binding cacheSpecs
+  broker <- inventoryBrokerAdapter active binding topicSpecs
+    (acceptedTopicIds history `Set.union` Set.fromList (retainedIds ResourceInventory.BrokerExecutor))
   kubernetes <- inventoryKubernetesAdapter active binding
     cacheKey kubernetesNative
   helm <- inventoryHelmAdapter active workspace binding helmNative
@@ -4611,6 +4617,7 @@ runInventoryStatus mctx requested json gcOutput = do
   artifactFacts <- inspect artifact ResourceInventory.ArtifactExecutor
   hostFacts <- inspect host ResourceInventory.HostExecutor
   cacheFacts <- inspect cache ResourceInventory.CacheExecutor
+  brokerFacts <- inspect broker ResourceInventory.BrokerExecutor
   let inspectRetained adapter executor = do
         let requestedIds = retainedIds executor
         if null requestedIds then pure [] else do
@@ -4623,6 +4630,7 @@ runInventoryStatus mctx requested json gcOutput = do
               | resource <- requestedIds]
   retainedKubeFacts <- inspectRetained retainedKubernetes ResourceInventory.KubernetesExecutor
   retainedHelmFacts <- inspectRetained retainedHelm ResourceInventory.HelmExecutor
+  retainedBrokerFacts <- inspectRetained broker ResourceInventory.BrokerExecutor
   let helmObserved = Map.fromList helmFacts
       helmStatusOps = helmRuntimeOps (inventoryHelmRuntimeConfig active workspace binding helmNative)
       helmObservedPhysical = \case
@@ -4671,7 +4679,7 @@ runInventoryStatus mctx requested json gcOutput = do
   finalHead <- InventoryStore.readHead store >>= either (dieT . T.pack . show) pure
   unless (finalHead == Just (InventoryPlan.historyHead history))
     (dieT "accepted inventory changed during status; retry against the new head")
-  let allFacts = kubeFacts <> helmFacts <> pulumiFacts <> artifactFacts <> hostFacts <> cacheFacts
+  let allFacts = kubeFacts <> helmFacts <> pulumiFacts <> artifactFacts <> hostFacts <> cacheFacts <> brokerFacts
       knownFacts = Map.fromList allFacts
       remaining =
         [(resource ^. #identity, InventoryAdapter.ObservationUnavailable
@@ -4680,7 +4688,7 @@ runInventoryStatus mctx requested json gcOutput = do
       observations = either (error . T.unpack) (\value -> value)
         (InventoryAdapter.observationSet (allFacts <> remaining))
       retainedObservations = either (error . T.unpack) (\value -> value)
-        (InventoryAdapter.observationSet (retainedKubeFacts <> retainedHelmFacts))
+        (InventoryAdapter.observationSet (retainedKubeFacts <> retainedHelmFacts <> retainedBrokerFacts))
       healthById = Map.fromList (healthPairs <> helmHealthPairs)
       findings =
         [finding {InventoryStatus.findingHealth = case Map.lookup (InventoryStatus.findingResource finding) healthById of
@@ -4713,7 +4721,7 @@ runInventoryStatus mctx requested json gcOutput = do
         [Aeson.object ["executor" Aeson..= InventoryAdapter.adapterExecutor adapter,
                        "identity" Aeson..= InventoryAdapter.adapterIdentity adapter,
                        "version" Aeson..= InventoryAdapter.adapterVersion adapter]
-        | adapter <- [kubernetes, helm, pulumi, artifact, host, cache]]
+        | adapter <- [kubernetes, helm, pulumi, artifact, host, cache, broker]]
       revisions values =
         [Aeson.object ["scope" Aeson..= scope, "revision" Aeson..= revision]
         | (scope, revision) <- Map.toAscList values]
@@ -4982,6 +4990,7 @@ inventoryExecutionRegistry mctx bundle = do
   registrations <- either dieT pure (InventoryCloud.registrationsFromDeclarations declarations)
   artifactSpecs <- either dieT pure (InventoryArtifact.artifactExecutionSpecsFromDeclarations declarations)
   cacheSpecs <- either dieT pure (cacheSpecsFromDeclarations declarations)
+  topicSpecs <- either dieT pure (topicSpecsFromDeclarations declarations)
   hostInputs <- either dieT pure (InventoryHost.hostExecutionInputsFromScopes scopes)
   reviewedKubernetesSpecs <- either dieT pure (kubernetesSpecsFromReview bundle)
   helmSpecs <- either dieT pure (helmSpecsFromReview bundle)
@@ -5009,8 +5018,8 @@ inventoryExecutionRegistry mctx bundle = do
     pure (selectedKubernetes, selectedHelm)
   let kubernetesSpecs = Map.union reviewedKubernetesSpecs retiringKubernetesSpecs
       allHelmSpecs = Map.union helmSpecs retiringHelmSpecs
-  if null registrations && Map.null artifactSpecs && isNothing hostInputs && Map.null kubernetesSpecs && Map.null cacheSpecs && Map.null allHelmSpecs
-    then either dieT pure (InventoryAdapter.mkAdapterRegistry (map Inventory.executionBlockedAdapterFor [ResourceInventory.KubernetesExecutor, ResourceInventory.PulumiExecutor, ResourceInventory.HostExecutor, ResourceInventory.ArtifactExecutor, ResourceInventory.CacheExecutor, ResourceInventory.HelmExecutor]))
+  if null registrations && Map.null artifactSpecs && isNothing hostInputs && Map.null kubernetesSpecs && Map.null cacheSpecs && Map.null topicSpecs && Map.null allHelmSpecs
+    then either dieT pure (InventoryAdapter.mkAdapterRegistry (map Inventory.executionBlockedAdapterFor [ResourceInventory.KubernetesExecutor, ResourceInventory.PulumiExecutor, ResourceInventory.HostExecutor, ResourceInventory.ArtifactExecutor, ResourceInventory.CacheExecutor, ResourceInventory.BrokerExecutor, ResourceInventory.HelmExecutor]))
     else do
       (active, workspace) <-
         if null registrations && Map.null artifactSpecs && isNothing hostInputs
@@ -5029,9 +5038,14 @@ inventoryExecutionRegistry mctx bundle = do
           else pure (inventoryArtifactAdapter active workspace artifactSpecs)
       host <- maybe (pure (Inventory.executionBlockedAdapterFor ResourceInventory.HostExecutor)) (inventoryHostAdapter active workspace) hostInputs
       (cache, cacheKey) <- inventoryCacheAdapter active workspace binding cacheSpecs
+      acceptedTopics <- if Map.null topicSpecs then pure Set.empty else do
+        historyStore <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+        history <- InventoryPlan.loadInventoryHistory historyStore >>= either (dieT . T.pack . show) pure
+        pure (acceptedTopicIds history)
+      broker <- inventoryBrokerAdapter active binding topicSpecs acceptedTopics
       kubernetes <- inventoryKubernetesAdapter active binding cacheKey kubernetesSpecs
       helm <- inventoryHelmAdapter active workspace binding allHelmSpecs
-      let adapters = [pulumi, artifact, host, kubernetes, cache, helm]
+      let adapters = [pulumi, artifact, host, kubernetes, cache, broker, helm]
       either dieT pure (InventoryAdapter.mkAdapterRegistry adapters)
 
 inventoryPlanRegistry :: ActiveTarget -> PlatformWorkspace -> ResourceInventory.CompositionCandidate -> InventoryPlan.InventoryHistory -> IO InventoryAdapter.AdapterRegistry
@@ -5042,9 +5056,15 @@ inventoryPlanRegistryWithNative active workspace suppliedNative candidate histor
   let inventory = ResourceInventory.candidateInventory candidate
       declarations = ResourceInventory.inventoryDeclarations inventory
       scopes = Map.elems (ResourceInventory.inventoryScopes inventory)
+      historical =
+        [declaration
+        | (_, (_, scope)) <- Map.toAscList (InventoryPlan.historyAccepted history)
+        , bundle <- ResourceInventory.scopeBundles scope
+        , declaration <- ResourceInventory.declarations bundle]
   registrations <- either dieT pure (InventoryCloud.registrationsFromDeclarations declarations)
   artifactSpecs <- either dieT pure (InventoryArtifact.artifactExecutionSpecsFromDeclarations declarations)
   cacheSpecs <- either dieT pure (cacheSpecsFromDeclarations declarations)
+  topicSpecs <- either dieT pure (topicSpecsFromDeclarations (historical <> declarations))
   hostInputs <- either dieT pure (InventoryHost.hostExecutionInputsFromScopes scopes)
   let kubernetesResources = [resource | ResourceInventory.Managed resource <- declarations, resource ^. #executor == ResourceInventory.KubernetesExecutor]
       helmResources = [resource | ResourceInventory.Managed resource <- declarations, resource ^. #executor == ResourceInventory.HelmExecutor]
@@ -5112,13 +5132,15 @@ inventoryPlanRegistryWithNative active workspace suppliedNative candidate histor
   (cache, cacheKey) <- if Map.null cacheSpecs
     then pure (Inventory.manifestAdapterFor history ResourceInventory.CacheExecutor, \_ -> pure (Left "cache output resolver is not installed"))
     else inventoryCacheAdapter active workspace (ResourceInventory.inventoryBinding inventory) cacheSpecs
+  broker <- inventoryBrokerAdapter active (ResourceInventory.inventoryBinding inventory)
+    topicSpecs (acceptedTopicIds history)
   kubernetes <- if Map.null kubernetesSpecs
     then pure (Inventory.manifestAdapterFor history ResourceInventory.KubernetesExecutor)
     else inventoryKubernetesAdapter active (ResourceInventory.inventoryBinding inventory) cacheKey kubernetesSpecs
   helm <- if Map.null helmSpecs
     then pure (Inventory.manifestAdapterFor history ResourceInventory.HelmExecutor)
     else inventoryHelmAdapter active workspace (ResourceInventory.inventoryBinding inventory) helmSpecs
-  let adapters = [pulumi, artifact, host, kubernetes, cache, helm]
+  let adapters = [pulumi, artifact, host, kubernetes, cache, broker, helm]
   either dieT pure (InventoryAdapter.mkAdapterRegistry adapters)
 
 inventoryKubernetesAdapter :: ActiveTarget -> Resource.ContextBinding -> (Resource.ResourceId -> IO (Either Text Text)) -> Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString) -> IO InventoryAdapter.Adapter
@@ -5161,6 +5183,31 @@ inventoryCacheAdapter active workspace binding specs
             , CacheRuntime.runtimeCacheSpecs = specs
             }
       pure (mkCacheAdapter specs (CacheRuntime.mkCacheRuntimeOps config), CacheRuntime.cachePublicKeyForResource config)
+
+acceptedTopicIds :: InventoryPlan.InventoryHistory -> Set.Set Resource.ResourceId
+acceptedTopicIds history = Set.fromList
+  [ resource ^. #identity
+  | (_, (_, scope)) <- Map.toAscList (InventoryPlan.historyAccepted history)
+  , bundle <- ResourceInventory.scopeBundles scope
+  , ResourceInventory.Managed resource <- ResourceInventory.declarations bundle
+  , resource ^. #executor == ResourceInventory.BrokerExecutor
+  ]
+
+inventoryBrokerAdapter :: ActiveTarget -> Resource.ContextBinding
+  -> Map.Map Resource.ResourceId TopicBinding -> Set.Set Resource.ResourceId
+  -> IO InventoryAdapter.Adapter
+inventoryBrokerAdapter active binding specs accepted
+  | Map.null specs = pure (Inventory.executionBlockedAdapterFor ResourceInventory.BrokerExecutor)
+  | otherwise = do
+      context <- either dieT pure (Resource.mkContextId (contextNameText (active ^. #contextName)))
+      unless (context == binding ^. #identity)
+        (dieT "broker topic inventory review belongs to a different context")
+      let config = BrokerRuntime.TopicRuntimeConfig
+            { BrokerRuntime.topicKubectlContext = contextNameText (active ^. #contextName)
+            , BrokerRuntime.topicContextGuard = fmap (fmap (const ())) (guardKubernetesContext active)
+            , BrokerRuntime.topicRuntimeSpecs = specs
+            }
+      pure (mkTopicAdapter accepted specs (BrokerRuntime.topicRuntimeOps config))
 
 inventoryArtifactAdapter :: ActiveTarget -> PlatformWorkspace -> Map.Map Resource.ResourceId InventoryArtifact.ArtifactExecutionSpec -> InventoryAdapter.Adapter
 inventoryArtifactAdapter active workspace specs =

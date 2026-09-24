@@ -29,7 +29,7 @@ import Nagare.Dsl.Types (RetentionPolicy (Delete), databaseNameText, namespaceTe
 import Nagare.Inventory.Database (compileDatabaseForBackend)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
-import Nagare.Resource.Broker (brokerResourceId)
+import Nagare.Resource.Broker (brokerResourceId, compileBrokerTopics)
 import Nagare.Resource.Database (DatabaseDirectInput (..))
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
@@ -68,14 +68,15 @@ compileStandaloneBroker broker owner cluster namespaceId recovery source = do
     (Left (invalid "broker requires a standalone scope"))
   unless (broker ^. #provider == Redpanda)
     (Left (invalid "broker provider has no native renderer"))
-  unless (null (broker ^. #topics))
-    (Left (invalid "broker topics require typed logical operations"))
   let roles = ["pvc", "service", "statefulset"]
       objects = renderBroker broker
   unless (length objects == length roles)
     (Left (invalid "broker renderer membership differs from the declared roles"))
   members <- traverse bindOne (zip roles objects)
-  let bundle = ResourceBundle (map (Managed . fst) members) [] [] [] [] []
+  statefulRole <- first invalid (mkName "statefulset")
+  stateful <- first invalid (brokerResourceId owner statefulRole broker)
+  topics <- compileBrokerTopics owner broker stateful recovery source
+  let bundle = ResourceBundle (map (Managed . fst) members <> topics) [] [] [] [] []
       native = Map.fromList [(member ^. #identity, pair) | pair@(member, _) <- members]
   scope <- mkScopeDeclaration owner [bundle]
   unless (Map.size native == length members)

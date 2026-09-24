@@ -89,6 +89,8 @@ library
     Nagare.Inventory.Adapter
     Nagare.Inventory.Adapters.Artifact
     Nagare.Inventory.Adapters.ArtifactRuntime
+    Nagare.Inventory.Adapters.Broker
+    Nagare.Inventory.Adapters.BrokerRuntime
     Nagare.Inventory.Adapters.Cache
     Nagare.Inventory.Adapters.CacheRuntime
     Nagare.Inventory.Adapters.Helm

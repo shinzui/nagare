@@ -451,6 +451,23 @@
             "contents"
           ],
           "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {"const": "BrokerTopic"},
+            "contents": {
+              "type": "array",
+              "prefixItems": [
+                {"$ref": "#/$defs/resource"},
+                {"$ref": "#/$defs/name"}
+              ],
+              "minItems": 2,
+              "maxItems": 2
+            }
+          },
+          "required": ["tag", "contents"],
+          "additionalProperties": false
         }
       ]
     },
@@ -646,6 +663,24 @@
           },
           "required": ["tag", "contents"],
           "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {"const": "LogicalBrokerTopic"},
+            "contents": {
+              "type": "array",
+              "prefixItems": [
+                {"type": "integer", "minimum": 1},
+                {"type": "integer", "minimum": 1},
+                {"type": ["integer", "null"], "minimum": 1}
+              ],
+              "minItems": 3,
+              "maxItems": 3
+            }
+          },
+          "required": ["tag", "contents"],
+          "additionalProperties": false
         }
       ]
     },
@@ -832,7 +867,10 @@
             "KubernetesExecutor",
             "PulumiExecutor",
             "HostExecutor",
-            "ArtifactExecutor"
+            "ArtifactExecutor",
+            "CacheExecutor",
+            "BrokerExecutor",
+            "HelmExecutor"
           ]
         },
         "address": {

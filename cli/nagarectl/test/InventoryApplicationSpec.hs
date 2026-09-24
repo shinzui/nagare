@@ -2,8 +2,10 @@ module InventoryApplicationSpec (inventoryApplicationTests) where
 
 import Data.Generics.Labels ()
 import Data.ByteString.Char8 qualified as BC
+import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.Dsl.Database (mkDatabaseName)
 import Nagare.Dsl.Load (loadApplication, loadBroker)
@@ -11,13 +13,18 @@ import Nagare.Dsl.Task (Task (..), scheduledTask)
 import Nagare.Dsl.Types (mkServiceName)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Application (compileApplicationDatabases, reviewedTaskImages)
+import Nagare.Inventory.Adapter
+import Nagare.Inventory.Adapters.Broker
+import Nagare.Inventory.Adapters.BrokerRuntime (parseDescription, parseList)
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), compileFoundation)
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, databaseNativeOwned, standaloneRetirementScope)
+import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.Journal (mkOperationId)
 import Nagare.Inventory.Environment (acceptedEnvChannelValues, acceptedSecretChannelValues, compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
 import Nagare.Env.Store (ReconcileMode (..), reconcile)
 import Nagare.Resource.Application (applicationScopeId)
-import Nagare.Resource.Inventory (Declaration (Managed), ManagedResource (..), ResourceBundle (..), mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeId)
-import Nagare.Resource.Policy (RecoveryIntent (..), Sensitivity (Secret), mkSecretRef)
+import Nagare.Resource.Inventory (Declaration (Managed), Executor (BrokerExecutor), ManagedResource (..), ResourceBundle (..), mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeId)
+import Nagare.Resource.Policy (RecoveryClass (VerifyBeforeRetry), RecoveryIntent (..), Sensitivity (Secret), mkSecretRef)
 import Nagare.Resource.Types
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertFailure, testCase, (@?=))
@@ -240,7 +247,7 @@ inventoryApplicationTests = testGroup "application inventory compilation"
             Left (err :| _) -> code err @?= "duplicate-id"
             Right _ -> assertFailure "two databases with one logical key were accepted"
         _ -> assertFailure "fixture did not contain exactly one database"
-  , testCase "standalone broker binds its PVC, Service, and StatefulSet" $ do
+  , testCase "standalone broker binds native members and logical topics" $ do
       loaded <- loadBroker "../nagare-dsl/test/fixtures/broker/redpanda/nagare/Config.hs"
       broker <- either (fail . show) pure loaded
       let owner = either (error . show) id (mkScopeId Standalone "broker-events")
@@ -255,17 +262,57 @@ inventoryApplicationTests = testGroup "application inventory compilation"
             (mkSecretRef (either (error . show) id (mkName "broker-key"))
               (either (error . show) id (mkName "v1")) :| [])
           source = SourceLocation "test" "broker"
-      case compileStandaloneBroker broker owner cluster namespaceId recovery source of
-        Left (err :| _) -> code err @?= "invalid-standalone-broker"
-        Right _ -> assertFailure "broker topics disappeared from inventory review"
-      let withoutTopics = broker & #topics .~ []
       (scope, native) <- either (fail . show) pure
-        (compileStandaloneBroker withoutTopics owner cluster namespaceId recovery source)
+        (compileStandaloneBroker broker owner cluster namespaceId recovery source)
       length (scopeBundles scope) @?= 1
       Map.size native @?= 3
       [resource ^. #owner | bundle <- scopeBundles scope, Managed resource <- bundle ^. #declarations]
-        @?= replicate 3 owner
-      map (brokerNativeOwned withoutTopics . pure . fst) (Map.elems native)
+        @?= replicate 4 owner
+      let topics = [resource | bundle <- scopeBundles scope, Managed resource <- bundle ^. #declarations,
+            resource ^. #executor == BrokerExecutor]
+      length topics @?= 1
+      specs <- either (fail . show) pure (topicSpecsFromDeclarations (concatMap declarations (scopeBundles scope)))
+      Map.size specs @?= 1
+      let topicId = either (error . show) id (case topics of
+            [single] -> Right (single ^. #identity)
+            _ -> Left ("expected one topic" :: Text))
+          physical = either (error . show) id (mkPhysicalIdentity "broker-statefulset://uid/topic/jobs")
+          operation = PlannedOperation (either (error . show) id (mkOperationId "op-topic-create"))
+            CreateResource BrokerExecutor (topicId :| []) (contentDigest "topic-input") [] VerifyBeforeRetry
+      topicState <- newIORef TopicMissing
+      let ops = TopicAdapterOps
+            { topicInspect = \_ -> readIORef topicState
+            , topicCreate = \_ -> do
+                writeIORef topicState (TopicPresent physical 1 1 (Just 86400000))
+                pure AdapterEffectCompleted
+            }
+          adapter = mkTopicAdapter Set.empty specs ops
+      before <- adapterObserve adapter [topicId] >>= either (fail . show) pure
+      case Map.lookup topicId (observationMap before) of
+        Just (ConfirmedAbsent _) -> pure ()
+        other -> assertFailure ("topic absence was not proved: " <> show other)
+      prepared <- adapterPrepare adapter operation >>= either (fail . show) pure
+      adapterPreflight adapter operation prepared >>= either (fail . show) pure
+      executed <- adapterExecute adapter operation prepared
+      executed @?= AdapterEffectCompleted
+      _ <- adapterVerify adapter operation prepared >>= either (fail . show) pure
+      after <- adapterObserve adapter [topicId] >>= either (fail . show) pure
+      Map.lookup topicId (observationMap after) @?= Just (ObservedUnowned physical)
+      preflightResult <- adapterPreflight adapter operation prepared
+      case preflightResult of
+        Left _ -> pure ()
+        Right _ -> assertFailure "existing unowned topic passed creation preflight"
+      recovered <- adapterRecover adapter operation prepared
+      case recovered of
+        RecoveryUnresolved _ -> pure ()
+        _ -> assertFailure "topic with unknown creation incarnation recovered automatically"
+      let topicName = either (error . show) id (mkName "jobs")
+      parseList topicName "[{\"name\":\"jobs\",\"partitions\":0,\"replicas\":0}]" @?= Right False
+      parseList topicName "[{\"name\":\"jobs\",\"partitions\":1,\"replicas\":1}]" @?= Right True
+      parseDescription topicName
+        "[{\"summary\":{\"name\":\"jobs\",\"partitions\":1,\"replicas\":1},\"configs\":[{\"key\":\"retention.ms\",\"value\":\"86400000\",\"source\":\"DYNAMIC_TOPIC_CONFIG\"}]}]"
+        @?= Right (1, 1, Just 86400000)
+      map (brokerNativeOwned broker . pure . fst) (Map.elems native)
         @?= replicate 3 True
       let checked = either (error . show) id
           binding = ContextBinding (checked (mkContextId "fixture")) (checked (mkName "project"))

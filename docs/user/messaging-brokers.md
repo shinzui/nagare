@@ -49,11 +49,14 @@ nagarectl broker create redpanda events \
 This creates a single-replica StatefulSet, a ClusterIP Service, a durable
 `local-path` PVC, and topic `jobs`. The broker is internal only:
 
-For a broker without topics, the reviewed inventory path saves a plan before
-changing the cluster:
+The reviewed inventory path saves a plan before changing the cluster, including
+the broker's declared topics:
 
 ```bash
 nagarectl broker create redpanda events \
+  --topic jobs \
+  --topic-partitions 1 \
+  --topic-retention-ms 86400000 \
   --recovery-backup redpanda-backup \
   --recovery-key broker-key \
   --recovery-key-version v1 \
@@ -66,18 +69,22 @@ For a broker already accepted into a standalone scope, review retirement with
 `nagarectl inventory apply ./events-retire --yes`. Supply `--scope-key KEY` if
 the broker was created with a pinned logical key different from its current
 name. The accepted StatefulSet name and namespace are checked before planning.
-Applying this retirement review preserves every provider resource and records
-its identity as retained history. Reviewed Kubernetes deletion is not yet
+Applying this retirement review preserves the broker and its topics and records
+their identities as retained history. Reviewed Kubernetes deletion is not yet
 supported for these resources; `broker delete` is a separate direct workflow.
 Direct create and delete refuse a broker whose StatefulSet is owned by accepted
 or retained inventory history.
 
-The recovery options identify the durable PVC's backup policy and key
-reference. The plan requires an accepted platform Namespace bound to the
+The recovery options identify the durable broker and topic recovery policy and
+key reference. The plan requires an accepted platform Namespace bound to the
 selected cluster identity. A `--config` broker must match the command's
-provider and name.
-Broker topics are not part of this reviewed path yet; a topic-bearing input
-is refused during compilation.
+provider and name. A declared topic receives its own broker-scoped ownership
+claim and is created only after the StatefulSet is ready. An existing topic is
+not adopted by name. Changing a topic's settings in place needs a separate
+reviewed capability; the current reviewed path refuses that change. If topic
+creation loses its acknowledgement, inventory recovery does not assume the
+matching topic is the same incarnation; inspect and resolve the uncertain
+transaction before another apply.
 
 ```text
 events.personal.svc.cluster.local:9092
@@ -120,6 +127,7 @@ broker :: Broker
 broker =
   Broker
     { name = unsafe (mkBrokerName "events")
+    , logicalKey = Nothing
     , provider = Redpanda
     , version = unsafe (mkBrokerVersion Redpanda "v26.1.8")
     , namespace = unsafe (mkNamespace "personal")
@@ -178,7 +186,9 @@ topic-free broker that already has an accepted standalone inventory scope. The
 reviewed workload receives the broker connection values and depends on that
 broker's Service. Other workers do not inherit a Service or worker binding;
 application-level bindings reach every workload. Reviewed topic creation and
-topic-bearing bindings are still pending, so those inputs refuse a saved plan.
+topic-bearing workload bindings are separate capabilities: the former is
+available through `broker create --save-plan`, while the latter still refuses a
+saved workload plan.
 
 ## Worker or service?
 

@@ -460,9 +460,9 @@ validateLifecycleDecisions candidate history observations proposals =
             ApproveRetirement -> case (Map.lookup resource desired, Map.lookup resource historical, retirementIntent resource) of
               (Nothing, Just (Managed old), Just RetainResources)
                 | Just (ObservedPresent _) <- fact
-                , old ^. #executor `elem` [KubernetesExecutor, HelmExecutor]
+                , old ^. #executor `elem` [KubernetesExecutor, HelmExecutor, BrokerExecutor]
                 , Map.notMember resource (headRetained (historyHead history)) -> []
-              _ -> issue "invalid-retirement" "retention needs a retired Kubernetes or Helm declaration, present owned incarnation, and RetainResources intent"
+              _ -> issue "invalid-retirement" "retention needs a retired Kubernetes, Helm, or broker topic declaration, present owned incarnation, and RetainResources intent"
             ApproveCollection -> case (Map.lookup resource desired, Map.lookup resource (historyRetained history), fact) of
               (Nothing, Just (incarnation, old), Just (ObservedPresent physical))
                 | CollectRetained resource `elem` NE.toList (candidateChanges candidate)

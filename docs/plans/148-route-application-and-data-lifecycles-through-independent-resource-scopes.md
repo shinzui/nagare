@@ -48,7 +48,7 @@ Every supported application-side mutation is either a desired-scope update, a re
 
 ## Progress
 
-Implementation evidence is recorded in the commits linked to this plan and in Surprises & Discoveries. Reviewed application, standalone web Service, and standalone worker scopes, a topic-free broker, database members, OCI publication, and reviewed set/delete/merge/exact Runtime/Build/app-wide Preview environment and versioned Secret channels are working slices. The four acceptance milestones below remain open: logical topics, complete publication and shared-owner behavior, reviewed operational/data commands, and removal of direct mutation paths still require work. Application, standalone web Service, and standalone worker retirement select accepted native identities and preserve retained resources. Partial slices do not count as completed milestones.
+Implementation evidence is recorded in the commits linked to this plan and in Surprises & Discoveries. Reviewed application, standalone web Service, and standalone worker scopes, standalone brokers with create-only logical topics, database members, OCI publication, and reviewed set/delete/merge/exact Runtime/Build/app-wide Preview environment and versioned Secret channels are working slices. The four acceptance milestones below remain open: topic-bearing workload dependencies and topic updates, complete publication and shared-owner behavior, reviewed operational/data commands, and removal of direct mutation paths still require work. Application, standalone web Service, and standalone worker retirement select accepted native identities and preserve retained resources. Partial slices do not count as completed milestones.
 
 - [ ] M1: Compile applications and standalone services into complete scopes.
 - [ ] M2: Integrate shared-owner contributions, environment intent, and publication.
@@ -105,6 +105,8 @@ Implementation evidence is recorded in the commits linked to this plan and in Su
 
 2026-09-24: Reviewed standalone Service and worker deploys now accept database names only when one accepted standalone scope owns the matching Service, StatefulSet, and credential Secret. The command loads their original private native review, and the resolver verifies the credential template's engine against the saved Service and StatefulSet labels. Workloads receive typed StatefulSet ordering, connection fields, and Secret references without a live name lookup. Missing history, native evidence, changed namespace, and duplicate bindings refuse. Offline composition of either workload preserves the database scope's accepted generation; complete M1 still needs logical topics and the other unsupported resources.
 
+2026-09-24: Standalone Redpanda topics now enter the broker scope as typed durable logical resources with canonical broker/topic claims, retained recovery policy, and a dependency on the StatefulSet. The new broker adapter uses guarded `rpk topic list`, create, and describe against the exact compiled broker target. Planning sees a topic already present without accepted history as unowned; creation requires confirmed absence, and changed settings or an uncertain create acknowledgement refuse automatic reconciliation. The installed rpk 26.2.3 description and metadata output expose settings but no stable topic ID, so the transport's physical marker includes the broker StatefulSet UID and topic name; a delete/recreate of a topic inside the same StatefulSet cannot be proved from that marker. Topic-bearing workload bindings, updates, and reviewed deletion remain open, so M1 and M3 stay open.
+
 ## Decision Log
 
 2026-09-16: Preserve separately submitted environment/secret intent across configuration deploys. Inputs are explicit versioned intent channels composed into one owner declaration, not live cluster data silently copied into desired state.
@@ -119,10 +121,12 @@ Implementation evidence is recorded in the commits linked to this plan and in Su
 
 2026-09-24: Resolve a standalone database connection's engine from the accepted private credential template and check the other native members against it. Rationale: a live label or caller-provided engine would not be bound to the reviewed scope revision, and the full typed database input is unavailable when a separate workload is deployed.
 
+2026-09-24: Treat `rpk` topic observation as configuration evidence and broker-scoped location evidence, not an independent Kafka topic incarnation proof. Rationale: the installed CLI reports no stable topic ID in `topic describe` or `cluster info`; adoption by name and automatic recovery after an uncertain create could take authority over unrelated data. Retain topic claims on scope retirement, refuse in-place mutation and collection, and require a stronger provider capability before those actions are offered.
+
 
 ## Outcomes & Retrospective
 
-In progress. Stable identity inputs, standalone database and topic-free broker scopes, and a supported-subset application scope compiler are present. Application broker/access/CDN/TLS integration, reviewed operational actions, command migration, scope-isolation proof, and complete mutation coverage remain open.
+In progress. Stable identity inputs, standalone database and broker scopes with create-only logical topics, and a supported-subset application scope compiler are present. Application topic/access/CDN/TLS integration, reviewed operational actions, command migration, scope-isolation proof, and complete mutation coverage remain open.
 
 
 ## Context and Orientation

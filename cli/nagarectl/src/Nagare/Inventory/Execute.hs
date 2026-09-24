@@ -750,6 +750,7 @@ withAdapterEnv transaction operation action = do
       HostExecutor -> "host"
       ArtifactExecutor -> "artifact"
       CacheExecutor -> "cache"
+      BrokerExecutor -> "broker"
       HelmExecutor -> "helm"
 
 timestamp :: IO Text

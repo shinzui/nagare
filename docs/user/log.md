@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-24
+* **Update**: Document reviewed Redpanda topic creation, retained topic claims, and conservative recovery of uncertain topic creation.
 * **Update**: Document accepted standalone database dependencies and credential-template checks for reviewed web Service and worker deployment.
 * **Update**: Document topic free accepted broker references in reviewed standalone web Service deployment.
 * **Update**: Document topic free accepted broker bindings for reviewed standalone workers.

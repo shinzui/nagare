@@ -170,6 +170,7 @@ data ProviderAddress
   | DatabaseName ResourceId Name
   | BackendRoute ResourceId Name
   | AtticCache ResourceId Name
+  | BrokerTopic ResourceId Name
   | Helm ResourceId Name Name
   deriving stock (Eq, Ord, Show, Generic)
 
@@ -208,6 +209,7 @@ canonicalClaim =
     DatabaseName r n -> ["database", resourceIdText r, nameText n]
     BackendRoute r n -> ["route", resourceIdText r, nameText n]
     AtticCache r n -> ["attic-cache", resourceIdText r, nameText n]
+    BrokerTopic r n -> ["broker-topic", resourceIdText r, nameText n]
     Helm r namespace n -> ["helm", resourceIdText r, nameText namespace, nameText n]
 
 claimParts :: CanonicalClaim -> [Text]

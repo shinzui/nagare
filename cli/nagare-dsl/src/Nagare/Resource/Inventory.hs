@@ -62,7 +62,7 @@ import Nagare.Resource.Policy
 import Nagare.Resource.Reference
 import Nagare.Resource.Types
 
-data Executor = KubernetesExecutor | PulumiExecutor | HostExecutor | ArtifactExecutor | CacheExecutor | HelmExecutor
+data Executor = KubernetesExecutor | PulumiExecutor | HostExecutor | ArtifactExecutor | CacheExecutor | BrokerExecutor | HelmExecutor
   deriving stock (Eq, Ord, Show, Generic)
 
 -- | Closed, versioned alternatives. Native bytes are referenced by content identity.
@@ -78,6 +78,7 @@ data DesiredSpec
   | BackendMapSpec ![(Name, Text, BackendRole)]
   | ShomeiSettingsSpec !Name !(Maybe Name)
   | LogicalCache !ContentDigest
+  | LogicalBrokerTopic !Int !Int !(Maybe Int)
   deriving stock (Eq, Ord, Show, Generic)
 
 data ManagedResource = ManagedResource
@@ -237,6 +238,7 @@ validateDeclaration d@(Managed r) = [err m | m <- issues]
       Host {} -> r ^. #executor == HostExecutor
       Artifact {} -> r ^. #executor == ArtifactExecutor
       AtticCache {} -> r ^. #executor == CacheExecutor
+      BrokerTopic {} -> r ^. #executor == BrokerExecutor
       Helm {} -> r ^. #executor == HelmExecutor
       _ -> True
     specMatches = case (r ^. #address, r ^. #spec) of
@@ -251,6 +253,9 @@ validateDeclaration d@(Managed r) = [err m | m <- issues]
       (Kubernetes _ g k _ _, NativeObject _) -> (g, nameText k) `notElem` [("serving.knative.dev", "service"), ("cert-manager.io", "certificate"), ("apps", "statefulset")]
       (AtticCache _ _, LogicalCache _) -> True
       (AtticCache {}, _) -> False
+      (BrokerTopic _ _, LogicalBrokerTopic partitions replicas retention) ->
+        partitions > 0 && replicas > 0 && maybe True (> 0) retention
+      (BrokerTopic {}, _) -> False
       (Helm {}, HelmRelease {}) -> True
       (Helm {}, _) -> False
       (_, NativeObject _) -> True
