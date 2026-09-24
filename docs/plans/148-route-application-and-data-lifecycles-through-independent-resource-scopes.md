@@ -57,6 +57,7 @@ Every supported application-side mutation is either a desired-scope update, a re
 - [x] (2026-09-24) M1 partial: Aggregate compilation refuses rollout environment drift and environment Secret references without typed ownership or external dependency evidence.
 - [x] (2026-09-24) M4 partial: Legacy app deploy and broker create refuse inventory transaction re-entry, matching the database create guard, while their public command paths remain active.
 - [x] (2026-09-24) M1 partial: Database and broker scope builders refuse renderer membership changes before role-to-object binding; 450 DSL tests, 769 operator tests, and the Haskell style check pass.
+- [x] (2026-09-24) M1 partial: Database native binding verifies the complete declaration-ID set and refuses duplicate or missing private members instead of accepting a lossy map.
 - [ ] M1: Compile applications and standalone services into complete scopes.
 - [ ] M2: Integrate shared-owner contributions, environment intent, and publication.
 - [ ] M3: Route operational and data lifecycle commands through reviewed operations.
@@ -86,6 +87,8 @@ Every supported application-side mutation is either a desired-scope update, a re
 2026-09-24: The inventory executor marks subprocesses with `NAGARE_INVENTORY_TRANSACTION`; only the old database create command refused re-entry. App deploy and broker create now reject that marker before loading input or provider work, preventing an adapter from indirectly invoking a second imperative mutation path.
 
 2026-09-24: Both the database and standalone broker builders paired roles with rendered objects using `zip`, which silently discards unmatched tail members. They now check the complete renderer cardinality first. This closes one path for a future renderer change to produce an unclaimed native member, but it does not establish command-path parity or finish M1.
+
+2026-09-24: The database adapter bound each native member to a declaration but then built a `Map` without proving equal membership. A duplicate ID could collapse during that conversion. Binding now compares the exact declaration and native ID sets and counts before returning private execution bytes.
 
 ## Decision Log
 

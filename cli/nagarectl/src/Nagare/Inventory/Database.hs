@@ -9,6 +9,7 @@ import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend)
@@ -74,7 +75,13 @@ bindDatabaseMembers
   -> Either (NonEmpty InventoryError) (ResourceBundle, Map ResourceId (ManagedResource, ByteString))
 bindDatabaseMembers input (bundle, native) = do
   bound <- traverse bindOne native
-  pure (bundle, Map.fromList bound)
+  let declarationsById = [member ^. #identity | Managed member <- declarations bundle]
+      nativeById = Map.fromList bound
+  unless (length declarationsById == length native
+      && Map.size nativeById == length native
+      && Map.keysSet nativeById == Set.fromList declarationsById)
+    (Left (single (invalid "database native membership differs from its declarations")))
+  pure (bundle, nativeById)
   where
     digestOf value = contentDigest <$> canonicalValue value
     bindOne (resource, value) = do
