@@ -281,3 +281,5 @@ Support types are explicit alternatives in Lifecycle/Migration; identity and pol
 2026-09-23: Clarified the existing legacy platform-adoption command boundary so release identity stamping cannot be mistaken for managed resource enrollment.
 
 2026-09-24: Added retained Kubernetes health to read-only reports. The probe is bound to the retained historical UID so a replacement at the same address cannot lend its readiness to the old incarnation.
+
+2026-09-24: Updated the operator lifecycle guide to describe the proved Deployment selector classification and retained UID-bound health; its previous statement that no production adapter emitted replacement-required status had become stale.

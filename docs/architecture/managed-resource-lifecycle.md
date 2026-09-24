@@ -7,8 +7,9 @@ Kubernetes object as `unowned` and an object stamped for another logical resourc
 An adapter can report `immutable-replacement-required` when it proves that a
 changed object cannot be updated in place. Status shows the physical identity
 and observed digest, while ordinary planning refuses an update until a reviewed
-replacement or migration path exists. Current production adapters do not yet
-emit this outcome.
+replacement or migration path exists. The Kubernetes observer emits this
+outcome when an explicitly declared `apps/v1` Deployment selector changes.
+Other immutable changes remain outside that proved classification.
 
 When a transaction is active, status and explain include `transactionStatus` with the
 latest committed state of each journaled operation. `recoveryRequired` marks an
@@ -22,6 +23,10 @@ Knative Services, and Deployments, status separately probes controller
 conditions and reports health as `ready` or `not-ready` when the second read
 still has the observed UID. Other kinds and failed or changed reads remain
 `unknown`; a missing resource is `unavailable`.
+Retained Kubernetes resources use the same separate health probe only when
+their observed UID still matches the historical UID. A replacement at the
+same address cannot lend readiness to the retained incarnation. Confirmed
+absence reports health `unavailable`.
 Status also includes the read-only `collectionAssessments` for retained
 resources. Each assessment carries blockers and `deletionAuthorized: false`.
 Explain shows the historical declaration's aliases, required conditions,
