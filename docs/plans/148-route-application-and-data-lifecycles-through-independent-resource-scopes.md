@@ -69,6 +69,7 @@ Every supported application-side mutation is either a desired-scope update, a re
 - [x] (2026-09-24) M4 partial: Legacy database backup/restore and application storage snapshot/restore also refuse inventory transaction re-entry before provider observation or mutation; their reviewed operation contracts remain open.
 - [x] (2026-09-24) M4 partial: Legacy task run/delete and database/broker restart reject inventory transaction re-entry before direct mutations; reviewed operational actions remain open.
 - [x] (2026-09-24) M3 partial: Standalone data planners resolve the accepted foundation Namespace by both ResourceId and native cluster/name address before compiling a create review; absent or unmatched foundation state refuses.
+- [x] (2026-09-24) M3 partial: Reviewed database and broker creation require a supplied Config.hs value to match the positional engine/provider and name before scope planning.
 - [ ] M1: Compile applications and standalone services into complete scopes.
 - [ ] M2: Integrate shared-owner contributions, environment intent, and publication.
 - [ ] M3: Route operational and data lifecycle commands through reviewed operations.

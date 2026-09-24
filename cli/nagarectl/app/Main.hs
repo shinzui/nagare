@@ -7069,6 +7069,8 @@ runBrokerCreatePlan mctx provider name params backupName keyName keyVersion outp
   let brokerName = brokerNameText (broker ^. #name)
       namespaceName = namespaceText (broker ^. #namespace)
       scopeName = maybe brokerName Resource.logicalKeyText (broker ^. #logicalKey)
+  unless (brokerName == name && broker ^. #provider == provider)
+    (dieT "reviewed broker config must match the command's provider and name")
   owner <- either dieT pure (Resource.mkScopeId Resource.Standalone ("broker-" <> scopeName))
   backup <- maybe (dieT "--save-plan requires --recovery-backup") (either dieT pure . Resource.mkName . T.pack) backupName
   key <- maybe (dieT "--save-plan requires --recovery-key") (either dieT pure . Resource.mkName . T.pack) keyName
@@ -7150,6 +7152,8 @@ runDbCreatePlan mctx eng name params backupName keyVersion output = do
   let databaseName = databaseNameText (db ^. #name)
       namespaceName = namespaceText (db ^. #namespace)
       scopeName = maybe databaseName Resource.logicalKeyText (db ^. #logicalKey)
+  unless (databaseName == name && db ^. #engine == eng)
+    (dieT "reviewed database config must match the command's engine and name")
   owner <- either dieT pure (Resource.mkScopeId Resource.Standalone ("database-" <> scopeName))
   backup <- maybe (dieT "--save-plan requires --recovery-backup") (either dieT pure . Resource.mkName . T.pack) backupName
   version <- maybe (dieT "--save-plan requires --recovery-key-version") (either dieT pure . Resource.mkName . T.pack) keyVersion

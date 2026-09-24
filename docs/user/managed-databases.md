@@ -181,7 +181,8 @@ credential template and all database objects to the standalone scope, and
 includes the scheduled backup for retained data. The recovery options identify
 the backup policy and credential key version used by that scope. The plan
 requires the platform's accepted Namespace declaration bound to the selected
-cluster identity. The older
+cluster identity. A `--config` database must match the command's engine and
+name. The older
 `db create` form without `--save-plan` still uses the direct create path during
 the command migration.
 

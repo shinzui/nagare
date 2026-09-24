@@ -69,7 +69,8 @@ name. The accepted StatefulSet name and namespace are checked before planning.
 
 The recovery options identify the durable PVC's backup policy and key
 reference. The plan requires an accepted platform Namespace bound to the
-selected cluster identity.
+selected cluster identity. A `--config` broker must match the command's
+provider and name.
 Broker topics are not part of this reviewed path yet; a topic-bearing input
 is refused during compilation.
 
