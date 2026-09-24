@@ -63,7 +63,11 @@ compileStandaloneBroker broker owner cluster namespaceId recovery source = do
     (Left (invalid "broker provider has no native renderer"))
   unless (null (broker ^. #topics))
     (Left (invalid "broker topics require typed logical operations"))
-  members <- traverse bindOne (zip ["pvc", "service", "statefulset"] (renderBroker broker))
+  let roles = ["pvc", "service", "statefulset"]
+      objects = renderBroker broker
+  unless (length objects == length roles)
+    (Left (invalid "broker renderer membership differs from the declared roles"))
+  members <- traverse bindOne (zip roles objects)
   let bundle = ResourceBundle (map (Managed . fst) members) [] [] [] [] []
       native = Map.fromList [(member ^. #identity, pair) | pair@(member, _) <- members]
   scope <- mkScopeDeclaration owner [bundle]

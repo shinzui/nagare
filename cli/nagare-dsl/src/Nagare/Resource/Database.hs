@@ -47,7 +47,10 @@ compileDatabaseDirect
   -> DatabaseDirectInput
   -> Either (NonEmpty InventoryError) (ResourceBundle, [(ResourceId, Value)])
 compileDatabaseDirect digestOf input = do
-  members <- traverse compileOne (zip roles (databaseCredentialTemplate (directDatabase input) : databaseObjects (directDatabase input)))
+  let objects = databaseCredentialTemplate (directDatabase input) : databaseObjects (directDatabase input)
+  unless (length objects == length roles)
+    (Left (invalid "database renderer membership differs from the declared roles"))
+  members <- traverse compileOne (zip roles objects)
   pure
     ( ResourceBundle (map (Managed . fst) members) [] [] [] [] []
     , [(resource ^. #identity, value) | (resource, value) <- members]

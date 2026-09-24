@@ -22,6 +22,11 @@ provenance:
       at: 2026-09-24T15:13:26Z
       mode: "implement"
       note: "Begin application and standalone data scope compilation"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-24T16:33:40Z
+      mode: "implement"
+      note: "Guard complete database and broker renderer membership"
 ---
 
 # Route application and data lifecycles through independent resource scopes
@@ -51,6 +56,7 @@ Every supported application-side mutation is either a desired-scope update, a re
 - [x] (2026-09-24) M1 partial: A Redpanda broker without topics compiles its retained PVC, Service, and StatefulSet into an independent scope with exact native bytes; declared topics refuse pending logical operation ownership.
 - [x] (2026-09-24) M1 partial: Aggregate compilation refuses rollout environment drift and environment Secret references without typed ownership or external dependency evidence.
 - [x] (2026-09-24) M4 partial: Legacy app deploy and broker create refuse inventory transaction re-entry, matching the database create guard, while their public command paths remain active.
+- [x] (2026-09-24) M1 partial: Database and broker scope builders refuse renderer membership changes before role-to-object binding; 450 DSL tests, 769 operator tests, and the Haskell style check pass.
 - [ ] M1: Compile applications and standalone services into complete scopes.
 - [ ] M2: Integrate shared-owner contributions, environment intent, and publication.
 - [ ] M3: Route operational and data lifecycle commands through reviewed operations.
@@ -79,6 +85,7 @@ Every supported application-side mutation is either a desired-scope update, a re
 
 2026-09-24: The inventory executor marks subprocesses with `NAGARE_INVENTORY_TRANSACTION`; only the old database create command refused re-entry. App deploy and broker create now reject that marker before loading input or provider work, preventing an adapter from indirectly invoking a second imperative mutation path.
 
+2026-09-24: Both the database and standalone broker builders paired roles with rendered objects using `zip`, which silently discards unmatched tail members. They now check the complete renderer cardinality first. This closes one path for a future renderer change to produce an unclaimed native member, but it does not establish command-path parity or finish M1.
 
 ## Decision Log
 

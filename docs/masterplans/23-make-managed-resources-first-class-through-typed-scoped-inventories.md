@@ -96,6 +96,11 @@ provenance:
       at: 2026-09-24T15:13:26Z
       mode: "implement"
       note: "Begin EP-148 application and data scope migration"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-24T16:33:40Z
+      mode: "implement"
+      note: "Track EP-148 renderer membership guard"
 ---
 
 # Make managed resources first-class through typed scoped inventories
@@ -293,6 +298,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-24) EP-148 M1 partial: Automatic-TLS DomainMappings bind with hostname claims; supplied TLS waits on a typed Secret dependency.
 - [x] (2026-09-24) EP-148 M1 partial: Worker Deployments/PVCs and scheduled CronJobs bind with stable keys; declared database edges are typed, and a supported multi-workload fixture composes into one ten-member application scope.
 - [x] (2026-09-24) EP-148 M1 partial: A standalone Redpanda broker without topics compiles three direct Kubernetes members with retained PVC recovery; topic-bearing brokers refuse pending logical operation ownership.
+- [x] (2026-09-24) EP-148 M1 partial: Database and broker builders refuse renderer/member count drift before binding roles; command-path parity remains open.
 - [ ] EP-148 M1: Complete application/data scopes.
 - [ ] EP-148 M2: Shared contributions, env/secret intent, and publication.
 - [ ] EP-148 M3: Operational/data command coverage.
@@ -465,3 +471,5 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 2026-09-24: Exposed accepted source and desired destination declarations for changed resource addresses/executors in EP-149 observation requirements. The ordinary planner still refuses such changes pending the dual-incarnation review and execution contract; EP-148/150 remain gated.
 
 2026-09-24: Marked EP-149 complete after its provider-independent migration graph, separate incarnation observations, retained history, command-path review, and recording data/recovery fixtures passed. EP-148 may consume its lifecycle contract; EP-150 retains real provider and integrated release acceptance. No dependency edge changed.
+
+2026-09-24: Added a fail-closed renderer membership check to EP-148's existing database and standalone broker declaration paths. EP-148 remains in progress; M1 through M4 and the EP-150 gate are unchanged.
