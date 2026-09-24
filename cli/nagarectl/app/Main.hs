@@ -273,7 +273,7 @@ import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.Application (ApplicationScopeInput (..), DatabaseBinding, acceptedApplicationImage, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationScope, compileStandaloneServiceWithDependencies, compileStandaloneWorkerWithDependencies, databaseRecoveryBindings, nativeWorkloadOwned, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), DatabaseBinding, acceptedAccessBinding, acceptedApplicationImage, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationScope, compileStandaloneServiceWithDependencies, compileStandaloneWorkerWithDependencies, databaseRecoveryBindings, nativeWorkloadOwned, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, compileStandaloneDatabase, databaseNativeOwned, standaloneRetirementScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Environment (acceptedEnvChannelValues, acceptedSecretChannelValues, compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
 import Nagare.Inventory.Host qualified as InventoryHost
@@ -6538,9 +6538,8 @@ runDeployPlan mctx options output = do
     >>= either (dieT . Load.renderLoadError) pure
   when (requiresBuild (service ^. #build))
     (dieT "reviewed deploy requires an already published image")
-  unless (isNothing (service ^. #access)
-      && isNothing (service ^. #cdn))
-    (dieT "reviewed single-Service deploy requires typed access and CDN bindings")
+  unless (isNothing (service ^. #cdn))
+    (dieT "reviewed single-Service deploy requires typed CDN ownership")
   let app = Application
         { name = service ^. #name
         , logicalKey = service ^. #logicalKey
@@ -6565,6 +6564,8 @@ runDeployPlan mctx options output = do
   let namespaceName = namespaceText (service ^. #namespace)
   (cluster, namespaceId) <- either dieT pure
     (acceptedFoundationNamespace snapshot namespaceName)
+  accessBinding <- traverse (\_ -> either dieT pure
+    (acceptedAccessBinding snapshot cluster)) (service ^. #access)
   (brokerServices, brokerTopics, _) <- either dieT pure
     (acceptedBrokerBindings snapshot cluster namespaceName (service ^. #brokers))
   databaseBindings <- reviewedStandaloneDatabases active snapshot cluster namespaceName
@@ -6597,7 +6598,7 @@ runDeployPlan mctx options output = do
         (serviceNameText (service ^. #name))
   (scope, native) <- either (dieT . T.pack . show) pure
     (compileStandaloneServiceWithDependencies owner service rollout cluster namespaceId imageId
-      volumeRecovery tlsSecrets envSecrets brokerServices brokerTopics databaseBindings source)
+      volumeRecovery tlsSecrets envSecrets brokerServices brokerTopics databaseBindings accessBinding source)
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
   Inventory.planInventoryCandidateWith
@@ -6617,6 +6618,7 @@ runDirectDeploy mctx dopts = do
     Right d -> do
       refuseDirectServiceMutationIfOwned mctx "deploy" (serviceNameText (d ^. #name))
         (namespaceText (d ^. #namespace))
+      refuseDirectAccessOwnerIfManaged mctx "deploy"
       forM_ (d ^. #tasks) $ \task ->
         refuseDirectTaskMutationIfOwned mctx "deploy" (serviceNameText (task ^. #name))
           (namespaceText (d ^. #namespace))
@@ -7138,8 +7140,6 @@ runAppDeployPlan mctx params appOptions output = do
         <> map (^. #build) (app ^. #workers)
   when (any requiresBuild builds)
     (dieT "reviewed app deploy requires an already published image")
-  unless (isNothing (app ^. #access))
-    (dieT "reviewed app deploy requires typed access contributions")
   databaseRecovery <- either dieT pure
     (databaseRecoveryBindings app (map T.pack (appOptions ^. #databaseRecovery)))
   (serviceVolumeRecovery, workerVolumeRecovery) <- either dieT pure
@@ -7168,6 +7168,9 @@ runAppDeployPlan mctx params appOptions output = do
         (foundationCluster, acceptedNamespace) <- either dieT pure
           (acceptedFoundationNamespace snapshot appNamespaceName)
         pure (foundationCluster, acceptedNamespace, Nothing)
+  let accessPolicy = (app ^. #access) <|> (app ^. #service >>= (^. #access))
+  accessBinding <- traverse (\_ -> either dieT pure
+    (acceptedAccessBinding snapshot cluster)) accessPolicy
   (appBrokerServices, appBrokerTopics, brokerEnv) <- either dieT pure
     (acceptedBrokerBindings snapshot cluster appNamespaceName (app ^. #brokers))
   workloadBrokers <- either dieT pure (traverse
@@ -7204,6 +7207,7 @@ runAppDeployPlan mctx params appOptions output = do
         , scopeImage = imageId
         , scopeBrokerServices = brokerServices
         , scopeBrokerTopics = brokerTopics
+        , scopeAccessBinding = accessBinding
         , scopeDatabaseRecovery = databaseRecovery
         , scopeServiceVolumeRecovery = serviceVolumeRecovery
         , scopeTlsSecrets = tlsSecrets
@@ -7351,6 +7355,7 @@ runAppDelete mctx o = do
     Nothing -> do
       when (isJust (o ^. #scopeKey)) (dieT "--scope-key requires --save-plan")
       refuseDirectServiceMutationIfOwned mctx "app delete" name ns
+      refuseDirectAccessOwnerIfManaged mctx "app delete"
       domains <- resolveDeleteDomains o ns name
       deleteApp ns name domains
       TIO.putStrLn ("Deleted " <> name)
@@ -7724,6 +7729,30 @@ ownedHistoryResources history =
   , ResourceInventory.Managed resource <- ResourceInventory.declarations bundle
   ] <> map snd (Map.elems (InventoryPlan.historyRetained history))
 
+-- The accepted auth owner composes the entire backend map from contributor
+-- scopes. The legacy resolver can rewrite that ConfigMap even when the Service
+-- it deploys is otherwise unowned, so it cannot run beside this owner.
+authBackendOwned :: InventoryPlan.InventoryHistory -> Bool
+authBackendOwned history = accepted || retained
+  where
+    accepted = or
+      [ True
+      | (_, scope) <- Map.elems (InventoryPlan.historyAccepted history)
+      , bundle <- ResourceInventory.scopeBundles scope
+      , ResourceInventory.BackendMapGrant _ <- ResourceInventory.grants bundle
+      ]
+    retained = or
+      [ True
+      | (_, resource) <- Map.elems (InventoryPlan.historyRetained history)
+      , ResourceInventory.BackendMapSpec _ <- [resource ^. #spec]
+      ]
+
+refuseDirectAccessOwnerIfManaged :: Maybe String -> Text -> IO ()
+refuseDirectAccessOwnerIfManaged mctx operation =
+  withAcceptedInventoryHistory mctx operation $ \history ->
+    when (authBackendOwned history)
+      (dieT "the shared auth backend map is owned by accepted or retained inventory; direct access routing is refused")
+
 -- | The direct aggregate rollout does not produce a reviewed inventory receipt.
 -- Refuse it when either its stable scope or one of its native workloads is
 -- already owned, including retained members after retirement.
@@ -7731,6 +7760,8 @@ refuseDirectApplicationDeployIfOwned :: Maybe String -> Application -> IO ()
 refuseDirectApplicationDeployIfOwned mctx app =
   withAcceptedInventoryHistory mctx "app deploy" $ \history -> do
     owner <- either dieT pure (ResourceApplication.applicationScopeId app)
+    when (isJust (app ^. #service) && authBackendOwned history)
+      (dieT "the shared auth backend map is owned by accepted or retained inventory; direct app deploy is refused")
     when (Map.member owner (InventoryPlan.historyAccepted history)
         || applicationNativeOwned app (ownedHistoryResources history))
       (dieT "application is owned by accepted or retained inventory history; direct app deploy is refused")

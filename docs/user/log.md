@@ -1,6 +1,8 @@
 # Bundle Update Log
 
 ## 2026-09-24
+* **Update**: Document reviewed collection of retained central access DomainMappings with native preconditions.
+* **Update**: Document reviewed protected Service and application routes through accepted auth owner contributions and central DomainMappings.
 * **Update**: Document accepted topic bindings and verification dependencies in reviewed Service, worker, and application deployment.
 * **Update**: Document reviewed Redpanda topic creation, retained topic claims, and conservative recovery of uncertain topic creation.
 * **Update**: Document accepted standalone database dependencies and credential-template checks for reviewed web Service and worker deployment.

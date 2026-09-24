@@ -140,6 +140,29 @@ When the plane is installed, `nagarectl` writes the host to the
 that host, and owns the protected host's DomainMapping in `nagare-system` so it
 can target the shared `nagare-access` Knative Service.
 
+For an inventory-managed Service or application, save a reviewed deploy with an
+accepted auth scope, a published image resource, and an explicit image tag:
+
+```bash
+nagarectl deploy -f nagare/Config.hs --tag TAG --image-resource RESOURCE_ID --save-plan ./protected-review
+nagarectl inventory apply ./protected-review
+```
+
+The review includes a contribution to the auth owner's backend map and a
+DomainMapping in `nagare-system` that points to the accepted enforcer Service.
+An auth portal also waits for the owner's Shomei settings. The default Service
+hostname is claimed when the config declares no custom domain. Missing auth
+history or a different base domain refuses planning. Supplied origin TLS and
+CDN intent are not yet supported by this reviewed route. Existing direct
+access routes need an explicit ownership transition before a reviewed plan can
+claim their live DomainMapping.
+Once the auth backend map has accepted or retained inventory ownership, direct `deploy`,
+direct `app deploy`, and direct `app delete` refuse their legacy access resolver;
+use the reviewed deployment or retirement path for those scopes.
+Retirement retains the central DomainMapping. Its later removal is a separate
+`inventory collect --resource` review with an exact UID and resource version;
+the route is never deleted by a name-only command.
+
 ## Customize sign-in with an auth portal
 
 The built-in sign-in and plain 403/503 pages remain the default. To supply your own

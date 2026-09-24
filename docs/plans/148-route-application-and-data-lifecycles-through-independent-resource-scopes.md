@@ -37,6 +37,16 @@ provenance:
       at: 2026-09-24T23:29:37Z
       mode: "implement"
       note: "Bind accepted broker topics to reviewed workload dependencies"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-24T23:41:53Z
+      mode: "implement"
+      note: "Compose reviewed access contributions and central routes"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-24T23:47:34Z
+      mode: "implement"
+      note: "Add exact-precondition collection for retained access DomainMappings"
 ---
 
 # Route application and data lifecycles through independent resource scopes
@@ -53,7 +63,7 @@ Every supported application-side mutation is either a desired-scope update, a re
 
 ## Progress
 
-Implementation evidence is recorded in the commits linked to this plan and in Surprises & Discoveries. Reviewed application, standalone web Service, and standalone worker scopes, standalone brokers with create-only logical topics, accepted topic-bearing workload bindings, database members, OCI publication, and reviewed set/delete/merge/exact Runtime/Build/app-wide Preview environment and versioned Secret channels are working slices. The four acceptance milestones below remain open: topic updates, complete publication and shared-owner behavior, reviewed operational/data commands, and removal of direct mutation paths still require work. Application, standalone web Service, and standalone worker retirement select accepted native identities and preserve retained resources. Partial slices do not count as completed milestones.
+Implementation evidence is recorded in the commits linked to this plan and in Surprises & Discoveries. Reviewed application, standalone web Service, and standalone worker scopes, standalone brokers with create-only logical topics, accepted topic-bearing workload bindings, accepted auth backend contributions and central routes, database members, OCI publication, and reviewed set/delete/merge/exact Runtime/Build/app-wide Preview environment and versioned Secret channels are working slices. The four acceptance milestones below remain open: topic updates, complete publication and shared-owner behavior, reviewed operational/data commands, and removal of direct mutation paths still require work. Application, standalone web Service, and standalone worker retirement select accepted native identities and preserve retained resources. Partial slices do not count as completed milestones.
 
 - [ ] M1: Compile applications and standalone services into complete scopes.
 - [ ] M2: Integrate shared-owner contributions, environment intent, and publication.
@@ -114,6 +124,10 @@ Implementation evidence is recorded in the commits linked to this plan and in Su
 
 2026-09-24: Reviewed Service, worker, and application compilers now resolve every requested topic to an exact accepted standalone broker claim. They inject the existing topic environment values and depend on the broker Service and topic ResourceIds. A changed consumer scope verifies an unchanged accepted topic in its saved plan before creating its workload; missing or unaccepted topic evidence refuses compilation. Topic update, deletion, and the remaining application resource and command paths keep M1 and M3 open.
 
+2026-09-24: The direct access resolver changes both a platform-auth backend ConfigMap and a DomainMapping in `nagare-system`; declaring only the shared map would leave a provider write outside the review. The application and standalone Service compilers now require one accepted auth owner with backend and Shomei grants plus the exact enforcer Service. They add an owner-composed `RegisterBackend` contribution and claim the central DomainMapping, including the default host when no custom domain is declared. The route depends on the enforcer and backend map, and portal routes also depend on Shomei settings. Direct Service/app deploy and app delete refuse their legacy resolver when the auth owner is accepted or its map is retained. Supplied TLS, CDN, other direct-path cutover, and explicit ownership migration for a legacy central route remain open.
+
+2026-09-24: Reviewed app retirement retains its central access DomainMapping. Kubernetes collection now supports that stateless kind through a namespaced serving API DeleteOptions request with UID and resourceVersion preconditions. The decision and tombstone remain separate from retirement; a route cannot disappear through a name-only delete. A disposable provider check for this added kind remains to be recorded.
+
 ## Decision Log
 
 2026-09-16: Preserve separately submitted environment/secret intent across configuration deploys. Inputs are explicit versioned intent channels composed into one owner declaration, not live cluster data silently copied into desired state.
@@ -130,10 +144,12 @@ Implementation evidence is recorded in the commits linked to this plan and in Su
 
 2026-09-24: Treat `rpk` topic observation as configuration evidence and broker-scoped location evidence, not an independent Kafka topic incarnation proof. Rationale: the installed CLI reports no stable topic ID in `topic describe` or `cluster info`; adoption by name and automatic recovery after an uncertain create could take authority over unrelated data. Retain topic claims on scope retirement, refuse in-place mutation and collection, and require a stronger provider capability before those actions are offered.
 
+2026-09-24: Keep each protected DomainMapping in its application or standalone Service scope even though its native namespace is `nagare-system`; compose only the backend and Shomei ConfigMaps under the platform auth owner. Rationale: route deletion and lifecycle must follow the workload's reviewed scope, while two applications cannot replace the shared auth settings. Require the accepted owner grants and enforcer identity before a route can be declared.
+
 
 ## Outcomes & Retrospective
 
-In progress. Stable identity inputs, standalone database and broker scopes with create-only logical topics, accepted topic-bearing workload bindings, and a supported-subset application scope compiler are present. Access/CDN contributions, topic update/deletion, reviewed operational actions, command migration, scope-isolation proof, and complete mutation coverage remain open.
+In progress. Stable identity inputs, standalone database and broker scopes with create-only logical topics, accepted topic-bearing workload bindings, reviewed auth backend contributions and central routes, and a supported-subset application scope compiler are present. CDN contributions, topic update/deletion, reviewed operational actions, direct-path removal, scope-isolation proof, and complete mutation coverage remain open.
 
 
 ## Context and Orientation

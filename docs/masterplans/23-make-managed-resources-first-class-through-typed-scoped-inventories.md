@@ -111,6 +111,16 @@ provenance:
       at: 2026-09-24T23:29:37Z
       mode: "implement"
       note: "Track accepted broker topic bindings and saved-plan verification"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-24T23:41:53Z
+      mode: "implement"
+      note: "Track reviewed access owner contributions and central routes"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-24T23:47:34Z
+      mode: "implement"
+      note: "Track retained access DomainMapping collection capability"
 ---
 
 # Make managed resources first-class through typed scoped inventories
@@ -500,3 +510,7 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 2026-09-24: EP-148's standalone broker scope now includes typed logical topic claims and a guarded Redpanda topic adapter for absent-topic creation and exact configuration verification. Existing unowned topics, in-place changes, and uncertain creation acknowledgements refuse. Retained topic claims remain visible after broker retirement. The installed `rpk` exposes no stable topic ID, so independent topic incarnation proof and topic-bearing workload dependencies remain open; EP-148's milestones and EP-150's hard gate are unchanged.
 
 2026-09-24: EP-148 now binds reviewed application, Service, and worker consumers to exact accepted standalone broker topic claims, includes topic environment values, and adds a saved-plan topic verification before new consumers. Missing topic evidence refuses. Topic update/deletion and other M1/M3 work remain, so EP-150's hard gate is unchanged.
+
+2026-09-24: EP-148 now composes accepted auth-owner backend contributions and central access DomainMappings for reviewed application and standalone Service scopes. The routes depend on the accepted enforcer, backend map, and portal settings where applicable. Direct Service/app deploy and app delete refuse the legacy resolver after auth-owner acceptance. Legacy route adoption, supplied TLS, CDN, operational commands, and other direct-path removal remain; EP-148 and EP-150 status are unchanged.
+
+2026-09-24: EP-148 expanded exact-precondition Kubernetes collection to retained DomainMappings, allowing a separately reviewed central access route removal after scope retirement. Provider execution evidence and other M3 commands remain open; no child milestone or EP-150 gate changed.

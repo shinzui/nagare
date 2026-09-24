@@ -369,6 +369,11 @@ resourceInventoryTests =
           @?= Right (encodeCanonicalScope owner)
         rejects "multiple-portals" (compileScopes [owner, consumer a portal,
           consumer other (route "other.example.test" "https://other.example.test" PortalBackend)])
+        let standalone = s Standalone "web"
+            standaloneRoute = route "web.example.test" "http://web.personal.svc.cluster.local" ProtectedBackend
+            [Managed standaloneMap] = composed [owner, consumer standalone standaloneRoute]
+        standaloneMap ^. #spec @?= BackendMapSpec
+          [(n "web.example.test", "http://web.personal.svc.cluster.local", ProtectedBackend)]
     , testCase "portal contribution composes owned Shomei settings with the backend map" $ do
         let authOwner = s Platform "auth"
             grant = ShomeiSettingsGrant cluster (n "example.test")

@@ -20,6 +20,8 @@ module Nagare.Inventory.Application
   , databaseRecoveryBindings
   , acceptedSecretBindings
   , acceptedBrokerBindings
+  , AccessBinding (..)
+  , acceptedAccessBinding
   , DatabaseBinding
   , acceptedDatabaseBindings
   , applicationVolumeRecoveryBindings
@@ -43,16 +45,18 @@ import Data.Text qualified as T
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend)
 import Nagare.App.Deploy (RolloutEnv, renderServiceObjects, renderTaskObjects, renderWorkerObjects)
+import Nagare.Access.Resolve (RouteTarget (..), backendConfigMapNamespace, isUnderBaseDomain, mkBaseDomain, mkPublicHost, renderAccessDomainMapping, upstreamFor)
 import Nagare.Broker.Connection (BrokerConn (..), brokerConnectionEnv, mergeBrokerConnectionEnvs)
 import Nagare.Dsl.Application (Application (..), mkApplication)
 import Nagare.Dsl.Application qualified as DslApp
+import Nagare.Dsl.Access (AccessRole (..))
 import Nagare.Dsl.Broker (BrokerBinding (..), BrokerName, BrokerProvider (Redpanda), TopicName, brokerNameText, topicNameText)
 import Nagare.Database.Connection (ConnIdentity (..), connectionEnv, mergeConnectionEnvs)
 import Nagare.Dsl.Database (Database (..), Engine (..), dbSecretName, engineToken)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Render (pvcName)
 import Nagare.Dsl.Database.Render (dbConfigMapName, dbPvcName)
-import Nagare.Dsl.Types (DatabaseName, Deployment (..), DomainSpec (..), DomainTls (..), EnvScope (Runtime), EnvVar (..), Namespace, ScopedEnvVar (..), SecretName, Volume (..), VolumeName, databaseNameText, domainText, mkEnvName, mkSecretName, namespaceText, runtimeScoped, secretNameText, serviceNameText, volumeNameText)
+import Nagare.Dsl.Types (DatabaseName, Deployment (..), DomainSpec (..), DomainTls (..), EnvScope (Runtime), EnvVar (..), Namespace, ScopedEnvVar (..), SecretName, Volume (..), VolumeName, databaseNameText, domainText, mkDomain, mkEnvName, mkSecretName, namespaceText, runtimeScoped, secretNameText, serviceNameText, volumeNameText)
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Dsl.Worker (Worker (..))
 import Nagare.Dsl.Task (Task (..), mkTask, taskResourceName)
@@ -319,6 +323,39 @@ acceptedBrokerBindings snapshot cluster namespaceName bindings = do
         }
       pure ((binding ^. #name, (service, topics)), env)
 
+data AccessBinding = AccessBinding
+  { accessOwner :: !ScopeId
+  , accessEnforcer :: !Declaration
+  , accessBaseDomain :: !Name
+  }
+  deriving stock (Eq, Show)
+
+-- | The shared backend owner and enforcer must already be accepted together.
+-- A matching live Service or caller-supplied name does not grant access to the
+-- shared routing ConfigMap or to the auth namespace.
+acceptedAccessBinding :: ScopeSnapshot -> ResourceId -> Either T.Text AccessBinding
+acceptedAccessBinding snapshot cluster = do
+  authOwner <- mkScopeId Platform "auth"
+  authScope <- maybe (Left "auth owner has no accepted inventory scope") (Right . snd)
+    (Map.lookup authOwner (snapshotScopes snapshot))
+  let grants = [() | bundle <- scopeBundles authScope,
+        BackendMapGrant grantedCluster <- bundle ^. #grants, grantedCluster == cluster]
+  unless (length grants == 1)
+    (Left "auth owner has no unique accepted backend-map grant for this cluster")
+  baseDomain <- case [base | bundle <- scopeBundles authScope,
+      ShomeiSettingsGrant grantedCluster base <- bundle ^. #grants,
+      grantedCluster == cluster] of
+    [base] -> Right base
+    _ -> Left "auth owner has no unique accepted Shomei settings grant for this cluster"
+  expected <- kubernetesAddress cluster "serving.knative.dev/v1" "Service"
+    (Just backendConfigMapNamespace) "nagare-access"
+  let enforcers = [declaration | bundle <- scopeBundles authScope,
+        declaration@(Managed resource) <- declarations bundle,
+        resource ^. #address == expected]
+  case enforcers of
+    [enforcer] -> Right (AccessBinding authOwner enforcer baseDomain)
+    _ -> Left "auth owner has no unique accepted enforcer Service"
+
 brokerEvidenceIds
   :: ResourceId -> T.Text -> BrokerBinding
   -> Map BrokerName Declaration -> Map BrokerName (Map TopicName Declaration)
@@ -531,6 +568,7 @@ data ApplicationScopeInput = ApplicationScopeInput
   , scopeImage :: !ResourceId
   , scopeBrokerServices :: !(Map BrokerName Declaration)
   , scopeBrokerTopics :: !(Map BrokerName (Map TopicName Declaration))
+  , scopeAccessBinding :: !(Maybe AccessBinding)
   , scopeDatabaseRecovery :: !(Map DatabaseName RecoveryIntent)
   , scopeServiceVolumeRecovery :: !(Map VolumeName RecoveryIntent)
   , scopeTlsSecrets :: !(Map SecretName Declaration)
@@ -682,8 +720,15 @@ compileApplicationScope input = do
   first invalid (reviewedTaskImages (app ^. #tasks
       <> maybe [] (^. #tasks) (app ^. #service))
     (scopeRollout input ^. #taggedAppImage) (scopeRollout input ^. #effectiveTag))
-  unless (app ^. #access == Nothing)
-    (Left (invalid "application access contributions need typed owners"))
+  effectiveAccess <- case (app ^. #access, app ^. #service) of
+    (Just _, Nothing) -> Left (invalid "application access requires a web Service")
+    (Just appPolicy, Just service)
+      | Just servicePolicy <- service ^. #access
+      , servicePolicy /= appPolicy ->
+          Left (invalid "application and Service access policies disagree")
+    (policy, maybeService) -> Right (policy <|> (maybeService >>= (^. #access)))
+  unless (isJust effectiveAccess == isJust (scopeAccessBinding input))
+    (Left (invalid "access intent requires exactly its accepted auth binding"))
   let envValues = Map.elems (app ^. #env)
         <> maybe [] (Map.elems . (^. #env)) (app ^. #service)
         <> concatMap (Map.elems . (^. #env)) (app ^. #workers)
@@ -692,9 +737,8 @@ compileApplicationScope input = do
   requiredEnvSecrets <- first invalid (runtimeSecretNames envValues)
   case app ^. #service of
     Nothing -> pure ()
-    Just service -> unless (service ^. #access == Nothing
-        && service ^. #cdn == Nothing)
-      (Left (invalid "service access and CDN need typed owners"))
+    Just service -> unless (service ^. #cdn == Nothing)
+      (Left (invalid "service CDN needs a typed owner"))
   owner <- first invalid (applicationScopeId app)
   namespaceContribution <- case scopeNamespaceContributionOwner input of
     Nothing -> Right Nothing
@@ -733,7 +777,7 @@ compileApplicationScope input = do
     localBrokerEnv <- first invalid (brokerEnvFor (service ^. #brokers))
     _ <- first invalid (mergeBrokerConnectionEnvs [brokerEnv, localBrokerEnv])
     pure (service & #env %~ mergeGenerated (mergeGenerated localBrokerEnv generated)
-      & #brokers .~ [])) (app ^. #service)
+      & #brokers .~ [] & #access .~ effectiveAccess)) (app ^. #service)
   workersWithConnection <- traverse (\worker -> do
     generated <- first invalid (declaredConnectionEnv app (worker ^. #databases))
     localBrokerEnv <- first invalid (brokerEnvFor (worker ^. #brokers))
@@ -744,7 +788,8 @@ compileApplicationScope input = do
         & #workers .~ workersWithConnection
   serviceResult <- case scopedApp ^. #service of
     Nothing -> Right Nothing
-    Just _ -> Just <$> compileApplicationService scopedApp (scopeRollout input)
+    Just _ -> Just <$> compileApplicationServiceWithAccess (scopeAccessBinding input)
+      scopedApp (scopeRollout input)
       (scopeCluster input) (scopeNamespace input) (scopeImage input)
       (scopeServiceVolumeRecovery input) (scopeTlsSecrets input) envSecrets source
   (workerBundles, workerNative) <- compileApplicationWorkers scopedApp (scopeRollout input)
@@ -1095,12 +1140,30 @@ compileApplicationService
   -> Either (NonEmpty InventoryError)
        (ResourceBundle, Map ResourceId (ManagedResource, ByteString))
 compileApplicationService app rollout cluster namespaceId imageId recoveryByVolume tlsSecrets envSecrets source = do
+  compileApplicationServiceWithAccess Nothing app rollout cluster namespaceId imageId
+    recoveryByVolume tlsSecrets envSecrets source
+
+compileApplicationServiceWithAccess
+  :: Maybe AccessBinding -> Application -> RolloutEnv -> ResourceId -> ResourceId -> ResourceId
+  -> Map VolumeName RecoveryIntent -> Map SecretName Declaration -> Map SecretName Declaration
+  -> SourceLocation
+  -> Either (NonEmpty InventoryError)
+       (ResourceBundle, Map ResourceId (ManagedResource, ByteString))
+compileApplicationServiceWithAccess accessBinding app rollout cluster namespaceId imageId recoveryByVolume tlsSecrets envSecrets source = do
   _ <- first invalid (mkApplication app)
   owner <- first invalid (applicationScopeId app)
-  service <- maybe (Left (invalid "application has no web service")) Right (app ^. #service)
+  original <- maybe (Left (invalid "application has no web service")) Right (app ^. #service)
+  case (app ^. #access, original ^. #access) of
+    (Just appPolicy, Just servicePolicy) | appPolicy /= servicePolicy ->
+      Left (invalid "application and Service access policies disagree")
+    _ -> pure ()
+  let effectiveAccess = (app ^. #access) <|> (original ^. #access)
+      service = original & #access .~ effectiveAccess
+  unless (isJust effectiveAccess == isJust accessBinding)
+    (Left (invalid "application access requires exactly its accepted auth binding"))
   databasePrerequisites <- databaseDependencies app owner (service ^. #databases) invalid
   compileServiceMembers owner service rollout cluster namespaceId imageId
-    databasePrerequisites recoveryByVolume tlsSecrets envSecrets source
+    databasePrerequisites recoveryByVolume tlsSecrets envSecrets accessBinding source
   where
     invalid message = inventoryError "invalid-application-service" message
       & #sources .~ [source]
@@ -1126,16 +1189,16 @@ compileStandaloneServiceWithBrokers
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
 compileStandaloneServiceWithBrokers owner service rollout cluster namespaceId imageId recovery tlsSecrets envSecrets brokerServices =
   compileStandaloneServiceWithDependencies owner service rollout cluster namespaceId imageId
-    recovery tlsSecrets envSecrets brokerServices Map.empty Map.empty
+    recovery tlsSecrets envSecrets brokerServices Map.empty Map.empty Nothing
 
 compileStandaloneServiceWithDependencies
   :: ScopeId -> Deployment -> RolloutEnv -> ResourceId -> ResourceId -> ResourceId
   -> Map VolumeName RecoveryIntent -> Map SecretName Declaration -> Map SecretName Declaration
   -> Map BrokerName Declaration -> Map BrokerName (Map TopicName Declaration)
-  -> Map DatabaseName DatabaseBinding -> SourceLocation
+  -> Map DatabaseName DatabaseBinding -> Maybe AccessBinding -> SourceLocation
   -> Either (NonEmpty InventoryError)
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileStandaloneServiceWithDependencies owner service rollout cluster namespaceId imageId recovery tlsSecrets envSecrets brokerServices brokerTopics databaseBindings source = do
+compileStandaloneServiceWithDependencies owner service rollout cluster namespaceId imageId recovery tlsSecrets envSecrets brokerServices brokerTopics databaseBindings accessBinding source = do
   unless (scopeKind owner == Standalone)
     (Left (invalid "standalone service requires a standalone scope"))
   unless (rollout ^. #appName == serviceNameText (service ^. #name)
@@ -1156,7 +1219,7 @@ compileStandaloneServiceWithDependencies owner service rollout cluster namespace
     (Left (invalid "standalone runtime Secret environment requires exactly its typed dependencies"))
   let allSecrets = Map.union databaseSecrets envSecrets
   (bundle, native) <- compileServiceMembers owner service' rollout cluster namespaceId imageId
-    databaseIds recovery tlsSecrets allSecrets source
+    databaseIds recovery tlsSecrets allSecrets accessBinding source
   (taskBundle, taskNative) <- compileTaskMembers owner (service ^. #tasks) rollout
     cluster namespaceId imageId allSecrets source
   let addBrokerEdges resource = case resource ^. #address of
@@ -1180,15 +1243,50 @@ compileStandaloneServiceWithDependencies owner service rollout cluster namespace
 
 compileServiceMembers
   :: ScopeId -> Deployment -> RolloutEnv -> ResourceId -> ResourceId -> ResourceId
-  -> [ResourceId] -> Map VolumeName RecoveryIntent -> Map SecretName Declaration -> Map SecretName Declaration -> SourceLocation
+  -> [ResourceId] -> Map VolumeName RecoveryIntent -> Map SecretName Declaration -> Map SecretName Declaration
+  -> Maybe AccessBinding -> SourceLocation
   -> Either (NonEmpty InventoryError)
        (ResourceBundle, Map ResourceId (ManagedResource, ByteString))
-compileServiceMembers owner service rollout cluster namespaceId imageId databasePrerequisites recoveryByVolume tlsSecrets envSecrets source = do
+compileServiceMembers owner service rollout cluster namespaceId imageId databasePrerequisites recoveryByVolume tlsSecrets envSecrets accessBinding source = do
   unless (null (service ^. #brokers))
     (Left (invalid "service broker bindings require typed broker dependencies"))
-  unless (service ^. #access == Nothing
-      && service ^. #cdn == Nothing)
-    (Left (invalid "service access and CDN require typed owners"))
+  unless (service ^. #cdn == Nothing)
+    (Left (invalid "service CDN requires a typed owner"))
+  accessIds <- case (service ^. #access, accessBinding) of
+    (Nothing, Nothing) -> Right []
+    (Just policy, Just binding) -> do
+      expected <- first invalid (kubernetesAddress cluster "serving.knative.dev/v1"
+        "Service" (Just backendConfigMapNamespace) "nagare-access")
+      case accessEnforcer binding of
+        Managed enforcer
+          | accessOwner binding == enforcer ^. #owner
+          , scopeIdText (accessOwner binding) == "platform:auth"
+          , enforcer ^. #address == expected
+          , nameText (accessBaseDomain binding) == rollout ^. #baseDomain ->
+              Right ([backendMapResourceId (accessOwner binding), enforcer ^. #identity]
+                <> [shomeiSettingsResourceId (accessOwner binding) | policy ^. #role == AuthPortal])
+        _ -> Left (invalid "access binding lacks the accepted auth enforcer")
+    _ -> Left (invalid "access intent requires exactly its accepted auth binding")
+  unless (null accessIds || all ((== AutomaticTls) . (^. #tls)) (service ^. #domains))
+    (Left (invalid "central access routes require automatic TLS"))
+  domains <- case (accessIds, service ^. #domains) of
+    (_ : _, []) -> do
+      host <- first invalid (mkDomain (serviceNameText (service ^. #name) <> "."
+        <> namespaceText (service ^. #namespace) <> "." <> (rollout ^. #baseDomain)))
+      Right [DomainSpec host Nothing True AutomaticTls]
+    (_, existing) -> Right existing
+  let renderedService = service & #domains .~ domains
+  case service ^. #access of
+    Just policy | policy ^. #role == AuthPortal -> do
+      unless (length domains == 1)
+        (Left (invalid "auth portal requires exactly one public hostname"))
+      base <- first invalid (mkBaseDomain (rollout ^. #baseDomain))
+      host <- case domains of
+        [domain] -> first invalid (mkPublicHost (domainText (domain ^. #domain)))
+        _ -> Left (invalid "auth portal requires exactly one public hostname")
+      unless (isUnderBaseDomain base host)
+        (Left (invalid "auth portal host must be under the rollout base domain"))
+    _ -> pure ()
   let requiredTls = Set.fromList [secret | domain <- service ^. #domains,
         SuppliedTlsSecret secret <- [domain ^. #tls]]
   unless (Map.keysSet tlsSecrets == requiredTls)
@@ -1198,14 +1296,13 @@ compileServiceMembers owner service rollout cluster namespaceId imageId database
   secretIds <- traverse (first invalid . secretDependency cluster
     (rollout ^. #namespace) envSecrets) secretNames
   resource <- first invalid (deploymentResourceId owner (known "service") service)
-  rendered <- first invalid (renderServiceObjects rollout service)
+  rendered <- first invalid (renderServiceObjects rollout renderedService)
   let volumes = service ^. #volumes
       (volumeRendered, serviceRendered) = splitAt (length volumes) rendered
   serviceBytes <- case serviceRendered of
     ("service", manifest) : _ -> Right manifest
     _ -> Left (invalid "service renderer produced unexpected members")
   let domainRendered = drop 1 serviceRendered
-      domains = service ^. #domains
   unless (length domainRendered == length domains && all ((== "service") . fst) domainRendered)
     (Left (invalid "service domain renderer produced unexpected members"))
   unless (length volumeRendered == length volumes && all ((== "service") . fst) volumeRendered)
@@ -1214,11 +1311,19 @@ compileServiceMembers owner service rollout cluster namespaceId imageId database
   let volumeIds = map ((^. #identity) . fst) volumeMembers
   serviceMember <- bindOne resource DeleteWhenUnreferenced Stateless
     (map OrderedAfter (namespaceId : imageId : volumeIds <> databasePrerequisites <> secretIds)) source serviceBytes
-  domainMembers <- traverse (compileDomain resource) (zip domains (map snd domainRendered))
+  domainMembers <- traverse (compileDomain accessIds resource) (zip domains (map snd domainRendered))
+  contributions <- case (service ^. #access, accessBinding) of
+    (Just policy, Just binding) -> traverse (\domain -> do
+      host <- first invalid (mkName (domainText (domain ^. #domain)))
+      key <- first invalid (mkLogicalKey (domainText (domain ^. #domain)))
+      let role = if policy ^. #role == AuthPortal then PortalBackend else ProtectedBackend
+      pure (RegisterBackend (accessOwner binding) cluster host
+        (upstreamFor (service ^. #namespace) (service ^. #name)) role key)) domains
+    _ -> Right []
   let members = volumeMembers <> [serviceMember] <> domainMembers
       declarations = [Managed declaration | (declaration, _) <- members]
       native = Map.fromList [(declaration ^. #identity, member) | member@(declaration, _) <- members]
-      bundle = ResourceBundle declarations [] [] [] [] []
+      bundle = ResourceBundle declarations [] [] contributions [] []
   _ <- mkScopeDeclaration owner [bundle]
   unless (Map.size native == length members)
     (Left (invalid "service members share an identity"))
@@ -1246,7 +1351,7 @@ compileServiceMembers owner service rollout cluster namespaceId imageId database
       unless (declaration ^. #address == expected)
         (Left (invalid "service volume render has an unexpected PVC address"))
       pure member
-    compileDomain serviceId (domain, bytes) = do
+    compileDomain accessIds serviceId (domain, bytes) = do
       domainId <- first invalid (domainMappingResourceId owner domain)
       host <- first invalid (mkName (domainText (domain ^. #domain)))
       let domainSource = source
@@ -1257,10 +1362,17 @@ compileServiceMembers owner service rollout cluster namespaceId imageId database
           secretId <- first invalid (secretDependency cluster
             (rollout ^. #namespace) tlsSecrets secretName)
           pure [secretId]
+      let reviewedBytes = case accessIds of
+            [] -> bytes
+            _ -> renderAccessDomainMapping backendConfigMapNamespace
+              (domainText (domain ^. #domain))
+              (RouteTarget "serving.knative.dev/v1" "Service" "nagare-access" backendConfigMapNamespace)
+          domainNamespace = if null accessIds then rollout ^. #namespace else backendConfigMapNamespace
+          prerequisites = namespaceId : serviceId : tlsPrerequisites <> accessIds
       (declaration, native) <- bindOne domainId DeleteWhenUnreferenced Stateless
-        (map OrderedAfter (namespaceId : serviceId : tlsPrerequisites)) domainSource bytes
+        (map OrderedAfter prerequisites) domainSource reviewedBytes
       expected <- first invalid (kubernetesAddress cluster "serving.knative.dev/v1beta1"
-        "DomainMapping" (Just (rollout ^. #namespace)) (domainText (domain ^. #domain)))
+        "DomainMapping" (Just domainNamespace) (domainText (domain ^. #domain)))
       unless (declaration ^. #address == expected)
         (Left (invalid "service domain render has an unexpected address"))
       pure (declaration {aliases = [Hostname host]}, native)

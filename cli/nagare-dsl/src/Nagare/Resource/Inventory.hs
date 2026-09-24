@@ -402,7 +402,7 @@ composeContributions ss = checked errors (namespaces <> backendMaps <> shomeiSet
       | (s, d) <- Map.toList ss
       , b <- scopeBundles d
       , ShomeiSettingsGrant clusterId baseDomain <- b ^. #grants]
-    backendAuthorized s c = scopeKind s == Application
+    backendAuthorized s c = scopeKind s `elem` [Application, Standalone]
       && (c ^. #owner, c ^. #cluster) `elem` backendOwners
     backendGroups = Map.fromListWith (<>)
       [ ((c ^. #owner, c ^. #cluster), [(s, c, hostName, upstreamText, backendRole)])
@@ -411,7 +411,7 @@ composeContributions ss = checked errors (namespaces <> backendMaps <> shomeiSet
       <> [inventoryError "reserved-namespace-contribution" "shared platform and Kubernetes system namespaces cannot be requested by a contributor" & #scopes .~ [s, c ^. #owner]
          | (s, c, namespaceName) <- namespaceRequests, nameText namespaceName `elem`
            ["default", "kube-system", "kube-public", "kube-node-lease", "cert-manager", "knative-serving", "kourier-system", "nagare-system", "personal"]]
-      <> [inventoryError "unauthorized-contribution" "backend contribution lacks an application scope and owner grant" & #scopes .~ [s, c ^. #owner]
+      <> [inventoryError "unauthorized-contribution" "backend contribution lacks a workload scope and owner grant" & #scopes .~ [s, c ^. #owner]
          | (s, c, _, _, _) <- backendRequests, not (backendAuthorized s c)]
       <> [inventoryError "invalid-backend-upstream" "backend upstream must be an HTTP(S) origin" & #scopes .~ [s, c ^. #owner]
          | (s, c, _, upstreamText, _) <- backendRequests, not ("http://" `Data.Text.isPrefixOf` upstreamText

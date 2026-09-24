@@ -24,12 +24,13 @@ import Data.Text.Encoding qualified as TE
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.App.Deploy
-import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, standaloneWorkerVolumeRecoveryBindings, nativeWorkloadOwned, compileApplicationScope, compileApplicationService, compileStandaloneService, compileStandaloneServiceWithBrokers, compileStandaloneServiceWithDependencies, compileStandaloneWorker, compileStandaloneWorkerWithDependencies, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings, workerRetirementScope)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedAccessBinding, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, standaloneWorkerVolumeRecoveryBindings, nativeWorkloadOwned, compileApplicationScope, compileApplicationService, compileStandaloneService, compileStandaloneServiceWithBrokers, compileStandaloneServiceWithDependencies, compileStandaloneWorker, compileStandaloneWorkerWithDependencies, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings, workerRetirementScope)
 import Nagare.Inventory.DataService (compileStandaloneBroker, compileStandaloneDatabase)
 import Nagare.Dsl.Broker (BrokerBinding (..), mkTopicName)
+import Nagare.Dsl.Access (authPortal, requireLogin)
 import Nagare.Resource.Application (applicationScopeId, volumeResourceId)
 import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
-import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (..), ManagedResource (..), DesiredSpec (KnativeService), Contribution (RegisterNamespace), ContributionGrant (NamespaceGrant), ScopeChange (ReplaceScope), candidateGenerations, candidateInventory, composeInventory, contributionResourceId, declarationId, inventoryDeclarations, inventoryScopes, mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeId)
+import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (..), ManagedResource (..), DesiredSpec (KnativeService), Contribution (RegisterBackend, RegisterNamespace), ContributionGrant (BackendMapGrant, NamespaceGrant, ShomeiSettingsGrant), ScopeChange (ReplaceScope), backendMapResourceId, candidateGenerations, candidateInventory, composeInventory, contributionResourceId, declarationId, inventoryDeclarations, inventoryScopes, mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeId, shomeiSettingsResourceId)
 import Nagare.Resource.Policy (RecoveryIntent (..), mkSecretRef)
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types qualified as Resource
@@ -412,6 +413,7 @@ renderTests =
             , scopeImage = publication
             , scopeBrokerServices = Map.empty
             , scopeBrokerTopics = Map.empty
+            , scopeAccessBinding = Nothing
             , scopeDatabaseRecovery = Map.fromList
                 [(database ^. #name, recovery) | database <- app ^. #databases]
             , scopeServiceVolumeRecovery = Map.empty
@@ -422,6 +424,9 @@ renderTests =
             , scopeSource = Resource.SourceLocation "test" "application"
             }
       (scope, native) <- either (fail . show) pure (compileApplicationScope input)
+      assertBool "standalone application Service compiler silently omitted app access"
+        (isLeft (compileApplicationService (app & #access .~ Just requireLogin)
+          testEnv cluster namespaceId publication Map.empty Map.empty Map.empty (scopeSource input)))
       let secretIds =
             [member ^. #identity
             | bundle <- scopeBundles scope, Managed member <- declarations bundle
@@ -587,7 +592,7 @@ renderTests =
           && BS.isInfixOf "POSTGRES_PASSWORD" bytes) (Map.elems databaseWorkerNative))
       (databaseServiceScope, databaseServiceNative) <- either (fail . show) pure
         (compileStandaloneServiceWithDependencies serviceOwner serviceWithDatabase serviceRollout
-          cluster namespaceId publication Map.empty Map.empty Map.empty Map.empty Map.empty databaseBindings (scopeSource input))
+          cluster namespaceId publication Map.empty Map.empty Map.empty Map.empty Map.empty databaseBindings Nothing (scopeSource input))
       let databaseServices =
             [member | bundle <- scopeBundles databaseServiceScope, Managed member <- declarations bundle
             , case member ^. #address of
@@ -610,9 +615,97 @@ renderTests =
             ] [] [] [] [] []
       prerequisiteScope <- either (fail . show) pure
         (mkScopeDeclaration foundation [prerequisiteBundle])
+      authService <- case [member | bundle <- scopeBundles scope,
+          Managed member <- declarations bundle,
+          case member ^. #address of
+            Resource.Kubernetes _ "serving.knative.dev" kind _ _ ->
+              kind == unsafe (Resource.mkName "service")
+            _ -> False] of
+        [member] -> pure member
+        _ -> assertFailure "application fixture has no unique web Service" >> fail "missing Service"
+      let authOwner = unsafe (Resource.mkScopeId Resource.Platform "auth")
+          enforcerId = Resource.mintResourceId authOwner
+            (unsafe (Resource.mkLogicalKey "auth")) (unsafe (Resource.mkName "enforcer"))
+          enforcer = authService
+            { identity = enforcerId
+            , owner = authOwner
+            , address = Resource.Kubernetes cluster "serving.knative.dev"
+                (unsafe (Resource.mkName "service")) (Just (unsafe (Resource.mkName "nagare-system")))
+                (unsafe (Resource.mkName "nagare-access"))
+            , dependencies = []
+            }
+      authScope <- either (fail . show) pure (mkScopeDeclaration authOwner
+        [ResourceBundle [Managed enforcer] [] [] [] []
+          [BackendMapGrant cluster, ShomeiSettingsGrant cluster
+            (unsafe (Resource.mkName "apps.example.com"))]])
+      authSnapshot <- either (fail . show) pure (mkScopeSnapshot historyBinding
+        (Map.fromList [(foundation, (databaseGeneration, prerequisiteScope))
+          , (authOwner, (databaseGeneration, authScope))]) Map.empty)
+      accessBinding <- either (fail . T.unpack) pure (acceptedAccessBinding authSnapshot cluster)
+      let accessApp = app & #access .~ Just requireLogin
+          accessInput = input
+            { scopeApplication = accessApp
+            , scopeAccessBinding = Just accessBinding
+            }
+      (accessScope, accessNative) <- either (fail . show) pure
+        (compileApplicationScope accessInput)
+      let accessRoutes = [member | bundle <- scopeBundles accessScope,
+            Managed member <- declarations bundle,
+            case member ^. #address of
+              Resource.Kubernetes _ "serving.knative.dev" kind (Just ns) _ ->
+                kind == unsafe (Resource.mkName "domainmapping")
+                  && ns == unsafe (Resource.mkName "nagare-system")
+              _ -> False]
+          accessRequests = [request | bundle <- scopeBundles accessScope,
+            request@RegisterBackend {} <- contributions bundle]
+      assertBool "reviewed app access lacks a shared backend contribution"
+        (not (null accessRequests))
+      assertBool "reviewed app access route lacks enforcer and backend dependencies"
+        (not (null accessRoutes) && all (\route ->
+          all (`elem` route ^. #dependencies)
+            [OrderedAfter enforcerId, OrderedAfter (backendMapResourceId authOwner)]) accessRoutes)
+      assertBool "reviewed app route does not target the accepted enforcer"
+        (any (BS.isInfixOf "nagare-access" . snd) (Map.elems accessNative))
+      accessCandidate <- either (fail . show) pure (composeInventory authSnapshot
+        (ReplaceScope accessScope :| []))
+      Map.lookup authOwner (candidateGenerations accessCandidate) @?= Just databaseGeneration
+      (portalScope, _) <- either (fail . show) pure (compileApplicationScope
+        (accessInput {scopeApplication = app & #access .~ Just authPortal}))
+      let portalRoutes = [member | bundle <- scopeBundles portalScope,
+            Managed member <- declarations bundle,
+            case member ^. #address of
+              Resource.Kubernetes _ "serving.knative.dev" kind (Just ns) _ ->
+                kind == unsafe (Resource.mkName "domainmapping")
+                  && ns == unsafe (Resource.mkName "nagare-system")
+              _ -> False]
+      assertBool "auth portal route does not wait for shared Shomei settings"
+        (all (elem (OrderedAfter (shomeiSettingsResourceId authOwner)) . (^. #dependencies)) portalRoutes)
+      _ <- either (fail . show) pure (composeInventory authSnapshot
+        (ReplaceScope portalScope :| []))
+      let accessService = independentService & #brokers .~ []
+            & #domains .~ [] & #access .~ Just requireLogin
+      (standaloneAccessScope, _) <- either (fail . show) pure
+        (compileStandaloneServiceWithDependencies serviceOwner accessService serviceRollout
+          cluster namespaceId publication Map.empty Map.empty Map.empty Map.empty Map.empty
+          Map.empty (Just accessBinding) (scopeSource input))
+      let defaultRoutes = [member | bundle <- scopeBundles standaloneAccessScope,
+            Managed member <- declarations bundle,
+            case member ^. #address of
+              Resource.Kubernetes _ "serving.knative.dev" kind (Just ns) host ->
+                kind == unsafe (Resource.mkName "domainmapping")
+                  && ns == unsafe (Resource.mkName "nagare-system")
+                  && host == unsafe (Resource.mkName "kizashi-serve.personal.apps.example.com")
+              _ -> False]
+      length defaultRoutes @?= 1
+      _ <- either (fail . show) pure (composeInventory authSnapshot
+        (ReplaceScope standaloneAccessScope :| []))
+      assertBool "access intent accepted without auth evidence"
+        (isLeft (compileApplicationScope (accessInput {scopeAccessBinding = Nothing})))
       readySnapshot <- either (fail . show) pure (mkScopeSnapshot historyBinding
         (Map.fromList [(foundation, (databaseGeneration, prerequisiteScope))
           , (databaseOwner, (databaseGeneration, databaseScope))]) Map.empty)
+      assertBool "missing auth scope supplied access authority"
+        (isLeft (acceptedAccessBinding readySnapshot cluster))
       serviceCandidate <- either (fail . show) pure (composeInventory readySnapshot
         (ReplaceScope databaseServiceScope :| []))
       Map.lookup databaseOwner (candidateGenerations serviceCandidate) @?= Just databaseGeneration
@@ -712,7 +805,7 @@ renderTests =
           && any (BS.isInfixOf "NAGARE_TOPIC_JOBS" . snd) (Map.elems topicWorkerNative))
       (topicServiceScope, topicServiceNative) <- either (fail . show) pure
         (compileStandaloneServiceWithDependencies serviceOwner topicService serviceRollout
-          cluster namespaceId publication Map.empty Map.empty Map.empty topicServices topicEvidence Map.empty (scopeSource input))
+          cluster namespaceId publication Map.empty Map.empty Map.empty topicServices topicEvidence Map.empty Nothing (scopeSource input))
       let topicServiceMembers = [member | bundle <- scopeBundles topicServiceScope,
             Managed member <- declarations bundle,
             case member ^. #address of

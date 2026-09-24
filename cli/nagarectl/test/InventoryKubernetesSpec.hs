@@ -26,7 +26,8 @@ import Nagare.Dsl.Database (Database (Database), Engine (..), defaultEngineVersi
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes
-import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), cacheClientDataMatches, certificateReady, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, credentialDataMatches, deploymentAvailable, deploymentSelectorReplacement, desiredFieldsMatch, generatedCredentialTemplate, jobCompleted, knativeReady, materializeCacheKey, materializeCredential, mkKubernetesRuntimeOps, observeCacheClientOutput, parseObserved, readinessForAddress, statefulSetImmutableReplacement, statefulSetReady, supportedUpdateAddress, withoutCacheClientData)
+import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), cacheClientDataMatches, certificateReady, collectionDeleteRequest, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, credentialDataMatches, deploymentAvailable, deploymentSelectorReplacement, desiredFieldsMatch, generatedCredentialTemplate, jobCompleted, knativeReady, materializeCacheKey, materializeCredential, mkKubernetesRuntimeOps, observeCacheClientOutput, parseObserved, readinessForAddress, statefulSetImmutableReplacement, statefulSetReady, supportedUpdateAddress, withoutCacheClientData)
+import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
 import Nagare.Inventory.Database (compileDatabaseForBackend, compileDatabaseNative, compileDatabaseNativeWithBackup)
 import Nagare.Inventory.DataService (compileStandaloneDatabase, standaloneStatefulSetOwned)
 import Nagare.Inventory.Digest
@@ -825,6 +826,30 @@ inventoryKubernetesTests =
           Right _ -> assertFailure "deletion tombstone did not guard logical identity"
         readIORef state >>= (@?= KubernetesAbsent absence)
         readIORef calls >>= (@?= 2)
+    , testCase "central access DomainMapping collection carries exact UID and revision" $ do
+        let value = object
+              [ "apiVersion" .= ("serving.knative.dev/v1beta1" :: Text)
+              , "kind" .= ("DomainMapping" :: Text)
+              , "metadata" .= object
+                  ["name" .= ("app.example.test" :: Text), "namespace" .= ("nagare-system" :: Text)]
+              , "spec" .= object ["ref" .= object
+                  ["apiVersion" .= ("serving.knative.dev/v1" :: Text)
+                  ,"kind" .= ("Service" :: Text)
+                  ,"name" .= ("nagare-access" :: Text)
+                  ,"namespace" .= ("nagare-system" :: Text)]]]
+            bytes = ok (canonicalValue value)
+            (declaration, _) = ok (bindKubernetesObject
+              (input {inputObject = value, objectDigest = contentDigest bytes,
+                lifecyclePolicy = DeleteWhenUnreferenced}))
+            uid = ok (mkPhysicalIdentity "domain-uid")
+        supportsRetainedCollection declaration @?= True
+        (arguments, body) <- expectRight (collectionDeleteRequest
+          (declaration ^. #address) uid "resource-version")
+        arguments @?=
+          ["delete", "--raw", "/apis/serving.knative.dev/v1beta1/namespaces/nagare-system/domainmappings/app.example.test", "-f", "-"]
+        assertBool "DomainMapping deletion dropped its physical preconditions"
+          (BS.isInfixOf "domain-uid" (TE.encodeUtf8 body)
+            && BS.isInfixOf "resource-version" (TE.encodeUtf8 body))
     , testCase "one candidate selects distinct retained resources for collection" $ do
         let other = mintResourceId scope (ok (mkLogicalKey "other")) (ok (mkName "resource"))
             addressFor label = Kubernetes cluster "" (ok (mkName "configmap"))
