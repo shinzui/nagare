@@ -283,7 +283,7 @@ renderTests =
         (nativeWorkloadOwned "apps" "deployment" "kizashi-worker" "personal"
           [member | bundle <- bundles, Managed member <- declarations bundle])
       owner <- either (fail . show) pure (applicationScopeId app)
-      boundDatabase <- case app ^. #databases of
+      database <- case app ^. #databases of
         firstDatabase : _ -> pure firstDatabase
         [] -> assertFailure "fixture has no database" >> fail "missing database"
       databaseId <- either (fail . T.unpack) pure
@@ -539,7 +539,7 @@ renderTests =
       assertBool "standalone Service accepted an unbound broker"
         (isLeft (compileStandaloneServiceWithBrokers serviceOwner independentService serviceRollout
           cluster namespaceId publication Map.empty Map.empty Map.empty Map.empty (scopeSource input)))
-      database <- case app ^. #databases of
+      boundDatabase <- case app ^. #databases of
         [onlyDatabase] -> pure onlyDatabase
         _ -> assertFailure "fixture does not have one database" >> fail "missing database"
       let databaseOwner = unsafe (Resource.mkScopeId Resource.Standalone "database-kizashi-db")
@@ -598,6 +598,26 @@ renderTests =
       assertBool "standalone Service lost generated database connection or Secret reference"
         (any (\(_, bytes) -> BS.isInfixOf "POSTGRES_HOST" bytes
           && BS.isInfixOf "POSTGRES_PASSWORD" bytes) (Map.elems databaseServiceNative))
+      let databaseGeneration = unsafe (Resource.mkScopeGeneration 1)
+          bindingImageDigest = unsafe (Resource.mkContentDigest (T.replicate 64 "0"))
+          prerequisiteBundle = ResourceBundle
+            [ External namespaceId (Resource.Kubernetes cluster ""
+                (unsafe (Resource.mkName "namespace")) Nothing
+                (unsafe (Resource.mkName "personal"))) [] (scopeSource input)
+            , External publication (Resource.Artifact
+                (unsafe (Resource.mkName "image")) bindingImageDigest) [] (scopeSource input)
+            ] [] [] [] [] []
+      prerequisiteScope <- either (fail . show) pure
+        (mkScopeDeclaration foundation [prerequisiteBundle])
+      readySnapshot <- either (fail . show) pure (mkScopeSnapshot historyBinding
+        (Map.fromList [(foundation, (databaseGeneration, prerequisiteScope))
+          , (databaseOwner, (databaseGeneration, databaseScope))]) Map.empty)
+      serviceCandidate <- either (fail . show) pure (composeInventory readySnapshot
+        (ReplaceScope databaseServiceScope :| []))
+      Map.lookup databaseOwner (candidateGenerations serviceCandidate) @?= Just databaseGeneration
+      workerCandidate <- either (fail . show) pure (composeInventory readySnapshot
+        (ReplaceScope databaseWorkerScope :| []))
+      Map.lookup databaseOwner (candidateGenerations workerCandidate) @?= Just databaseGeneration
       assertBool "standalone worker accepted an unbound database"
         (isLeft (compileStandaloneWorkerWithDependencies standaloneOwner workerWithDatabase workerRollout
           cluster namespaceId publication Map.empty Map.empty Map.empty Map.empty (scopeSource input)))
