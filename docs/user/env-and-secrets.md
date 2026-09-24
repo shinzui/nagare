@@ -227,7 +227,8 @@ Runtime Secret values also have an exact reviewed input channel. Supply an
 opaque version token for each rotation. The file must remain available while
 planning; the saved review binds its native Secret bytes and does not print
 them in the public review. A later application deployment preserves this
-channel's revision. A preexisting unmanaged Secret requires reviewed adoption
+channel's revision. Reusing a version with different Secret content is refused.
+A preexisting unmanaged Secret requires reviewed adoption
 before its first managed write.
 
 ```bash

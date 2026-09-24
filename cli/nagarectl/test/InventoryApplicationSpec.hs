@@ -11,7 +11,7 @@ import Nagare.Dsl.Prelude
 import Nagare.Inventory.Application (compileApplicationDatabases)
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), compileFoundation)
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, databaseNativeOwned, standaloneRetirementScope)
-import Nagare.Inventory.Environment (compileRuntimeEnvChannel, compileRuntimeSecretChannel)
+import Nagare.Inventory.Environment (compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateRuntimeSecretRotation)
 import Nagare.Resource.Application (applicationScopeId)
 import Nagare.Resource.Inventory (Declaration (Managed), ManagedResource (..), ResourceBundle (..), mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeId)
 import Nagare.Resource.Policy (RecoveryIntent (..), Sensitivity (Secret), mkSecretRef)
@@ -67,6 +67,20 @@ inventoryApplicationTests = testGroup "application inventory compilation"
               BC.isInfixOf "secret-canary-value" bytes @?= False
             Nothing -> assertFailure "secret channel lost its native Secret"
         _ -> assertFailure "secret channel has unexpected declarations"
+      let binding = ContextBinding (checked (mkContextId "fixture")) (checked (mkName "project"))
+          source = SourceLocation "secret-file" "runtime-secret"
+      snapshot <- either (fail . show) pure (mkScopeSnapshot binding
+        (Map.singleton (scopeId scope) (checked (mkScopeGeneration 1), scope)) Map.empty)
+      (changed, _) <- either (fail . show) pure (compileRuntimeSecretChannel
+        "kizashi" "personal" cluster namespaceId (checked (mkName "v2"))
+        (Map.singleton "TOKEN" "different-value") source)
+      case validateRuntimeSecretRotation snapshot changed of
+        Left _ -> pure ()
+        Right _ -> assertFailure "one rotation version accepted different Secret bytes"
+      (rotated, _) <- either (fail . show) pure (compileRuntimeSecretChannel
+        "kizashi" "personal" cluster namespaceId (checked (mkName "v3"))
+        (Map.singleton "TOKEN" "different-value") source)
+      validateRuntimeSecretRotation snapshot rotated @?= Right ()
   , testCase "standalone data planning requires the accepted platform Namespace" $ do
       let checked = either (error . show) id
           owner = checked (mkScopeId Platform "foundation")

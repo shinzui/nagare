@@ -4,6 +4,7 @@
 module Nagare.Inventory.Environment
   ( compileRuntimeEnvChannel
   , compileRuntimeSecretChannel
+  , validateRuntimeSecretRotation
   ) where
 
 import Data.Aeson (Value)
@@ -49,6 +50,24 @@ compileRuntimeSecretChannel app namespaceName cluster namespaceId version values
     (managedSecretName app Runtime) (renderEnvSecret app namespaceName Runtime values)
     app namespaceName cluster namespaceId
     (source {path = "runtime-secret/" <> nameText version})
+
+-- | One opaque version identifies one exact Secret payload. Reusing a version
+-- with different native content would make a rotation receipt ambiguous.
+validateRuntimeSecretRotation :: ScopeSnapshot -> ScopeDeclaration -> Either T.Text ()
+validateRuntimeSecretRotation snapshot candidate = do
+  proposed <- singleSecret candidate
+  case Map.lookup (scopeId candidate) (snapshotScopes snapshot) of
+    Nothing -> Right ()
+    Just (_, accepted) -> do
+      previous <- singleSecret accepted
+      unless (path (previous ^. #source) /= path (proposed ^. #source)
+          || previous ^. #spec == proposed ^. #spec)
+        (Left "Runtime Secret rotation version already names different content")
+  where
+    singleSecret scope = case
+      [resource | bundle <- scopeBundles scope, Managed resource <- declarations bundle] of
+      [resource] -> Right resource
+      _ -> Left "Runtime Secret channel must have exactly one managed member"
 
 compileChannel
   :: T.Text -> T.Text -> T.Text -> T.Text -> Sensitivity -> T.Text -> ByteString

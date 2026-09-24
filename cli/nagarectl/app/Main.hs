@@ -273,7 +273,7 @@ import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManager
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedApplicationImage, acceptedBrokerBindings, acceptedSecretBindings, applicationNativeOwned, applicationVolumeRecoveryBindings, compileApplicationScope, databaseRecoveryBindings, nativeWorkloadOwned)
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, compileStandaloneDatabase, databaseNativeOwned, standaloneRetirementScope, standaloneStatefulSetOwned)
-import Nagare.Inventory.Environment (compileRuntimeEnvChannel, compileRuntimeSecretChannel)
+import Nagare.Inventory.Environment (compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateRuntimeSecretRotation)
 import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
@@ -7771,6 +7771,7 @@ runSecret mctx = \case
     (channel, native) <- either (dieT . T.pack . show) pure
       (compileRuntimeSecretChannel name ns cluster namespaceId version incoming
         (Resource.SourceLocation (T.pack dotenvPath) "runtime-secret"))
+    either dieT pure (validateRuntimeSecretRotation snapshot channel)
     candidate <- either (dieT . T.pack . show) pure
       (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope channel NE.:| []))
     Inventory.planInventoryCandidateWith
