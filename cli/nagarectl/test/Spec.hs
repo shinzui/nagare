@@ -48,6 +48,7 @@ import InventoryObjectOpsSpec (inventoryObjectOpsTests)
 import InventoryCloudSpec (inventoryCloudTests)
 import InventoryHostSpec (inventoryHostTests)
 import InventoryKubernetesSpec (inventoryKubernetesTests)
+import InventoryApplicationSpec (inventoryApplicationTests)
 import InventoryLifecycleSpec (inventoryLifecycleTests)
 import InventoryMigrationSpec (inventoryMigrationTests)
 import InventoryStatusSpec (inventoryStatusTests)
@@ -443,6 +444,7 @@ main = do
             , inventoryCloudTests
             , inventoryHostTests
             , inventoryKubernetesTests
+            , inventoryApplicationTests
             , inventoryLifecycleTests
             , inventoryMigrationTests
             , inventoryStatusTests

@@ -118,6 +118,7 @@ library
     Nagare.Inventory.Components.Upstream
     Nagare.Inventory.Database
     Nagare.Inventory.DataService
+    Nagare.Inventory.Application
     Nagare.Inventory.Digest
     Nagare.Inventory.Execute
     Nagare.Inventory.HelmReview
@@ -261,6 +262,7 @@ test-suite nagarectl-test
     InventoryFoundationSpec
     InventoryHostSpec
     InventoryKubernetesSpec
+    InventoryApplicationSpec
     InventoryLifecycleSpec
     InventoryMigrationSpec
     InventoryObservabilitySpec
