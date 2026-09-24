@@ -291,6 +291,8 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-24) EP-148 M1 partial: Simple Knative Service members bind label-stamped native bytes.
 - [x] (2026-09-24) EP-148 M1 partial: Service PVCs bind as separate native members with recovery and ordering.
 - [x] (2026-09-24) EP-148 M1 partial: Automatic-TLS DomainMappings bind with hostname claims; supplied TLS waits on a typed Secret dependency.
+- [x] (2026-09-24) EP-148 M1 partial: Worker Deployments/PVCs and scheduled CronJobs bind with stable keys; declared database edges are typed, and a supported multi-workload fixture composes into one ten-member application scope.
+- [x] (2026-09-24) EP-148 M1 partial: A standalone Redpanda broker without topics compiles three direct Kubernetes members with retained PVC recovery; topic-bearing brokers refuse pending logical operation ownership.
 - [ ] EP-148 M1: Complete application/data scopes.
 - [ ] EP-148 M2: Shared contributions, env/secret intent, and publication.
 - [ ] EP-148 M3: Operational/data command coverage.
@@ -304,6 +306,8 @@ These ownership, identity, review, storage, migration, and controller-delegation
 ## Surprises & Discoveries
 
 2026-09-24: EP-148 can wrap EP-147's complete database builder directly for standalone and application-owned database members: the canonical credential and backup already exist and need no second renderer. Application preview now shows those two missing members without secret data, while live deploy remains outside inventory admission. EP-148 M1 therefore stays open, and EP-150 remains gated.
+
+2026-09-24: EP-148's supported application declaration now composes database, service, worker, and task members from exact native bytes, but access/CDN contributions, broker topics/bindings, supplied TLS, hook effects, and command routing remain open. The compiler refuses unsupported intent; legacy public commands remain active. EP-148 M1 and EP-150 remain open.
 
 2026-09-24: EP-149's single-valued ordinary observation and adapter registries cannot represent a migrated source and destination under one ResourceId. Separate paired observations, a canonical migration review marker, and disjoint retained claims now carry the generic contract. EP-148 and EP-150 must use the two-incarnation path for address/executor changes and must not infer adoption or deletion from a provider stamp or missing declaration. Production migration stage verification remains their adapter/integration responsibility.
 
