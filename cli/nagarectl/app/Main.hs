@@ -67,7 +67,7 @@ import Nagare.App
   , stopApp
   , streamServiceLogs
   )
-import Nagare.App.Deploy (AppDeployParams (..), runAppDeployWithGuard)
+import Nagare.App.Deploy (AppDeployParams (..), RolloutEnv (..), resolveAppRollout, runAppDeployWithGuard)
 import Nagare.App.Deployments
   ( formatDeploymentsTable
   , readDeployments
@@ -269,7 +269,7 @@ import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.Application (applicationNativeOwned, nativeWorkloadOwned)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedApplicationImage, applicationNativeOwned, compileApplicationScope, nativeWorkloadOwned)
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, compileStandaloneBroker, compileStandaloneDatabase, standaloneRetirementScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
@@ -545,6 +545,8 @@ data AppDeployOpts = AppDeployOpts
   , dryRun :: !Bool
   , json :: !Bool
   , source :: !(Maybe String)
+  , savePlan :: !(Maybe FilePath)
+  , imageResource :: !(Maybe String)
   }
   deriving stock (Generic, Show)
 
@@ -1412,7 +1414,6 @@ deployOptsParser defaultFile =
               <> help "Provenance to record with the deployment (e.g. a git SHA or branch)"
           )
       )
-
 appDeployOptsParser :: FilePath -> Parser AppDeployOpts
 appDeployOptsParser defaultFile =
   AppDeployOpts
@@ -1447,6 +1448,10 @@ appDeployOptsParser defaultFile =
               <> help "Provenance to record with the deployment (e.g. a git SHA or branch)"
           )
       )
+    <*> optional
+      (strOption (long "save-plan" <> metavar "FILE" <> help "Save a reviewed inventory plan for a prepublished-image application"))
+    <*> optional
+      (strOption (long "image-resource" <> metavar "RESOURCE-ID" <> help "Accepted OCI image inventory resource used by --save-plan"))
 
 workerDeployOptsParser :: FilePath -> Parser WorkerDeployOpts
 workerDeployOptsParser defaultFile =
@@ -2803,7 +2808,11 @@ main = do
     AppDeploy o -> do
       provisionGhcEnv (o ^. #ghcEnv)
       tp <- activeProfile mctx
-      runAppDeployWithGuard (refuseDirectApplicationDeployIfOwned mctx) (toAppDeployParams tp o)
+      case o ^. #savePlan of
+        Nothing -> do
+          when (isJust (o ^. #imageResource)) (dieT "--image-resource requires --save-plan")
+          runAppDeployWithGuard (refuseDirectApplicationDeployIfOwned mctx) (toAppDeployParams tp o)
+        Just output -> runAppDeployPlan mctx (toAppDeployParams tp o) o output
     DeploymentsList o -> runDeploymentsList o
     DeploymentsLogs o -> runDeploymentsLogs o
     Storage scmd -> runStorage mctx scmd
@@ -6773,6 +6782,62 @@ appNamespace = maybe "personal" T.pack
 -- @--all@). An empty managed list prints a hint to try @--all@.
 -- | Convert the executable's option record into the library deploy params
 -- (MasterPlan 14, EP-2), so the library never depends on the option type.
+runAppDeployPlan :: Maybe String -> AppDeployParams -> AppDeployOpts -> FilePath -> IO ()
+runAppDeployPlan mctx params appOptions output = do
+  when (appOptions ^. #dryRun || appOptions ^. #json)
+    (dieT "--save-plan cannot be combined with --dry-run or --json")
+  when (isJust (appOptions ^. #contextOverride) || isJust (appOptions ^. #dockerfileOverride))
+    (dieT "reviewed app deploy requires a prepublished image; build overrides are unsupported")
+  when (isNothing (appOptions ^. #tag))
+    (dieT "reviewed app deploy requires an explicit --tag")
+  imageText <- maybe (dieT "--save-plan requires --image-resource") (pure . T.pack)
+    (appOptions ^. #imageResource)
+  imageId <- either dieT pure (Resource.mkResourceId imageText)
+  app <- Load.loadApplication (params ^. #configPath)
+    >>= either (dieT . Load.renderLoadError) pure
+  let builds = maybe [] (pure . (^. #build)) (app ^. #service)
+        <> map (^. #build) (app ^. #workers)
+  when (any requiresBuild builds)
+    (dieT "reviewed app deploy requires an already published image")
+  unless (null (app ^. #databases) && null (app ^. #tasks)
+      && null (app ^. #brokers) && isNothing (app ^. #access))
+    (dieT "reviewed app deploy currently supports service and worker declarations without data, hooks, brokers, or access")
+  rollout <- resolveAppRollout params app
+  unless (all (\build -> resolveImageTag build (rollout ^. #imageTag)
+      == rollout ^. #effectiveTag) builds)
+    (dieT "application workloads resolve to different prepublished image tags")
+  active <- activeTarget mctx
+  (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+  snapshot <- Inventory.loadTargetSnapshot active
+  (cluster, namespaceId) <- either dieT pure
+    (acceptedFoundationNamespace snapshot (rollout ^. #namespace))
+  either dieT pure (acceptedApplicationImage snapshot imageId (rollout ^. #taggedAppImage))
+  backend <- either dieT pure (storeBackendFor (active ^. #profile)
+    (active ^. #profile . #backupBucket))
+  let source = Resource.SourceLocation
+        (maybe (T.pack (params ^. #configPath)) T.pack (appOptions ^. #source))
+        (serviceNameText (app ^. #name))
+      input = ApplicationScopeInput
+        { scopeApplication = app
+        , scopeRollout = rollout
+        , scopeCluster = cluster
+        , scopeNamespace = namespaceId
+        , scopeNamespaceContributionOwner = Nothing
+        , scopeImage = imageId
+        , scopeDatabaseRecovery = Map.empty
+        , scopeServiceVolumeRecovery = Map.empty
+        , scopeTlsSecrets = Map.empty
+        , scopeEnvSecrets = Map.empty
+        , scopeWorkerVolumeRecovery = Map.empty
+        , scopeBackupBackend = backend
+        , scopeSource = source
+        }
+  (scope, native) <- either (dieT . T.pack . show) pure (compileApplicationScope input)
+  candidate <- either (dieT . T.pack . show) pure
+    (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
+  Inventory.planInventoryCandidateWith
+    (inventoryPlanRegistryWithNative active workspace native) active candidate output
+
 toAppDeployParams :: TargetProfile -> AppDeployOpts -> AppDeployParams
 toAppDeployParams tp o =
   AppDeployParams

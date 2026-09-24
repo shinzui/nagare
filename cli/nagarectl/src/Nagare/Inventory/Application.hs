@@ -11,6 +11,7 @@ module Nagare.Inventory.Application
   , compileApplicationTasks
   , applicationNativeOwned
   , nativeWorkloadOwned
+  , acceptedApplicationImage
   ) where
 
 import Data.Aeson (Value)
@@ -81,6 +82,21 @@ nativeWorkloadOwned group kind name namespaceName = any matches
           && nameText nativeName == name
           && nameText nativeNamespace == namespaceName
       _ -> False
+
+-- | A reviewed rollout may depend only on an already accepted OCI publication
+-- whose destination is the exact tagged image embedded in its native manifests.
+acceptedApplicationImage :: ScopeSnapshot -> ResourceId -> T.Text -> Either T.Text ()
+acceptedApplicationImage snapshot imageId taggedImage =
+  case [resource
+       | (_, scope) <- Map.elems (snapshotScopes snapshot)
+       , bundle <- scopeBundles scope
+       , Managed resource <- declarations bundle
+       , resource ^. #identity == imageId] of
+    [resource] -> case (resource ^. #executor, resource ^. #address, resource ^. #spec) of
+      (ArtifactExecutor, Artifact _ _, ArtifactPublication kind destination _ _)
+        | nameText kind == "oci-image" && destination == taggedImage -> Right ()
+      _ -> Left "accepted image resource is not the requested OCI publication"
+    _ -> Left "image resource is absent or ambiguous in accepted inventory"
 
 -- | The reviewed dependencies and recovery decisions supplied by the command
 -- service. A caller must bind the namespace and image publication to accepted

@@ -11,6 +11,29 @@ generated:
 
 # Deploying apps
 
+## Reviewed multi-workload deployment (supported subset)
+
+`nagarectl app deploy` can save an inventory review for an application whose
+image is already an accepted OCI publication. The current reviewed path supports
+a web Service and workers without application databases, hooks, broker bindings,
+access changes, build inputs, or retained volumes. Its config still goes through
+the typed `Application` loader. Use the exact resource ID of the accepted OCI
+publication, and an explicit tag that resolves to that publication's destination:
+
+```bash
+nagarectl app deploy --file nagare/Config.hs --tag v1 \
+  --image-resource publication:app-image/app-image/oci-image \
+  --save-plan app-review
+nagarectl inventory apply app-review --yes
+```
+
+The resource ID above is illustrative; obtain the real ID from your accepted
+inventory. Planning checks the accepted platform Namespace and the image's
+tagged destination before saving the review. The review is bound to the current
+inventory head; apply uses the native bytes saved in that review. Other
+application inputs are refused until their inventory operation and recovery
+contracts are available.
+
 > **Status:** 🟡 Built and tested through CLI/render coverage. The live deploy path
 > supports both cloud mode and local mode: short image names are qualified through
 > the active target, Docker auth is skipped for the local registry, and local

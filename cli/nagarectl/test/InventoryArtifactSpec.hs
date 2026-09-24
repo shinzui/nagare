@@ -11,6 +11,7 @@ import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Artifact
 import Nagare.Inventory.Adapters.ArtifactRuntime
 import Nagare.Inventory.Artifact
+import Nagare.Inventory.Application (acceptedApplicationImage)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Journal
 import Nagare.Resource.Inventory
@@ -36,6 +37,26 @@ inventoryArtifactTests =
             reconstructed <- expectRight (artifactExecutionSpecsFromDeclarations declared)
             Map.lookup artifactResource reconstructed @?= Map.lookup artifactResource specs
           values -> assertFailure ("expected one artifact bundle, got " <> show (length values))
+    , testCase "application review requires the exact accepted OCI publication" $ do
+        let oci = imageSpec
+              { artifactLogicalKey = logicalKey "app-image"
+              , artifactRole = name "oci-image"
+              , artifactName = name "app-image"
+              , artifactDestination = "registry.example/app:v1"
+              , artifactKind = OciImageArtifact
+              }
+            imageId = mintResourceId scope (artifactLogicalKey oci) (artifactRole oci)
+            binding = ContextBinding (either (error . Text.unpack) id (mkContextId "test")) (name "project")
+        declared <- expectRight (compileArtifactScope (ArtifactDeclarationBundle 1 scope (oci :| [])))
+        snapshot <- expectRight (mkScopeSnapshot binding
+          (Map.singleton scope (either (error . Text.unpack) id (mkScopeGeneration 1), declared)) Map.empty)
+        acceptedApplicationImage snapshot imageId "registry.example/app:v1" @?= Right ()
+        case acceptedApplicationImage snapshot imageId "registry.example/app:v2" of
+          Left _ -> pure ()
+          Right () -> assertFailure "a different image tag was accepted"
+        case acceptedApplicationImage snapshot artifactResource "registry.example/app:v1" of
+          Left _ -> pure ()
+          Right () -> assertFailure "an absent image identity was accepted"
     , testCase "matching immutable content resumes without republishing" $ do
         calls <- newIORef (0 :: Int)
         state <- newIORef (ArtifactPresent physical expectedDigest)

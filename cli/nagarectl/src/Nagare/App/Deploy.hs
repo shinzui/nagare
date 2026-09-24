@@ -21,6 +21,7 @@ module Nagare.App.Deploy
     AppDeployParams (..)
   , runAppDeploy
   , runAppDeployWithGuard
+  , resolveAppRollout
 
     -- * Rollout phases (EP-2 M2)
   , Phase (..)
@@ -458,31 +459,12 @@ runAppDeployWithGuard ownershipGuard p = do
   when (isJust transaction) $
     dieT "app deploy cannot run inside a reviewed inventory transaction"
   eapp <- loadApplication (p ^. #configPath)
-  let tp = p ^. #targetProfile
   app <- case eapp of
     Left err -> dieT (renderLoadError err)
     Right a -> pure a
   ownershipGuard app
-  qImg <- case qualifyImage tp (app ^. #image) of
-    Left e -> dieT ("nagarectl app deploy: " <> e)
-    Right q -> pure q
-  imageTag <- resolveTag (T.unpack <$> p ^. #tag)
-  brokerEnv <- resolveBrokerEnv (app ^. #namespace) (app ^. #brokers)
-
-  let effTag = maybe imageTag (\b -> resolveImageTag b imageTag) (buildForTag app)
-      env =
-        RolloutEnv
-          { appName = serviceNameText (app ^. #name)
-          , qualifiedImage = qImg
-          , imageTag = imageTag
-          , effectiveTag = effTag
-          , taggedAppImage = imageRefText qImg <> ":" <> effTag
-          , appEnv = mergeGenerated brokerEnv (app ^. #env)
-          , namespace = namespaceText (app ^. #namespace)
-          , baseDomain = fromMaybe (tp ^. #baseDomain) (p ^. #baseDomain)
-          , targetProfile = tp
-          }
-
+  env <- resolveAppRollout p app
+  let tp = p ^. #targetProfile
   if p ^. #dryRun
     then
       if p ^. #json
@@ -497,6 +479,31 @@ runAppDeployWithGuard ownershipGuard p = do
             BC.putStr bs
           TIO.putStrLn (summaryLine app env)
     else liveDeploy p tp env app
+
+-- | Resolve the rollout identity once for direct rendering and reviewed scope
+-- compilation. A reviewed caller checks unsupported broker effects first.
+resolveAppRollout :: AppDeployParams -> Application -> IO RolloutEnv
+resolveAppRollout p app = do
+  qImg <- case qualifyImage tp (app ^. #image) of
+    Left e -> dieT ("nagarectl app deploy: " <> e)
+    Right q -> pure q
+  imageTag <- resolveTag (T.unpack <$> p ^. #tag)
+  brokerEnv <- resolveBrokerEnv (app ^. #namespace) (app ^. #brokers)
+
+  let effTag = maybe imageTag (\b -> resolveImageTag b imageTag) (buildForTag app)
+  pure RolloutEnv
+          { appName = serviceNameText (app ^. #name)
+          , qualifiedImage = qImg
+          , imageTag = imageTag
+          , effectiveTag = effTag
+          , taggedAppImage = imageRefText qImg <> ":" <> effTag
+          , appEnv = mergeGenerated brokerEnv (app ^. #env)
+          , namespace = namespaceText (app ^. #namespace)
+          , baseDomain = fromMaybe (tp ^. #baseDomain) (p ^. #baseDomain)
+          , targetProfile = tp
+          }
+  where
+    tp = p ^. #targetProfile
 
 -- | The live (non-dry-run) rollout (EP-2 M4): build and push the shared image
 -- ONCE, then run the phases in order with the live executor. A failed pre-deploy
