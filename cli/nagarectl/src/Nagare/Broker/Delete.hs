@@ -15,6 +15,7 @@ import Data.Text.IO qualified as TIO
 import Nagare.Broker.Discover (getBroker)
 import Nagare.Dsl.Broker.Render (brokerPvcName)
 import Nagare.Dsl.Prelude
+import System.Environment (lookupEnv)
 import System.Exit (exitFailure)
 import System.IO (stderr)
 
@@ -28,6 +29,10 @@ data BrokerDeleteParams = BrokerDeleteParams
 
 runBrokerDelete :: BrokerDeleteParams -> IO ()
 runBrokerDelete params = do
+  transaction <- lookupEnv "NAGARE_INVENTORY_TRANSACTION"
+  when (isJust transaction) $ do
+    TIO.hPutStrLn stderr "nagarectl: broker delete cannot run inside a reviewed inventory transaction"
+    exitFailure
   erow <- getBroker (params ^. #namespace) (params ^. #name)
   case erow of
     Left err -> do

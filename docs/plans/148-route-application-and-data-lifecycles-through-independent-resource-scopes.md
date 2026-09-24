@@ -65,6 +65,7 @@ Every supported application-side mutation is either a desired-scope update, a re
 - [x] (2026-09-24) M3 partial: `db create --save-plan` compiles the same validated typed database used by direct create into a standalone scope, requires explicit recovery inputs, and saves an opaque inventory review for `inventory apply`; direct create remains a compatibility path.
 - [x] (2026-09-24) M3 partial: `broker create --save-plan` compiles a topic-free Redpanda broker into its standalone scope and saves an inventory review. The StatefulSet renderer now includes the discovery metadata previously added by a post-apply `kubectl annotate` call.
 - [x] (2026-09-24) M3 partial: `db delete --save-plan` and `broker delete --save-plan` select an accepted standalone scope, verify the named StatefulSet and namespace, and save a retained-resource retirement review. Direct delete remains a compatibility path.
+- [x] (2026-09-24) M4 partial: Legacy direct database and broker delete refuse inventory transaction re-entry before observing or mutating the cluster, matching their create guards.
 - [ ] M1: Compile applications and standalone services into complete scopes.
 - [ ] M2: Integrate shared-owner contributions, environment intent, and publication.
 - [ ] M3: Route operational and data lifecycle commands through reviewed operations.

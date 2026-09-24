@@ -19,6 +19,7 @@ import Nagare.Database.Discover (DbRow (..), getDatabase)
 import Nagare.Dsl.Database (dbSecretName)
 import Nagare.Dsl.Database.Render (dbConfigMapName, dbPvcName)
 import Nagare.Dsl.Prelude
+import System.Environment (lookupEnv)
 import System.Exit (exitFailure)
 import System.IO (stderr)
 
@@ -32,6 +33,10 @@ data DbDeleteParams = DbDeleteParams
 
 runDbDelete :: DbDeleteParams -> IO ()
 runDbDelete p = do
+  transaction <- lookupEnv "NAGARE_INVENTORY_TRANSACTION"
+  when (isJust transaction) $ do
+    TIO.hPutStrLn stderr "nagarectl: db delete cannot run inside a reviewed inventory transaction"
+    exitFailure
   erow <- getDatabase (p ^. #namespace) (p ^. #name)
   case erow of
     Left err -> do
