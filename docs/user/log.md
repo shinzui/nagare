@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-24
+* **Update**: Document reviewed application retirement, exact accepted-scope selection, and retained resources.
 * **Update**: Document scheduled CronJobs in reviewed application deployment and the accepted-image requirement.
 * **Update**: Document the reviewed single-Service deploy route, its scheduled CronJobs, and explicit image, recovery, and Secret dependencies.
 * **Update**: Document the separate reviewed Build environment channel and its exact-replacement behavior.

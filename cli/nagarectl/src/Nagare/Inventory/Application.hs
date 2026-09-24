@@ -17,6 +17,7 @@ module Nagare.Inventory.Application
   , acceptedSecretBindings
   , acceptedBrokerBindings
   , applicationVolumeRecoveryBindings
+  , applicationRetirementScope
   ) where
 
 import Control.Monad (forM_)
@@ -58,6 +59,7 @@ import Nagare.Resource.Policy (DataPolicy (..), LifecyclePolicy (..), Sensitivit
 import Nagare.Resource.Policy (RecoveryIntent (..), mkSecretRef)
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
+import Nagare.Resource.Types qualified as Resource
 import Nagare.Resource.Wire (canonicalValue)
 
 -- | Match every native object that the legacy aggregate deploy can write.
@@ -113,6 +115,28 @@ nativeWorkloadOwned group kind name namespaceName = any matches
           && nameText nativeName == name
           && nameText nativeNamespace == namespaceName
       _ -> False
+
+-- | Select retirement from accepted application history and the exact native
+-- Service address. A display name or pinned key alone carries no authority.
+applicationRetirementScope
+  :: T.Text -> T.Text -> Maybe T.Text -> ScopeSnapshot -> Either T.Text ScopeId
+applicationRetirementScope name namespaceName pinnedKey snapshot = do
+  pinned <- traverse (\raw -> mkLogicalKey raw >>= mkScopeId Resource.Application . logicalKeyText) pinnedKey
+  case [ owner
+       | (owner, (_, scope)) <- Map.toList (snapshotScopes snapshot)
+       , scopeKind owner == Resource.Application
+       , maybe True (== owner) pinned
+       , bundle <- scopeBundles scope
+       , Managed resource <- declarations bundle
+       , case resource ^. #address of
+           Kubernetes _ "serving.knative.dev" kind (Just namespace) serviceName ->
+             nameText kind == "service"
+               && nameText namespace == namespaceName
+               && nameText serviceName == name
+           _ -> False
+       ] of
+    [owner] -> Right owner
+    _ -> Left "accepted application history has no unique Knative Service for that name, namespace, and scope key"
 
 -- | A reviewed rollout may depend only on an already accepted OCI publication
 -- whose destination is the exact tagged image embedded in its native manifests.

@@ -24,7 +24,7 @@ import Data.Text.Encoding qualified as TE
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.App.Deploy
-import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedBrokerBindings, acceptedSecretBindings, applicationNativeOwned, applicationVolumeRecoveryBindings, nativeWorkloadOwned, compileApplicationScope, compileApplicationService, compileStandaloneService, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedBrokerBindings, acceptedSecretBindings, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, nativeWorkloadOwned, compileApplicationScope, compileApplicationService, compileStandaloneService, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings)
 import Nagare.Inventory.DataService (compileStandaloneBroker)
 import Nagare.Dsl.Broker (BrokerBinding (..), mkTopicName)
 import Nagare.Resource.Application (applicationScopeId, volumeResourceId)
@@ -396,6 +396,16 @@ renderTests =
       secretSnapshot <- either (fail . show) pure
         (mkScopeSnapshot historyBinding (Map.singleton (scopeId scope)
           (unsafe (Resource.mkScopeGeneration 1), scope)) Map.empty)
+      applicationRetirementScope "kizashi-serve" "personal" (Just "kizashi") secretSnapshot
+        @?= Right (scopeId scope)
+      applicationRetirementScope "kizashi-serve" "personal" Nothing secretSnapshot
+        @?= Right (scopeId scope)
+      assertBool "retirement accepted another namespace"
+        (isLeft (applicationRetirementScope "kizashi-serve" "other" (Just "kizashi") secretSnapshot))
+      assertBool "retirement accepted another Service"
+        (isLeft (applicationRetirementScope "other" "personal" (Just "kizashi") secretSnapshot))
+      assertBool "retirement selected an absent pinned key"
+        (isLeft (applicationRetirementScope "kizashi-serve" "personal" (Just "other") secretSnapshot))
       Map.size <$> acceptedSecretBindings secretSnapshot secretIds @?= Right 1
       assertBool "duplicate accepted Secret binding was accepted"
         (isLeft (acceptedSecretBindings secretSnapshot (secretIds <> secretIds)))

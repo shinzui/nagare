@@ -39,7 +39,8 @@ nagarectl app get NAME [-n NS] [-f FILE]              # one app's image, revisio
 nagarectl app logs NAME [--follow] [--tail N] [-n NS] # tail the running container's logs
 nagarectl app restart NAME [-n NS]                    # roll a fresh revision (also un-stops)
 nagarectl app stop NAME [-n NS]                       # take the app offline, recoverably
-nagarectl app delete NAME [-n NS] [-f FILE]           # remove Service, DomainMappings, history
+nagarectl app delete NAME [-n NS] [-f FILE]           # remove legacy Service, DomainMappings, history
+nagarectl app delete NAME [-n NS] --save-plan DIR     # review accepted application retirement
 
 nagarectl deployments list NAME [-n NS]               # deployment history, newest first
 nagarectl deployments logs NAME [ID] [--follow]       # logs for the live or a past deployment
@@ -140,7 +141,22 @@ Bring it back with either `nagarectl deploy` (a fresh deploy) or `nagarectl app
 restart lifecycle-demo` — `restart` also clears the cluster-local label, so the
 public route returns.
 
-**`app delete NAME`** is permanent. It removes the Service, each of its
+For an inventory-managed application, save a retirement review and apply it
+through the inventory command:
+
+```bash
+nagarectl app delete lifecycle-demo --save-plan ./app-retirement
+nagarectl inventory apply ./app-retirement
+```
+
+The review selects the accepted application scope by its Service name and
+namespace. Use `--scope-key KEY` to require a particular accepted logical key, including
+when it differs from the Service name. Retirement preserves every managed member, including database
+volumes and recovery credentials; separate reviewed collection is required to
+delete retained resources. A name or key that does not match accepted history
+refuses before a review is saved.
+
+**Direct `app delete NAME`** is permanent for a legacy app. It removes the Service, each of its
 DomainMappings, and its deployment-history ConfigMap. Domains come from the
 config when a readable `nagare/Config.hs` is in reach (or `-f FILE`); otherwise
 they're discovered by querying the cluster for DomainMappings that point at the

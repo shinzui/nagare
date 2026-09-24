@@ -271,7 +271,7 @@ import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedApplicationImage, acceptedBrokerBindings, acceptedSecretBindings, applicationNativeOwned, applicationVolumeRecoveryBindings, compileApplicationScope, compileStandaloneService, databaseRecoveryBindings, nativeWorkloadOwned, reviewedTaskImages)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedApplicationImage, acceptedBrokerBindings, acceptedSecretBindings, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationScope, compileStandaloneService, databaseRecoveryBindings, nativeWorkloadOwned, reviewedTaskImages)
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, compileStandaloneDatabase, databaseNativeOwned, standaloneRetirementScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Environment (compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
 import Nagare.Inventory.Host qualified as InventoryHost
@@ -673,6 +673,8 @@ data AppDeleteOpts = AppDeleteOpts
   , namespace :: !(Maybe String)
   , file :: !FilePath
   , ghcEnv :: !(Maybe FilePath)
+  , savePlan :: !(Maybe FilePath)
+  , scopeKey :: !(Maybe String)
   }
   deriving stock (Generic, Show)
 
@@ -1653,6 +1655,8 @@ appDeleteOptsParser =
     <*> namespaceOpt
     <*> fileOpt defaultConfigFile
     <*> ghcEnvOpt
+    <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed retirement of the accepted application scope"))
+    <*> optional (strOption (long "scope-key" <> metavar "KEY" <> help "Pin the accepted application logical key"))
 
 depListOptsParser :: Parser DepListOpts
 depListOptsParser = DepListOpts <$> appNameArg <*> namespaceOpt
@@ -2580,7 +2584,7 @@ opts =
               "delete"
               ( info
                   (AppDelete <$> appDeleteOptsParser <**> helper)
-                  (progDesc "Delete the app, its DomainMappings, and its deployment history")
+                  (progDesc "Delete a legacy app or review accepted application retirement")
               )
             <> command
               "deploy"
@@ -7239,10 +7243,21 @@ runAppDelete :: Maybe String -> AppDeleteOpts -> IO ()
 runAppDelete mctx o = do
   let ns = appNamespace (o ^. #namespace)
       name = T.pack (o ^. #nameArg)
-  refuseDirectServiceMutationIfOwned mctx "app delete" name ns
-  domains <- resolveDeleteDomains o ns name
-  deleteApp ns name domains
-  TIO.putStrLn ("Deleted " <> name)
+  case o ^. #savePlan of
+    Nothing -> do
+      when (isJust (o ^. #scopeKey)) (dieT "--scope-key requires --save-plan")
+      refuseDirectServiceMutationIfOwned mctx "app delete" name ns
+      domains <- resolveDeleteDomains o ns name
+      deleteApp ns name domains
+      TIO.putStrLn ("Deleted " <> name)
+    Just output -> do
+      active <- activeTarget mctx
+      snapshot <- Inventory.loadTargetSnapshot active
+      owner <- either dieT pure (applicationRetirementScope name ns
+        (T.pack <$> o ^. #scopeKey) snapshot)
+      (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+      Inventory.planInventoryRetirementWith
+        (inventoryPlanRegistry active workspace) active owner output
 
 -- | The DomainMapping hostnames to delete with an app: the config's declared
 -- domains when a readable 'Deployment' config is present, else the cluster's

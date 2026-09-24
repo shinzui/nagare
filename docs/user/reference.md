@@ -393,7 +393,7 @@ operation.
 | `nagarectl app logs NAME [--follow] [--tail N]` | Show or stream current app logs. |
 | `nagarectl app restart NAME` | Create a fresh revision and bring a stopped app back online. |
 | `nagarectl app stop NAME` | Recoverably take an app offline. |
-| `nagarectl app delete NAME` | Delete the Service, DomainMappings, and deployment-history ConfigMap. Retained PVCs are not app-lifecycle resources. |
+| `nagarectl app delete NAME [--save-plan DIR] [--scope-key KEY]` | Direct delete removes a legacy Service, DomainMappings, and history. `--save-plan` reviews retirement of the accepted application scope and retains all its managed resources. |
 | `nagarectl deployments list NAME` | List recorded deployment ids newest first. |
 | `nagarectl deployments logs NAME [DEPLOYMENT_ID]` | Show logs for the live revision or one recorded deployment. |
 
