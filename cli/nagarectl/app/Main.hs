@@ -256,12 +256,13 @@ import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..)
 import Nagare.Inventory.Adapters.Pulumi (mkPulumiAdapter)
 import Nagare.Inventory.Adapters.PulumiRuntime
 import Nagare.Inventory.Artifact qualified as InventoryArtifact
+import Nagare.Inventory.Artifact (ArtifactDeclarationBundle (..), ArtifactResourceSpec (..))
 import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapStamp, compileBootstrapWithAuthAndScopes)
 import Nagare.Inventory.Cloud qualified as InventoryCloud
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), compileContributedNamespaces)
 import Nagare.Inventory.BackendMap (compileContributedBackendMaps, compileContributedShomeiSettings)
 import Nagare.Inventory.Components.Auth (AuthInput (..), AuthMode (..))
-import Nagare.Inventory.Components.ControllerImage (compileControllerImage)
+import Nagare.Inventory.Components.ControllerImage (compileControllerImage, inspectArchive)
 import Nagare.Inventory.Components.LocalObjectStore (compileLocalObjectStore)
 import Nagare.Inventory.Components.Observability (PackagedHelmInput (..), pinnedObservabilityInputs, compilePinnedObservability)
 import Nagare.Inventory.Components.ObservabilityExtras (compileObservabilityExtras)
@@ -388,6 +389,7 @@ import Nagare.Platform.Workspace
 import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Database (DatabaseDirectInput (..))
 import Nagare.Resource.Policy (RecoveryIntent (..), mkSecretRef)
+import Nagare.Resource.Policy qualified as ResourcePolicy
 import Nagare.Resource.Reference qualified as ResourceReference
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Resource.Application qualified as ResourceApplication
@@ -517,6 +519,14 @@ data DeployOpts = DeployOpts
   , source :: !(Maybe String)
   -- ^ Free-form provenance recorded with the deployment (e.g. a git SHA or
   -- branch), and surfaced as @NAGARE_SOURCE@ — matching the site deploy path.
+  }
+  deriving stock (Generic, Show)
+
+data AppImagePlanOpts = AppImagePlanOpts
+  { archive :: !FilePath
+  , destination :: !String
+  , key :: !String
+  , savePlan :: !FilePath
   }
   deriving stock (Generic, Show)
 
@@ -727,6 +737,7 @@ data Command
   | AppStop AppNameOpts
   | AppDelete AppDeleteOpts
   | AppDeploy AppDeployOpts
+  | AppImagePlan AppImagePlanOpts
   | DeploymentsList DepListOpts
   | DeploymentsLogs DepLogsOpts
   | Storage StorageCommand
@@ -1405,6 +1416,7 @@ deployOptsParser defaultFile =
               <> help "Override the build context directory from the config (build modes only)"
           )
       )
+
     <*> optional
       ( strOption
           ( long "dockerfile"
@@ -1421,6 +1433,15 @@ deployOptsParser defaultFile =
               <> help "Provenance to record with the deployment (e.g. a git SHA or branch)"
           )
       )
+
+appImagePlanOptsParser :: Parser AppImagePlanOpts
+appImagePlanOptsParser =
+  AppImagePlanOpts
+    <$> strOption (long "archive" <> metavar "FILE" <> help "Docker archive to bind by SHA-256")
+    <*> strOption (long "destination" <> metavar "IMAGE:TAG" <> help "Exact registry tag to publish")
+    <*> strOption (long "key" <> metavar "KEY" <> help "Stable publication key")
+    <*> strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed image publication")
+
 appDeployOptsParser :: FilePath -> Parser AppDeployOpts
 appDeployOptsParser defaultFile =
   AppDeployOpts
@@ -2540,6 +2561,12 @@ opts =
                   (AppDeploy <$> appDeployOptsParser defaultConfigFile <**> helper)
                   (progDesc "Deploy a whole multi-workload Application (service + workers + databases + hooks) in one ordered rollout")
               )
+            <> command
+              "image-plan"
+              ( info
+                  (AppImagePlan <$> appImagePlanOptsParser <**> helper)
+                  (progDesc "Save a reviewed OCI archive publication for an application image")
+              )
         )
     storageCmd =
       info
@@ -2836,6 +2863,7 @@ main = do
             (dieT "inventory resource and recovery options require --save-plan")
           runAppDeployWithGuard (refuseDirectApplicationDeployIfOwned mctx) (toAppDeployParams tp o)
         Just output -> runAppDeployPlan mctx (toAppDeployParams tp o) o output
+    AppImagePlan o -> runAppImagePlan mctx o
     DeploymentsList o -> runDeploymentsList o
     DeploymentsLogs o -> runDeploymentsLogs o
     Storage scmd -> runStorage mctx scmd
@@ -6809,6 +6837,58 @@ runPreviewDelete mctx copts pname = do
 
 -- ---------------------------------------------------------------------------
 -- app lifecycle handlers (EP-30)
+
+-- | A Docker archive is immutable review input: the plan records its file
+-- digest and OCI manifest digest, and the artifact transport rechecks both
+-- before publishing the exact destination. The archive must remain available
+-- at this absolute path for apply or resume.
+runAppImagePlan :: Maybe String -> AppImagePlanOpts -> IO ()
+runAppImagePlan mctx options = do
+  active <- activeTarget mctx
+  (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+  let profile = active ^. #profile
+      destination = T.pack (options ^. #destination)
+      prefix = case profile ^. #mode of
+        Local -> profile ^. #registryHost
+        Cloud -> registryPrefix profile
+      imagePart = T.takeWhileEnd (/= '/') destination
+  unless ((prefix <> "/") `T.isPrefixOf` destination
+      && T.any (== ':') imagePart && not (T.any (<= ' ') destination)
+      && not (T.any (== '@') destination))
+    (dieT "image destination must be a tagged image in the active context registry")
+  archivePath <- makeAbsolute (options ^. #archive)
+  (archiveDigest, manifestDigest) <- inspectArchive archivePath >>= either dieT pure
+  logical <- either dieT pure (Resource.mkLogicalKey (T.pack (options ^. #key)))
+  owner <- either dieT pure (Resource.mkScopeId Resource.Publication
+    ("app-image-" <> Resource.logicalKeyText logical))
+  role <- either dieT pure (Resource.mkName "oci-image")
+  artifactName <- either dieT pure (Resource.mkName (Resource.logicalKeyText logical))
+  let imageId = Resource.mintResourceId owner logical role
+      resource = ArtifactResourceSpec
+        { artifactLogicalKey = logical
+        , artifactRole = role
+        , artifactName = artifactName
+        , artifactDestination = destination
+        , artifactContentDigest = manifestDigest
+        , artifactSpecDigest = archiveDigest
+        , artifactKind = InventoryArtifact.OciImageArtifact
+        , artifactOwnership = InventoryArtifact.OwnedArtifact
+        , artifactLifecycle = ResourcePolicy.Retain
+        , artifactDataPolicy = ResourcePolicy.Stateless
+        , artifactSensitivity = ResourcePolicy.Private
+        , artifactDependencies = []
+        , artifactConsumers = InventoryArtifact.ConsumerCompletenessUnknown
+        , artifactPublishOperation = True
+        , artifactSource = Resource.SourceLocation (T.pack archivePath) "oci-archive-v1"
+        }
+  scope <- either (dieT . T.pack . show) pure (InventoryArtifact.compileArtifactScope
+    (ArtifactDeclarationBundle 1 owner (resource NE.:| [])))
+  snapshot <- Inventory.loadTargetSnapshot active
+  candidate <- either (dieT . T.pack . show) pure
+    (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
+  Inventory.planInventoryCandidateWith
+    (inventoryPlanRegistryWithNative active workspace Map.empty) active candidate (options ^. #savePlan)
+  TIO.putStrLn ("Image resource: " <> Resource.resourceIdText imageId)
 
 -- | Resolve the namespace for an @app@ command: the @-n@ value, or @personal@.
 appNamespace :: Maybe String -> Text

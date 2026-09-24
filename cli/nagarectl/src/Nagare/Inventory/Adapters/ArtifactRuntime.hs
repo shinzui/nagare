@@ -43,6 +43,7 @@ data TransportRequest = TransportRequest
   , requestDestination :: !Text
   , requestExpectedDigest :: !ContentDigest
   , requestSpecDigest :: !ContentDigest
+  , requestArchive :: !(Maybe FilePath)
   , requestPlan :: !(Maybe ArtifactMutationPlan)
   }
   deriving stock (Eq, Show, Generic)
@@ -127,6 +128,7 @@ requestFor resource spec plan =
     , requestDestination = executionArtifactDestination spec
     , requestExpectedDigest = executionArtifactContentDigest spec
     , requestSpecDigest = executionArtifactSpecDigest spec
+    , requestArchive = executionArtifactArchive spec
     , requestPlan = plan
     }
 
@@ -182,6 +184,7 @@ instance ToJSON TransportRequest where
       , "destination" .= requestDestination request
       , "expectedDigest" .= requestExpectedDigest request
       , "specDigest" .= requestSpecDigest request
+      , "archive" .= requestArchive request
       , "plan" .= requestPlan request
       ]
 

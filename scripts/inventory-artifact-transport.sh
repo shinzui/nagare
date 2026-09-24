@@ -18,6 +18,7 @@ kind="$(jq -er '.kind' <<<"${request}")"
 destination="$(jq -er '.destination' <<<"${request}")"
 expected="$(jq -er '.expectedDigest' <<<"${request}")"
 source_digest="$(jq -er '.specDigest' <<<"${request}")"
+archive="$(jq -r '.archive // empty' <<<"${request}")"
 [ "${version}" = 1 ] || { echo "unsupported artifact transport version" >&2; exit 2; }
 [[ "${expected}" =~ ^[0-9a-f]{64}$ ]] || { echo "invalid expected artifact digest" >&2; exit 2; }
 [[ "${source_digest}" =~ ^[0-9a-f]{64}$ ]] || { echo "invalid source artifact digest" >&2; exit 2; }
@@ -135,6 +136,52 @@ observe() {
   esac
 }
 
+publish_oci_archive() (
+  [ -n "${archive}" ] && [[ "${archive}" = /* ]] && [ -s "${archive}" ] || {
+    echo "reviewed OCI archive is missing or is not an absolute file" >&2
+    return 2
+  }
+  if [ "${NAGARE_MODE:-cloud}" = local ]; then
+    case "${destination}" in
+      "${NAGARE_REGISTRY_HOST}/"*) ;;
+      *) echo "OCI destination differs from the selected local registry" >&2; return 2 ;;
+    esac
+  else
+    _require_target_project
+    case "${destination}" in
+      "${NAGARE_REGISTRY_PREFIX}/"*) ;;
+      *) echo "OCI destination differs from the selected project" >&2; return 2 ;;
+    esac
+  fi
+  actual_source="$(shasum -a 256 "${archive}" | awk '{print $1}')"
+  [ "${actual_source}" = "${source_digest}" ] || {
+    echo "OCI archive differs from the reviewed source digest" >&2
+    return 2
+  }
+  private_dir="$(mktemp -d "${TMPDIR:-/tmp}/nagare-app-image.XXXXXX")"
+  chmod 700 "${private_dir}"
+  trap 'rm -rf "${private_dir}"' EXIT
+  policy="${private_dir}/policy.json"
+  printf '%s\n' '{"default":[{"type":"insecureAcceptAnything"}]}' >"${policy}"
+  chmod 600 "${policy}"
+  source_manifest="$(skopeo --policy "${policy}" inspect --format '{{.Digest}}' "docker-archive:${archive}")"
+  [ "${source_manifest}" = "sha256:${expected}" ] || {
+    echo "OCI archive manifest differs from the reviewed digest" >&2
+    return 2
+  }
+  tls_args=()
+  auth_args=()
+  if [ "${NAGARE_MODE:-cloud}" = local ]; then
+    tls_args=(--dest-tls-verify=false)
+  else
+    gcloud auth print-access-token | skopeo login --username oauth2accesstoken \
+      --password-stdin --authfile "${private_dir}/auth.json" "${NAGARE_REGISTRY_HOST}" >/dev/null
+    auth_args=(--authfile "${private_dir}/auth.json")
+  fi
+  skopeo --policy "${policy}" copy --preserve-digests "${tls_args[@]}" "${auth_args[@]}" \
+    "docker-archive:${archive}" "docker://${destination}" >&2
+)
+
 publish() {
   case "${kind}" in
     GceImageArtifact)
@@ -156,7 +203,7 @@ publish() {
           NAGARE_ARTIFACT_SOURCE_DIGEST="sha256:${source_digest}" \
             bash "${repo_root}/cluster/bootstrap/net-certmanager/publish-image.sh" >&2
           ;;
-        *) echo "unsupported OCI image destination" >&2; return 2 ;;
+        *) publish_oci_archive ;;
       esac
       ;;
     *) echo "artifact kind ${kind} has no publication transport" >&2; return 2 ;;

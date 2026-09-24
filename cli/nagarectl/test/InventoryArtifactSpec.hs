@@ -37,6 +37,20 @@ inventoryArtifactTests =
             reconstructed <- expectRight (artifactExecutionSpecsFromDeclarations declared)
             Map.lookup artifactResource reconstructed @?= Map.lookup artifactResource specs
           values -> assertFailure ("expected one artifact bundle, got " <> show (length values))
+    , testCase "OCI archive source survives accepted declaration reconstruction" $ do
+        let archived = imageSpec
+              { artifactKind = OciImageArtifact
+              , artifactSource = SourceLocation "/tmp/reviewed-image.tar" "oci-archive-v1"
+              }
+        declaration <- expectRight (compileArtifactScope
+          (ArtifactDeclarationBundle 1 scope (archived :| [])))
+        rebuilt <- expectRight (artifactExecutionSpecsFromDeclarations
+          [member | bundle <- scopeBundles declaration, member <- declarations bundle])
+        Map.lookup artifactResource rebuilt
+          @?= Just ((artifactExecutionSpecs
+            (ArtifactDeclarationBundle 1 scope (archived :| [])) Map.! artifactResource))
+        fmap executionArtifactArchive (Map.lookup artifactResource rebuilt)
+          @?= Just (Just "/tmp/reviewed-image.tar")
     , testCase "application review requires the exact accepted OCI publication" $ do
         let oci = imageSpec
               { artifactLogicalKey = logicalKey "app-image"

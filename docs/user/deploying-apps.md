@@ -22,9 +22,27 @@ Its config still goes through
 the typed `Application` loader. Use the exact resource ID of the accepted OCI
 publication, and an explicit tag that resolves to that publication's destination:
 
+First, export the built image as a Docker archive and review its publication.
+Use a distinct `--key` for each immutable image publication. Planning records
+both the archive's file hash and OCI manifest digest. Keep the archive at the
+same absolute path until apply or resume completes; the publisher rechecks its
+bytes before copying to the selected context's registry.
+
+```bash
+docker save registry.example/app:v1 -o /absolute/path/app-v1.tar
+nagarectl app image-plan --archive /absolute/path/app-v1.tar \
+  --destination registry.example/app:v1 --key app-v1 \
+  --save-plan image-review
+nagarectl inventory apply image-review --yes
+```
+
+`image-plan` prints the resulting image resource ID. Use that ID in the app
+review below after the image review is accepted. The destination must match
+the tag resolved from the application's typed config.
+
 ```bash
 nagarectl app deploy --file nagare/Config.hs --tag v1 \
-  --image-resource publication:app-image/app-image/oci-image \
+  --image-resource publication:app-image-app-v1/app-v1/oci-image \
   --save-plan app-review
 nagarectl inventory apply app-review --yes
 ```

@@ -10,6 +10,7 @@ module Nagare.Inventory.Artifact
   , artifactSpecsById
   , artifactExecutionSpecs
   , artifactExecutionSpecsFromDeclarations
+  , ociArchiveSource
   )
 where
 
@@ -20,6 +21,7 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Text qualified as T
 import Nagare.Dsl.Prelude
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
@@ -72,6 +74,7 @@ data ArtifactExecutionSpec = ArtifactExecutionSpec
   , executionArtifactContentDigest :: !ContentDigest
   , executionArtifactSpecDigest :: !ContentDigest
   , executionArtifactConsumersComplete :: !Bool
+  , executionArtifactArchive :: !(Maybe FilePath)
   }
   deriving stock (Eq, Ord, Show, Generic)
 
@@ -100,6 +103,7 @@ artifactExecutionSpecsFromDeclarations declarations = Map.fromList <$> traverse 
         pure
           ( resource ^. #identity
           , ArtifactExecutionSpec artifactKind destination contentDigest specDigest hasCompleteConsumers
+              (ociArchiveSource (resource ^. #source))
           )
       _ -> Left ("artifact declaration lacks its typed publication specification: " <> resourceIdText (resource ^. #identity))
 
@@ -163,7 +167,15 @@ executionSpec resource =
     , executionArtifactContentDigest = artifactContentDigest resource
     , executionArtifactSpecDigest = artifactSpecDigest resource
     , executionArtifactConsumersComplete = consumersComplete (artifactConsumers resource)
+    , executionArtifactArchive = ociArchiveSource (artifactSource resource)
     }
+
+-- | Only an explicit archive source marker enables the generic OCI transport.
+-- Platform images retain their dedicated publication scripts and source rules.
+ociArchiveSource :: SourceLocation -> Maybe FilePath
+ociArchiveSource source
+  | path source == "oci-archive-v1" = Just (T.unpack (file source))
+  | otherwise = Nothing
 
 consumersComplete :: ConsumerCoverage -> Bool
 consumersComplete KnownConsumers {} = True
