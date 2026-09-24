@@ -32,7 +32,7 @@ import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Dsl.Load (loadApplication)
 import Nagare.Dsl.Prelude
-import Nagare.Dsl.Types (AccessMode (ReadWriteOnce), DomainTls (SuppliedTlsSecret), EnvVar (EnvSecretRef), RetentionPolicy (Retain), Volume (..), mkDomains, mkEnvName, mkImageRef, mkMountPath, mkNamespace, mkQuantity, mkSecretName, mkVolumeName, runtimeScoped, serviceNameText)
+import Nagare.Dsl.Types (AccessMode (ReadWriteOnce), DomainTls (SuppliedTlsSecret), EnvVar (EnvSecretRef), RetentionPolicy (Retain), Volume (..), mkDomains, mkEnvName, mkImageRef, mkMountPath, mkNamespace, mkQuantity, mkSecretName, mkServiceName, mkVolumeName, runtimeScoped, serviceNameText)
 import Nagare.Dsl.Worker (Worker (..))
 import Nagare.Dsl.Presets (attachVolume)
 import Nagare.Target (InventoryStoreKind (..), Mode (..), PulumiBackendKind (..), TargetProfile (..))
@@ -360,6 +360,51 @@ renderTests =
       case composeInventory ungrantedSnapshot (ReplaceScope sandboxScope :| []) of
         Left _ -> pure ()
         Right _ -> assertFailure "ungranted application namespace contribution was accepted"
+      let namedApplication name = app
+            & #name .~ unsafe (mkServiceName name)
+            & #databases .~ []
+            & #workers .~ []
+            & #tasks .~ []
+            & #service %~ fmap (\service -> service
+                & #name .~ unsafe (mkServiceName name)
+                & #databases .~ []
+                & #domains .~ [])
+          namedInput name = input
+            { scopeApplication = namedApplication name
+            , scopeRollout = scopeRollout input & #appName .~ name
+            , scopeDatabaseRecovery = Map.empty
+            }
+          foundationWithNamespace = foundationBundle
+            { declarations = declarations foundationBundle
+                <> [External namespaceId (Resource.Kubernetes cluster ""
+                    (unsafe (Resource.mkName "namespace")) Nothing
+                    (unsafe (Resource.mkName "personal"))) [] externalSource]
+            , grants = []
+            }
+      platformScope <- either (fail . show) pure
+        (mkScopeDeclaration foundation [foundationWithNamespace])
+      (alphaScope, _) <- either (fail . show) pure
+        (compileApplicationScope (namedInput "alpha"))
+      (betaScope, _) <- either (fail . show) pure
+        (compileApplicationScope (namedInput "beta"))
+      isolationSnapshot <- either (fail . show) pure
+        (mkScopeSnapshot binding (Map.fromList
+          [ (foundation, (unsafe (Resource.mkScopeGeneration 1), platformScope))
+          , (scopeId betaScope, (unsafe (Resource.mkScopeGeneration 1), betaScope))
+          ]) Map.empty)
+      isolated <- either (fail . show) pure
+        (composeInventory isolationSnapshot (ReplaceScope alphaScope :| []))
+      Map.lookup foundation (inventoryScopes (candidateInventory isolated)) @?= Just platformScope
+      Map.lookup (scopeId betaScope) (inventoryScopes (candidateInventory isolated)) @?= Just betaScope
+      Map.lookup foundation (candidateGenerations isolated) @?= Just (unsafe (Resource.mkScopeGeneration 1))
+      Map.lookup (scopeId betaScope) (candidateGenerations isolated) @?= Just (unsafe (Resource.mkScopeGeneration 1))
+      let conflicting = (namedApplication "alpha")
+            & #service %~ fmap (#name .~ unsafe (mkServiceName "beta"))
+      (conflictingScope, _) <- either (fail . show) pure
+        (compileApplicationScope ((namedInput "alpha") {scopeApplication = conflicting}))
+      case composeInventory isolationSnapshot (ReplaceScope conflictingScope :| []) of
+        Left _ -> pure ()
+        Right _ -> assertFailure "two application scopes claimed the same Knative Service"
       case compileApplicationScope (input {scopeRollout = testEnv & #namespace .~ "other"}) of
         Left _ -> pure ()
         Right _ -> assertFailure "mismatched rollout namespace was accepted"

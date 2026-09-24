@@ -306,6 +306,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-24) EP-148 M2 partial: Application namespace requests compose under an explicit owner grant and preserve the platform scope revision.
 - [ ] EP-148 M2: Shared contributions, env/secret intent, and publication.
 - [ ] EP-148 M3: Operational/data command coverage.
+- [x] (2026-09-24) EP-148 M4 partial: Offline platform/two-app composition preserves unselected scope generations and refuses a shared Knative Service claim.
 - [ ] EP-148 M4: Removed alternate paths and scope isolation.
 - [ ] EP-150 M1: Platform/legacy transaction integration.
 - [ ] EP-150 M2: Packaging and complete mutation audit.
@@ -485,3 +486,5 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 2026-09-24: EP-148 added a standalone Service scope through the same native binder as an application Service. This expands the M1 supported subset without changing adapter ownership or the EP-150 dependency gate.
 
 2026-09-24: EP-148 added optional DomainMapping logical keys to config emission/loading and identity minting. The existing provider-address migration gate remains necessary; no dependency or registry status changed.
+
+2026-09-24: EP-148's composed two-application fixture proves compiler-level scope isolation and cross-application claim refusal. Application command routing and legacy path removal still gate M4 and EP-150.
