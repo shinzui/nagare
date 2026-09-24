@@ -2,7 +2,9 @@
 -- Every direct object, credential template, and retained backup joins the
 -- application's scope; the caller later adds workload and contribution bundles.
 module Nagare.Inventory.Application
-  ( compileApplicationDatabases
+  ( ApplicationScopeInput (..)
+  , compileApplicationScope
+  , compileApplicationDatabases
   , compileApplicationService
   , compileApplicationWorkers
   , compileApplicationTasks
@@ -13,8 +15,10 @@ import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
 import Data.List (find)
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend)
@@ -23,7 +27,7 @@ import Nagare.Dsl.Application (Application (..), mkApplication)
 import Nagare.Dsl.Database (Database (..))
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Render (pvcName)
-import Nagare.Dsl.Types (DatabaseName, DomainSpec (..), DomainTls (AutomaticTls), Volume (..), VolumeName, databaseNameText, domainText, serviceNameText, volumeNameText)
+import Nagare.Dsl.Types (DatabaseName, DomainSpec (..), DomainTls (AutomaticTls), Volume (..), VolumeName, databaseNameText, domainText, namespaceText, serviceNameText, volumeNameText)
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Dsl.Worker (Worker (..))
 import Nagare.Dsl.Task (Task (..), mkTask, taskResourceName)
@@ -39,6 +43,74 @@ import Nagare.Resource.Policy (RecoveryIntent)
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
+
+-- | The reviewed dependencies and recovery decisions supplied by the command
+-- service. A caller must bind the namespace and image publication to accepted
+-- identities before producing an application scope.
+data ApplicationScopeInput = ApplicationScopeInput
+  { scopeApplication :: !Application
+  , scopeRollout :: !RolloutEnv
+  , scopeCluster :: !ResourceId
+  , scopeNamespace :: !ResourceId
+  , scopeImage :: !ResourceId
+  , scopeDatabaseRecovery :: !(Map DatabaseName RecoveryIntent)
+  , scopeServiceVolumeRecovery :: !(Map VolumeName RecoveryIntent)
+  , scopeWorkerVolumeRecovery :: !(Map ResourceId RecoveryIntent)
+  , scopeBackupBackend :: !StoreBackend
+  , scopeSource :: !SourceLocation
+  }
+
+-- | Compose the currently supported application members once, checking
+-- duplicate IDs and provider claims across component boundaries. Unsupported
+-- fields refuse rather than silently disappearing from desired state.
+compileApplicationScope
+  :: ApplicationScopeInput
+  -> Either (NonEmpty InventoryError)
+       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileApplicationScope input = do
+  let app = scopeApplication input
+      source = scopeSource input
+      invalid message = inventoryError "unsupported-application-intent" message
+        & #sources .~ [source]
+        & (:| [])
+  _ <- first invalid (mkApplication app)
+  unless (scopeRollout input ^. #appName == serviceNameText (app ^. #name)
+      && scopeRollout input ^. #namespace == namespaceText (app ^. #namespace))
+    (Left (invalid "rollout identity differs from the application name or namespace"))
+  unless (null (app ^. #brokers) && app ^. #access == Nothing)
+    (Left (invalid "application brokers and access contributions need typed owners"))
+  case app ^. #service of
+    Nothing -> pure ()
+    Just service -> unless (null (service ^. #tasks) && service ^. #access == Nothing
+        && service ^. #cdn == Nothing)
+      (Left (invalid "service tasks, access, and CDN need typed members"))
+  owner <- first invalid (applicationScopeId app)
+  (databaseBundles, databaseNative) <- compileApplicationDatabases app
+    (scopeCluster input) (Just (scopeNamespace input)) (scopeDatabaseRecovery input)
+    (scopeBackupBackend input) source
+  serviceResult <- case app ^. #service of
+    Nothing -> Right Nothing
+    Just _ -> Just <$> compileApplicationService app (scopeRollout input)
+      (scopeCluster input) (scopeNamespace input) (scopeImage input)
+      (scopeServiceVolumeRecovery input) source
+  (workerBundles, workerNative) <- compileApplicationWorkers app (scopeRollout input)
+    (scopeCluster input) (scopeNamespace input) (scopeImage input)
+    (scopeWorkerVolumeRecovery input) source
+  (taskBundle, taskNative) <- compileApplicationTasks app (scopeRollout input)
+    (scopeCluster input) (scopeNamespace input) (scopeImage input) source
+  let bundles = databaseBundles <> maybe [] (pure . fst) serviceResult
+        <> workerBundles <> [taskBundle]
+      nativeMaps = [databaseNative] <> maybe [] (pure . snd) serviceResult
+        <> [workerNative, taskNative]
+      native = Map.unions nativeMaps
+      claims = [claim | bundle <- bundles, declaration <- declarations bundle
+        , (_, claim) <- NE.toList (claimsOf declaration)]
+  scope <- mkScopeDeclaration owner bundles
+  unless (Map.size native == sum (map Map.size nativeMaps))
+    (Left (invalid "application native members share an identity"))
+  unless (length claims == Set.size (Set.fromList claims))
+    (Left (invalid "application members claim the same provider address"))
+  pure (scope, native)
 
 -- | A workload may refer only to databases declared in this application.
 -- Ordering it after the StatefulSet records the typed lifecycle edge, while

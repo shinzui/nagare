@@ -21,11 +21,12 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Yaml qualified as Yaml
+import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.App.Deploy
-import Nagare.Inventory.Application (compileApplicationService, compileApplicationTasks, compileApplicationWorkers)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), compileApplicationScope, compileApplicationService, compileApplicationTasks, compileApplicationWorkers)
 import Nagare.Resource.Application (applicationScopeId, volumeResourceId)
 import Nagare.Resource.Database (databaseResourceId)
-import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (Managed), ManagedResource (..), DesiredSpec (KnativeService))
+import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (Managed), ManagedResource (..), DesiredSpec (KnativeService), scopeBundles)
 import Nagare.Resource.Policy (RecoveryIntent (..), mkSecretRef)
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types qualified as Resource
@@ -236,6 +237,49 @@ renderTests =
             other -> assertFailure ("unexpected task address: " <> show other)
           Map.keys native @?= [task ^. #identity]
         other -> assertFailure ("unexpected task declarations: " <> show other)
+  , testCase "composed application scope contains every supported member" $ do
+      loaded <- loadApplication fixturePath
+      app <- either (fail . show) pure loaded
+      let foundation = unsafe (Resource.mkScopeId Resource.Platform "foundation")
+          cluster = Resource.mintResourceId foundation
+            (unsafe (Resource.mkLogicalKey "cluster")) (unsafe (Resource.mkName "resource"))
+          namespaceId = Resource.mintResourceId foundation
+            (unsafe (Resource.mkLogicalKey "foundation")) (unsafe (Resource.mkName "namespace-personal"))
+          publication = Resource.mintResourceId foundation
+            (unsafe (Resource.mkLogicalKey "image")) (unsafe (Resource.mkName "publication"))
+          recovery = RecoveryIntent (unsafe (Resource.mkName "backup"))
+            (mkSecretRef (unsafe (Resource.mkName "database-key"))
+              (unsafe (Resource.mkName "v1")) :| [])
+          input = ApplicationScopeInput
+            { scopeApplication = app
+            , scopeRollout = testEnv
+            , scopeCluster = cluster
+            , scopeNamespace = namespaceId
+            , scopeImage = publication
+            , scopeDatabaseRecovery = Map.fromList
+                [(database ^. #name, recovery) | database <- app ^. #databases]
+            , scopeServiceVolumeRecovery = Map.empty
+            , scopeWorkerVolumeRecovery = Map.empty
+            , scopeBackupBackend = GcsBackend "project" "bucket"
+            , scopeSource = Resource.SourceLocation "test" "application"
+            }
+      (scope, native) <- either (fail . show) pure (compileApplicationScope input)
+      length (scopeBundles scope) @?= 6
+      Map.size native @?= 10
+      length [() | bundle <- scopeBundles scope, Managed _ <- declarations bundle] @?= 10
+      case compileApplicationScope (input {scopeRollout = testEnv & #namespace .~ "other"}) of
+        Left _ -> pure ()
+        Right _ -> assertFailure "mismatched rollout namespace was accepted"
+      case app ^. #workers of
+        firstWorker : secondWorker : rest -> do
+          let key = unsafe (Resource.mkLogicalKey "shared-worker")
+              colliding = app & #workers .~
+                ((firstWorker & #logicalKey .~ Just key)
+                  : (secondWorker & #logicalKey .~ Just key) : rest)
+          case compileApplicationScope (input {scopeApplication = colliding}) of
+            Left _ -> pure ()
+            Right _ -> assertFailure "duplicate worker logical key was accepted"
+        _ -> assertFailure "fixture needs two workers"
   , testCase "the rollout begins with the public-certificate namespace opt-in" $ do
       result <- loadApplication fixturePath
       case result of
