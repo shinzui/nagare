@@ -28,7 +28,7 @@ import Nagare.Dsl.Application (Application (..), mkApplication)
 import Nagare.Dsl.Database (Database (..))
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Render (pvcName)
-import Nagare.Dsl.Types (DatabaseName, Deployment (..), DomainSpec (..), DomainTls (AutomaticTls), EnvVar (..), ScopedEnvVar (..), Volume (..), VolumeName, databaseNameText, domainText, namespaceText, serviceNameText, volumeNameText)
+import Nagare.Dsl.Types (DatabaseName, Deployment (..), DomainSpec (..), DomainTls (..), EnvVar (..), ScopedEnvVar (..), SecretName, Volume (..), VolumeName, databaseNameText, domainText, namespaceText, secretNameText, serviceNameText, volumeNameText)
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Dsl.Worker (Worker (..))
 import Nagare.Dsl.Task (Task (..), mkTask, taskResourceName)
@@ -60,6 +60,7 @@ data ApplicationScopeInput = ApplicationScopeInput
   , scopeImage :: !ResourceId
   , scopeDatabaseRecovery :: !(Map DatabaseName RecoveryIntent)
   , scopeServiceVolumeRecovery :: !(Map VolumeName RecoveryIntent)
+  , scopeTlsSecrets :: !(Map SecretName Declaration)
   , scopeWorkerVolumeRecovery :: !(Map ResourceId RecoveryIntent)
   , scopeBackupBackend :: !StoreBackend
   , scopeSource :: !SourceLocation
@@ -114,7 +115,7 @@ compileApplicationScope input = do
     Nothing -> Right Nothing
     Just _ -> Just <$> compileApplicationService app (scopeRollout input)
       (scopeCluster input) (scopeNamespace input) (scopeImage input)
-      (scopeServiceVolumeRecovery input) source
+      (scopeServiceVolumeRecovery input) (scopeTlsSecrets input) source
   (workerBundles, workerNative) <- compileApplicationWorkers app (scopeRollout input)
     (scopeCluster input) (scopeNamespace input) (scopeImage input)
     (scopeWorkerVolumeRecovery input) source
@@ -299,17 +300,17 @@ compileApplicationWorkers app rollout cluster namespaceId imageId recoveryById s
 -- capability dependency and refuses until that witness is available.
 compileApplicationService
   :: Application -> RolloutEnv -> ResourceId -> ResourceId -> ResourceId
-  -> Map VolumeName RecoveryIntent
+  -> Map VolumeName RecoveryIntent -> Map SecretName Declaration
   -> SourceLocation
   -> Either (NonEmpty InventoryError)
        (ResourceBundle, Map ResourceId (ManagedResource, ByteString))
-compileApplicationService app rollout cluster namespaceId imageId recoveryByVolume source = do
+compileApplicationService app rollout cluster namespaceId imageId recoveryByVolume tlsSecrets source = do
   _ <- first invalid (mkApplication app)
   owner <- first invalid (applicationScopeId app)
   service <- maybe (Left (invalid "application has no web service")) Right (app ^. #service)
   databasePrerequisites <- databaseDependencies app owner (service ^. #databases) invalid
   compileServiceMembers owner service rollout cluster namespaceId imageId
-    databasePrerequisites recoveryByVolume source
+    databasePrerequisites recoveryByVolume tlsSecrets source
   where
     invalid message = inventoryError "invalid-application-service" message
       & #sources .~ [source]
@@ -320,10 +321,10 @@ compileApplicationService app rollout cluster namespaceId imageId recoveryByVolu
 -- authority; callers must supply the accepted namespace and image identities.
 compileStandaloneService
   :: ScopeId -> Deployment -> RolloutEnv -> ResourceId -> ResourceId -> ResourceId
-  -> Map VolumeName RecoveryIntent -> SourceLocation
+  -> Map VolumeName RecoveryIntent -> Map SecretName Declaration -> SourceLocation
   -> Either (NonEmpty InventoryError)
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileStandaloneService owner service rollout cluster namespaceId imageId recovery source = do
+compileStandaloneService owner service rollout cluster namespaceId imageId recovery tlsSecrets source = do
   unless (scopeKind owner == Standalone)
     (Left (invalid "standalone service requires a standalone scope"))
   unless (rollout ^. #appName == serviceNameText (service ^. #name)
@@ -333,7 +334,7 @@ compileStandaloneService owner service rollout cluster namespaceId imageId recov
   unless (null (service ^. #databases))
     (Left (invalid "standalone database bindings require typed dependencies"))
   (bundle, native) <- compileServiceMembers owner service rollout cluster namespaceId imageId
-    [] recovery source
+    [] recovery tlsSecrets source
   scope <- mkScopeDeclaration owner [bundle]
   pure (scope, native)
   where
@@ -344,17 +345,19 @@ compileStandaloneService owner service rollout cluster namespaceId imageId recov
 
 compileServiceMembers
   :: ScopeId -> Deployment -> RolloutEnv -> ResourceId -> ResourceId -> ResourceId
-  -> [ResourceId] -> Map VolumeName RecoveryIntent -> SourceLocation
+  -> [ResourceId] -> Map VolumeName RecoveryIntent -> Map SecretName Declaration -> SourceLocation
   -> Either (NonEmpty InventoryError)
        (ResourceBundle, Map ResourceId (ManagedResource, ByteString))
-compileServiceMembers owner service rollout cluster namespaceId imageId databasePrerequisites recoveryByVolume source = do
+compileServiceMembers owner service rollout cluster namespaceId imageId databasePrerequisites recoveryByVolume tlsSecrets source = do
   unless (null (service ^. #brokers))
     (Left (invalid "service broker bindings require typed broker dependencies"))
   unless (null (service ^. #tasks) && service ^. #access == Nothing
       && service ^. #cdn == Nothing)
     (Left (invalid "service hooks, access, and CDN require typed operations or contributions"))
-  unless (all ((== AutomaticTls) . (^. #tls)) (service ^. #domains))
-    (Left (invalid "supplied TLS domain requires a typed secret dependency"))
+  let requiredTls = Set.fromList [secret | domain <- service ^. #domains,
+        SuppliedTlsSecret secret <- [domain ^. #tls]]
+  unless (Map.keysSet tlsSecrets == requiredTls)
+    (Left (invalid "supplied TLS domains require exactly their typed Secret dependencies"))
   resource <- first invalid (deploymentResourceId owner (known "service") service)
   rendered <- first invalid (renderServiceObjects rollout service)
   let volumes = service ^. #volumes
@@ -409,8 +412,22 @@ compileServiceMembers owner service rollout cluster namespaceId imageId database
       host <- first invalid (mkName (domainText (domain ^. #domain)))
       let domainSource = source
             {path = path source <> "/domain/" <> domainText (domain ^. #domain)}
+      tlsPrerequisites <- case domain ^. #tls of
+        AutomaticTls -> Right []
+        SuppliedTlsSecret secretName -> do
+          secret <- maybe (Left (invalid "supplied TLS Secret dependency is absent")) Right
+            (Map.lookup secretName tlsSecrets)
+          secretAddress <- case secret of
+            Managed managed -> Right (managed ^. #address)
+            External _ address _ _ -> Right address
+            ObservedChild _ _ _ _ _ -> Left (invalid "observed child cannot supply a TLS Secret dependency")
+          expectedSecret <- first invalid (kubernetesAddress cluster "v1" "Secret"
+            (Just (rollout ^. #namespace)) (secretNameText secretName))
+          unless (secretAddress == expectedSecret)
+            (Left (invalid "supplied TLS Secret has a different cluster, namespace, or name"))
+          pure [declarationId secret]
       (declaration, native) <- bindOne domainId DeleteWhenUnreferenced Stateless
-        [OrderedAfter namespaceId, OrderedAfter serviceId] domainSource bytes
+        (map OrderedAfter (namespaceId : serviceId : tlsPrerequisites)) domainSource bytes
       expected <- first invalid (kubernetesAddress cluster "serving.knative.dev/v1beta1"
         "DomainMapping" (Just (rollout ^. #namespace)) (domainText (domain ^. #domain)))
       unless (declaration ^. #address == expected)

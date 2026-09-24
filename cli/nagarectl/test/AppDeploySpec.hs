@@ -122,7 +122,7 @@ renderTests =
             (unsafe (Resource.mkLogicalKey "image")) (unsafe (Resource.mkName "publication"))
           source = Resource.SourceLocation "test" "service"
       (bundle, native) <- either (fail . show) pure
-        (compileApplicationService app testEnv cluster namespaceId publication Map.empty source)
+        (compileApplicationService app testEnv cluster namespaceId publication Map.empty Map.empty source)
       owner <- either (fail . show) pure (applicationScopeId app)
       case declarations bundle of
         [Managed service] -> do
@@ -133,7 +133,7 @@ renderTests =
           Map.keys native @?= [service ^. #identity]
         other -> assertFailure ("unexpected service declarations: " <> show other)
       let withVolume = app & #service %~ fmap (unsafe . attachVolume "data" "1Gi" "/data")
-      case compileApplicationService withVolume testEnv cluster namespaceId publication Map.empty source of
+      case compileApplicationService withVolume testEnv cluster namespaceId publication Map.empty Map.empty source of
         Left _ -> pure ()
         Right _ -> assertFailure "retained service volume without recovery was accepted"
       let volumeName = unsafe (mkVolumeName "data")
@@ -142,13 +142,13 @@ renderTests =
               (unsafe (Resource.mkName "v1")) :| [])
       (volumeBundle, volumeNative) <- either (fail . show) pure
         (compileApplicationService withVolume testEnv cluster namespaceId publication
-          (Map.singleton volumeName recovery) source)
+          (Map.singleton volumeName recovery) Map.empty source)
       length (declarations volumeBundle) @?= 2
       Map.size volumeNative @?= 2
       let withDomain = app & #service %~ fmap
             (#domains .~ unsafe (mkDomains [("app.example.com", True)]))
       (domainBundle, domainNative) <- either (fail . show) pure
-        (compileApplicationService withDomain testEnv cluster namespaceId publication Map.empty source)
+        (compileApplicationService withDomain testEnv cluster namespaceId publication Map.empty Map.empty source)
       length (declarations domainBundle) @?= 2
       Map.size domainNative @?= 2
       assertBool "domain hostname claim omitted"
@@ -156,9 +156,28 @@ renderTests =
           [member | Managed member <- declarations domainBundle])
       let supplied = withDomain & #service %~ fmap
             (#domains . traverse . #tls .~ SuppliedTlsSecret (unsafe (mkSecretName "custom-tls")))
-      case compileApplicationService supplied testEnv cluster namespaceId publication Map.empty source of
+      case compileApplicationService supplied testEnv cluster namespaceId publication Map.empty Map.empty source of
         Left _ -> pure ()
         Right _ -> assertFailure "supplied TLS domain lacked a typed secret dependency"
+      let secretName = unsafe (mkSecretName "custom-tls")
+          secretId = Resource.mintResourceId foundation
+            (unsafe (Resource.mkLogicalKey "custom-tls")) (unsafe (Resource.mkName "secret"))
+          secretAddress = Resource.Kubernetes cluster "" (unsafe (Resource.mkName "secret"))
+            (Just (unsafe (Resource.mkName "personal"))) (unsafe (Resource.mkName "custom-tls"))
+          secret = External secretId secretAddress [] source
+      (suppliedBundle, _) <- either (fail . show) pure
+        (compileApplicationService supplied testEnv cluster namespaceId publication Map.empty
+          (Map.singleton secretName secret) source)
+      assertBool "supplied TLS DomainMapping lacks Secret dependency"
+        (any (elem (OrderedAfter secretId) . (^. #dependencies))
+          [member | Managed member <- declarations suppliedBundle])
+      let wrongSecret = External secretId
+            (Resource.Kubernetes cluster "" (unsafe (Resource.mkName "secret"))
+              (Just (unsafe (Resource.mkName "other"))) (unsafe (Resource.mkName "custom-tls"))) [] source
+      case compileApplicationService supplied testEnv cluster namespaceId publication Map.empty
+          (Map.singleton secretName wrongSecret) source of
+        Left _ -> pure ()
+        Right _ -> assertFailure "supplied TLS accepted a Secret in another namespace"
   , testCase "standalone Service binds the same rendered object under its own scope" $ do
       loaded <- loadApplication fixturePath
       app <- either (fail . show) pure loaded
@@ -176,7 +195,7 @@ renderTests =
           rollout = testEnv & #appName .~ serviceNameText (service ^. #name)
           source = Resource.SourceLocation "test" "standalone-service"
       (scope, native) <- either (fail . show) pure
-        (compileStandaloneService owner independent rollout cluster namespaceId publication Map.empty source)
+        (compileStandaloneService owner independent rollout cluster namespaceId publication Map.empty Map.empty source)
       let members = [member | bundle <- scopeBundles scope, Managed member <- declarations bundle]
       case members of
         [member] -> do
@@ -186,11 +205,11 @@ renderTests =
       case app ^. #databases of
         database : _ ->
           case compileStandaloneService owner (independent & #databases .~ [database ^. #name])
-              rollout cluster namespaceId publication Map.empty source of
+              rollout cluster namespaceId publication Map.empty Map.empty source of
             Left _ -> pure ()
             Right _ -> assertFailure "standalone Service accepted an unbound database"
         [] -> assertFailure "fixture has no database for the dependency refusal check"
-      case compileStandaloneService foundation independent rollout cluster namespaceId publication Map.empty source of
+      case compileStandaloneService foundation independent rollout cluster namespaceId publication Map.empty Map.empty source of
         Left _ -> pure ()
         Right _ -> assertFailure "standalone Service accepted a platform owner"
   , testCase "worker deployments and retained PVCs join the application scope" $ do
@@ -294,6 +313,7 @@ renderTests =
             , scopeDatabaseRecovery = Map.fromList
                 [(database ^. #name, recovery) | database <- app ^. #databases]
             , scopeServiceVolumeRecovery = Map.empty
+            , scopeTlsSecrets = Map.empty
             , scopeWorkerVolumeRecovery = Map.empty
             , scopeBackupBackend = GcsBackend "project" "bucket"
             , scopeSource = Resource.SourceLocation "test" "application"
