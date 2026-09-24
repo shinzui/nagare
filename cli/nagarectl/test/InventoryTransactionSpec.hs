@@ -294,6 +294,12 @@ inventoryTransactionTests =
               Managed value -> Managed (value {spec = NativeObject (contentDigest "changed-during-transfer")})
               _ -> error "fixture resource must be managed"
             changedScope = ok (mkScopeDeclaration newOwner [ResourceBundle [changed] [] [] [] [] []])
+            renamed = case oldDeclaration of
+              Managed value -> Managed (value {address = Kubernetes cluster ""
+                (ok (mkName "configmap")) (Just (ok (mkName "default")))
+                (ok (mkName "renamed-config"))})
+              _ -> error "fixture resource must be managed"
+            renamedScope = ok (mkScopeDeclaration oldOwner [ResourceBundle [renamed] [] [] [] [] []])
             dummyScope = ok (mkScopeDeclaration dummyOwner [])
             generation = ok (mkScopeGeneration 1)
             snapshot = ok (mkScopeSnapshot fixtureBinding
@@ -303,6 +309,7 @@ inventoryTransactionTests =
               (RetireScope oldOwner RetainResources :| [ReplaceScope newScope]))
             changedTransfer = ok (composeInventory snapshot
               (RetireScope oldOwner RetainResources :| [ReplaceScope changedScope]))
+            rename = ok (composeInventory snapshot (ReplaceScope renamedScope :| []))
             observations = ok (observationSet
               [(resourceId, ObservedPresent (ok (mkPhysicalIdentity "same-uid")))])
         store <- newMemoryStore
@@ -313,6 +320,16 @@ inventoryTransactionTests =
           Left errors -> assertBool "implicit scope transfer was accepted"
             ("owner-transfer-required" `elem` map planErrorCode (NE.toList errors))
           Right _ -> assertFailure "implicit scope transfer was accepted"
+        let newAddressAbsent = ok (observationSet
+              [(resourceId, ConfirmedAbsent (contentDigest "new-address-absent"))])
+        case planChanges rename noLifecycleDecisions history newAddressAbsent of
+          Left failures -> assertBool "an address rename became a fresh create"
+            ("migration-review-required" `elem` map planErrorCode (NE.toList failures))
+          Right _ -> assertFailure "an address rename became a fresh create"
+        case planChanges rename noLifecycleDecisions history observations of
+          Left failures -> assertBool "an address rename became an ordinary update"
+            ("migration-review-required" `elem` map planErrorCode (NE.toList failures))
+          Right _ -> assertFailure "an address rename became an ordinary update"
         let decision = LifecycleProposal resourceId ApproveTransfer
               (lifecycleObservationDigest fixtureBinding resourceId
                 (ObservedPresent (ok (mkPhysicalIdentity "same-uid"))))

@@ -103,6 +103,10 @@ Collection of durable data, controller children, other Kubernetes kinds, and
 other executors still refuses until their dependency, backup, recovery, and
 deletion contracts are proved. Migration also refuses until a reviewed prepare,
 seed, verify, switch, write-admission, and recovery graph is available.
+Changing an accepted ResourceId's provider address or executor currently
+returns `migration-review-required`, even when the new address is absent or
+already bears that ResourceId stamp. Ordinary create or update cannot prove
+what happened to the old incarnation.
 
 `nagarectl inventory gc --plan --out DIRECTORY` writes a read-only
 `collection-plan.json`. Each retained resource has a candidate flag and reasons

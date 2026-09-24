@@ -100,6 +100,7 @@ This plan delivers provider-independent lifecycle planning plus inventory status
 - [x] (2026-09-24) M1 Kubernetes immutable classification: The production observer recognizes a changed explicit `apps/v1` Deployment selector and reports replacement required for its stamped ResourceId. Unowned and foreign objects retain their ownership categories, and the existing generic planner refuses an ordinary update. Eleven focused Deployment tests and Haskell style checks pass. Other immutable fields, unhealthy Deployment observation, and reviewed migration remain open.
 - [x] (2026-09-24) M1 retained health: Status and explain now probe supported retained Kubernetes conditions only for the historically retained UID and report health separately from configuration observation. Confirmed absence reports unavailable health; matching configuration alone remains unknown until a condition probe succeeds. A focused fixture proves that a replacement UID and confirmed absence cannot enter the retained condition probe. The CLI executable builds and the focused retirement tests pass. Other provider health remains open.
 - [x] (2026-09-24) M2 Helm scope transfer: An unchanged stamped Helm release can move between two explicitly selected scopes through the existing reviewed `VerifyResource` handoff. The lifecycle validator requires equal executor, address, native spec, aliases, policies, delegations, and dependencies. A fixture proves an unreviewed transfer refuses, a reviewed transfer plans verification without mutation, a changed native contract refuses, and a changed release revision fails adapter preflight. The focused Helm tests pass. Other provider transfers remain unavailable.
+- [x] (2026-09-24) M3 migration guard: Ordinary planning now refuses an accepted ResourceId whose provider address or executor changes with `migration-review-required` before classifying the new observation as create or update. A fixture covers both confirmed absence and a present stamp at the destination. The focused inventory test passes. The dual-incarnation migration graph and execution protocol remain open.
 - [ ] M1: Classify observations and expose complete read-only status/explain.
 - [ ] M2: Plan explicit legacy adoption and ownership transfer.
 - [ ] M3: Plan migration/retirement with retained data and recovery evidence.
@@ -119,6 +120,8 @@ Removing a scope also removes its active declaration from the accepted vector. A
 The head wire format can encode an accepted resource and one retained incarnation under the same logical ID, but `loadInventoryHistory` currently rejects that overlap. The observation set and adapter registry also select one provider object per ResourceId. A reviewed rename must extend all three contracts to bind source and destination observations, carry the old native evidence through admission, and plan a phased operation graph before the existing retained-reactivation guard can be relaxed. A direct `UpdateResource` would not prove destination creation or preserve the source claim.
 
 The read-only collection assessment and lifecycle validator previously checked lifecycle, data, consumers, identity, and transaction state but omitted the executor's supported kind. They could label or review a Service even though conditional deletion permits only a namespaced ConfigMap. A shared support predicate now gates screening, validation, and adapter preparation.
+
+The ordinary planner classified an accepted ResourceId solely from the observation at its new desired address. If that address was absent, a stateless resource could become a `CreateResource`; if a stamped object was present, it could become an `UpdateResource`. Neither operation retained or verified the old address. Address and executor changes now refuse before that classification.
 
 
 ## Decision Log
@@ -146,6 +149,8 @@ The read-only collection assessment and lifecycle validator previously checked l
 2026-09-24: An adapter-proved immutable replacement requirement is a separate observation, and the generic planner refuses to turn it into an ordinary update. Rationale: drift alone does not say whether mutation in place is possible, and replacement requires its own review and recovery contract. No production adapter emits this outcome yet.
 
 2026-09-24: Extend the scope transfer verification route to Helm releases whose existing adapter proves the stamped context/ResourceId, release revision, and unchanged reviewed native contract. Keep the same two-scope and contract equality requirements as Kubernetes. This is a verification handoff, not a Helm upgrade.
+
+2026-09-24: Treat a known ResourceId's provider address or executor change as requiring a reviewed migration even when the destination is absent or appears already owned. An ordinary create or update observes only one incarnation and cannot prove retention or cutover of the source.
 
 
 ## Outcomes & Retrospective
@@ -288,3 +293,5 @@ Support types are explicit alternatives in Lifecycle/Migration; identity and pol
 2026-09-24: Updated the operator lifecycle guide to describe the proved Deployment selector classification and retained UID-bound health; its previous statement that no production adapter emitted replacement-required status had become stale.
 
 2026-09-24: Extended the existing reviewed owner transfer boundary to unchanged Helm releases after checking the adapter's stamped revision and contract verification path. No Helm mutation is permitted by this handoff.
+
+2026-09-24: Closed the ordinary planner's same-ResourceId address/executor change path before implementing migration. The refusal preserves the source incarnation until a dual-observation and phased recovery protocol can replace it.

@@ -565,6 +565,9 @@ buildOperations candidate (LifecycleDecisions decisions) history observations =
               == canonicalBytes (toJSON (Managed (canonicalDependencies resource)))
       _ -> False
     classifyDesired (resourceId, resource, Just (Managed old), _)
+      | old ^. #address /= resource ^. #address
+        || old ^. #executor /= resource ^. #executor =
+          ([PlanError "migration-review-required" "changing a known resource address or executor needs a reviewed source and destination migration" [resourceId]], Nothing)
       | old ^. #owner /= resource ^. #owner
       , decisionIs ApproveTransfer resourceId =
           ([], Just (resourceOperation VerifyResource resource))
