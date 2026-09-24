@@ -13,7 +13,7 @@ import Nagare.Dsl.Prelude
 import Nagare.Inventory.Application (compileApplicationDatabases, reviewedTaskImages)
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), compileFoundation)
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, databaseNativeOwned, standaloneRetirementScope)
-import Nagare.Inventory.Environment (compileBuildEnvChannel, compileBuildSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
+import Nagare.Inventory.Environment (compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
 import Nagare.Resource.Application (applicationScopeId)
 import Nagare.Resource.Inventory (Declaration (Managed), ManagedResource (..), ResourceBundle (..), mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeId)
 import Nagare.Resource.Policy (RecoveryIntent (..), Sensitivity (Secret), mkSecretRef)
@@ -56,6 +56,15 @@ inventoryApplicationTests = testGroup "application inventory compilation"
             [runtime] -> resource ^. #identity == runtime ^. #identity @?= False
             _ -> assertFailure "Runtime channel has unexpected membership"
         _ -> assertFailure "Build channel has unexpected membership"
+      (previewScope, previewNative) <- either (fail . show) pure
+        (compilePreviewEnvChannel "kizashi" "personal" cluster namespaceId values source)
+      scopeId previewScope @?= checked (mkScopeId Application "env-kizashi-preview")
+      case [resource | bundle <- scopeBundles previewScope, Managed resource <- declarations bundle] of
+        [resource] -> do
+          resource ^. #address @?= checked (kubernetesAddress cluster "v1" "ConfigMap"
+            (Just "personal") "nagare-env-kizashi-preview")
+          Map.size previewNative @?= 1
+        _ -> assertFailure "Preview env channel has unexpected membership"
   , testCase "Runtime env intent compiles into an independent exact ConfigMap channel" $ do
       let checked = either (error . show) id
           foundation = checked (mkScopeId Platform "foundation")
@@ -137,6 +146,18 @@ inventoryApplicationTests = testGroup "application inventory compilation"
       case validateSecretRotation buildSnapshot changedBuild of
         Left _ -> pure ()
         Right _ -> assertFailure "Build Secret reused a version with changed content"
+      (previewScope, previewNative) <- either (fail . show) pure
+        (compilePreviewSecretChannel "kizashi" "personal" cluster namespaceId
+          (checked (mkName "v2")) values source)
+      scopeId previewScope @?= checked (mkScopeId Application "secret-kizashi-preview")
+      case [resource | bundle <- scopeBundles previewScope, Managed resource <- declarations bundle] of
+        [resource] -> do
+          resource ^. #address @?= checked (kubernetesAddress cluster "v1" "Secret"
+            (Just "personal") "nagare-secret-kizashi-preview")
+          resource ^. #source @?= SourceLocation "secret-file" "preview-secret/v2"
+          Map.size previewNative @?= 1
+        _ -> assertFailure "Preview Secret channel has unexpected membership"
+      validateSecretRotation buildSnapshot previewScope @?= Right ()
   , testCase "standalone data planning requires the accepted platform Namespace" $ do
       let checked = either (error . show) id
           owner = checked (mkScopeId Platform "foundation")

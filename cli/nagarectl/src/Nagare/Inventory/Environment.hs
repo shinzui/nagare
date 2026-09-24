@@ -4,8 +4,10 @@
 module Nagare.Inventory.Environment
   ( compileRuntimeEnvChannel
   , compileBuildEnvChannel
+  , compilePreviewEnvChannel
   , compileRuntimeSecretChannel
   , compileBuildSecretChannel
+  , compilePreviewSecretChannel
   , validateSecretRotation
   ) where
 
@@ -19,7 +21,7 @@ import Data.Text qualified as T
 import Data.Yaml qualified as Yaml
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Render (managedConfigMapName, managedSecretName)
-import Nagare.Dsl.Types (EnvScope (Build, Runtime))
+import Nagare.Dsl.Types (EnvScope (Build, Preview, Runtime))
 import Nagare.Env.Store (renderEnvConfigMap, renderEnvSecret)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
@@ -50,6 +52,17 @@ compileBuildEnvChannel app namespaceName cluster namespaceId values source =
     (managedConfigMapName app Build) (renderEnvConfigMap app namespaceName Build values)
     app namespaceName cluster namespaceId source
 
+-- | Preview overlays have their own accepted revision and the exact native
+-- address read by preview workloads after the Runtime environment pair.
+compilePreviewEnvChannel
+  :: T.Text -> T.Text -> ResourceId -> ResourceId -> Map T.Text T.Text -> SourceLocation
+  -> Either (NonEmpty InventoryError)
+       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compilePreviewEnvChannel app namespaceName cluster namespaceId values source =
+  compileChannel "env" "preview" "preview-env" "configmap" "ConfigMap" Private
+    (managedConfigMapName app Preview) (renderEnvConfigMap app namespaceName Preview values)
+    app namespaceName cluster namespaceId source
+
 -- | The version token is explicit intent and appears only in the declaration
 -- source path. Secret values remain in the private native review, never in the
 -- public scope or operation summary.
@@ -76,6 +89,17 @@ compileBuildSecretChannel app namespaceName cluster namespaceId version values s
     (managedSecretName app Build) (renderEnvSecret app namespaceName Build values)
     app namespaceName cluster namespaceId
     (source {path = "build-secret/" <> nameText version})
+
+compilePreviewSecretChannel
+  :: T.Text -> T.Text -> ResourceId -> ResourceId -> Name
+  -> Map T.Text T.Text -> SourceLocation
+  -> Either (NonEmpty InventoryError)
+       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compilePreviewSecretChannel app namespaceName cluster namespaceId version values source =
+  compileChannel "secret" "preview" "preview-secret" "secret" "Secret" Secret
+    (managedSecretName app Preview) (renderEnvSecret app namespaceName Preview values)
+    app namespaceName cluster namespaceId
+    (source {path = "preview-secret/" <> nameText version})
 
 -- | One opaque version identifies one exact Secret payload. Reusing a version
 -- with different native content would make a rotation receipt ambiguous.

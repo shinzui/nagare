@@ -273,7 +273,7 @@ import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManager
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedApplicationImage, acceptedBrokerBindings, acceptedSecretBindings, applicationNativeOwned, applicationVolumeRecoveryBindings, compileApplicationScope, compileStandaloneService, databaseRecoveryBindings, nativeWorkloadOwned, reviewedTaskImages)
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, compileStandaloneDatabase, databaseNativeOwned, standaloneRetirementScope, standaloneStatefulSetOwned)
-import Nagare.Inventory.Environment (compileBuildEnvChannel, compileBuildSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
+import Nagare.Inventory.Environment (compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
 import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
@@ -2480,7 +2480,7 @@ opts =
                       <*> dryRunOpt
                       <*> reconcileExactParser
                       <*> strOption (long "file" <> metavar "FILE" <> help "dotenv file to import")
-                      <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Review an exact Runtime or Build env channel replacement"))
+                      <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Review an exact Runtime, Build, or Preview env channel replacement"))
                         <**> helper
                   )
                   (progDesc "Bulk-import a dotenv file into the env store")
@@ -2532,12 +2532,12 @@ opts =
                   ( SecretSync
                       <$> storeCommonOptsParser
                       <*> scopeSelectionParser
-                      <*> strOption (long "file" <> metavar "FILE" <> help "dotenv file with exact Runtime or Build Secret values")
+                      <*> strOption (long "file" <> metavar "FILE" <> help "dotenv file with exact Runtime, Build, or Preview Secret values")
                       <*> strOption (long "version" <> metavar "TOKEN" <> help "Opaque Secret rotation version")
-                      <*> strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed Runtime or Build Secret replacement")
+                      <*> strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed Runtime, Build, or Preview Secret replacement")
                         <**> helper
                   )
-                  (progDesc "Review an exact Runtime or Build Secret replacement")
+                  (progDesc "Review an exact Runtime, Build, or Preview Secret replacement")
               )
         )
     appCmd =
@@ -7814,15 +7814,16 @@ runEnv mctx = \case
     incoming <- orDie (parseDotenv raw)
     case savePlan of
       Just output -> do
-        unless (exact && not dry && selectedScopes sel `elem` [[Runtime], [Build]])
-          (dieT "reviewed env sync requires --reconcile-exact, one Runtime or Build scope, and no --dry-run")
+        unless (exact && not dry && selectedScopes sel `elem` [[Runtime], [Build], [Preview]])
+          (dieT "reviewed env sync requires --reconcile-exact, one scope, and no --dry-run")
         active <- activeTarget mctx
         (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
         snapshot <- Inventory.loadTargetSnapshot active
         (cluster, namespaceId) <- either dieT pure (acceptedFoundationNamespace snapshot ns)
-        let compile = if selectedScopes sel == [Build]
-              then compileBuildEnvChannel else compileRuntimeEnvChannel
-            channelName = if selectedScopes sel == [Build] then "build-env" else "runtime-env"
+        let (compile, channelName) = case selectedScopes sel of
+              [Build] -> (compileBuildEnvChannel, "build-env")
+              [Preview] -> (compilePreviewEnvChannel, "preview-env")
+              _ -> (compileRuntimeEnvChannel, "runtime-env")
         (channel, native) <- either (dieT . T.pack . show) pure
           (compile name ns cluster namespaceId incoming
             (Resource.SourceLocation (T.pack dotenvPath) channelName))
@@ -7867,8 +7868,8 @@ runSecret mctx = \case
       applyOrDryRunSecret dry name ns scope desired
     unless dry $ TIO.putStrLn ("Deleted " <> T.pack key <> " from secret for " <> name <> ".")
   SecretSync copts sel dotenvPath rawVersion output -> do
-    unless (selectedScopes sel `elem` [[Runtime], [Build]])
-      (dieT "reviewed Secret sync requires one Runtime or Build scope")
+    unless (selectedScopes sel `elem` [[Runtime], [Build], [Preview]])
+      (dieT "reviewed Secret sync requires exactly one scope")
     (name, ns) <- resolveAppOrDie copts
     version <- either dieT pure (Resource.mkName (T.pack rawVersion))
     raw <- TIO.readFile dotenvPath
@@ -7877,9 +7878,10 @@ runSecret mctx = \case
     (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
     snapshot <- Inventory.loadTargetSnapshot active
     (cluster, namespaceId) <- either dieT pure (acceptedFoundationNamespace snapshot ns)
-    let compile = if selectedScopes sel == [Build]
-          then compileBuildSecretChannel else compileRuntimeSecretChannel
-        channelName = if selectedScopes sel == [Build] then "build-secret" else "runtime-secret"
+    let (compile, channelName) = case selectedScopes sel of
+          [Build] -> (compileBuildSecretChannel, "build-secret")
+          [Preview] -> (compilePreviewSecretChannel, "preview-secret")
+          _ -> (compileRuntimeSecretChannel, "runtime-secret")
     (channel, native) <- either (dieT . T.pack . show) pure
       (compile name ns cluster namespaceId version incoming
         (Resource.SourceLocation (T.pack dotenvPath) channelName))
