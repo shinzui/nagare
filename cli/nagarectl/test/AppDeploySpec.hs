@@ -237,6 +237,9 @@ renderTests =
         (compileApplicationWorkers app testEnv cluster namespaceId publication Map.empty Map.empty source)
       length bundles @?= 3
       Map.size native @?= 3
+      assertBool "direct worker deploy must detect an owned Deployment"
+        (nativeWorkloadOwned "apps" "deployment" "kizashi-worker" "personal"
+          [member | bundle <- bundles, Managed member <- declarations bundle])
       owner <- either (fail . show) pure (applicationScopeId app)
       database <- case app ^. #databases of
         firstDatabase : _ -> pure firstDatabase

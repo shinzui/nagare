@@ -13,6 +13,7 @@
 module Nagare.Worker.Deploy
   ( WorkerDeployParams (..)
   , runWorkerDeploy
+  , runWorkerDeployWithGuard
   )
 where
 
@@ -56,16 +57,23 @@ data WorkerDeployParams = WorkerDeployParams
 
 -- | Run @worker deploy@.
 runWorkerDeploy :: WorkerDeployParams -> IO ()
-runWorkerDeploy params = do
+runWorkerDeploy = runWorkerDeployWithGuard (const (pure ()))
+
+-- | Check the loaded worker's native ownership before image resolution, build,
+-- or cluster mutation. The command service supplies the history guard.
+runWorkerDeployWithGuard :: (Worker -> IO ()) -> WorkerDeployParams -> IO ()
+runWorkerDeployWithGuard ownershipGuard params = do
   eWorker <- loadWorker (params ^. #configPath)
   let tp = params ^. #targetProfile
   worker <- case eWorker of
     Left err -> dieT (renderLoadError err)
     -- EP-62 M3: a name-only image (no '/') is qualified with the resolved
     -- registry prefix; a fully-qualified ref is left untouched.
-    Right w -> case qualifyImage tp (w ^. #image) of
-      Left e -> dieT ("nagarectl worker deploy: " <> e)
-      Right qimg -> pure (w & #image %~ const qimg)
+    Right w -> do
+      ownershipGuard w
+      case qualifyImage tp (w ^. #image) of
+        Left e -> dieT ("nagarectl worker deploy: " <> e)
+        Right qimg -> pure (w & #image %~ const qimg)
 
   imageTag <- maybe computeTag pure (params ^. #tag)
   spec <- orDie (applyBuildOverrides (params ^. #contextOverride) (params ^. #dockerfileOverride) (worker ^. #build))

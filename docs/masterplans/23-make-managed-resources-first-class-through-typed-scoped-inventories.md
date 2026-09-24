@@ -318,6 +318,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-24) EP-148 M4 partial: Direct application deploy refuses a loaded scope or native workload address already present in accepted or retained inventory history before runtime resolution.
 - [x] (2026-09-24) EP-148 M4 partial: Direct app restart, stop, and delete refuse a Knative Service address in accepted or retained history before mutation.
 - [x] (2026-09-24) EP-148 M1/M4 partial: `app deploy --save-plan` submits a typed Service/worker scope with an accepted Namespace and exact prepublished OCI image dependency to the shared inventory review path; unsupported operational and data inputs refuse.
+- [x] (2026-09-24) EP-148 M4 partial: Legacy single-Service and worker deploy now refuse native addresses in accepted or retained inventory history before image or cluster mutation.
 - [ ] EP-148 M4: Removed alternate paths and scope isolation.
 - [ ] EP-150 M1: Platform/legacy transaction integration.
 - [ ] EP-150 M2: Packaging and complete mutation audit.

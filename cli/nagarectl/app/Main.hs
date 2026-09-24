@@ -483,7 +483,7 @@ import Nagare.Version
   , renderBuildVersionText
   , renderPlatformVersion
   )
-import Nagare.Worker.Deploy (WorkerDeployParams (..), runWorkerDeploy)
+import Nagare.Worker.Deploy (WorkerDeployParams (..), runWorkerDeployWithGuard)
 import Options.Applicative
 import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, doesPathExist, findExecutable, listDirectory, makeAbsolute, pathIsSymbolicLink, removeDirectoryRecursive, renameDirectory)
 import System.Environment (getEnvironment, lookupEnv, setEnv, unsetEnv)
@@ -6343,9 +6343,12 @@ runDeploy mctx dopts = do
     Left err -> dieT (Load.renderLoadError err)
     -- EP-62 M3: a name-only image (no '/') is qualified with the resolved
     -- registry prefix; a fully-qualified ref is left untouched.
-    Right d -> case qualifyImage tp (d ^. #image) of
-      Left e -> dieT ("nagarectl deploy: " <> e)
-      Right qimg -> pure (d & #image %~ const qimg)
+    Right d -> do
+      refuseDirectServiceMutationIfOwned mctx "deploy" (serviceNameText (d ^. #name))
+        (namespaceText (d ^. #namespace))
+      case qualifyImage tp (d ^. #image) of
+        Left e -> dieT ("nagarectl deploy: " <> e)
+        Right qimg -> pure (d & #image %~ const qimg)
 
   imageTag <- resolveTag (dopts ^. #tag)
   spec <- resolveBuildSpec (dopts ^. #contextOverride) (dopts ^. #dockerfileOverride) (dep ^. #build)
@@ -7333,6 +7336,13 @@ refuseDirectServiceMutationIfOwned mctx operation name namespaceName =
         (ownedHistoryResources history))
       (dieT ("Service " <> name <> " is owned by accepted or retained inventory history; direct app " <> operation <> " is refused"))
 
+refuseDirectWorkerDeployIfOwned :: Maybe String -> Text -> Text -> IO ()
+refuseDirectWorkerDeployIfOwned mctx name namespaceName =
+  withAcceptedInventoryHistory mctx "worker deploy" $ \history ->
+    when (nativeWorkloadOwned "apps" "deployment" name namespaceName
+        (ownedHistoryResources history))
+      (dieT ("worker " <> name <> " is owned by accepted or retained inventory history; direct deploy is refused"))
+
 -- | Dispatch the @worker@ command group (EP-71). Provisions the GHC environment
 -- before loading the worker's @Config.hs@ (mirroring @db create --config@), then
 -- runs the deploy. Cluster I/O and rendering live in 'Nagare.Worker.Deploy'.
@@ -7341,7 +7351,8 @@ runWorker mctx = \case
   WorkerDeploy o -> do
     provisionGhcEnv (o ^. #ghcEnv)
     tp <- activeProfile mctx
-    runWorkerDeploy
+    runWorkerDeployWithGuard (\worker -> refuseDirectWorkerDeployIfOwned mctx
+      (serviceNameText (worker ^. #name)) (namespaceText (worker ^. #namespace)))
       WorkerDeployParams
         { configPath = o ^. #file
         , tag = T.pack <$> o ^. #tag
