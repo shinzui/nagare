@@ -33,6 +33,7 @@ module Nagare.App.Deploy
     -- * Rendering + the shared-identity label
   , RolloutEnv (..)
   , renderAppObjects
+  , renderServiceObjects
   , stampAppLabel
 
     -- * Machine-readable plan (EP-2 M3, the kotei contract)

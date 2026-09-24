@@ -21,9 +21,14 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Yaml qualified as Yaml
 import Nagare.App.Deploy
+import Nagare.Inventory.Application (compileApplicationService)
+import Nagare.Resource.Application (applicationScopeId)
+import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (Managed), ManagedResource (..), DesiredSpec (KnativeService))
+import Nagare.Resource.Types qualified as Resource
 import Nagare.Dsl.Load (loadApplication)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (mkImageRef)
+import Nagare.Dsl.Presets (attachVolume)
 import Nagare.Target (InventoryStoreKind (..), Mode (..), PulumiBackendKind (..), TargetProfile (..))
 import System.Exit (ExitCode (..))
 import Test.Tasty
@@ -99,6 +104,32 @@ renderTests =
           objects <- unwrapRender (renderAppObjects testEnv app)
           map fst objects
             @?= ["namespace", "hook", "database", "database", "database", "database", "database", "service", "worker", "worker", "worker"]
+  , testCase "typed service member binds the rendered Knative object" $ do
+      loaded <- loadApplication fixturePath
+      app <- either (fail . show) pure loaded
+      let foundation = unsafe (Resource.mkScopeId Resource.Platform "foundation")
+          cluster = Resource.mintResourceId foundation
+            (unsafe (Resource.mkLogicalKey "cluster")) (unsafe (Resource.mkName "resource"))
+          namespaceId = Resource.mintResourceId foundation
+            (unsafe (Resource.mkLogicalKey "foundation")) (unsafe (Resource.mkName "namespace-personal"))
+          publication = Resource.mintResourceId foundation
+            (unsafe (Resource.mkLogicalKey "image")) (unsafe (Resource.mkName "publication"))
+          source = Resource.SourceLocation "test" "service"
+      (bundle, native) <- either (fail . show) pure
+        (compileApplicationService app testEnv cluster namespaceId publication source)
+      owner <- either (fail . show) pure (applicationScopeId app)
+      case declarations bundle of
+        [Managed service] -> do
+          service ^. #owner @?= owner
+          case service ^. #spec of
+            KnativeService _ -> pure ()
+            other -> assertFailure ("service lacks Knative reservation: " <> show other)
+          Map.keys native @?= [service ^. #identity]
+        other -> assertFailure ("unexpected service declarations: " <> show other)
+      let withVolume = app & #service %~ fmap (unsafe . attachVolume "data" "1Gi" "/data")
+      case compileApplicationService withVolume testEnv cluster namespaceId publication source of
+        Left _ -> pure ()
+        Right _ -> assertFailure "service volume was silently omitted"
   , testCase "the rollout begins with the public-certificate namespace opt-in" $ do
       result <- loadApplication fixturePath
       case result of

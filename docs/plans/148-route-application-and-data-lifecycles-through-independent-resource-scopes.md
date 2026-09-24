@@ -41,6 +41,7 @@ Every supported application-side mutation is either a desired-scope update, a re
 - [x] (2026-09-24) M1 partial: Application, Deployment, Broker, and Volume carry optional validated logical keys through config emission/loading; stable scope/resource-ID helpers and a complete standalone database scope compiler are covered by DSL and operator tests.
 - [x] (2026-09-24) M1 partial: App dry-run/JSON rendering includes the database credential template and retained backup CronJob; the Secret contains no password data.
 - [x] (2026-09-24) M1 partial: Application-owned databases compile from their full typed values into the application scope with five canonical native members and explicit recovery intent.
+- [x] (2026-09-24) M1 partial: A simple application Knative Service compiles from its label-stamped render into one digest-bound native declaration with namespace/image ordering; volumes and domain mappings refuse until their members are compiled.
 - [ ] M1: Compile applications and standalone services into complete scopes.
 - [ ] M2: Integrate shared-owner contributions, environment intent, and publication.
 - [ ] M3: Route operational and data lifecycle commands through reviewed operations.
@@ -49,7 +50,7 @@ Every supported application-side mutation is either a desired-scope update, a re
 
 ## Surprises & Discoveries
 
-2026-09-24: The existing database builder already binds all five retained-database members, including the credential template and backup CronJob, to canonical native bytes. Standalone and application database compilation now consume it without reconstructing database flags. The application preview used the old four-object render path; it now displays the data-free credential template and backup. Workload declarations and command routing remain open. Existing config literals must initialize the new optional keys explicitly because their records have strict fields.
+2026-09-24: The existing database builder already binds all five retained-database members, including the credential template and backup CronJob, to canonical native bytes. Standalone and application database compilation now consume it without reconstructing database flags. The application preview used the old four-object render path; it now displays the data-free credential template and backup. The simple Knative Service member also binds to its rendered native bytes; volume and domain membership explicitly refuse until their builders exist. Remaining workload declarations and command routing are open. Existing config literals must initialize the new optional keys explicitly because their records have strict fields.
 
 
 ## Decision Log
