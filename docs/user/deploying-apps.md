@@ -34,6 +34,14 @@ review keeps the database credential and PVC under retained data policy and
 records the backup and key version as recovery intent. A missing, repeated, or
 unknown database binding refuses the review.
 
+When the application references an already accepted Secret, supply its resource
+ID with `--tls-secret-resource RESOURCE-ID` for a supplied-TLS domain or
+`--env-secret-resource RESOURCE-ID` for runtime environment. Repeat either
+option for distinct Secrets. Planning checks the exact cluster, namespace, and
+Secret name and refuses missing, extra, or wrong-address bindings. An
+application-owned database credential can satisfy its runtime environment
+reference without a second Secret option.
+
 The resource ID above is illustrative; obtain the real ID from your accepted
 inventory. Planning checks the accepted platform Namespace and the image's
 tagged destination before saving the review. The review is bound to the current

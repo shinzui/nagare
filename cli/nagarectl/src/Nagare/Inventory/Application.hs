@@ -13,6 +13,7 @@ module Nagare.Inventory.Application
   , nativeWorkloadOwned
   , acceptedApplicationImage
   , databaseRecoveryBindings
+  , acceptedSecretBindings
   ) where
 
 import Data.Aeson (Value)
@@ -124,6 +125,32 @@ databaseRecoveryBindings app raw = do
           pure (database ^. #name, RecoveryIntent backup (mkSecretRef credential version NE.:| []))
         _ -> Left "database recovery must be NAME=BACKUP:KEY_VERSION"
       _ -> Left "database recovery must be NAME=BACKUP:KEY_VERSION"
+
+-- | Resolve operator-supplied Secret identities only from accepted history.
+-- Consumers then check that the binding set and exact native address match
+-- their declared TLS or runtime environment references.
+acceptedSecretBindings
+  :: ScopeSnapshot -> [ResourceId] -> Either T.Text (Map SecretName Declaration)
+acceptedSecretBindings snapshot ids = do
+  pairs <- traverse resolve ids
+  let bindings = Map.fromList pairs
+  unless (length pairs == Map.size bindings)
+    (Left "accepted Secret bindings repeat a native name")
+  pure bindings
+  where
+    resources =
+      [ resource
+      | (_, scope) <- Map.elems (snapshotScopes snapshot)
+      , bundle <- scopeBundles scope
+      , Managed resource <- declarations bundle
+      ]
+    resolve resourceId = case filter ((== resourceId) . (^. #identity)) resources of
+      [resource] -> case resource ^. #address of
+        Kubernetes _ "" kind (Just _) nativeName | nameText kind == "secret" -> do
+          secretName <- mkSecretName (nameText nativeName)
+          pure (secretName, Managed resource)
+        _ -> Left "accepted resource is not a namespaced Kubernetes Secret"
+      _ -> Left "Secret resource is absent or ambiguous in accepted inventory"
 
 -- | The reviewed dependencies and recovery decisions supplied by the command
 -- service. A caller must bind the namespace and image publication to accepted

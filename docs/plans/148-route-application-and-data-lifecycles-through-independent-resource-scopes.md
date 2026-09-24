@@ -83,6 +83,7 @@ Every supported application-side mutation is either a desired-scope update, a re
 - [x] (2026-09-24) M3/M4 partial: Direct database shell, restart, backup, and restore, plus broker restart, now use the accepted/retained StatefulSet ownership guard before effectful work. Reviewed operations and scoped maintenance receipts remain open.
 - [x] (2026-09-24) M3/M4 partial: Direct task run and delete refuse accepted or retained CronJob and run-history ConfigMap addresses before Job submission or deletion; the reviewed one-shot operation remains open.
 - [x] (2026-09-24) M1/M3 partial: Reviewed `app deploy --save-plan` accepts application-owned databases when every declared database has exactly one `--database-recovery NAME=BACKUP:KEY_VERSION` binding. The typed database compiler supplies credential, PVC, Service, StatefulSet, and backup CronJob members; missing, duplicate, and unknown bindings refuse before a review is saved.
+- [x] (2026-09-24) M1/M2 partial: Reviewed application planning resolves supplied-TLS and runtime-environment Secret resource IDs from accepted scope history. The compiler then checks exact dependency name, namespace, cluster, and reference-set equality; application-owned database credentials remain internal bindings.
 - [ ] M1: Compile applications and standalone services into complete scopes.
 - [ ] M2: Integrate shared-owner contributions, environment intent, and publication.
 - [ ] M3: Route operational and data lifecycle commands through reviewed operations.

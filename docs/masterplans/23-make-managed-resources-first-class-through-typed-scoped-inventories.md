@@ -322,6 +322,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-24) EP-148 M3/M4 partial: Direct database shell/restart/backup/restore and broker restart refuse accepted or retained StatefulSet ownership; reviewed operational contracts remain open.
 - [x] (2026-09-24) EP-148 M3/M4 partial: Direct task run/delete refuse accepted or retained CronJob and run-history ConfigMap ownership.
 - [x] (2026-09-24) EP-148 M1/M3 partial: Reviewed application planning accepts owned databases with exactly one explicit recovery binding per database; typed members retain credentials and PVCs.
+- [x] (2026-09-24) EP-148 M1/M2 partial: Reviewed application planning accepts exact accepted Secret IDs for supplied TLS and runtime environment references; the typed compiler checks their native addresses and reference sets.
 - [ ] EP-148 M4: Removed alternate paths and scope isolation.
 - [ ] EP-150 M1: Platform/legacy transaction integration.
 - [ ] EP-150 M2: Packaging and complete mutation audit.

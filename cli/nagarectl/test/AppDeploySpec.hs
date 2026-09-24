@@ -24,7 +24,7 @@ import Data.Text.Encoding qualified as TE
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.App.Deploy
-import Nagare.Inventory.Application (ApplicationScopeInput (..), applicationNativeOwned, nativeWorkloadOwned, compileApplicationScope, compileApplicationService, compileStandaloneService, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedSecretBindings, applicationNativeOwned, nativeWorkloadOwned, compileApplicationScope, compileApplicationService, compileStandaloneService, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings)
 import Nagare.Resource.Application (applicationScopeId, volumeResourceId)
 import Nagare.Resource.Database (databaseResourceId)
 import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (..), ManagedResource (..), DesiredSpec (KnativeService), Contribution (RegisterNamespace), ContributionGrant (NamespaceGrant), ScopeChange (ReplaceScope), candidateGenerations, candidateInventory, composeInventory, contributionResourceId, inventoryDeclarations, inventoryScopes, mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeId)
@@ -335,6 +335,22 @@ renderTests =
             , scopeSource = Resource.SourceLocation "test" "application"
             }
       (scope, native) <- either (fail . show) pure (compileApplicationScope input)
+      let secretIds =
+            [member ^. #identity
+            | bundle <- scopeBundles scope, Managed member <- declarations bundle
+            , case member ^. #address of
+                Resource.Kubernetes _ "" kind _ _ -> kind == unsafe (Resource.mkName "secret")
+                _ -> False]
+          historyBinding = Resource.ContextBinding
+            (unsafe (Resource.mkContextId "secret-fixture")) (unsafe (Resource.mkName "project"))
+      secretSnapshot <- either (fail . show) pure
+        (mkScopeSnapshot historyBinding (Map.singleton (scopeId scope)
+          (unsafe (Resource.mkScopeGeneration 1), scope)) Map.empty)
+      Map.size <$> acceptedSecretBindings secretSnapshot secretIds @?= Right 1
+      assertBool "duplicate accepted Secret binding was accepted"
+        (isLeft (acceptedSecretBindings secretSnapshot (secretIds <> secretIds)))
+      assertBool "non-Secret image identity was accepted as a Secret"
+        (isLeft (acceptedSecretBindings secretSnapshot [publication]))
       bindings <- either (fail . T.unpack) pure
         (databaseRecoveryBindings app ["kizashi-db=backup:v1"])
       Map.keys bindings @?= map (^. #name) (app ^. #databases)

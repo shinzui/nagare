@@ -270,7 +270,7 @@ import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedApplicationImage, applicationNativeOwned, compileApplicationScope, databaseRecoveryBindings, nativeWorkloadOwned)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedApplicationImage, acceptedSecretBindings, applicationNativeOwned, compileApplicationScope, databaseRecoveryBindings, nativeWorkloadOwned)
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, compileStandaloneBroker, compileStandaloneDatabase, standaloneRetirementScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
@@ -549,6 +549,8 @@ data AppDeployOpts = AppDeployOpts
   , savePlan :: !(Maybe FilePath)
   , imageResource :: !(Maybe String)
   , databaseRecovery :: ![String]
+  , tlsSecretResources :: ![String]
+  , envSecretResources :: ![String]
   }
   deriving stock (Generic, Show)
 
@@ -1456,6 +1458,10 @@ appDeployOptsParser defaultFile =
       (strOption (long "image-resource" <> metavar "RESOURCE-ID" <> help "Accepted OCI image inventory resource used by --save-plan"))
     <*> many
       (strOption (long "database-recovery" <> metavar "NAME=BACKUP:KEY_VERSION" <> help "Recovery binding for an application database; repeat for each database with --save-plan"))
+    <*> many
+      (strOption (long "tls-secret-resource" <> metavar "RESOURCE-ID" <> help "Accepted Secret for a supplied-TLS domain; repeat with --save-plan"))
+    <*> many
+      (strOption (long "env-secret-resource" <> metavar "RESOURCE-ID" <> help "Accepted Secret for a runtime environment reference; repeat with --save-plan"))
 
 workerDeployOptsParser :: FilePath -> Parser WorkerDeployOpts
 workerDeployOptsParser defaultFile =
@@ -2814,8 +2820,9 @@ main = do
       tp <- activeProfile mctx
       case o ^. #savePlan of
         Nothing -> do
-          when (isJust (o ^. #imageResource) || not (null (o ^. #databaseRecovery)))
-            (dieT "image and database recovery options require --save-plan")
+          when (isJust (o ^. #imageResource) || not (null (o ^. #databaseRecovery))
+              || not (null (o ^. #tlsSecretResources)) || not (null (o ^. #envSecretResources)))
+            (dieT "inventory resource and recovery options require --save-plan")
           runAppDeployWithGuard (refuseDirectApplicationDeployIfOwned mctx) (toAppDeployParams tp o)
         Just output -> runAppDeployPlan mctx (toAppDeployParams tp o) o output
     DeploymentsList o -> runDeploymentsList o
@@ -6822,6 +6829,12 @@ runAppDeployPlan mctx params appOptions output = do
   (cluster, namespaceId) <- either dieT pure
     (acceptedFoundationNamespace snapshot (rollout ^. #namespace))
   either dieT pure (acceptedApplicationImage snapshot imageId (rollout ^. #taggedAppImage))
+  tlsIds <- traverse (either dieT pure . Resource.mkResourceId . T.pack)
+    (appOptions ^. #tlsSecretResources)
+  envIds <- traverse (either dieT pure . Resource.mkResourceId . T.pack)
+    (appOptions ^. #envSecretResources)
+  tlsSecrets <- either dieT pure (acceptedSecretBindings snapshot tlsIds)
+  envSecrets <- either dieT pure (acceptedSecretBindings snapshot envIds)
   backend <- either dieT pure (storeBackendFor (active ^. #profile)
     (active ^. #profile . #backupBucket))
   let source = Resource.SourceLocation
@@ -6836,8 +6849,8 @@ runAppDeployPlan mctx params appOptions output = do
         , scopeImage = imageId
         , scopeDatabaseRecovery = databaseRecovery
         , scopeServiceVolumeRecovery = Map.empty
-        , scopeTlsSecrets = Map.empty
-        , scopeEnvSecrets = Map.empty
+        , scopeTlsSecrets = tlsSecrets
+        , scopeEnvSecrets = envSecrets
         , scopeWorkerVolumeRecovery = Map.empty
         , scopeBackupBackend = backend
         , scopeSource = source
