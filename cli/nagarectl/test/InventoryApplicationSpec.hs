@@ -13,7 +13,8 @@ import Nagare.Dsl.Prelude
 import Nagare.Inventory.Application (compileApplicationDatabases, reviewedTaskImages)
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), compileFoundation)
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, databaseNativeOwned, standaloneRetirementScope)
-import Nagare.Inventory.Environment (compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
+import Nagare.Inventory.Environment (acceptedEnvChannelValues, compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
+import Nagare.Env.Store (ReconcileMode (..), reconcile)
 import Nagare.Resource.Application (applicationScopeId)
 import Nagare.Resource.Inventory (Declaration (Managed), ManagedResource (..), ResourceBundle (..), mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeId)
 import Nagare.Resource.Policy (RecoveryIntent (..), Sensitivity (Secret), mkSecretRef)
@@ -76,10 +77,25 @@ inventoryApplicationTests = testGroup "application inventory compilation"
       (scope, native) <- either (fail . show) pure (compileRuntimeEnvChannel
         "kizashi" "personal" cluster namespaceId values (SourceLocation "env" "runtime-env"))
       scopeId scope @?= checked (mkScopeId Application "env-kizashi-runtime")
+      let binding = ContextBinding (checked (mkContextId "env-merge")) (checked (mkName "project"))
+          snapshot = either (error . show) id (mkScopeSnapshot binding
+            (Map.singleton (scopeId scope) (checked (mkScopeGeneration 1), scope)) Map.empty)
+      acceptedEnvChannelValues snapshot native scope @?= Right values
+      let added = Map.singleton "MODE" "merged"
+      (reconcile Merge <$> acceptedEnvChannelValues snapshot native scope
+        <*> pure added) @?= Right (Map.fromList [("MODE", "merged"), ("TIMEOUT", "30")])
+      acceptedEnvChannelValues snapshot Map.empty scope @?=
+        Left "accepted environment channel has no private native member"
       case [resource | bundle <- scopeBundles scope, Managed resource <- declarations bundle] of
         [resource] -> do
           resource ^. #address @?= checked (kubernetesAddress cluster "v1" "ConfigMap"
             (Just "personal") "nagare-env-kizashi-runtime")
+          let changedAddress = resource & #address .~ checked (kubernetesAddress cluster "v1"
+                "ConfigMap" (Just "personal") "another-channel")
+              wrongChannel = either (error . show) id (mkScopeDeclaration (scopeId scope)
+                [ResourceBundle [Managed changedAddress] [] [] [] [] []])
+          acceptedEnvChannelValues snapshot native wrongChannel @?=
+            Left "accepted environment channel identity or address differs from requested channel"
           case Map.lookup (resource ^. #identity) native of
             Just (_, bytes) -> do
               BC.isInfixOf "reviewed" bytes @?= True

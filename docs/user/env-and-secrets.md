@@ -211,16 +211,17 @@ interpolation (`${X}`) is **not** supported.
 - **`--reconcile-exact`**: make the store *exactly* the file's contents, dropping any key
   not present.
 
-For a Runtime or Build ConfigMap owned by inventory history, save an exact
+For a Runtime, Build, or Preview ConfigMap owned by inventory history, save a
 review and apply it with the shared inventory command. Each channel has its
 own revision, so a later application scope deployment preserves its keys.
-Planning uses the dotenv file as the complete desired channel and requires the
+The default reviewed merge reads the accepted channel revision, keeps keys
+absent from the file, and binds the complete result to that revision. Pass
+`--reconcile-exact` to replace the complete channel. Planning requires the
 accepted platform Namespace. A preexisting unmanaged ConfigMap requires
 reviewed adoption before its first managed write.
 
 ```bash
-nagarectl env sync envdemo --file .env.production --reconcile-exact \
-  --save-plan env-review
+nagarectl env sync envdemo --file .env.production --save-plan env-review
 nagarectl inventory apply env-review --yes
 ```
 

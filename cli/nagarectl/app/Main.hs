@@ -273,7 +273,7 @@ import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManager
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedApplicationImage, acceptedBrokerBindings, acceptedSecretBindings, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationScope, compileStandaloneService, databaseRecoveryBindings, nativeWorkloadOwned, reviewedTaskImages)
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, compileStandaloneDatabase, databaseNativeOwned, standaloneRetirementScope, standaloneStatefulSetOwned)
-import Nagare.Inventory.Environment (compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
+import Nagare.Inventory.Environment (acceptedEnvChannelValues, compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
 import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
@@ -2484,7 +2484,7 @@ opts =
                       <*> dryRunOpt
                       <*> reconcileExactParser
                       <*> strOption (long "file" <> metavar "FILE" <> help "dotenv file to import")
-                      <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Review an exact Runtime, Build, or Preview env channel replacement"))
+                      <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Review a merged or exact Runtime, Build, or Preview env channel"))
                         <**> helper
                   )
                   (progDesc "Bulk-import a dotenv file into the env store")
@@ -7829,8 +7829,8 @@ runEnv mctx = \case
     incoming <- orDie (parseDotenv raw)
     case savePlan of
       Just output -> do
-        unless (exact && not dry && selectedScopes sel `elem` [[Runtime], [Build], [Preview]])
-          (dieT "reviewed env sync requires --reconcile-exact, one scope, and no --dry-run")
+        unless (not dry && selectedScopes sel `elem` [[Runtime], [Build], [Preview]])
+          (dieT "reviewed env sync requires one scope and no --dry-run")
         active <- activeTarget mctx
         (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
         snapshot <- Inventory.loadTargetSnapshot active
@@ -7839,8 +7839,20 @@ runEnv mctx = \case
               [Build] -> (compileBuildEnvChannel, "build-env")
               [Preview] -> (compilePreviewEnvChannel, "preview-env")
               _ -> (compileRuntimeEnvChannel, "runtime-env")
-        (channel, native) <- either (dieT . T.pack . show) pure
+        (initial, _) <- either (dieT . T.pack . show) pure
           (compile name ns cluster namespaceId incoming
+            (Resource.SourceLocation (T.pack dotenvPath) channelName))
+        existing <- if exact then pure Map.empty else do
+          store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+          history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
+          inventory <- either (dieT . T.pack . show) pure
+            (ResourceInventory.composeSnapshot snapshot)
+          (acceptedNative, _) <- InventoryStatus.loadAcceptedNative store history inventory
+            >>= either dieT pure
+          either dieT pure (acceptedEnvChannelValues snapshot acceptedNative initial)
+        let desired = reconcile (if exact then ReconcileExact else Merge) existing incoming
+        (channel, native) <- either (dieT . T.pack . show) pure
+          (compile name ns cluster namespaceId desired
             (Resource.SourceLocation (T.pack dotenvPath) channelName))
         candidate <- either (dieT . T.pack . show) pure
           (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope channel NE.:| []))

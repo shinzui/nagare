@@ -9,9 +9,12 @@ module Nagare.Inventory.Environment
   , compileBuildSecretChannel
   , compilePreviewSecretChannel
   , validateSecretRotation
+  , acceptedEnvChannelValues
   ) where
 
-import Data.Aeson (Value)
+import Data.Aeson (Value (..))
+import Data.Aeson qualified as Aeson
+import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
@@ -100,6 +103,42 @@ compilePreviewSecretChannel app namespaceName cluster namespaceId version values
     (managedSecretName app Preview) (renderEnvSecret app namespaceName Preview values)
     app namespaceName cluster namespaceId
     (source {path = "preview-secret/" <> nameText version})
+
+-- | Merge reviews read the accepted private native ConfigMap, never a live
+-- provider value. The next plan still binds to the exact accepted base revision.
+acceptedEnvChannelValues
+  :: ScopeSnapshot -> Map ResourceId (ManagedResource, ByteString) -> ScopeDeclaration
+  -> Either T.Text (Map T.Text T.Text)
+acceptedEnvChannelValues snapshot native candidate = case Map.lookup (scopeId candidate) (snapshotScopes snapshot) of
+  Nothing -> Right Map.empty
+  Just (_, scope) -> case
+    [resource | bundle <- scopeBundles scope, Managed resource <- declarations bundle] of
+    [resource] -> do
+      let expected = [member | bundle <- scopeBundles candidate,
+            Managed member <- declarations bundle]
+      unless (case expected of
+          [member] -> member ^. #identity == resource ^. #identity
+            && member ^. #address == resource ^. #address
+          _ -> False)
+        (Left "accepted environment channel identity or address differs from requested channel")
+      unless (resource ^. #executor == KubernetesExecutor
+          && case resource ^. #address of
+               Kubernetes _ "" kind (Just _) _ -> nameText kind == "configmap"
+               _ -> False)
+        (Left "accepted environment channel is not a namespaced ConfigMap")
+      (nativeResource, bytes) <- maybe (Left "accepted environment channel has no private native member")
+        Right (Map.lookup (resource ^. #identity) native)
+      unless (nativeResource == resource)
+        (Left "accepted environment channel native member differs from accepted declaration")
+      value <- first (T.pack . show) (Yaml.decodeEither' bytes :: Either Yaml.ParseException Value)
+      case value of
+        Object fields -> case KM.lookup "data" fields of
+          Just dataValue -> case Aeson.fromJSON dataValue of
+            Aeson.Success values -> Right values
+            Aeson.Error _ -> Left "accepted environment channel has invalid data"
+          Nothing -> Left "accepted environment channel has no data"
+        _ -> Left "accepted environment channel has invalid native bytes"
+    _ -> Left "accepted environment channel has unexpected membership"
 
 -- | One opaque version identifies one exact Secret payload. Reusing a version
 -- with different native content would make a rotation receipt ambiguous.
