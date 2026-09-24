@@ -83,6 +83,26 @@ inventoryLifecycleTests = testGroup "inventory lifecycle"
         (input {adoptionBinding = ContextBinding (ok (mkContextId "other")) (ok (mkName "project"))}))
       assertCode "duplicate-adoption" (decideAdoption candidate history observations
         (input {adoptionTargets = [target, target]}))
+  , testCase "disjoint adoption decisions combine into one reviewed change" $ do
+      store <- newMemoryStore
+      _ <- initializeStore store binding "combined-lifecycle-test" >>= expectRight
+      history <- loadInventoryHistory store >>= expectRight
+      let anotherId = mintResourceId scope (ok (mkLogicalKey "other")) (ok (mkName "resource"))
+          another = resource {identity = anotherId, address = otherAddress}
+          combinedDeclaration = ok (mkScopeDeclaration scope
+            [ResourceBundle [Managed resource, Managed another] [] [] [] [] []])
+          combinedCandidate = ok (composeInventory
+            (ok (mkScopeSnapshot binding Map.empty Map.empty)) (ReplaceScope combinedDeclaration :| []))
+          anotherPhysical = ok (mkPhysicalIdentity "uid-other")
+          observed = ok (observationSet
+            [(resourceId, ObservedUnowned physical), (anotherId, ObservedUnowned anotherPhysical)])
+      firstDecision <- expectRight (decideAdoption combinedCandidate history observed input)
+      secondDecision <- expectRight (decideAdoption combinedCandidate history observed
+        (input {adoptionTargets = [AdoptionTarget anotherId otherAddress anotherPhysical Nothing]}))
+      combined <- expectRight (combineDecisions firstDecision secondDecision)
+      map plannedAction (proposalOperations (ok
+        (planChanges combinedCandidate combined history observed)))
+        @?= [AdoptResource, AdoptResource]
   ]
   where
     ok :: Show e => Either e a -> a
