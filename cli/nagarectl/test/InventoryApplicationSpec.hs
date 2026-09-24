@@ -7,8 +7,10 @@ import Data.Map.Strict qualified as Map
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.Dsl.Database (mkDatabaseName)
 import Nagare.Dsl.Load (loadApplication, loadBroker)
+import Nagare.Dsl.Task (Task (..), scheduledTask)
+import Nagare.Dsl.Types (mkServiceName)
 import Nagare.Dsl.Prelude
-import Nagare.Inventory.Application (compileApplicationDatabases)
+import Nagare.Inventory.Application (compileApplicationDatabases, reviewedTaskImages)
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), compileFoundation)
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, databaseNativeOwned, standaloneRetirementScope)
 import Nagare.Inventory.Environment (compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateRuntimeSecretRotation)
@@ -21,7 +23,17 @@ import Test.Tasty.HUnit (assertFailure, testCase, (@?=))
 
 inventoryApplicationTests :: TestTree
 inventoryApplicationTests = testGroup "application inventory compilation"
-  [ testCase "Runtime env intent compiles into an independent exact ConfigMap channel" $ do
+  [ testCase "reviewed scheduled tasks use the accepted application image" $ do
+      let checked = either (error . show) id
+          sameImage = checked (scheduledTask "cleanup" "0 2 * * *" "registry/app" "cleanup")
+          otherImage = checked (scheduledTask "cleanup" "0 2 * * *" "registry/other" "cleanup")
+          inherited = sameImage & #image .~ Nothing
+            & #app .~ Just (checked (mkServiceName "app"))
+      reviewedTaskImages [sameImage, inherited] "registry/app:v1" "v1" @?= Right ()
+      case reviewedTaskImages [otherImage] "registry/app:v1" "v1" of
+        Left _ -> pure ()
+        Right _ -> assertFailure "task referenced a second unreviewed image"
+  , testCase "Runtime env intent compiles into an independent exact ConfigMap channel" $ do
       let checked = either (error . show) id
           foundation = checked (mkScopeId Platform "foundation")
           cluster = mintResourceId foundation (checked (mkLogicalKey "cluster"))

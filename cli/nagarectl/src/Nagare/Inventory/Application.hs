@@ -12,12 +12,14 @@ module Nagare.Inventory.Application
   , applicationNativeOwned
   , nativeWorkloadOwned
   , acceptedApplicationImage
+  , reviewedTaskImages
   , databaseRecoveryBindings
   , acceptedSecretBindings
   , acceptedBrokerBindings
   , applicationVolumeRecoveryBindings
   ) where
 
+import Control.Monad (forM_)
 import Data.Aeson (Value)
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
@@ -43,6 +45,7 @@ import Nagare.Dsl.Types (DatabaseName, Deployment (..), DomainSpec (..), DomainT
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Dsl.Worker (Worker (..))
 import Nagare.Dsl.Task (Task (..), mkTask, taskResourceName)
+import Nagare.Task.Resolve (resolveTaskImage)
 import Nagare.Inventory.Database (compileDatabaseForBackend)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Env.Generated (mergeGenerated)
@@ -124,6 +127,16 @@ acceptedApplicationImage snapshot imageId taggedImage =
         | nameText kind == "oci-image" && destination == taggedImage -> Right ()
       _ -> Left "accepted image resource is not the requested OCI publication"
     _ -> Left "image resource is absent or ambiguous in accepted inventory"
+
+-- | A scheduled CronJob may join a reviewed application rollout only when
+-- its resolved image is the publication already accepted for that rollout.
+-- Explicit task images can otherwise bypass the image dependency in the
+-- compiled declaration.
+reviewedTaskImages :: [Task] -> T.Text -> T.Text -> Either T.Text ()
+reviewedTaskImages tasks taggedImage effectiveTag =
+  forM_ tasks $ \task ->
+    unless (resolveTaskImage taggedImage effectiveTag task == taggedImage)
+      (Left "scheduled task resolves to an image outside the accepted application publication")
 
 -- | Require one explicit recovery binding for every application-owned
 -- database. The credential name is derived from the typed database identity;
@@ -404,6 +417,8 @@ compileApplicationScope input = do
     (Left (invalid "broker dependencies must cover exactly the application bindings"))
   unless (scopeRollout input ^. #appEnv == mergeGenerated brokerEnv (app ^. #env))
     (Left (invalid "rollout environment differs from the declared application channels"))
+  first invalid (reviewedTaskImages (app ^. #tasks)
+    (scopeRollout input ^. #taggedAppImage) (scopeRollout input ^. #effectiveTag))
   unless (app ^. #access == Nothing)
     (Left (invalid "application access contributions need typed owners"))
   let envValues = Map.elems (app ^. #env)

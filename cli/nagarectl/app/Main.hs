@@ -271,7 +271,7 @@ import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedApplicationImage, acceptedBrokerBindings, acceptedSecretBindings, applicationNativeOwned, applicationVolumeRecoveryBindings, compileApplicationScope, databaseRecoveryBindings, nativeWorkloadOwned)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedApplicationImage, acceptedBrokerBindings, acceptedSecretBindings, applicationNativeOwned, applicationVolumeRecoveryBindings, compileApplicationScope, databaseRecoveryBindings, nativeWorkloadOwned, reviewedTaskImages)
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, compileStandaloneDatabase, databaseNativeOwned, standaloneRetirementScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Environment (compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateRuntimeSecretRotation)
 import Nagare.Inventory.Host qualified as InventoryHost
@@ -6931,8 +6931,8 @@ runAppDeployPlan mctx params appOptions output = do
         <> map (^. #build) (app ^. #workers)
   when (any requiresBuild builds)
     (dieT "reviewed app deploy requires an already published image")
-  unless (null (app ^. #tasks) && isNothing (app ^. #access))
-    (dieT "reviewed app deploy currently supports service, worker, and database declarations without hooks or access")
+  unless (isNothing (app ^. #access))
+    (dieT "reviewed app deploy requires typed access contributions")
   databaseRecovery <- either dieT pure
     (databaseRecoveryBindings app (map T.pack (appOptions ^. #databaseRecovery)))
   (serviceVolumeRecovery, workerVolumeRecovery) <- either dieT pure
@@ -6973,6 +6973,8 @@ runAppDeployPlan mctx params appOptions output = do
       == rollout ^. #effectiveTag) builds)
     (dieT "application workloads resolve to different prepublished image tags")
   either dieT pure (acceptedApplicationImage snapshot imageId (rollout ^. #taggedAppImage))
+  either dieT pure (reviewedTaskImages (app ^. #tasks)
+    (rollout ^. #taggedAppImage) (rollout ^. #effectiveTag))
   tlsIds <- traverse (either dieT pure . Resource.mkResourceId . T.pack)
     (appOptions ^. #tlsSecretResources)
   envIds <- traverse (either dieT pure . Resource.mkResourceId . T.pack)

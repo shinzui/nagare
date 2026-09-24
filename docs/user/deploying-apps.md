@@ -47,6 +47,11 @@ nagarectl app deploy --file nagare/Config.hs --tag v1 \
 nagarectl inventory apply app-review --yes
 ```
 
+Scheduled tasks in the application's `tasks` list join this review as CronJobs.
+They must resolve to the same accepted image as the application; an explicit
+task image pointing elsewhere refuses. One-off `task run` is a separate
+operational action.
+
 For each declared application database, add
 `--database-recovery NAME=BACKUP:KEY_VERSION` to the planning command. The
 review keeps the database credential and PVC under retained data policy and

@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-09-24
+* **Update**: Document scheduled CronJobs in reviewed application deployment and the accepted-image requirement.
+
 ## 2026-09-23
 * **Update**: Document the opt-in shared inventory history store, conditional migration, explicit takeover, backup coverage, and bucket-reader access to private native reviews.
 * **Update**: Clarify that legacy platform release adoption does not adopt provider objects into the managed resource inventory; those require a separate exact-incarnation review.
