@@ -729,14 +729,42 @@ compileApplicationWorkers app rollout cluster namespaceId imageId recoveryById e
 -- Deployment/PVC binder and recovery rules as an application worker.
 compileStandaloneWorker
   :: ScopeId -> Worker -> RolloutEnv -> ResourceId -> ResourceId -> ResourceId
-  -> Map ResourceId RecoveryIntent -> Map SecretName Declaration -> SourceLocation
+  -> Map ResourceId RecoveryIntent -> Map SecretName Declaration
+  -> Map BrokerName Declaration -> SourceLocation
   -> Either (NonEmpty InventoryError)
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileStandaloneWorker owner worker rollout cluster namespaceId imageId recovery envSecrets source = do
+compileStandaloneWorker owner worker rollout cluster namespaceId imageId recovery envSecrets brokerServices source = do
   unless (scopeKind owner == Standalone)
     (Left (invalid "worker requires a standalone owner"))
-  unless (null (worker ^. #databases) && null (worker ^. #brokers))
-    (Left (invalid "standalone worker data and broker bindings need typed dependencies"))
+  unless (rollout ^. #appName == serviceNameText (worker ^. #name)
+      && rollout ^. #namespace == namespaceText (worker ^. #namespace)
+      && Map.null (rollout ^. #appEnv))
+    (Left (invalid "standalone worker rollout differs from its declared identity or environment"))
+  unless (null (worker ^. #databases))
+    (Left (invalid "standalone worker database bindings need typed dependencies"))
+  unless (Map.keysSet brokerServices == Set.fromList (map (^. #name) (worker ^. #brokers)))
+    (Left (invalid "broker dependencies must cover exactly the worker bindings"))
+  brokerEnvs <- traverse (\binding -> do
+    unless (null (binding ^. #topics))
+      (Left (invalid "broker topics require reviewed logical topic ownership"))
+    service <- maybe (Left (invalid "broker has no typed Service dependency")) Right
+      (Map.lookup (binding ^. #name) brokerServices)
+    expected <- first invalid (kubernetesAddress cluster "v1" "Service"
+      (Just (namespaceText (worker ^. #namespace))) (brokerNameText (binding ^. #name)))
+    case service of
+      Managed resource | resource ^. #address == expected
+        && scopeKind (resource ^. #owner) == Standalone -> pure ()
+      _ -> Left (invalid "broker dependency is not an accepted standalone Service at the declared address")
+    first invalid (brokerConnectionEnv binding BrokerConn
+      { provider = Redpanda
+      , bootstrapServers = brokerNameText (binding ^. #name) <> "."
+          <> namespaceText (worker ^. #namespace) <> ".svc.cluster.local:9092"
+      , topics = []
+      })) (worker ^. #brokers)
+  brokerEnv <- first invalid (mergeBrokerConnectionEnvs brokerEnvs)
+  let worker' = worker & #env %~ mergeGenerated brokerEnv
+        & #brokers .~ []
+      brokerIds = Set.toList (Set.fromList (map declarationId (Map.elems brokerServices)))
   let app = DslApp.Application
         { name = worker ^. #name
         , logicalKey = Nothing
@@ -747,14 +775,23 @@ compileStandaloneWorker owner worker rollout cluster namespaceId imageId recover
         , brokers = []
         , access = Nothing
         , service = Nothing
-        , workers = [worker]
+        , workers = [worker']
         , tasks = []
         }
   _ <- first invalid (mkApplication app)
   (bundles, native) <- compileWorkersWithOwner owner app rollout cluster namespaceId
     imageId recovery envSecrets source
-  scope <- mkScopeDeclaration owner bundles
-  pure (scope, native)
+  let addBrokerEdges resource = case resource ^. #address of
+        Kubernetes _ "apps" kind _ _ | nameText kind == "deployment" ->
+          resource & #dependencies %~ (<> map OrderedAfter brokerIds)
+        _ -> resource
+      addDeclaration = \case
+        Managed resource -> Managed (addBrokerEdges resource)
+        declaration -> declaration
+      updatedBundles = map (\bundle -> bundle & #declarations %~ map addDeclaration) bundles
+      updatedNative = Map.map (\(resource, bytes) -> (addBrokerEdges resource, bytes)) native
+  scope <- mkScopeDeclaration owner updatedBundles
+  pure (scope, updatedNative)
   where
     invalid message = inventoryError "invalid-standalone-worker" message
       & #sources .~ [source]

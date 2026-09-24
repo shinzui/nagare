@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-24
+* **Update**: Document topic free accepted broker bindings for reviewed standalone workers.
 * **Update**: Document reviewed standalone worker deployment and retirement, accepted image and Namespace dependencies, and retained PVC recovery.
 * **Update**: Document reviewed retirement of accepted standalone web Services through app delete.
 * **Update**: Document versioned reviewed single-key Secret set and delete from accepted private history.

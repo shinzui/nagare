@@ -335,7 +335,7 @@ renderTests =
           ["scratch=backup:volume-key:v1"])
       (standaloneScope, standaloneNative) <- either (fail . show) pure
         (compileStandaloneWorker standaloneOwner independentWorker standaloneRollout cluster
-          namespaceId publication standaloneRecovery Map.empty source)
+          namespaceId publication standaloneRecovery Map.empty Map.empty source)
       scopeId standaloneScope @?= standaloneOwner
       Map.size standaloneNative @?= 2
       let binding = Resource.ContextBinding
@@ -487,6 +487,30 @@ renderTests =
         (Map.singleton brokerOwner (unsafe (Resource.mkScopeGeneration 1), brokerScope)) Map.empty)
       (brokerServices, brokerEnv) <- either (fail . T.unpack) pure
         (acceptedBrokerBindings brokerSnapshot cluster "personal" [brokerBinding])
+      worker <- case app ^. #workers of
+        firstWorker : _ -> pure firstWorker
+        [] -> assertFailure "fixture has no worker" >> fail "missing worker"
+      let standaloneOwner = unsafe (Resource.mkScopeId Resource.Standalone "worker-kizashi-worker")
+          standaloneWorker = worker & #databases .~ [] & #brokers .~ [brokerBinding]
+          workerRollout = testEnv & #appName .~ serviceNameText (worker ^. #name)
+            & #appEnv .~ Map.empty
+      (standaloneBrokerScope, standaloneBrokerNative) <- either (fail . show) pure
+        (compileStandaloneWorker standaloneOwner standaloneWorker workerRollout cluster
+          namespaceId publication Map.empty Map.empty brokerServices (scopeSource input))
+      let standaloneMembers =
+            [member | bundle <- scopeBundles standaloneBrokerScope
+            , Managed member <- declarations bundle]
+      assertBool "standalone worker lost accepted broker dependency"
+        (all (\member -> all (\resource -> OrderedAfter resource `elem` member ^. #dependencies)
+          (map declarationId (Map.elems brokerServices))) standaloneMembers)
+      assertBool "standalone worker native bytes omit broker connection"
+        (any (BS.isInfixOf "KAFKA_BOOTSTRAP_SERVERS" . snd) (Map.elems standaloneBrokerNative))
+      assertBool "standalone worker private native declaration lost broker dependency"
+        (all (\member -> maybe False ((== member) . fst)
+          (Map.lookup (member ^. #identity) standaloneBrokerNative)) standaloneMembers)
+      assertBool "standalone worker accepted an unbound broker"
+        (isLeft (compileStandaloneWorker standaloneOwner standaloneWorker workerRollout cluster
+          namespaceId publication Map.empty Map.empty Map.empty (scopeSource input)))
       let brokerInput = input
             { scopeApplication = brokerApp
             , scopeRollout = scopeRollout input & #appEnv .~ mergeGenerated brokerEnv (app ^. #env)

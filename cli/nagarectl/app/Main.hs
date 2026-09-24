@@ -7762,8 +7762,8 @@ runWorkerPlan mctx options output = do
     >>= either (dieT . Load.renderLoadError) pure
   when (requiresBuild (worker ^. #build))
     (dieT "reviewed worker deploy requires an already published image")
-  unless (null (worker ^. #databases) && null (worker ^. #brokers))
-    (dieT "reviewed worker deploy requires typed database and broker bindings")
+  unless (null (worker ^. #databases))
+    (dieT "reviewed worker deploy requires typed database bindings")
   key <- maybe (either dieT pure (Resource.mkLogicalKey (serviceNameText (worker ^. #name)))) pure
     (worker ^. #logicalKey)
   owner <- either dieT pure (Resource.mkScopeId Resource.Standalone
@@ -7775,6 +7775,9 @@ runWorkerPlan mctx options output = do
   snapshot <- Inventory.loadTargetSnapshot active
   (cluster, namespaceId) <- either dieT pure
     (acceptedFoundationNamespace snapshot (namespaceText (worker ^. #namespace)))
+  (brokerServices, _) <- either dieT pure
+    (acceptedBrokerBindings snapshot cluster
+      (namespaceText (worker ^. #namespace)) (worker ^. #brokers))
   let app = Application
         { name = worker ^. #name
         , logicalKey = Nothing
@@ -7808,7 +7811,7 @@ runWorkerPlan mctx options output = do
         (serviceNameText (worker ^. #name))
   (scope, native) <- either (dieT . T.pack . show) pure
     (compileStandaloneWorker owner worker rollout cluster namespaceId imageId
-      recovery envSecrets source)
+      recovery envSecrets brokerServices source)
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
   Inventory.planInventoryCandidateWith

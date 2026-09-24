@@ -93,7 +93,8 @@ The image resource must name the exact image and tag resolved by the worker
 config. A retained PVC also needs one `--volume-recovery
 VOLUME=BACKUP:KEY:VERSION` per retained volume. Runtime Secret references need
 the corresponding accepted `--env-secret-resource RESOURCE-ID`. This reviewed
-path currently refuses worker database and broker references until their typed
+path accepts topic free references to accepted standalone brokers. Worker
+database and broker topic references still refuse until their typed lifecycle
 dependencies can be bound; it does not build or publish images.
 
 Retire the accepted standalone worker through a separate review. Retained PVCs
