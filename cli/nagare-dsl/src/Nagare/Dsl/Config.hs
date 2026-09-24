@@ -326,7 +326,7 @@ encodeWorker = encode . workerJSON
 -- default); @replicas@ is an Int.
 workerJSON :: Worker -> Value
 workerJSON w =
-  object
+  object $
     [ "kind" .= ("Worker" :: Text)
     , "name" .= serviceNameText (w ^. #name)
     , "namespace" .= namespaceText (w ^. #namespace)
@@ -344,6 +344,7 @@ workerJSON w =
     , "brokers" .= map brokerBindingJSON (w ^. #brokers)
     , "liveness" .= fmap workerProbeJSON (w ^. #liveness)
     ]
+      <> maybe [] (\key -> ["logicalKey" .= logicalKeyText key]) (w ^. #logicalKey)
   where
     res = w ^. #resources
 

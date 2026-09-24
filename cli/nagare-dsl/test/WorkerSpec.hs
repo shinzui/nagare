@@ -23,6 +23,8 @@ import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types
 import Nagare.Dsl.Worker
 import Nagare.Dsl.Worker.Render (renderWorker, renderWorkerDeployment)
+import Nagare.Resource.Application (workerResourceId)
+import Nagare.Resource.Types (mkLogicalKey, mkName, mkScopeId, ScopeKind (Application))
 import Test.Tasty
 import Test.Tasty.Golden (goldenVsString)
 import Test.Tasty.HUnit
@@ -219,6 +221,13 @@ roundTripTests :: [TestTree]
 roundTripTests =
   [ testCase "rich worker survives emit -> decode round-trip" $
       decodeWorker (toStrict (encodeWorker richWorker)) @?= Right richWorker
+  , testCase "worker logical key survives provider rename" $ do
+      let keyed = minimalWorker & #logicalKey .~ Just (unsafe (mkLogicalKey "queue-consumer"))
+          renamed = keyed & #name .~ unsafe (mkServiceName "queue-consumer-new")
+          owner = unsafe (mkScopeId Application "workers")
+          role = unsafe (mkName "worker")
+      decodeWorker (toStrict (encodeWorker renamed)) @?= Right renamed
+      workerResourceId owner role keyed @?= workerResourceId owner role renamed
   , testCase "minimal worker round-trips" $
       decodeWorker (toStrict (encodeWorker minimalWorker)) @?= Right minimalWorker
   , testCase "worker broker bindings round-trip" $
@@ -266,6 +275,7 @@ brokerExampleWorker :: Worker
 brokerExampleWorker =
   Worker
     { name = unsafe (mkServiceName "broker-worker")
+    , logicalKey = Nothing
     , namespace = defaultNamespace
     , image = unsafe (mkImageRef "docker.redpanda.com/redpandadata/redpanda")
     , build = PrebuiltImage (unsafe (mkTag "v26.1.8"))

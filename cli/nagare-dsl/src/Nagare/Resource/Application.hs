@@ -6,11 +6,13 @@ module Nagare.Resource.Application
   , deploymentResourceId
   , volumeResourceId
   , domainMappingResourceId
+  , workerResourceId
   ) where
 
 import Data.Generics.Labels ()
 import Nagare.Dsl.Application (Application)
 import Nagare.Dsl.Prelude
+import Nagare.Dsl.Worker (Worker (..))
 import Nagare.Dsl.Types
   ( Deployment (..)
   , DomainSpec (..)
@@ -44,3 +46,10 @@ domainMappingResourceId :: ScopeId -> DomainSpec -> Either Text ResourceId
 domainMappingResourceId owner domain =
   mintResourceId owner <$> mkLogicalKey (domainText (domain ^. #domain))
     <*> mkName "domain-mapping"
+
+workerResourceId :: ScopeId -> Name -> Worker -> Either Text ResourceId
+workerResourceId owner role worker =
+  mintResourceId owner <$> key <*> pure role
+  where
+    key = maybe (mkLogicalKey (serviceNameText (worker ^. #name))) Right
+      (worker ^. #logicalKey)

@@ -22,14 +22,15 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Yaml qualified as Yaml
 import Nagare.App.Deploy
-import Nagare.Inventory.Application (compileApplicationService)
-import Nagare.Resource.Application (applicationScopeId)
+import Nagare.Inventory.Application (compileApplicationService, compileApplicationWorkers)
+import Nagare.Resource.Application (applicationScopeId, volumeResourceId)
 import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (Managed), ManagedResource (..), DesiredSpec (KnativeService))
 import Nagare.Resource.Policy (RecoveryIntent (..), mkSecretRef)
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Dsl.Load (loadApplication)
 import Nagare.Dsl.Prelude
-import Nagare.Dsl.Types (DomainTls (SuppliedTlsSecret), mkDomains, mkImageRef, mkSecretName, mkVolumeName)
+import Nagare.Dsl.Types (AccessMode (ReadWriteOnce), DomainTls (SuppliedTlsSecret), RetentionPolicy (Retain), Volume (..), mkDomains, mkImageRef, mkMountPath, mkQuantity, mkSecretName, mkVolumeName, serviceNameText)
+import Nagare.Dsl.Worker (Worker (..))
 import Nagare.Dsl.Presets (attachVolume)
 import Nagare.Target (InventoryStoreKind (..), Mode (..), PulumiBackendKind (..), TargetProfile (..))
 import System.Exit (ExitCode (..))
@@ -155,6 +156,51 @@ renderTests =
       case compileApplicationService supplied testEnv cluster namespaceId publication Map.empty source of
         Left _ -> pure ()
         Right _ -> assertFailure "supplied TLS domain lacked a typed secret dependency"
+  , testCase "worker deployments and retained PVCs join the application scope" $ do
+      loaded <- loadApplication fixturePath
+      app <- either (fail . show) pure loaded
+      let foundation = unsafe (Resource.mkScopeId Resource.Platform "foundation")
+          cluster = Resource.mintResourceId foundation
+            (unsafe (Resource.mkLogicalKey "cluster")) (unsafe (Resource.mkName "resource"))
+          namespaceId = Resource.mintResourceId foundation
+            (unsafe (Resource.mkLogicalKey "foundation")) (unsafe (Resource.mkName "namespace-personal"))
+          publication = Resource.mintResourceId foundation
+            (unsafe (Resource.mkLogicalKey "image")) (unsafe (Resource.mkName "publication"))
+          source = Resource.SourceLocation "test" "workers"
+      (bundles, native) <- either (fail . show) pure
+        (compileApplicationWorkers app testEnv cluster namespaceId publication Map.empty source)
+      length bundles @?= 3
+      Map.size native @?= 3
+      owner <- either (fail . show) pure (applicationScopeId app)
+      worker <- case app ^. #workers of
+        firstWorker : _ -> pure firstWorker
+        [] -> assertFailure "fixture has no worker" >> fail "missing worker"
+      let volume = Volume
+            { name = unsafe (mkVolumeName "scratch")
+            , logicalKey = Nothing
+            , size = unsafe (mkQuantity "1Gi")
+            , mountPath = unsafe (mkMountPath "/scratch")
+            , accessMode = ReadWriteOnce
+            , readOnly = False
+            , retention = Retain
+            }
+          withVolume = app & #workers .~ [worker & #volumes .~ [volume]]
+          role = unsafe (Resource.mkName ("worker-" <> serviceNameText (worker ^. #name) <> "-pvc"))
+          volumeId = unsafe (volumeResourceId owner role volume)
+          recovery = RecoveryIntent (unsafe (Resource.mkName "backup"))
+            (mkSecretRef (unsafe (Resource.mkName "volume-key"))
+              (unsafe (Resource.mkName "v1")) :| [])
+      case compileApplicationWorkers withVolume testEnv cluster namespaceId publication Map.empty source of
+        Left _ -> pure ()
+        Right _ -> assertFailure "retained worker volume without recovery was accepted"
+      (volumeBundles, volumeNative) <- either (fail . show) pure
+        (compileApplicationWorkers withVolume testEnv cluster namespaceId publication
+          (Map.singleton volumeId recovery) source)
+      length volumeBundles @?= 1
+      Map.size volumeNative @?= 2
+      assertBool "worker volume has an owner declaration"
+        (any ((== volumeId) . (^. #identity))
+          [member | bundle <- volumeBundles, Managed member <- declarations bundle])
   , testCase "the rollout begins with the public-certificate namespace opt-in" $ do
       result <- loadApplication fixturePath
       case result of

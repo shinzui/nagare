@@ -1124,6 +1124,7 @@ loadJob path = fmap (>>= decodeJob) (runConfig path)
 -- absent (run the image entrypoint).
 data JsonWorker = JsonWorker
   { name :: !Text
+  , logicalKey :: !(Maybe Text)
   , namespace :: !Text
   , image :: !Text
   , build :: !(Maybe JsonBuildSpec)
@@ -1145,6 +1146,7 @@ instance FromJSON JsonWorker where
   parseJSON = withObject "Worker" $ \o ->
     JsonWorker
       <$> o .: "name"
+      <*> o .:? "logicalKey"
       <*> o .: "namespace"
       <*> o .: "image"
       <*> o .:? "build"
@@ -1237,6 +1239,7 @@ toWorkerProbe j =
 toWorker :: JsonWorker -> Either LoadError Worker
 toWorker j = do
   name' <- first (MarshalError "name") $ mkServiceName (j ^. #name)
+  logicalKey' <- traverse (first (MarshalError "logicalKey") . mkLogicalKey) (j ^. #logicalKey)
   ns' <- first (MarshalError "namespace") $ mkNamespace (j ^. #namespace)
   img' <- first (MarshalError "image") $ mkImageRef (j ^. #image)
   build' <- case j ^. #build of
@@ -1253,6 +1256,7 @@ toWorker j = do
   Right
     Worker
       { name = name'
+      , logicalKey = logicalKey'
       , namespace = ns'
       , image = img'
       , build = build'

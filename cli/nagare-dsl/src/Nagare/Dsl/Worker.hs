@@ -65,6 +65,7 @@ import Nagare.Dsl.Types
   , mkImageRef
   , mkServiceName
   )
+import Nagare.Resource.Types (LogicalKey)
 
 -- | How many identical copies of the worker pod to run. A fixed, user-chosen
 -- integer (default 1), not an autoscaler: the cluster is single-node, so a
@@ -194,6 +195,7 @@ probeTiming (HttpProbe _ _ _ t) = t
 -- @scale@, @healthCheck@, @cdn@) because a worker is not request-driven.
 data Worker = Worker
   { name :: !ServiceName
+  , logicalKey :: !(Maybe LogicalKey)
   , namespace :: !Namespace
   , image :: !ImageRef
   , build :: !BuildSpec
@@ -226,6 +228,7 @@ webWorker nameText imageText = do
   Right
     Worker
       { name = name'
+      , logicalKey = Nothing
       , namespace = defaultNamespace
       , image = img
       , build = PrebuiltImage tag

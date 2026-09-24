@@ -37,6 +37,7 @@ worker = do
   Right
     Worker
       { name = name'
+      , logicalKey = Nothing
       , namespace = defaultNamespace
       , image = image'
       , build = PrebuiltImage tag'

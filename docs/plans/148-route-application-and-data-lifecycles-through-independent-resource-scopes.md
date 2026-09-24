@@ -44,6 +44,7 @@ Every supported application-side mutation is either a desired-scope update, a re
 - [x] (2026-09-24) M1 partial: A simple application Knative Service compiles from its label-stamped render into one digest-bound native declaration with namespace/image ordering.
 - [x] (2026-09-24) M1 partial: Service PVCs compile as separate native members with explicit durable recovery or throwaway policy, and the service waits on them.
 - [x] (2026-09-24) M1 partial: Automatic-TLS DomainMappings compile as distinct native members with exact hostname claims and service ordering; supplied TLS refuses pending a typed Secret dependency.
+- [x] (2026-09-24) M1 partial: Workers have optional stable logical keys and compile as independently identified Deployment/PVC members in the application scope, with namespace/image/PVC ordering and explicit recovery for retained PVCs.
 - [ ] M1: Compile applications and standalone services into complete scopes.
 - [ ] M2: Integrate shared-owner contributions, environment intent, and publication.
 - [ ] M3: Route operational and data lifecycle commands through reviewed operations.
@@ -57,6 +58,8 @@ Every supported application-side mutation is either a desired-scope update, a re
 2026-09-24: A service volume's existing PVC render stamped `nagare.dev/app` with the service name, which differed from the application aggregate's shared label. The aggregate stamper previously refused any preexisting differing label. It now replaces only the top-level app label before native binding; a retained PVC requires explicit recovery intent. This is why preview labeling and inventory compilation must consume the same rendered object.
 
 2026-09-24: Automatic-TLS DomainMappings can join the same service bundle with a `Hostname` alias claim, so two scopes cannot silently route one hostname. A supplied TLS Secret is supported by the legacy renderer but lacks a typed resource/capability dependency in this component; compilation refuses that case until the dependency is supplied rather than assuming the namespace-local Secret is ready.
+
+2026-09-24: The application loader sorts workers by name, so worker resource identity must derive from each worker's validated name or pinned logical key rather than list position. Each worker PVC uses a role that includes its worker key, preventing two workers' equal volume names from sharing a recovery grant.
 
 
 ## Decision Log
