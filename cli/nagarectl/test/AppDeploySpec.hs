@@ -32,7 +32,7 @@ import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Dsl.Load (loadApplication)
 import Nagare.Dsl.Prelude
-import Nagare.Dsl.Types (AccessMode (ReadWriteOnce), DomainTls (SuppliedTlsSecret), EnvVar (EnvSecretRef), RetentionPolicy (Retain), Volume (..), mkDomains, mkEnvName, mkImageRef, mkMountPath, mkNamespace, mkQuantity, mkSecretName, mkServiceName, mkVolumeName, runtimeScoped, serviceNameText)
+import Nagare.Dsl.Types (AccessMode (ReadWriteOnce), DomainTls (SuppliedTlsSecret), EnvVar (EnvSecretRef), RetentionPolicy (Retain), Volume (..), databaseNameText, mkDomains, mkEnvName, mkImageRef, mkMountPath, mkNamespace, mkQuantity, mkSecretName, mkServiceName, mkVolumeName, runtimeScoped, serviceNameText)
 import Nagare.Dsl.Worker (Worker (..))
 import Nagare.Dsl.Presets (attachVolume)
 import Nagare.Target (InventoryStoreKind (..), Mode (..), PulumiBackendKind (..), TargetProfile (..))
@@ -405,6 +405,28 @@ renderTests =
       case composeInventory isolationSnapshot (ReplaceScope conflictingScope :| []) of
         Left _ -> pure ()
         Right _ -> assertFailure "two application scopes claimed the same Knative Service"
+      case app ^. #databases of
+        [database] -> do
+          let nativeDatabase = unsafe (Resource.mkName (databaseNameText (database ^. #name)))
+              externalId = Resource.mintResourceId foundation
+                (unsafe (Resource.mkLogicalKey "platform-database"))
+                (unsafe (Resource.mkName "statefulset"))
+              withPlatformDatabase = foundationWithNamespace
+                { declarations = declarations foundationWithNamespace
+                    <> [External externalId (Resource.Kubernetes cluster "apps"
+                      (unsafe (Resource.mkName "statefulset"))
+                      (Just (unsafe (Resource.mkName "personal"))) nativeDatabase)
+                      [] externalSource]
+                }
+          databasePlatform <- either (fail . show) pure
+            (mkScopeDeclaration foundation [withPlatformDatabase])
+          databaseSnapshot <- either (fail . show) pure
+            (mkScopeSnapshot binding (Map.singleton foundation
+              (unsafe (Resource.mkScopeGeneration 1), databasePlatform)) Map.empty)
+          case composeInventory databaseSnapshot (ReplaceScope scope :| []) of
+            Left _ -> pure ()
+            Right _ -> assertFailure "application scope claimed the platform database StatefulSet"
+        _ -> assertFailure "multi-workload fixture has no unique database"
       case compileApplicationScope (input {scopeRollout = testEnv & #namespace .~ "other"}) of
         Left _ -> pure ()
         Right _ -> assertFailure "mismatched rollout namespace was accepted"

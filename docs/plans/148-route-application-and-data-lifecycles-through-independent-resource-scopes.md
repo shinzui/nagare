@@ -70,6 +70,7 @@ Every supported application-side mutation is either a desired-scope update, a re
 - [x] (2026-09-24) M4 partial: Legacy task run/delete and database/broker restart reject inventory transaction re-entry before direct mutations; reviewed operational actions remain open.
 - [x] (2026-09-24) M3 partial: Standalone data planners resolve the accepted foundation Namespace by both ResourceId and native cluster/name address before compiling a create review; absent or unmatched foundation state refuses.
 - [x] (2026-09-24) M3 partial: Reviewed database and broker creation require a supplied Config.hs value to match the positional engine/provider and name before scope planning.
+- [x] (2026-09-24) M4 partial: Composing a complete application scope against a platform-owned database StatefulSet claim refuses the application, extending the two-application isolation fixture.
 - [ ] M1: Compile applications and standalone services into complete scopes.
 - [ ] M2: Integrate shared-owner contributions, environment intent, and publication.
 - [ ] M3: Route operational and data lifecycle commands through reviewed operations.
@@ -115,6 +116,8 @@ Every supported application-side mutation is either a desired-scope update, a re
 2026-09-24: Broker and database renderers omitted discovery annotations and their direct create paths stamped them after applying the StatefulSet. Reviewed execution cannot perform an unreviewed follow-up annotation, so both renderers now include the annotations in the StatefulSet object. Direct create uses those same bytes and no longer issues separate annotations. Topics still refuse reviewed broker planning because they require typed logical operations.
 
 2026-09-24: The generic retirement planner already loads immutable accepted native evidence and defaults to retaining protected resources. The domain delete commands can use it once they prove that the selected standalone scope contains exactly one matching StatefulSet in the requested namespace. An explicit scope key handles a pinned logical identity after a display-name rename; missing or mismatched accepted scopes refuse before review publication.
+
+2026-09-24: The platform-database isolation fixture exposed a generic inventory claim gap: `validateGraph` indexed only managed declarations when checking provider-address collisions. External declarations already had canonical claims but were omitted from this map. Including them makes a platform external database address unavailable to an application-managed StatefulSet. Observed controller children remain excluded because they intentionally inhabit their parent's derived reservation.
 
 ## Decision Log
 

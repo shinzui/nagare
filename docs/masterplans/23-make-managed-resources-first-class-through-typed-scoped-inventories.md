@@ -308,6 +308,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [ ] EP-148 M3: Operational/data command coverage.
 - [x] (2026-09-24) EP-148 M3 partial: Standalone database and topic-free broker create/delete commands can save reviewed scope replacement/retirement plans; retained native metadata and accepted StatefulSet selection are covered by focused tests. Direct compatibility paths remain.
 - [x] (2026-09-24) EP-148 M4 partial: Offline platform/two-app composition preserves unselected scope generations and refuses a shared Knative Service claim.
+- [x] (2026-09-24) EP-148 M4 partial: A complete application scope cannot claim the platform's database StatefulSet address.
 - [ ] EP-148 M4: Removed alternate paths and scope isolation.
 - [ ] EP-150 M1: Platform/legacy transaction integration.
 - [ ] EP-150 M2: Packaging and complete mutation audit.
@@ -493,3 +494,5 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 2026-09-24: EP-148 now exposes saved inventory reviews for standalone database and topic-free broker creation and retirement. The create paths share their typed input with legacy direct creation, and the renderers include metadata previously applied by separate annotation calls. Retirement selects only an accepted scope containing the requested StatefulSet and namespace and retains durable resources. Direct compatibility paths, application deployment, logical topics, environment channels, and operational actions still gate EP-148 and EP-150.
 
 2026-09-24: Standalone data create planning now verifies the accepted foundation Namespace's logical ID and native cluster/name address. Legacy delete, backup/restore, snapshot/restore, task run/delete, and database/broker restart functions reject inventory transaction re-entry before direct effects. These guards prevent nested bypasses while the reviewed operational contracts remain open; they do not count as completed M3 migration.
+
+2026-09-24: EP-148's platform-database collision fixture exposed that the EP-144 graph validator omitted `External` declarations from its canonical claim map. The shared validator now reserves their addresses, and both the DSL collision fixture and full application composition refuse a platform/database overlap. Observed controller children still use the parent's derived reservation. The EP-148/150 completion gates are unchanged.

@@ -543,7 +543,12 @@ validateGraph ss ds reservations =
     cacheKeyRef ref = let (_, _, capability, _, _) = refSignature ref in capability == NixCachePublicKey
     dependencyRefProducer (SomeRef ref) = refProducer ref
     isCondition ref = let (_, _, c, _, _) = refSignature ref in c `elem` [ReadinessCondition, TlsReady]
-    claims = Map.fromListWith (<>) [(c, [d]) | d@(Managed _) <- ds, (_, c) <- NE.toList (claimsOf d)]
+    claims = Map.fromListWith (<>) [(c, [d]) | d <- ds, participates d, (_, c) <- NE.toList (claimsOf d)]
+    -- An External declaration reserves its address just like a managed one:
+    -- another scope cannot acquire that provider object by compiling a native
+    -- member. Observed children intentionally share a parent's derived claim.
+    participates (ObservedChild _ _ _ _ _) = False
+    participates _ = True
     issue c m involved cs =
       inventoryError c m
         & #scopes

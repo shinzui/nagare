@@ -98,6 +98,11 @@ resourceInventoryTests =
         let result = compileScopes [scope p [service p "cache" "nix-cache"], scope a [service a "database" "nix-cache"]]
         rejects "claim-conflict" result
         case result of Left es -> assertBool "both owners" (any (\e -> all (`elem` (e ^. #scopes)) [p, a]) es); _ -> pure ()
+    , testCase "an external platform database reserves its provider address" $ do
+        let address = Kubernetes cluster "apps" (n "statefulset") (Just (n "ns")) (n "db")
+            external = External (rid p "external-db") address [] (SourceLocation "fixture" "platform-db")
+            application = Managed (resource a "database" address (StatefulSet 1 [] digest))
+        rejects "claim-conflict" (compileScopes [scope p [external], scope a [application]])
     , testCase "Helm release reserves each rendered object against another scope" $ do
         let member = Kubernetes cluster "" (n "service") (Just (n "nagare-system")) (n "same")
             release = ok (compileHelmRelease (HelmInput (rid p "helm") p cluster (n "nagare-system")
