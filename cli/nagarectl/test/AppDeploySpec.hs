@@ -17,6 +17,7 @@ import Data.Generics.Labels ()
 import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map qualified as Map
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -32,7 +33,7 @@ import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Dsl.Load (loadApplication)
 import Nagare.Dsl.Prelude
-import Nagare.Dsl.Types (AccessMode (ReadWriteOnce), DomainTls (SuppliedTlsSecret), EnvVar (EnvSecretRef), RetentionPolicy (Retain), Volume (..), databaseNameText, mkDomains, mkEnvName, mkImageRef, mkMountPath, mkNamespace, mkQuantity, mkSecretName, mkServiceName, mkVolumeName, runtimeScoped, serviceNameText)
+import Nagare.Dsl.Types (AccessMode (ReadWriteOnce), DomainTls (SuppliedTlsSecret), EnvScope (Build), EnvVar (EnvSecretRef), RetentionPolicy (Retain), Volume (..), databaseNameText, mkDomains, mkEnvName, mkImageRef, mkMountPath, mkNamespace, mkQuantity, mkSecretName, mkServiceName, mkVolumeName, runtimeScoped, scopedEnv, serviceNameText)
 import Nagare.Dsl.Worker (Worker (..))
 import Nagare.Dsl.Presets (attachVolume)
 import Nagare.Target (InventoryStoreKind (..), Mode (..), PulumiBackendKind (..), TargetProfile (..))
@@ -122,7 +123,7 @@ renderTests =
             (unsafe (Resource.mkLogicalKey "image")) (unsafe (Resource.mkName "publication"))
           source = Resource.SourceLocation "test" "service"
       (bundle, native) <- either (fail . show) pure
-        (compileApplicationService app testEnv cluster namespaceId publication Map.empty Map.empty source)
+        (compileApplicationService app testEnv cluster namespaceId publication Map.empty Map.empty Map.empty source)
       owner <- either (fail . show) pure (applicationScopeId app)
       case declarations bundle of
         [Managed service] -> do
@@ -133,7 +134,7 @@ renderTests =
           Map.keys native @?= [service ^. #identity]
         other -> assertFailure ("unexpected service declarations: " <> show other)
       let withVolume = app & #service %~ fmap (unsafe . attachVolume "data" "1Gi" "/data")
-      case compileApplicationService withVolume testEnv cluster namespaceId publication Map.empty Map.empty source of
+      case compileApplicationService withVolume testEnv cluster namespaceId publication Map.empty Map.empty Map.empty source of
         Left _ -> pure ()
         Right _ -> assertFailure "retained service volume without recovery was accepted"
       let volumeName = unsafe (mkVolumeName "data")
@@ -142,13 +143,13 @@ renderTests =
               (unsafe (Resource.mkName "v1")) :| [])
       (volumeBundle, volumeNative) <- either (fail . show) pure
         (compileApplicationService withVolume testEnv cluster namespaceId publication
-          (Map.singleton volumeName recovery) Map.empty source)
+          (Map.singleton volumeName recovery) Map.empty Map.empty source)
       length (declarations volumeBundle) @?= 2
       Map.size volumeNative @?= 2
       let withDomain = app & #service %~ fmap
             (#domains .~ unsafe (mkDomains [("app.example.com", True)]))
       (domainBundle, domainNative) <- either (fail . show) pure
-        (compileApplicationService withDomain testEnv cluster namespaceId publication Map.empty Map.empty source)
+        (compileApplicationService withDomain testEnv cluster namespaceId publication Map.empty Map.empty Map.empty source)
       length (declarations domainBundle) @?= 2
       Map.size domainNative @?= 2
       assertBool "domain hostname claim omitted"
@@ -156,7 +157,7 @@ renderTests =
           [member | Managed member <- declarations domainBundle])
       let supplied = withDomain & #service %~ fmap
             (#domains . traverse . #tls .~ SuppliedTlsSecret (unsafe (mkSecretName "custom-tls")))
-      case compileApplicationService supplied testEnv cluster namespaceId publication Map.empty Map.empty source of
+      case compileApplicationService supplied testEnv cluster namespaceId publication Map.empty Map.empty Map.empty source of
         Left _ -> pure ()
         Right _ -> assertFailure "supplied TLS domain lacked a typed secret dependency"
       let secretName = unsafe (mkSecretName "custom-tls")
@@ -167,7 +168,7 @@ renderTests =
           secret = External secretId secretAddress [] source
       (suppliedBundle, _) <- either (fail . show) pure
         (compileApplicationService supplied testEnv cluster namespaceId publication Map.empty
-          (Map.singleton secretName secret) source)
+          (Map.singleton secretName secret) Map.empty source)
       assertBool "supplied TLS DomainMapping lacks Secret dependency"
         (any (elem (OrderedAfter secretId) . (^. #dependencies))
           [member | Managed member <- declarations suppliedBundle])
@@ -175,7 +176,7 @@ renderTests =
             (Resource.Kubernetes cluster "" (unsafe (Resource.mkName "secret"))
               (Just (unsafe (Resource.mkName "other"))) (unsafe (Resource.mkName "custom-tls"))) [] source
       case compileApplicationService supplied testEnv cluster namespaceId publication Map.empty
-          (Map.singleton secretName wrongSecret) source of
+          (Map.singleton secretName wrongSecret) Map.empty source of
         Left _ -> pure ()
         Right _ -> assertFailure "supplied TLS accepted a Secret in another namespace"
   , testCase "standalone Service binds the same rendered object under its own scope" $ do
@@ -195,7 +196,7 @@ renderTests =
           rollout = testEnv & #appName .~ serviceNameText (service ^. #name)
           source = Resource.SourceLocation "test" "standalone-service"
       (scope, native) <- either (fail . show) pure
-        (compileStandaloneService owner independent rollout cluster namespaceId publication Map.empty Map.empty source)
+        (compileStandaloneService owner independent rollout cluster namespaceId publication Map.empty Map.empty Map.empty source)
       let members = [member | bundle <- scopeBundles scope, Managed member <- declarations bundle]
       case members of
         [member] -> do
@@ -205,11 +206,11 @@ renderTests =
       case app ^. #databases of
         database : _ ->
           case compileStandaloneService owner (independent & #databases .~ [database ^. #name])
-              rollout cluster namespaceId publication Map.empty Map.empty source of
+              rollout cluster namespaceId publication Map.empty Map.empty Map.empty source of
             Left _ -> pure ()
             Right _ -> assertFailure "standalone Service accepted an unbound database"
         [] -> assertFailure "fixture has no database for the dependency refusal check"
-      case compileStandaloneService foundation independent rollout cluster namespaceId publication Map.empty Map.empty source of
+      case compileStandaloneService foundation independent rollout cluster namespaceId publication Map.empty Map.empty Map.empty source of
         Left _ -> pure ()
         Right _ -> assertFailure "standalone Service accepted a platform owner"
   , testCase "worker deployments and retained PVCs join the application scope" $ do
@@ -224,7 +225,7 @@ renderTests =
             (unsafe (Resource.mkLogicalKey "image")) (unsafe (Resource.mkName "publication"))
           source = Resource.SourceLocation "test" "workers"
       (bundles, native) <- either (fail . show) pure
-        (compileApplicationWorkers app testEnv cluster namespaceId publication Map.empty source)
+        (compileApplicationWorkers app testEnv cluster namespaceId publication Map.empty Map.empty source)
       length bundles @?= 3
       Map.size native @?= 3
       owner <- either (fail . show) pure (applicationScopeId app)
@@ -254,12 +255,12 @@ renderTests =
           recovery = RecoveryIntent (unsafe (Resource.mkName "backup"))
             (mkSecretRef (unsafe (Resource.mkName "volume-key"))
               (unsafe (Resource.mkName "v1")) :| [])
-      case compileApplicationWorkers withVolume testEnv cluster namespaceId publication Map.empty source of
+      case compileApplicationWorkers withVolume testEnv cluster namespaceId publication Map.empty Map.empty source of
         Left _ -> pure ()
         Right _ -> assertFailure "retained worker volume without recovery was accepted"
       (volumeBundles, volumeNative) <- either (fail . show) pure
         (compileApplicationWorkers withVolume testEnv cluster namespaceId publication
-          (Map.singleton volumeId recovery) source)
+          (Map.singleton volumeId recovery) Map.empty source)
       length volumeBundles @?= 1
       Map.size volumeNative @?= 2
       assertBool "worker volume has an owner declaration"
@@ -277,7 +278,7 @@ renderTests =
             (unsafe (Resource.mkLogicalKey "image")) (unsafe (Resource.mkName "publication"))
           source = Resource.SourceLocation "test" "tasks"
       (bundle, native) <- either (fail . show) pure
-        (compileApplicationTasks app testEnv cluster namespaceId publication source)
+        (compileApplicationTasks app testEnv cluster namespaceId publication Map.empty source)
       owner <- either (fail . show) pure (applicationScopeId app)
       case declarations bundle of
         [Managed task] -> do
@@ -314,6 +315,7 @@ renderTests =
                 [(database ^. #name, recovery) | database <- app ^. #databases]
             , scopeServiceVolumeRecovery = Map.empty
             , scopeTlsSecrets = Map.empty
+            , scopeEnvSecrets = Map.empty
             , scopeWorkerVolumeRecovery = Map.empty
             , scopeBackupBackend = GcsBackend "project" "bucket"
             , scopeSource = Resource.SourceLocation "test" "application"
@@ -462,6 +464,35 @@ renderTests =
           }) of
         Left _ -> pure ()
         Right _ -> assertFailure "unowned environment Secret was accepted"
+      let secretName = unsafe (mkSecretName "external-token")
+          secretId = Resource.mintResourceId foundation
+            (unsafe (Resource.mkLogicalKey "external-token")) (unsafe (Resource.mkName "secret"))
+          secretAddress = Resource.Kubernetes cluster "" (unsafe (Resource.mkName "secret"))
+            (Just (unsafe (Resource.mkName "personal"))) (unsafe (Resource.mkName "external-token"))
+          secretBinding = External secretId secretAddress [] (scopeSource input)
+          secretInput = input
+            { scopeApplication = secretApp
+            , scopeRollout = scopeRollout input & #appEnv .~ secretApp ^. #env
+            , scopeEnvSecrets = Map.singleton secretName secretBinding
+            }
+      (secretScope, _) <- either (fail . show) pure (compileApplicationScope secretInput)
+      length [() | bundle <- scopeBundles secretScope, Managed member <- declarations bundle,
+        OrderedAfter secretId `elem` member ^. #dependencies] @?= 5
+      let wrongSecret = External secretId
+            (Resource.Kubernetes cluster "" (unsafe (Resource.mkName "secret"))
+              (Just (unsafe (Resource.mkName "other"))) (unsafe (Resource.mkName "external-token")))
+            [] (scopeSource input)
+      case compileApplicationScope (secretInput {scopeEnvSecrets = Map.singleton secretName wrongSecret}) of
+        Left _ -> pure ()
+        Right _ -> assertFailure "runtime Secret in another namespace was accepted"
+      let buildSecret = secretApp & #env .~ Map.singleton (unsafe (mkEnvName "PRIVATE_TOKEN"))
+            (unsafe (scopedEnv (Set.singleton Build) (EnvSecretRef secretName)))
+      case compileApplicationScope (secretInput
+          { scopeApplication = buildSecret
+          , scopeRollout = scopeRollout input & #appEnv .~ buildSecret ^. #env
+          }) of
+        Left _ -> pure ()
+        Right _ -> assertFailure "build-scoped Secret entered the runtime dependency channel"
       case app ^. #workers of
         firstWorker : secondWorker : rest -> do
           let key = unsafe (Resource.mkLogicalKey "shared-worker")

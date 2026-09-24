@@ -298,6 +298,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-24) EP-148 M1 partial: Simple Knative Service members bind label-stamped native bytes.
 - [x] (2026-09-24) EP-148 M1 partial: Service PVCs bind as separate native members with recovery and ordering.
 - [x] (2026-09-24) EP-148 M1 partial: Automatic-TLS DomainMappings bind with hostname claims; supplied TLS now requires an exact typed Secret declaration at the same cluster/namespace/name and orders the DomainMapping after its ResourceId.
+- [x] (2026-09-24) EP-148 M1/M2 partial: Runtime Secret environment references now require exact typed Secret declarations and become service, worker, or task dependencies. Build/preview Secret intent and command sourcing remain open.
 - [x] (2026-09-24) EP-148 M1 partial: Worker Deployments/PVCs and scheduled CronJobs bind with stable keys; declared database edges are typed, and a supported multi-workload fixture composes into one ten-member application scope.
 - [x] (2026-09-24) EP-148 M1 partial: A standalone Redpanda broker without topics compiles three direct Kubernetes members with retained PVC recovery; topic-bearing brokers refuse pending logical operation ownership.
 - [x] (2026-09-24) EP-148 M1 partial: Database and broker builders refuse renderer/member count drift before binding roles; command-path parity remains open.
