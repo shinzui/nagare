@@ -9,7 +9,7 @@ import Nagare.Dsl.Load (loadApplication, loadBroker)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Application (compileApplicationDatabases)
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), compileFoundation)
-import Nagare.Inventory.DataService (acceptedFoundationNamespace, compileStandaloneBroker, standaloneRetirementScope)
+import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, databaseNativeOwned, standaloneRetirementScope)
 import Nagare.Resource.Application (applicationScopeId)
 import Nagare.Resource.Inventory (Declaration (Managed), ManagedResource (..), ResourceBundle (..), mkScopeDeclaration, mkScopeSnapshot, scopeBundles)
 import Nagare.Resource.Policy (RecoveryIntent (..), mkSecretRef)
@@ -61,6 +61,11 @@ inventoryApplicationTests = testGroup "application inventory compilation"
       Map.size native @?= 5
       [resource ^. #owner | bundle <- bundles, Managed resource <- bundle ^. #declarations]
         @?= replicate 5 owner
+      case app ^. #databases of
+        [database] ->
+          map (databaseNativeOwned database . pure . fst) (Map.elems native)
+            @?= replicate 5 True
+        _ -> assertFailure "fixture did not contain exactly one database"
       case compileApplicationDatabases app cluster Nothing Map.empty backend source of
         Left (err :| _) -> code err @?= "missing-database-recovery"
         Right _ -> assertFailure "database without recovery intent was accepted"
@@ -102,6 +107,8 @@ inventoryApplicationTests = testGroup "application inventory compilation"
       Map.size native @?= 3
       [resource ^. #owner | bundle <- scopeBundles scope, Managed resource <- bundle ^. #declarations]
         @?= replicate 3 owner
+      map (brokerNativeOwned withoutTopics . pure . fst) (Map.elems native)
+        @?= replicate 3 True
       let checked = either (error . show) id
           binding = ContextBinding (checked (mkContextId "fixture")) (checked (mkName "project"))
           snapshot = either (error . show) id (mkScopeSnapshot binding

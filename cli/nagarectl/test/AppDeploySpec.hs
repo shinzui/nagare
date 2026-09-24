@@ -137,6 +137,15 @@ renderTests =
             (not (nativeWorkloadOwned "serving.knative.dev" "service" "other" "personal" [service]))
           assertBool "another namespace must not claim the app workload"
             (not (applicationNativeOwned (app & #namespace .~ unsafe (mkNamespace "other")) [service]))
+          let accepted kind name = service & #address .~ Resource.Kubernetes cluster "" (unsafe (Resource.mkName kind))
+                (Just (unsafe (Resource.mkName "personal"))) (unsafe (Resource.mkName name))
+              withVolume = app & #service %~ fmap (unsafe . attachVolume "data" "1Gi" "/data")
+          assertBool "direct app deploy must detect an owned service PVC"
+            (applicationNativeOwned withVolume [accepted "persistentvolumeclaim" "nagare-vol-kizashi-serve-data"])
+          assertBool "direct app deploy must detect an owned database credential"
+            (applicationNativeOwned app [accepted "secret" "nagare-db-kizashi-db"])
+          assertBool "a different PVC address must not claim the application"
+            (not (applicationNativeOwned app [accepted "persistentvolumeclaim" "nagare-vol-unrelated-data"]))
           case service ^. #spec of
             KnativeService _ -> pure ()
             other -> assertFailure ("service lacks Knative reservation: " <> show other)

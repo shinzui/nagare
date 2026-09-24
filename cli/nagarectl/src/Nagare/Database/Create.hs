@@ -12,6 +12,7 @@
 module Nagare.Database.Create
   ( DbCreateParams (..)
   , runDbCreate
+  , runDbCreateWithGuard
   , buildDatabase
   , resolveDatabase
   , passwordKey
@@ -119,11 +120,17 @@ buildResources mc mm = do
 
 -- | Run @db create@.
 runDbCreate :: Engine -> Text -> DbCreateParams -> IO ()
-runDbCreate eng nameT params = do
+runDbCreate eng nameT params = runDbCreateWithGuard eng nameT params (const (pure ()))
+
+-- | Check the exact loaded database before any provider mutation. In
+-- particular, a Config.hs value may name a different object from argv.
+runDbCreateWithGuard :: Engine -> Text -> DbCreateParams -> (Database -> IO ()) -> IO ()
+runDbCreateWithGuard eng nameT params checkOwnership = do
   transaction <- lookupEnv "NAGARE_INVENTORY_TRANSACTION"
   when (isJust transaction) $
     dieT "db create cannot run inside a reviewed inventory transaction"
   db <- resolveDatabase eng nameT params
+  checkOwnership db
   let name = databaseNameText (db ^. #name)
       ns = namespaceText (db ^. #namespace)
       engine' = db ^. #engine

@@ -6,6 +6,7 @@ module Nagare.Broker.Create
   , buildBroker
   , resolveBroker
   , runBrokerCreate
+  , runBrokerCreateWithGuard
   )
 where
 
@@ -87,11 +88,18 @@ buildTopic params topicT = do
   mkBrokerTopic topicName' (fromMaybe 1 (params ^. #topicPartitions)) 1 (params ^. #topicRetentionMs)
 
 runBrokerCreate :: BrokerProvider -> Text -> BrokerCreateParams -> IO ()
-runBrokerCreate provider nameT params = do
+runBrokerCreate provider nameT params =
+  runBrokerCreateWithGuard provider nameT params (const (pure ()))
+
+-- | Guard the resolved typed broker, since Config.hs can differ from argv.
+runBrokerCreateWithGuard
+  :: BrokerProvider -> Text -> BrokerCreateParams -> (Broker -> IO ()) -> IO ()
+runBrokerCreateWithGuard provider nameT params checkOwnership = do
   transaction <- lookupEnv "NAGARE_INVENTORY_TRANSACTION"
   when (isJust transaction) $
     dieT "broker create cannot run inside a reviewed inventory transaction"
   broker <- resolveBroker provider nameT params
+  checkOwnership broker
   let name = brokerNameText (broker ^. #name)
       ns = namespaceText (broker ^. #namespace)
       manifests = renderBroker broker

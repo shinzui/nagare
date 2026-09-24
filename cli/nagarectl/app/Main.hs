@@ -74,7 +74,7 @@ import Nagare.App.Deployments
   , recordDeploymentFor
   , resolveRevisionForTag
   )
-import Nagare.Broker.Create (BrokerCreateParams (..), resolveBroker, runBrokerCreate)
+import Nagare.Broker.Create (BrokerCreateParams (..), resolveBroker, runBrokerCreateWithGuard)
 import Nagare.Broker.Delete (BrokerDeleteParams (..), runBrokerDelete)
 import Nagare.Broker.Get (runBrokerGet)
 import Nagare.Broker.List (runBrokerList)
@@ -111,7 +111,7 @@ import Nagare.Cluster.Kubeconfig
 import Nagare.Cluster.Namespace (NamespacePurpose (..), ensureNamespace, renderNamespace)
 import Nagare.Database.Backup (runDbBackup)
 import Nagare.Database.Connection (connectionEnv, mergeConnectionEnvs)
-import Nagare.Database.Create (DbCreateParams (..), resolveDatabase, runDbCreate)
+import Nagare.Database.Create (DbCreateParams (..), resolveDatabase, runDbCreateWithGuard)
 import Nagare.Database.Delete (DbDeleteParams (..), runDbDelete)
 import Nagare.Database.Discover (lookupConnection)
 import Nagare.Database.Get (runDbGet)
@@ -271,7 +271,7 @@ import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedApplicationImage, acceptedSecretBindings, applicationNativeOwned, applicationVolumeRecoveryBindings, compileApplicationScope, databaseRecoveryBindings, nativeWorkloadOwned)
-import Nagare.Inventory.DataService (acceptedFoundationNamespace, compileStandaloneBroker, compileStandaloneDatabase, standaloneRetirementScope, standaloneStatefulSetOwned)
+import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, compileStandaloneDatabase, databaseNativeOwned, standaloneRetirementScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
@@ -7202,8 +7202,10 @@ runBroker mctx = \case
       Nothing -> do
         when (any isJust [o ^. #recoveryBackup, o ^. #recoveryKey, o ^. #recoveryKeyVersion])
           (dieT "recovery options require --save-plan")
-        refuseDirectDataMutationIfOwned mctx "broker" "create" (T.pack name) (params ^. #namespace)
-        runBrokerCreate provider (T.pack name) params
+        runBrokerCreateWithGuard provider (T.pack name) params $ \broker ->
+          withAcceptedInventoryHistory mctx "broker create" $ \history ->
+            when (brokerNativeOwned broker (ownedHistoryResources history))
+              (dieT "broker objects are owned by accepted or retained inventory history; direct create is refused")
       Just output -> do
         when (o ^. #dryRun) (dieT "--dry-run and --save-plan cannot be combined")
         runBrokerCreatePlan mctx provider (T.pack name) params
@@ -7278,8 +7280,10 @@ runDb mctx = \case
       Nothing -> do
         when (isJust (o ^. #recoveryBackup) || isJust (o ^. #recoveryKeyVersion))
           (dieT "recovery options require --save-plan")
-        refuseDirectDataMutationIfOwned mctx "database" "create" (T.pack name) (params ^. #namespace)
-        runDbCreate eng (T.pack name) params
+        runDbCreateWithGuard eng (T.pack name) params $ \database ->
+          withAcceptedInventoryHistory mctx "database create" $ \history ->
+            when (databaseNativeOwned database (ownedHistoryResources history))
+              (dieT "database objects are owned by accepted or retained inventory history; direct create is refused")
       Just output -> do
         when (o ^. #dryRun) (dieT "--dry-run and --save-plan cannot be combined")
         runDbCreatePlan mctx eng (T.pack name) params

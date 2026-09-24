@@ -35,6 +35,7 @@ import Nagare.Database.Connection (ConnIdentity (..), connectionEnv, mergeConnec
 import Nagare.Dsl.Database (Database (..), Engine (..), dbSecretName)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Render (pvcName)
+import Nagare.Dsl.Database.Render (dbConfigMapName, dbPvcName)
 import Nagare.Dsl.Types (DatabaseName, Deployment (..), DomainSpec (..), DomainTls (..), EnvScope (Runtime), EnvVar (..), ScopedEnvVar (..), SecretName, Volume (..), VolumeName, databaseNameText, domainText, mkEnvName, mkSecretName, namespaceText, runtimeScoped, secretNameText, serviceNameText, volumeNameText)
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Dsl.Worker (Worker (..))
@@ -53,26 +54,44 @@ import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
 
--- | Match every native workload that the legacy aggregate deploy can write.
+-- | Match every native object that the legacy aggregate deploy can write.
 -- The check uses provider addresses so a renamed logical key cannot bypass
 -- accepted or retained ownership. Cluster context is checked by the store.
 applicationNativeOwned :: Application -> [ManagedResource] -> Bool
 applicationNativeOwned app = any matches
   where
     namespaceName = namespaceText (app ^. #namespace)
-    workloads =
+    objects =
       [("serving.knative.dev", "service", serviceNameText (service ^. #name))
       | service <- maybe [] pure (app ^. #service)]
+        <> [("", "persistentvolumeclaim", pvcName (serviceNameText (service ^. #name))
+              (volumeNameText (volume ^. #name)))
+           | service <- maybe [] pure (app ^. #service), volume <- service ^. #volumes]
+        <> [("serving.knative.dev", "domainmapping", domainText (domain ^. #domain))
+           | service <- maybe [] pure (app ^. #service), domain <- service ^. #domains]
         <> [("apps", "deployment", serviceNameText (worker ^. #name))
            | worker <- app ^. #workers]
+        <> [("", "persistentvolumeclaim", pvcName (serviceNameText (worker ^. #name))
+              (volumeNameText (volume ^. #name)))
+           | worker <- app ^. #workers, volume <- worker ^. #volumes]
         <> [("apps", "statefulset", databaseNameText (database ^. #name))
            | database <- app ^. #databases]
+        <> [("", "secret", dbSecretName (databaseNameText (database ^. #name)))
+           | database <- app ^. #databases]
+        <> [("", "persistentvolumeclaim", dbPvcName (databaseNameText (database ^. #name)))
+           | database <- app ^. #databases]
+        <> [("", "service", databaseNameText (database ^. #name))
+           | database <- app ^. #databases]
+        <> [("", "configmap", dbConfigMapName (databaseNameText (database ^. #name)))
+           | database <- app ^. #databases, database ^. #engine == ClickHouse]
+        <> [("batch", "cronjob", "nagare-dbbackup-" <> databaseNameText (database ^. #name))
+           | database <- app ^. #databases, database ^. #retention /= Dsl.Delete]
         <> [("batch", "cronjob", taskResourceName (serviceNameText (task ^. #name)))
            | task <- app ^. #tasks]
     matches resource = case resource ^. #address of
       Kubernetes _ group kind (Just namespace) name ->
         nameText namespace == namespaceName
-          && (group, nameText kind, nameText name) `elem` workloads
+          && (group, nameText kind, nameText name) `elem` objects
       _ -> False
 
 -- | A direct single-workload command's native identity, including resources

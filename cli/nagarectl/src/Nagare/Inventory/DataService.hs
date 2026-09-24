@@ -6,6 +6,8 @@ module Nagare.Inventory.DataService
   , compileStandaloneBroker
   , standaloneRetirementScope
   , standaloneStatefulSetOwned
+  , databaseNativeOwned
+  , brokerNativeOwned
   , acceptedFoundationNamespace
   ) where
 
@@ -20,8 +22,10 @@ import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend)
 import Nagare.Dsl.Broker (Broker (..), BrokerProvider (Redpanda), brokerNameText)
 import Nagare.Dsl.Broker.Render (brokerPvcName, renderBroker)
+import Nagare.Dsl.Database (Database (..), Engine (ClickHouse), dbSecretName)
+import Nagare.Dsl.Database.Render (dbConfigMapName, dbPvcName)
 import Nagare.Dsl.Prelude
-import Nagare.Dsl.Types (namespaceText)
+import Nagare.Dsl.Types (RetentionPolicy (Delete), databaseNameText, namespaceText)
 import Nagare.Inventory.Database (compileDatabaseForBackend)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
@@ -152,6 +156,39 @@ standaloneStatefulSetOwned name namespaceName = any matches
           && nameText nativeNamespace == namespaceName
           && nameText nativeName == name
       _ -> False
+
+-- | The legacy create commands write companion objects before their
+-- StatefulSets. Match every possible native address against accepted and
+-- retained history before letting either direct create path proceed.
+databaseNativeOwned :: Database -> [ManagedResource] -> Bool
+databaseNativeOwned database = any (nativeOwned namespaceName addresses)
+  where
+    name = databaseNameText (database ^. #name)
+    namespaceName = namespaceText (database ^. #namespace)
+    addresses =
+      [("", "secret", dbSecretName name)
+      , ("", "persistentvolumeclaim", dbPvcName name)
+      , ("", "service", name)
+      , ("apps", "statefulset", name)]
+        <> [("", "configmap", dbConfigMapName name) | database ^. #engine == ClickHouse]
+        <> [("batch", "cronjob", "nagare-dbbackup-" <> name) | database ^. #retention /= Delete]
+
+brokerNativeOwned :: Broker -> [ManagedResource] -> Bool
+brokerNativeOwned broker = any (nativeOwned namespaceName addresses)
+  where
+    name = brokerNameText (broker ^. #name)
+    namespaceName = namespaceText (broker ^. #namespace)
+    addresses =
+      [("", "persistentvolumeclaim", brokerPvcName name)
+      , ("", "service", name)
+      , ("apps", "statefulset", name)]
+
+nativeOwned :: T.Text -> [(T.Text, T.Text, T.Text)] -> ManagedResource -> Bool
+nativeOwned namespaceName addresses resource = case resource ^. #address of
+  Kubernetes _ group kind (Just nativeNamespace) nativeName ->
+    nameText nativeNamespace == namespaceName
+      && (group, nameText kind, nameText nativeName) `elem` addresses
+  _ -> False
 
 -- | Resolve the accepted platform Namespace by both stable identity and
 -- provider address. A matching ID with a different native name is not enough
