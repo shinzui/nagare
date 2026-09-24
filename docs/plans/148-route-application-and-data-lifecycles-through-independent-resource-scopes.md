@@ -71,6 +71,8 @@ Every supported application-side mutation is either a desired-scope update, a re
 
 2026-09-24: The Redpanda renderer's direct Kubernetes membership is three objects. Broker topic creation currently happens later through `rpk`, so a broker with topics cannot be considered fully declared by those three objects; the standalone compiler refuses such input until the topic operation is reviewed.
 
+2026-09-24: A co-located task can carry an `app` association that differs from the containing Application while the aggregate renderer still stamps the containing app's label. Aggregate validation now rejects that mismatch before declaration or preview.
+
 
 ## Decision Log
 

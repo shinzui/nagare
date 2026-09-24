@@ -130,7 +130,18 @@ mkApplication app = do
   checkDeclaredDatabases app
   checkUniqueNames app
   checkNamespaceAgreement app
+  checkTaskAssociation app
   Right app
+
+-- A co-located task may inherit this app, but cannot silently bind to a
+-- different app while the renderer stamps it with this aggregate's label.
+checkTaskAssociation :: Application -> Either Text ()
+checkTaskAssociation app =
+  case [task ^. #name | task <- app ^. #tasks
+        , Just parent <- [task ^. #app], parent /= app ^. #name] of
+    [] -> Right ()
+    taskName : _ -> Left ("task '" <> serviceNameText taskName
+      <> "' references a different application")
 
 -- | The (workload-name, own-image) pair of every workload that pins an image:
 -- the service (when present), each worker, and each task that carries its own

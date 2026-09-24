@@ -172,6 +172,11 @@ mkApplicationTests =
       assertLeftContains
         "namespace"
         (mkApplication (multiAppRec & #workers .~ [worker1 & #namespace .~ unsafe (mkNamespace "other"), worker2]))
+  , testCase "rejects a task inheriting another application" $
+      assertLeftContains
+        "different application"
+        (mkApplication (multiAppRec & #tasks .~
+          [migrateTask & #app .~ Just (unsafe (mkServiceName "other"))]))
   ]
 
 -- ---------------------------------------------------------------------------
