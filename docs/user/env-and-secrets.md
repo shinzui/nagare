@@ -210,18 +210,23 @@ interpolation (`${X}`) is **not** supported.
 - **`--reconcile-exact`**: make the store *exactly* the file's contents, dropping any key
   not present.
 
-For a Runtime ConfigMap owned by inventory history, save an exact review and
-apply it with the shared inventory command. This gives the separately managed
-env channel its own revision, so a later application scope deployment preserves
-its keys. Planning uses the dotenv file as the complete desired channel and
-requires the accepted platform Namespace. A preexisting unmanaged ConfigMap
-requires reviewed adoption before its first managed write.
+For a Runtime or Build ConfigMap owned by inventory history, save an exact
+review and apply it with the shared inventory command. Each channel has its
+own revision, so a later application scope deployment preserves its keys.
+Planning uses the dotenv file as the complete desired channel and requires the
+accepted platform Namespace. A preexisting unmanaged ConfigMap requires
+reviewed adoption before its first managed write.
 
 ```bash
 nagarectl env sync envdemo --file .env.production --reconcile-exact \
   --save-plan env-review
 nagarectl inventory apply env-review --yes
 ```
+
+Pass `--build` to review the Build channel instead of the default Runtime
+channel. The Build ConfigMap feeds the existing image-build argument reader;
+its keys do not enter the running container. One review selects exactly one
+of these two channels.
 
 Runtime Secret values also have an exact reviewed input channel. Supply an
 opaque version token for each rotation. The file must remain available while
@@ -237,7 +242,7 @@ nagarectl secret sync envdemo --file .env.secrets --version v2 \
 nagarectl inventory apply secret-review --yes
 ```
 
-Build and Preview channels still need reviewed input paths.
+The Preview channel still needs a reviewed input path.
 
 ```console
 $ nagarectl env sync envdemo \

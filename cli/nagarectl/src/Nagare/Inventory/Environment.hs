@@ -3,6 +3,7 @@
 -- an application scope replacement leaves this channel's revision alone.
 module Nagare.Inventory.Environment
   ( compileRuntimeEnvChannel
+  , compileBuildEnvChannel
   , compileRuntimeSecretChannel
   , validateRuntimeSecretRotation
   ) where
@@ -17,7 +18,7 @@ import Data.Text qualified as T
 import Data.Yaml qualified as Yaml
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Render (managedConfigMapName, managedSecretName)
-import Nagare.Dsl.Types (EnvScope (Runtime))
+import Nagare.Dsl.Types (EnvScope (Build, Runtime))
 import Nagare.Env.Store (renderEnvConfigMap, renderEnvSecret)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
@@ -33,8 +34,19 @@ compileRuntimeEnvChannel
   -> Either (NonEmpty InventoryError)
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
 compileRuntimeEnvChannel app namespaceName cluster namespaceId values source = do
-  compileChannel "env" "runtime-env" "configmap" "ConfigMap" Private
+  compileChannel "env" "runtime" "runtime-env" "configmap" "ConfigMap" Private
     (managedConfigMapName app Runtime) (renderEnvConfigMap app namespaceName Runtime values)
+    app namespaceName cluster namespaceId source
+
+-- | Build variables have a distinct accepted revision from Runtime variables.
+-- The existing build-argument reader consumes this exact ConfigMap address.
+compileBuildEnvChannel
+  :: T.Text -> T.Text -> ResourceId -> ResourceId -> Map T.Text T.Text -> SourceLocation
+  -> Either (NonEmpty InventoryError)
+       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileBuildEnvChannel app namespaceName cluster namespaceId values source =
+  compileChannel "env" "build" "build-env" "configmap" "ConfigMap" Private
+    (managedConfigMapName app Build) (renderEnvConfigMap app namespaceName Build values)
     app namespaceName cluster namespaceId source
 
 -- | The version token is explicit intent and appears only in the declaration
@@ -46,7 +58,7 @@ compileRuntimeSecretChannel
   -> Either (NonEmpty InventoryError)
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
 compileRuntimeSecretChannel app namespaceName cluster namespaceId version values source =
-  compileChannel "secret" "runtime-secret" "secret" "Secret" Secret
+  compileChannel "secret" "runtime" "runtime-secret" "secret" "Secret" Secret
     (managedSecretName app Runtime) (renderEnvSecret app namespaceName Runtime values)
     app namespaceName cluster namespaceId
     (source {path = "runtime-secret/" <> nameText version})
@@ -70,13 +82,13 @@ validateRuntimeSecretRotation snapshot candidate = do
       _ -> Left "Runtime Secret channel must have exactly one managed member"
 
 compileChannel
-  :: T.Text -> T.Text -> T.Text -> T.Text -> Sensitivity -> T.Text -> ByteString
+  :: T.Text -> T.Text -> T.Text -> T.Text -> T.Text -> Sensitivity -> T.Text -> ByteString
   -> T.Text -> T.Text -> ResourceId -> ResourceId -> SourceLocation
   -> Either (NonEmpty InventoryError)
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileChannel scopePrefix logicalKey roleText objectKind visibility nativeName bytes
+compileChannel scopePrefix channelName logicalKey roleText objectKind visibility nativeName bytes
     app namespaceName cluster namespaceId source = do
-  owner <- first invalid (mkScopeId Application (scopePrefix <> "-" <> app <> "-runtime"))
+  owner <- first invalid (mkScopeId Application (scopePrefix <> "-" <> app <> "-" <> channelName))
   key <- first invalid (mkLogicalKey logicalKey)
   role <- first invalid (mkName roleText)
   let resourceId = mintResourceId owner key role
@@ -97,11 +109,11 @@ compileChannel scopePrefix logicalKey roleText objectKind visibility nativeName 
   expected <- first invalid (kubernetesAddress cluster "v1" objectKind
     (Just namespaceName) nativeName)
   unless (resource ^. #address == expected)
-    (Left (invalid "Runtime channel renderer changed its native address"))
+    (Left (invalid "environment channel renderer changed its native address"))
   let member = resource {dependencies = [OrderedAfter namespaceId]}
   scope <- mkScopeDeclaration owner [ResourceBundle [Managed member] [] [] [] [] []]
   pure (scope, Map.singleton resourceId (member, native))
   where
-    invalid message = inventoryError "invalid-runtime-channel" message
+    invalid message = inventoryError ("invalid-" <> channelName <> "-channel") message
       & #sources .~ [source]
       & (:| [])

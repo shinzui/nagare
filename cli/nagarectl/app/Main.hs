@@ -273,7 +273,7 @@ import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManager
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedApplicationImage, acceptedBrokerBindings, acceptedSecretBindings, applicationNativeOwned, applicationVolumeRecoveryBindings, compileApplicationScope, compileStandaloneService, databaseRecoveryBindings, nativeWorkloadOwned, reviewedTaskImages)
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, compileStandaloneDatabase, databaseNativeOwned, standaloneRetirementScope, standaloneStatefulSetOwned)
-import Nagare.Inventory.Environment (compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateRuntimeSecretRotation)
+import Nagare.Inventory.Environment (compileBuildEnvChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateRuntimeSecretRotation)
 import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
@@ -2480,7 +2480,7 @@ opts =
                       <*> dryRunOpt
                       <*> reconcileExactParser
                       <*> strOption (long "file" <> metavar "FILE" <> help "dotenv file to import")
-                      <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Review an exact Runtime env channel replacement"))
+                      <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Review an exact Runtime or Build env channel replacement"))
                         <**> helper
                   )
                   (progDesc "Bulk-import a dotenv file into the env store")
@@ -7813,15 +7813,18 @@ runEnv mctx = \case
     incoming <- orDie (parseDotenv raw)
     case savePlan of
       Just output -> do
-        unless (exact && not dry && selectedScopes sel == [Runtime])
-          (dieT "reviewed env sync requires --reconcile-exact, Runtime scope only, and no --dry-run")
+        unless (exact && not dry && selectedScopes sel `elem` [[Runtime], [Build]])
+          (dieT "reviewed env sync requires --reconcile-exact, one Runtime or Build scope, and no --dry-run")
         active <- activeTarget mctx
         (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
         snapshot <- Inventory.loadTargetSnapshot active
         (cluster, namespaceId) <- either dieT pure (acceptedFoundationNamespace snapshot ns)
+        let compile = if selectedScopes sel == [Build]
+              then compileBuildEnvChannel else compileRuntimeEnvChannel
+            channelName = if selectedScopes sel == [Build] then "build-env" else "runtime-env"
         (channel, native) <- either (dieT . T.pack . show) pure
-          (compileRuntimeEnvChannel name ns cluster namespaceId incoming
-            (Resource.SourceLocation (T.pack dotenvPath) "runtime-env"))
+          (compile name ns cluster namespaceId incoming
+            (Resource.SourceLocation (T.pack dotenvPath) channelName))
         candidate <- either (dieT . T.pack . show) pure
           (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope channel NE.:| []))
         Inventory.planInventoryCandidateWith

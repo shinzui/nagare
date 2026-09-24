@@ -13,7 +13,7 @@ import Nagare.Dsl.Prelude
 import Nagare.Inventory.Application (compileApplicationDatabases, reviewedTaskImages)
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), compileFoundation)
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, databaseNativeOwned, standaloneRetirementScope)
-import Nagare.Inventory.Environment (compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateRuntimeSecretRotation)
+import Nagare.Inventory.Environment (compileBuildEnvChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateRuntimeSecretRotation)
 import Nagare.Resource.Application (applicationScopeId)
 import Nagare.Resource.Inventory (Declaration (Managed), ManagedResource (..), ResourceBundle (..), mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeId)
 import Nagare.Resource.Policy (RecoveryIntent (..), Sensitivity (Secret), mkSecretRef)
@@ -33,6 +33,29 @@ inventoryApplicationTests = testGroup "application inventory compilation"
       case reviewedTaskImages [otherImage] "registry/app:v1" "v1" of
         Left _ -> pure ()
         Right _ -> assertFailure "task referenced a second unreviewed image"
+  , testCase "Build env intent has a separate accepted ConfigMap channel" $ do
+      let checked = either (error . show) id
+          foundation = checked (mkScopeId Platform "foundation")
+          cluster = mintResourceId foundation (checked (mkLogicalKey "cluster"))
+            (checked (mkName "cluster"))
+          namespaceId = mintResourceId foundation (checked (mkLogicalKey "foundation"))
+            (checked (mkName "namespace-personal"))
+          values = Map.singleton "BUILD_MODE" "release"
+          source = SourceLocation "env" "build-env"
+      (buildScope, buildNative) <- either (fail . show) pure
+        (compileBuildEnvChannel "kizashi" "personal" cluster namespaceId values source)
+      (runtimeScope, _) <- either (fail . show) pure
+        (compileRuntimeEnvChannel "kizashi" "personal" cluster namespaceId values source)
+      scopeId buildScope @?= checked (mkScopeId Application "env-kizashi-build")
+      case [resource | bundle <- scopeBundles buildScope, Managed resource <- declarations bundle] of
+        [resource] -> do
+          resource ^. #address @?= checked (kubernetesAddress cluster "v1" "ConfigMap"
+            (Just "personal") "nagare-env-kizashi-build")
+          Map.size buildNative @?= 1
+          case [runtime | bundle <- scopeBundles runtimeScope, Managed runtime <- declarations bundle] of
+            [runtime] -> resource ^. #identity == runtime ^. #identity @?= False
+            _ -> assertFailure "Runtime channel has unexpected membership"
+        _ -> assertFailure "Build channel has unexpected membership"
   , testCase "Runtime env intent compiles into an independent exact ConfigMap channel" $ do
       let checked = either (error . show) id
           foundation = checked (mkScopeId Platform "foundation")
