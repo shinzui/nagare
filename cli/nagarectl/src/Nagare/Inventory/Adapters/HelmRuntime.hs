@@ -2,7 +2,9 @@
 -- checked again, and the verify post-renderer refuses changed native bytes.
 module Nagare.Inventory.Adapters.HelmRuntime
   ( HelmRuntimeConfig (..)
+  , HelmStatusError (..)
   , helmRuntimeOps
+  , parseStatus
   )
 where
 
@@ -39,6 +41,9 @@ data HelmRuntimeConfig = HelmRuntimeConfig
   , helmDeclarations :: !(Map ResourceId ManagedResource)
   , helmRuntimeGuard :: !(IO (Either Text ()))
   }
+
+data HelmStatusError = HelmStatusUnavailable !Text | HelmStatusForeign !Text
+  deriving stock (Eq, Show)
 
 helmRuntimeOps :: HelmRuntimeConfig -> HelmAdapterOps
 helmRuntimeOps config =
@@ -79,8 +84,9 @@ observeGuarded config resource = case Map.lookup resource (helmDeclarations conf
               pure (HelmAbsent (contentDigest (TE.encodeUtf8 (helmKubeContext config <> "/" <> nameText namespace <> "/" <> nameText release))))
           | otherwise -> pure (HelmUnavailable (T.pack err))
         Right (ExitSuccess, output, _) -> case parseStatus config resource (TE.encodeUtf8 (T.pack output)) of
-          Left reason -> pure (HelmForeign reason)
-          Right (revision, digest) -> do
+          Left (HelmStatusUnavailable reason) -> pure (HelmUnavailable reason)
+          Left (HelmStatusForeign reason) -> pure (HelmForeign reason)
+          Right (revision, digest, deployed) -> do
             secret <-
               run
                 "kubectl"
@@ -100,26 +106,27 @@ observeGuarded config resource = case Map.lookup resource (helmDeclarations conf
               Right (ExitFailure _, _, err) -> HelmUnavailable (T.pack err)
               Right (ExitSuccess, bytes, _) -> case parseUid (TE.encodeUtf8 (T.pack bytes)) of
                 Left reason -> HelmUnavailable reason
-                Right uid -> HelmPresent uid revision resource digest
+                Right uid | deployed -> HelmPresent uid revision resource digest
+                Right uid -> HelmUnready uid revision resource digest
     _ -> pure (HelmUnavailable "Helm runtime declaration has no release address")
 
-parseStatus :: HelmRuntimeConfig -> ResourceId -> ByteString -> Either Text (Text, ContentDigest)
+parseStatus :: HelmRuntimeConfig -> ResourceId -> ByteString -> Either HelmStatusError (Text, ContentDigest, Bool)
 parseStatus config resource bytes = do
-  root <- first T.pack (eitherDecodeStrict' bytes) >>= asObject "Helm status"
-  version <- field "version" root
+  root <- first (HelmStatusUnavailable . T.pack) (eitherDecodeStrict' bytes)
+    >>= first HelmStatusUnavailable . asObject "Helm status"
+  version <- first HelmStatusUnavailable (field "version" root)
   revision <- case fromJSON version of
     Success (number :: Int) | number > 0 -> Right (T.pack (show number))
-    _ -> Left "Helm release has no positive revision"
-  info <- field "info" root >>= asObject "Helm status info"
-  status <- field "status" info >>= asText "status"
-  unless (status == "deployed") (Left "Helm release is not deployed")
-  description <- field "description" info >>= asText "description"
+    _ -> Left (HelmStatusUnavailable "Helm release has no positive revision")
+  info <- first HelmStatusUnavailable (field "info" root >>= asObject "Helm status info")
+  status <- first HelmStatusUnavailable (field "status" info >>= asText "status")
+  description <- first HelmStatusForeign (field "description" info >>= asText "description")
   digest <- case T.splitOn "|" description of
     ["nagare-inventory-v1", context, owner, revisionDigest]
       | context == contextIdText (helmContextId config) && owner == resourceIdText resource ->
-          first id (mkContentDigest revisionDigest)
-    _ -> Left "Helm release lacks the reviewed context and logical owner stamp"
-  pure (revision, digest)
+          first HelmStatusForeign (mkContentDigest revisionDigest)
+    _ -> Left (HelmStatusForeign "Helm release lacks the reviewed context and logical owner stamp")
+  pure (revision, digest, status == "deployed")
 
 parseUid :: ByteString -> Either Text PhysicalIdentity
 parseUid bytes = do

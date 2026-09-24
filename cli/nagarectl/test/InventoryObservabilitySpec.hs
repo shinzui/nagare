@@ -622,6 +622,11 @@ inventoryObservabilityTests =
         current <- newIORef (HelmPresent physical "2" resource (contentDigest (BC.pack "changed")))
         drifted <- adapterObserve (adapterFor current) [resource] >>= either (assertFailure . show) pure
         Map.lookup resource (observationMap drifted) @?= Just (ObservedDrifted physical (contentDigest (BC.pack "changed")))
+        writeIORef current (HelmUnready physical "2" resource (contentDigest native))
+        unready <- adapterObserve (adapterFor current) [resource] >>= either (assertFailure . show) pure
+        Map.lookup resource (observationMap unready) @?= Just (ObservedPresent physical)
+        refused <- adapterPrepare (adapterFor current) verify
+        assertBool "unready owned release was prepared for verification" (either (const True) (const False) refused)
         writeIORef current (HelmPresent physical "3" (mintResourceId scope (ok (mkLogicalKey "foreign")) (name "resource")) (contentDigest native))
         occupied <- adapterObserve (adapterFor current) [resource] >>= either (assertFailure . show) pure
         Map.lookup resource (observationMap occupied) @?= Just (ObservedForeign physical)
@@ -632,6 +637,34 @@ inventoryObservabilityTests =
         writeIORef current (HelmPresent physical "5" resource (contentDigest native))
         stale <- adapterPreflight (adapterFor current) verify checked
         assertBool "changed Helm revision passed read-only verification" (either (const True) (const False) stale)
+    , testCase "pending owned Helm release keeps its ownership evidence" $ do
+        let resource = releaseId fixture
+            context = ok (mkContextId "helm-test")
+            digest = contentDigest (BC.pack "helm-contract")
+            config = HelmRuntimeConfig "test-context" context "unused" Map.empty (pure (Right ()))
+            statusValue state = object
+              [ "version" .= (2 :: Int)
+              , "info" .= object
+                  [ "status" .= (state :: T.Text)
+                  , "description" .= T.intercalate "|"
+                      ["nagare-inventory-v1", contextIdText context,
+                       resourceIdText resource, digestText digest]
+                  ]
+              ]
+        parseStatus config resource (ok (canonicalValue (statusValue "pending-upgrade")))
+          @?= Right ("2", digest, False)
+        parseStatus config resource (ok (canonicalValue (statusValue "deployed")))
+          @?= Right ("2", digest, True)
+        assertBool "malformed Helm response was reported as foreign ownership"
+          (case parseStatus config resource "not-json" of
+            Left (HelmStatusUnavailable _) -> True
+            _ -> False)
+        assertBool "missing Helm stamp was reported as provider failure"
+          (case parseStatus config resource (ok (canonicalValue (object
+            ["version" .= (2 :: Int), "info" .= object
+              ["status" .= ("deployed" :: T.Text), "description" .= ("other" :: T.Text)]]))) of
+            Left (HelmStatusForeign _) -> True
+            _ -> False)
     , testCase "private review reconstructs the Helm contract" $ do
         let (release, native) = ok (compileRenderedRelease fixture)
             specs = Map.singleton (releaseId fixture) (release, native)

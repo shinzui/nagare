@@ -28,6 +28,7 @@ import Nagare.Resource.Wire (canonicalValue)
 data HelmState
   = HelmAbsent !ContentDigest
   | HelmPresent !PhysicalIdentity !Text !ResourceId !ContentDigest
+  | HelmUnready !PhysicalIdentity !Text !ResourceId !ContentDigest
   | HelmForeign !Text
   | HelmUnavailable !Text
   deriving stock (Eq, Show, Generic)
@@ -109,6 +110,11 @@ mkHelmAdapter specs ops = Adapter
         | Just (_, contract) <- Map.lookup resource specs
         , digest /= contentDigest contract -> (resource, ObservedDrifted physical digest)
         | otherwise -> (resource, ObservedPresent physical)
+      HelmUnready physical _ owner digest
+        | owner /= resource -> (resource, ObservedForeign physical)
+        | Just (_, contract) <- Map.lookup resource specs
+        , digest /= contentDigest contract -> (resource, ObservedDrifted physical digest)
+        | otherwise -> (resource, ObservedPresent physical)
       HelmForeign reason -> (resource, ObservationUnavailable reason)
       HelmUnavailable reason -> (resource, ObservationUnavailable reason)
     specFor operation = do
@@ -130,6 +136,7 @@ mkHelmAdapter specs ops = Adapter
         && owner == resource && not (T.null revision) -> Right ()
       HelmPresent _ revision owner digest | plannedAction operation == VerifyResource
         && owner == resource && not (T.null revision) && digest == desiredDigest -> Right ()
+      HelmUnready {} -> Left "Helm release is owned but not deployed"
       HelmUnavailable reason -> Left ("Helm observation unavailable: " <> reason)
       HelmForeign reason -> Left ("Helm release is foreign: " <> reason)
       _ -> Left "Helm action lacks confirmed absence or an owned release revision"
@@ -156,6 +163,7 @@ mkHelmAdapter specs ops = Adapter
       HelmForeign reason -> Left reason
       HelmUnavailable reason -> Left reason
       HelmPresent {} -> Left "Helm release identity or native contract differs from review"
+      HelmUnready {} -> Left "Helm release is not deployed"
     preparedProof physical revision digest =
       either (error . T.unpack) id (canonicalValue (toJSON
         (physicalIdentityText physical, revision, digestText digest)))

@@ -93,6 +93,13 @@ among both active and retained declarations, so retiring two related resources
 does not erase their dependency relationship. A retained resource's own
 `dependencyTrace` also follows those historical declarations to their owners.
 
+A pending Helm release with a valid Nagare owner stamp remains an owned
+observation. Its unready status blocks reviewed verification; it is not reported
+as foreign ownership. Status currently leaves Helm health unknown until a
+separate condition probe is available. A malformed Helm status response is
+unavailable, while a readable release with a missing or mismatched owner stamp
+is foreign.
+
 The first collection route accepts only retained stateless namespaced ConfigMaps
 whose lifecycle policy is `DeleteWhenUnreferenced`, whose exact stamped UID is
 present, and whose active and retained consumers are absent. Run `nagarectl
