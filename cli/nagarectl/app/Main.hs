@@ -4450,6 +4450,7 @@ runInventoryStatus mctx requested json gcOutput = do
           _ -> InventoryStatus.findingHealth finding}
         | finding <- InventoryStatus.classifyDrift inventory observations]
       retainedFindings = InventoryStatus.retainedFindings history observations
+      collectionAssessments = InventoryStatus.assessCollections history inventory observations
       collectedEntries = Map.toAscList (InventoryStore.headCollected (InventoryPlan.historyHead history))
       unavailable = Set.toAscList (Set.fromList
         ([InventoryStatus.findingExecutor finding | finding <- findings,
@@ -4477,13 +4478,12 @@ runInventoryStatus mctx requested json gcOutput = do
     Just output -> do
       exists <- doesPathExist output
       when exists (dieT "collection plan output already exists")
-      let assessments = InventoryStatus.assessCollections history inventory observations
-          report = Aeson.object
+      let report = Aeson.object
             [ "version" Aeson..= (1 :: Int)
             , "context" Aeson..= binding
             , "observedAt" Aeson..= observedAt
             , "deletionAuthorized" Aeson..= False
-            , "assessments" Aeson..= assessments
+            , "assessments" Aeson..= collectionAssessments
             ]
       createDirectoryIfMissing True output
       LBS.writeFile (output </> "collection-plan.json") (Aeson.encode report)
@@ -4501,6 +4501,7 @@ runInventoryStatus mctx requested json gcOutput = do
             | (scope, executor) <- missingScopes]
         , "providers" Aeson..= providers
         , "retained" Aeson..= retainedFindings
+        , "collectionAssessments" Aeson..= collectionAssessments
         , "collected" Aeson..=
             [Aeson.object ["resource" Aeson..= resource, "tombstone" Aeson..= tombstone]
             | (resource, tombstone) <- collectedEntries]
@@ -4533,6 +4534,7 @@ runInventoryStatus mctx requested json gcOutput = do
             , "dataPolicy" Aeson..= (resource ^. #dataPolicy)
             , "sensitivity" Aeson..= (resource ^. #sensitivity)
             , "delegations" Aeson..= (resource ^. #delegations)
+            , "source" Aeson..= (resource ^. #source)
             ]), T.pack (show finding))
         Nothing -> case Map.lookup resourceId (InventoryPlan.historyRetained history) of
           Just (_, resource) -> do
@@ -4543,6 +4545,16 @@ runInventoryStatus mctx requested json gcOutput = do
               , "dependencies" Aeson..= (resource ^. #dependencies)
               , "dependencyTrace" Aeson..= InventoryStatus.traceRetainedDependencies history inventory resourceId
               , "consumers" Aeson..= InventoryStatus.consumersOf history inventory resourceId
+              , "addressAliases" Aeson..= (resource ^. #aliases)
+              , "requiredConditions" Aeson..=
+                  [reference | ResourceReference.ReadyAfter reference <- resource ^. #dependencies]
+              , "lifecycle" Aeson..= (resource ^. #lifecycle)
+              , "dataPolicy" Aeson..= (resource ^. #dataPolicy)
+              , "sensitivity" Aeson..= (resource ^. #sensitivity)
+              , "delegations" Aeson..= (resource ^. #delegations)
+              , "source" Aeson..= (resource ^. #source)
+              , "collectionAssessment" Aeson..= find
+                  ((== resourceId) . InventoryStatus.collectionResource) collectionAssessments
               , "recoveryReason" Aeson..= ("retained incarnation requires explicit collection or recovery review" :: Text)
               ]), "Retained resource " <> Resource.resourceIdText resourceId)
           Nothing -> case Map.lookup resourceId (InventoryStore.headCollected (InventoryPlan.historyHead history)) of

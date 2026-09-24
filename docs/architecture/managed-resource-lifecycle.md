@@ -17,6 +17,10 @@ Knative Services, and Deployments, status separately probes controller
 conditions and reports health as `ready` or `not-ready` when the second read
 still has the observed UID. Other kinds and failed or changed reads remain
 `unknown`; a missing resource is `unavailable`.
+Status also includes the read-only `collectionAssessments` for retained
+resources. Each assessment carries blockers and `deletionAuthorized: false`.
+Explain shows the historical declaration's aliases, required conditions,
+delegations, policies, and source alongside its dependency trace.
 
 ## Adoption review
 

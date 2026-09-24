@@ -85,6 +85,7 @@ This plan delivers provider-independent lifecycle planning plus inventory status
 - [x] (2026-09-23) M1 partial: Read-only status probes Kubernetes Job, CRD, cert-manager, Knative Service, and Deployment conditions independently of configuration drift. It accepts a condition only when the second read has the same UID as the inventory observation, and otherwise leaves health unknown. A pure kind-selection fixture and the CLI executable build pass. Other provider health remains open.
 - [x] (2026-09-23) M2 compatibility: Legacy `platform adopt` now says explicitly in text and JSON that it pins the platform release without adopting any provider object into inventory. The upgrade runbook links the per-resource exact-incarnation adoption review. The legacy status and marker flow remains intact.
 - [x] (2026-09-23) M3 collection screening: Read-only `gc --plan`, lifecycle validation, and conditional Kubernetes deletion now share one supported-kind predicate. Unsupported resources carry `unsupported-collection-transport` rather than appearing collectible, and cannot enter a reviewed collection plan. The 150 focused inventory tests and Haskell style check pass; durable-data and other-provider collection remain open.
+- [x] (2026-09-24) M1 partial: Status includes the read-only collection assessments for retained objects, while retained explain exposes historical aliases, required conditions, delegation, policies, and declaration source alongside dependency traces. The CLI executable builds. Immutable replacement classification, unmanaged discovery, and broader provider health remain open.
 - [ ] M1: Classify observations and expose complete read-only status/explain.
 - [ ] M2: Plan explicit legacy adoption and ownership transfer.
 - [ ] M3: Plan migration/retirement with retained data and recovery evidence.
@@ -253,6 +254,8 @@ Support types are explicit alternatives in Lifecycle/Migration; identity and pol
 2026-09-23: Added Kubernetes condition health reporting to read-only status while retaining unknown health for unsupported kinds and failed observations.
 
 2026-09-23: Aligned read-only collection candidate screening and lifecycle validation with the Kubernetes executor's conditional deletion support; unsupported kinds and providers report a blocker before review.
+
+2026-09-24: Added retained collection assessments to status and declaration detail parity to retained explain; M1 remains open for provider and replacement coverage.
 
 2026-09-23: Recorded the precise source/destination observation gap for migration after tracing the current head, planner, and adapter registry contracts; the migration refusal remains in force.
 

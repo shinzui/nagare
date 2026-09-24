@@ -246,6 +246,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-23) EP-149 M4 partial: `inventory recover` records an operator-selected action only after the issued adapter proves completion or safe retry for the active uncertain operation. Strict decision input, review binding, and journal replay tests pass; unresolved effects remain blocked.
 - [x] (2026-09-23) EP-149 M1 partial: Status reports controller-condition health for supported Kubernetes kinds after a second read confirms the observed UID. The full 743-test CLI suite passes; other provider condition probes remain open.
 - [x] (2026-09-23) EP-149 M3 collection screening: GC assessment, lifecycle validation, and native preparation now share the proved conditional-delete kind rule, so unsupported resources receive a blocker before review. The 150 focused inventory tests and style check pass; broader collection and migration remain open.
+- [x] (2026-09-24) EP-149 M1 partial: Status exposes read-only collection assessments and retained explain exposes aliases, required conditions, delegation, policies, and source; the CLI builds. Replacement classification and broader provider coverage remain open.
 - [x] (2026-09-23) EP-147/149 follow-up: Bootstrap component guides now use reviewed plan/apply and pinned inputs. Status reports health independently of configuration and refuses a report when the accepted head changes during provider observation.
 - [x] (2026-09-23) EP-147 M2c: Complete cache/database bundles execute through reviewed bootstrap; EP-148 owns standalone and application database command migration.
 - [x] (2026-09-23) EP-147 M3: Cloud/local components, owner-composed auth settings, foundation Namespace/certificate policy, and bounded host timer credential delegation are recorded and validated.
@@ -396,3 +397,5 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 2026-09-23: Recorded adapter-proved operator recovery and UID-bound Kubernetes health observation. EP-149 still requires migration, broader lifecycle coverage, and complete acceptance before dependent children can start.
 
 2026-09-23: Kept EP-149 in progress while aligning read-only collection screening with the proved conditional-delete transport. No dependency edge or child scope changed.
+
+2026-09-24: Recorded additional read-only EP-149 status and explain coverage. The registry and dependency graph are unchanged.
