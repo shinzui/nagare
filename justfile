@@ -16,7 +16,18 @@ default:
 
 # Run every repository-native documentation validation target.
 [group('docs')]
-docs-validate: reviews-validate user-documentation-validate
+docs-validate: reviews-validate user-documentation-validate terminology-validate
+
+# Validate the controlled vocabulary and its cross-term graph.
+[group('docs')]
+terminology-validate:
+    okf validate docs/terminology \
+      --strict \
+      --profile mori/terminology-profile.dhall \
+      --profile-enforce \
+      --log-enforce
+    @okf graph docs/terminology --json >/dev/null
+    mori terms validate --path .
 
 # Strictly validate commit-pinned review records against the shared
 # assurance.reviews profile. Findings stay in the review body or become records

@@ -223,6 +223,9 @@ The evidence-backed catalog at [`docs/capabilities/`](docs/capabilities/index.md
 shipped surface with stable `CAP-N` handles, compatibility promises, interfaces, and verifiable
 source, test, example, and guide evidence. The summary below is the short orientation.
 
+The [terminology catalog](docs/terminology/index.md) defines Nagare's platform, workload,
+data, and operations vocabulary with stable `TERM-N` handles.
+
 - Bring your own GCP project with `nagarectl init`, then provision the cloud
   perimeter with Pulumi.
 - Boot or update the NixOS/k3s host, bootstrap Knative/Kourier/cert-manager, and

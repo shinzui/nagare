@@ -100,6 +100,13 @@ in  Schema.Project::{
       ]
     , okfBundles =
       [ Schema.OkfBundle::{
+        , name = "terminology"
+        , path = "docs/terminology"
+        , profile = Some "mori/terminology-profile.dhall"
+        , okfVersion = "0.2"
+        , description = Some "Controlled Nagare platform vocabulary"
+        }
+      , Schema.OkfBundle::{
         , name = "capabilities"
         , path = "docs/capabilities"
         , profile = Some "docs/capabilities/profile.dhall"
