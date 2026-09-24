@@ -116,8 +116,8 @@ reads. The grammar:
 
 ```text
 nagarectl env list   APP [-f|--config CONFIG] [--all]
-nagarectl env set    APP KEY VALUE [-f|--config CONFIG] [--runtime] [--build] [--preview] [--dry-run]
-nagarectl env delete APP KEY       [-f|--config CONFIG] [--runtime] [--build] [--preview] [--dry-run]
+nagarectl env set    APP KEY VALUE [-f|--config CONFIG] [--runtime] [--build] [--preview] [--dry-run] [--save-plan DIR]
+nagarectl env delete APP KEY       [-f|--config CONFIG] [--runtime] [--build] [--preview] [--dry-run] [--save-plan DIR]
 nagarectl env sync   APP --file FILE [-f|--config CONFIG] [--runtime] [--build] [--preview] [--merge | --reconcile-exact] [--dry-run]
 nagarectl secret set    APP KEY    [-f|--config CONFIG] [--runtime] [--build] [--preview] [--dry-run]   # value from stdin
 nagarectl secret list   APP        [-f|--config CONFIG] [--all]
@@ -229,7 +229,11 @@ Pass `--build` or `--preview` to review that channel instead of the default
 Runtime channel. The Build ConfigMap feeds the existing image-build argument
 reader; its keys do not enter the running container. Preview overlays read
 their separate ConfigMap after Runtime, so Preview keys win there. One review
-selects exactly one channel.
+selects exactly one channel. `env set` and `env delete` also accept
+`--save-plan DIR` for a reviewed single-key change. Set merges the new value
+with accepted channel history; delete requires the key to exist there. These
+reviewed commands use the same private native evidence and revision binding as
+`env sync --save-plan`.
 
 Runtime, Build, and Preview Secret values also have separate exact reviewed
 input channels. Pass `--build` or `--preview` to select one; Runtime is the default. Supply an

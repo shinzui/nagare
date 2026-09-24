@@ -43,7 +43,7 @@ Every supported application-side mutation is either a desired-scope update, a re
 
 ## Progress
 
-Implementation evidence is recorded in the commits linked to this plan and in Surprises & Discoveries. Reviewed application and standalone service scopes, a topic-free broker, database members, OCI publication, and merged or exact Runtime/Build/app-wide Preview environment channels are working slices. The four acceptance milestones below remain open: logical topics, complete publication and shared-owner behavior, reviewed operational/data commands, and removal of direct mutation paths still require work. Application retirement now has an exact accepted-Service selection and retains every resource. Partial slices do not count as completed milestones.
+Implementation evidence is recorded in the commits linked to this plan and in Surprises & Discoveries. Reviewed application and standalone service scopes, a topic-free broker, database members, OCI publication, and reviewed set/delete/merge/exact Runtime/Build/app-wide Preview environment channels are working slices. The four acceptance milestones below remain open: logical topics, complete publication and shared-owner behavior, reviewed operational/data commands, and removal of direct mutation paths still require work. Application retirement now has an exact accepted-Service selection and retains every resource. Partial slices do not count as completed milestones.
 
 - [ ] M1: Compile applications and standalone services into complete scopes.
 - [ ] M2: Integrate shared-owner contributions, environment intent, and publication.

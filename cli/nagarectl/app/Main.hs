@@ -928,10 +928,10 @@ data ScopeSelection = ScopeSelection
 data EnvCommand
   = -- | Bool = --all (show all three scopes)
     EnvList StoreCommonOpts Bool
-  | -- | dryRun, KEY, VALUE
-    EnvSet StoreCommonOpts ScopeSelection Bool String String
-  | -- | dryRun, KEY
-    EnvDelete StoreCommonOpts ScopeSelection Bool String
+  | -- | dryRun, KEY, VALUE, reviewed plan directory
+    EnvSet StoreCommonOpts ScopeSelection Bool String String (Maybe FilePath)
+  | -- | dryRun, KEY, reviewed plan directory
+    EnvDelete StoreCommonOpts ScopeSelection Bool String (Maybe FilePath)
   | -- | dryRun, reconcileExact, dotenv file, reviewed plan directory
     EnvSync StoreCommonOpts ScopeSelection Bool Bool FilePath (Maybe FilePath)
   deriving stock (Generic, Show)
@@ -2459,6 +2459,7 @@ opts =
                       <*> dryRunOpt
                       <*> strArgument (metavar "KEY")
                       <*> strArgument (metavar "VALUE")
+                      <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Review one env key update from accepted history"))
                         <**> helper
                   )
                   (progDesc "Set one env key (single-key merge)")
@@ -2471,6 +2472,7 @@ opts =
                       <*> scopeSelectionParser
                       <*> dryRunOpt
                       <*> strArgument (metavar "KEY")
+                      <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Review one env key deletion from accepted history"))
                         <**> helper
                   )
                   (progDesc "Delete one env key")
@@ -7807,57 +7809,41 @@ runEnv mctx = \case
     (name, ns) <- resolveAppOrDie copts
     let scopes = if allScopes then [minBound .. maxBound] else [Runtime]
     runEnvListBody name ns scopes
-  EnvSet copts sel dry key val -> do
+  EnvSet copts sel dry key val savePlan -> do
     (name, ns) <- resolveAppOrDie copts
-    refuseDirectStoreMutationIfOwned mctx False name ns (selectedScopes sel)
-    forM_ (selectedScopes sel) $ \scope -> do
-      existing <- orDie =<< readEnvStore name ns scope
-      let desired = reconcile Merge existing (Map.singleton (T.pack key) (T.pack val))
-      applyOrDryRunEnv dry name ns scope desired
-    unless dry $ TIO.putStrLn ("Set " <> T.pack key <> " in env for " <> name <> ".")
-  EnvDelete copts sel dry key -> do
+    case savePlan of
+      Just output -> saveReviewedEnvChange mctx name ns sel dry "env set"
+        (Right . Map.insert (T.pack key) (T.pack val)) output
+      Nothing -> do
+        refuseDirectStoreMutationIfOwned mctx False name ns (selectedScopes sel)
+        forM_ (selectedScopes sel) $ \scope -> do
+          existing <- orDie =<< readEnvStore name ns scope
+          let desired = reconcile Merge existing (Map.singleton (T.pack key) (T.pack val))
+          applyOrDryRunEnv dry name ns scope desired
+        unless dry $ TIO.putStrLn ("Set " <> T.pack key <> " in env for " <> name <> ".")
+  EnvDelete copts sel dry key savePlan -> do
     (name, ns) <- resolveAppOrDie copts
-    refuseDirectStoreMutationIfOwned mctx False name ns (selectedScopes sel)
-    forM_ (selectedScopes sel) $ \scope -> do
-      existing <- orDie =<< readEnvStore name ns scope
-      let desired = reconcile ReconcileExact mempty (Map.delete (T.pack key) existing)
-      applyOrDryRunEnv dry name ns scope desired
-    unless dry $ TIO.putStrLn ("Deleted " <> T.pack key <> " from env for " <> name <> ".")
+    case savePlan of
+      Just output -> saveReviewedEnvChange mctx name ns sel dry "env delete"
+        (\existing -> if Map.member (T.pack key) existing
+          then Right (Map.delete (T.pack key) existing)
+          else Left "env key is absent from the accepted channel") output
+      Nothing -> do
+        refuseDirectStoreMutationIfOwned mctx False name ns (selectedScopes sel)
+        forM_ (selectedScopes sel) $ \scope -> do
+          existing <- orDie =<< readEnvStore name ns scope
+          let desired = reconcile ReconcileExact mempty (Map.delete (T.pack key) existing)
+          applyOrDryRunEnv dry name ns scope desired
+        unless dry $ TIO.putStrLn ("Deleted " <> T.pack key <> " from env for " <> name <> ".")
   EnvSync copts sel dry exact dotenvPath savePlan -> do
     (name, ns) <- resolveAppOrDie copts
     raw <- TIO.readFile dotenvPath
     incoming <- orDie (parseDotenv raw)
     case savePlan of
       Just output -> do
-        unless (not dry && selectedScopes sel `elem` [[Runtime], [Build], [Preview]])
-          (dieT "reviewed env sync requires one scope and no --dry-run")
-        active <- activeTarget mctx
-        (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
-        snapshot <- Inventory.loadTargetSnapshot active
-        (cluster, namespaceId) <- either dieT pure (acceptedFoundationNamespace snapshot ns)
-        let (compile, channelName) = case selectedScopes sel of
-              [Build] -> (compileBuildEnvChannel, "build-env")
-              [Preview] -> (compilePreviewEnvChannel, "preview-env")
-              _ -> (compileRuntimeEnvChannel, "runtime-env")
-        (initial, _) <- either (dieT . T.pack . show) pure
-          (compile name ns cluster namespaceId incoming
-            (Resource.SourceLocation (T.pack dotenvPath) channelName))
-        existing <- if exact then pure Map.empty else do
-          store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
-          history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
-          inventory <- either (dieT . T.pack . show) pure
-            (ResourceInventory.composeSnapshot snapshot)
-          (acceptedNative, _) <- InventoryStatus.loadAcceptedNative store history inventory
-            >>= either dieT pure
-          either dieT pure (acceptedEnvChannelValues snapshot acceptedNative initial)
-        let desired = reconcile (if exact then ReconcileExact else Merge) existing incoming
-        (channel, native) <- either (dieT . T.pack . show) pure
-          (compile name ns cluster namespaceId desired
-            (Resource.SourceLocation (T.pack dotenvPath) channelName))
-        candidate <- either (dieT . T.pack . show) pure
-          (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope channel NE.:| []))
-        Inventory.planInventoryCandidateWith
-          (inventoryPlanRegistryWithNative active workspace native) active candidate output
+        saveReviewedEnvChange mctx name ns sel dry (T.pack dotenvPath)
+          (\existing -> Right (reconcile (if exact then ReconcileExact else Merge)
+            existing incoming)) output
       Nothing -> do
         refuseDirectStoreMutationIfOwned mctx False name ns (selectedScopes sel)
         let mode = reconcileModeFrom exact
@@ -7867,6 +7853,37 @@ runEnv mctx = \case
           applyOrDryRunEnv dry name ns scope desired
         unless dry $
           TIO.putStrLn ("Synced " <> tShow (Map.size incoming) <> " key(s) into env for " <> name <> ".")
+
+saveReviewedEnvChange :: Maybe String -> Text -> Text -> ScopeSelection -> Bool
+  -> Text -> (Map Text Text -> Either Text (Map Text Text)) -> FilePath -> IO ()
+saveReviewedEnvChange mctx name ns selection dry sourceName change output = do
+  unless (not dry && selectedScopes selection `elem` [[Runtime], [Build], [Preview]])
+    (dieT "reviewed env changes require one scope and no --dry-run")
+  active <- activeTarget mctx
+  (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+  snapshot <- Inventory.loadTargetSnapshot active
+  (cluster, namespaceId) <- either dieT pure (acceptedFoundationNamespace snapshot ns)
+  let (compile, channelName) = case selectedScopes selection of
+        [Build] -> (compileBuildEnvChannel, "build-env")
+        [Preview] -> (compilePreviewEnvChannel, "preview-env")
+        _ -> (compileRuntimeEnvChannel, "runtime-env")
+      source = Resource.SourceLocation sourceName channelName
+  (initial, _) <- either (dieT . T.pack . show) pure
+    (compile name ns cluster namespaceId Map.empty source)
+  store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+  history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
+  inventory <- either (dieT . T.pack . show) pure
+    (ResourceInventory.composeSnapshot snapshot)
+  (acceptedNative, _) <- InventoryStatus.loadAcceptedNative store history inventory
+    >>= either dieT pure
+  existing <- either dieT pure (acceptedEnvChannelValues snapshot acceptedNative initial)
+  desired <- either dieT pure (change existing)
+  (channel, native) <- either (dieT . T.pack . show) pure
+    (compile name ns cluster namespaceId desired source)
+  candidate <- either (dieT . T.pack . show) pure
+    (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope channel NE.:| []))
+  Inventory.planInventoryCandidateWith
+    (inventoryPlanRegistryWithNative active workspace native) active candidate output
 
 runSecret :: Maybe String -> SecretCommand -> IO ()
 runSecret mctx = \case
