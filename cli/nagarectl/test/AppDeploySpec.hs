@@ -375,6 +375,18 @@ renderTests =
       length (scopeBundles scope) @?= 6
       Map.size native @?= 10
       length [() | bundle <- scopeBundles scope, Managed _ <- declarations bundle] @?= 10
+      let workloadBytes =
+            [bytes | (member, bytes) <- Map.elems native
+            , case member ^. #address of
+                Resource.Kubernetes _ "apps" kind _ _ ->
+                  kind == unsafe (Resource.mkName "deployment")
+                _ -> False]
+      length workloadBytes @?= 3
+      assertBool "reviewed workloads omit generated database connection fields"
+        (all (BS.isInfixOf "POSTGRES_HOST") workloadBytes)
+      assertBool "reviewed workloads omit credential Secret references"
+        (all (BS.isInfixOf "POSTGRES_PASSWORD") workloadBytes
+          && all (BS.isInfixOf "secretKeyRef") workloadBytes)
       case compileApplicationScope (input {scopeNamespaceContributionOwner = Just foundation}) of
         Left _ -> pure ()
         Right _ -> assertFailure "namespace contribution used an unrelated namespace identity"

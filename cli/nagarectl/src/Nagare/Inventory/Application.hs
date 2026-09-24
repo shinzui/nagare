@@ -31,15 +31,17 @@ import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend)
 import Nagare.App.Deploy (RolloutEnv, renderServiceObjects, renderTaskObjects, renderWorkerObjects)
 import Nagare.Dsl.Application (Application (..), mkApplication)
-import Nagare.Dsl.Database (Database (..), dbSecretName)
+import Nagare.Database.Connection (ConnIdentity (..), connectionEnv, mergeConnectionEnvs)
+import Nagare.Dsl.Database (Database (..), Engine (..), dbSecretName)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Render (pvcName)
-import Nagare.Dsl.Types (DatabaseName, Deployment (..), DomainSpec (..), DomainTls (..), EnvScope (Runtime), EnvVar (..), ScopedEnvVar (..), SecretName, Volume (..), VolumeName, databaseNameText, domainText, mkSecretName, namespaceText, secretNameText, serviceNameText, volumeNameText)
+import Nagare.Dsl.Types (DatabaseName, Deployment (..), DomainSpec (..), DomainTls (..), EnvScope (Runtime), EnvVar (..), ScopedEnvVar (..), SecretName, Volume (..), VolumeName, databaseNameText, domainText, mkEnvName, mkSecretName, namespaceText, runtimeScoped, secretNameText, serviceNameText, volumeNameText)
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Dsl.Worker (Worker (..))
 import Nagare.Dsl.Task (Task (..), mkTask, taskResourceName)
 import Nagare.Inventory.Database (compileDatabaseForBackend)
 import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Env.Generated (mergeGenerated)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Resource.Application (applicationScopeId, deploymentResourceId, domainMappingResourceId, taskResourceId, volumeResourceId, workerResourceId)
 import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
@@ -258,6 +260,30 @@ runtimeSecretNames entries = Set.toList . Set.fromList . concat <$> traverse one
         | entry ^. #scopes == Set.singleton Runtime -> Right [secret]
         | otherwise -> Left "Secret-backed build or preview environment requires a separate reviewed input channel"
 
+-- | A reviewed workload can derive non-secret connection fields from its typed
+-- database and reference generated credential fields by Secret key. No live
+-- Secret read or password value enters compilation or the public review.
+declaredConnectionEnv :: Application -> [DatabaseName] -> Either T.Text (Map Dsl.EnvName ScopedEnvVar)
+declaredConnectionEnv app names = do
+  maps <- traverse one names
+  mergeConnectionEnvs maps
+  where
+    one databaseName = do
+      database <- maybe (Left "workload references an undeclared database") Right
+        (find ((== databaseName) . (^. #name)) (app ^. #databases))
+      let secretText = dbSecretName (databaseNameText databaseName)
+          base = connectionEnv (database ^. #engine) databaseName
+            (app ^. #namespace) (ConnIdentity Nothing Nothing)
+          extra = case database ^. #engine of
+            Postgres -> ["POSTGRES_USER", "POSTGRES_DB"]
+            Redis -> []
+            ClickHouse -> ["CLICKHOUSE_USER"]
+      secret <- mkSecretName secretText
+      fields <- traverse (\name -> do
+        key <- mkEnvName name
+        pure (key, runtimeScoped (EnvSecretRef secret))) extra
+      pure (Map.union (Map.fromList fields) base)
+
 -- | Compose the currently supported application members once, checking
 -- duplicate IDs and provider claims across component boundaries. Unsupported
 -- fields refuse rather than silently disappearing from desired state.
@@ -322,12 +348,20 @@ compileApplicationScope input = do
   let envSecrets = Map.union ownSecretMap (scopeEnvSecrets input)
   _ <- traverse (first invalid . secretDependency (scopeCluster input)
     (namespaceText (app ^. #namespace)) envSecrets) requiredEnvSecrets
-  serviceResult <- case app ^. #service of
+  serviceWithConnection <- traverse (\service -> do
+    generated <- first invalid (declaredConnectionEnv app (service ^. #databases))
+    pure (service & #env %~ mergeGenerated generated)) (app ^. #service)
+  workersWithConnection <- traverse (\worker -> do
+    generated <- first invalid (declaredConnectionEnv app (worker ^. #databases))
+    pure (worker & #env %~ mergeGenerated generated)) (app ^. #workers)
+  let scopedApp = app & #service .~ serviceWithConnection
+        & #workers .~ workersWithConnection
+  serviceResult <- case scopedApp ^. #service of
     Nothing -> Right Nothing
-    Just _ -> Just <$> compileApplicationService app (scopeRollout input)
+    Just _ -> Just <$> compileApplicationService scopedApp (scopeRollout input)
       (scopeCluster input) (scopeNamespace input) (scopeImage input)
       (scopeServiceVolumeRecovery input) (scopeTlsSecrets input) envSecrets source
-  (workerBundles, workerNative) <- compileApplicationWorkers app (scopeRollout input)
+  (workerBundles, workerNative) <- compileApplicationWorkers scopedApp (scopeRollout input)
     (scopeCluster input) (scopeNamespace input) (scopeImage input)
     (scopeWorkerVolumeRecovery input) envSecrets source
   (taskBundle, taskNative) <- compileApplicationTasks app (scopeRollout input)

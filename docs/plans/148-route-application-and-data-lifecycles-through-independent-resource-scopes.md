@@ -88,6 +88,7 @@ Every supported application-side mutation is either a desired-scope update, a re
 - [x] (2026-09-24) M2/M4 partial: Direct env and secret set/delete/sync commands check their selected ConfigMap or Secret addresses against accepted and retained inventory before reading a secret value or applying a manifest. Explicit environment channels and reviewed writes remain open.
 - [x] (2026-09-24) M3/M4 partial: Direct application storage snapshot and restore derive the PVC name from the loaded typed Deployment and refuse accepted or retained ownership before submitting a data Job. Reviewed backup and restore operations remain open.
 - [x] (2026-09-24) M4 partial: Static/server site deploy, site rollback, and preview deploy/delete check their exact Knative Service address against accepted and retained inventory before image or provider mutation. Their reviewed scope and release paths remain open.
+- [x] (2026-09-24) M1/M2 partial: Application scope compilation now derives each Service/worker's database connection environment from its declared database references. Generated host/port values stay literal, while password, URL, user, and database credential fields use the application-owned Secret; a same-engine collision refuses. The reviewed native bytes carry these references without a live Secret read.
 - [ ] M1: Compile applications and standalone services into complete scopes.
 - [ ] M2: Integrate shared-owner contributions, environment intent, and publication.
 - [ ] M3: Route operational and data lifecycle commands through reviewed operations.

@@ -33,6 +33,11 @@ For each declared application database, add
 review keeps the database credential and PVC under retained data policy and
 records the backup and key version as recovery intent. A missing, repeated, or
 unknown database binding refuses the review.
+Workloads that declare a database reference receive its host and port plus
+credential fields through references to the database's owned Secret. The review
+contains the references and no password value. Two referenced databases using
+the same engine and environment variable names refuse instead of silently
+selecting one.
 
 When the application references an already accepted Secret, supply its resource
 ID with `--tls-secret-resource RESOURCE-ID` for a supplied-TLS domain or
