@@ -49,6 +49,7 @@ Every supported application-side mutation is either a desired-scope update, a re
 - [x] (2026-09-24) M1 partial: Scheduled task CronJobs compile from the same resolved preview bytes and carry optional stable logical keys; invoking a migration hook remains outside this declaration-only step.
 - [x] (2026-09-24) M1 partial: The supported multi-workload fixture composes five database members, a service, three workers, and a scheduled CronJob into one scope with ten native members; cross-component ID/address collisions and unsupported fields refuse compilation.
 - [x] (2026-09-24) M1 partial: A Redpanda broker without topics compiles its retained PVC, Service, and StatefulSet into an independent scope with exact native bytes; declared topics refuse pending logical operation ownership.
+- [x] (2026-09-24) M1 partial: Aggregate compilation refuses rollout environment drift and environment Secret references without typed ownership or external dependency evidence.
 - [ ] M1: Compile applications and standalone services into complete scopes.
 - [ ] M2: Integrate shared-owner contributions, environment intent, and publication.
 - [ ] M3: Route operational and data lifecycle commands through reviewed operations.
@@ -72,6 +73,8 @@ Every supported application-side mutation is either a desired-scope update, a re
 2026-09-24: The Redpanda renderer's direct Kubernetes membership is three objects. Broker topic creation currently happens later through `rpk`, so a broker with topics cannot be considered fully declared by those three objects; the standalone compiler refuses such input until the topic operation is reviewed.
 
 2026-09-24: A co-located task can carry an `app` association that differs from the containing Application while the aggregate renderer still stamps the containing app's label. Aggregate validation now rejects that mismatch before declaration or preview.
+
+2026-09-24: RolloutEnv is currently assembled outside the typed intent channel. Without a match check, its env map could inject values into native workload bytes that the Application did not declare. The supported-subset compiler now requires equality with the Application's env channel and refuses Secret references until a typed external or owned dependency is provided. Separately managed env inputs remain M2 work.
 
 
 ## Decision Log

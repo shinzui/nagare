@@ -27,7 +27,7 @@ import Nagare.Dsl.Application (Application (..), mkApplication)
 import Nagare.Dsl.Database (Database (..))
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Render (pvcName)
-import Nagare.Dsl.Types (DatabaseName, DomainSpec (..), DomainTls (AutomaticTls), Volume (..), VolumeName, databaseNameText, domainText, namespaceText, serviceNameText, volumeNameText)
+import Nagare.Dsl.Types (DatabaseName, DomainSpec (..), DomainTls (AutomaticTls), EnvVar (..), ScopedEnvVar (..), Volume (..), VolumeName, databaseNameText, domainText, namespaceText, serviceNameText, volumeNameText)
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Dsl.Worker (Worker (..))
 import Nagare.Dsl.Task (Task (..), mkTask, taskResourceName)
@@ -77,8 +77,16 @@ compileApplicationScope input = do
   unless (scopeRollout input ^. #appName == serviceNameText (app ^. #name)
       && scopeRollout input ^. #namespace == namespaceText (app ^. #namespace))
     (Left (invalid "rollout identity differs from the application name or namespace"))
+  unless (scopeRollout input ^. #appEnv == app ^. #env)
+    (Left (invalid "rollout environment differs from the declared application channel"))
   unless (null (app ^. #brokers) && app ^. #access == Nothing)
     (Left (invalid "application brokers and access contributions need typed owners"))
+  let envValues = Map.elems (app ^. #env)
+        <> maybe [] (Map.elems . (^. #env)) (app ^. #service)
+        <> concatMap (Map.elems . (^. #env)) (app ^. #workers)
+        <> concatMap (Map.elems . (^. #env)) (app ^. #tasks)
+  when (any isSecretReference envValues)
+    (Left (invalid "environment Secret reference requires a typed owned or external dependency"))
   case app ^. #service of
     Nothing -> pure ()
     Just service -> unless (null (service ^. #tasks) && service ^. #access == Nothing
@@ -111,6 +119,10 @@ compileApplicationScope input = do
   unless (length claims == Set.size (Set.fromList claims))
     (Left (invalid "application members claim the same provider address"))
   pure (scope, native)
+  where
+    isSecretReference entry = case entry ^. #value of
+      EnvSecretRef _ -> True
+      EnvLiteral _ -> False
 
 -- | A workload may refer only to databases declared in this application.
 -- Ordering it after the StatefulSet records the typed lifecycle edge, while

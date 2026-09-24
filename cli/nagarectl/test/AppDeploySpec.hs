@@ -32,7 +32,7 @@ import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Dsl.Load (loadApplication)
 import Nagare.Dsl.Prelude
-import Nagare.Dsl.Types (AccessMode (ReadWriteOnce), DomainTls (SuppliedTlsSecret), RetentionPolicy (Retain), Volume (..), mkDomains, mkImageRef, mkMountPath, mkQuantity, mkSecretName, mkVolumeName, serviceNameText)
+import Nagare.Dsl.Types (AccessMode (ReadWriteOnce), DomainTls (SuppliedTlsSecret), EnvVar (EnvSecretRef), RetentionPolicy (Retain), Volume (..), mkDomains, mkEnvName, mkImageRef, mkMountPath, mkQuantity, mkSecretName, mkVolumeName, runtimeScoped, serviceNameText)
 import Nagare.Dsl.Worker (Worker (..))
 import Nagare.Dsl.Presets (attachVolume)
 import Nagare.Target (InventoryStoreKind (..), Mode (..), PulumiBackendKind (..), TargetProfile (..))
@@ -252,7 +252,7 @@ renderTests =
               (unsafe (Resource.mkName "v1")) :| [])
           input = ApplicationScopeInput
             { scopeApplication = app
-            , scopeRollout = testEnv
+            , scopeRollout = testEnv & #appEnv .~ app ^. #env
             , scopeCluster = cluster
             , scopeNamespace = namespaceId
             , scopeImage = publication
@@ -270,6 +270,18 @@ renderTests =
       case compileApplicationScope (input {scopeRollout = testEnv & #namespace .~ "other"}) of
         Left _ -> pure ()
         Right _ -> assertFailure "mismatched rollout namespace was accepted"
+      case compileApplicationScope (input {scopeRollout = testEnv}) of
+        Left _ -> pure ()
+        Right _ -> assertFailure "undeclared rollout environment was accepted"
+      let secretApp = app & #env .~ Map.singleton
+            (unsafe (mkEnvName "PRIVATE_TOKEN"))
+            (runtimeScoped (EnvSecretRef (unsafe (mkSecretName "external-token"))))
+      case compileApplicationScope (input
+          { scopeApplication = secretApp
+          , scopeRollout = scopeRollout input & #appEnv .~ secretApp ^. #env
+          }) of
+        Left _ -> pure ()
+        Right _ -> assertFailure "unowned environment Secret was accepted"
       case app ^. #workers of
         firstWorker : secondWorker : rest -> do
           let key = unsafe (Resource.mkLogicalKey "shared-worker")
