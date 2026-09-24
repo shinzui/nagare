@@ -411,6 +411,7 @@ renderTests =
             , scopeNamespaceContributionOwner = Nothing
             , scopeImage = publication
             , scopeBrokerServices = Map.empty
+            , scopeBrokerTopics = Map.empty
             , scopeDatabaseRecovery = Map.fromList
                 [(database ^. #name, recovery) | database <- app ^. #databases]
             , scopeServiceVolumeRecovery = Map.empty
@@ -485,7 +486,7 @@ renderTests =
         (Resource.SourceLocation "test" "broker"))
       brokerSnapshot <- either (fail . show) pure (mkScopeSnapshot historyBinding
         (Map.singleton brokerOwner (unsafe (Resource.mkScopeGeneration 1), brokerScope)) Map.empty)
-      (brokerServices, brokerEnv) <- either (fail . T.unpack) pure
+      (brokerServices, brokerTopics, brokerEnv) <- either (fail . T.unpack) pure
         (acceptedBrokerBindings brokerSnapshot cluster "personal" [brokerBinding])
       worker <- case app ^. #workers of
         firstWorker : _ -> pure firstWorker
@@ -576,7 +577,7 @@ renderTests =
           (Map.delete databaseId databaseNative) cluster "personal" [boundDatabase ^. #name]))
       (databaseWorkerScope, databaseWorkerNative) <- either (fail . show) pure
         (compileStandaloneWorkerWithDependencies standaloneOwner workerWithDatabase workerRollout
-          cluster namespaceId publication Map.empty Map.empty Map.empty databaseBindings (scopeSource input))
+          cluster namespaceId publication Map.empty Map.empty Map.empty Map.empty databaseBindings (scopeSource input))
       let databaseWorkers =
             [member | bundle <- scopeBundles databaseWorkerScope, Managed member <- declarations bundle]
       assertBool "standalone worker lacks its accepted database dependency"
@@ -586,7 +587,7 @@ renderTests =
           && BS.isInfixOf "POSTGRES_PASSWORD" bytes) (Map.elems databaseWorkerNative))
       (databaseServiceScope, databaseServiceNative) <- either (fail . show) pure
         (compileStandaloneServiceWithDependencies serviceOwner serviceWithDatabase serviceRollout
-          cluster namespaceId publication Map.empty Map.empty Map.empty Map.empty databaseBindings (scopeSource input))
+          cluster namespaceId publication Map.empty Map.empty Map.empty Map.empty Map.empty databaseBindings (scopeSource input))
       let databaseServices =
             [member | bundle <- scopeBundles databaseServiceScope, Managed member <- declarations bundle
             , case member ^. #address of
@@ -620,11 +621,12 @@ renderTests =
       Map.lookup databaseOwner (candidateGenerations workerCandidate) @?= Just databaseGeneration
       assertBool "standalone worker accepted an unbound database"
         (isLeft (compileStandaloneWorkerWithDependencies standaloneOwner workerWithDatabase workerRollout
-          cluster namespaceId publication Map.empty Map.empty Map.empty Map.empty (scopeSource input)))
+          cluster namespaceId publication Map.empty Map.empty Map.empty Map.empty Map.empty (scopeSource input)))
       let brokerInput = input
             { scopeApplication = brokerApp
             , scopeRollout = scopeRollout input & #appEnv .~ mergeGenerated brokerEnv (app ^. #env)
             , scopeBrokerServices = brokerServices
+            , scopeBrokerTopics = brokerTopics
             }
       (brokerAppScope, brokerNative) <- either (fail . show) pure
         (compileApplicationScope brokerInput)
@@ -651,6 +653,7 @@ renderTests =
           localInput = input
             { scopeApplication = localApp
             , scopeBrokerServices = brokerServices
+            , scopeBrokerTopics = brokerTopics
             }
       (_, localNative) <- either (fail . show) pure (compileApplicationScope localInput)
       brokerId <- case brokerServiceIds of
@@ -679,6 +682,64 @@ renderTests =
       assertBool "duplicate broker reference was accepted"
         (isLeft (acceptedBrokerBindings brokerSnapshot cluster "personal"
           [brokerBinding, brokerBinding]))
+      (topicBrokerScope, _) <- either (fail . show) pure (compileStandaloneBroker
+        broker brokerOwner cluster namespaceId brokerRecovery
+        (Resource.SourceLocation "test" "broker"))
+      topicSnapshot <- either (fail . show) pure (mkScopeSnapshot historyBinding
+        (Map.singleton brokerOwner (unsafe (Resource.mkScopeGeneration 1), topicBrokerScope)) Map.empty)
+      let topicBinding = brokerBinding & #topics .~ [unsafe (mkTopicName "jobs")]
+      (topicServices, topicEvidence, topicEnv) <- either (fail . T.unpack) pure
+        (acceptedBrokerBindings topicSnapshot cluster "personal" [topicBinding])
+      topicId <- case Map.lookup (broker ^. #name) topicEvidence >>= Map.lookup (unsafe (mkTopicName "jobs")) of
+        Just declaration -> pure (declarationId declaration)
+        Nothing -> assertFailure "accepted topic lost its logical resource" >> fail "missing topic"
+      let topicWorker = standaloneWorker & #brokers .~ [topicBinding]
+          topicService = independentService & #brokers .~ [topicBinding]
+          topicApp = app & #brokers .~ [topicBinding]
+          topicInput = input
+            { scopeApplication = topicApp
+            , scopeRollout = scopeRollout input & #appEnv .~ mergeGenerated topicEnv (app ^. #env)
+            , scopeBrokerServices = topicServices
+            , scopeBrokerTopics = topicEvidence
+            }
+      (topicWorkerScope, topicWorkerNative) <- either (fail . show) pure
+        (compileStandaloneWorkerWithDependencies standaloneOwner topicWorker workerRollout
+          cluster namespaceId publication Map.empty Map.empty topicServices topicEvidence Map.empty (scopeSource input))
+      let topicWorkerMembers = [member | bundle <- scopeBundles topicWorkerScope,
+            Managed member <- declarations bundle]
+      assertBool "reviewed worker lost accepted topic ordering or generated env"
+        (all (elem (OrderedAfter topicId) . (^. #dependencies)) topicWorkerMembers
+          && any (BS.isInfixOf "NAGARE_TOPIC_JOBS" . snd) (Map.elems topicWorkerNative))
+      (topicServiceScope, topicServiceNative) <- either (fail . show) pure
+        (compileStandaloneServiceWithDependencies serviceOwner topicService serviceRollout
+          cluster namespaceId publication Map.empty Map.empty Map.empty topicServices topicEvidence Map.empty (scopeSource input))
+      let topicServiceMembers = [member | bundle <- scopeBundles topicServiceScope,
+            Managed member <- declarations bundle,
+            case member ^. #address of
+              Resource.Kubernetes _ "serving.knative.dev" kind _ _ -> kind == unsafe (Resource.mkName "service")
+              _ -> False]
+      assertBool "reviewed Service lost accepted topic ordering or generated env"
+        (all (elem (OrderedAfter topicId) . (^. #dependencies)) topicServiceMembers
+          && any (BS.isInfixOf "NAGARE_TOPIC_JOBS" . snd) (Map.elems topicServiceNative))
+      (topicAppScope, topicAppNative) <- either (fail . show) pure (compileApplicationScope topicInput)
+      let topicAppWorkloads = [member | bundle <- scopeBundles topicAppScope,
+            Managed member <- declarations bundle,
+            case member ^. #address of
+              Resource.Kubernetes _ "serving.knative.dev" kind _ _ -> kind == unsafe (Resource.mkName "service")
+              Resource.Kubernetes _ "apps" kind _ _ -> kind == unsafe (Resource.mkName "deployment")
+              _ -> False]
+      assertBool "reviewed application lost accepted topic ordering or generated env"
+        (all (elem (OrderedAfter topicId) . (^. #dependencies)) topicAppWorkloads
+          && any (BS.isInfixOf "NAGARE_TOPIC_JOBS" . snd) (Map.elems topicAppNative))
+      assertBool "topic-bearing worker accepted a missing topic declaration"
+        (isLeft (compileStandaloneWorkerWithDependencies standaloneOwner topicWorker workerRollout
+          cluster namespaceId publication Map.empty Map.empty topicServices Map.empty Map.empty (scopeSource input)))
+      topicReadySnapshot <- either (fail . show) pure (mkScopeSnapshot historyBinding
+        (Map.fromList [(foundation, (databaseGeneration, prerequisiteScope))
+          , (brokerOwner, (databaseGeneration, topicBrokerScope))]) Map.empty)
+      topicCandidate <- either (fail . show) pure (composeInventory topicReadySnapshot
+        (ReplaceScope topicWorkerScope :| []))
+      Map.lookup brokerOwner (candidateGenerations topicCandidate) @?= Just databaseGeneration
       case compileApplicationScope (input {scopeNamespaceContributionOwner = Just foundation}) of
         Left _ -> pure ()
         Right _ -> assertFailure "namespace contribution used an unrelated namespace identity"

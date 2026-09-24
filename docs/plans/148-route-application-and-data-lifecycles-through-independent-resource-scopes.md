@@ -32,6 +32,11 @@ provenance:
       at: 2026-09-24T22:38:00Z
       mode: "implement"
       note: "Bind accepted standalone databases to reviewed Service and worker deploys"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-24T23:29:37Z
+      mode: "implement"
+      note: "Bind accepted broker topics to reviewed workload dependencies"
 ---
 
 # Route application and data lifecycles through independent resource scopes
@@ -48,7 +53,7 @@ Every supported application-side mutation is either a desired-scope update, a re
 
 ## Progress
 
-Implementation evidence is recorded in the commits linked to this plan and in Surprises & Discoveries. Reviewed application, standalone web Service, and standalone worker scopes, standalone brokers with create-only logical topics, database members, OCI publication, and reviewed set/delete/merge/exact Runtime/Build/app-wide Preview environment and versioned Secret channels are working slices. The four acceptance milestones below remain open: topic-bearing workload dependencies and topic updates, complete publication and shared-owner behavior, reviewed operational/data commands, and removal of direct mutation paths still require work. Application, standalone web Service, and standalone worker retirement select accepted native identities and preserve retained resources. Partial slices do not count as completed milestones.
+Implementation evidence is recorded in the commits linked to this plan and in Surprises & Discoveries. Reviewed application, standalone web Service, and standalone worker scopes, standalone brokers with create-only logical topics, accepted topic-bearing workload bindings, database members, OCI publication, and reviewed set/delete/merge/exact Runtime/Build/app-wide Preview environment and versioned Secret channels are working slices. The four acceptance milestones below remain open: topic updates, complete publication and shared-owner behavior, reviewed operational/data commands, and removal of direct mutation paths still require work. Application, standalone web Service, and standalone worker retirement select accepted native identities and preserve retained resources. Partial slices do not count as completed milestones.
 
 - [ ] M1: Compile applications and standalone services into complete scopes.
 - [ ] M2: Integrate shared-owner contributions, environment intent, and publication.
@@ -107,6 +112,8 @@ Implementation evidence is recorded in the commits linked to this plan and in Su
 
 2026-09-24: Standalone Redpanda topics now enter the broker scope as typed durable logical resources with canonical broker/topic claims, retained recovery policy, and a dependency on the StatefulSet. The new broker adapter uses guarded `rpk topic list`, create, and describe against the exact compiled broker target. Planning sees a topic already present without accepted history as unowned; creation requires confirmed absence, and changed settings or an uncertain create acknowledgement refuse automatic reconciliation. The installed rpk 26.2.3 description and metadata output expose settings but no stable topic ID, so the transport's physical marker includes the broker StatefulSet UID and topic name; a delete/recreate of a topic inside the same StatefulSet cannot be proved from that marker. Topic-bearing workload bindings, updates, and reviewed deletion remain open, so M1 and M3 stay open.
 
+2026-09-24: Reviewed Service, worker, and application compilers now resolve every requested topic to an exact accepted standalone broker claim. They inject the existing topic environment values and depend on the broker Service and topic ResourceIds. A changed consumer scope verifies an unchanged accepted topic in its saved plan before creating its workload; missing or unaccepted topic evidence refuses compilation. Topic update, deletion, and the remaining application resource and command paths keep M1 and M3 open.
+
 ## Decision Log
 
 2026-09-16: Preserve separately submitted environment/secret intent across configuration deploys. Inputs are explicit versioned intent channels composed into one owner declaration, not live cluster data silently copied into desired state.
@@ -126,7 +133,7 @@ Implementation evidence is recorded in the commits linked to this plan and in Su
 
 ## Outcomes & Retrospective
 
-In progress. Stable identity inputs, standalone database and broker scopes with create-only logical topics, and a supported-subset application scope compiler are present. Application topic/access/CDN/TLS integration, reviewed operational actions, command migration, scope-isolation proof, and complete mutation coverage remain open.
+In progress. Stable identity inputs, standalone database and broker scopes with create-only logical topics, accepted topic-bearing workload bindings, and a supported-subset application scope compiler are present. Access/CDN contributions, topic update/deletion, reviewed operational actions, command migration, scope-isolation proof, and complete mutation coverage remain open.
 
 
 ## Context and Orientation

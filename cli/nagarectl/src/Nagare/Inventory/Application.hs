@@ -46,7 +46,7 @@ import Nagare.App.Deploy (RolloutEnv, renderServiceObjects, renderTaskObjects, r
 import Nagare.Broker.Connection (BrokerConn (..), brokerConnectionEnv, mergeBrokerConnectionEnvs)
 import Nagare.Dsl.Application (Application (..), mkApplication)
 import Nagare.Dsl.Application qualified as DslApp
-import Nagare.Dsl.Broker (BrokerBinding (..), BrokerName, BrokerProvider (Redpanda), brokerNameText)
+import Nagare.Dsl.Broker (BrokerBinding (..), BrokerName, BrokerProvider (Redpanda), TopicName, brokerNameText, topicNameText)
 import Nagare.Database.Connection (ConnIdentity (..), connectionEnv, mergeConnectionEnvs)
 import Nagare.Dsl.Database (Database (..), Engine (..), dbSecretName, engineToken)
 import Nagare.Dsl.Prelude
@@ -254,23 +254,23 @@ acceptedSecretBindings snapshot ids = do
         _ -> Left "accepted resource is not a namespaced Kubernetes Secret"
       _ -> Left "Secret resource is absent or ambiguous in accepted inventory"
 
--- | Bind an application-level Kafka connection only to a complete accepted
--- standalone broker. Topic-bearing bindings wait for reviewed logical topic
--- ownership, so absence cannot be mistaken for a created topic.
+-- | Resolve Service and topic references from one complete accepted
+-- standalone broker scope. A live topic with the same name is not authority.
 acceptedBrokerBindings
   :: ScopeSnapshot -> ResourceId -> T.Text -> [BrokerBinding]
-  -> Either T.Text (Map BrokerName Declaration, Map Dsl.EnvName ScopedEnvVar)
+  -> Either T.Text (Map BrokerName Declaration,
+       Map BrokerName (Map TopicName Declaration), Map Dsl.EnvName ScopedEnvVar)
 acceptedBrokerBindings snapshot cluster namespaceName bindings = do
   pairs <- traverse resolve bindings
   let services = Map.fromList (map fst pairs)
   unless (length pairs == Map.size services)
     (Left "application broker bindings repeat a broker")
-  env <- mergeBrokerConnectionEnvs (map snd pairs)
-  pure (services, env)
+  env <- mergeBrokerConnectionEnvs [fields | (_, fields) <- pairs]
+  let topicBindings = Map.fromList
+        [(name, topics) | ((name, (_, topics)), _) <- pairs]
+  pure (Map.map fst services, topicBindings, env)
   where
     resolve binding = do
-      unless (null (binding ^. #topics))
-        (Left "broker topics require reviewed logical topic ownership")
       let name = brokerNameText (binding ^. #name)
           expected (kind :: T.Text) = kubernetesAddress cluster
             (if kind == "statefulset" then "apps/v1" else "v1")
@@ -279,7 +279,7 @@ acceptedBrokerBindings snapshot cluster namespaceName bindings = do
       serviceAddress <- expected "service"
       statefulAddress <- expected "statefulset"
       let candidates =
-            [ service
+            [ (service, statefulId, scope)
             | (owner, (_, scope)) <- Map.toList (snapshotScopes snapshot)
             , scopeKind owner == Standalone
             , bundle <- scopeBundles scope
@@ -287,21 +287,71 @@ acceptedBrokerBindings snapshot cluster namespaceName bindings = do
             , serviceResource ^. #address == serviceAddress
             , Just brokerKey <- [T.stripSuffix "/service" (resourceIdText (serviceResource ^. #identity))]
             , T.isSuffixOf "/broker/service" (path (serviceResource ^. #source))
-            , any (\case
-                Managed member -> member ^. #address == statefulAddress
-                  && resourceIdText (member ^. #identity) == brokerKey <> "/statefulset"
-                  && T.isSuffixOf "/broker/statefulset" (path (member ^. #source))
-                _ -> False) (concatMap declarations (scopeBundles scope))
+            , Managed stateful <- concatMap declarations (scopeBundles scope)
+            , stateful ^. #address == statefulAddress
+            , resourceIdText (stateful ^. #identity) == brokerKey <> "/statefulset"
+            , T.isSuffixOf "/broker/statefulset" (path (stateful ^. #source))
+            , let statefulId = stateful ^. #identity
             ]
-      service <- case candidates of
+      (service, statefulId, acceptedScope) <- case candidates of
         [found] -> Right found
         _ -> Left "broker has no unique accepted Service and StatefulSet in one standalone scope"
+      topicPairs <- traverse (\topic -> do
+        topicName <- mkName (topicNameText topic)
+        let matches =
+              [declaration
+              | bundle <- scopeBundles acceptedScope
+              , declaration@(Managed resource) <- declarations bundle
+              , resource ^. #address == BrokerTopic statefulId topicName
+              , resource ^. #executor == BrokerExecutor
+              , case resource ^. #spec of LogicalBrokerTopic {} -> True; _ -> False]
+        case matches of
+          [declaration] -> Right (topic, declaration)
+          _ -> Left "broker topic is absent or ambiguous in accepted logical inventory")
+        (binding ^. #topics)
+      let topics = Map.fromList topicPairs
+      unless (length topicPairs == Map.size topics)
+        (Left "broker binding repeats a topic")
       env <- brokerConnectionEnv binding BrokerConn
         { provider = Redpanda
         , bootstrapServers = name <> "." <> namespaceName <> ".svc.cluster.local:9092"
-        , topics = []
+        , topics = binding ^. #topics
         }
-      pure ((binding ^. #name, service), env)
+      pure ((binding ^. #name, (service, topics)), env)
+
+brokerEvidenceIds
+  :: ResourceId -> T.Text -> BrokerBinding
+  -> Map BrokerName Declaration -> Map BrokerName (Map TopicName Declaration)
+  -> Either T.Text [ResourceId]
+brokerEvidenceIds cluster namespaceName binding services allTopics = do
+  service <- maybe (Left "broker has no typed Service dependency") Right
+    (Map.lookup (binding ^. #name) services)
+  expected <- kubernetesAddress cluster "v1" "Service"
+    (Just namespaceName) (brokerNameText (binding ^. #name))
+  managed <- case service of
+    Managed resource | resource ^. #address == expected
+      && scopeKind (resource ^. #owner) == Standalone -> Right resource
+    _ -> Left "broker dependency is not an accepted standalone Service at the declared address"
+  brokerKey <- maybe (Left "broker Service identity has no stable role") Right
+    (T.stripSuffix "/service" (resourceIdText (managed ^. #identity)))
+  stateful <- mkResourceId (brokerKey <> "/statefulset")
+  topics <- case Map.lookup (binding ^. #name) allTopics of
+    Just evidence -> Right evidence
+    Nothing | null (binding ^. #topics) -> Right Map.empty
+    Nothing -> Left "broker has no typed topic evidence"
+  selected <- traverse (\topic -> do
+    declaration <- maybe (Left "broker topic lacks accepted inventory evidence") Right
+      (Map.lookup topic topics)
+    nativeName <- mkName (topicNameText topic)
+    case declaration of
+      Managed resource
+        | resource ^. #address == BrokerTopic stateful nativeName
+        , resource ^. #owner == managed ^. #owner
+        , resource ^. #executor == BrokerExecutor
+        , LogicalBrokerTopic {} <- resource ^. #spec -> Right (resource ^. #identity)
+      _ -> Left "broker topic evidence differs from the accepted broker address")
+    (binding ^. #topics)
+  pure (managed ^. #identity : selected)
 
 -- | A database connection is authorized by one accepted standalone scope and
 -- its original private credential template. Keep this witness opaque so a
@@ -480,6 +530,7 @@ data ApplicationScopeInput = ApplicationScopeInput
   -- still requires that owner's explicit grant to the application scope.
   , scopeImage :: !ResourceId
   , scopeBrokerServices :: !(Map BrokerName Declaration)
+  , scopeBrokerTopics :: !(Map BrokerName (Map TopicName Declaration))
   , scopeDatabaseRecovery :: !(Map DatabaseName RecoveryIntent)
   , scopeServiceVolumeRecovery :: !(Map VolumeName RecoveryIntent)
   , scopeTlsSecrets :: !(Map SecretName Declaration)
@@ -600,21 +651,13 @@ compileApplicationScope input = do
     (Left (invalid "rollout identity differs from the application name or namespace"))
   let brokerEnvFor bindings = do
         envs <- traverse (\binding -> do
-          service <- maybe (Left "broker has no typed Service dependency") Right
-            (Map.lookup (binding ^. #name) (scopeBrokerServices input))
-          unless (null (binding ^. #topics))
-            (Left "broker topics require reviewed logical topic ownership")
-          expected <- kubernetesAddress (scopeCluster input) "v1" "Service"
-            (Just (namespaceText (app ^. #namespace))) (brokerNameText (binding ^. #name))
-          case service of
-            Managed resource | resource ^. #address == expected
-              && scopeKind (resource ^. #owner) == Standalone -> pure ()
-            _ -> Left "broker dependency is not an accepted standalone Service at the declared address"
+          _ <- brokerEvidenceIds (scopeCluster input) (namespaceText (app ^. #namespace))
+            binding (scopeBrokerServices input) (scopeBrokerTopics input)
           brokerConnectionEnv binding BrokerConn
             { provider = Redpanda
             , bootstrapServers = brokerNameText (binding ^. #name) <> "."
                 <> namespaceText (app ^. #namespace) <> ".svc.cluster.local:9092"
-            , topics = []
+            , topics = binding ^. #topics
             }) bindings
         mergeBrokerConnectionEnvs envs
   brokerEnv <- first invalid (brokerEnvFor (app ^. #brokers))
@@ -627,6 +670,13 @@ compileApplicationScope input = do
   unless (Map.keysSet (scopeBrokerServices input)
       == Set.fromList (map (^. #name) allBrokerBindings))
     (Left (invalid "broker dependencies must cover exactly the application bindings"))
+  unless (Map.keysSet (scopeBrokerTopics input) `Set.isSubsetOf` Map.keysSet (scopeBrokerServices input))
+    (Left (invalid "topic evidence names an undeclared broker"))
+  typedBrokerDeps <- traverse (\binding -> do
+    ids <- first invalid (brokerEvidenceIds (scopeCluster input)
+      (namespaceText (app ^. #namespace)) binding
+      (scopeBrokerServices input) (scopeBrokerTopics input))
+    pure ((binding ^. #name, binding ^. #topics), ids)) allBrokerBindings
   unless (scopeRollout input ^. #appEnv == mergeGenerated brokerEnv (app ^. #env))
     (Left (invalid "rollout environment differs from the declared application channels"))
   first invalid (reviewedTaskImages (app ^. #tasks
@@ -704,8 +754,11 @@ compileApplicationScope input = do
     (scopeCluster input) (scopeNamespace input) (scopeImage input) envSecrets source
   let namespaceBundles = maybe [] (\request -> [ResourceBundle [] [] [] [request] [] []]) namespaceContribution
       brokerIdsFor bindings = Set.toList (Set.fromList
-        [declarationId declaration | binding <- bindings,
-          Just declaration <- [Map.lookup (binding ^. #name) (scopeBrokerServices input)]])
+        [resourceId | binding <- bindings,
+          ((brokerName, topicNames), ids) <- typedBrokerDeps,
+          brokerName == binding ^. #name,
+          topicNames == binding ^. #topics,
+          resourceId <- ids])
       appBrokerIds = brokerIdsFor (app ^. #brokers)
       addBrokerResource resource
         | brokerConsumer (resource ^. #address) =
@@ -861,15 +914,16 @@ compileStandaloneWorker
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
 compileStandaloneWorker owner worker rollout cluster namespaceId imageId recovery envSecrets brokerServices =
   compileStandaloneWorkerWithDependencies owner worker rollout cluster namespaceId imageId
-    recovery envSecrets brokerServices Map.empty
+    recovery envSecrets brokerServices Map.empty Map.empty
 
 compileStandaloneWorkerWithDependencies
   :: ScopeId -> Worker -> RolloutEnv -> ResourceId -> ResourceId -> ResourceId
   -> Map ResourceId RecoveryIntent -> Map SecretName Declaration
-  -> Map BrokerName Declaration -> Map DatabaseName DatabaseBinding -> SourceLocation
+  -> Map BrokerName Declaration -> Map BrokerName (Map TopicName Declaration)
+  -> Map DatabaseName DatabaseBinding -> SourceLocation
   -> Either (NonEmpty InventoryError)
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileStandaloneWorkerWithDependencies owner worker rollout cluster namespaceId imageId recovery envSecrets brokerServices databaseBindings source = do
+compileStandaloneWorkerWithDependencies owner worker rollout cluster namespaceId imageId recovery envSecrets brokerServices brokerTopics databaseBindings source = do
   unless (scopeKind owner == Standalone)
     (Left (invalid "worker requires a standalone owner"))
   unless (rollout ^. #appName == serviceNameText (worker ^. #name)
@@ -878,11 +932,10 @@ compileStandaloneWorkerWithDependencies owner worker rollout cluster namespaceId
     (Left (invalid "standalone worker rollout differs from its declared identity or environment"))
   (databaseEnv, databaseIds, databaseSecrets) <- standaloneDatabaseEnvironment cluster
     (worker ^. #namespace) (worker ^. #databases) databaseBindings invalid
-  brokerEnv <- standaloneBrokerEnvironment cluster
-    (namespaceText (worker ^. #namespace)) (worker ^. #brokers) brokerServices invalid
+  (brokerEnv, brokerIds) <- standaloneBrokerEnvironment cluster
+    (namespaceText (worker ^. #namespace)) (worker ^. #brokers) brokerServices brokerTopics invalid
   let worker' = worker & #env %~ mergeGenerated (mergeGenerated brokerEnv databaseEnv)
         & #brokers .~ [] & #databases .~ []
-      brokerIds = Set.toList (Set.fromList (map declarationId (Map.elems brokerServices)))
   requiredSecrets <- first invalid (runtimeSecretNames
     (Map.elems (worker' ^. #env)))
   unless (Map.keysSet envSecrets == Set.fromList requiredSecrets
@@ -923,30 +976,25 @@ compileStandaloneWorkerWithDependencies owner worker rollout cluster namespaceId
 
 standaloneBrokerEnvironment
   :: ResourceId -> T.Text -> [BrokerBinding] -> Map BrokerName Declaration
+  -> Map BrokerName (Map TopicName Declaration)
   -> (T.Text -> NonEmpty InventoryError)
-  -> Either (NonEmpty InventoryError) (Map Dsl.EnvName ScopedEnvVar)
-standaloneBrokerEnvironment cluster namespaceName bindings brokerServices invalid = do
+  -> Either (NonEmpty InventoryError) (Map Dsl.EnvName ScopedEnvVar, [ResourceId])
+standaloneBrokerEnvironment cluster namespaceName bindings brokerServices brokerTopics invalid = do
   unless (Map.keysSet brokerServices == Set.fromList (map (^. #name) bindings)
-      && length bindings == Map.size brokerServices)
+      && length bindings == Map.size brokerServices
+      && Map.keysSet brokerTopics `Set.isSubsetOf` Map.keysSet brokerServices)
     (Left (invalid "broker dependencies must cover exactly the workload bindings"))
+  ids <- traverse (first invalid . (\binding -> brokerEvidenceIds cluster namespaceName
+    binding brokerServices brokerTopics)) bindings
   brokerEnvs <- traverse (\binding -> do
-    unless (null (binding ^. #topics))
-      (Left (invalid "broker topics require reviewed logical topic ownership"))
-    service <- maybe (Left (invalid "broker has no typed Service dependency")) Right
-      (Map.lookup (binding ^. #name) brokerServices)
-    expected <- first invalid (kubernetesAddress cluster "v1" "Service"
-      (Just namespaceName) (brokerNameText (binding ^. #name)))
-    case service of
-      Managed resource | resource ^. #address == expected
-        && scopeKind (resource ^. #owner) == Standalone -> pure ()
-      _ -> Left (invalid "broker dependency is not an accepted standalone Service at the declared address")
     first invalid (brokerConnectionEnv binding BrokerConn
       { provider = Redpanda
       , bootstrapServers = brokerNameText (binding ^. #name) <> "."
           <> namespaceName <> ".svc.cluster.local:9092"
-      , topics = []
+      , topics = binding ^. #topics
       })) bindings
-  first invalid (mergeBrokerConnectionEnvs brokerEnvs)
+  env <- first invalid (mergeBrokerConnectionEnvs brokerEnvs)
+  pure (env, Set.toList (Set.fromList (concat ids)))
 
 compileWorkersWithOwner
   :: ScopeId -> Application -> RolloutEnv -> ResourceId -> ResourceId -> ResourceId
@@ -1078,15 +1126,16 @@ compileStandaloneServiceWithBrokers
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
 compileStandaloneServiceWithBrokers owner service rollout cluster namespaceId imageId recovery tlsSecrets envSecrets brokerServices =
   compileStandaloneServiceWithDependencies owner service rollout cluster namespaceId imageId
-    recovery tlsSecrets envSecrets brokerServices Map.empty
+    recovery tlsSecrets envSecrets brokerServices Map.empty Map.empty
 
 compileStandaloneServiceWithDependencies
   :: ScopeId -> Deployment -> RolloutEnv -> ResourceId -> ResourceId -> ResourceId
   -> Map VolumeName RecoveryIntent -> Map SecretName Declaration -> Map SecretName Declaration
-  -> Map BrokerName Declaration -> Map DatabaseName DatabaseBinding -> SourceLocation
+  -> Map BrokerName Declaration -> Map BrokerName (Map TopicName Declaration)
+  -> Map DatabaseName DatabaseBinding -> SourceLocation
   -> Either (NonEmpty InventoryError)
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileStandaloneServiceWithDependencies owner service rollout cluster namespaceId imageId recovery tlsSecrets envSecrets brokerServices databaseBindings source = do
+compileStandaloneServiceWithDependencies owner service rollout cluster namespaceId imageId recovery tlsSecrets envSecrets brokerServices brokerTopics databaseBindings source = do
   unless (scopeKind owner == Standalone)
     (Left (invalid "standalone service requires a standalone scope"))
   unless (rollout ^. #appName == serviceNameText (service ^. #name)
@@ -1095,11 +1144,10 @@ compileStandaloneServiceWithDependencies owner service rollout cluster namespace
     (Left (invalid "standalone rollout identity, namespace, or environment differs from its service"))
   (databaseEnv, databaseIds, databaseSecrets) <- standaloneDatabaseEnvironment cluster
     (service ^. #namespace) (service ^. #databases) databaseBindings invalid
-  brokerEnv <- standaloneBrokerEnvironment cluster
-    (namespaceText (service ^. #namespace)) (service ^. #brokers) brokerServices invalid
+  (brokerEnv, brokerIds) <- standaloneBrokerEnvironment cluster
+    (namespaceText (service ^. #namespace)) (service ^. #brokers) brokerServices brokerTopics invalid
   let service' = service & #env %~ mergeGenerated (mergeGenerated brokerEnv databaseEnv)
         & #brokers .~ [] & #databases .~ []
-      brokerIds = Set.toList (Set.fromList (map declarationId (Map.elems brokerServices)))
   requiredEnvSecrets <- first invalid (runtimeSecretNames
     (Map.elems (service' ^. #env)
       <> concatMap (Map.elems . (^. #env)) (service ^. #tasks)))

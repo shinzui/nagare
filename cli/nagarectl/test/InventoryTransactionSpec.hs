@@ -863,6 +863,67 @@ inventoryTransactionTests =
               "missing durable resource lacked a recovery refusal"
               (any ((== "durable-resource-missing") . planErrorCode) (NE.toList errors))
           Right _ -> assertFailure "missing durable resource was silently recreated"
+    , testCase "new workload verifies its accepted broker topic before creation" $ do
+        let brokerOwner = ok (mkScopeId Standalone "broker-events")
+            consumerOwner = ok (mkScopeId Application "topic-consumer")
+            seedOwner = ok (mkScopeId Platform "topic-seed")
+            cluster = mintResourceId brokerOwner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+            stateful = case member brokerOwner cluster "events" of
+              Managed resource -> Managed (resource
+                { address = Kubernetes cluster "apps" (ok (mkName "statefulset"))
+                    (Just (ok (mkName "personal"))) (ok (mkName "events"))
+                , spec = StatefulSet 1 [] (contentDigest "broker-stateful")
+                })
+              _ -> error "broker fixture is not managed"
+            statefulId = declarationId stateful
+            recovery = RecoveryIntent (ok (mkName "restore"))
+              (mkSecretRef (ok (mkName "credential")) (ok (mkName "v1")) :| [])
+            topic = case member brokerOwner cluster "jobs" of
+              Managed resource -> Managed (resource
+                { executor = BrokerExecutor
+                , address = BrokerTopic statefulId (ok (mkName "jobs"))
+                , spec = LogicalBrokerTopic 1 1 Nothing
+                , dataPolicy = Durable recovery
+                , dependencies = [OrderedAfter statefulId]
+                })
+              _ -> error "topic fixture is not managed"
+            topicId = declarationId topic
+            consumer = case member consumerOwner cluster "worker" of
+              Managed resource -> Managed (resource {dependencies = [OrderedAfter topicId]})
+              _ -> error "consumer fixture is not managed"
+            brokerScope = ok (mkScopeDeclaration brokerOwner
+              [ResourceBundle [stateful, topic] [] [] [] [] []])
+            consumerScope = ok (mkScopeDeclaration consumerOwner
+              [ResourceBundle [consumer] [] [] [] [] []])
+            snapshot = ok (mkScopeSnapshot fixtureBinding
+              (Map.singleton brokerOwner (ok (mkScopeGeneration 1), brokerScope)) Map.empty)
+            seed = ok (composeInventory snapshot
+              (ReplaceScope (ok (mkScopeDeclaration seedOwner [])) :| []))
+            candidate = ok (composeInventory snapshot (ReplaceScope consumerScope :| []))
+        store <- newMemoryStore
+        _ <- initializeStore store fixtureBinding "topic-dependency-test" >>= expectRight
+        _ <- seedInventoryHistory store seed >>= expectRight
+        history <- loadInventoryHistory store >>= expectRight
+        let required = requiredResources (observationRequirements candidate history)
+            observed resource
+              | resource == declarationId consumer = ConfirmedAbsent (contentDigest "absent")
+              | otherwise = ObservedPresent (ok (mkPhysicalIdentity (resourceIdText resource)))
+            observations = ok (observationSet
+              [(resource, observed resource) | resource <- Set.toAscList required])
+            operations = proposalOperations
+              (ok (planChanges candidate noLifecycleDecisions history observations))
+            verifications = [operation | operation <- operations
+              , plannedAction operation == VerifyResource
+              , topicId `elem` NE.toList (plannedResources operation)]
+            creations = [operation | operation <- operations
+              , plannedAction operation == CreateResource
+              , declarationId consumer `elem` NE.toList (plannedResources operation)]
+        case (verifications, creations) of
+          ([verification], [creation]) -> do
+            plannedExecutor verification @?= BrokerExecutor
+            assertBool "workload does not wait for topic verification"
+              (plannedOperationId verification `elem` plannedDependencies creation)
+          other -> assertFailure ("expected topic verification and workload creation, got " <> show other)
     , testCase "declared cache operation waits for its resource, database, and workload" $ do
         let owner = ok (mkScopeId Platform "cache")
             cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))

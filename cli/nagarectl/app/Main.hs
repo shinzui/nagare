@@ -6565,7 +6565,7 @@ runDeployPlan mctx options output = do
   let namespaceName = namespaceText (service ^. #namespace)
   (cluster, namespaceId) <- either dieT pure
     (acceptedFoundationNamespace snapshot namespaceName)
-  (brokerServices, _) <- either dieT pure
+  (brokerServices, brokerTopics, _) <- either dieT pure
     (acceptedBrokerBindings snapshot cluster namespaceName (service ^. #brokers))
   databaseBindings <- reviewedStandaloneDatabases active snapshot cluster namespaceName
     (service ^. #databases)
@@ -6597,7 +6597,7 @@ runDeployPlan mctx options output = do
         (serviceNameText (service ^. #name))
   (scope, native) <- either (dieT . T.pack . show) pure
     (compileStandaloneServiceWithDependencies owner service rollout cluster namespaceId imageId
-      volumeRecovery tlsSecrets envSecrets brokerServices databaseBindings source)
+      volumeRecovery tlsSecrets envSecrets brokerServices brokerTopics databaseBindings source)
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
   Inventory.planInventoryCandidateWith
@@ -7168,13 +7168,15 @@ runAppDeployPlan mctx params appOptions output = do
         (foundationCluster, acceptedNamespace) <- either dieT pure
           (acceptedFoundationNamespace snapshot appNamespaceName)
         pure (foundationCluster, acceptedNamespace, Nothing)
-  (appBrokerServices, brokerEnv) <- either dieT pure
+  (appBrokerServices, appBrokerTopics, brokerEnv) <- either dieT pure
     (acceptedBrokerBindings snapshot cluster appNamespaceName (app ^. #brokers))
   workloadBrokers <- either dieT pure (traverse
     (acceptedBrokerBindings snapshot cluster appNamespaceName)
     (maybe [] (pure . (^. #brokers)) (app ^. #service)
       <> map (^. #brokers) (app ^. #workers)))
-  let brokerServices = Map.unions (appBrokerServices : map fst workloadBrokers)
+  let brokerServices = Map.unions (appBrokerServices : [services | (services, _, _) <- workloadBrokers])
+      brokerTopics = Map.unionsWith Map.union
+        (appBrokerTopics : [topics | (_, topics, _) <- workloadBrokers])
   rollout <- resolveAppRolloutWithBrokerEnv params app brokerEnv
   unless (all (\build -> resolveImageTag build (rollout ^. #imageTag)
       == rollout ^. #effectiveTag) builds)
@@ -7201,6 +7203,7 @@ runAppDeployPlan mctx params appOptions output = do
         , scopeNamespaceContributionOwner = namespaceOwner
         , scopeImage = imageId
         , scopeBrokerServices = brokerServices
+        , scopeBrokerTopics = brokerTopics
         , scopeDatabaseRecovery = databaseRecovery
         , scopeServiceVolumeRecovery = serviceVolumeRecovery
         , scopeTlsSecrets = tlsSecrets
@@ -7838,7 +7841,7 @@ runWorkerPlan mctx options output = do
   snapshot <- Inventory.loadTargetSnapshot active
   (cluster, namespaceId) <- either dieT pure
     (acceptedFoundationNamespace snapshot (namespaceText (worker ^. #namespace)))
-  (brokerServices, _) <- either dieT pure
+  (brokerServices, brokerTopics, _) <- either dieT pure
     (acceptedBrokerBindings snapshot cluster
       (namespaceText (worker ^. #namespace)) (worker ^. #brokers))
   databaseBindings <- reviewedStandaloneDatabases active snapshot cluster
@@ -7876,7 +7879,7 @@ runWorkerPlan mctx options output = do
         (serviceNameText (worker ^. #name))
   (scope, native) <- either (dieT . T.pack . show) pure
     (compileStandaloneWorkerWithDependencies owner worker rollout cluster namespaceId imageId
-      recovery envSecrets brokerServices databaseBindings source)
+      recovery envSecrets brokerServices brokerTopics databaseBindings source)
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
   Inventory.planInventoryCandidateWith

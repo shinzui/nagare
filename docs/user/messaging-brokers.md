@@ -182,13 +182,12 @@ broker contract. The same check runs for `--dry-run`, so a broker-bound workload
 dry-run also needs the referenced broker and topics to exist.
 
 For `app deploy --save-plan`, an application, Service, or worker may bind to a
-topic-free broker that already has an accepted standalone inventory scope. The
-reviewed workload receives the broker connection values and depends on that
-broker's Service. Other workers do not inherit a Service or worker binding;
-application-level bindings reach every workload. Reviewed topic creation and
-topic-bearing workload bindings are separate capabilities: the former is
-available through `broker create --save-plan`, while the latter still refuses a
-saved workload plan.
+broker and its topics only when the standalone broker scope and every requested
+topic have accepted inventory claims. The reviewed workload receives the broker
+connection and topic values, depends on the broker Service and exact topic
+claims, and verifies unchanged topics before creating a new consumer. Other
+workers do not inherit a Service or worker binding; application-level bindings
+reach every workload. A missing or unaccepted topic refuses the saved plan.
 
 ## Worker or service?
 

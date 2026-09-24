@@ -684,6 +684,16 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
         ]
     observed = observationMap observations
     desiredManaged = [(resource ^. #identity, resource, Map.lookup (resource ^. #identity) oldDeclarations, Map.lookup (resource ^. #identity) observed) | Managed resource <- Map.elems desiredDeclarations]
+    selectedScopeIds = Set.fromList
+      [scopeId scope | ReplaceScope scope <- NE.toList (candidateChanges candidate)]
+    requiredTopics = Set.fromList
+      [target
+      | Managed consumer <- Map.elems desiredDeclarations
+      , Set.member (consumer ^. #owner) selectedScopeIds
+      , dependency <- consumer ^. #dependencies
+      , let target = dependencyResource dependency
+      , Just (Managed producer) <- [Map.lookup target desiredDeclarations]
+      , producer ^. #executor == BrokerExecutor]
     retired = [(resource, declaration) | (resource, declaration@(Managed _)) <- Map.toAscList oldDeclarations, Map.notMember resource desiredDeclarations]
     selectedCollections =
       [(resourceId, resource)
@@ -834,7 +844,8 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
       (Just old, _)
         | sameManaged old resource ->
             ( []
-            , if bootstrapReview && resource ^. #executor `elem` [KubernetesExecutor, HelmExecutor]
+            , if (bootstrapReview && resource ^. #executor `elem` [KubernetesExecutor, HelmExecutor])
+                || Set.member resourceId requiredTopics
                 then Just (resourceOperation VerifyResource resource)
                 else Nothing
             )

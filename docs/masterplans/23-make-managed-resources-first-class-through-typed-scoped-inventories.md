@@ -106,6 +106,11 @@ provenance:
       at: 2026-09-24T22:38:00Z
       mode: "implement"
       note: "Track accepted database native evidence required by EP-150"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-24T23:29:37Z
+      mode: "implement"
+      note: "Track accepted broker topic bindings and saved-plan verification"
 ---
 
 # Make managed resources first-class through typed scoped inventories
@@ -493,3 +498,5 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 2026-09-24: EP-148's platform-database collision fixture exposed that the EP-144 graph validator omitted `External` declarations from its canonical claim map. The shared validator now reserves their addresses, and both the DSL collision fixture and full application composition refuse a platform/database overlap. Observed controller children still use the parent's derived reservation. The EP-148/150 completion gates are unchanged.
 
 2026-09-24: EP-148's standalone broker scope now includes typed logical topic claims and a guarded Redpanda topic adapter for absent-topic creation and exact configuration verification. Existing unowned topics, in-place changes, and uncertain creation acknowledgements refuse. Retained topic claims remain visible after broker retirement. The installed `rpk` exposes no stable topic ID, so independent topic incarnation proof and topic-bearing workload dependencies remain open; EP-148's milestones and EP-150's hard gate are unchanged.
+
+2026-09-24: EP-148 now binds reviewed application, Service, and worker consumers to exact accepted standalone broker topic claims, includes topic environment values, and adds a saved-plan topic verification before new consumers. Missing topic evidence refuses. Topic update/deletion and other M1/M3 work remain, so EP-150's hard gate is unchanged.
