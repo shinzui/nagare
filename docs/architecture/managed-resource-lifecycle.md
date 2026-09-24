@@ -8,8 +8,10 @@ An adapter can report `immutable-replacement-required` when it proves that a
 changed object cannot be updated in place. Status shows the physical identity
 and observed digest, while ordinary planning refuses an update until a reviewed
 replacement or migration path exists. The Kubernetes observer emits this
-outcome when an explicitly declared `apps/v1` Deployment selector changes.
-Other immutable changes remain outside that proved classification.
+outcome when an explicitly declared `apps/v1` Deployment selector changes, or
+when a StatefulSet's explicit selector, service name, volume claim templates,
+or pod management policy change. Other immutable changes remain outside that
+proved classification.
 
 When a transaction is active, status and explain include `transactionStatus` with the
 latest committed state of each journaled operation. `recoveryRequired` marks an

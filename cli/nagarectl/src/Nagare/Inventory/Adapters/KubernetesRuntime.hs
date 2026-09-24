@@ -11,6 +11,7 @@ module Nagare.Inventory.Adapters.KubernetesRuntime
   , mkKubernetesRuntimeOpsWithCacheKey
   , desiredFieldsMatch
   , deploymentSelectorReplacement
+  , statefulSetImmutableReplacement
   , confirmInventoryFieldOwnership
   , confirmInventoryFieldOwnershipFor
   , jobCompleted
@@ -445,6 +446,7 @@ parseObserved config resource native response = do
   when (stampedContext /= Nothing && stampedContext /= Just (contextIdText (runtimeContext config)))
     (Left "Kubernetes object belongs to a different inventory context")
   pure $ if deploymentSelectorReplacement desired observed
+      || statefulSetImmutableReplacement desired observed
     then KubernetesReplacementRequired uid revision owner driftDigest
     else KubernetesPresent uid revision owner driftDigest
 
@@ -463,6 +465,25 @@ deploymentSelectorReplacement desired observed =
           Object specValue <- KM.lookup "spec" root
           KM.lookup "selector" specValue
     selector _ = Nothing
+
+-- A StatefulSet's identity-bearing spec fields cannot be changed by an
+-- ordinary update. Require both values to be explicit so omitted/defaulted
+-- fields do not manufacture a replacement finding.
+statefulSetImmutableReplacement :: Value -> Value -> Bool
+statefulSetImmutableReplacement desired observed =
+  any changed ["selector", "serviceName", "volumeClaimTemplates", "podManagementPolicy"]
+  where
+    changed field = case (specField desired field, specField observed field) of
+      (Just before, Just after)
+        | field == "volumeClaimTemplates" -> not (desiredFieldsMatch before after)
+        | otherwise -> before /= after
+      _ -> False
+    specField (Object root) field
+      | KM.lookup "apiVersion" root == Just (String "apps/v1")
+      , KM.lookup "kind" root == Just (String "StatefulSet") = do
+          Object specValue <- KM.lookup "spec" root
+          KM.lookup field specValue
+    specField _ _ = Nothing
 
 jobCompleted :: Value -> Bool
 jobCompleted = hasCondition "Complete"

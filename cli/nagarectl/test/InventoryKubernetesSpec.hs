@@ -25,7 +25,7 @@ import Nagare.Dsl.Database (Database (Database), Engine (..), defaultEngineVersi
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes
-import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), cacheClientDataMatches, certificateReady, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, credentialDataMatches, deploymentAvailable, deploymentSelectorReplacement, desiredFieldsMatch, generatedCredentialTemplate, jobCompleted, knativeReady, materializeCacheKey, materializeCredential, mkKubernetesRuntimeOps, observeCacheClientOutput, readinessForAddress, supportedUpdateAddress, withoutCacheClientData)
+import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), cacheClientDataMatches, certificateReady, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, credentialDataMatches, deploymentAvailable, deploymentSelectorReplacement, desiredFieldsMatch, generatedCredentialTemplate, jobCompleted, knativeReady, materializeCacheKey, materializeCredential, mkKubernetesRuntimeOps, observeCacheClientOutput, readinessForAddress, statefulSetImmutableReplacement, supportedUpdateAddress, withoutCacheClientData)
 import Nagare.Inventory.Database (compileDatabaseForBackend, compileDatabaseNative, compileDatabaseNativeWithBackup)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Components.Foundation (compileContributedNamespaces)
@@ -80,6 +80,43 @@ inventoryKubernetesTests =
         Map.lookup resource (observationMap result)
           @?= Just (ObservedReplacementRequired physical (contentDigest "changed"))
         readIORef calls >>= (@?= 0)
+    , testCase "StatefulSet identity changes require replacement review" $ do
+        let stateful specValue = object
+              [ "apiVersion" .= ("apps/v1" :: Text)
+              , "kind" .= ("StatefulSet" :: Text)
+              , "spec" .= specValue
+              ]
+            base = stateful (object
+              [ "selector" .= object ["matchLabels" .= object ["app" .= ("old" :: Text)]]
+              , "serviceName" .= ("headless" :: Text)
+              , "volumeClaimTemplates" .= [object ["metadata" .= object ["name" .= ("data" :: Text)]]]
+              , "replicas" .= (1 :: Int)
+              ])
+            changedSelector = stateful (object
+              [ "selector" .= object ["matchLabels" .= object ["app" .= ("new" :: Text)]]
+              , "serviceName" .= ("headless" :: Text)
+              , "volumeClaimTemplates" .= [object ["metadata" .= object ["name" .= ("data" :: Text)]]]
+              ])
+            changedService = stateful (object ["serviceName" .= ("other" :: Text)])
+            changedClaims = stateful (object
+              ["volumeClaimTemplates" .= [object ["metadata" .= object ["name" .= ("other" :: Text)]]]])
+            changedPodManagement = stateful (object ["podManagementPolicy" .= ("Parallel" :: Text)])
+            changedReplicas = stateful (object ["replicas" .= (2 :: Int)])
+            defaultedClaims = stateful (object
+              ["volumeClaimTemplates" .= [object
+                ["metadata" .= object ["name" .= ("data" :: Text), "labels" .= object []]]]])
+        assertBool "selector change was ordinary drift" (statefulSetImmutableReplacement changedSelector base)
+        assertBool "serviceName change was ordinary drift" (statefulSetImmutableReplacement changedService base)
+        assertBool "claim template change was ordinary drift" (statefulSetImmutableReplacement changedClaims base)
+        assertBool "pod management change was ordinary drift"
+          (statefulSetImmutableReplacement changedPodManagement (stateful (object ["podManagementPolicy" .= ("OrderedReady" :: Text)])))
+        assertBool "replica change required replacement" (not (statefulSetImmutableReplacement changedReplicas base))
+        assertBool "defaulted claim metadata required replacement"
+          (not (statefulSetImmutableReplacement base defaultedClaims))
+        assertBool "missing observed value claimed replacement"
+          (not (statefulSetImmutableReplacement base (stateful (object []))))
+        assertBool "different kind claimed StatefulSet replacement"
+          (not (statefulSetImmutableReplacement (object ["kind" .= ("Deployment" :: Text)]) base))
     , testCase "reviewed create uses the retained native object and proves completion" $ do
         state <- newIORef (KubernetesAbsent absence)
         calls <- newIORef (0 :: Int)

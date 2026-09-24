@@ -52,6 +52,11 @@ provenance:
       at: 2026-09-24T02:30:20Z
       mode: "implement"
       note: "Report UID-bound retained Kubernetes health separately from drift"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-24T04:46:40Z
+      mode: "implement"
+      note: "Classify immutable StatefulSet identity changes"
 ---
 
 # Explain drift and execute reviewed adoption migration and retirement
@@ -101,6 +106,7 @@ This plan delivers provider-independent lifecycle planning plus inventory status
 - [x] (2026-09-24) M1 retained health: Status and explain now probe supported retained Kubernetes conditions only for the historically retained UID and report health separately from configuration observation. Confirmed absence reports unavailable health; matching configuration alone remains unknown until a condition probe succeeds. A focused fixture proves that a replacement UID and confirmed absence cannot enter the retained condition probe. The CLI executable builds and the focused retirement tests pass. Other provider health remains open.
 - [x] (2026-09-24) M2 Helm scope transfer: An unchanged stamped Helm release can move between two explicitly selected scopes through the existing reviewed `VerifyResource` handoff. The lifecycle validator requires equal executor, address, native spec, aliases, policies, delegations, and dependencies. A fixture proves an unreviewed transfer refuses, a reviewed transfer plans verification without mutation, a changed native contract refuses, and a changed release revision fails adapter preflight. The focused Helm tests pass. Other provider transfers remain unavailable.
 - [x] (2026-09-24) M3 migration guard: Ordinary planning now refuses an accepted ResourceId whose provider address or executor changes with `migration-review-required` before classifying the new observation as create or update. A fixture covers both confirmed absence and a present stamp at the destination. The focused inventory test passes. The dual-incarnation migration graph and execution protocol remain open.
+- [x] (2026-09-24) M1 StatefulSet immutable classification: The production Kubernetes observer reports replacement required when explicit selector, service name, volume claim templates, or pod management policy differ. Volume claim templates compare desired fields to avoid defaulted observed metadata causing a false finding. The focused test and Haskell style check pass; reviewed replacement and broader immutable coverage remain open.
 - [ ] M1: Classify observations and expose complete read-only status/explain.
 - [ ] M2: Plan explicit legacy adoption and ownership transfer.
 - [ ] M3: Plan migration/retirement with retained data and recovery evidence.
@@ -295,3 +301,5 @@ Support types are explicit alternatives in Lifecycle/Migration; identity and pol
 2026-09-24: Extended the existing reviewed owner transfer boundary to unchanged Helm releases after checking the adapter's stamped revision and contract verification path. No Helm mutation is permitted by this handoff.
 
 2026-09-24: Closed the ordinary planner's same-ResourceId address/executor change path before implementing migration. The refusal preserves the source incarnation until a dual-observation and phased recovery protocol can replace it.
+
+2026-09-24: Extended production immutable-change classification to the four StatefulSet fields rejected by Kubernetes update validation. This advances M1 only; it does not authorize replacement execution.
