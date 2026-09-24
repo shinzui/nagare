@@ -189,6 +189,13 @@ inventoryTransactionTests =
           @?= ["replacement-required"]
         retainedCategory (ObservedPresent (ok (mkPhysicalIdentity "replacement-uid"))) @?= ["replaced-incarnation"]
         retainedCategory (ConfirmedAbsent (contentDigest "absent")) @?= ["confirmed-absent"]
+        let retainedHealth currentFact =
+              [InventoryStatus.retainedHealth finding
+              | finding <- InventoryStatus.retainedFindings retainedHistory
+                  (ok (observationSet [(resourceId, currentFact)])),
+                InventoryStatus.retainedResource finding == resourceId]
+        retainedHealth (ObservedPresent physical) @?= [InventoryStatus.HealthUnknown]
+        retainedHealth (ConfirmedAbsent (contentDigest "absent")) @?= [InventoryStatus.HealthUnavailable]
         let retainedSnapshot = ok (mkScopeSnapshot fixtureBinding Map.empty
               (historyReservations retainedHistory))
             emptyInventory = ok (composeSnapshot retainedSnapshot)

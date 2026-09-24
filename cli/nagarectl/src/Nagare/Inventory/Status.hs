@@ -133,6 +133,7 @@ data RetainedFinding = RetainedFinding
   , retainedDataPolicy :: !DataPolicy
   , retainedObservation :: !Text
   , retainedObservedIdentity :: !(Maybe PhysicalIdentity)
+  , retainedHealth :: !HealthCategory
   }
   deriving stock (Eq, Show)
 
@@ -144,6 +145,9 @@ retainedFindings history observations =
       (managed ^. #lifecycle) (managed ^. #dataPolicy)
       (observationCategory incarnation (Map.lookup resourceId (observationMap observations)))
       (observedIdentity =<< Map.lookup resourceId (observationMap observations))
+      (case Map.lookup resourceId (observationMap observations) of
+        Just (ConfirmedAbsent _) -> HealthUnavailable
+        _ -> HealthUnknown)
   | (resourceId, (incarnation, managed)) <- Map.toAscList (historyRetained history)]
   where
     observationCategory incarnation fact = case fact of
@@ -179,6 +183,7 @@ instance ToJSON RetainedFinding where
     , "category" .= ("retained-orphan" :: Text)
     , "observation" .= retainedObservation finding
     , "observedPhysical" .= retainedObservedIdentity finding
+    , "health" .= retainedHealth finding
     ]
 
 -- | Read-only screening for a later collection review. A candidate has no

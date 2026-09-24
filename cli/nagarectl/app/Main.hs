@@ -4430,6 +4430,17 @@ runInventoryStatus mctx requested json gcOutput = do
         observeKubernetesHealth healthConfig (resource ^. #address) uid
       _ -> pure Nothing
     pure (resourceId, health)
+  retainedHealthPairs <- forM (Map.toAscList (InventoryPlan.historyRetained history)) $ \(resourceId, (incarnation, resource)) -> do
+    let matchesHistorical = case Map.lookup resourceId kubeObserved of
+          Just (InventoryAdapter.ObservedPresent uid) -> uid == InventoryStore.retainedPhysical incarnation
+          Just (InventoryAdapter.ObservedDrifted uid _) -> uid == InventoryStore.retainedPhysical incarnation
+          Just (InventoryAdapter.ObservedReplacementRequired uid _) -> uid == InventoryStore.retainedPhysical incarnation
+          _ -> False
+    health <- if resource ^. #executor == ResourceInventory.KubernetesExecutor && matchesHistorical
+      then observeKubernetesHealth healthConfig (resource ^. #address)
+        (InventoryStore.retainedPhysical incarnation)
+      else pure Nothing
+    pure (resourceId, health)
   transactionStatus <- InventoryStatus.loadActiveTransactionStatus store (InventoryPlan.historyHead history)
     >>= either dieT pure
   finalHead <- InventoryStore.readHead store >>= either (dieT . T.pack . show) pure
@@ -4450,7 +4461,13 @@ runInventoryStatus mctx requested json gcOutput = do
           Just (Just False) -> InventoryStatus.HealthNotReady
           _ -> InventoryStatus.findingHealth finding}
         | finding <- InventoryStatus.classifyDrift inventory observations]
-      retainedFindings = InventoryStatus.retainedFindings history observations
+      retainedHealthById = Map.fromList retainedHealthPairs
+      retainedFindings =
+        [finding {InventoryStatus.retainedHealth = case Map.lookup (InventoryStatus.retainedResource finding) retainedHealthById of
+          Just (Just True) -> InventoryStatus.HealthReady
+          Just (Just False) -> InventoryStatus.HealthNotReady
+          _ -> InventoryStatus.retainedHealth finding}
+        | finding <- InventoryStatus.retainedFindings history observations]
       collectionAssessments = InventoryStatus.assessCollections history inventory observations
       collectedEntries = Map.toAscList (InventoryStore.headCollected (InventoryPlan.historyHead history))
       unavailable = Set.toAscList (Set.fromList
