@@ -301,6 +301,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-24) EP-148 M1 partial: Database and broker builders refuse renderer/member count drift before binding roles; command-path parity remains open.
 - [x] (2026-09-24) EP-148 M1 partial: Database native binding refuses duplicate or missing declaration IDs before retaining execution bytes.
 - [ ] EP-148 M1: Complete application/data scopes.
+- [x] (2026-09-24) EP-148 M2 partial: Application namespace requests compose under an explicit owner grant and preserve the platform scope revision.
 - [ ] EP-148 M2: Shared contributions, env/secret intent, and publication.
 - [ ] EP-148 M3: Operational/data command coverage.
 - [ ] EP-148 M4: Removed alternate paths and scope isolation.
@@ -476,3 +477,5 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 2026-09-24: Added a fail-closed renderer membership check to EP-148's existing database and standalone broker declaration paths. EP-148 remains in progress; M1 through M4 and the EP-150 gate are unchanged.
 
 2026-09-24: Extended the database native adapter's parity proof to exact declaration IDs and private member cardinality. No dependency or registry status changed.
+
+2026-09-24: EP-148 now submits namespace contributions through EP-147's owner composer with exact dependency identity. Offline composition proves granted application requests leave the platform scope revision unchanged and ungranted requests refuse; other EP-148 M2 channels remain open.

@@ -26,13 +26,13 @@ import Nagare.App.Deploy
 import Nagare.Inventory.Application (ApplicationScopeInput (..), compileApplicationScope, compileApplicationService, compileApplicationTasks, compileApplicationWorkers)
 import Nagare.Resource.Application (applicationScopeId, volumeResourceId)
 import Nagare.Resource.Database (databaseResourceId)
-import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (Managed), ManagedResource (..), DesiredSpec (KnativeService), scopeBundles)
+import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (..), ManagedResource (..), DesiredSpec (KnativeService), Contribution (RegisterNamespace), ContributionGrant (NamespaceGrant), ScopeChange (ReplaceScope), candidateGenerations, candidateInventory, composeInventory, contributionResourceId, inventoryDeclarations, inventoryScopes, mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeId)
 import Nagare.Resource.Policy (RecoveryIntent (..), mkSecretRef)
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Dsl.Load (loadApplication)
 import Nagare.Dsl.Prelude
-import Nagare.Dsl.Types (AccessMode (ReadWriteOnce), DomainTls (SuppliedTlsSecret), EnvVar (EnvSecretRef), RetentionPolicy (Retain), Volume (..), mkDomains, mkEnvName, mkImageRef, mkMountPath, mkQuantity, mkSecretName, mkVolumeName, runtimeScoped, serviceNameText)
+import Nagare.Dsl.Types (AccessMode (ReadWriteOnce), DomainTls (SuppliedTlsSecret), EnvVar (EnvSecretRef), RetentionPolicy (Retain), Volume (..), mkDomains, mkEnvName, mkImageRef, mkMountPath, mkNamespace, mkQuantity, mkSecretName, mkVolumeName, runtimeScoped, serviceNameText)
 import Nagare.Dsl.Worker (Worker (..))
 import Nagare.Dsl.Presets (attachVolume)
 import Nagare.Target (InventoryStoreKind (..), Mode (..), PulumiBackendKind (..), TargetProfile (..))
@@ -255,6 +255,7 @@ renderTests =
             , scopeRollout = testEnv & #appEnv .~ app ^. #env
             , scopeCluster = cluster
             , scopeNamespace = namespaceId
+            , scopeNamespaceContributionOwner = Nothing
             , scopeImage = publication
             , scopeDatabaseRecovery = Map.fromList
                 [(database ^. #name, recovery) | database <- app ^. #databases]
@@ -267,6 +268,64 @@ renderTests =
       length (scopeBundles scope) @?= 6
       Map.size native @?= 10
       length [() | bundle <- scopeBundles scope, Managed _ <- declarations bundle] @?= 10
+      case compileApplicationScope (input {scopeNamespaceContributionOwner = Just foundation}) of
+        Left _ -> pure ()
+        Right _ -> assertFailure "namespace contribution used an unrelated namespace identity"
+      let sandbox = unsafe (mkNamespace "sandbox")
+          sandboxId = Resource.mintResourceId foundation
+            (unsafe (Resource.mkLogicalKey "sandbox")) (unsafe (Resource.mkName "namespace"))
+          sandboxApp = app
+            & #namespace .~ sandbox
+            & #databases .~ []
+            & #workers .~ []
+            & #tasks .~ []
+            & #service %~ fmap (\service -> service
+                & #namespace .~ sandbox
+                & #databases .~ [])
+          sandboxInput = input
+            { scopeApplication = sandboxApp
+            , scopeRollout = scopeRollout input & #namespace .~ "sandbox"
+            , scopeNamespace = sandboxId
+            , scopeNamespaceContributionOwner = Just foundation
+            }
+      (sandboxScope, _) <- either (fail . show) pure (compileApplicationScope sandboxInput)
+      case [request | bundle <- scopeBundles sandboxScope, request <- contributions bundle] of
+        [request@RegisterNamespace {}] -> contributionResourceId request @?= sandboxId
+        other -> assertFailure ("expected one typed namespace contribution: " <> show other)
+      let externalSource = Resource.SourceLocation "test" "foundation"
+          imageDigest = unsafe (Resource.mkContentDigest (T.replicate 64 "0"))
+          foundationBundle = ResourceBundle
+            [ External cluster (Resource.CloudInstance
+                (unsafe (Resource.mkName "project"))
+                (unsafe (Resource.mkName "zone"))
+                (unsafe (Resource.mkName "cluster"))) [] externalSource
+            , External publication (Resource.Artifact
+                (unsafe (Resource.mkName "image")) imageDigest) [] externalSource
+            ] [] [] [] [] [NamespaceGrant (scopeId sandboxScope) cluster]
+          binding = Resource.ContextBinding
+            (unsafe (Resource.mkContextId "fixture")) (unsafe (Resource.mkName "project"))
+      foundationScope <- either (fail . show) pure
+        (mkScopeDeclaration foundation [foundationBundle])
+      accepted <- either (fail . show) pure
+        (mkScopeSnapshot binding (Map.singleton foundation
+          (unsafe (Resource.mkScopeGeneration 1), foundationScope)) Map.empty)
+      candidate <- either (fail . show) pure
+        (composeInventory accepted (ReplaceScope sandboxScope :| []))
+      Map.lookup foundation (inventoryScopes (candidateInventory candidate)) @?= Just foundationScope
+      Map.lookup foundation (candidateGenerations candidate) @?= Just (unsafe (Resource.mkScopeGeneration 1))
+      case [member | Managed member <- inventoryDeclarations (candidateInventory candidate)
+            , member ^. #identity == sandboxId] of
+        [member] -> member ^. #owner @?= foundation
+        other -> assertFailure ("expected one owner-composed namespace: " <> show other)
+      let ungranted = foundationBundle {grants = []}
+      ungrantedScope <- either (fail . show) pure
+        (mkScopeDeclaration foundation [ungranted])
+      ungrantedSnapshot <- either (fail . show) pure
+        (mkScopeSnapshot binding (Map.singleton foundation
+          (unsafe (Resource.mkScopeGeneration 1), ungrantedScope)) Map.empty)
+      case composeInventory ungrantedSnapshot (ReplaceScope sandboxScope :| []) of
+        Left _ -> pure ()
+        Right _ -> assertFailure "ungranted application namespace contribution was accepted"
       case compileApplicationScope (input {scopeRollout = testEnv & #namespace .~ "other"}) of
         Left _ -> pure ()
         Right _ -> assertFailure "mismatched rollout namespace was accepted"

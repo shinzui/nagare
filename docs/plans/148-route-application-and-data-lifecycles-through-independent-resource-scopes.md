@@ -58,6 +58,7 @@ Every supported application-side mutation is either a desired-scope update, a re
 - [x] (2026-09-24) M4 partial: Legacy app deploy and broker create refuse inventory transaction re-entry, matching the database create guard, while their public command paths remain active.
 - [x] (2026-09-24) M1 partial: Database and broker scope builders refuse renderer membership changes before role-to-object binding; 450 DSL tests, 769 operator tests, and the Haskell style check pass.
 - [x] (2026-09-24) M1 partial: Database native binding verifies the complete declaration-ID set and refuses duplicate or missing private members instead of accepting a lossy map.
+- [x] (2026-09-24) M2 partial: Application scopes can submit an explicit namespace contribution bound to their namespace dependency ID. Composition accepts a granted custom namespace without advancing the platform scope revision and refuses an ungranted request; operator tests pass.
 - [ ] M1: Compile applications and standalone services into complete scopes.
 - [ ] M2: Integrate shared-owner contributions, environment intent, and publication.
 - [ ] M3: Route operational and data lifecycle commands through reviewed operations.
@@ -90,6 +91,8 @@ Every supported application-side mutation is either a desired-scope update, a re
 
 2026-09-24: The database adapter bound each native member to a declaration but then built a `Map` without proving equal membership. A duplicate ID could collapse during that conversion. Binding now compares the exact declaration and native ID sets and counts before returning private execution bytes.
 
+2026-09-24: The shared namespace composer already enforced owner grants, but the application scope compiler had no way to submit a request. An optional owner input now emits `RegisterNamespace` only after checking that its generated ID equals the Namespace ID used by application workloads. An offline composed candidate proves that the platform's accepted scope revision remains fixed, and missing grants refuse. Application command construction and other shared contributions remain open.
+
 ## Decision Log
 
 2026-09-16: Preserve separately submitted environment/secret intent across configuration deploys. Inputs are explicit versioned intent channels composed into one owner declaration, not live cluster data silently copied into desired state.
@@ -99,6 +102,8 @@ Every supported application-side mutation is either a desired-scope update, a re
 2026-09-16: Interactive administrative shells cannot be represented as read-only commands. Journal a scoped maintenance session with bounded resource authority and re-observe afterward; arbitrary SQL effects remain explicitly unknown until reconciled.
 
 2026-09-24: Give the Application aggregate an optional logical key as well as its contained resources. The aggregate owns the ScopeId, so a display-name change needs a pinned scope key to retain accepted history; absent a key, the current name remains the backward-compatible default. This is an extension of ADR 22's resource identity rule.
+
+2026-09-24: Require an explicit owner scope for application namespace contributions and bind the request to the exact Namespace ResourceId used by its workloads. Rationale: a custom namespace belongs to the shared owner, while an application may also consume an existing Namespace without requesting a new one; neither case grants the application lifecycle ownership of the Namespace.
 
 
 ## Outcomes & Retrospective

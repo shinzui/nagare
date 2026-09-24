@@ -52,6 +52,10 @@ data ApplicationScopeInput = ApplicationScopeInput
   , scopeRollout :: !RolloutEnv
   , scopeCluster :: !ResourceId
   , scopeNamespace :: !ResourceId
+  -- ^ Exact Namespace identity used by workload dependencies.
+  , scopeNamespaceContributionOwner :: !(Maybe ScopeId)
+  -- ^ When present, request this owner to compose the namespace. Composition
+  -- still requires that owner's explicit grant to the application scope.
   , scopeImage :: !ResourceId
   , scopeDatabaseRecovery :: !(Map DatabaseName RecoveryIntent)
   , scopeServiceVolumeRecovery :: !(Map VolumeName RecoveryIntent)
@@ -93,6 +97,15 @@ compileApplicationScope input = do
         && service ^. #cdn == Nothing)
       (Left (invalid "service tasks, access, and CDN need typed members"))
   owner <- first invalid (applicationScopeId app)
+  namespaceContribution <- case scopeNamespaceContributionOwner input of
+    Nothing -> Right Nothing
+    Just namespaceOwner -> do
+      namespaceName <- first invalid (mkName (namespaceText (app ^. #namespace)))
+      namespaceKey <- first invalid (mkLogicalKey (namespaceText (app ^. #namespace)))
+      let request = RegisterNamespace namespaceOwner (scopeCluster input) namespaceName namespaceKey
+      unless (contributionResourceId request == scopeNamespace input)
+        (Left (invalid "namespace contribution does not match the reviewed namespace identity"))
+      pure (Just request)
   (databaseBundles, databaseNative) <- compileApplicationDatabases app
     (scopeCluster input) (Just (scopeNamespace input)) (scopeDatabaseRecovery input)
     (scopeBackupBackend input) source
@@ -106,7 +119,8 @@ compileApplicationScope input = do
     (scopeWorkerVolumeRecovery input) source
   (taskBundle, taskNative) <- compileApplicationTasks app (scopeRollout input)
     (scopeCluster input) (scopeNamespace input) (scopeImage input) source
-  let bundles = databaseBundles <> maybe [] (pure . fst) serviceResult
+  let namespaceBundles = maybe [] (\request -> [ResourceBundle [] [] [] [request] [] []]) namespaceContribution
+      bundles = namespaceBundles <> databaseBundles <> maybe [] (pure . fst) serviceResult
         <> workerBundles <> [taskBundle]
       nativeMaps = [databaseNative] <> maybe [] (pure . snd) serviceResult
         <> [workerNative, taskNative]

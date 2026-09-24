@@ -14,6 +14,7 @@ module Nagare.Resource.Inventory
   , BackendRole (..)
   , Contribution (..)
   , ContributionGrant (..)
+  , contributionResourceId
   , backendMapResourceId
   , shomeiSettingsResourceId
   , ResourceBundle (..)
