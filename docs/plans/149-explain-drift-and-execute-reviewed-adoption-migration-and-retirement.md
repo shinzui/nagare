@@ -109,6 +109,7 @@ This plan delivers provider-independent lifecycle planning plus inventory status
 - [x] (2026-09-24) M1 StatefulSet immutable classification: The production Kubernetes observer reports replacement required when explicit selector, service name, volume claim templates, or pod management policy differ. Volume claim templates compare desired fields to avoid defaulted observed metadata causing a false finding. The focused test and Haskell style check pass; reviewed replacement and broader immutable coverage remain open.
 - [x] (2026-09-24) M1 condition separation: An existing Kubernetes object with an unready controller condition now retains its configuration and ownership observation. A distinct internal state prevents execution verification from treating it as complete, while read-only status can report not-ready health. A focused Job fixture, the 154-test inventory suite, and Haskell style check pass.
 - [x] (2026-09-24) M1 StatefulSet health: Status now probes the observed StatefulSet UID and requires a current controller generation plus the requested ready and updated replica counts. Mutation waits for rollout before verification; an unready observation retains configuration facts but cannot complete the operation. The 155-test inventory suite and Haskell style check pass; other provider health remains open.
+- [x] (2026-09-24) M3 Helm retention: `inventory retire` now keeps a stamped Helm release under its original scope revision and physical release Secret UID without a Helm mutation. Planning and apply reconstruct retained native evidence; admission refuses a changed UID. The recording fixture, full 751-test CLI suite, executable build, and style check pass. Controller-child history, durable data migration, and broader collection remain open.
 - [x] (2026-09-24) M1: Read-only status and explain classify active and retained resources, separate controller health from configuration, expose partial provider coverage and recovery state, and bound findings by observation start/end times. The full 750-test CLI suite and executable build pass. Kinds without a proved condition probe report health `unknown`; unmanaged discovery remains an optional read-only extension.
 - [ ] M2: Plan explicit legacy adoption and ownership transfer.
 - [ ] M3: Plan migration/retirement with retained data and recovery evidence.
@@ -163,7 +164,7 @@ The ordinary planner classified an accepted ResourceId solely from the observati
 
 ## Outcomes & Retrospective
 
-M1 is complete: read-only status and explain report accepted and retained identity, drift, provider coverage, health, dependency traces, collection screening, and active recovery state without mutation. M2-M4 remain open. The currently executable lifecycle routes are Kubernetes adoption, Kubernetes/Helm unchanged scope transfer, direct Kubernetes retention, exact stateless ConfigMap collection, and adapter-proved operator recovery. Migration, broader provider adoption and collection, and complete lifecycle command acceptance still require implementation.
+M1 is complete: read-only status and explain report accepted and retained identity, drift, provider coverage, health, dependency traces, collection screening, and active recovery state without mutation. M2-M4 remain open. The currently executable lifecycle routes are Kubernetes adoption, Kubernetes/Helm unchanged scope transfer and direct retention, exact stateless ConfigMap collection, and adapter-proved operator recovery. Migration, broader provider adoption and collection, and complete lifecycle command acceptance still require implementation.
 
 
 ## Context and Orientation
@@ -309,3 +310,5 @@ Support types are explicit alternatives in Lifecycle/Migration; identity and pol
 2026-09-24: Kept controller readiness separate from object readability. A failed condition no longer erases UID, ownership, or configuration facts from status, but it still cannot complete a reviewed Kubernetes operation.
 
 2026-09-24: Added a bounded StatefulSet readiness contract based on its controller generation and ready/updated replicas, alongside the earlier immutable field classification. This is workload health evidence, not application data or schema verification.
+
+2026-09-24: Extended no-delete retirement to stamped Helm releases. Both planning and admission reconstruct the original immutable native contract and require the same exact release Secret UID before recording retained history.

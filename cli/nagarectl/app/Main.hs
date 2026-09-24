@@ -4720,7 +4720,8 @@ inventoryExecutionRegistry mctx bundle = do
   let retiredIds = Map.keysSet (InventoryPlan.reviewRetentions (InventoryPlan.reviewBundleDocument bundle))
         `Set.union` Map.keysSet (InventoryPlan.reviewCollections (InventoryPlan.reviewBundleDocument bundle))
       binding = InventoryPlan.reviewContextBinding (InventoryPlan.reviewBundleDocument bundle)
-  retiringKubernetesSpecs <- if Set.null retiredIds then pure Map.empty else do
+  (retiringKubernetesSpecs, retiringHelmSpecs) <- if Set.null retiredIds
+    then pure (Map.empty, Map.empty) else do
     active <- activeTarget mctx
     store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
     history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
@@ -4731,14 +4732,16 @@ inventoryExecutionRegistry mctx bundle = do
       (InventoryPlan.historyReservations history))
     acceptedInventory <- either (dieT . T.pack . show) pure
       (ResourceInventory.composeSnapshot acceptedSnapshot)
-    (native, _) <- InventoryStatus.loadAcceptedNative store history acceptedInventory
+    (native, helmNative) <- InventoryStatus.loadAcceptedNative store history acceptedInventory
       >>= either dieT pure
-    let selected = Map.filterWithKey (\resource _ -> Set.member resource retiredIds) native
-    unless (Map.keysSet selected == retiredIds)
-      (dieT "retirement review lacks accepted immutable Kubernetes evidence")
-    pure selected
+    let selectedKubernetes = Map.filterWithKey (\resource _ -> Set.member resource retiredIds) native
+        selectedHelm = Map.filterWithKey (\resource _ -> Set.member resource retiredIds) helmNative
+    unless (Set.union (Map.keysSet selectedKubernetes) (Map.keysSet selectedHelm) == retiredIds)
+      (dieT "retirement review lacks accepted immutable native evidence")
+    pure (selectedKubernetes, selectedHelm)
   let kubernetesSpecs = Map.union reviewedKubernetesSpecs retiringKubernetesSpecs
-  if null registrations && Map.null artifactSpecs && isNothing hostInputs && Map.null kubernetesSpecs && Map.null cacheSpecs && Map.null helmSpecs
+      allHelmSpecs = Map.union helmSpecs retiringHelmSpecs
+  if null registrations && Map.null artifactSpecs && isNothing hostInputs && Map.null kubernetesSpecs && Map.null cacheSpecs && Map.null allHelmSpecs
     then either dieT pure (InventoryAdapter.mkAdapterRegistry (map Inventory.executionBlockedAdapterFor [ResourceInventory.KubernetesExecutor, ResourceInventory.PulumiExecutor, ResourceInventory.HostExecutor, ResourceInventory.ArtifactExecutor, ResourceInventory.CacheExecutor, ResourceInventory.HelmExecutor]))
     else do
       (active, workspace) <-
@@ -4759,7 +4762,7 @@ inventoryExecutionRegistry mctx bundle = do
       host <- maybe (pure (Inventory.executionBlockedAdapterFor ResourceInventory.HostExecutor)) (inventoryHostAdapter active workspace) hostInputs
       (cache, cacheKey) <- inventoryCacheAdapter active workspace binding cacheSpecs
       kubernetes <- inventoryKubernetesAdapter active binding cacheKey kubernetesSpecs
-      helm <- inventoryHelmAdapter active workspace binding helmSpecs
+      helm <- inventoryHelmAdapter active workspace binding allHelmSpecs
       let adapters = [pulumi, artifact, host, kubernetes, cache, helm]
       either dieT pure (InventoryAdapter.mkAdapterRegistry adapters)
 
@@ -4798,17 +4801,19 @@ inventoryPlanRegistryWithNative active workspace suppliedNative candidate histor
     then pure Map.empty
     else loadKubernetesSources (workspace ^. #root) fileBacked >>= either dieT pure
   let desiredIds = Set.fromList (map ResourceInventory.declarationId declarations)
-      retiringIds = Set.fromList
+      retiringIds executor = Set.fromList
         [resource ^. #identity
         | (_, (_, acceptedScope)) <- Map.toAscList (InventoryPlan.historyAccepted history)
         , bundle <- ResourceInventory.scopeBundles acceptedScope
         , ResourceInventory.Managed resource <- ResourceInventory.declarations bundle
-        , resource ^. #executor == ResourceInventory.KubernetesExecutor
+        , resource ^. #executor == executor
         , Set.notMember (resource ^. #identity) desiredIds]
       collectingIds = Set.fromList
         [resource | ResourceInventory.CollectRetained resource <- NE.toList (ResourceInventory.candidateChanges candidate)]
-      historicalIds = Set.union retiringIds collectingIds
-  retiringNative <- if Set.null historicalIds then pure Map.empty else do
+      historicalKubernetesIds = Set.union (retiringIds ResourceInventory.KubernetesExecutor) collectingIds
+      historicalHelmIds = retiringIds ResourceInventory.HelmExecutor
+      historicalIds = Set.union historicalKubernetesIds historicalHelmIds
+  (retiringNative, retiringHelmNative) <- if Set.null historicalIds then pure (Map.empty, Map.empty) else do
     store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
     acceptedSnapshot <- either (dieT . T.pack . show) pure (ResourceInventory.mkScopeSnapshot
       (ResourceInventory.inventoryBinding inventory)
@@ -4817,13 +4822,16 @@ inventoryPlanRegistryWithNative active workspace suppliedNative candidate histor
       (InventoryPlan.historyReservations history))
     acceptedInventory <- either (dieT . T.pack . show) pure
       (ResourceInventory.composeSnapshot acceptedSnapshot)
-    (native, _) <- InventoryStatus.loadAcceptedNative store history acceptedInventory
+    (native, helmNative) <- InventoryStatus.loadAcceptedNative store history acceptedInventory
       >>= either dieT pure
-    let selected = Map.filterWithKey (\resource _ -> Set.member resource historicalIds) native
-    unless (Map.keysSet selected == historicalIds)
-      (dieT "retained or retiring Kubernetes resource lacks immutable native evidence")
-    pure selected
+    let selectedKubernetes = Map.filterWithKey (\resource _ -> Set.member resource historicalKubernetesIds) native
+        selectedHelm = Map.filterWithKey (\resource _ -> Set.member resource historicalHelmIds) helmNative
+    unless (Map.keysSet selectedKubernetes == historicalKubernetesIds
+        && Map.keysSet selectedHelm == historicalHelmIds)
+      (dieT "retained or retiring resource lacks immutable native evidence")
+    pure (selectedKubernetes, selectedHelm)
   let kubernetesSpecs = Map.unions [kubernetesSuppliedNative, loaded, retiringNative]
+      helmSpecs = Map.union helmSuppliedNative retiringHelmNative
   pulumi <-
     if null registrations
       then pure (Inventory.manifestAdapterFor history ResourceInventory.PulumiExecutor)
@@ -4839,9 +4847,9 @@ inventoryPlanRegistryWithNative active workspace suppliedNative candidate histor
   kubernetes <- if Map.null kubernetesSpecs
     then pure (Inventory.manifestAdapterFor history ResourceInventory.KubernetesExecutor)
     else inventoryKubernetesAdapter active (ResourceInventory.inventoryBinding inventory) cacheKey kubernetesSpecs
-  helm <- if Map.null helmSuppliedNative
+  helm <- if Map.null helmSpecs
     then pure (Inventory.manifestAdapterFor history ResourceInventory.HelmExecutor)
-    else inventoryHelmAdapter active workspace (ResourceInventory.inventoryBinding inventory) helmSuppliedNative
+    else inventoryHelmAdapter active workspace (ResourceInventory.inventoryBinding inventory) helmSpecs
   let adapters = [pulumi, artifact, host, kubernetes, cache, helm]
   either dieT pure (InventoryAdapter.mkAdapterRegistry adapters)
 

@@ -425,6 +425,65 @@ inventoryTransactionTests =
           Left failures -> assertBool "Helm transfer changed its native contract"
             ("invalid-transfer" `elem` map planErrorCode (NE.toList failures))
           Right _ -> assertFailure "changed Helm contract was accepted for transfer"
+    , testCase "reviewed Helm retirement retains the stamped release without mutation" $ do
+        let owner = ok (mkScopeId Platform "helm-retirement")
+            seedOwner = ok (mkScopeId Platform "helm-retirement-seed")
+            cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+            resourceId = mintResourceId owner (ok (mkLogicalKey "release")) (ok (mkName "release"))
+            native = "reviewed-helm-contract"
+            address = Helm cluster (ok (mkName "default")) (ok (mkName "release"))
+            rendered = Kubernetes cluster "" (ok (mkName "configmap"))
+              (Just (ok (mkName "default"))) (ok (mkName "rendered-release")) :| []
+            managed = ManagedResource resourceId owner HelmExecutor address []
+              (HelmRelease rendered (contentDigest native)) Retain Stateless Public [] []
+              (SourceLocation "fixture" "release")
+            scope = ok (mkScopeDeclaration owner [ResourceBundle [Managed managed] [] [] [] [] []])
+            snapshot = ok (mkScopeSnapshot fixtureBinding
+              (Map.singleton owner (ok (mkScopeGeneration 1), scope)) Map.empty)
+            seed = ok (composeInventory snapshot
+              (ReplaceScope (ok (mkScopeDeclaration seedOwner [])) :| []))
+            candidate = ok (composeInventory snapshot (RetireScope owner RetainResources :| []))
+            physical = ok (mkPhysicalIdentity "helm-release-secret-uid")
+        state <- newIORef (HelmPresent physical "1" resourceId (contentDigest native))
+        mutations <- newIORef (0 :: Int)
+        let adapter = mkHelmAdapter (Map.singleton resourceId (managed, native))
+              HelmAdapterOps
+                { helmObserve = \_ -> readIORef state
+                , helmMutateConditional = \_ -> do
+                    modifyIORef' mutations (+ 1)
+                    pure AdapterEffectCompleted
+                }
+            registry = ok (mkAdapterRegistry [adapter])
+            observed = ok (observationSet [(resourceId, ObservedPresent physical)])
+        store <- newMemoryStore
+        _ <- initializeStore store fixtureBinding "helm-retirement-test" >>= expectRight
+        _ <- seedInventoryHistory store seed >>= expectRight
+        history <- loadInventoryHistory store >>= expectRight
+        decisions <- expectRight (decideRetirement candidate history observed)
+        let proposal = ok (planChanges candidate decisions history observed)
+        proposalOperations proposal @?= []
+        before <- readStoreSnapshot store >>= expectRight
+        review <- prepareReview registry before proposal >>= expectRight
+        _ <- publishReview store review >>= expectRight
+        published <- readStoreSnapshot store >>= expectRight
+        reviewed <- expectRight (verifyReview published review)
+        writeIORef state (HelmPresent (ok (mkPhysicalIdentity "replacement-uid")) "2"
+          resourceId (contentDigest native))
+        stale <- applyReviewed store registry reviewed
+        case stale of
+          Left failures -> assertBool "replaced Helm release passed retirement admission"
+            ("retention-observation" `elem` map admissionErrorCode (NE.toList failures))
+          Right _ -> assertFailure "replaced Helm release was retained"
+        writeIORef state (HelmPresent physical "1" resourceId (contentDigest native))
+        _ <- applyReviewed store registry reviewed >>= expectRight
+        retained <- loadInventoryHistory store >>= expectRight
+        case Map.lookup resourceId (historyRetained retained) of
+          Just (incarnation, declaration) -> do
+            retainedOwner incarnation @?= owner
+            retainedPhysical incarnation @?= physical
+            declaration @?= managed
+          Nothing -> assertFailure "Helm release was absent from retained history"
+        readIORef mutations >>= (@?= 0)
     , testCase "dependency order does not turn an accepted resource into an update" $ do
         let owner = ok (mkScopeId Platform "dependency-order")
             cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))

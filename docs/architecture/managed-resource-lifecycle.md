@@ -77,12 +77,12 @@ An unreviewed move between files or scopes is refused as `owner-transfer-require
 Run `nagarectl inventory retire --scope KIND:NAME --out REVIEW_DIRECTORY` to review
 retention of an accepted scope. `KIND` is `platform`, `application`, `standalone`, or
 `publication`. The current route accepts directly declared Kubernetes resources
-whose exact owned UIDs can be observed. It refuses if another scope still depends
+and stamped Helm releases whose exact owned UIDs can be observed. It refuses if another scope still depends
 on the retiring declarations or if a disappearing resource lacks the required
 retention proof. A scope with observed controller children also refuses until
 their claims can be retained as historical child entries. Apply the issued review with `inventory apply REVIEW_DIRECTORY
 --yes`; apply checks those UIDs again under the writer lock and records each
-incarnation against its old immutable scope revision. No Kubernetes delete is run.
+incarnation against its old immutable scope revision. Retirement performs no provider delete or Helm upgrade.
 
 The retained objects keep their provider addresses reserved. `inventory status
 --json` and `inventory explain RESOURCE_ID --json` observe them through the native
