@@ -298,6 +298,8 @@ These ownership, identity, review, storage, migration, and controller-delegation
 
 ## Surprises & Discoveries
 
+2026-09-24: EP-148 can wrap EP-147's complete database builder directly for a standalone scope: the canonical credential and backup members already exist and need no second renderer. The application deploy path still uses its older four-object database render and remains outside inventory admission. EP-148 M1 therefore stays open, and EP-150 remains gated.
+
 2026-09-24: EP-149's single-valued ordinary observation and adapter registries cannot represent a migrated source and destination under one ResourceId. Separate paired observations, a canonical migration review marker, and disjoint retained claims now carry the generic contract. EP-148 and EP-150 must use the two-incarnation path for address/executor changes and must not infer adoption or deletion from a provider stamp or missing declaration. Production migration stage verification remains their adapter/integration responsibility.
 
 2026-09-23: EP-149 found that the operator adoption DTO required an unowned observation but the lower-level lifecycle validator still accepted stamped present/drifted resources without accepted history. The validator and planner now refuse those resources. EP-148 must use the versioned proposal path and cannot treat provider stamps as recovered ownership authority.
