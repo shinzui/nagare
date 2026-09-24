@@ -163,6 +163,19 @@ nagarectl db create postgres pg-main \
 nagarectl inventory apply ./pg-main-review --yes
 ```
 
+To retire a database already accepted into a standalone inventory scope, review
+the retirement separately:
+
+```bash
+nagarectl db delete pg-main --save-plan ./pg-main-retire
+nagarectl inventory apply ./pg-main-retire --yes
+```
+
+If the database has a pinned logical key different from its current name, pass
+`--scope-key KEY`. The command checks the accepted StatefulSet name and
+namespace before planning. Inventory retirement retains durable resources under
+their recorded lifecycle policy.
+
 Planning uses the typed database input from the flags or `--config`, binds the
 credential template and all database objects to the standalone scope, and
 includes the scheduled backup for retained data. The recovery options identify

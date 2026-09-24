@@ -64,6 +64,7 @@ Every supported application-side mutation is either a desired-scope update, a re
 - [x] (2026-09-24) M4 partial: An offline context with platform plus two application scopes preserves the unselected platform/application declarations and generations when replacing one application; a duplicate Knative Service claim across applications refuses composition. This is compiler isolation, not migrated command execution.
 - [x] (2026-09-24) M3 partial: `db create --save-plan` compiles the same validated typed database used by direct create into a standalone scope, requires explicit recovery inputs, and saves an opaque inventory review for `inventory apply`; direct create remains a compatibility path.
 - [x] (2026-09-24) M3 partial: `broker create --save-plan` compiles a topic-free Redpanda broker into its standalone scope and saves an inventory review. The StatefulSet renderer now includes the discovery metadata previously added by a post-apply `kubectl annotate` call.
+- [x] (2026-09-24) M3 partial: `db delete --save-plan` and `broker delete --save-plan` select an accepted standalone scope, verify the named StatefulSet and namespace, and save a retained-resource retirement review. Direct delete remains a compatibility path.
 - [ ] M1: Compile applications and standalone services into complete scopes.
 - [ ] M2: Integrate shared-owner contributions, environment intent, and publication.
 - [ ] M3: Route operational and data lifecycle commands through reviewed operations.
@@ -107,6 +108,8 @@ Every supported application-side mutation is either a desired-scope update, a re
 2026-09-24: The standalone database builder was adapter-ready but had no public reviewed entry point. `db create --save-plan` now shares the typed input resolver with direct create and composes one standalone scope against accepted context history. The command requires explicit recovery policy and credential key version; composition refuses missing platform dependencies. Applying the saved review is a separate `inventory apply --yes` step. This is a first routed path, not full operational-command migration.
 
 2026-09-24: Broker and database renderers omitted discovery annotations and their direct create paths stamped them after applying the StatefulSet. Reviewed execution cannot perform an unreviewed follow-up annotation, so both renderers now include the annotations in the StatefulSet object. Direct create uses those same bytes and no longer issues separate annotations. Topics still refuse reviewed broker planning because they require typed logical operations.
+
+2026-09-24: The generic retirement planner already loads immutable accepted native evidence and defaults to retaining protected resources. The domain delete commands can use it once they prove that the selected standalone scope contains exactly one matching StatefulSet in the requested namespace. An explicit scope key handles a pinned logical identity after a display-name rename; missing or mismatched accepted scopes refuse before review publication.
 
 ## Decision Log
 

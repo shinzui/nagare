@@ -4,6 +4,7 @@
 module Nagare.Inventory.DataService
   ( compileStandaloneDatabase
   , compileStandaloneBroker
+  , standaloneRetirementScope
   ) where
 
 import Data.Aeson (Value)
@@ -112,3 +113,28 @@ compileStandaloneBroker broker owner cluster namespaceId recovery source = do
       unless (declaration ^. #address == expected)
         (Left (invalid "broker render has an unexpected native address"))
       pure (declaration {dependencies = map OrderedAfter (namespaceId : prerequisites)}, native)
+
+-- | A delete command's display name is only a selector. Retirement authority
+-- comes from accepted scope history, and a pinned logical key may differ from
+-- the current native name.
+standaloneRetirementScope
+  :: T.Text -> T.Text -> T.Text -> Maybe T.Text -> ScopeSnapshot -> Either T.Text ScopeId
+standaloneRetirementScope kind name namespaceName pinnedKey snapshot = do
+  key <- mkLogicalKey (fromMaybe name pinnedKey)
+  owner <- mkScopeId Standalone (kind <> "-" <> logicalKeyText key)
+  scope <- maybe (Left "standalone scope is absent from accepted inventory history")
+    (Right . snd) (Map.lookup owner (snapshotScopes snapshot))
+  let statefulSets =
+        [ resource
+        | bundle <- scopeBundles scope
+        , Managed resource <- declarations bundle
+        , case resource ^. #address of
+            Kubernetes _ "apps" resourceKind (Just nativeNamespace) nativeName ->
+              nameText resourceKind == "statefulset"
+                && nameText nativeNamespace == namespaceName
+                && nameText nativeName == name
+            _ -> False
+        ]
+  unless (length statefulSets == 1)
+    (Left "accepted standalone scope has no unique StatefulSet for that name and namespace")
+  pure owner

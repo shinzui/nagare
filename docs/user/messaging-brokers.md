@@ -61,6 +61,12 @@ nagarectl broker create redpanda events \
 nagarectl inventory apply ./events-review --yes
 ```
 
+For a broker already accepted into a standalone scope, review retirement with
+`nagarectl broker delete events --save-plan ./events-retire`, then run
+`nagarectl inventory apply ./events-retire --yes`. Supply `--scope-key KEY` if
+the broker was created with a pinned logical key different from its current
+name. The accepted StatefulSet name and namespace are checked before planning.
+
 The recovery options identify the durable PVC's backup policy and key
 reference. The plan requires an accepted platform cluster and Namespace.
 Broker topics are not part of this reviewed path yet; a topic-bearing input

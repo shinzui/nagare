@@ -268,8 +268,7 @@ import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.DataService (compileStandaloneDatabase)
-import Nagare.Inventory.DataService (compileStandaloneBroker)
+import Nagare.Inventory.DataService (compileStandaloneBroker, compileStandaloneDatabase, standaloneRetirementScope)
 import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
@@ -1050,6 +1049,8 @@ data DbDeleteOpts = DbDeleteOpts
   , namespace :: !(Maybe String)
   , yes :: !Bool
   , dryRun :: !Bool
+  , savePlan :: !(Maybe FilePath)
+  , scopeKey :: !(Maybe String)
   }
   deriving stock (Generic, Show)
 
@@ -1113,6 +1114,8 @@ data BrokerDeleteOpts = BrokerDeleteOpts
   , namespace :: !(Maybe String)
   , yes :: !Bool
   , dryRun :: !Bool
+  , savePlan :: !(Maybe FilePath)
+  , scopeKey :: !(Maybe String)
   }
   deriving stock (Generic, Show)
 
@@ -1723,6 +1726,8 @@ dbDeleteOptsParser =
     <*> namespaceOpt
     <*> switch (long "yes" <> help "Confirm deletion (without it, prints the plan and deletes nothing)")
     <*> dryRunOpt
+    <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed standalone database retirement"))
+    <*> optional (strOption (long "scope-key" <> metavar "KEY" <> help "Pinned standalone scope key used at creation"))
 
 brokerListOptsParser :: Parser BrokerListOpts
 brokerListOptsParser = BrokerListOpts <$> namespaceOpt
@@ -1757,6 +1762,8 @@ brokerDeleteOptsParser =
     <*> namespaceOpt
     <*> switch (long "yes" <> help "Confirm deletion (without it, prints the plan and deletes nothing)")
     <*> dryRunOpt
+    <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed standalone broker retirement"))
+    <*> optional (strOption (long "scope-key" <> metavar "KEY" <> help "Pinned standalone scope key used at creation"))
 
 dbBackupBucketOpt :: Parser (Maybe String)
 dbBackupBucketOpt =
@@ -7037,13 +7044,21 @@ runBroker mctx = \case
   BrokerGet o -> runBrokerGet (nsOf (o ^. #namespace)) (T.pack (o ^. #name))
   BrokerRestart o dryRun -> runBrokerRestart (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) dryRun
   BrokerDelete o ->
-    runBrokerDelete
-      BrokerDeleteParams
-        { name = T.pack (o ^. #name)
-        , namespace = nsOf (o ^. #namespace)
-        , yes = o ^. #yes
-        , dryRun = o ^. #dryRun
-        }
+    case o ^. #savePlan of
+      Nothing -> do
+        when (isJust (o ^. #scopeKey)) (dieT "--scope-key requires --save-plan")
+        runBrokerDelete
+          BrokerDeleteParams
+            { name = T.pack (o ^. #name)
+            , namespace = nsOf (o ^. #namespace)
+            , yes = o ^. #yes
+            , dryRun = o ^. #dryRun
+            }
+      Just output -> do
+        when (o ^. #yes || o ^. #dryRun)
+          (dieT "--yes and --dry-run belong to the review or apply step, not --save-plan")
+        runStandaloneRetirePlan mctx "broker" (T.pack (o ^. #name))
+          (nsOf (o ^. #namespace)) (T.pack <$> o ^. #scopeKey) output
   where
     nsOf = maybe "personal" T.pack
 
@@ -7110,13 +7125,21 @@ runDb mctx = \case
   DbShell o -> runDbShell (nsOf (o ^. #namespace)) (T.pack (o ^. #name))
   DbRestart o dry -> runDbRestart (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) dry
   DbDelete o ->
-    runDbDelete
-      DbDeleteParams
-        { name = T.pack (o ^. #name)
-        , namespace = nsOf (o ^. #namespace)
-        , yes = o ^. #yes
-        , dryRun = o ^. #dryRun
-        }
+    case o ^. #savePlan of
+      Nothing -> do
+        when (isJust (o ^. #scopeKey)) (dieT "--scope-key requires --save-plan")
+        runDbDelete
+          DbDeleteParams
+            { name = T.pack (o ^. #name)
+            , namespace = nsOf (o ^. #namespace)
+            , yes = o ^. #yes
+            , dryRun = o ^. #dryRun
+            }
+      Just output -> do
+        when (o ^. #yes || o ^. #dryRun)
+          (dieT "--yes and --dry-run belong to the review or apply step, not --save-plan")
+        runStandaloneRetirePlan mctx "database" (T.pack (o ^. #name))
+          (nsOf (o ^. #namespace)) (T.pack <$> o ^. #scopeKey) output
   DbBackup o -> do
     backend <- resolveStoreBackend mctx (o ^. #bucket)
     runDbBackup (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) backend (o ^. #keep) (o ^. #dryRun)
@@ -7157,6 +7180,19 @@ runDbCreatePlan mctx eng name params backupName keyVersion output = do
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
   Inventory.planInventoryCandidateWith
     (inventoryPlanRegistryWithNative active workspace native) active candidate output
+
+-- | Select only an accepted standalone data scope whose StatefulSet has the
+-- requested native identity. A display name alone must never authorize
+-- retirement of a different scope after a logical-key rename.
+runStandaloneRetirePlan :: Maybe String -> Text -> Text -> Text
+  -> Maybe Text -> FilePath -> IO ()
+runStandaloneRetirePlan mctx kind name namespaceName pinnedKey output = do
+  active <- activeTarget mctx
+  snapshot <- Inventory.loadTargetSnapshot active
+  owner <- either dieT pure (standaloneRetirementScope kind name namespaceName pinnedKey snapshot)
+  (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+  Inventory.planInventoryRetirementWith
+    (inventoryPlanRegistry active workspace) active owner output
 
 -- | Dispatch the @worker@ command group (EP-71). Provisions the GHC environment
 -- before loading the worker's @Config.hs@ (mirroring @db create --config@), then

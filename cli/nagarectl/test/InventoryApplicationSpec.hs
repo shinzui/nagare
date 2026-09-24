@@ -8,9 +8,9 @@ import Nagare.Dsl.Database (mkDatabaseName)
 import Nagare.Dsl.Load (loadApplication, loadBroker)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Application (compileApplicationDatabases)
-import Nagare.Inventory.DataService (compileStandaloneBroker)
+import Nagare.Inventory.DataService (compileStandaloneBroker, standaloneRetirementScope)
 import Nagare.Resource.Application (applicationScopeId)
-import Nagare.Resource.Inventory (Declaration (Managed), ManagedResource (..), ResourceBundle (..), scopeBundles)
+import Nagare.Resource.Inventory (Declaration (Managed), ManagedResource (..), ResourceBundle (..), mkScopeSnapshot, scopeBundles)
 import Nagare.Resource.Policy (RecoveryIntent (..), mkSecretRef)
 import Nagare.Resource.Types
 import Test.Tasty (TestTree, testGroup)
@@ -80,4 +80,18 @@ inventoryApplicationTests = testGroup "application inventory compilation"
       Map.size native @?= 3
       [resource ^. #owner | bundle <- scopeBundles scope, Managed resource <- bundle ^. #declarations]
         @?= replicate 3 owner
+      let checked = either (error . show) id
+          binding = ContextBinding (checked (mkContextId "fixture")) (checked (mkName "project"))
+          snapshot = either (error . show) id (mkScopeSnapshot binding
+            (Map.singleton owner (checked (mkScopeGeneration 1), scope)) Map.empty)
+      standaloneRetirementScope "broker" "events" "personal" Nothing snapshot @?= Right owner
+      case standaloneRetirementScope "broker" "events" "other" Nothing snapshot of
+        Left _ -> pure ()
+        Right _ -> assertFailure "retirement accepted a different namespace"
+      case standaloneRetirementScope "database" "events" "personal" Nothing snapshot of
+        Left _ -> pure ()
+        Right _ -> assertFailure "retirement selected a different data kind"
+      case standaloneRetirementScope "broker" "other" "personal" (Just "events") snapshot of
+        Left _ -> pure ()
+        Right _ -> assertFailure "retirement selected a mismatched native name"
   ]
