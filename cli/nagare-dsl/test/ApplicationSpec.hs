@@ -24,6 +24,9 @@ import Nagare.Dsl.Presets (webService)
 import Nagare.Dsl.Task
 import Nagare.Dsl.Types
 import Nagare.Dsl.Worker (Worker (..), webWorker)
+import Nagare.Resource.Application (applicationScopeId)
+import Nagare.Resource.Types (mkLogicalKey)
+import Nagare.Resource.Types qualified as Resource
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -99,6 +102,7 @@ multiAppRec :: Application
 multiAppRec =
   Application
     { name = unsafe (mkServiceName "kizashi")
+    , logicalKey = Nothing
     , namespace = unsafe (mkNamespace "personal")
     , image = unsafe (mkImageRef sharedImage)
     , env = Map.fromList [(unsafe (mkEnvName "LOG_LEVEL"), runtimeScoped (EnvLiteral "info"))]
@@ -125,6 +129,7 @@ serviceLessAppRec :: Application
 serviceLessAppRec =
   Application
     { name = unsafe (mkServiceName "kizashi")
+    , logicalKey = Nothing
     , namespace = unsafe (mkNamespace "personal")
     , image = unsafe (mkImageRef sharedImage)
     , env = Map.empty
@@ -176,6 +181,12 @@ roundTripTests :: [TestTree]
 roundTripTests =
   [ testCase "multi-workload application survives emit -> decode round-trip" $
       decodeApplication (toStrict (encodeApplication multiApp)) @?= Right multiApp
+  , testCase "pinned application scope survives a display-name change" $ do
+      let keyed = multiApp & #logicalKey .~ Just (unsafe (mkLogicalKey "kizashi"))
+          renamed = keyed & #name .~ unsafe (mkServiceName "kizashi-new")
+      decodeApplication (toStrict (encodeApplication keyed)) @?= Right keyed
+      applicationScopeId keyed @?= applicationScopeId renamed
+      applicationScopeId keyed @?= Resource.mkScopeId Resource.Application "kizashi"
   , testCase "application broker bindings round-trip" $
       let boundApp = unsafe (mkApplication (multiAppRec & #brokers .~ [appBrokerBinding]))
        in decodeApplication (toStrict (encodeApplication boundApp)) @?= Right boundApp

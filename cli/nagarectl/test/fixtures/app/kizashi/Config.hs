@@ -100,6 +100,7 @@ application = do
   mkApplication
     Application
       { name = appNm
+      , logicalKey = Nothing
       , namespace = ns
       , image = img
       , env = Map.fromList [(logLevel, runtimeScoped (EnvLiteral "info"))]

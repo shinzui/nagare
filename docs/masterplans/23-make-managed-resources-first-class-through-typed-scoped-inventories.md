@@ -285,7 +285,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-23) EP-151 M2: Object-backed store passed the shared conformance suite against fake and real GCS operations.
 - [x] (2026-09-23) EP-151 M3: Context selection, guarded opening, and resumable migration.
 - [x] (2026-09-23) EP-151 M4: Live two-state-root migration, documentation, and ADR 13/22 amendments.
-- [x] (2026-09-24) EP-148 M1 partial: Stable logical keys and native-backed standalone database scope compiler.
+- [x] (2026-09-24) EP-148 M1 partial: Stable application scope/resource keys and native-backed standalone database scope compiler.
 - [ ] EP-148 M1: Complete application/data scopes.
 - [ ] EP-148 M2: Shared contributions, env/secret intent, and publication.
 - [ ] EP-148 M3: Operational/data command coverage.

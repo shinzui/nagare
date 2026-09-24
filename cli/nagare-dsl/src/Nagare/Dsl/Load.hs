@@ -1312,6 +1312,7 @@ loadWorker path = fmap (>>= decodeWorker) (runConfig path)
 -- precise 'MarshalError', not an aeson parse error.
 data JsonApplication = JsonApplication
   { name :: !Text
+  , logicalKey :: !(Maybe Text)
   , namespace :: !Text
   , image :: !Text
   , env :: ![JsonEnvEntry]
@@ -1328,6 +1329,7 @@ instance FromJSON JsonApplication where
   parseJSON = withObject "Application" $ \o ->
     JsonApplication
       <$> o .: "name"
+      <*> o .:? "logicalKey"
       <*> o .: "namespace"
       <*> o .: "image"
       <*> o .:? "env" .!= []
@@ -1348,6 +1350,7 @@ instance FromJSON JsonApplication where
 toApplication :: JsonApplication -> Either LoadError Application
 toApplication j = do
   name' <- first (MarshalError "name") $ mkServiceName (j ^. #name)
+  logicalKey' <- traverse (first (MarshalError "logicalKey") . mkLogicalKey) (j ^. #logicalKey)
   ns' <- first (MarshalError "namespace") $ mkNamespace (j ^. #namespace)
   img' <- first (MarshalError "image") $ mkImageRef (j ^. #image)
   env' <- mapM toEnvEntry (j ^. #env)
@@ -1360,6 +1363,7 @@ toApplication j = do
   let assembled =
         Application
           { name = name'
+          , logicalKey = logicalKey'
           , namespace = ns'
           , image = img'
           , env = Map.fromList env'

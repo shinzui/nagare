@@ -53,6 +53,7 @@ import Nagare.Dsl.Types
   , serviceNameText
   )
 import Nagare.Dsl.Worker (Worker (..))
+import Nagare.Resource.Types (LogicalKey)
 
 -- | A multi-workload application: one shared identity that bundles an optional
 -- web Service, a list of Workers, a list of managed Databases, and a list of
@@ -62,6 +63,7 @@ import Nagare.Dsl.Worker (Worker (..))
 -- cross-workload invariants enforced by 'mkApplication'.
 data Application = Application
   { name :: !ServiceName
+  , logicalKey :: !(Maybe LogicalKey)
   -- ^ the shared identity; the value of the 'nagare.dev/app' label.
   , namespace :: !Namespace
   -- ^ the shared namespace; every embedded workload must agree (re-checked).

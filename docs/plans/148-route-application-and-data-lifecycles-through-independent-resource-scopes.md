@@ -38,7 +38,7 @@ Every supported application-side mutation is either a desired-scope update, a re
 
 ## Progress
 
-- [x] (2026-09-24) M1 partial: Deployment, Broker, and Volume carry optional validated logical keys through config emission/loading; stable resource-ID helpers and a complete standalone database scope compiler are covered by DSL and operator tests.
+- [x] (2026-09-24) M1 partial: Application, Deployment, Broker, and Volume carry optional validated logical keys through config emission/loading; stable scope/resource-ID helpers and a complete standalone database scope compiler are covered by DSL and operator tests.
 - [ ] M1: Compile applications and standalone services into complete scopes.
 - [ ] M2: Integrate shared-owner contributions, environment intent, and publication.
 - [ ] M3: Route operational and data lifecycle commands through reviewed operations.
@@ -57,6 +57,8 @@ Every supported application-side mutation is either a desired-scope update, a re
 2026-09-16: App-only deployments can update their authorized contribution to shared routing configuration, but cannot replace the platform-owned resource or advance the platform release.
 
 2026-09-16: Interactive administrative shells cannot be represented as read-only commands. Journal a scoped maintenance session with bounded resource authority and re-observe afterward; arbitrary SQL effects remain explicitly unknown until reconciled.
+
+2026-09-24: Give the Application aggregate an optional logical key as well as its contained resources. The aggregate owns the ScopeId, so a display-name change needs a pinned scope key to retain accepted history; absent a key, the current name remains the backward-compatible default. This is an extension of ADR 22's resource identity rule.
 
 
 ## Outcomes & Retrospective

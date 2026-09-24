@@ -631,7 +631,7 @@ encodeApplication = encode . applicationJSON
 -- 'deploymentJSON' sorts its co-located tasks.
 applicationJSON :: Application -> Value
 applicationJSON app =
-  object
+  object $
     [ "kind" .= ("Application" :: Text)
     , "name" .= serviceNameText (app ^. #name)
     , "namespace" .= namespaceText (app ^. #namespace)
@@ -646,3 +646,4 @@ applicationJSON app =
         .= map workerJSON (sortOn (\w -> serviceNameText (w ^. #name)) (app ^. #workers))
     , "tasks" .= map taskJSON (sortOn (^. #name) (app ^. #tasks))
     ]
+      <> maybe [] (\key -> ["logicalKey" .= logicalKeyText key]) (app ^. #logicalKey)
