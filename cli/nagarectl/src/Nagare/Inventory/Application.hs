@@ -19,58 +19,94 @@ import Nagare.App.Deploy (RolloutEnv, renderServiceObjects)
 import Nagare.Dsl.Application (Application (..), mkApplication)
 import Nagare.Dsl.Database (Database (..))
 import Nagare.Dsl.Prelude
-import Nagare.Dsl.Types (DatabaseName, databaseNameText)
+import Nagare.Dsl.Render (pvcName)
+import Nagare.Dsl.Types (DatabaseName, Volume (..), VolumeName, databaseNameText, serviceNameText, volumeNameText)
+import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Database (compileDatabaseForBackend)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
-import Nagare.Resource.Application (applicationScopeId, deploymentResourceId)
+import Nagare.Resource.Application (applicationScopeId, deploymentResourceId, volumeResourceId)
 import Nagare.Resource.Database (DatabaseDirectInput (..))
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
-import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (DeleteWhenUnreferenced), Sensitivity (Private))
+import Nagare.Resource.Policy (DataPolicy (..), LifecyclePolicy (..), Sensitivity (Private))
 import Nagare.Resource.Policy (RecoveryIntent)
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
 
--- | The service member of an application scope. Volume claims and domain
--- mappings remain separate members; refuse them until their typed builders
--- exist rather than returning a scope that silently omits those resources.
+-- | The service and its volume claims, all bound to the same render used by
+-- preview. Domain mappings remain separate members and refuse until compiled.
 compileApplicationService
   :: Application -> RolloutEnv -> ResourceId -> ResourceId -> ResourceId
+  -> Map VolumeName RecoveryIntent
   -> SourceLocation
   -> Either (NonEmpty InventoryError)
        (ResourceBundle, Map ResourceId (ManagedResource, ByteString))
-compileApplicationService app rollout cluster namespaceId imageId source = do
+compileApplicationService app rollout cluster namespaceId imageId recoveryByVolume source = do
   owner <- first invalid (applicationScopeId app)
   service <- maybe (Left (invalid "application has no web service")) Right (app ^. #service)
-  unless (null (service ^. #volumes) && null (service ^. #domains))
-    (Left (invalid "service volumes and domains require their own typed members"))
+  unless (null (service ^. #domains))
+    (Left (invalid "service domain mappings require their own typed members"))
   resource <- first invalid (deploymentResourceId owner (known "service") service)
   rendered <- first invalid (renderServiceObjects rollout service)
-  bytes <- case rendered of
+  let volumes = service ^. #volumes
+      (volumeRendered, serviceRendered) = splitAt (length volumes) rendered
+  serviceBytes <- case serviceRendered of
     [("service", manifest)] -> Right manifest
     _ -> Left (invalid "application service renderer produced unexpected members")
-  value <- first (invalid . T.pack . show) (Yaml.decodeEither' bytes :: Either Yaml.ParseException Value)
-  canonical <- first invalid (canonicalValue value)
-  (declaration, native) <- first single (bindKubernetesObject KubernetesInput
-    { resourceId = resource
-    , ownerScope = owner
-    , clusterId = cluster
-    , inputObject = value
-    , objectDigest = contentDigest canonical
-    , lifecyclePolicy = DeleteWhenUnreferenced
-    , inputDataPolicy = Stateless
-    , inputSensitivity = Private
-    , sourceLocation = source
-    })
-  let guarded = declaration {dependencies = [OrderedAfter namespaceId, OrderedAfter imageId]}
-  pure (ResourceBundle [Managed guarded] [] [] [] [] [], Map.singleton resource (guarded, native))
+  unless (length volumeRendered == length volumes && all ((== "service") . fst) volumeRendered)
+    (Left (invalid "application volume renderer produced unexpected members"))
+  volumeMembers <- traverse (compileVolume owner service) (zip volumes (map snd volumeRendered))
+  let volumeIds = map ((^. #identity) . fst) volumeMembers
+  serviceMember <- bindOne owner resource DeleteWhenUnreferenced Stateless
+    (map OrderedAfter (namespaceId : imageId : volumeIds)) source serviceBytes
+  let members = volumeMembers <> [serviceMember]
+      declarations = [Managed declaration | (declaration, _) <- members]
+      native = Map.fromList [(declaration ^. #identity, member) | member@(declaration, _) <- members]
+      bundle = ResourceBundle declarations [] [] [] [] []
+  _ <- mkScopeDeclaration owner [bundle]
+  unless (Map.size native == length members)
+    (Left (invalid "application service members share an identity"))
+  pure (bundle, native)
   where
     known = either (error . T.unpack) id . mkName
     invalid message = single (inventoryError "invalid-application-service" message
       & #sources .~ [source])
     single errorValue = errorValue :| []
+    compileVolume owner service (volume, bytes) = do
+      recovery <- case volume ^. #retention of
+        Dsl.Retain -> Just <$> maybe (Left (invalid "retained service volume has no recovery intent")) Right
+          (Map.lookup (volume ^. #name) recoveryByVolume)
+        Dsl.Delete -> Right Nothing
+      volumeId <- first invalid (volumeResourceId owner (known "service-pvc") volume)
+      let volumeSource = source
+            {path = path source <> "/volume/" <> volumeNameText (volume ^. #name)}
+          lifecycle = if volume ^. #retention == Dsl.Retain then Retain else DeleteWhenUnreferenced
+          dataPolicy = maybe Stateless Durable recovery
+      member@(declaration, _) <- bindOne owner volumeId lifecycle dataPolicy
+        [OrderedAfter namespaceId] volumeSource bytes
+      expected <- first invalid (kubernetesAddress cluster "v1" "PersistentVolumeClaim"
+        (Just (rollout ^. #namespace))
+        (pvcName (serviceNameText (service ^. #name)) (volumeNameText (volume ^. #name))))
+      unless (declaration ^. #address == expected)
+        (Left (invalid "service volume render has an unexpected PVC address"))
+      pure member
+    bindOne owner resource lifecycle dataPolicy dependencies location bytes = do
+      value <- first (invalid . T.pack . show) (Yaml.decodeEither' bytes :: Either Yaml.ParseException Value)
+      canonical <- first invalid (canonicalValue value)
+      (declaration, native) <- first single (bindKubernetesObject KubernetesInput
+        { resourceId = resource
+        , ownerScope = owner
+        , clusterId = cluster
+        , inputObject = value
+        , objectDigest = contentDigest canonical
+        , lifecyclePolicy = lifecycle
+        , inputDataPolicy = dataPolicy
+        , inputSensitivity = Private
+        , sourceLocation = location
+        })
+      pure (declaration {dependencies = dependencies}, native)
 
 compileApplicationDatabases
   :: Application

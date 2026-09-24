@@ -288,7 +288,8 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-24) EP-148 M1 partial: Stable application scope/resource keys and native-backed standalone database scope compiler.
 - [x] (2026-09-24) EP-148 M1 partial: Application previews include the data-free database credential template and retained backup CronJob.
 - [x] (2026-09-24) EP-148 M1 partial: Application-owned database members compile into the application scope with recovery intent.
-- [x] (2026-09-24) EP-148 M1 partial: Simple Knative Service members bind label-stamped native bytes, with volume/domain refusal.
+- [x] (2026-09-24) EP-148 M1 partial: Simple Knative Service members bind label-stamped native bytes.
+- [x] (2026-09-24) EP-148 M1 partial: Service PVCs bind as separate native members with recovery and ordering; domain mappings remain open.
 - [ ] EP-148 M1: Complete application/data scopes.
 - [ ] EP-148 M2: Shared contributions, env/secret intent, and publication.
 - [ ] EP-148 M3: Operational/data command coverage.

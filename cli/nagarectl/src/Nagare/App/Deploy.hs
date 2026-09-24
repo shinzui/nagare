@@ -290,12 +290,14 @@ stamp env ph bs = (\stamped -> (ph, stamped)) <$> stampAppLabel (env ^. #appName
 -- @metadata.labels@, immediately after the @nagare.dev/managed-by: nagarectl@
 -- line every Nagare object carries (so the inserted line shares its indentation
 -- and the rest of the document's careful key ordering is preserved byte-for-byte).
--- Idempotent: a manifest that already carries a @nagare.dev/app@ label (e.g. a
--- volume PVC) is left unchanged. Only the FIRST @managed-by@ (the object's own
--- @metadata.labels@, not a nested pod-template) is matched.
+-- A matching top-level label is left unchanged. A rendered volume PVC can carry
+-- its service name there; replace that value with the aggregate app name while
+-- preserving every other field. Only the FIRST @managed-by@ is used for insertion
+-- when the top-level app label is absent.
 stampAppLabel :: Text -> ByteString -> Either Text ByteString
 stampAppLabel name bs
-  | "nagare.dev/app:" `T.isInfixOf` text = verify bs
+  | topLevelAppLabel bs == Just name = Right bs
+  | isJust (topLevelAppLabel bs) = replaceExisting
   | not ("nagare.dev/managed-by:" `T.isInfixOf` text) =
       Left
         ( describe bs
@@ -304,6 +306,17 @@ stampAppLabel name bs
   | otherwise = verify (TE.encodeUtf8 (T.unlines (insertAfterFirst (T.lines text))))
   where
     text = TE.decodeUtf8 bs
+    replaceExisting = case Yaml.decodeEither' bs of
+      Right (Object top) -> case KM.lookup "metadata" top of
+        Just (Object metadata) -> case KM.lookup "labels" metadata of
+          Just (Object labels) ->
+            let updated = Object (KM.insert "metadata"
+                  (Object (KM.insert "labels"
+                    (Object (KM.insert "nagare.dev/app" (String name) labels)) metadata)) top)
+             in verify (Yaml.encode updated)
+          _ -> Left "rendered object has no metadata.labels object"
+        _ -> Left "rendered object has no metadata object"
+      _ -> Left "rendered object is not valid YAML"
     insertAfterFirst [] = []
     insertAfterFirst (l : ls)
       | "nagare.dev/managed-by:" `T.isInfixOf` l =

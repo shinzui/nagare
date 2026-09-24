@@ -15,6 +15,7 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.Either (isLeft)
 import Data.Generics.Labels ()
 import Data.IORef (modifyIORef', newIORef, readIORef)
+import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -24,10 +25,11 @@ import Nagare.App.Deploy
 import Nagare.Inventory.Application (compileApplicationService)
 import Nagare.Resource.Application (applicationScopeId)
 import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (Managed), ManagedResource (..), DesiredSpec (KnativeService))
+import Nagare.Resource.Policy (RecoveryIntent (..), mkSecretRef)
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Dsl.Load (loadApplication)
 import Nagare.Dsl.Prelude
-import Nagare.Dsl.Types (mkImageRef)
+import Nagare.Dsl.Types (mkImageRef, mkVolumeName)
 import Nagare.Dsl.Presets (attachVolume)
 import Nagare.Target (InventoryStoreKind (..), Mode (..), PulumiBackendKind (..), TargetProfile (..))
 import System.Exit (ExitCode (..))
@@ -116,7 +118,7 @@ renderTests =
             (unsafe (Resource.mkLogicalKey "image")) (unsafe (Resource.mkName "publication"))
           source = Resource.SourceLocation "test" "service"
       (bundle, native) <- either (fail . show) pure
-        (compileApplicationService app testEnv cluster namespaceId publication source)
+        (compileApplicationService app testEnv cluster namespaceId publication Map.empty source)
       owner <- either (fail . show) pure (applicationScopeId app)
       case declarations bundle of
         [Managed service] -> do
@@ -127,9 +129,18 @@ renderTests =
           Map.keys native @?= [service ^. #identity]
         other -> assertFailure ("unexpected service declarations: " <> show other)
       let withVolume = app & #service %~ fmap (unsafe . attachVolume "data" "1Gi" "/data")
-      case compileApplicationService withVolume testEnv cluster namespaceId publication source of
+      case compileApplicationService withVolume testEnv cluster namespaceId publication Map.empty source of
         Left _ -> pure ()
-        Right _ -> assertFailure "service volume was silently omitted"
+        Right _ -> assertFailure "retained service volume without recovery was accepted"
+      let volumeName = unsafe (mkVolumeName "data")
+          recovery = RecoveryIntent (unsafe (Resource.mkName "backup"))
+            (mkSecretRef (unsafe (Resource.mkName "volume-key"))
+              (unsafe (Resource.mkName "v1")) :| [])
+      (volumeBundle, volumeNative) <- either (fail . show) pure
+        (compileApplicationService withVolume testEnv cluster namespaceId publication
+          (Map.singleton volumeName recovery) source)
+      length (declarations volumeBundle) @?= 2
+      Map.size volumeNative @?= 2
   , testCase "the rollout begins with the public-certificate namespace opt-in" $ do
       result <- loadApplication fixturePath
       case result of
