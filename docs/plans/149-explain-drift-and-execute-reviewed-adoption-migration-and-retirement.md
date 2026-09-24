@@ -99,6 +99,7 @@ This plan delivers provider-independent lifecycle planning plus inventory status
 - [x] (2026-09-24) M1 replacement boundary: Typed observations now distinguish an immutable replacement requirement from ordinary drift. Status reports its physical identity and digest; the generic planner refuses `UpdateResource` with `replacement-review-required`. Retained observation also reports the condition without permitting collection. The 150 focused inventory tests pass. Production adapters still need provider-specific immutable-change classification, and reviewed replacement/migration execution remains open.
 - [x] (2026-09-24) M1 Kubernetes immutable classification: The production observer recognizes a changed explicit `apps/v1` Deployment selector and reports replacement required for its stamped ResourceId. Unowned and foreign objects retain their ownership categories, and the existing generic planner refuses an ordinary update. Eleven focused Deployment tests and Haskell style checks pass. Other immutable fields, unhealthy Deployment observation, and reviewed migration remain open.
 - [x] (2026-09-24) M1 retained health: Status and explain now probe supported retained Kubernetes conditions only for the historically retained UID and report health separately from configuration observation. Confirmed absence reports unavailable health; matching configuration alone remains unknown until a condition probe succeeds. A focused fixture proves that a replacement UID and confirmed absence cannot enter the retained condition probe. The CLI executable builds and the focused retirement tests pass. Other provider health remains open.
+- [x] (2026-09-24) M2 Helm scope transfer: An unchanged stamped Helm release can move between two explicitly selected scopes through the existing reviewed `VerifyResource` handoff. The lifecycle validator requires equal executor, address, native spec, aliases, policies, delegations, and dependencies. A fixture proves an unreviewed transfer refuses, a reviewed transfer plans verification without mutation, a changed native contract refuses, and a changed release revision fails adapter preflight. The focused Helm tests pass. Other provider transfers remain unavailable.
 - [ ] M1: Classify observations and expose complete read-only status/explain.
 - [ ] M2: Plan explicit legacy adoption and ownership transfer.
 - [ ] M3: Plan migration/retirement with retained data and recovery evidence.
@@ -143,6 +144,8 @@ The read-only collection assessment and lifecycle validator previously checked l
 2026-09-23: Kubernetes health remains a separate read-only observation using the runtime's existing readiness predicates. A second read must match the first observation's UID before its condition can be attached to a status finding.
 
 2026-09-24: An adapter-proved immutable replacement requirement is a separate observation, and the generic planner refuses to turn it into an ordinary update. Rationale: drift alone does not say whether mutation in place is possible, and replacement requires its own review and recovery contract. No production adapter emits this outcome yet.
+
+2026-09-24: Extend the scope transfer verification route to Helm releases whose existing adapter proves the stamped context/ResourceId, release revision, and unchanged reviewed native contract. Keep the same two-scope and contract equality requirements as Kubernetes. This is a verification handoff, not a Helm upgrade.
 
 
 ## Outcomes & Retrospective
@@ -283,3 +286,5 @@ Support types are explicit alternatives in Lifecycle/Migration; identity and pol
 2026-09-24: Added retained Kubernetes health to read-only reports. The probe is bound to the retained historical UID so a replacement at the same address cannot lend its readiness to the old incarnation.
 
 2026-09-24: Updated the operator lifecycle guide to describe the proved Deployment selector classification and retained UID-bound health; its previous statement that no production adapter emitted replacement-required status had become stale.
+
+2026-09-24: Extended the existing reviewed owner transfer boundary to unchanged Helm releases after checking the adapter's stamped revision and contract verification path. No Helm mutation is permitted by this handoff.

@@ -280,8 +280,8 @@ validateLifecycleDecisions candidate history observations proposals =
                 | next ^. #owner /= old ^. #owner
                 , Set.fromList [next ^. #owner, old ^. #owner]
                     `Set.isSubsetOf` selectedScopes
-                , next ^. #executor == KubernetesExecutor
-                , old ^. #executor == KubernetesExecutor
+                , next ^. #executor == old ^. #executor
+                , next ^. #executor `elem` [KubernetesExecutor, HelmExecutor]
                 , next ^. #address == old ^. #address
                 , next ^. #spec == old ^. #spec
                 , next ^. #aliases == old ^. #aliases
@@ -290,7 +290,7 @@ validateLifecycleDecisions candidate history observations proposals =
                 , next ^. #sensitivity == old ^. #sensitivity
                 , next ^. #delegations == old ^. #delegations
                 , Set.fromList (next ^. #dependencies) == Set.fromList (old ^. #dependencies) -> []
-              _ -> issue "invalid-transfer" "transfer needs both selected scopes, a matching owned incarnation, and an unchanged Kubernetes resource contract"
+              _ -> issue "invalid-transfer" "transfer needs both selected scopes, a matching owned incarnation, and an unchanged Kubernetes or Helm resource contract"
             ApproveRetirement -> case (Map.lookup resource desired, Map.lookup resource historical, retirementIntent resource) of
               (Nothing, Just (Managed old), Just RetainResources)
                 | Just (ObservedPresent _) <- fact

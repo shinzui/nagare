@@ -16,6 +16,7 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
+import Nagare.Inventory.Adapters.Helm
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Execute hiding (withProcessLock)
 import Nagare.Inventory.Journal
@@ -328,6 +329,85 @@ inventoryTransactionTests =
         reviewedTransfer <- expectRight (decideAdoption transfer history observations transferInput)
         map plannedAction (proposalOperations
           (ok (planChanges transfer reviewedTransfer history observations))) @?= [VerifyResource]
+    , testCase "Helm scope transfer verifies one unchanged stamped release" $ do
+        let oldOwner = ok (mkScopeId Platform "helm-transfer-source")
+            newOwner = ok (mkScopeId Platform "helm-transfer-destination")
+            seedOwner = ok (mkScopeId Platform "helm-transfer-seed")
+            cluster = mintResourceId oldOwner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+            resourceId = mintResourceId oldOwner (ok (mkLogicalKey "release")) (ok (mkName "release"))
+            contract = contentDigest "reviewed-helm-contract"
+            rendered = Kubernetes cluster "" (ok (mkName "configmap"))
+              (Just (ok (mkName "default"))) (ok (mkName "rendered-release")) :| []
+            old :: ManagedResource
+            old = ManagedResource resourceId oldOwner HelmExecutor
+              (Helm cluster (ok (mkName "default")) (ok (mkName "release"))) []
+              (HelmRelease rendered contract) Retain Stateless Public [] []
+              (SourceLocation "fixture" "release")
+            oldScope = ok (mkScopeDeclaration oldOwner [ResourceBundle [Managed old] [] [] [] [] []])
+            next = ManagedResource resourceId newOwner HelmExecutor
+              (Helm cluster (ok (mkName "default")) (ok (mkName "release"))) []
+              (HelmRelease rendered contract) Retain Stateless Public [] []
+              (SourceLocation "fixture" "release")
+            nextScope = ok (mkScopeDeclaration newOwner [ResourceBundle [Managed next] [] [] [] [] []])
+            changedScope = ok (mkScopeDeclaration newOwner [ResourceBundle
+              [Managed (next {spec = HelmRelease rendered (contentDigest "changed")})] [] [] [] [] []])
+            generation = ok (mkScopeGeneration 1)
+            snapshot = ok (mkScopeSnapshot fixtureBinding
+              (Map.singleton oldOwner (generation, oldScope)) Map.empty)
+            seed = ok (composeInventory snapshot (ReplaceScope (ok (mkScopeDeclaration seedOwner [])) :| []))
+            transfer = ok (composeInventory snapshot
+              (RetireScope oldOwner RetainResources :| [ReplaceScope nextScope]))
+            changed = ok (composeInventory snapshot
+              (RetireScope oldOwner RetainResources :| [ReplaceScope changedScope]))
+            physical = ok (mkPhysicalIdentity "helm-release-secret-uid")
+            observed = ok (observationSet [(resourceId, ObservedPresent physical)])
+            decision = LifecycleProposal resourceId ApproveTransfer
+              (lifecycleObservationDigest fixtureBinding resourceId (ObservedPresent physical))
+        store <- newMemoryStore
+        _ <- initializeStore store fixtureBinding "helm-transfer-test" >>= expectRight
+        _ <- seedInventoryHistory store seed >>= expectRight
+        history <- loadInventoryHistory store >>= expectRight
+        case planChanges transfer noLifecycleDecisions history observed of
+          Left failures -> assertBool "unreviewed Helm transfer was accepted"
+            ("owner-transfer-required" `elem` map planErrorCode (NE.toList failures))
+          Right _ -> assertFailure "unreviewed Helm transfer was accepted"
+        approved <- expectRight (validateLifecycleDecisions transfer history observed [decision])
+        let transferInput = AdoptionInput "compiled" fixtureBinding
+              [AdoptionTarget resourceId (next ^. #address) physical (Just oldOwner)]
+        _ <- expectRight (decideAdoption transfer history observed transferInput)
+        case decideAdoption transfer history observed
+          (transferInput {adoptionTargets = [AdoptionTarget resourceId
+            (next ^. #address) (ok (mkPhysicalIdentity "other-release-uid")) (Just oldOwner)]}) of
+          Left failures -> assertBool "Helm transfer ignored a changed physical identity"
+            ("adoption-incarnation" `elem` map planErrorCode (NE.toList failures))
+          Right _ -> assertFailure "Helm transfer accepted another release incarnation"
+        let operations = proposalOperations (ok (planChanges transfer approved history observed))
+        map plannedAction operations @?= [VerifyResource]
+        case operations of
+          [operation] -> do
+            state <- newIORef (HelmPresent physical "1" resourceId contract)
+            mutations <- newIORef (0 :: Int)
+            let adapter = mkHelmAdapter (Map.singleton resourceId (next, "reviewed-helm-contract"))
+                  HelmAdapterOps
+                    { helmObserve = \_ -> readIORef state
+                    , helmMutateConditional = \_ -> do
+                        modifyIORef' mutations (+ 1)
+                        pure AdapterEffectCompleted
+                    }
+            prepared <- adapterPrepare adapter operation >>= expectRight
+            adapterPreflight adapter operation prepared >>= (@?= Right ())
+            adapterExecute adapter operation prepared >>= (@?= AdapterEffectCompleted)
+            verified <- adapterVerify adapter operation prepared
+            assertBool "Helm handoff did not verify the release" (either (const False) (const True) verified)
+            readIORef mutations >>= (@?= 0)
+            writeIORef state (HelmPresent physical "2" resourceId contract)
+            changedRevision <- adapterPreflight adapter operation prepared
+            assertBool "Helm release revision changed after review" (isLeft changedRevision)
+          _ -> assertFailure "Helm transfer should plan exactly one verification"
+        case validateLifecycleDecisions changed history observed [decision] of
+          Left failures -> assertBool "Helm transfer changed its native contract"
+            ("invalid-transfer" `elem` map planErrorCode (NE.toList failures))
+          Right _ -> assertFailure "changed Helm contract was accepted for transfer"
     , testCase "dependency order does not turn an accepted resource into an update" $ do
         let owner = ok (mkScopeId Platform "dependency-order")
             cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
