@@ -4387,6 +4387,7 @@ runInventoryStatus mctx requested json gcOutput = do
   artifactSpecs <- either dieT pure (InventoryArtifact.artifactExecutionSpecsFromDeclarations declarations)
   cacheSpecs <- either dieT pure (cacheSpecsFromDeclarations declarations)
   hostInputs <- either dieT pure (InventoryHost.hostExecutionInputsFromScopes scopes)
+  observationStartedAt <- currentTimestamp
   pulumi <- if null registrations
     then pure (Inventory.executionBlockedAdapterFor ResourceInventory.PulumiExecutor)
     else inventoryPulumiAdapter active workspace binding scopes registrations
@@ -4493,6 +4494,7 @@ runInventoryStatus mctx requested json gcOutput = do
       let report = Aeson.object
             [ "version" Aeson..= (1 :: Int)
             , "context" Aeson..= binding
+            , "observationStartedAt" Aeson..= observationStartedAt
             , "observedAt" Aeson..= observedAt
             , "deletionAuthorized" Aeson..= False
             , "assessments" Aeson..= collectionAssessments
@@ -4502,6 +4504,7 @@ runInventoryStatus mctx requested json gcOutput = do
       TIO.putStrLn ("Wrote read-only collection assessment: " <> T.pack (output </> "collection-plan.json"))
   let baseFields =
         [ "context" Aeson..= ResourceInventory.inventoryBinding inventory
+        , "observationStartedAt" Aeson..= observationStartedAt
         , "observedAt" Aeson..= observedAt
         , "accepted" Aeson..= revisions (fmap fst (InventoryPlan.historyAccepted history))
         , "converged" Aeson..= revisions (InventoryPlan.historyConverged history)

@@ -109,7 +109,7 @@ This plan delivers provider-independent lifecycle planning plus inventory status
 - [x] (2026-09-24) M1 StatefulSet immutable classification: The production Kubernetes observer reports replacement required when explicit selector, service name, volume claim templates, or pod management policy differ. Volume claim templates compare desired fields to avoid defaulted observed metadata causing a false finding. The focused test and Haskell style check pass; reviewed replacement and broader immutable coverage remain open.
 - [x] (2026-09-24) M1 condition separation: An existing Kubernetes object with an unready controller condition now retains its configuration and ownership observation. A distinct internal state prevents execution verification from treating it as complete, while read-only status can report not-ready health. A focused Job fixture, the 154-test inventory suite, and Haskell style check pass.
 - [x] (2026-09-24) M1 StatefulSet health: Status now probes the observed StatefulSet UID and requires a current controller generation plus the requested ready and updated replica counts. Mutation waits for rollout before verification; an unready observation retains configuration facts but cannot complete the operation. The 155-test inventory suite and Haskell style check pass; other provider health remains open.
-- [ ] M1: Classify observations and expose complete read-only status/explain.
+- [x] (2026-09-24) M1: Read-only status and explain classify active and retained resources, separate controller health from configuration, expose partial provider coverage and recovery state, and bound findings by observation start/end times. The full 750-test CLI suite and executable build pass. Kinds without a proved condition probe report health `unknown`; unmanaged discovery remains an optional read-only extension.
 - [ ] M2: Plan explicit legacy adoption and ownership transfer.
 - [ ] M3: Plan migration/retirement with retained data and recovery evidence.
 - [ ] M4: Expose lifecycle commands and verify decision/recovery fixtures.
@@ -163,7 +163,7 @@ The ordinary planner classified an accepted ResourceId solely from the observati
 
 ## Outcomes & Retrospective
 
-Not implemented. Record decision coverage, safety boundaries, and remaining provider limitations at completion.
+M1 is complete: read-only status and explain report accepted and retained identity, drift, provider coverage, health, dependency traces, collection screening, and active recovery state without mutation. M2-M4 remain open. The currently executable lifecycle routes are Kubernetes adoption, Kubernetes/Helm unchanged scope transfer, direct Kubernetes retention, exact stateless ConfigMap collection, and adapter-proved operator recovery. Migration, broader provider adoption and collection, and complete lifecycle command acceptance still require implementation.
 
 
 ## Context and Orientation

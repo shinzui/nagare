@@ -266,7 +266,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-23) EP-147 M2c: Complete cache/database bundles execute through reviewed bootstrap; EP-148 owns standalone and application database command migration.
 - [x] (2026-09-23) EP-147 M3: Cloud/local components, owner-composed auth settings, foundation Namespace/certificate policy, and bounded host timer credential delegation are recorded and validated.
 - [x] (2026-09-23) EP-147 M4: Supported bootstrap orchestration enters reviewed inventory; the disposable full bootstrap and accepted replay converged.
-- [ ] EP-149 M1: Read-only drift/status/explanation.
+- [x] (2026-09-24) EP-149 M1: Read-only drift, status, explanation, retained findings, provider coverage, controller health, and recovery visibility; the full 750-test CLI suite and executable build pass.
 - [ ] EP-149 M2: Reviewed adoption and transfer.
 - [ ] EP-149 M3: Data-preserving migration and retention/collection.
 - [ ] EP-149 M4: Commands and recovery decision fixtures.
@@ -426,3 +426,5 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 2026-09-24: Preserved read-only Kubernetes object facts when controller conditions are unready without relaxing execution completion. Dependency edges and child status are unchanged.
 
 2026-09-24: Added StatefulSet condition coverage to EP-149 M1 without changing its completion status or the dependent child gates.
+
+2026-09-24: Closed EP-149 M1 after confirming the complete read-only report, bounded observation window, retained/history explanation, partial provider coverage, and independent health. M2-M4 and the child status remain open.
