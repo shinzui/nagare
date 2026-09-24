@@ -946,6 +946,8 @@ data DbCommand
     DbRestart DbNameOpts Bool
   | -- | nagarectl db delete NAME [-n NS] [--yes] [--dry-run]
     DbDelete DbDeleteOpts
+  | -- | nagarectl db retire NAME [-n NS] --save-plan DIR
+    DbRetire StandaloneRetireOpts
   | -- | nagarectl db backup NAME [-n NS] [--bucket B] [--keep N] [--dry-run] (EP-47)
     DbBackup DbBackupOpts
   | -- | nagarectl db restore NAME BACKUP_ID [--into live] [--dry-run] (EP-47)
@@ -964,6 +966,8 @@ data BrokerCommand
     BrokerRestart BrokerNameOpts Bool
   | -- | nagarectl broker delete NAME [-n NS] [--yes] [--dry-run]
     BrokerDelete BrokerDeleteOpts
+  | -- | nagarectl broker retire NAME [-n NS] --save-plan DIR
+    BrokerRetire StandaloneRetireOpts
   deriving stock (Generic, Show)
 
 -- | The @task@ subcommands (MasterPlan 10, EP-51, Integration Point IP4). One
@@ -1049,8 +1053,16 @@ data DbDeleteOpts = DbDeleteOpts
   , namespace :: !(Maybe String)
   , yes :: !Bool
   , dryRun :: !Bool
-  , savePlan :: !(Maybe FilePath)
+  }
+  deriving stock (Generic, Show)
+
+-- | Retiring an accepted scope preserves its provider resources and records
+-- their identities for later review and collection.
+data StandaloneRetireOpts = StandaloneRetireOpts
+  { name :: !String
+  , namespace :: !(Maybe String)
   , scopeKey :: !(Maybe String)
+  , savePlan :: !FilePath
   }
   deriving stock (Generic, Show)
 
@@ -1114,8 +1126,6 @@ data BrokerDeleteOpts = BrokerDeleteOpts
   , namespace :: !(Maybe String)
   , yes :: !Bool
   , dryRun :: !Bool
-  , savePlan :: !(Maybe FilePath)
-  , scopeKey :: !(Maybe String)
   }
   deriving stock (Generic, Show)
 
@@ -1726,8 +1736,14 @@ dbDeleteOptsParser =
     <*> namespaceOpt
     <*> switch (long "yes" <> help "Confirm deletion (without it, prints the plan and deletes nothing)")
     <*> dryRunOpt
-    <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed standalone database retirement"))
+
+standaloneRetireOptsParser :: Parser String -> Parser StandaloneRetireOpts
+standaloneRetireOptsParser nameParser =
+  StandaloneRetireOpts
+    <$> nameParser
+    <*> namespaceOpt
     <*> optional (strOption (long "scope-key" <> metavar "KEY" <> help "Pinned standalone scope key used at creation"))
+    <*> strOption (long "save-plan" <> metavar "DIR" <> help "Save a review that retires the scope and retains all provider resources")
 
 brokerListOptsParser :: Parser BrokerListOpts
 brokerListOptsParser = BrokerListOpts <$> namespaceOpt
@@ -1762,8 +1778,6 @@ brokerDeleteOptsParser =
     <*> namespaceOpt
     <*> switch (long "yes" <> help "Confirm deletion (without it, prints the plan and deletes nothing)")
     <*> dryRunOpt
-    <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed standalone broker retirement"))
-    <*> optional (strOption (long "scope-key" <> metavar "KEY" <> help "Pinned standalone scope key used at creation"))
 
 dbBackupBucketOpt :: Parser (Maybe String)
 dbBackupBucketOpt =
@@ -2617,6 +2631,12 @@ opts =
                   (Broker . BrokerDelete <$> brokerDeleteOptsParser <**> helper)
                   (progDesc "Delete a broker (guarded by --yes)")
               )
+            <> command
+              "retire"
+              ( info
+                  (Broker . BrokerRetire <$> standaloneRetireOptsParser brokerNameArg <**> helper)
+                  (progDesc "Review retirement of an accepted broker scope; retain all provider resources")
+              )
         )
     dbSubparser =
       subparser
@@ -2662,6 +2682,12 @@ opts =
               ( info
                   (Db . DbDelete <$> dbDeleteOptsParser <**> helper)
                   (progDesc "Delete a database, honoring its retention policy (guarded by --yes)")
+              )
+            <> command
+              "retire"
+              ( info
+                  (Db . DbRetire <$> standaloneRetireOptsParser dbNameArg <**> helper)
+                  (progDesc "Review retirement of an accepted database scope; retain all provider resources")
               )
             <> command
               "backup"
@@ -7044,21 +7070,17 @@ runBroker mctx = \case
   BrokerGet o -> runBrokerGet (nsOf (o ^. #namespace)) (T.pack (o ^. #name))
   BrokerRestart o dryRun -> runBrokerRestart (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) dryRun
   BrokerDelete o ->
-    case o ^. #savePlan of
-      Nothing -> do
-        when (isJust (o ^. #scopeKey)) (dieT "--scope-key requires --save-plan")
-        runBrokerDelete
-          BrokerDeleteParams
-            { name = T.pack (o ^. #name)
-            , namespace = nsOf (o ^. #namespace)
-            , yes = o ^. #yes
-            , dryRun = o ^. #dryRun
-            }
-      Just output -> do
-        when (o ^. #yes || o ^. #dryRun)
-          (dieT "--yes and --dry-run belong to the review or apply step, not --save-plan")
-        runStandaloneRetirePlan mctx "broker" (T.pack (o ^. #name))
-          (nsOf (o ^. #namespace)) (T.pack <$> o ^. #scopeKey) output
+    refuseDirectDataDeleteIfOwned mctx "broker" (T.pack (o ^. #name)) (nsOf (o ^. #namespace)) >>
+    runBrokerDelete
+      BrokerDeleteParams
+        { name = T.pack (o ^. #name)
+        , namespace = nsOf (o ^. #namespace)
+        , yes = o ^. #yes
+        , dryRun = o ^. #dryRun
+        }
+  BrokerRetire o ->
+    runStandaloneRetirePlan mctx "broker" (T.pack (o ^. #name))
+      (nsOf (o ^. #namespace)) (T.pack <$> o ^. #scopeKey) (o ^. #savePlan)
   where
     nsOf = maybe "personal" T.pack
 
@@ -7121,21 +7143,17 @@ runDb mctx = \case
   DbShell o -> runDbShell (nsOf (o ^. #namespace)) (T.pack (o ^. #name))
   DbRestart o dry -> runDbRestart (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) dry
   DbDelete o ->
-    case o ^. #savePlan of
-      Nothing -> do
-        when (isJust (o ^. #scopeKey)) (dieT "--scope-key requires --save-plan")
-        runDbDelete
-          DbDeleteParams
-            { name = T.pack (o ^. #name)
-            , namespace = nsOf (o ^. #namespace)
-            , yes = o ^. #yes
-            , dryRun = o ^. #dryRun
-            }
-      Just output -> do
-        when (o ^. #yes || o ^. #dryRun)
-          (dieT "--yes and --dry-run belong to the review or apply step, not --save-plan")
-        runStandaloneRetirePlan mctx "database" (T.pack (o ^. #name))
-          (nsOf (o ^. #namespace)) (T.pack <$> o ^. #scopeKey) output
+    refuseDirectDataDeleteIfOwned mctx "database" (T.pack (o ^. #name)) (nsOf (o ^. #namespace)) >>
+    runDbDelete
+      DbDeleteParams
+        { name = T.pack (o ^. #name)
+        , namespace = nsOf (o ^. #namespace)
+        , yes = o ^. #yes
+        , dryRun = o ^. #dryRun
+        }
+  DbRetire o ->
+    runStandaloneRetirePlan mctx "database" (T.pack (o ^. #name))
+      (nsOf (o ^. #namespace)) (T.pack <$> o ^. #scopeKey) (o ^. #savePlan)
   DbBackup o -> do
     backend <- resolveStoreBackend mctx (o ^. #bucket)
     runDbBackup (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) backend (o ^. #keep) (o ^. #dryRun)
@@ -7185,6 +7203,34 @@ runStandaloneRetirePlan mctx kind name namespaceName pinnedKey output = do
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   Inventory.planInventoryRetirementWith
     (inventoryPlanRegistry active workspace) active owner output
+
+-- | The legacy deleters have no inventory receipt. Refuse a direct deletion
+-- whenever accepted or retained history owns the named StatefulSet.
+refuseDirectDataDeleteIfOwned :: Maybe String -> Text -> Text -> Text -> IO ()
+refuseDirectDataDeleteIfOwned mctx kind name namespaceName = do
+  active <- activeTarget mctx
+  opened <- Inventory.openTargetStoreReadOnly active
+  case opened of
+    Left (InventoryStore.StoreConditionFailed "inventory store is not initialized") -> pure ()
+    Left (InventoryStore.StoreConditionFailed "inventory object prefix is not initialized") -> pure ()
+    Left err -> dieT ("cannot verify inventory ownership before " <> kind <> " delete: " <> T.pack (show err))
+    Right store -> do
+      history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
+      let accepted =
+            [ resource
+            | (_, scope) <- Map.elems (InventoryPlan.historyAccepted history)
+            , bundle <- ResourceInventory.scopeBundles scope
+            , ResourceInventory.Managed resource <- ResourceInventory.declarations bundle
+            ]
+          retained = map snd (Map.elems (InventoryPlan.historyRetained history))
+          matches resource = case resource ^. #address of
+            Resource.Kubernetes _ "apps" resourceKind (Just nativeNamespace) nativeName ->
+              Resource.nameText resourceKind == "statefulset"
+                && Resource.nameText nativeNamespace == namespaceName
+                && Resource.nameText nativeName == name
+            _ -> False
+      when (any matches (accepted <> retained))
+        (dieT (kind <> " " <> name <> " is owned by accepted or retained inventory history; direct deletion is refused"))
 
 -- | Dispatch the @worker@ command group (EP-71). Provisions the GHC environment
 -- before loading the worker's @Config.hs@ (mirroring @db create --config@), then

@@ -73,7 +73,8 @@ compileDatabaseDirect digestOf input = do
           , clusterId = directClusterId input
           , inputObject = value
           , objectDigest = digest
-          , lifecyclePolicy = if isThrowaway then DeleteWhenUnreferenced else Retain
+          , lifecyclePolicy = if not isThrowaway && roleText `elem` ["credential", "pvc"]
+              then Retain else DeleteWhenUnreferenced
           , inputDataPolicy = if roleText `elem` ["pvc", "credential"] && not isThrowaway then Durable (directRecoveryIntent input) else Stateless
           , inputSensitivity = if roleText == "credential" then Secret else Private
           , sourceLocation = directSourceLocation input
@@ -114,7 +115,7 @@ compileDatabaseBundle digestOf input backupObject = do
       , clusterId = directClusterId input
       , inputObject = backupObject
       , objectDigest = digest
-      , lifecyclePolicy = Retain
+      , lifecyclePolicy = DeleteWhenUnreferenced
       , inputDataPolicy = Stateless
       , inputSensitivity = Private
       , sourceLocation = directSourceLocation input

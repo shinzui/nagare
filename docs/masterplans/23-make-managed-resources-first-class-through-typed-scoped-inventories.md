@@ -306,7 +306,8 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-24) EP-148 M2 partial: Application namespace requests compose under an explicit owner grant and preserve the platform scope revision.
 - [ ] EP-148 M2: Shared contributions, env/secret intent, and publication.
 - [ ] EP-148 M3: Operational/data command coverage.
-- [x] (2026-09-24) EP-148 M3 partial: Standalone database and topic-free broker create/delete commands can save reviewed scope replacement/retirement plans; retained native metadata and accepted StatefulSet selection are covered by focused tests. Direct compatibility paths remain.
+- [x] (2026-09-24) EP-148 M3 partial: Standalone database and topic-free broker create/retire commands can save reviewed scope replacement/retirement plans; retirement retains every provider resource. Native metadata and accepted StatefulSet selection are covered by focused tests. Direct delete compatibility paths and reviewed native deletion remain.
+- [x] (2026-09-24) EP-148 M4 partial: Direct database and broker deletion refuse a StatefulSet owned by accepted or retained inventory history before provider observation.
 - [x] (2026-09-24) EP-148 M4 partial: Offline platform/two-app composition preserves unselected scope generations and refuses a shared Knative Service claim.
 - [x] (2026-09-24) EP-148 M4 partial: A complete application scope cannot claim the platform's database StatefulSet address.
 - [ ] EP-148 M4: Removed alternate paths and scope isolation.
@@ -491,7 +492,7 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 
 2026-09-24: EP-148's composed two-application fixture proves compiler-level scope isolation and cross-application claim refusal. Application command routing and legacy path removal still gate M4 and EP-150.
 
-2026-09-24: EP-148 now exposes saved inventory reviews for standalone database and topic-free broker creation and retirement. The create paths share their typed input with legacy direct creation, and the renderers include metadata previously applied by separate annotation calls. Retirement selects only an accepted scope containing the requested StatefulSet and namespace and retains durable resources. Direct compatibility paths, application deployment, logical topics, environment channels, and operational actions still gate EP-148 and EP-150.
+2026-09-24: EP-148 now exposes saved inventory reviews for standalone database and topic-free broker creation and retirement. The create paths share their typed input with legacy direct creation, and the renderers include metadata previously applied by separate annotation calls. Retirement selects only an accepted scope containing the requested StatefulSet and namespace and retains all provider resources without deleting them. Direct compatibility paths, reviewed native deletion, application deployment, logical topics, environment channels, and operational actions still gate EP-148 and EP-150.
 
 2026-09-24: Standalone data create planning now verifies the accepted foundation Namespace's logical ID and native cluster/name address. Legacy delete, backup/restore, snapshot/restore, task run/delete, and database/broker restart functions reject inventory transaction re-entry before direct effects. These guards prevent nested bypasses while the reviewed operational contracts remain open; they do not count as completed M3 migration.
 

@@ -29,6 +29,7 @@ import Nagare.Resource.Application (deploymentResourceId, domainMappingResourceI
 import Nagare.Resource.Broker (brokerResourceId)
 import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (..), ManagedResource (..))
 import Nagare.Resource.Policy (DataPolicy (..), LifecyclePolicy (DeleteWhenUnreferenced), RecoveryIntent (..), Sensitivity (..), mkSecretRef)
+import Nagare.Resource.Policy qualified as ResourcePolicy
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types (mkContentDigest, mkLogicalKey, mkName, mkScopeId, mintResourceId, ScopeKind (..), SourceLocation (SourceLocation))
 import Nagare.Dsl.Database.Render
@@ -729,11 +730,15 @@ databaseTests =
                 case declarations bundle of
                   Managed credential : Managed pvc : _ -> do
                     sensitivity credential @?= Secret
+                    lifecycle credential @?= ResourcePolicy.Retain
+                    lifecycle pvc @?= ResourcePolicy.Retain
                     dataPolicy credential @?= Durable recovery
                     dataPolicy pvc @?= Durable recovery
                   _ -> assertFailure "database PVC missing"
                 case reverse (declarations bundle) of
-                  Managed stateful : _ -> dependencies stateful @?= map OrderedAfter (take (expected - 1) (map fst native))
+                  Managed stateful : _ -> do
+                    lifecycle stateful @?= DeleteWhenUnreferenced
+                    dependencies stateful @?= map OrderedAfter (take (expected - 1) (map fst native))
                   _ -> assertFailure "database StatefulSet missing"
                 pure (map fst native)
           original <- check pgDb 4
@@ -754,11 +759,13 @@ databaseTests =
               (bundle, native) = either (error . show) id (compileDatabaseBundle digest input backup)
           length native @?= 5
           case reverse (declarations bundle) of
-            Managed cron : _ -> dependencies cron @?=
-              map OrderedAfter
-                [ unsafe (databaseResourceId owner (unsafe (mkName "credential")) pgDb)
-                , unsafe (databaseResourceId owner (unsafe (mkName "statefulset")) pgDb)
-                ]
+            Managed cron : _ -> do
+              lifecycle cron @?= DeleteWhenUnreferenced
+              dependencies cron @?=
+                map OrderedAfter
+                  [ unsafe (databaseResourceId owner (unsafe (mkName "credential")) pgDb)
+                  , unsafe (databaseResourceId owner (unsafe (mkName "statefulset")) pgDb)
+                  ]
             _ -> assertFailure "database backup CronJob missing"
           assertBool "wrong CronJob address accepted" (either (const True) (const False) (compileDatabaseBundle digest input wrong))
           let throwaway = pgDb & #retention .~ Delete

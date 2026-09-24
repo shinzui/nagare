@@ -167,14 +167,19 @@ To retire a database already accepted into a standalone inventory scope, review
 the retirement separately:
 
 ```bash
-nagarectl db delete pg-main --save-plan ./pg-main-retire
+nagarectl db retire pg-main --save-plan ./pg-main-retire
 nagarectl inventory apply ./pg-main-retire --yes
 ```
 
 If the database has a pinned logical key different from its current name, pass
 `--scope-key KEY`. The command checks the accepted StatefulSet name and
-namespace before planning. Inventory retirement retains durable resources under
-their recorded lifecycle policy.
+namespace before planning. Applying this retirement review preserves every
+provider resource, including the workload, Service, credential, and PVC. It
+records their identities as retained history. Use `db delete` only for the
+separate direct deletion workflow; reviewed Kubernetes deletion is not yet
+supported for these resources.
+Direct deletion refuses a database whose StatefulSet is owned by accepted or
+retained inventory history.
 
 Planning uses the typed database input from the flags or `--config`, binds the
 credential template and all database objects to the standalone scope, and

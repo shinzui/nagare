@@ -11,6 +11,7 @@ import Data.Either (isLeft)
 import Data.Generics.Labels ()
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.List (sort)
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -384,6 +385,12 @@ inventoryKubernetesTests =
         scopeId declaration @?= owner
         length (concatMap declarations (scopeBundles declaration)) @?= 5
         Map.size native @?= 5
+        let retainedKinds = [nameText kind | (member, _) <- Map.elems native
+              , Kubernetes _ _ kind _ _ <- [address member], lifecycle member == Retain]
+            removedKinds = [nameText kind | (member, _) <- Map.elems native
+              , Kubernetes _ _ kind _ _ <- [address member], lifecycle member == DeleteWhenUnreferenced]
+        sort retainedKinds @?= ["persistentvolumeclaim", "secret"]
+        sort removedKinds @?= ["cronjob", "service", "statefulset"]
         case compileStandaloneDatabase (direct {directOwnerScope = scope}) backend of
           Left (err :| _) -> code err @?= "wrong-data-scope"
           Right _ -> assertFailure "platform scope was accepted for standalone database"
