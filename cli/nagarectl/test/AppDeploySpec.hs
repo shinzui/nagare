@@ -24,7 +24,7 @@ import Data.Text.Encoding qualified as TE
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.App.Deploy
-import Nagare.Inventory.Application (ApplicationScopeInput (..), compileApplicationScope, compileApplicationService, compileStandaloneService, compileApplicationTasks, compileApplicationWorkers)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), applicationNativeOwned, compileApplicationScope, compileApplicationService, compileStandaloneService, compileApplicationTasks, compileApplicationWorkers)
 import Nagare.Resource.Application (applicationScopeId, volumeResourceId)
 import Nagare.Resource.Database (databaseResourceId)
 import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (..), ManagedResource (..), DesiredSpec (KnativeService), Contribution (RegisterNamespace), ContributionGrant (NamespaceGrant), ScopeChange (ReplaceScope), candidateGenerations, candidateInventory, composeInventory, contributionResourceId, inventoryDeclarations, inventoryScopes, mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeId)
@@ -129,6 +129,10 @@ renderTests =
       case declarations bundle of
         [Managed service] -> do
           service ^. #owner @?= owner
+          assertBool "direct app deploy must detect an owned native Service"
+            (applicationNativeOwned app [service])
+          assertBool "another namespace must not claim the app workload"
+            (not (applicationNativeOwned (app & #namespace .~ unsafe (mkNamespace "other")) [service]))
           case service ^. #spec of
             KnativeService _ -> pure ()
             other -> assertFailure ("service lacks Knative reservation: " <> show other)

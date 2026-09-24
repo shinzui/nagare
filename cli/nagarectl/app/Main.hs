@@ -67,7 +67,7 @@ import Nagare.App
   , stopApp
   , streamServiceLogs
   )
-import Nagare.App.Deploy (AppDeployParams (..), runAppDeploy)
+import Nagare.App.Deploy (AppDeployParams (..), runAppDeployWithGuard)
 import Nagare.App.Deployments
   ( formatDeploymentsTable
   , readDeployments
@@ -128,6 +128,7 @@ import Nagare.Domain.Binding
   , waitForDomainBindings
   )
 import Nagare.Domain.Tls (preflightDomainTls, renderDomainTlsCheck, verifyDomainTlsReady)
+import Nagare.Dsl.Application (Application (..))
 import Nagare.Dsl.Broker (BrokerProvider (..), brokerNameText)
 import Nagare.Dsl.Build (BuildSpec, requiresBuild, resolveImageTag)
 import Nagare.Dsl.Cdn.Types (Cdn)
@@ -268,6 +269,7 @@ import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
+import Nagare.Inventory.Application (applicationNativeOwned)
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, compileStandaloneBroker, compileStandaloneDatabase, standaloneRetirementScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
@@ -387,6 +389,7 @@ import Nagare.Resource.Database (DatabaseDirectInput (..))
 import Nagare.Resource.Policy (RecoveryIntent (..), mkSecretRef)
 import Nagare.Resource.Reference qualified as ResourceReference
 import Nagare.Resource.Types qualified as Resource
+import Nagare.Resource.Application qualified as ResourceApplication
 import Nagare.Resource.Wire qualified as ResourceWire
 import Nagare.Server.Deploy
   ( ServerDeployInputs (..)
@@ -2800,7 +2803,7 @@ main = do
     AppDeploy o -> do
       provisionGhcEnv (o ^. #ghcEnv)
       tp <- activeProfile mctx
-      runAppDeploy (toAppDeployParams tp o)
+      runAppDeployWithGuard (refuseDirectApplicationDeployIfOwned mctx) (toAppDeployParams tp o)
     DeploymentsList o -> runDeploymentsList o
     DeploymentsLogs o -> runDeploymentsLogs o
     Storage scmd -> runStorage mctx scmd
@@ -7235,6 +7238,35 @@ refuseDirectDataMutationIfOwned mctx kind operation name namespaceName = do
           retained = map snd (Map.elems (InventoryPlan.historyRetained history))
       when (standaloneStatefulSetOwned name namespaceName (accepted <> retained))
         (dieT (kind <> " " <> name <> " is owned by accepted or retained inventory history; direct " <> operation <> " is refused"))
+
+-- | The direct aggregate rollout does not produce a reviewed inventory receipt.
+-- Refuse it when either its stable scope or one of its native workloads is
+-- already owned, including retained members after retirement.
+refuseDirectApplicationDeployIfOwned :: Maybe String -> Application -> IO ()
+refuseDirectApplicationDeployIfOwned mctx app = do
+  active <- activeTarget mctx
+  opened <- Inventory.openTargetStoreReadOnly active
+  case opened of
+    Left (InventoryStore.StoreConditionFailed "inventory store is not initialized") -> pure ()
+    Left (InventoryStore.StoreConditionFailed "inventory object prefix is not initialized") -> pure ()
+    Left err -> dieT ("cannot verify inventory ownership before app deploy: " <> T.pack (show err))
+    Right store -> do
+      history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
+      context <- either dieT pure (Resource.mkContextId (contextNameText (active ^. #contextName)))
+      project <- either dieT pure (Resource.mkName (active ^. #profile . #project))
+      unless (InventoryStore.headBinding (InventoryPlan.historyHead history) == Resource.ContextBinding context project)
+        (dieT "accepted inventory belongs to a different context or project")
+      owner <- either dieT pure (ResourceApplication.applicationScopeId app)
+      let accepted =
+            [ resource
+            | (_, scope) <- Map.elems (InventoryPlan.historyAccepted history)
+            , bundle <- ResourceInventory.scopeBundles scope
+            , ResourceInventory.Managed resource <- ResourceInventory.declarations bundle
+            ]
+          retained = map snd (Map.elems (InventoryPlan.historyRetained history))
+      when (Map.member owner (InventoryPlan.historyAccepted history)
+          || applicationNativeOwned app (accepted <> retained))
+        (dieT "application is owned by accepted or retained inventory history; direct app deploy is refused")
 
 -- | Dispatch the @worker@ command group (EP-71). Provisions the GHC environment
 -- before loading the worker's @Config.hs@ (mirroring @db create --config@), then

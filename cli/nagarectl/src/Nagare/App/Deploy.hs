@@ -20,6 +20,7 @@ module Nagare.App.Deploy
   ( -- * Params and entry point
     AppDeployParams (..)
   , runAppDeploy
+  , runAppDeployWithGuard
 
     -- * Rollout phases (EP-2 M2)
   , Phase (..)
@@ -447,7 +448,12 @@ toRenderedObject ph bs =
 -- and (on @--dry-run@) print every rendered object — each carrying the shared
 -- @nagare.dev/app@ label — in rollout order. The live apply path lands in M2/M4.
 runAppDeploy :: AppDeployParams -> IO ()
-runAppDeploy p = do
+runAppDeploy = runAppDeployWithGuard (const (pure ()))
+
+-- | Check ownership of the loaded aggregate before resolving runtime inputs or
+-- performing any provider mutation. The command layer supplies the guard.
+runAppDeployWithGuard :: (Application -> IO ()) -> AppDeployParams -> IO ()
+runAppDeployWithGuard ownershipGuard p = do
   transaction <- lookupEnv "NAGARE_INVENTORY_TRANSACTION"
   when (isJust transaction) $
     dieT "app deploy cannot run inside a reviewed inventory transaction"
@@ -456,6 +462,7 @@ runAppDeploy p = do
   app <- case eapp of
     Left err -> dieT (renderLoadError err)
     Right a -> pure a
+  ownershipGuard app
   qImg <- case qualifyImage tp (app ^. #image) of
     Left e -> dieT ("nagarectl app deploy: " <> e)
     Right q -> pure q

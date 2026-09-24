@@ -9,6 +9,7 @@ module Nagare.Inventory.Application
   , compileStandaloneService
   , compileApplicationWorkers
   , compileApplicationTasks
+  , applicationNativeOwned
   ) where
 
 import Data.Aeson (Value)
@@ -44,6 +45,28 @@ import Nagare.Resource.Policy (RecoveryIntent)
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
+
+-- | Match every native workload that the legacy aggregate deploy can write.
+-- The check uses provider addresses so a renamed logical key cannot bypass
+-- accepted or retained ownership. Cluster context is checked by the store.
+applicationNativeOwned :: Application -> [ManagedResource] -> Bool
+applicationNativeOwned app = any matches
+  where
+    namespaceName = namespaceText (app ^. #namespace)
+    workloads =
+      [("serving.knative.dev", "service", serviceNameText (service ^. #name))
+      | service <- maybe [] pure (app ^. #service)]
+        <> [("apps", "deployment", serviceNameText (worker ^. #name))
+           | worker <- app ^. #workers]
+        <> [("apps", "statefulset", databaseNameText (database ^. #name))
+           | database <- app ^. #databases]
+        <> [("batch", "cronjob", taskResourceName (serviceNameText (task ^. #name)))
+           | task <- app ^. #tasks]
+    matches resource = case resource ^. #address of
+      Kubernetes _ group kind (Just namespace) name ->
+        nameText namespace == namespaceName
+          && (group, nameText kind, nameText name) `elem` workloads
+      _ -> False
 
 -- | The reviewed dependencies and recovery decisions supplied by the command
 -- service. A caller must bind the namespace and image publication to accepted
