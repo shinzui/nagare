@@ -271,7 +271,7 @@ import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedApplicationImage, acceptedBrokerBindings, acceptedSecretBindings, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationScope, compileStandaloneService, compileStandaloneWorker, databaseRecoveryBindings, nativeWorkloadOwned, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedApplicationImage, acceptedBrokerBindings, acceptedSecretBindings, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationScope, compileStandaloneServiceWithBrokers, compileStandaloneWorker, databaseRecoveryBindings, nativeWorkloadOwned, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, compileStandaloneDatabase, databaseNativeOwned, standaloneRetirementScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Environment (acceptedEnvChannelValues, acceptedSecretChannelValues, compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
 import Nagare.Inventory.Host qualified as InventoryHost
@@ -6477,9 +6477,9 @@ runDeployPlan mctx options output = do
   when (requiresBuild (service ^. #build))
     (dieT "reviewed deploy requires an already published image")
   unless (null (service ^. #databases)
-      && null (service ^. #brokers) && isNothing (service ^. #access)
+      && isNothing (service ^. #access)
       && isNothing (service ^. #cdn))
-    (dieT "reviewed single-Service deploy requires typed database, broker, access, and CDN bindings")
+    (dieT "reviewed single-Service deploy requires typed database, access, and CDN bindings")
   let app = Application
         { name = service ^. #name
         , logicalKey = service ^. #logicalKey
@@ -6504,6 +6504,8 @@ runDeployPlan mctx options output = do
   let namespaceName = namespaceText (service ^. #namespace)
   (cluster, namespaceId) <- either dieT pure
     (acceptedFoundationNamespace snapshot namespaceName)
+  (brokerServices, _) <- either dieT pure
+    (acceptedBrokerBindings snapshot cluster namespaceName (service ^. #brokers))
   let params = AppDeployParams
         { configPath = options ^. #file
         , tag = T.pack <$> options ^. #tag
@@ -6531,8 +6533,8 @@ runDeployPlan mctx options output = do
         (maybe (T.pack (options ^. #file)) T.pack (options ^. #source))
         (serviceNameText (service ^. #name))
   (scope, native) <- either (dieT . T.pack . show) pure
-    (compileStandaloneService owner service rollout cluster namespaceId imageId
-      volumeRecovery tlsSecrets envSecrets source)
+    (compileStandaloneServiceWithBrokers owner service rollout cluster namespaceId imageId
+      volumeRecovery tlsSecrets envSecrets brokerServices source)
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
   Inventory.planInventoryCandidateWith

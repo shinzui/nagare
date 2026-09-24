@@ -229,3 +229,5 @@ DependencyExports contains typed capability witnesses and selected revision/phys
 2026-09-24: Standalone worker retirement now selects the exact accepted Deployment and optional stable scope key before saving a plan. The retirement engine keeps retained PVC declarations. M3 remains open for the other operational and data actions already listed above.
 
 2026-09-24: The reviewed standalone worker route now binds topic-free broker references to accepted standalone broker Services, adds explicit Deployment dependency edges, and derives connection environment from the typed binding. This advances the existing M1 broker coverage; logical topics and standalone database dependencies remain open.
+
+2026-09-24: The standalone web Service route now uses the same accepted topic-free broker binding and records a dependency from its Knative Service to the broker Service. The original M1 milestone remains open for logical topics and other incomplete resources.

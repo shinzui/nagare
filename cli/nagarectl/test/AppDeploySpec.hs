@@ -24,7 +24,7 @@ import Data.Text.Encoding qualified as TE
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.App.Deploy
-import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedBrokerBindings, acceptedSecretBindings, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, standaloneWorkerVolumeRecoveryBindings, nativeWorkloadOwned, compileApplicationScope, compileApplicationService, compileStandaloneService, compileStandaloneWorker, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings, workerRetirementScope)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedBrokerBindings, acceptedSecretBindings, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, standaloneWorkerVolumeRecoveryBindings, nativeWorkloadOwned, compileApplicationScope, compileApplicationService, compileStandaloneService, compileStandaloneServiceWithBrokers, compileStandaloneWorker, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings, workerRetirementScope)
 import Nagare.Inventory.DataService (compileStandaloneBroker)
 import Nagare.Dsl.Broker (BrokerBinding (..), mkTopicName)
 import Nagare.Resource.Application (applicationScopeId, volumeResourceId)
@@ -511,6 +511,34 @@ renderTests =
       assertBool "standalone worker accepted an unbound broker"
         (isLeft (compileStandaloneWorker standaloneOwner standaloneWorker workerRollout cluster
           namespaceId publication Map.empty Map.empty Map.empty (scopeSource input)))
+      webService <- maybe (assertFailure "fixture has no service" >> fail "missing service") pure
+        (app ^. #service)
+      let serviceOwner = unsafe (Resource.mkScopeId Resource.Standalone "service-kizashi-service")
+          independentService = webService & #databases .~ [] & #brokers .~ [brokerBinding]
+          serviceRollout = testEnv & #appName .~ serviceNameText (webService ^. #name)
+            & #appEnv .~ Map.empty
+      (standaloneServiceScope, standaloneServiceNative) <- either (fail . show) pure
+        (compileStandaloneServiceWithBrokers serviceOwner independentService serviceRollout
+          cluster namespaceId publication Map.empty Map.empty Map.empty brokerServices (scopeSource input))
+      let serviceMembers =
+            [member | bundle <- scopeBundles standaloneServiceScope
+            , Managed member <- declarations bundle
+            , case member ^. #address of
+                Resource.Kubernetes _ "serving.knative.dev" kind _ _ ->
+                  kind == unsafe (Resource.mkName "service")
+                _ -> False]
+      length serviceMembers @?= 1
+      assertBool "standalone Service lost accepted broker dependency"
+        (all (\member -> all (\resource -> OrderedAfter resource `elem` member ^. #dependencies)
+          (map declarationId (Map.elems brokerServices))) serviceMembers)
+      assertBool "standalone Service native bytes omit broker connection"
+        (any (BS.isInfixOf "KAFKA_BOOTSTRAP_SERVERS" . snd) (Map.elems standaloneServiceNative))
+      assertBool "standalone Service private native declaration lost broker dependency"
+        (all (\member -> maybe False ((== member) . fst)
+          (Map.lookup (member ^. #identity) standaloneServiceNative)) serviceMembers)
+      assertBool "standalone Service accepted an unbound broker"
+        (isLeft (compileStandaloneServiceWithBrokers serviceOwner independentService serviceRollout
+          cluster namespaceId publication Map.empty Map.empty Map.empty Map.empty (scopeSource input)))
       let brokerInput = input
             { scopeApplication = brokerApp
             , scopeRollout = scopeRollout input & #appEnv .~ mergeGenerated brokerEnv (app ^. #env)

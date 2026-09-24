@@ -65,9 +65,10 @@ It requires the accepted namespace and image. Add
 `--service-volume-recovery VOLUME=BACKUP:KEY:VERSION` for each retained PVC,
 `--tls-secret-resource RESOURCE-ID` for supplied TLS, and
 `--env-secret-resource RESOURCE-ID` for runtime Secret references. Scheduled
-tasks join the same review when they resolve to its accepted image. Database and
-broker bindings, access, and CDN settings currently refuse this single-Service
-route.
+tasks join the same review when they resolve to its accepted image. Topic free
+broker references bind to accepted standalone broker Services. Database
+bindings, broker topics, access, and CDN settings currently refuse this
+single-Service route.
 
 For each declared application database, add
 `--database-recovery NAME=BACKUP:KEY_VERSION` to the planning command. The
