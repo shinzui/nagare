@@ -48,6 +48,7 @@ Every supported application-side mutation is either a desired-scope update, a re
 - [x] (2026-09-24) M1 partial: Application services and workers now order after their declared database StatefulSets; broker bindings refuse until their typed dependencies exist.
 - [x] (2026-09-24) M1 partial: Scheduled task CronJobs compile from the same resolved preview bytes and carry optional stable logical keys; invoking a migration hook remains outside this declaration-only step.
 - [x] (2026-09-24) M1 partial: The supported multi-workload fixture composes five database members, a service, three workers, and a scheduled CronJob into one scope with ten native members; cross-component ID/address collisions and unsupported fields refuse compilation.
+- [x] (2026-09-24) M1 partial: A Redpanda broker without topics compiles its retained PVC, Service, and StatefulSet into an independent scope with exact native bytes; declared topics refuse pending logical operation ownership.
 - [ ] M1: Compile applications and standalone services into complete scopes.
 - [ ] M2: Integrate shared-owner contributions, environment intent, and publication.
 - [ ] M3: Route operational and data lifecycle commands through reviewed operations.
@@ -67,6 +68,8 @@ Every supported application-side mutation is either a desired-scope update, a re
 2026-09-24: The current Task render describes a CronJob, while running a pre-deploy migration creates a separate Job with unknown data effects. The CronJob can be a native declaration now; managed hook execution still requires a reviewed operation with affected resources and recovery semantics.
 
 2026-09-24: Component builders alone cannot establish a complete application review. `compileApplicationScope` now combines their declarations and retained native bytes, validates identities and provider claims across components, and refuses application broker/access plus service task/access/CDN fields until those ownership paths exist. This is a supported-subset scope builder, not a command cutover.
+
+2026-09-24: The Redpanda renderer's direct Kubernetes membership is three objects. Broker topic creation currently happens later through `rpk`, so a broker with topics cannot be considered fully declared by those three objects; the standalone compiler refuses such input until the topic operation is reviewed.
 
 
 ## Decision Log

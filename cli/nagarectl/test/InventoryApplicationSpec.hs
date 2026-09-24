@@ -5,11 +5,12 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.Dsl.Database (mkDatabaseName)
-import Nagare.Dsl.Load (loadApplication)
+import Nagare.Dsl.Load (loadApplication, loadBroker)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Application (compileApplicationDatabases)
+import Nagare.Inventory.DataService (compileStandaloneBroker)
 import Nagare.Resource.Application (applicationScopeId)
-import Nagare.Resource.Inventory (Declaration (Managed), ManagedResource (..), ResourceBundle (..))
+import Nagare.Resource.Inventory (Declaration (Managed), ManagedResource (..), ResourceBundle (..), scopeBundles)
 import Nagare.Resource.Policy (RecoveryIntent (..), mkSecretRef)
 import Nagare.Resource.Types
 import Test.Tasty (TestTree, testGroup)
@@ -54,4 +55,29 @@ inventoryApplicationTests = testGroup "application inventory compilation"
             Left (err :| _) -> code err @?= "duplicate-id"
             Right _ -> assertFailure "two databases with one logical key were accepted"
         _ -> assertFailure "fixture did not contain exactly one database"
+  , testCase "standalone broker binds its PVC, Service, and StatefulSet" $ do
+      loaded <- loadBroker "../nagare-dsl/test/fixtures/broker/redpanda/nagare/Config.hs"
+      broker <- either (fail . show) pure loaded
+      let owner = either (error . show) id (mkScopeId Standalone "broker-events")
+          clusterOwner = either (error . show) id (mkScopeId Platform "foundation")
+          cluster = mintResourceId clusterOwner
+            (either (error . show) id (mkLogicalKey "cluster"))
+            (either (error . show) id (mkName "resource"))
+          namespaceId = mintResourceId clusterOwner
+            (either (error . show) id (mkLogicalKey "foundation"))
+            (either (error . show) id (mkName "namespace-personal"))
+          recovery = RecoveryIntent (either (error . show) id (mkName "backup"))
+            (mkSecretRef (either (error . show) id (mkName "broker-key"))
+              (either (error . show) id (mkName "v1")) :| [])
+          source = SourceLocation "test" "broker"
+      case compileStandaloneBroker broker owner cluster namespaceId recovery source of
+        Left (err :| _) -> code err @?= "invalid-standalone-broker"
+        Right _ -> assertFailure "broker topics disappeared from inventory review"
+      let withoutTopics = broker & #topics .~ []
+      (scope, native) <- either (fail . show) pure
+        (compileStandaloneBroker withoutTopics owner cluster namespaceId recovery source)
+      length (scopeBundles scope) @?= 1
+      Map.size native @?= 3
+      [resource ^. #owner | bundle <- scopeBundles scope, Managed resource <- bundle ^. #declarations]
+        @?= replicate 3 owner
   ]
