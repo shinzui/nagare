@@ -4418,12 +4418,17 @@ runInventoryStatus mctx requested json gcOutput = do
   cacheFacts <- inspect cache ResourceInventory.CacheExecutor
   let helmObserved = Map.fromList helmFacts
       helmStatusOps = helmRuntimeOps (inventoryHelmRuntimeConfig active workspace binding helmNative)
+      helmObservedPhysical = \case
+        InventoryAdapter.ObservedPresent _ -> True
+        InventoryAdapter.ObservedDrifted _ _ -> True
+        InventoryAdapter.ObservedReplacementRequired _ _ -> True
+        _ -> False
   helmHealthPairs <- forM (ids ResourceInventory.HelmExecutor) $ \resourceId -> do
     health <- case Map.lookup resourceId helmObserved of
-      Nothing -> pure Nothing
-      Just fact -> do
+      Just fact | helmObservedPhysical fact -> do
         state <- helmObserve helmStatusOps resourceId
         pure (helmStateHealth resourceId fact state)
+      _ -> pure Nothing
     pure (resourceId, health)
   let healthConfig = KubernetesRuntimeConfig context (contextNameText (active ^. #contextName))
         (fmap (fmap (const ())) (guardKubernetesContext active))
