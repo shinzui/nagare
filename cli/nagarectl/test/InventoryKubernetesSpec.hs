@@ -41,6 +41,7 @@ import Nagare.Inventory.Plan
 import Nagare.Inventory.Status (DriftCategory (ImmutableReplacementRequired), classifyDrift, findingCategory, loadAcceptedNative)
 import Nagare.Inventory.Store
 import Nagare.Resource.Inventory hiding (cluster)
+import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
 import Nagare.Resource.Kubernetes
 import Nagare.Resource.Policy
@@ -824,6 +825,21 @@ inventoryKubernetesTests =
           Right _ -> assertFailure "deletion tombstone did not guard logical identity"
         readIORef state >>= (@?= KubernetesAbsent absence)
         readIORef calls >>= (@?= 2)
+    , testCase "one candidate selects distinct retained resources for collection" $ do
+        let other = mintResourceId scope (ok (mkLogicalKey "other")) (ok (mkName "resource"))
+            addressFor label = Kubernetes cluster "" (ok (mkName "configmap"))
+              (Just (ok (mkName "default"))) (ok (mkName label))
+            reservations = Map.fromList
+              [(canonicalClaim (addressFor "first"), ClaimHolder scope resource physical ResourceInventory.RetainedIncarnation)
+              ,(canonicalClaim (addressFor "second"), ClaimHolder scope other physical ResourceInventory.RetainedIncarnation)]
+            snapshot = ok (mkScopeSnapshot
+              (ContextBinding (ok (mkContextId "test")) (ok (mkName "project"))) Map.empty reservations)
+            candidate = ok (composeInventory snapshot (CollectRetained resource :| [CollectRetained other]))
+        sort (NE.toList (candidateChanges candidate)) @?= sort [CollectRetained resource, CollectRetained other]
+        case composeInventory snapshot (CollectRetained resource :| [CollectRetained resource]) of
+          Left failures -> assertBool "duplicate collection accepted"
+            ("duplicate-collection" `elem` map code (NE.toList failures))
+          Right _ -> assertFailure "duplicate retained resource was accepted"
     , testCase "disposable cluster conditionally collects an owned ConfigMap" $ do
         selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
         case selected of

@@ -675,7 +675,7 @@ data Command
   | InventoryMigrate FilePath FilePath
   | InventoryRetire String FilePath
   | InventoryGc FilePath
-  | InventoryCollect String FilePath
+  | InventoryCollect (NE.NonEmpty String) FilePath
   | InventoryApply FilePath Bool
   | InventoryResume String Bool Bool
   | InventoryRecover String String FilePath Bool
@@ -1745,6 +1745,10 @@ standaloneRetireOptsParser nameParser =
     <*> optional (strOption (long "scope-key" <> metavar "KEY" <> help "Pinned standalone scope key used at creation"))
     <*> strOption (long "save-plan" <> metavar "DIR" <> help "Save a review that retires the scope and retains all provider resources")
 
+inventoryResourceOption :: Parser String
+inventoryResourceOption = strOption
+  (long "resource" <> metavar "RESOURCE_ID" <> help "Retained resource to collect; repeat for multiple resources")
+
 brokerListOptsParser :: Parser BrokerListOpts
 brokerListOptsParser = BrokerListOpts <$> namespaceOpt
 
@@ -1914,7 +1918,7 @@ opts =
                   (info (InventoryGc <$> (flag' () (long "plan" <> help "Write a read-only collection assessment") *> strOption (long "out" <> metavar "DIRECTORY")) <**> helper) (progDesc "Screen retained resources for later collection review"))
                 <> command
                   "collect"
-                  (info (InventoryCollect <$> strOption (long "resource" <> metavar "RESOURCE_ID") <*> strOption (long "out" <> metavar "DIRECTORY") <**> helper) (progDesc "Review exact collection of a retained stateless Kubernetes resource"))
+                  (info (InventoryCollect <$> ((NE.:|) <$> inventoryResourceOption <*> many (strOption (long "resource" <> metavar "RESOURCE_ID" <> internal))) <*> strOption (long "out" <> metavar "DIRECTORY") <**> helper) (progDesc "Review exact collection of retained stateless Kubernetes resources"))
                 <> command
                   "apply"
                   (info (InventoryApply <$> strArgument (metavar "REVIEW_DIRECTORY") <*> switch (long "yes") <**> helper) (progDesc "Apply an issued inventory review"))
@@ -4819,12 +4823,12 @@ runInventoryRetire mctx rawScope output = do
         Resource.mkScopeId scopeKind name
       _ -> Left "scope must be KIND:NAME"
 
-runInventoryCollect :: Maybe String -> String -> FilePath -> IO ()
-runInventoryCollect mctx rawResource output = do
+runInventoryCollect :: Maybe String -> NE.NonEmpty String -> FilePath -> IO ()
+runInventoryCollect mctx rawResources output = do
   active <- activeTarget mctx
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
-  resource <- either dieT pure (Resource.mkResourceId (T.pack rawResource))
-  Inventory.planInventoryCollectionWith (inventoryPlanRegistry active workspace) active resource output
+  resources <- traverse (either dieT pure . Resource.mkResourceId . T.pack) rawResources
+  Inventory.planInventoryCollectionsWith (inventoryPlanRegistry active workspace) active resources output
 
 runInventoryApply :: Maybe String -> FilePath -> Bool -> IO ()
 runInventoryApply mctx reviewDirectory yes = do

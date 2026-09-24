@@ -104,13 +104,15 @@ A malformed Helm status response is unavailable, while a readable release with
 a missing or mismatched owner stamp is foreign.
 
 The collection route accepts retained stateless namespaced ConfigMaps, Services,
-and CronJobs
-whose lifecycle policy is `DeleteWhenUnreferenced`, whose exact stamped UID is
+and CronJobs whose lifecycle policy is `DeleteWhenUnreferenced`, whose exact
+stamped UID is
 present, and whose active and retained consumers are absent. Run `nagarectl
 inventory collect --resource RESOURCE_ID --out REVIEW_DIRECTORY`, inspect the
-ordinary review, then apply it. Admission checks the reviewed Kubernetes
-resourceVersion and UID again. The DELETE request carries both as server-side
-preconditions and uses orphan propagation; the adapter verifies confirmed
+ordinary review, then apply it. Repeat `--resource` to collect several retained
+members in one reviewed transaction; each member keeps its own identity and
+preconditions. Admission checks the reviewed Kubernetes resourceVersion and UID
+again. The DELETE request carries both as server-side preconditions and uses
+orphan propagation; the adapter verifies confirmed
 absence after a bounded deletion wait before the context head drops the
 retained claim and records a tombstone
 bound to the review digest. A replacement or changed object refuses. A resumed

@@ -13,6 +13,7 @@ module Nagare.Inventory.Command
   , planInventoryMigrationWith
   , planInventoryRetirementWith
   , planInventoryCollectionWith
+  , planInventoryCollectionsWith
   , applyInventory
   , applyInventoryWith
   , applyInventoryWithFactory
@@ -287,10 +288,18 @@ planInventoryRetirementWith registryFor target owner output = do
 planInventoryCollectionWith
   :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry)
   -> ActiveTarget -> ResourceId -> FilePath -> IO ()
-planInventoryCollectionWith registryFor target resource output = do
+planInventoryCollectionWith registryFor target resource =
+  planInventoryCollectionsWith registryFor target (resource :| [])
+
+planInventoryCollectionsWith
+  :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry)
+  -> ActiveTarget -> NonEmpty ResourceId -> FilePath -> IO ()
+planInventoryCollectionsWith registryFor target resources output = do
+  when (Set.size (Set.fromList (NE.toList resources)) /= length (NE.toList resources))
+    (dieText "collection resource IDs must be distinct")
   snapshot <- loadTargetSnapshot target
   candidate <- either (dieText . showText . NE.toList) pure
-    (composeInventory snapshot (CollectRetained resource :| []))
+    (composeInventory snapshot (fmap CollectRetained resources))
   planInventoryCandidateWithDecider registryFor
     (\history observations -> decideCollection candidate history observations)
     target candidate output
