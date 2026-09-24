@@ -135,7 +135,7 @@ import Nagare.Dsl.Cdn.Types (Cdn)
 import Nagare.Dsl.Database (Database (..), Engine (..), dbSecretName)
 import Nagare.Dsl.Load qualified as Load
 import Nagare.Dsl.Prelude
-import Nagare.Dsl.Render (pvcName, renderDomainMappings, renderService, renderVolumeClaims, scopeToken)
+import Nagare.Dsl.Render (managedConfigMapName, managedSecretName, pvcName, renderDomainMappings, renderService, renderVolumeClaims, scopeToken)
 import Nagare.Dsl.Server.Types (ServerSite)
 import Nagare.Dsl.Static.Render (StaticDeployContext (..))
 import Nagare.Dsl.Static.Types (StaticSite, siteNameText)
@@ -2813,8 +2813,8 @@ main = do
     SitePreviewDeploy sopts pname -> runPreviewDeploy mctx sopts (T.pack pname)
     SitePreviewList copts -> runPreviewList copts
     SitePreviewDelete copts pname -> runPreviewDelete mctx copts (T.pack pname)
-    Env ecmd -> runEnv ecmd
-    Secret scmd -> runSecret scmd
+    Env ecmd -> runEnv mctx ecmd
+    Secret scmd -> runSecret mctx scmd
     AppList o -> runAppList o
     AppGet o -> runAppGet o
     AppLogs o -> runAppLogs o
@@ -7391,6 +7391,19 @@ refuseDirectTaskMutationIfOwned mctx operation name namespaceName =
     in when (cronjob || historyMap)
       (dieT ("task " <> name <> " is owned by accepted or retained inventory history; direct " <> operation <> " is refused"))
 
+refuseDirectStoreMutationIfOwned :: Maybe String -> Bool -> Text -> Text -> [EnvScope] -> IO ()
+refuseDirectStoreMutationIfOwned mctx secret appName namespaceName scopes =
+  withAcceptedInventoryHistory mctx (if secret then "secret write" else "env write") $ \history -> do
+    let resources = ownedHistoryResources history
+        owned scope =
+          let kind = if secret then "secret" else "configmap"
+              nativeName = if secret then managedSecretName appName scope
+                else managedConfigMapName appName scope
+          in nativeWorkloadOwned "" kind nativeName namespaceName resources
+    when (any owned scopes)
+      (dieT ("environment store for " <> appName
+        <> " is owned by accepted or retained inventory history; direct write is refused"))
+
 -- | Dispatch the @worker@ command group (EP-71). Provisions the GHC environment
 -- before loading the worker's @Config.hs@ (mirroring @db create --config@), then
 -- runs the deploy. Cluster I/O and rendering live in 'Nagare.Worker.Deploy'.
@@ -7514,14 +7527,15 @@ resolveStoreBackend mctx bucketArg = do
   bucket <- resolveBackupBucket mctx bucketArg
   either dieT pure (storeBackendFor tp bucket)
 
-runEnv :: EnvCommand -> IO ()
-runEnv = \case
+runEnv :: Maybe String -> EnvCommand -> IO ()
+runEnv mctx = \case
   EnvList copts allScopes -> do
     (name, ns) <- resolveAppOrDie copts
     let scopes = if allScopes then [minBound .. maxBound] else [Runtime]
     runEnvListBody name ns scopes
   EnvSet copts sel dry key val -> do
     (name, ns) <- resolveAppOrDie copts
+    refuseDirectStoreMutationIfOwned mctx False name ns (selectedScopes sel)
     forM_ (selectedScopes sel) $ \scope -> do
       existing <- orDie =<< readEnvStore name ns scope
       let desired = reconcile Merge existing (Map.singleton (T.pack key) (T.pack val))
@@ -7529,6 +7543,7 @@ runEnv = \case
     unless dry $ TIO.putStrLn ("Set " <> T.pack key <> " in env for " <> name <> ".")
   EnvDelete copts sel dry key -> do
     (name, ns) <- resolveAppOrDie copts
+    refuseDirectStoreMutationIfOwned mctx False name ns (selectedScopes sel)
     forM_ (selectedScopes sel) $ \scope -> do
       existing <- orDie =<< readEnvStore name ns scope
       let desired = reconcile ReconcileExact mempty (Map.delete (T.pack key) existing)
@@ -7536,6 +7551,7 @@ runEnv = \case
     unless dry $ TIO.putStrLn ("Deleted " <> T.pack key <> " from env for " <> name <> ".")
   EnvSync copts sel dry exact dotenvPath -> do
     (name, ns) <- resolveAppOrDie copts
+    refuseDirectStoreMutationIfOwned mctx False name ns (selectedScopes sel)
     raw <- TIO.readFile dotenvPath
     incoming <- orDie (parseDotenv raw)
     let mode = reconcileModeFrom exact
@@ -7546,10 +7562,11 @@ runEnv = \case
     unless dry $
       TIO.putStrLn ("Synced " <> tShow (Map.size incoming) <> " key(s) into env for " <> name <> ".")
 
-runSecret :: SecretCommand -> IO ()
-runSecret = \case
+runSecret :: Maybe String -> SecretCommand -> IO ()
+runSecret mctx = \case
   SecretSet copts sel dry key -> do
     (name, ns) <- resolveAppOrDie copts
+    refuseDirectStoreMutationIfOwned mctx True name ns (selectedScopes sel)
     val <- readSecretValue
     forM_ (selectedScopes sel) $ \scope -> do
       existing <- orDie =<< readSecretStore name ns scope
@@ -7565,6 +7582,7 @@ runSecret = \case
     if null keys then TIO.putStrLn "(no secrets set)" else mapM_ TIO.putStrLn keys
   SecretDelete copts sel dry key -> do
     (name, ns) <- resolveAppOrDie copts
+    refuseDirectStoreMutationIfOwned mctx True name ns (selectedScopes sel)
     forM_ (selectedScopes sel) $ \scope -> do
       existing <- orDie =<< readSecretStore name ns scope
       let desired = reconcile ReconcileExact mempty (Map.delete (T.pack key) existing)
