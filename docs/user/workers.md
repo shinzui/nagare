@@ -80,7 +80,9 @@ does *not* enable `OverloadedLabels`, so `#replicas` lenses are unavailable in a
 config file.
 
 For an independently managed worker, save a reviewed inventory plan using a
-published image and an accepted platform Namespace:
+published image and an accepted platform Namespace. Create the image resource
+with the [image publication review](deploying-apps.md) first, then use the
+resource ID it prints:
 
 ```bash
 nagarectl worker deploy --tag release-1 \
