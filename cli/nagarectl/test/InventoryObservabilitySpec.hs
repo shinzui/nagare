@@ -625,6 +625,12 @@ inventoryObservabilityTests =
         writeIORef current (HelmUnready physical "2" resource (contentDigest native))
         unready <- adapterObserve (adapterFor current) [resource] >>= either (assertFailure . show) pure
         Map.lookup resource (observationMap unready) @?= Just (ObservedPresent physical)
+        helmStateHealth resource (ObservedPresent physical)
+          (HelmUnready physical "2" resource (contentDigest native)) @?= Just False
+        helmStateHealth resource (ObservedPresent physical)
+          (HelmPresent physical "2" resource (contentDigest native)) @?= Just True
+        helmStateHealth resource (ObservedPresent physical)
+          (HelmPresent (ok (mkPhysicalIdentity "replacement-secret")) "3" resource (contentDigest native)) @?= Nothing
         refused <- adapterPrepare (adapterFor current) verify
         assertBool "unready owned release was prepared for verification" (either (const True) (const False) refused)
         writeIORef current (HelmPresent physical "3" (mintResourceId scope (ok (mkLogicalKey "foreign")) (name "resource")) (contentDigest native))

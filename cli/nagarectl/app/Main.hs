@@ -246,7 +246,7 @@ import Nagare.Inventory.Adapters.Cache (cacheSpecsFromDeclarations, mkCacheAdapt
 import Nagare.Inventory.Adapters.CacheRuntime qualified as CacheRuntime
 import Nagare.Inventory.Adapters.Host (mkHostAdapter)
 import Nagare.Inventory.Adapters.HostRuntime
-import Nagare.Inventory.Adapters.Helm (mkHelmAdapter)
+import Nagare.Inventory.Adapters.Helm (HelmAdapterOps (..), helmStateHealth, mkHelmAdapter)
 import Nagare.Inventory.Adapters.HelmRuntime (HelmRuntimeConfig (..), helmRuntimeOps)
 import Nagare.Inventory.Adapters.Kubernetes (mkKubernetesAdapter)
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), mkKubernetesRuntimeOpsWithCacheKey, observeKubernetesHealth)
@@ -4416,6 +4416,15 @@ runInventoryStatus mctx requested json gcOutput = do
   artifactFacts <- inspect artifact ResourceInventory.ArtifactExecutor
   hostFacts <- inspect host ResourceInventory.HostExecutor
   cacheFacts <- inspect cache ResourceInventory.CacheExecutor
+  let helmObserved = Map.fromList helmFacts
+      helmStatusOps = helmRuntimeOps (inventoryHelmRuntimeConfig active workspace binding helmNative)
+  helmHealthPairs <- forM (ids ResourceInventory.HelmExecutor) $ \resourceId -> do
+    health <- case Map.lookup resourceId helmObserved of
+      Nothing -> pure Nothing
+      Just fact -> do
+        state <- helmObserve helmStatusOps resourceId
+        pure (helmStateHealth resourceId fact state)
+    pure (resourceId, health)
   let healthConfig = KubernetesRuntimeConfig context (contextNameText (active ^. #contextName))
         (fmap (fmap (const ())) (guardKubernetesContext active))
       kubeObserved = Map.fromList kubeFacts
@@ -4449,14 +4458,14 @@ runInventoryStatus mctx requested json gcOutput = do
         | resource <- managed, Map.notMember (resource ^. #identity) knownFacts]
       observations = either (error . T.unpack) (\value -> value)
         (InventoryAdapter.observationSet (allFacts <> remaining))
-      healthById = Map.fromList healthPairs
+      healthById = Map.fromList (healthPairs <> helmHealthPairs)
       findings =
         [finding {InventoryStatus.findingHealth = case Map.lookup (InventoryStatus.findingResource finding) healthById of
           Just (Just True) -> InventoryStatus.HealthReady
           Just (Just False) -> InventoryStatus.HealthNotReady
           _ -> InventoryStatus.findingHealth finding}
         | finding <- InventoryStatus.classifyDrift inventory observations]
-      retainedHealthById = Map.fromList retainedHealthPairs
+      retainedHealthById = Map.fromList (retainedHealthPairs <> helmHealthPairs)
       retainedFindings =
         [finding {InventoryStatus.retainedHealth = case Map.lookup (InventoryStatus.retainedResource finding) retainedHealthById of
           Just (Just True) -> InventoryStatus.HealthReady
@@ -4868,14 +4877,16 @@ inventoryHelmAdapter active workspace binding specs
   | otherwise = do
       context <- either dieT pure (Resource.mkContextId (contextNameText (active ^. #contextName)))
       unless (context == binding ^. #identity) (dieT "Helm inventory review belongs to a different context")
-      let config = HelmRuntimeConfig
-            { helmKubeContext = contextNameText (active ^. #contextName)
-            , helmContextId = context
-            , helmVerifyPlugin = workspace ^. #root </> "cluster/observability/helm-review"
-            , helmDeclarations = Map.map fst specs
-            , helmRuntimeGuard = fmap (fmap (const ())) (guardKubernetesContext active)
-            }
-      pure (mkHelmAdapter specs (helmRuntimeOps config))
+      pure (mkHelmAdapter specs (helmRuntimeOps (inventoryHelmRuntimeConfig active workspace binding specs)))
+
+inventoryHelmRuntimeConfig :: ActiveTarget -> PlatformWorkspace -> Resource.ContextBinding -> Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString) -> HelmRuntimeConfig
+inventoryHelmRuntimeConfig active workspace binding specs = HelmRuntimeConfig
+  { helmKubeContext = contextNameText (active ^. #contextName)
+  , helmContextId = binding ^. #identity
+  , helmVerifyPlugin = workspace ^. #root </> "cluster/observability/helm-review"
+  , helmDeclarations = Map.map fst specs
+  , helmRuntimeGuard = fmap (fmap (const ())) (guardKubernetesContext active)
+  }
 
 inventoryCacheAdapter :: ActiveTarget -> PlatformWorkspace -> Resource.ContextBinding -> Map.Map Resource.ResourceId ResourceInventory.ManagedResource -> IO (InventoryAdapter.Adapter, Resource.ResourceId -> IO (Either Text Text))
 inventoryCacheAdapter active workspace binding specs

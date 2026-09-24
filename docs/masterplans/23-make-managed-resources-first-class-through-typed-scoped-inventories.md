@@ -434,4 +434,4 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 
 2026-09-24: Bound opaque lifecycle decisions to their composed candidate and accepted history, then revalidated them at planning. This closes candidate/history/observation replay within EP-149 M2 while leaving migration and dependent child gates unchanged.
 
-2026-09-24: Corrected EP-149 Helm status classification so a pending release with a valid inventory stamp retains its owner evidence and cannot pass mutation verification. Migration and dependent child gates remain open.
+2026-09-24: Corrected EP-149 Helm status classification so a pending release with a valid inventory stamp retains its owner evidence and cannot pass mutation verification. Active and retained Helm health now uses a second read bound to the observed revision Secret UID. Migration and dependent child gates remain open.

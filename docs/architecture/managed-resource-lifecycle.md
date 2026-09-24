@@ -95,10 +95,11 @@ does not erase their dependency relationship. A retained resource's own
 
 A pending Helm release with a valid Nagare owner stamp remains an owned
 observation. Its unready status blocks reviewed verification; it is not reported
-as foreign ownership. Status currently leaves Helm health unknown until a
-separate condition probe is available. A malformed Helm status response is
-unavailable, while a readable release with a missing or mismatched owner stamp
-is foreign.
+as foreign ownership. Status checks the release again and reports `ready` or
+`not-ready` only when the second read has the same revision Secret UID and
+logical owner. A changed or unavailable second read leaves health `unknown`.
+A malformed Helm status response is unavailable, while a readable release with
+a missing or mismatched owner stamp is foreign.
 
 The first collection route accepts only retained stateless namespaced ConfigMaps
 whose lifecycle policy is `DeleteWhenUnreferenced`, whose exact stamped UID is

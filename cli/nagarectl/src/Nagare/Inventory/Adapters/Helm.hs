@@ -5,6 +5,7 @@ module Nagare.Inventory.Adapters.Helm
   ( HelmState (..)
   , HelmMutation (..)
   , HelmAdapterOps (..)
+  , helmStateHealth
   , mkHelmAdapter
   ) where
 
@@ -52,6 +53,20 @@ data HelmAdapterOps = HelmAdapterOps
   -- not merely reread it before an unrestricted upgrade.
   , helmMutateConditional :: !(HelmMutation -> IO AdapterExecution)
   }
+
+-- | Attach deployment health only when a second read still sees the exact
+-- release revision Secret observed for inventory classification.
+helmStateHealth :: ResourceId -> ResourceObservation -> HelmState -> Maybe Bool
+helmStateHealth resource observation state = do
+  physical <- case observation of
+    ObservedPresent value -> Just value
+    ObservedDrifted value _ -> Just value
+    ObservedReplacementRequired value _ -> Just value
+    _ -> Nothing
+  case state of
+    HelmPresent current _ owner _ | current == physical && owner == resource -> Just True
+    HelmUnready current _ owner _ | current == physical && owner == resource -> Just False
+    _ -> Nothing
 
 mkHelmAdapter :: Map ResourceId (ManagedResource, ByteString) -> HelmAdapterOps -> Adapter
 mkHelmAdapter specs ops = Adapter
