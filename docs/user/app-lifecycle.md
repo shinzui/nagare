@@ -149,8 +149,8 @@ nagarectl app delete lifecycle-demo --save-plan ./app-retirement
 nagarectl inventory apply ./app-retirement
 ```
 
-The review selects the accepted application scope by its Service name and
-namespace. Use `--scope-key KEY` to require a particular accepted logical key, including
+The review selects a unique accepted application or standalone web-Service
+scope by its Service name and namespace. Use `--scope-key KEY` to require a particular accepted logical key, including
 when it differs from the Service name. Retirement preserves every managed member, including database
 volumes and recovery credentials; separate reviewed collection is required to
 delete retained resources. A name or key that does not match accepted history

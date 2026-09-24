@@ -210,7 +210,7 @@ renderTests =
       app <- either (fail . show) pure loaded
       service <- maybe (assertFailure "fixture has no service" >> fail "missing service") pure
         (app ^. #service)
-      let owner = unsafe (Resource.mkScopeId Resource.Standalone "kizashi-service")
+      let owner = unsafe (Resource.mkScopeId Resource.Standalone "service-kizashi-service")
           foundation = unsafe (Resource.mkScopeId Resource.Platform "foundation")
           cluster = Resource.mintResourceId foundation
             (unsafe (Resource.mkLogicalKey "cluster")) (unsafe (Resource.mkName "resource"))
@@ -223,6 +223,14 @@ renderTests =
           source = Resource.SourceLocation "test" "standalone-service"
       (scope, native) <- either (fail . show) pure
         (compileStandaloneService owner independent rollout cluster namespaceId publication Map.empty Map.empty Map.empty source)
+      let acceptedBinding = Resource.ContextBinding
+            (unsafe (Resource.mkContextId "standalone-fixture")) (unsafe (Resource.mkName "project"))
+      acceptedScope <- either (fail . show) pure (mkScopeSnapshot acceptedBinding
+        (Map.singleton owner (unsafe (Resource.mkScopeGeneration 1), scope)) Map.empty)
+      applicationRetirementScope (serviceNameText (service ^. #name)) "personal" Nothing acceptedScope
+        @?= Right owner
+      applicationRetirementScope (serviceNameText (service ^. #name)) "personal"
+        (Just "kizashi-service") acceptedScope @?= Right owner
       let members = [member | bundle <- scopeBundles scope, Managed member <- declarations bundle]
       case members of
         [member] -> do

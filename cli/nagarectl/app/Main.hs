@@ -1655,7 +1655,7 @@ appDeleteOptsParser =
     <*> namespaceOpt
     <*> fileOpt defaultConfigFile
     <*> ghcEnvOpt
-    <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed retirement of the accepted application scope"))
+    <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed retirement of an accepted application or standalone web Service"))
     <*> optional (strOption (long "scope-key" <> metavar "KEY" <> help "Pin the accepted application logical key"))
 
 depListOptsParser :: Parser DepListOpts
@@ -2590,7 +2590,7 @@ opts =
               "delete"
               ( info
                   (AppDelete <$> appDeleteOptsParser <**> helper)
-                  (progDesc "Delete a legacy app or review accepted application retirement")
+                  (progDesc "Delete a legacy app or review accepted web-Service retirement")
               )
             <> command
               "deploy"

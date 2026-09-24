@@ -116,16 +116,21 @@ nativeWorkloadOwned group kind name namespaceName = any matches
           && nameText nativeNamespace == namespaceName
       _ -> False
 
--- | Select retirement from accepted application history and the exact native
--- Service address. A display name or pinned key alone carries no authority.
+-- | Select retirement from accepted application or standalone web-Service
+-- history and the exact native address. A display name or key alone carries
+-- no authority.
 applicationRetirementScope
   :: T.Text -> T.Text -> Maybe T.Text -> ScopeSnapshot -> Either T.Text ScopeId
 applicationRetirementScope name namespaceName pinnedKey snapshot = do
-  pinned <- traverse (\raw -> mkLogicalKey raw >>= mkScopeId Resource.Application . logicalKeyText) pinnedKey
+  pinned <- traverse mkLogicalKey pinnedKey
   case [ owner
        | (owner, (_, scope)) <- Map.toList (snapshotScopes snapshot)
-       , scopeKind owner == Resource.Application
-       , maybe True (== owner) pinned
+       , scopeKind owner `elem` [Resource.Application, Resource.Standalone]
+       , case scopeKind owner of
+           Resource.Application -> maybe True ((== nameText (scopeName owner)) . logicalKeyText) pinned
+           Resource.Standalone -> maybe True
+             ((== nameText (scopeName owner)) . ("service-" <>) . logicalKeyText) pinned
+           _ -> False
        , bundle <- scopeBundles scope
        , Managed resource <- declarations bundle
        , case resource ^. #address of
@@ -136,7 +141,7 @@ applicationRetirementScope name namespaceName pinnedKey snapshot = do
            _ -> False
        ] of
     [owner] -> Right owner
-    _ -> Left "accepted application history has no unique Knative Service for that name, namespace, and scope key"
+    _ -> Left "accepted application or standalone history has no unique Knative Service for that name, namespace, and scope key"
 
 -- | A reviewed rollout may depend only on an already accepted OCI publication
 -- whose destination is the exact tagged image embedded in its native manifests.

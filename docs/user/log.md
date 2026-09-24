@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-24
+* **Update**: Document reviewed retirement of accepted standalone web Services through app delete.
 * **Update**: Document versioned reviewed single-key Secret set and delete from accepted private history.
 * **Update**: Document reviewed single-key environment set and delete from accepted channel history.
 * **Update**: Document reviewed environment merge against accepted channel history.
