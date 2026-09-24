@@ -151,6 +151,51 @@ inventoryMigrationTests = testGroup "inventory migration"
         plannedDependencies consumerUpdate @?= True
       plannedOperationId consumerUpdate `elem`
         plannedDependencies (stage SwitchConsumers) @?= True
+  , testCase "recorded migration preserves source data and backup across cutover" $ do
+      store <- acceptedStore
+      history <- loadInventoryHistory store >>= either (assertFailure . show) pure
+      let destinationFacts = ok (observationSet [(resourceId, ConfirmedAbsent absence)])
+          decisions = ok (decideMigration candidate input history destinationFacts observations)
+          proposal = ok (planChanges candidate decisions history destinationFacts)
+      sourceData <- newIORef (Just ("payload-v1" :: Text))
+      backupData <- newIORef (Nothing :: Maybe Text)
+      destinationData <- newIORef (Nothing :: Maybe Text)
+      fenced <- newIORef False
+      switched <- newIORef False
+      admitted <- newIORef False
+      let execution operation _ = case plannedAction operation of
+            MigrateResource stage -> do
+              sourceValue <- readIORef sourceData
+              backupValue <- readIORef backupData
+              destinationValue <- readIORef destinationData
+              isFenced <- readIORef fenced
+              isSwitched <- readIORef switched
+              isAdmitted <- readIORef admitted
+              valid <- case stage of
+                PrepareDestination -> pure (destinationValue == Nothing)
+                BackUpSource -> writeIORef backupData sourceValue >> pure (sourceValue /= Nothing)
+                FenceWriters -> writeIORef fenced True >> pure (backupValue == sourceValue)
+                TransferState -> writeIORef destinationData sourceValue >> pure isFenced
+                VerifyDestination -> pure (destinationValue == sourceValue && backupValue == sourceValue)
+                SwitchConsumers -> writeIORef switched True >> pure (destinationValue == sourceValue)
+                AdmitWrites -> writeIORef admitted True >> pure isSwitched
+                RetainSource -> pure (isAdmitted && sourceValue == backupValue)
+              pure (if valid then AdapterEffectCompleted
+                else AdapterEffectAmbiguous "migration data invariant failed")
+            _ -> pure AdapterEffectCompleted
+          registry = recordingRegistryWith (\_ _ -> pure (Right ())) execution
+            (\_ _ -> pure RecoverySafeToRetry)
+      before <- readStoreSnapshot store >>= either (assertFailure . show) pure
+      bundle <- prepareReview registry before proposal >>= either (assertFailure . show . NE.toList) pure
+      _ <- publishReview store bundle >>= either (assertFailure . show) pure
+      published <- readStoreSnapshot store >>= either (assertFailure . show) pure
+      reviewed <- either (assertFailure . show . NE.toList) pure (verifyReview published bundle)
+      result <- applyReviewed store registry reviewed >>= either (assertFailure . show . NE.toList) pure
+      case result of Converged _ -> pure (); other -> assertFailure (show other)
+      readIORef sourceData >>= (@?= Just "payload-v1")
+      readIORef backupData >>= (@?= Just "payload-v1")
+      readIORef destinationData >>= (@?= Just "payload-v1")
+      readIORef admitted >>= (@?= True)
   , testCase "versioned proposal binds old and new declarations and exact observations" $ do
       history <- acceptedHistory
       let validated = ok (validateMigrationInput candidate history observations input)
