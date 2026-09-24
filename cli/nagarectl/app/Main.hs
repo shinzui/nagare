@@ -553,6 +553,7 @@ data AppDeployOpts = AppDeployOpts
   , envSecretResources :: ![String]
   , serviceVolumeRecovery :: ![String]
   , workerVolumeRecovery :: ![String]
+  , requestNamespace :: !Bool
   }
   deriving stock (Generic, Show)
 
@@ -1468,6 +1469,8 @@ appDeployOptsParser defaultFile =
       (strOption (long "service-volume-recovery" <> metavar "VOLUME=BACKUP:KEY:VERSION" <> help "Recovery binding for a retained Service PVC; repeat with --save-plan"))
     <*> many
       (strOption (long "worker-volume-recovery" <> metavar "WORKER/VOLUME=BACKUP:KEY:VERSION" <> help "Recovery binding for a retained worker PVC; repeat with --save-plan"))
+    <*> switch
+      (long "request-namespace" <> help "Request a new namespace through the platform foundation's explicit grant with --save-plan")
 
 workerDeployOptsParser :: FilePath -> Parser WorkerDeployOpts
 workerDeployOptsParser defaultFile =
@@ -2828,7 +2831,8 @@ main = do
         Nothing -> do
           when (isJust (o ^. #imageResource) || not (null (o ^. #databaseRecovery))
               || not (null (o ^. #tlsSecretResources)) || not (null (o ^. #envSecretResources))
-              || not (null (o ^. #serviceVolumeRecovery)) || not (null (o ^. #workerVolumeRecovery)))
+              || not (null (o ^. #serviceVolumeRecovery)) || not (null (o ^. #workerVolumeRecovery))
+              || o ^. #requestNamespace)
             (dieT "inventory resource and recovery options require --save-plan")
           runAppDeployWithGuard (refuseDirectApplicationDeployIfOwned mctx) (toAppDeployParams tp o)
         Just output -> runAppDeployPlan mctx (toAppDeployParams tp o) o output
@@ -6847,8 +6851,24 @@ runAppDeployPlan mctx params appOptions output = do
   active <- activeTarget mctx
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   snapshot <- Inventory.loadTargetSnapshot active
-  (cluster, namespaceId) <- either dieT pure
-    (acceptedFoundationNamespace snapshot (rollout ^. #namespace))
+  (cluster, namespaceId, namespaceOwner) <-
+    if appOptions ^. #requestNamespace
+      then do
+        (foundationCluster, _) <- either dieT pure
+          (acceptedFoundationNamespace snapshot "personal")
+        foundation <- either dieT pure (Resource.mkScopeId Resource.Platform "foundation")
+        namespaceName <- either dieT pure (Resource.mkName (rollout ^. #namespace))
+        namespaceKey <- either dieT pure (Resource.mkLogicalKey (rollout ^. #namespace))
+        case acceptedFoundationNamespace snapshot (rollout ^. #namespace) of
+          Right _ -> dieT "requested namespace is already accepted by the platform foundation"
+          Left _ -> pure ()
+        let request = ResourceInventory.RegisterNamespace foundation foundationCluster
+              namespaceName namespaceKey
+        pure (foundationCluster, ResourceInventory.contributionResourceId request, Just foundation)
+      else do
+        (foundationCluster, acceptedNamespace) <- either dieT pure
+          (acceptedFoundationNamespace snapshot (rollout ^. #namespace))
+        pure (foundationCluster, acceptedNamespace, Nothing)
   either dieT pure (acceptedApplicationImage snapshot imageId (rollout ^. #taggedAppImage))
   tlsIds <- traverse (either dieT pure . Resource.mkResourceId . T.pack)
     (appOptions ^. #tlsSecretResources)
@@ -6866,7 +6886,7 @@ runAppDeployPlan mctx params appOptions output = do
         , scopeRollout = rollout
         , scopeCluster = cluster
         , scopeNamespace = namespaceId
-        , scopeNamespaceContributionOwner = Nothing
+        , scopeNamespaceContributionOwner = namespaceOwner
         , scopeImage = imageId
         , scopeDatabaseRecovery = databaseRecovery
         , scopeServiceVolumeRecovery = serviceVolumeRecovery

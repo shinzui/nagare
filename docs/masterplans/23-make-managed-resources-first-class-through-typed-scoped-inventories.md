@@ -328,6 +328,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-24) EP-148 M3/M4 partial: Direct storage snapshot/restore refuse a PVC address held in accepted or retained history before data Jobs.
 - [x] (2026-09-24) EP-148 M4 partial: Static/server site deploy, rollback, and preview mutations refuse accepted or retained Knative Service ownership.
 - [x] (2026-09-24) EP-148 M1/M2 partial: Reviewed application workload bytes derive connection fields from typed database references and bind generated credential fields to owned Secret keys.
+- [x] (2026-09-24) EP-148 M2/M4 partial: Reviewed application planning can submit a new Namespace contribution through a pre-granted platform foundation owner; ordinary plans require an accepted Namespace.
 - [ ] EP-148 M4: Removed alternate paths and scope isolation.
 - [ ] EP-150 M1: Platform/legacy transaction integration.
 - [ ] EP-150 M2: Packaging and complete mutation audit.

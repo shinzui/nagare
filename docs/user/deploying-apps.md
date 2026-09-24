@@ -54,8 +54,15 @@ Repeat each option for all retained volumes. The worker name and volume name
 select the typed declaration; the review binds the decision to its stable
 resource ID. Missing, repeated, unknown, or throwaway-volume bindings refuse.
 
+For a new namespace, add `--request-namespace` to the planning command. The
+review sends a closed namespace request to the platform foundation. Planning
+refuses unless that owner has granted the application scope permission; the
+application cannot edit other Namespace fields or advance the platform scope
+revision.
+
 The resource ID above is illustrative; obtain the real ID from your accepted
-inventory. Planning checks the accepted platform Namespace and the image's
+inventory. Planning checks the accepted platform Namespace or granted namespace
+request and the image's
 tagged destination before saving the review. The review is bound to the current
 inventory head; apply uses the native bytes saved in that review. Other
 application inputs are refused until their inventory operation and recovery
