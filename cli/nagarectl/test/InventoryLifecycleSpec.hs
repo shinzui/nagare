@@ -6,6 +6,7 @@ import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
@@ -22,7 +23,20 @@ import Test.Tasty.HUnit
 
 inventoryLifecycleTests :: TestTree
 inventoryLifecycleTests = testGroup "inventory lifecycle"
-  [ testCase "adoption DTO is versioned and rejects unknown authority fields" $ do
+  [ testCase "migration observations retain both incarnations of one logical resource" $ do
+      let source = ObservedPresent physical
+          destination = ConfirmedAbsent (contentDigest "destination-absent")
+          sources = ok (observationSet [(resourceId, source)])
+          destinations = ok (observationSet [(resourceId, destination)])
+          paired = ok (migrationObservationSet (Set.singleton resourceId) sources destinations)
+      Map.lookup resourceId (migrationObservationMap paired) @?= Just (source, destination)
+      assertBool "missing source was accepted" (isLeft (migrationObservationSet
+        (Set.singleton resourceId) (ok (observationSet [])) destinations))
+      assertBool "missing destination was accepted" (isLeft (migrationObservationSet
+        (Set.singleton resourceId) sources (ok (observationSet []))))
+      assertBool "unexpected source was accepted" (isLeft (migrationObservationSet
+        Set.empty sources (ok (observationSet []))))
+  , testCase "adoption DTO is versioned and rejects unknown authority fields" $ do
       let valid = object
             [ "version" .= (1 :: Int)
             , "candidate" .= ("compiled" :: Text)

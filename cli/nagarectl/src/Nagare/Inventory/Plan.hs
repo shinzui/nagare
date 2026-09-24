@@ -13,6 +13,8 @@ module Nagare.Inventory.Plan
   , requiredResources
   , requirementsByExecutor
   , migrationIncarnations
+  , migrationSourcesByExecutor
+  , observeMigrationIncarnations
   , LifecycleDecisionKind (..)
   , LifecycleProposal (..)
   , LifecycleDecisions
@@ -214,12 +216,13 @@ data ObservationRequirements = ObservationRequirements
   { requiredResources :: !(Set ResourceId)
   , requirementsByExecutor :: !(Map Executor [ResourceId])
   , migrationIncarnations :: !(Map ResourceId (ManagedResource, ManagedResource))
+  , migrationSourcesByExecutor :: !(Map Executor [ResourceId])
   }
   deriving stock (Eq, Show)
 
 observationRequirements :: CompositionCandidate -> InventoryHistory -> ObservationRequirements
 observationRequirements candidate history =
-  ObservationRequirements ids grouped migrations
+  ObservationRequirements ids grouped migrations sourceGroups
   where
     desiredManaged = Map.fromList
       [(resource ^. #identity, resource) | Managed resource <- inventoryDeclarations (candidateInventory candidate)]
@@ -243,6 +246,28 @@ observationRequirements candidate history =
          , Just (_, resource) <- [Map.lookup resourceId (historyRetained history)]]
     ids = Set.fromList (map fst managed)
     grouped = Map.map (Set.toAscList . Set.fromList) (Map.fromListWith (<>) [(executor, [resource]) | (resource, executor) <- managed])
+    sourceGroups = Map.map (Set.toAscList . Set.fromList) (Map.fromListWith (<>)
+      [(source ^. #executor, [resource]) | (resource, (source, _)) <- Map.toAscList migrations])
+
+-- | Observe the old and new provider bindings through separately constructed
+-- registries. The same ResourceId may be requested from both, but never from
+-- two adapters in one ordinary ObservationSet.
+observeMigrationIncarnations
+  :: AdapterRegistry -> AdapterRegistry -> ObservationRequirements
+  -> IO (Either Text MigrationObservationSet)
+observeMigrationIncarnations sourceRegistry destinationRegistry requirements = do
+  let migrationIds = Map.keysSet (migrationIncarnations requirements)
+      destinationRequests = Map.mapMaybe nonempty (fmap (filter (`Set.member` migrationIds))
+        (requirementsByExecutor requirements))
+  sources <- observeWithRegistry sourceRegistry (migrationSourcesByExecutor requirements)
+  destinations <- observeWithRegistry destinationRegistry destinationRequests
+  pure $ do
+    sourceFacts <- sources
+    destinationFacts <- destinations
+    migrationObservationSet migrationIds sourceFacts destinationFacts
+  where
+    nonempty [] = Nothing
+    nonempty resources = Just resources
 
 data LifecycleDecisionKind = ApproveAdoption | ApproveTransfer | ApproveRetirement | ApproveMigration | ApproveCollection
   deriving stock (Eq, Ord, Show, Generic)

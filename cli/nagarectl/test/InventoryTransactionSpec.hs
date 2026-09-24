@@ -337,6 +337,15 @@ inventoryTransactionTests =
             _ -> Nothing
         Map.lookup KubernetesExecutor (requirementsByExecutor requirements) @?= Nothing
         Map.lookup HelmExecutor (requirementsByExecutor requirements) @?= Just [resourceId]
+        Map.lookup KubernetesExecutor (migrationSourcesByExecutor requirements) @?= Just [resourceId]
+        Map.lookup HelmExecutor (migrationSourcesByExecutor requirements) @?= Nothing
+        migrationFacts <- observeMigrationIncarnations
+          (observingRegistry KubernetesExecutor (ObservedPresent (ok (mkPhysicalIdentity "source-uid"))))
+          (observingRegistry HelmExecutor (ConfirmedAbsent (contentDigest "destination-absent")))
+          requirements >>= expectRight
+        Map.lookup resourceId (migrationObservationMap migrationFacts) @?=
+          Just (ObservedPresent (ok (mkPhysicalIdentity "source-uid")),
+            ConfirmedAbsent (contentDigest "destination-absent"))
         case planChanges transfer noLifecycleDecisions history observations of
           Left errors -> assertBool "implicit scope transfer was accepted"
             ("owner-transfer-required" `elem` map planErrorCode (NE.toList errors))
@@ -1318,6 +1327,19 @@ recordingRegistryWith preflight execution recovery =
         , adapterRecover = recovery
         }
     canonical = either (error . T.unpack) id . canonicalValue . toJSON
+
+observingRegistry :: Executor -> ResourceObservation -> AdapterRegistry
+observingRegistry executor fact = ok (mkAdapterRegistry [Adapter
+  { adapterExecutor = executor
+  , adapterIdentity = "migration-observer"
+  , adapterVersion = "1"
+  , adapterObserve = \resources -> pure (observationSet [(resource, fact) | resource <- resources])
+  , adapterPrepare = \operation -> pure (Left (PrepareRefused (plannedOperationId operation) "read-only observer"))
+  , adapterPreflight = \_ _ -> pure (Left "read-only observer")
+  , adapterExecute = \_ _ -> pure (AdapterEffectFailed (KnownNoEffect "read-only observer"))
+  , adapterVerify = \_ _ -> pure (Left "read-only observer")
+  , adapterRecover = \_ _ -> pure (RecoveryUnresolved "read-only observer")
+  }])
 
 proof :: PlannedOperation -> ContentDigest
 proof = contentDigest . TE.encodeUtf8 . operationIdText . plannedOperationId

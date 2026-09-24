@@ -4,6 +4,9 @@ module Nagare.Inventory.Adapter
   , ObservationSet
   , observationSet
   , observationMap
+  , MigrationObservationSet
+  , migrationObservationSet
+  , migrationObservationMap
   , OperationAction (..)
   , PlannedOperation (..)
   , PreparedNative (..)
@@ -25,6 +28,7 @@ import Data.ByteString (ByteString)
 import Data.List.NonEmpty (NonEmpty)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Set (Set)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude hiding ((.=))
@@ -56,6 +60,26 @@ observationSet entries
 
 observationMap :: ObservationSet -> Map ResourceId ResourceObservation
 observationMap (ObservationSet values) = values
+
+-- | Two observations for one logical identity must remain separate. The
+-- ordinary observation map can describe only the desired incarnation.
+newtype MigrationObservationSet = MigrationObservationSet
+  (Map ResourceId (ResourceObservation, ResourceObservation))
+  deriving stock (Eq, Show)
+
+migrationObservationSet
+  :: Set ResourceId -> ObservationSet -> ObservationSet
+  -> Either Text MigrationObservationSet
+migrationObservationSet expected sources destinations
+  | Map.keysSet sourceMap /= expected = Left "migration source observation coverage differs from the requested resources"
+  | Map.keysSet destinationMap /= expected = Left "migration destination observation coverage differs from the requested resources"
+  | otherwise = Right (MigrationObservationSet (Map.intersectionWith (,) sourceMap destinationMap))
+  where
+    sourceMap = observationMap sources
+    destinationMap = observationMap destinations
+
+migrationObservationMap :: MigrationObservationSet -> Map ResourceId (ResourceObservation, ResourceObservation)
+migrationObservationMap (MigrationObservationSet values) = values
 
 data OperationAction = CreateResource | UpdateResource | VerifyResource | AdoptResource | RetireResource | RunDeclaredOperation
   deriving stock (Eq, Ord, Show, Generic)
