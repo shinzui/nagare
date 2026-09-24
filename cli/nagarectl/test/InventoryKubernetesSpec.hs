@@ -25,7 +25,7 @@ import Nagare.Dsl.Database (Database (Database), Engine (..), defaultEngineVersi
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes
-import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), cacheClientDataMatches, certificateReady, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, credentialDataMatches, deploymentAvailable, deploymentSelectorReplacement, desiredFieldsMatch, generatedCredentialTemplate, jobCompleted, knativeReady, materializeCacheKey, materializeCredential, mkKubernetesRuntimeOps, observeCacheClientOutput, parseObserved, readinessForAddress, statefulSetImmutableReplacement, supportedUpdateAddress, withoutCacheClientData)
+import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), cacheClientDataMatches, certificateReady, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, credentialDataMatches, deploymentAvailable, deploymentSelectorReplacement, desiredFieldsMatch, generatedCredentialTemplate, jobCompleted, knativeReady, materializeCacheKey, materializeCredential, mkKubernetesRuntimeOps, observeCacheClientOutput, parseObserved, readinessForAddress, statefulSetImmutableReplacement, statefulSetReady, supportedUpdateAddress, withoutCacheClientData)
 import Nagare.Inventory.Database (compileDatabaseForBackend, compileDatabaseNative, compileDatabaseNativeWithBackup)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Components.Foundation (compileContributedNamespaces)
@@ -468,6 +468,24 @@ inventoryKubernetesTests =
         readinessForAddress (address "batch" "job") ready @?= Just True
         readinessForAddress (address "batch" "job") (object []) @?= Just False
         readinessForAddress (address "" "configmap") ready @?= Nothing
+    , testCase "StatefulSet health requires current generation and ready updated replicas" $ do
+        let address = Kubernetes resource "apps" (ok (mkName "statefulset"))
+              (Just (ok (mkName "default"))) (ok (mkName "example"))
+            stateful generation ready updated = object
+              [ "metadata" .= object ["generation" .= (3 :: Int)]
+              , "spec" .= object ["replicas" .= (2 :: Int)]
+              , "status" .= object
+                  ["observedGeneration" .= (generation :: Int), "readyReplicas" .= (ready :: Int),
+                   "updatedReplicas" .= (updated :: Int)]
+              ]
+        assertBool "current ready StatefulSet was rejected" (statefulSetReady (stateful 3 2 2))
+        assertBool "stale controller generation was accepted" (not (statefulSetReady (stateful 2 2 2)))
+        assertBool "unready replica was accepted" (not (statefulSetReady (stateful 3 1 2)))
+        assertBool "old revision was accepted" (not (statefulSetReady (stateful 3 2 1)))
+        assertBool "missing generation was accepted" (not (statefulSetReady (object
+          ["spec" .= object ["replicas" .= (0 :: Int)], "status" .= object []])))
+        readinessForAddress address (stateful 3 2 2) @?= Just True
+        readinessForAddress address (stateful 3 1 2) @?= Just False
     , testCase "auth credential data is generated only from a closed Secret template" $ do
         let template name = object
               [ "apiVersion" .= ("v1" :: Text)

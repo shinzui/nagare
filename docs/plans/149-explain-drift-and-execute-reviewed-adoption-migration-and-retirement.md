@@ -108,6 +108,7 @@ This plan delivers provider-independent lifecycle planning plus inventory status
 - [x] (2026-09-24) M3 migration guard: Ordinary planning now refuses an accepted ResourceId whose provider address or executor changes with `migration-review-required` before classifying the new observation as create or update. A fixture covers both confirmed absence and a present stamp at the destination. The focused inventory test passes. The dual-incarnation migration graph and execution protocol remain open.
 - [x] (2026-09-24) M1 StatefulSet immutable classification: The production Kubernetes observer reports replacement required when explicit selector, service name, volume claim templates, or pod management policy differ. Volume claim templates compare desired fields to avoid defaulted observed metadata causing a false finding. The focused test and Haskell style check pass; reviewed replacement and broader immutable coverage remain open.
 - [x] (2026-09-24) M1 condition separation: An existing Kubernetes object with an unready controller condition now retains its configuration and ownership observation. A distinct internal state prevents execution verification from treating it as complete, while read-only status can report not-ready health. A focused Job fixture, the 154-test inventory suite, and Haskell style check pass.
+- [x] (2026-09-24) M1 StatefulSet health: Status now probes the observed StatefulSet UID and requires a current controller generation plus the requested ready and updated replica counts. Mutation waits for rollout before verification; an unready observation retains configuration facts but cannot complete the operation. The 155-test inventory suite and Haskell style check pass; other provider health remains open.
 - [ ] M1: Classify observations and expose complete read-only status/explain.
 - [ ] M2: Plan explicit legacy adoption and ownership transfer.
 - [ ] M3: Plan migration/retirement with retained data and recovery evidence.
@@ -306,3 +307,5 @@ Support types are explicit alternatives in Lifecycle/Migration; identity and pol
 2026-09-24: Extended production immutable-change classification to the four StatefulSet fields rejected by Kubernetes update validation. This advances M1 only; it does not authorize replacement execution.
 
 2026-09-24: Kept controller readiness separate from object readability. A failed condition no longer erases UID, ownership, or configuration facts from status, but it still cannot complete a reviewed Kubernetes operation.
+
+2026-09-24: Added a bounded StatefulSet readiness contract based on its controller generation and ready/updated replicas, alongside the earlier immutable field classification. This is workload health evidence, not application data or schema verification.

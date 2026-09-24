@@ -27,6 +27,7 @@ module Nagare.Inventory.Adapters.KubernetesRuntime
   , credentialDataMatches
   , generatedCredentialTemplate
   , deploymentAvailable
+  , statefulSetReady
   , readinessForAddress
   , observeKubernetesHealth
   , materializeCacheKey
@@ -222,6 +223,14 @@ waitForReadiness config address = case address of
     pure $ case result of
       Right (ExitSuccess, _, _) -> AdapterEffectCompleted
       _ -> AdapterEffectAmbiguous "Kubernetes Deployment did not prove availability; reobserve before retry"
+  Kubernetes _ "apps" kind namespace name | nameText kind == "statefulset" -> do
+    result <- invoke config
+      (["rollout", "status", "statefulset/" <> T.unpack (nameText name)]
+        <> namespaceArgs namespace <> ["--timeout=300s"])
+      ""
+    pure $ case result of
+      Right (ExitSuccess, _, _) -> AdapterEffectCompleted
+      _ -> AdapterEffectAmbiguous "Kubernetes StatefulSet did not prove readiness; reobserve before retry"
   _ -> pure AdapterEffectCompleted
   where
     waitCondition condition kind namespace name label = do
@@ -265,6 +274,7 @@ readinessForAddress address value = case address of
   Kubernetes _ "cert-manager.io" kind _ _ | nameText kind `elem` ["certificate", "clusterissuer"] -> Just (certificateReady value)
   Kubernetes _ "serving.knative.dev" kind _ _ | nameText kind == "service" -> Just (knativeReady value)
   Kubernetes _ "apps" kind _ _ | nameText kind == "deployment" -> Just (deploymentAvailable value)
+  Kubernetes _ "apps" kind _ _ | nameText kind == "statefulset" -> Just (statefulSetReady value)
   _ -> Nothing
 
 supportsReadiness :: ProviderAddress -> Bool
@@ -449,6 +459,7 @@ observedReady (Object root) = case (KM.lookup "apiVersion" root, KM.lookup "kind
   (_, Just (String "ClusterIssuer")) -> certificateReady (Object root)
   (Just (String "serving.knative.dev/v1"), Just (String "Service")) -> knativeReady (Object root)
   (_, Just (String "Deployment")) -> deploymentAvailable (Object root)
+  (Just (String "apps/v1"), Just (String "StatefulSet")) -> statefulSetReady (Object root)
   _ -> True
 observedReady _ = True
 
@@ -520,6 +531,34 @@ deploymentAvailable value@(Object root) = hasCondition "Available" value
         _ -> False
     _ -> False
 deploymentAvailable _ = False
+
+-- StatefulSets do not expose the Deployment Available condition. A matching
+-- observed generation and the requested number of ready, updated Pods is the
+-- bounded health signal; it does not assert application-level or data health.
+statefulSetReady :: Value -> Bool
+statefulSetReady (Object root) = case
+  (KM.lookup "metadata" root, KM.lookup "spec" root, KM.lookup "status" root) of
+    (Just (Object metadata), Just (Object specValue), Just (Object status)) ->
+      let requested = case KM.lookup "replicas" specValue of
+            Just (Number replicas) -> Just replicas
+            Nothing -> Just 1
+            _ -> Nothing
+          ready = case KM.lookup "readyReplicas" status of
+            Just (Number replicas) -> Just replicas
+            Nothing -> Just 0
+            _ -> Nothing
+          updated = case KM.lookup "updatedReplicas" status of
+            Just (Number replicas) -> Just replicas
+            Nothing -> Just 0
+            _ -> Nothing
+       in case (KM.lookup "generation" metadata,
+                KM.lookup "observedGeneration" status, requested, ready, updated) of
+            (Just (Number generation), Just (Number observed), Just desired,
+              Just actualReady, Just actualUpdated) ->
+              generation == observed && actualReady >= desired && actualUpdated >= desired
+            _ -> False
+    _ -> False
+statefulSetReady _ = False
 
 metadataOf :: Value -> Either Text Object
 metadataOf (Object root) = case KM.lookup "metadata" root of
