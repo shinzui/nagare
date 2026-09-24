@@ -268,7 +268,7 @@ import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.DataService (acceptedFoundationNamespace, compileStandaloneBroker, compileStandaloneDatabase, standaloneRetirementScope)
+import Nagare.Inventory.DataService (acceptedFoundationNamespace, compileStandaloneBroker, compileStandaloneDatabase, standaloneRetirementScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
@@ -7061,6 +7061,7 @@ runBroker mctx = \case
       Nothing -> do
         when (any isJust [o ^. #recoveryBackup, o ^. #recoveryKey, o ^. #recoveryKeyVersion])
           (dieT "recovery options require --save-plan")
+        refuseDirectDataMutationIfOwned mctx "broker" "create" (T.pack name) (params ^. #namespace)
         runBrokerCreate provider (T.pack name) params
       Just output -> do
         when (o ^. #dryRun) (dieT "--dry-run and --save-plan cannot be combined")
@@ -7070,7 +7071,7 @@ runBroker mctx = \case
   BrokerGet o -> runBrokerGet (nsOf (o ^. #namespace)) (T.pack (o ^. #name))
   BrokerRestart o dryRun -> runBrokerRestart (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) dryRun
   BrokerDelete o ->
-    refuseDirectDataDeleteIfOwned mctx "broker" (T.pack (o ^. #name)) (nsOf (o ^. #namespace)) >>
+    refuseDirectDataMutationIfOwned mctx "broker" "delete" (T.pack (o ^. #name)) (nsOf (o ^. #namespace)) >>
     runBrokerDelete
       BrokerDeleteParams
         { name = T.pack (o ^. #name)
@@ -7134,6 +7135,7 @@ runDb mctx = \case
       Nothing -> do
         when (isJust (o ^. #recoveryBackup) || isJust (o ^. #recoveryKeyVersion))
           (dieT "recovery options require --save-plan")
+        refuseDirectDataMutationIfOwned mctx "database" "create" (T.pack name) (params ^. #namespace)
         runDbCreate eng (T.pack name) params
       Just output -> do
         when (o ^. #dryRun) (dieT "--dry-run and --save-plan cannot be combined")
@@ -7143,7 +7145,7 @@ runDb mctx = \case
   DbShell o -> runDbShell (nsOf (o ^. #namespace)) (T.pack (o ^. #name))
   DbRestart o dry -> runDbRestart (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) dry
   DbDelete o ->
-    refuseDirectDataDeleteIfOwned mctx "database" (T.pack (o ^. #name)) (nsOf (o ^. #namespace)) >>
+    refuseDirectDataMutationIfOwned mctx "database" "delete" (T.pack (o ^. #name)) (nsOf (o ^. #namespace)) >>
     runDbDelete
       DbDeleteParams
         { name = T.pack (o ^. #name)
@@ -7204,18 +7206,22 @@ runStandaloneRetirePlan mctx kind name namespaceName pinnedKey output = do
   Inventory.planInventoryRetirementWith
     (inventoryPlanRegistry active workspace) active owner output
 
--- | The legacy deleters have no inventory receipt. Refuse a direct deletion
--- whenever accepted or retained history owns the named StatefulSet.
-refuseDirectDataDeleteIfOwned :: Maybe String -> Text -> Text -> Text -> IO ()
-refuseDirectDataDeleteIfOwned mctx kind name namespaceName = do
+-- | The legacy create/delete paths have no inventory receipt. Refuse direct
+-- mutation whenever accepted or retained history owns the named StatefulSet.
+refuseDirectDataMutationIfOwned :: Maybe String -> Text -> Text -> Text -> Text -> IO ()
+refuseDirectDataMutationIfOwned mctx kind operation name namespaceName = do
   active <- activeTarget mctx
   opened <- Inventory.openTargetStoreReadOnly active
   case opened of
     Left (InventoryStore.StoreConditionFailed "inventory store is not initialized") -> pure ()
     Left (InventoryStore.StoreConditionFailed "inventory object prefix is not initialized") -> pure ()
-    Left err -> dieT ("cannot verify inventory ownership before " <> kind <> " delete: " <> T.pack (show err))
+    Left err -> dieT ("cannot verify inventory ownership before " <> kind <> " " <> operation <> ": " <> T.pack (show err))
     Right store -> do
       history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
+      context <- either dieT pure (Resource.mkContextId (contextNameText (active ^. #contextName)))
+      project <- either dieT pure (Resource.mkName (active ^. #profile . #project))
+      unless (InventoryStore.headBinding (InventoryPlan.historyHead history) == Resource.ContextBinding context project)
+        (dieT "accepted inventory belongs to a different context or project")
       let accepted =
             [ resource
             | (_, scope) <- Map.elems (InventoryPlan.historyAccepted history)
@@ -7223,14 +7229,8 @@ refuseDirectDataDeleteIfOwned mctx kind name namespaceName = do
             , ResourceInventory.Managed resource <- ResourceInventory.declarations bundle
             ]
           retained = map snd (Map.elems (InventoryPlan.historyRetained history))
-          matches resource = case resource ^. #address of
-            Resource.Kubernetes _ "apps" resourceKind (Just nativeNamespace) nativeName ->
-              Resource.nameText resourceKind == "statefulset"
-                && Resource.nameText nativeNamespace == namespaceName
-                && Resource.nameText nativeName == name
-            _ -> False
-      when (any matches (accepted <> retained))
-        (dieT (kind <> " " <> name <> " is owned by accepted or retained inventory history; direct deletion is refused"))
+      when (standaloneStatefulSetOwned name namespaceName (accepted <> retained))
+        (dieT (kind <> " " <> name <> " is owned by accepted or retained inventory history; direct " <> operation <> " is refused"))
 
 -- | Dispatch the @worker@ command group (EP-71). Provisions the GHC environment
 -- before loading the worker's @Config.hs@ (mirroring @db create --config@), then

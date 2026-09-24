@@ -308,6 +308,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [ ] EP-148 M3: Operational/data command coverage.
 - [x] (2026-09-24) EP-148 M3 partial: Standalone database and topic-free broker create/retire commands can save reviewed scope replacement/retirement plans; retirement retains every provider resource. Native metadata and accepted StatefulSet selection are covered by focused tests. Direct delete compatibility paths and reviewed native deletion remain.
 - [x] (2026-09-24) EP-148 M4 partial: Direct database and broker deletion refuse a StatefulSet owned by accepted or retained inventory history before provider observation.
+- [x] (2026-09-24) EP-148 M4 partial: Direct database and broker creation share the same accepted/retained StatefulSet ownership guard; namespace/name matching has focused coverage.
 - [x] (2026-09-24) EP-148 M4 partial: Offline platform/two-app composition preserves unselected scope generations and refuses a shared Knative Service claim.
 - [x] (2026-09-24) EP-148 M4 partial: A complete application scope cannot claim the platform's database StatefulSet address.
 - [ ] EP-148 M4: Removed alternate paths and scope isolation.

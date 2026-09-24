@@ -69,8 +69,8 @@ name. The accepted StatefulSet name and namespace are checked before planning.
 Applying this retirement review preserves every provider resource and records
 its identity as retained history. Reviewed Kubernetes deletion is not yet
 supported for these resources; `broker delete` is a separate direct workflow.
-Direct deletion refuses a broker whose StatefulSet is owned by accepted or
-retained inventory history.
+Direct create and delete refuse a broker whose StatefulSet is owned by accepted
+or retained inventory history.
 
 The recovery options identify the durable PVC's backup policy and key
 reference. The plan requires an accepted platform Namespace bound to the

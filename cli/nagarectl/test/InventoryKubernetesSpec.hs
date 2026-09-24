@@ -28,7 +28,7 @@ import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), cacheClientDataMatches, certificateReady, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, credentialDataMatches, deploymentAvailable, deploymentSelectorReplacement, desiredFieldsMatch, generatedCredentialTemplate, jobCompleted, knativeReady, materializeCacheKey, materializeCredential, mkKubernetesRuntimeOps, observeCacheClientOutput, parseObserved, readinessForAddress, statefulSetImmutableReplacement, statefulSetReady, supportedUpdateAddress, withoutCacheClientData)
 import Nagare.Inventory.Database (compileDatabaseForBackend, compileDatabaseNative, compileDatabaseNativeWithBackup)
-import Nagare.Inventory.DataService (compileStandaloneDatabase)
+import Nagare.Inventory.DataService (compileStandaloneDatabase, standaloneStatefulSetOwned)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Components.Foundation (compileContributedNamespaces)
 import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
@@ -391,6 +391,10 @@ inventoryKubernetesTests =
               , Kubernetes _ _ kind _ _ <- [address member], lifecycle member == DeleteWhenUnreferenced]
         sort retainedKinds @?= ["persistentvolumeclaim", "secret"]
         sort removedKinds @?= ["cronjob", "service", "statefulset"]
+        let owned = map fst (Map.elems native)
+        assertBool "accepted StatefulSet owns the direct name" (standaloneStatefulSetOwned "pg-main" "personal" owned)
+        assertBool "different namespace is not owned" (not (standaloneStatefulSetOwned "pg-main" "other" owned))
+        assertBool "different name is not owned" (not (standaloneStatefulSetOwned "other" "personal" owned))
         case compileStandaloneDatabase (direct {directOwnerScope = scope}) backend of
           Left (err :| _) -> code err @?= "wrong-data-scope"
           Right _ -> assertFailure "platform scope was accepted for standalone database"

@@ -5,6 +5,7 @@ module Nagare.Inventory.DataService
   ( compileStandaloneDatabase
   , compileStandaloneBroker
   , standaloneRetirementScope
+  , standaloneStatefulSetOwned
   , acceptedFoundationNamespace
   ) where
 
@@ -139,6 +140,18 @@ standaloneRetirementScope kind name namespaceName pinnedKey snapshot = do
   unless (length statefulSets == 1)
     (Left "accepted standalone scope has no unique StatefulSet for that name and namespace")
   pure owner
+
+-- | Match the native workload address, independent of display or scope key.
+-- Callers supply resources from both accepted and retained history.
+standaloneStatefulSetOwned :: T.Text -> T.Text -> [ManagedResource] -> Bool
+standaloneStatefulSetOwned name namespaceName = any matches
+  where
+    matches resource = case resource ^. #address of
+      Kubernetes _ "apps" resourceKind (Just nativeNamespace) nativeName ->
+        nameText resourceKind == "statefulset"
+          && nameText nativeNamespace == namespaceName
+          && nameText nativeName == name
+      _ -> False
 
 -- | Resolve the accepted platform Namespace by both stable identity and
 -- provider address. A matching ID with a different native name is not enough
