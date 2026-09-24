@@ -269,7 +269,7 @@ import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.Application (applicationNativeOwned)
+import Nagare.Inventory.Application (applicationNativeOwned, nativeWorkloadOwned)
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, compileStandaloneBroker, compileStandaloneDatabase, standaloneRetirementScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
@@ -2797,9 +2797,9 @@ main = do
     AppList o -> runAppList o
     AppGet o -> runAppGet o
     AppLogs o -> runAppLogs o
-    AppRestart o -> runAppRestart o
-    AppStop o -> runAppStop o
-    AppDelete o -> runAppDelete o
+    AppRestart o -> runAppRestart mctx o
+    AppStop o -> runAppStop mctx o
+    AppDelete o -> runAppDelete mctx o
     AppDeploy o -> do
       provisionGhcEnv (o ^. #ghcEnv)
       tp <- activeProfile mctx
@@ -6870,20 +6870,22 @@ runAppLogs o = do
 
 -- | @app restart NAME@: roll a fresh revision (also clears the cluster-local
 -- label, so a stopped app comes back online), then wait for readiness.
-runAppRestart :: AppNameOpts -> IO ()
-runAppRestart o = do
+runAppRestart :: Maybe String -> AppNameOpts -> IO ()
+runAppRestart mctx o = do
   let ns = appNamespace (o ^. #namespace)
       name = T.pack (o ^. #nameArg)
+  refuseDirectServiceMutationIfOwned mctx "restart" name ns
   stamp <- computeTag
   restartApp ns name stamp
   waitForReady name ns >>= requireWait ("service '" <> name <> "'")
   TIO.putStrLn ("Restarted: " <> name)
 
 -- | @app stop NAME@: take the app offline recoverably.
-runAppStop :: AppNameOpts -> IO ()
-runAppStop o = do
+runAppStop :: Maybe String -> AppNameOpts -> IO ()
+runAppStop mctx o = do
   let ns = appNamespace (o ^. #namespace)
       name = T.pack (o ^. #nameArg)
+  refuseDirectServiceMutationIfOwned mctx "stop" name ns
   stopApp ns name
   TIO.putStrLn
     ( "Stopped "
@@ -6896,10 +6898,11 @@ runAppStop o = do
 -- | @app delete NAME@: remove the Service, its DomainMappings, and its history.
 -- Domains come from the config when @--file@ resolves to a 'Deployment',
 -- otherwise from a cluster query of DomainMappings pointing at the Service.
-runAppDelete :: AppDeleteOpts -> IO ()
-runAppDelete o = do
+runAppDelete :: Maybe String -> AppDeleteOpts -> IO ()
+runAppDelete mctx o = do
   let ns = appNamespace (o ^. #namespace)
       name = T.pack (o ^. #nameArg)
+  refuseDirectServiceMutationIfOwned mctx "delete" name ns
   domains <- resolveDeleteDomains o ns name
   deleteApp ns name domains
   TIO.putStrLn ("Deleted " <> name)
@@ -7216,57 +7219,54 @@ runStandaloneRetirePlan mctx kind name namespaceName pinnedKey output = do
 -- | The legacy create/delete paths have no inventory receipt. Refuse direct
 -- mutation whenever accepted or retained history owns the named StatefulSet.
 refuseDirectDataMutationIfOwned :: Maybe String -> Text -> Text -> Text -> Text -> IO ()
-refuseDirectDataMutationIfOwned mctx kind operation name namespaceName = do
+refuseDirectDataMutationIfOwned mctx kind operation name namespaceName =
+  withAcceptedInventoryHistory mctx (kind <> " " <> operation) $ \history ->
+    when (standaloneStatefulSetOwned name namespaceName (ownedHistoryResources history))
+      (dieT (kind <> " " <> name <> " is owned by accepted or retained inventory history; direct " <> operation <> " is refused"))
+
+-- | Reuse one read-only, context-bound history check for every legacy command
+-- that can mutate a native resource without an inventory receipt.
+withAcceptedInventoryHistory :: Maybe String -> Text -> (InventoryPlan.InventoryHistory -> IO ()) -> IO ()
+withAcceptedInventoryHistory mctx operation inspect = do
   active <- activeTarget mctx
   opened <- Inventory.openTargetStoreReadOnly active
   case opened of
     Left (InventoryStore.StoreConditionFailed "inventory store is not initialized") -> pure ()
     Left (InventoryStore.StoreConditionFailed "inventory object prefix is not initialized") -> pure ()
-    Left err -> dieT ("cannot verify inventory ownership before " <> kind <> " " <> operation <> ": " <> T.pack (show err))
+    Left err -> dieT ("cannot verify inventory ownership before " <> operation <> ": " <> T.pack (show err))
     Right store -> do
       history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
       context <- either dieT pure (Resource.mkContextId (contextNameText (active ^. #contextName)))
       project <- either dieT pure (Resource.mkName (active ^. #profile . #project))
       unless (InventoryStore.headBinding (InventoryPlan.historyHead history) == Resource.ContextBinding context project)
         (dieT "accepted inventory belongs to a different context or project")
-      let accepted =
-            [ resource
-            | (_, scope) <- Map.elems (InventoryPlan.historyAccepted history)
-            , bundle <- ResourceInventory.scopeBundles scope
-            , ResourceInventory.Managed resource <- ResourceInventory.declarations bundle
-            ]
-          retained = map snd (Map.elems (InventoryPlan.historyRetained history))
-      when (standaloneStatefulSetOwned name namespaceName (accepted <> retained))
-        (dieT (kind <> " " <> name <> " is owned by accepted or retained inventory history; direct " <> operation <> " is refused"))
+      inspect history
+
+ownedHistoryResources :: InventoryPlan.InventoryHistory -> [ResourceInventory.ManagedResource]
+ownedHistoryResources history =
+  [ resource
+  | (_, scope) <- Map.elems (InventoryPlan.historyAccepted history)
+  , bundle <- ResourceInventory.scopeBundles scope
+  , ResourceInventory.Managed resource <- ResourceInventory.declarations bundle
+  ] <> map snd (Map.elems (InventoryPlan.historyRetained history))
 
 -- | The direct aggregate rollout does not produce a reviewed inventory receipt.
 -- Refuse it when either its stable scope or one of its native workloads is
 -- already owned, including retained members after retirement.
 refuseDirectApplicationDeployIfOwned :: Maybe String -> Application -> IO ()
-refuseDirectApplicationDeployIfOwned mctx app = do
-  active <- activeTarget mctx
-  opened <- Inventory.openTargetStoreReadOnly active
-  case opened of
-    Left (InventoryStore.StoreConditionFailed "inventory store is not initialized") -> pure ()
-    Left (InventoryStore.StoreConditionFailed "inventory object prefix is not initialized") -> pure ()
-    Left err -> dieT ("cannot verify inventory ownership before app deploy: " <> T.pack (show err))
-    Right store -> do
-      history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
-      context <- either dieT pure (Resource.mkContextId (contextNameText (active ^. #contextName)))
-      project <- either dieT pure (Resource.mkName (active ^. #profile . #project))
-      unless (InventoryStore.headBinding (InventoryPlan.historyHead history) == Resource.ContextBinding context project)
-        (dieT "accepted inventory belongs to a different context or project")
-      owner <- either dieT pure (ResourceApplication.applicationScopeId app)
-      let accepted =
-            [ resource
-            | (_, scope) <- Map.elems (InventoryPlan.historyAccepted history)
-            , bundle <- ResourceInventory.scopeBundles scope
-            , ResourceInventory.Managed resource <- ResourceInventory.declarations bundle
-            ]
-          retained = map snd (Map.elems (InventoryPlan.historyRetained history))
-      when (Map.member owner (InventoryPlan.historyAccepted history)
-          || applicationNativeOwned app (accepted <> retained))
-        (dieT "application is owned by accepted or retained inventory history; direct app deploy is refused")
+refuseDirectApplicationDeployIfOwned mctx app =
+  withAcceptedInventoryHistory mctx "app deploy" $ \history -> do
+    owner <- either dieT pure (ResourceApplication.applicationScopeId app)
+    when (Map.member owner (InventoryPlan.historyAccepted history)
+        || applicationNativeOwned app (ownedHistoryResources history))
+      (dieT "application is owned by accepted or retained inventory history; direct app deploy is refused")
+
+refuseDirectServiceMutationIfOwned :: Maybe String -> Text -> Text -> Text -> IO ()
+refuseDirectServiceMutationIfOwned mctx operation name namespaceName =
+  withAcceptedInventoryHistory mctx ("app " <> operation) $ \history ->
+    when (nativeWorkloadOwned "serving.knative.dev" "service" name namespaceName
+        (ownedHistoryResources history))
+      (dieT ("Service " <> name <> " is owned by accepted or retained inventory history; direct app " <> operation <> " is refused"))
 
 -- | Dispatch the @worker@ command group (EP-71). Provisions the GHC environment
 -- before loading the worker's @Config.hs@ (mirroring @db create --config@), then

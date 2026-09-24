@@ -77,6 +77,7 @@ Every supported application-side mutation is either a desired-scope update, a re
 - [x] (2026-09-24) M3 partial: Reviewed database and broker creation require a supplied Config.hs value to match the positional engine/provider and name before scope planning.
 - [x] (2026-09-24) M4 partial: Composing a complete application scope against a platform-owned database StatefulSet claim refuses the application, extending the two-application isolation fixture.
 - [x] (2026-09-24) M4 partial: Direct `app deploy` checks the loaded aggregate's stable scope and native service, worker, database, and task addresses against accepted and retained inventory history before resolving runtime inputs or mutating a provider. Native Service matching has a focused test; the reviewed application command path remains open.
+- [x] (2026-09-24) M4 partial: Direct `app restart`, `app stop`, and `app delete` refuse an accepted or retained Knative Service address before mutation. Legacy ownership checks now share one read-only, context-bound history loader; reviewed operational overrides and retirement still remain open.
 - [ ] M1: Compile applications and standalone services into complete scopes.
 - [ ] M2: Integrate shared-owner contributions, environment intent, and publication.
 - [ ] M3: Route operational and data lifecycle commands through reviewed operations.

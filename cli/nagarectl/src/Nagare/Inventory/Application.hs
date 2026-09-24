@@ -10,6 +10,7 @@ module Nagare.Inventory.Application
   , compileApplicationWorkers
   , compileApplicationTasks
   , applicationNativeOwned
+  , nativeWorkloadOwned
   ) where
 
 import Data.Aeson (Value)
@@ -66,6 +67,19 @@ applicationNativeOwned app = any matches
       Kubernetes _ group kind (Just namespace) name ->
         nameText namespace == namespaceName
           && (group, nameText kind, nameText name) `elem` workloads
+      _ -> False
+
+-- | A direct single-workload command's native identity, including resources
+-- retained after their original scope retired.
+nativeWorkloadOwned :: T.Text -> T.Text -> T.Text -> T.Text -> [ManagedResource] -> Bool
+nativeWorkloadOwned group kind name namespaceName = any matches
+  where
+    matches resource = case resource ^. #address of
+      Kubernetes _ nativeGroup nativeKind (Just nativeNamespace) nativeName ->
+        nativeGroup == group
+          && nameText nativeKind == kind
+          && nameText nativeName == name
+          && nameText nativeNamespace == namespaceName
       _ -> False
 
 -- | The reviewed dependencies and recovery decisions supplied by the command

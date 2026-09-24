@@ -316,6 +316,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-24) EP-148 M4 partial: Offline platform/two-app composition preserves unselected scope generations and refuses a shared Knative Service claim.
 - [x] (2026-09-24) EP-148 M4 partial: A complete application scope cannot claim the platform's database StatefulSet address.
 - [x] (2026-09-24) EP-148 M4 partial: Direct application deploy refuses a loaded scope or native workload address already present in accepted or retained inventory history before runtime resolution.
+- [x] (2026-09-24) EP-148 M4 partial: Direct app restart, stop, and delete refuse a Knative Service address in accepted or retained history before mutation.
 - [ ] EP-148 M4: Removed alternate paths and scope isolation.
 - [ ] EP-150 M1: Platform/legacy transaction integration.
 - [ ] EP-150 M2: Packaging and complete mutation audit.
