@@ -11,10 +11,10 @@ import Nagare.Dsl.Prelude
 import Nagare.Inventory.Application (compileApplicationDatabases)
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), compileFoundation)
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, databaseNativeOwned, standaloneRetirementScope)
-import Nagare.Inventory.Environment (compileRuntimeEnvChannel)
+import Nagare.Inventory.Environment (compileRuntimeEnvChannel, compileRuntimeSecretChannel)
 import Nagare.Resource.Application (applicationScopeId)
 import Nagare.Resource.Inventory (Declaration (Managed), ManagedResource (..), ResourceBundle (..), mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeId)
-import Nagare.Resource.Policy (RecoveryIntent (..), mkSecretRef)
+import Nagare.Resource.Policy (RecoveryIntent (..), Sensitivity (Secret), mkSecretRef)
 import Nagare.Resource.Types
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertFailure, testCase, (@?=))
@@ -42,6 +42,31 @@ inventoryApplicationTests = testGroup "application inventory compilation"
               BC.isInfixOf "TIMEOUT" bytes @?= True
             Nothing -> assertFailure "env channel lost its native ConfigMap"
         _ -> assertFailure "env channel has unexpected declarations"
+  , testCase "Runtime Secret intent has an independent private native channel" $ do
+      let checked = either (error . show) id
+          foundation = checked (mkScopeId Platform "foundation")
+          cluster = mintResourceId foundation (checked (mkLogicalKey "cluster"))
+            (checked (mkName "cluster"))
+          namespaceId = mintResourceId foundation (checked (mkLogicalKey "foundation"))
+            (checked (mkName "namespace-personal"))
+          values = Map.singleton "TOKEN" "secret-canary-value"
+      (scope, native) <- either (fail . show) pure (compileRuntimeSecretChannel
+        "kizashi" "personal" cluster namespaceId (checked (mkName "v2")) values
+        (SourceLocation "secret-file" "runtime-secret"))
+      scopeId scope @?= checked (mkScopeId Application "secret-kizashi-runtime")
+      case [resource | bundle <- scopeBundles scope, Managed resource <- declarations bundle] of
+        [resource] -> do
+          resource ^. #address @?= checked (kubernetesAddress cluster "v1" "Secret"
+            (Just "personal") "nagare-secret-kizashi-runtime")
+          resource ^. #sensitivity @?= Secret
+          resource ^. #source @?= SourceLocation "secret-file" "runtime-secret/v2"
+          BC.isInfixOf "secret-canary-value" (BC.pack (show resource)) @?= False
+          case Map.lookup (resource ^. #identity) native of
+            Just (_, bytes) -> do
+              BC.isInfixOf "TOKEN" bytes @?= True
+              BC.isInfixOf "secret-canary-value" bytes @?= False
+            Nothing -> assertFailure "secret channel lost its native Secret"
+        _ -> assertFailure "secret channel has unexpected declarations"
   , testCase "standalone data planning requires the accepted platform Namespace" $ do
       let checked = either (error . show) id
           owner = checked (mkScopeId Platform "foundation")

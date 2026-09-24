@@ -273,7 +273,7 @@ import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManager
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedApplicationImage, acceptedBrokerBindings, acceptedSecretBindings, applicationNativeOwned, applicationVolumeRecoveryBindings, compileApplicationScope, databaseRecoveryBindings, nativeWorkloadOwned)
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, compileStandaloneDatabase, databaseNativeOwned, standaloneRetirementScope, standaloneStatefulSetOwned)
-import Nagare.Inventory.Environment (compileRuntimeEnvChannel)
+import Nagare.Inventory.Environment (compileRuntimeEnvChannel, compileRuntimeSecretChannel)
 import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
@@ -937,6 +937,8 @@ data SecretCommand
     SecretList StoreCommonOpts Bool
   | -- | dryRun, KEY
     SecretDelete StoreCommonOpts ScopeSelection Bool String
+  | -- | exact Runtime dotenv file, opaque rotation version, reviewed plan directory
+    SecretSync StoreCommonOpts FilePath String FilePath
   deriving stock (Generic, Show)
 
 -- | The @storage@ subcommands (EP-35). Both reuse 'StoreCommonOpts' (positional
@@ -2513,6 +2515,18 @@ opts =
                         <**> helper
                   )
                   (progDesc "Delete one secret key")
+              )
+            <> command
+              "sync"
+              ( info
+                  ( SecretSync
+                      <$> storeCommonOptsParser
+                      <*> strOption (long "file" <> metavar "FILE" <> help "dotenv file with exact Runtime Secret values")
+                      <*> strOption (long "version" <> metavar "TOKEN" <> help "Opaque Secret rotation version")
+                      <*> strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed Runtime Secret replacement")
+                        <**> helper
+                  )
+                  (progDesc "Review an exact Runtime Secret replacement")
               )
         )
     appCmd =
@@ -7740,6 +7754,22 @@ runSecret mctx = \case
       let desired = reconcile ReconcileExact mempty (Map.delete (T.pack key) existing)
       applyOrDryRunSecret dry name ns scope desired
     unless dry $ TIO.putStrLn ("Deleted " <> T.pack key <> " from secret for " <> name <> ".")
+  SecretSync copts dotenvPath rawVersion output -> do
+    (name, ns) <- resolveAppOrDie copts
+    version <- either dieT pure (Resource.mkName (T.pack rawVersion))
+    raw <- TIO.readFile dotenvPath
+    incoming <- either (const (dieT "invalid secret dotenv file")) pure (parseDotenv raw)
+    active <- activeTarget mctx
+    (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+    snapshot <- Inventory.loadTargetSnapshot active
+    (cluster, namespaceId) <- either dieT pure (acceptedFoundationNamespace snapshot ns)
+    (channel, native) <- either (dieT . T.pack . show) pure
+      (compileRuntimeSecretChannel name ns cluster namespaceId version incoming
+        (Resource.SourceLocation (T.pack dotenvPath) "runtime-secret"))
+    candidate <- either (dieT . T.pack . show) pure
+      (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope channel NE.:| []))
+    Inventory.planInventoryCandidateWith
+      (inventoryPlanRegistryWithNative active workspace native) active candidate output
 
 -- | Print the rendered ConfigMap (dry-run) or write the store (otherwise).
 applyOrDryRunEnv :: Bool -> Text -> Text -> EnvScope -> Map Text Text -> IO ()

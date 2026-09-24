@@ -223,8 +223,20 @@ nagarectl env sync envdemo --file .env.production --reconcile-exact \
 nagarectl inventory apply env-review --yes
 ```
 
-The reviewed path currently supports Runtime plain values. Build/Preview
-channels and Secret values still need their reviewed input paths.
+Runtime Secret values also have an exact reviewed input channel. Supply an
+opaque version token for each rotation. The file must remain available while
+planning; the saved review binds its native Secret bytes and does not print
+them in the public review. A later application deployment preserves this
+channel's revision. A preexisting unmanaged Secret requires reviewed adoption
+before its first managed write.
+
+```bash
+nagarectl secret sync envdemo --file .env.secrets --version v2 \
+  --save-plan secret-review
+nagarectl inventory apply secret-review --yes
+```
+
+Build and Preview channels still need reviewed input paths.
 
 ```console
 $ nagarectl env sync envdemo \
