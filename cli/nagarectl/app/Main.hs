@@ -111,7 +111,7 @@ import Nagare.Cluster.Kubeconfig
 import Nagare.Cluster.Namespace (NamespacePurpose (..), ensureNamespace, renderNamespace)
 import Nagare.Database.Backup (runDbBackup)
 import Nagare.Database.Connection (connectionEnv, mergeConnectionEnvs)
-import Nagare.Database.Create (DbCreateParams (..), runDbCreate)
+import Nagare.Database.Create (DbCreateParams (..), resolveDatabase, runDbCreate)
 import Nagare.Database.Delete (DbDeleteParams (..), runDbDelete)
 import Nagare.Database.Discover (lookupConnection)
 import Nagare.Database.Get (runDbGet)
@@ -131,7 +131,7 @@ import Nagare.Domain.Tls (preflightDomainTls, renderDomainTlsCheck, verifyDomain
 import Nagare.Dsl.Broker (BrokerProvider (..))
 import Nagare.Dsl.Build (BuildSpec, requiresBuild, resolveImageTag)
 import Nagare.Dsl.Cdn.Types (Cdn)
-import Nagare.Dsl.Database (Engine (..))
+import Nagare.Dsl.Database (Database (..), Engine (..), dbSecretName)
 import Nagare.Dsl.Load qualified as Load
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Render (pvcName, renderDomainMappings, renderService, renderVolumeClaims, scopeToken)
@@ -147,6 +147,7 @@ import Nagare.Dsl.Types
   , Namespace
   , ScopedEnvVar
   , databaseNameText
+  , namespaceText
   , domainText
   , imageRefText
   , namespaceText
@@ -267,6 +268,7 @@ import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
+import Nagare.Inventory.DataService (compileStandaloneDatabase)
 import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
@@ -381,6 +383,8 @@ import Nagare.Platform.Workspace
   , renderWorkspaceError
   )
 import Nagare.Resource.Inventory qualified as ResourceInventory
+import Nagare.Resource.Database (DatabaseDirectInput (..))
+import Nagare.Resource.Policy (RecoveryIntent (..), mkSecretRef)
 import Nagare.Resource.Reference qualified as ResourceReference
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Resource.Wire qualified as ResourceWire
@@ -1033,6 +1037,9 @@ data DbCreateOpts = DbCreateOpts
   , memory :: !(Maybe String)
   , config :: !(Maybe FilePath)
   , dryRun :: !Bool
+  , savePlan :: !(Maybe FilePath)
+  , recoveryBackup :: !(Maybe String)
+  , recoveryKeyVersion :: !(Maybe String)
   }
   deriving stock (Generic, Show)
 
@@ -1700,6 +1707,9 @@ dbCreateOptsParser =
     <*> optional (strOption (long "memory" <> metavar "QTY" <> help "Memory limit (e.g. 1Gi)"))
     <*> optional (strOption (long "config" <> metavar "FILE" <> help "Load a typed Database from a Config.hs instead of building from flags"))
     <*> dryRunOpt
+    <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed standalone database plan for inventory apply"))
+    <*> optional (strOption (long "recovery-backup" <> metavar "NAME" <> help "Recovery backup policy for a reviewed database"))
+    <*> optional (strOption (long "recovery-key-version" <> metavar "VERSION" <> help "Credential recovery key version for a reviewed database"))
 
 dbDeleteOptsParser :: Parser DbDeleteOpts
 dbDeleteOptsParser =
@@ -7029,20 +7039,26 @@ runDb mctx = \case
   DbCreate eng name o -> do
     when (isJust (o ^. #config)) (provisionGhcEnv Nothing)
     tp <- activeProfile mctx
-    runDbCreate
-      eng
-      (T.pack name)
-      DbCreateParams
-        { namespace = nsOf (o ^. #namespace)
-        , namespacePurpose = if o ^. #systemNamespace then PlatformNamespace else ApplicationNamespace
-        , version = T.pack <$> o ^. #version
-        , size = T.pack <$> o ^. #size
-        , cpu = T.pack <$> o ^. #cpu
-        , memory = T.pack <$> o ^. #memory
-        , config = o ^. #config
-        , dryRun = o ^. #dryRun
-        , targetProfile = tp
-        }
+    let params = DbCreateParams
+          { namespace = nsOf (o ^. #namespace)
+          , namespacePurpose = if o ^. #systemNamespace then PlatformNamespace else ApplicationNamespace
+          , version = T.pack <$> o ^. #version
+          , size = T.pack <$> o ^. #size
+          , cpu = T.pack <$> o ^. #cpu
+          , memory = T.pack <$> o ^. #memory
+          , config = o ^. #config
+          , dryRun = o ^. #dryRun
+          , targetProfile = tp
+          }
+    case o ^. #savePlan of
+      Nothing -> do
+        when (isJust (o ^. #recoveryBackup) || isJust (o ^. #recoveryKeyVersion))
+          (dieT "recovery options require --save-plan")
+        runDbCreate eng (T.pack name) params
+      Just output -> do
+        when (o ^. #dryRun) (dieT "--dry-run and --save-plan cannot be combined")
+        runDbCreatePlan mctx eng (T.pack name) params
+          (o ^. #recoveryBackup) (o ^. #recoveryKeyVersion) output
   DbGet o -> runDbGet (nsOf (o ^. #namespace)) (T.pack (o ^. #name))
   DbShell o -> runDbShell (nsOf (o ^. #namespace)) (T.pack (o ^. #name))
   DbRestart o dry -> runDbRestart (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) dry
@@ -7062,6 +7078,38 @@ runDb mctx = \case
     runDbRestore (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) (T.pack (o ^. #backupId)) (o ^. #live) backend (o ^. #dryRun)
   where
     nsOf = maybe "personal" T.pack
+
+runDbCreatePlan :: Maybe String -> Engine -> Text -> DbCreateParams
+  -> Maybe String -> Maybe String -> FilePath -> IO ()
+runDbCreatePlan mctx eng name params backupName keyVersion output = do
+  db <- resolveDatabase eng name params
+  let databaseName = databaseNameText (db ^. #name)
+      namespaceName = namespaceText (db ^. #namespace)
+      scopeName = maybe databaseName Resource.logicalKeyText (db ^. #logicalKey)
+  owner <- either dieT pure (Resource.mkScopeId Resource.Standalone ("database-" <> scopeName))
+  foundation <- either dieT pure (Resource.mkScopeId Resource.Platform "foundation")
+  clusterKey <- either dieT pure (Resource.mkLogicalKey "cluster")
+  foundationKey <- either dieT pure (Resource.mkLogicalKey "foundation")
+  clusterRole <- either dieT pure (Resource.mkName "cluster")
+  namespaceRole <- either dieT pure (Resource.mkName ("namespace-" <> namespaceName))
+  backup <- maybe (dieT "--save-plan requires --recovery-backup") (either dieT pure . Resource.mkName . T.pack) backupName
+  version <- maybe (dieT "--save-plan requires --recovery-key-version") (either dieT pure . Resource.mkName . T.pack) keyVersion
+  credential <- either dieT pure (Resource.mkName (dbSecretName databaseName))
+  let recovery = RecoveryIntent backup (mkSecretRef credential version NE.:| [])
+      cluster = Resource.mintResourceId foundation clusterKey clusterRole
+      namespaceId = Resource.mintResourceId foundation foundationKey namespaceRole
+      source = Resource.SourceLocation
+        (maybe "db create" T.pack (params ^. #config)) databaseName
+      direct = DatabaseDirectInput db owner cluster (Just namespaceId) recovery source
+  active <- activeTarget mctx
+  (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+  snapshot <- Inventory.loadTargetSnapshot active
+  backend <- either dieT pure (storeBackendFor (active ^. #profile) (active ^. #profile . #backupBucket))
+  (scope, native) <- either (dieT . T.pack . show) pure (compileStandaloneDatabase direct backend)
+  candidate <- either (dieT . T.pack . show) pure
+    (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
+  Inventory.planInventoryCandidateWith
+    (inventoryPlanRegistryWithNative active workspace native) active candidate output
 
 -- | Dispatch the @worker@ command group (EP-71). Provisions the GHC environment
 -- before loading the worker's @Config.hs@ (mirroring @db create --config@), then

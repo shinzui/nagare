@@ -152,6 +152,25 @@ nagarectl db backup NAME           # logical dump to GCS or MinIO, keep-last-N r
 nagarectl db restore NAME BACKUP_ID  # restore a backup, scratch-first
 ```
 
+To review a standalone database before changing the cluster, save an inventory
+plan and apply that exact review:
+
+```bash
+nagarectl db create postgres pg-main \
+  --recovery-backup postgres-backup \
+  --recovery-key-version v1 \
+  --save-plan ./pg-main-review
+nagarectl inventory apply ./pg-main-review --yes
+```
+
+Planning uses the typed database input from the flags or `--config`, binds the
+credential template and all database objects to the standalone scope, and
+includes the scheduled backup for retained data. The recovery options identify
+the backup policy and credential key version used by that scope. The plan
+requires the platform's accepted cluster and Namespace declarations. The older
+`db create` form without `--save-plan` still uses the direct create path during
+the command migration.
+
 `db create` generates the `nagare-db-<name>` Secret, then applies the PVC,
 ClickHouse memory ConfigMap (ClickHouse only), Service, and StatefulSet, then
 waits for the rollout. It is **idempotent** and never regenerates the password on

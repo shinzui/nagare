@@ -13,6 +13,7 @@ module Nagare.Database.Create
   ( DbCreateParams (..)
   , runDbCreate
   , buildDatabase
+  , resolveDatabase
   , passwordKey
   , classifyPasswordObservation
   , ensureCredential
@@ -123,13 +124,7 @@ runDbCreate eng nameT params = do
   transaction <- lookupEnv "NAGARE_INVENTORY_TRANSACTION"
   when (isJust transaction) $
     dieT "db create cannot run inside a reviewed inventory transaction"
-  db <- case params ^. #config of
-    Just path -> do
-      eDb <- loadDatabase path
-      case eDb of
-        Left err -> dieT (renderLoadError err)
-        Right d -> pure d
-    Nothing -> orDie (buildDatabase eng nameT params)
+  db <- resolveDatabase eng nameT params
   let name = databaseNameText (db ^. #name)
       ns = namespaceText (db ^. #namespace)
       engine' = db ^. #engine
@@ -174,6 +169,17 @@ runDbCreate eng nameT params = do
         >>= requireWait ("database '" <> name <> "'")
       TIO.putStrLn
         ("Created database " <> name <> " (" <> engineToken engine' <> ") at " <> host)
+
+-- | Both the direct compatibility path and inventory planning load exactly the
+-- same validated typed value.
+resolveDatabase :: Engine -> Text -> DbCreateParams -> IO Database
+resolveDatabase eng nameT params = case params ^. #config of
+    Just path -> do
+      eDb <- loadDatabase path
+      case eDb of
+        Left err -> dieT (renderLoadError err)
+        Right d -> pure d
+    Nothing -> orDie (buildDatabase eng nameT params)
 
 -- | Read the existing credential or create it with the API server's create-only
 -- operation. A concurrent creator wins; its value is reread rather than
