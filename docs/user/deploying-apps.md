@@ -52,6 +52,21 @@ They must resolve to the same accepted image as the application; an explicit
 task image pointing elsewhere refuses. One-off `task run` is a separate
 operational action.
 
+For a single Service config, the reviewed route uses an independent Service
+scope:
+
+```bash
+nagarectl deploy --file nagare/Config.hs --tag v1 \
+  --image-resource RESOURCE-ID --save-plan service-review
+nagarectl inventory apply service-review --yes
+```
+
+It requires the accepted namespace and image. Add
+`--service-volume-recovery VOLUME=BACKUP:KEY:VERSION` for each retained PVC,
+`--tls-secret-resource RESOURCE-ID` for supplied TLS, and
+`--env-secret-resource RESOURCE-ID` for runtime Secret references. Tasks, database and broker
+bindings, access, and CDN settings currently refuse this single-Service route.
+
 For each declared application database, add
 `--database-recovery NAME=BACKUP:KEY_VERSION` to the planning command. The
 review keeps the database credential and PVC under retained data policy and

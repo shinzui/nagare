@@ -271,7 +271,7 @@ import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedApplicationImage, acceptedBrokerBindings, acceptedSecretBindings, applicationNativeOwned, applicationVolumeRecoveryBindings, compileApplicationScope, databaseRecoveryBindings, nativeWorkloadOwned, reviewedTaskImages)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedApplicationImage, acceptedBrokerBindings, acceptedSecretBindings, applicationNativeOwned, applicationVolumeRecoveryBindings, compileApplicationScope, compileStandaloneService, databaseRecoveryBindings, nativeWorkloadOwned, reviewedTaskImages)
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, compileStandaloneDatabase, databaseNativeOwned, standaloneRetirementScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Environment (compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateRuntimeSecretRotation)
 import Nagare.Inventory.Host qualified as InventoryHost
@@ -520,6 +520,11 @@ data DeployOpts = DeployOpts
   , source :: !(Maybe String)
   -- ^ Free-form provenance recorded with the deployment (e.g. a git SHA or
   -- branch), and surfaced as @NAGARE_SOURCE@ — matching the site deploy path.
+  , savePlan :: !(Maybe FilePath)
+  , imageResource :: !(Maybe String)
+  , serviceVolumeRecovery :: ![String]
+  , tlsSecretResources :: ![String]
+  , envSecretResources :: ![String]
   }
   deriving stock (Generic, Show)
 
@@ -1436,6 +1441,11 @@ deployOptsParser defaultFile =
               <> help "Provenance to record with the deployment (e.g. a git SHA or branch)"
           )
       )
+    <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed single-Service inventory plan"))
+    <*> optional (strOption (long "image-resource" <> metavar "RESOURCE-ID" <> help "Accepted OCI image for --save-plan"))
+    <*> many (strOption (long "service-volume-recovery" <> metavar "VOLUME=BACKUP:KEY:VERSION" <> help "Retained Service PVC recovery for --save-plan"))
+    <*> many (strOption (long "tls-secret-resource" <> metavar "RESOURCE-ID" <> help "Accepted supplied-TLS Secret for --save-plan"))
+    <*> many (strOption (long "env-secret-resource" <> metavar "RESOURCE-ID" <> help "Accepted runtime Secret for --save-plan"))
 
 appImagePlanOptsParser :: Parser AppImagePlanOpts
 appImagePlanOptsParser =
@@ -6400,7 +6410,95 @@ printNamespaceAction namespace = do
   BC.putStrLn manifest
 
 runDeploy :: Maybe String -> DeployOpts -> IO ()
-runDeploy mctx dopts = do
+runDeploy mctx dopts = case dopts ^. #savePlan of
+  Just output -> runDeployPlan mctx dopts output
+  Nothing -> do
+    unless (isNothing (dopts ^. #imageResource)
+        && null (dopts ^. #serviceVolumeRecovery)
+        && null (dopts ^. #tlsSecretResources)
+        && null (dopts ^. #envSecretResources))
+      (dieT "inventory resource and recovery options require --save-plan")
+    runDirectDeploy mctx dopts
+
+runDeployPlan :: Maybe String -> DeployOpts -> FilePath -> IO ()
+runDeployPlan mctx options output = do
+  when (options ^. #dryRun || isJust (options ^. #contextOverride)
+      || isJust (options ^. #dockerfileOverride))
+    (dieT "reviewed deploy requires a prepublished image and no build overrides or --dry-run")
+  when (isNothing (options ^. #tag))
+    (dieT "reviewed deploy requires an explicit --tag")
+  imageText <- maybe (dieT "--save-plan requires --image-resource") (pure . T.pack)
+    (options ^. #imageResource)
+  imageId <- either dieT pure (Resource.mkResourceId imageText)
+  provisionGhcEnv (options ^. #ghcEnv)
+  service <- Load.loadDeployment (options ^. #file)
+    >>= either (dieT . Load.renderLoadError) pure
+  when (requiresBuild (service ^. #build))
+    (dieT "reviewed deploy requires an already published image")
+  unless (null (service ^. #tasks) && null (service ^. #databases)
+      && null (service ^. #brokers) && isNothing (service ^. #access)
+      && isNothing (service ^. #cdn))
+    (dieT "reviewed single-Service deploy requires typed task, database, broker, access, and CDN bindings")
+  let app = Application
+        { name = service ^. #name
+        , logicalKey = service ^. #logicalKey
+        , namespace = service ^. #namespace
+        , image = service ^. #image
+        , env = Map.empty
+        , databases = []
+        , brokers = []
+        , access = Nothing
+        , service = Just service
+        , workers = []
+        , tasks = []
+        }
+  (volumeRecovery, workerRecovery) <- either dieT pure
+    (applicationVolumeRecoveryBindings app
+      (map T.pack (options ^. #serviceVolumeRecovery)) [])
+  unless (Map.null workerRecovery)
+    (dieT "standalone Service review contains worker recovery bindings")
+  active <- activeTarget mctx
+  (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+  snapshot <- Inventory.loadTargetSnapshot active
+  let namespaceName = namespaceText (service ^. #namespace)
+  (cluster, namespaceId) <- either dieT pure
+    (acceptedFoundationNamespace snapshot namespaceName)
+  let params = AppDeployParams
+        { configPath = options ^. #file
+        , tag = T.pack <$> options ^. #tag
+        , baseDomain = T.pack <$> options ^. #baseDomain
+        , contextOverride = Nothing
+        , dockerfileOverride = Nothing
+        , dryRun = False
+        , json = False
+        , source = T.pack <$> options ^. #source
+        , targetProfile = active ^. #profile
+        }
+  rollout <- resolveAppRolloutWithBrokerEnv params app Map.empty
+  either dieT pure (acceptedApplicationImage snapshot imageId (rollout ^. #taggedAppImage))
+  tlsIds <- traverse (either dieT pure . Resource.mkResourceId . T.pack)
+    (options ^. #tlsSecretResources)
+  envIds <- traverse (either dieT pure . Resource.mkResourceId . T.pack)
+    (options ^. #envSecretResources)
+  tlsSecrets <- either dieT pure (acceptedSecretBindings snapshot tlsIds)
+  envSecrets <- either dieT pure (acceptedSecretBindings snapshot envIds)
+  key <- maybe (either dieT pure (Resource.mkLogicalKey (serviceNameText (service ^. #name)))) pure
+    (service ^. #logicalKey)
+  owner <- either dieT pure (Resource.mkScopeId Resource.Standalone
+    ("service-" <> Resource.logicalKeyText key))
+  let source = Resource.SourceLocation
+        (maybe (T.pack (options ^. #file)) T.pack (options ^. #source))
+        (serviceNameText (service ^. #name))
+  (scope, native) <- either (dieT . T.pack . show) pure
+    (compileStandaloneService owner service rollout cluster namespaceId imageId
+      volumeRecovery tlsSecrets envSecrets source)
+  candidate <- either (dieT . T.pack . show) pure
+    (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
+  Inventory.planInventoryCandidateWith
+    (inventoryPlanRegistryWithNative active workspace native) active candidate output
+
+runDirectDeploy :: Maybe String -> DeployOpts -> IO ()
+runDirectDeploy mctx dopts = do
   bd <- resolveBaseDomain mctx (dopts ^. #baseDomain)
   provisionGhcEnv (dopts ^. #ghcEnv)
 
