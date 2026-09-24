@@ -271,7 +271,7 @@ import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedApplicationImage, acceptedBrokerBindings, acceptedSecretBindings, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationScope, compileStandaloneService, compileStandaloneWorker, databaseRecoveryBindings, nativeWorkloadOwned, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedApplicationImage, acceptedBrokerBindings, acceptedSecretBindings, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationScope, compileStandaloneService, compileStandaloneWorker, databaseRecoveryBindings, nativeWorkloadOwned, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, compileStandaloneDatabase, databaseNativeOwned, standaloneRetirementScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Environment (acceptedEnvChannelValues, acceptedSecretChannelValues, compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
 import Nagare.Inventory.Host qualified as InventoryHost
@@ -577,9 +577,17 @@ data AppDeployOpts = AppDeployOpts
   }
   deriving stock (Generic, Show)
 
--- | The @worker@ command group (EP-71). One subcommand today (@deploy@); a
--- 'newtype' with a constructor per subcommand, mirroring 'DbCommand'/'TaskCommand'.
-newtype WorkerCommand = WorkerDeploy WorkerDeployOpts
+data WorkerCommand
+  = WorkerDeploy WorkerDeployOpts
+  | WorkerDelete WorkerDeleteOpts
+  deriving stock (Generic, Show)
+
+data WorkerDeleteOpts = WorkerDeleteOpts
+  { nameArg :: !String
+  , namespace :: !(Maybe String)
+  , savePlan :: !FilePath
+  , scopeKey :: !(Maybe String)
+  }
   deriving stock (Generic, Show)
 
 data AccessCommand
@@ -1539,6 +1547,14 @@ workerDeployOptsParser defaultFile =
     <*> many (strOption (long "volume-recovery" <> metavar "VOLUME=BACKUP:KEY:VERSION" <> help "Recovery for a retained worker PVC; repeat with --save-plan"))
     <*> many (strOption (long "env-secret-resource" <> metavar "RESOURCE-ID" <> help "Accepted runtime Secret; repeat with --save-plan"))
 
+workerDeleteOptsParser :: Parser WorkerDeleteOpts
+workerDeleteOptsParser =
+  WorkerDeleteOpts
+    <$> strArgument (metavar "NAME" <> help "Worker Deployment name")
+    <*> namespaceOpt
+    <*> strOption (long "save-plan" <> metavar "DIR" <> help "Save reviewed retirement of the accepted standalone worker")
+    <*> optional (strOption (long "scope-key" <> metavar "KEY" <> help "Pin the accepted standalone worker logical key"))
+
 accessGrantOptsParser :: Parser AccessGrantOpts
 accessGrantOptsParser =
   AccessGrantOpts
@@ -2346,7 +2362,13 @@ opts =
             "deploy"
             ( info
                 (Worker . WorkerDeploy <$> workerDeployOptsParser defaultConfigFile <**> helper)
-                (progDesc "Build, push, and run a long-running worker (apps/v1 Deployment) from the current directory")
+                (progDesc "Deploy or review a long-running worker (apps/v1 Deployment) from the current directory")
+            )
+        <> command
+            "delete"
+            ( info
+                (Worker . WorkerDelete <$> workerDeleteOptsParser <**> helper)
+                (progDesc "Review retirement of an accepted standalone worker")
             )
         )
     accessCmd =
@@ -7716,6 +7738,14 @@ runWorker mctx = \case
             , dryRun = o ^. #dryRun
             , targetProfile = tp
             }
+  WorkerDelete o -> do
+    active <- activeTarget mctx
+    snapshot <- Inventory.loadTargetSnapshot active
+    owner <- either dieT pure (workerRetirementScope (T.pack (o ^. #nameArg))
+      (appNamespace (o ^. #namespace)) (T.pack <$> o ^. #scopeKey) snapshot)
+    (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+    Inventory.planInventoryRetirementWith
+      (inventoryPlanRegistry active workspace) active owner (o ^. #savePlan)
 
 runWorkerPlan :: Maybe String -> WorkerDeployOpts -> FilePath -> IO ()
 runWorkerPlan mctx options output = do

@@ -225,3 +225,5 @@ DependencyExports contains typed capability witnesses and selected revision/phys
 2026-09-24: Resolved Service and worker broker bindings independently against accepted standalone broker scopes. Application-level bindings apply to all workloads, while local bindings affect only their workload; a workload with conflicting generated broker targets refuses. This completes the existing per-workload binding part of M1 without changing its milestone boundary.
 
 2026-09-24: Added a reviewed standalone worker deploy route under its own scope. It reuses the application worker binder, requires an accepted Namespace and exact OCI publication, binds retained PVC recovery and runtime Secrets, and refuses unresolved database and broker inputs. M1 remains open for the other declared resource kinds and complete application review.
+
+2026-09-24: Standalone worker retirement now selects the exact accepted Deployment and optional stable scope key before saving a plan. The retirement engine keeps retained PVC declarations. M3 remains open for the other operational and data actions already listed above.

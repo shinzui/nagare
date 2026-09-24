@@ -20,6 +20,7 @@ module Nagare.Inventory.Application
   , applicationVolumeRecoveryBindings
   , standaloneWorkerVolumeRecoveryBindings
   , applicationRetirementScope
+  , workerRetirementScope
   ) where
 
 import Control.Monad (forM_)
@@ -145,6 +146,29 @@ applicationRetirementScope name namespaceName pinnedKey snapshot = do
        ] of
     [owner] -> Right owner
     _ -> Left "accepted application or standalone history has no unique Knative Service for that name, namespace, and scope key"
+
+-- | Retire only the standalone scope that owns the exact accepted Deployment.
+-- The retirement planner preserves its retained PVC declarations.
+workerRetirementScope
+  :: T.Text -> T.Text -> Maybe T.Text -> ScopeSnapshot -> Either T.Text ScopeId
+workerRetirementScope name namespaceName pinnedKey snapshot = do
+  pinned <- traverse mkLogicalKey pinnedKey
+  case [ owner
+       | (owner, (_, scope)) <- Map.toList (snapshotScopes snapshot)
+       , scopeKind owner == Resource.Standalone
+       , maybe True
+           ((== nameText (scopeName owner)) . ("worker-" <>) . logicalKeyText) pinned
+       , bundle <- scopeBundles scope
+       , Managed resource <- declarations bundle
+       , case resource ^. #address of
+           Kubernetes _ "apps" kind (Just namespace) deploymentName ->
+             nameText kind == "deployment"
+               && nameText namespace == namespaceName
+               && nameText deploymentName == name
+           _ -> False
+       ] of
+    [owner] -> Right owner
+    _ -> Left "accepted standalone history has no unique worker Deployment for that name, namespace, and scope key"
 
 -- | A reviewed rollout may depend only on an already accepted OCI publication
 -- whose destination is the exact tagged image embedded in its native manifests.

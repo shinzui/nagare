@@ -96,6 +96,18 @@ the corresponding accepted `--env-secret-resource RESOURCE-ID`. This reviewed
 path currently refuses worker database and broker references until their typed
 dependencies can be bound; it does not build or publish images.
 
+Retire the accepted standalone worker through a separate review. Retained PVCs
+remain recorded for recovery:
+
+```bash
+nagarectl worker delete queue-consumer --save-plan worker-retirement
+nagarectl inventory apply worker-retirement --yes
+```
+
+If several accepted worker scopes could match, pass `--scope-key KEY` to pin the
+worker's stable logical key. Retirement still verifies the native Deployment
+name and namespace against accepted history.
+
 The existing direct deploy command is:
 
 ```bash

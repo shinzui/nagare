@@ -24,7 +24,7 @@ import Data.Text.Encoding qualified as TE
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.App.Deploy
-import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedBrokerBindings, acceptedSecretBindings, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, standaloneWorkerVolumeRecoveryBindings, nativeWorkloadOwned, compileApplicationScope, compileApplicationService, compileStandaloneService, compileStandaloneWorker, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedBrokerBindings, acceptedSecretBindings, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, standaloneWorkerVolumeRecoveryBindings, nativeWorkloadOwned, compileApplicationScope, compileApplicationService, compileStandaloneService, compileStandaloneWorker, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings, workerRetirementScope)
 import Nagare.Inventory.DataService (compileStandaloneBroker)
 import Nagare.Dsl.Broker (BrokerBinding (..), mkTopicName)
 import Nagare.Resource.Application (applicationScopeId, volumeResourceId)
@@ -338,6 +338,20 @@ renderTests =
           namespaceId publication standaloneRecovery Map.empty source)
       scopeId standaloneScope @?= standaloneOwner
       Map.size standaloneNative @?= 2
+      let binding = Resource.ContextBinding
+            (unsafe (Resource.mkContextId "standalone-worker-fixture"))
+            (unsafe (Resource.mkName "project"))
+      acceptedWorker <- either (fail . show) pure (mkScopeSnapshot binding
+        (Map.singleton standaloneOwner (unsafe (Resource.mkScopeGeneration 1), standaloneScope)) Map.empty)
+      workerRetirementScope (serviceNameText (worker ^. #name)) "personal" Nothing acceptedWorker
+        @?= Right standaloneOwner
+      workerRetirementScope (serviceNameText (worker ^. #name)) "personal"
+        (Just "kizashi-worker") acceptedWorker @?= Right standaloneOwner
+      assertBool "worker retirement selected a different namespace"
+        (isLeft (workerRetirementScope (serviceNameText (worker ^. #name)) "other" Nothing acceptedWorker))
+      assertBool "worker retirement selected a different scope key"
+        (isLeft (workerRetirementScope (serviceNameText (worker ^. #name)) "personal"
+          (Just "other") acceptedWorker))
       assertBool "standalone worker retained volume lacked recovery validation"
         (isLeft (standaloneWorkerVolumeRecoveryBindings standaloneOwner independentWorker []))
   , testCase "application scheduled task binds its reviewed CronJob bytes" $ do
