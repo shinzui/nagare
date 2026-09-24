@@ -271,7 +271,7 @@ import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedApplicationImage, acceptedBrokerBindings, acceptedSecretBindings, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationScope, compileStandaloneService, databaseRecoveryBindings, nativeWorkloadOwned, reviewedTaskImages)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedApplicationImage, acceptedBrokerBindings, acceptedSecretBindings, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationScope, compileStandaloneService, compileStandaloneWorker, databaseRecoveryBindings, nativeWorkloadOwned, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings)
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, compileStandaloneDatabase, databaseNativeOwned, standaloneRetirementScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Environment (acceptedEnvChannelValues, acceptedSecretChannelValues, compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
 import Nagare.Inventory.Host qualified as InventoryHost
@@ -545,6 +545,10 @@ data WorkerDeployOpts = WorkerDeployOpts
   , dockerfileOverride :: !(Maybe FilePath)
   , ghcEnv :: !(Maybe FilePath)
   , dryRun :: !Bool
+  , savePlan :: !(Maybe FilePath)
+  , imageResource :: !(Maybe String)
+  , volumeRecovery :: ![String]
+  , envSecretResources :: ![String]
   }
   deriving stock (Generic, Show)
 
@@ -1530,6 +1534,10 @@ workerDeployOptsParser defaultFile =
       )
     <*> ghcEnvOpt
     <*> dryRunOpt
+    <*> optional (strOption (long "save-plan" <> metavar "FILE" <> help "Save reviewed standalone worker inventory plan"))
+    <*> optional (strOption (long "image-resource" <> metavar "RESOURCE-ID" <> help "Accepted OCI image publication with --save-plan"))
+    <*> many (strOption (long "volume-recovery" <> metavar "VOLUME=BACKUP:KEY:VERSION" <> help "Recovery for a retained worker PVC; repeat with --save-plan"))
+    <*> many (strOption (long "env-secret-resource" <> metavar "RESOURCE-ID" <> help "Accepted runtime Secret; repeat with --save-plan"))
 
 accessGrantOptsParser :: Parser AccessGrantOpts
 accessGrantOptsParser =
@@ -7690,18 +7698,91 @@ refuseDirectVolumeMutationIfOwned mctx operation deployment volumeName =
 runWorker :: Maybe String -> WorkerCommand -> IO ()
 runWorker mctx = \case
   WorkerDeploy o -> do
-    provisionGhcEnv (o ^. #ghcEnv)
-    tp <- activeProfile mctx
-    runWorkerDeployWithGuard (\worker -> refuseDirectWorkerDeployIfOwned mctx
-      (serviceNameText (worker ^. #name)) (namespaceText (worker ^. #namespace)))
-      WorkerDeployParams
-        { configPath = o ^. #file
-        , tag = T.pack <$> o ^. #tag
-        , contextOverride = o ^. #contextOverride
-        , dockerfileOverride = o ^. #dockerfileOverride
-        , dryRun = o ^. #dryRun
-        , targetProfile = tp
+    case o ^. #savePlan of
+      Just output -> runWorkerPlan mctx o output
+      Nothing -> do
+        unless (isNothing (o ^. #imageResource) && null (o ^. #volumeRecovery)
+            && null (o ^. #envSecretResources))
+          (dieT "inventory resource and recovery options require --save-plan")
+        provisionGhcEnv (o ^. #ghcEnv)
+        tp <- activeProfile mctx
+        runWorkerDeployWithGuard (\worker -> refuseDirectWorkerDeployIfOwned mctx
+          (serviceNameText (worker ^. #name)) (namespaceText (worker ^. #namespace)))
+          WorkerDeployParams
+            { configPath = o ^. #file
+            , tag = T.pack <$> o ^. #tag
+            , contextOverride = o ^. #contextOverride
+            , dockerfileOverride = o ^. #dockerfileOverride
+            , dryRun = o ^. #dryRun
+            , targetProfile = tp
+            }
+
+runWorkerPlan :: Maybe String -> WorkerDeployOpts -> FilePath -> IO ()
+runWorkerPlan mctx options output = do
+  when (options ^. #dryRun || isJust (options ^. #contextOverride)
+      || isJust (options ^. #dockerfileOverride))
+    (dieT "reviewed worker deploy requires a prepublished image and no build overrides or --dry-run")
+  when (isNothing (options ^. #tag))
+    (dieT "reviewed worker deploy requires an explicit --tag")
+  imageText <- maybe (dieT "--save-plan requires --image-resource") (pure . T.pack)
+    (options ^. #imageResource)
+  imageId <- either dieT pure (Resource.mkResourceId imageText)
+  provisionGhcEnv (options ^. #ghcEnv)
+  worker <- Load.loadWorker (options ^. #file)
+    >>= either (dieT . Load.renderLoadError) pure
+  when (requiresBuild (worker ^. #build))
+    (dieT "reviewed worker deploy requires an already published image")
+  unless (null (worker ^. #databases) && null (worker ^. #brokers))
+    (dieT "reviewed worker deploy requires typed database and broker bindings")
+  key <- maybe (either dieT pure (Resource.mkLogicalKey (serviceNameText (worker ^. #name)))) pure
+    (worker ^. #logicalKey)
+  owner <- either dieT pure (Resource.mkScopeId Resource.Standalone
+    ("worker-" <> Resource.logicalKeyText key))
+  recovery <- either dieT pure (standaloneWorkerVolumeRecoveryBindings owner worker
+    (map T.pack (options ^. #volumeRecovery)))
+  active <- activeTarget mctx
+  (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+  snapshot <- Inventory.loadTargetSnapshot active
+  (cluster, namespaceId) <- either dieT pure
+    (acceptedFoundationNamespace snapshot (namespaceText (worker ^. #namespace)))
+  let app = Application
+        { name = worker ^. #name
+        , logicalKey = Nothing
+        , namespace = worker ^. #namespace
+        , image = worker ^. #image
+        , env = Map.empty
+        , databases = []
+        , brokers = []
+        , access = Nothing
+        , service = Nothing
+        , workers = [worker]
+        , tasks = []
         }
+      params = AppDeployParams
+        { configPath = options ^. #file
+        , tag = T.pack <$> options ^. #tag
+        , baseDomain = Nothing
+        , contextOverride = Nothing
+        , dockerfileOverride = Nothing
+        , dryRun = False
+        , json = False
+        , source = Nothing
+        , targetProfile = active ^. #profile
+        }
+  rollout <- resolveAppRolloutWithBrokerEnv params app Map.empty
+  either dieT pure (acceptedApplicationImage snapshot imageId (rollout ^. #taggedAppImage))
+  envIds <- traverse (either dieT pure . Resource.mkResourceId . T.pack)
+    (options ^. #envSecretResources)
+  envSecrets <- either dieT pure (acceptedSecretBindings snapshot envIds)
+  let source = Resource.SourceLocation (T.pack (options ^. #file))
+        (serviceNameText (worker ^. #name))
+  (scope, native) <- either (dieT . T.pack . show) pure
+    (compileStandaloneWorker owner worker rollout cluster namespaceId imageId
+      recovery envSecrets source)
+  candidate <- either (dieT . T.pack . show) pure
+    (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
+  Inventory.planInventoryCandidateWith
+    (inventoryPlanRegistryWithNative active workspace native) active candidate output
 
 runAccess :: Maybe String -> AccessCommand -> IO ()
 runAccess mctx = \case

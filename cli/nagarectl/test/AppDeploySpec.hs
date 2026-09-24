@@ -24,7 +24,7 @@ import Data.Text.Encoding qualified as TE
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.App.Deploy
-import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedBrokerBindings, acceptedSecretBindings, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, nativeWorkloadOwned, compileApplicationScope, compileApplicationService, compileStandaloneService, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedBrokerBindings, acceptedSecretBindings, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, standaloneWorkerVolumeRecoveryBindings, nativeWorkloadOwned, compileApplicationScope, compileApplicationService, compileStandaloneService, compileStandaloneWorker, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings)
 import Nagare.Inventory.DataService (compileStandaloneBroker)
 import Nagare.Dsl.Broker (BrokerBinding (..), mkTopicName)
 import Nagare.Resource.Application (applicationScopeId, volumeResourceId)
@@ -326,6 +326,20 @@ renderTests =
       assertBool "worker volume has an owner declaration"
         (any ((== volumeId) . (^. #identity))
           [member | bundle <- volumeBundles, Managed member <- declarations bundle])
+      let standaloneOwner = unsafe (Resource.mkScopeId Resource.Standalone "worker-kizashi-worker")
+          independentWorker = worker & #databases .~ [] & #volumes .~ [volume]
+          standaloneRollout = testEnv & #appName .~ serviceNameText (worker ^. #name)
+            & #appEnv .~ Map.empty
+      standaloneRecovery <- either (fail . T.unpack) pure
+        (standaloneWorkerVolumeRecoveryBindings standaloneOwner independentWorker
+          ["scratch=backup:volume-key:v1"])
+      (standaloneScope, standaloneNative) <- either (fail . show) pure
+        (compileStandaloneWorker standaloneOwner independentWorker standaloneRollout cluster
+          namespaceId publication standaloneRecovery Map.empty source)
+      scopeId standaloneScope @?= standaloneOwner
+      Map.size standaloneNative @?= 2
+      assertBool "standalone worker retained volume lacked recovery validation"
+        (isLeft (standaloneWorkerVolumeRecoveryBindings standaloneOwner independentWorker []))
   , testCase "application scheduled task binds its reviewed CronJob bytes" $ do
       loaded <- loadApplication fixturePath
       app <- either (fail . show) pure loaded

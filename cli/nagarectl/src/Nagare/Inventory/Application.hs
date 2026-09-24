@@ -8,6 +8,7 @@ module Nagare.Inventory.Application
   , compileApplicationService
   , compileStandaloneService
   , compileApplicationWorkers
+  , compileStandaloneWorker
   , compileApplicationTasks
   , applicationNativeOwned
   , nativeWorkloadOwned
@@ -17,6 +18,7 @@ module Nagare.Inventory.Application
   , acceptedSecretBindings
   , acceptedBrokerBindings
   , applicationVolumeRecoveryBindings
+  , standaloneWorkerVolumeRecoveryBindings
   , applicationRetirementScope
   ) where
 
@@ -36,6 +38,7 @@ import Nagare.Cluster.GcsJob (StoreBackend)
 import Nagare.App.Deploy (RolloutEnv, renderServiceObjects, renderTaskObjects, renderWorkerObjects)
 import Nagare.Broker.Connection (BrokerConn (..), brokerConnectionEnv, mergeBrokerConnectionEnvs)
 import Nagare.Dsl.Application (Application (..), mkApplication)
+import Nagare.Dsl.Application qualified as DslApp
 import Nagare.Dsl.Broker (BrokerBinding (..), BrokerName, BrokerProvider (Redpanda), brokerNameText)
 import Nagare.Database.Connection (ConnIdentity (..), connectionEnv, mergeConnectionEnvs)
 import Nagare.Dsl.Database (Database (..), Engine (..), dbSecretName)
@@ -328,6 +331,35 @@ applicationVolumeRecoveryBindings app serviceRaw workerRaw = do
         (worker ^. #logicalKey)
       role <- mkName ("worker-" <> logicalKeyText workerKey <> "-pvc")
       volumeResourceId owner role volume
+
+standaloneWorkerVolumeRecoveryBindings
+  :: ScopeId -> Worker -> [T.Text] -> Either T.Text (Map ResourceId RecoveryIntent)
+standaloneWorkerVolumeRecoveryBindings owner worker raw = do
+  workerKey <- maybe (mkLogicalKey (serviceNameText (worker ^. #name))) Right
+    (worker ^. #logicalKey)
+  role <- mkName ("worker-" <> logicalKeyText workerKey <> "-pvc")
+  pairs <- traverse (parseOne role) raw
+  expected <- Set.fromList <$> traverse (volumeResourceId owner role)
+    [volume | volume <- worker ^. #volumes, volume ^. #retention == Dsl.Retain]
+  let bindings = Map.fromList pairs
+  unless (length pairs == Map.size bindings && Map.keysSet bindings == expected)
+    (Left "standalone worker recovery must cover exactly the retained volumes")
+  pure bindings
+  where
+    parseOne role value = case T.splitOn "=" value of
+      [volumeText, recoveryText] -> case T.splitOn ":" recoveryText of
+        [backupText, keyText, versionText] -> do
+          volume <- maybe (Left "worker recovery names an undeclared volume") Right
+            (find ((== volumeText) . volumeNameText . (^. #name)) (worker ^. #volumes))
+          unless (volume ^. #retention == Dsl.Retain)
+            (Left "throwaway worker volume cannot have recovery intent")
+          resourceId <- volumeResourceId owner role volume
+          backup <- mkName backupText
+          key <- mkName keyText
+          version <- mkName versionText
+          pure (resourceId, RecoveryIntent backup (mkSecretRef key version NE.:| []))
+        _ -> Left "worker recovery must be VOLUME=BACKUP:KEY:VERSION"
+      _ -> Left "worker recovery must be VOLUME=BACKUP:KEY:VERSION"
 
 -- | The reviewed dependencies and recovery decisions supplied by the command
 -- service. A caller must bind the namespace and image publication to accepted
@@ -663,10 +695,57 @@ compileApplicationWorkers
 compileApplicationWorkers app rollout cluster namespaceId imageId recoveryById envSecrets source = do
   _ <- first invalid (mkApplication app)
   owner <- first invalid (applicationScopeId app)
-  compiled <- traverse (compileWorker owner) (app ^. #workers)
+  compileWorkersWithOwner owner app rollout cluster namespaceId imageId recoveryById envSecrets source
+  where
+    invalid message = inventoryError "invalid-application-worker" message
+      & #sources .~ [source]
+      & (:| [])
+
+-- | A single worker uses its own scope while retaining the same native
+-- Deployment/PVC binder and recovery rules as an application worker.
+compileStandaloneWorker
+  :: ScopeId -> Worker -> RolloutEnv -> ResourceId -> ResourceId -> ResourceId
+  -> Map ResourceId RecoveryIntent -> Map SecretName Declaration -> SourceLocation
+  -> Either (NonEmpty InventoryError)
+       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileStandaloneWorker owner worker rollout cluster namespaceId imageId recovery envSecrets source = do
+  unless (scopeKind owner == Standalone)
+    (Left (invalid "worker requires a standalone owner"))
+  unless (null (worker ^. #databases) && null (worker ^. #brokers))
+    (Left (invalid "standalone worker data and broker bindings need typed dependencies"))
+  let app = DslApp.Application
+        { name = worker ^. #name
+        , logicalKey = Nothing
+        , namespace = worker ^. #namespace
+        , image = worker ^. #image
+        , env = Map.empty
+        , databases = []
+        , brokers = []
+        , access = Nothing
+        , service = Nothing
+        , workers = [worker]
+        , tasks = []
+        }
+  _ <- first invalid (mkApplication app)
+  (bundles, native) <- compileWorkersWithOwner owner app rollout cluster namespaceId
+    imageId recovery envSecrets source
+  scope <- mkScopeDeclaration owner bundles
+  pure (scope, native)
+  where
+    invalid message = inventoryError "invalid-standalone-worker" message
+      & #sources .~ [source]
+      & (:| [])
+
+compileWorkersWithOwner
+  :: ScopeId -> Application -> RolloutEnv -> ResourceId -> ResourceId -> ResourceId
+  -> Map ResourceId RecoveryIntent -> Map SecretName Declaration -> SourceLocation
+  -> Either (NonEmpty InventoryError)
+       ([ResourceBundle], Map ResourceId (ManagedResource, ByteString))
+compileWorkersWithOwner scopeOwner app rollout cluster namespaceId imageId recoveryById envSecrets source = do
+  compiled <- traverse (compileWorker scopeOwner) (app ^. #workers)
   let bundles = map fst compiled
       native = Map.unions (map snd compiled)
-  _ <- mkScopeDeclaration owner bundles
+  _ <- mkScopeDeclaration scopeOwner bundles
   unless (Map.size native == sum (map (Map.size . snd) compiled))
     (Left (invalid "worker native members share an identity"))
   pure (bundles, native)

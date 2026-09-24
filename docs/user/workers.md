@@ -79,7 +79,24 @@ Note the `{-# LANGUAGE OverloadedStrings #-}` and **plain record updates**
 does *not* enable `OverloadedLabels`, so `#replicas` lenses are unavailable in a
 config file.
 
-Deploy it:
+For an independently managed worker, save a reviewed inventory plan using a
+published image and an accepted platform Namespace:
+
+```bash
+nagarectl worker deploy --tag release-1 \
+  --image-resource RESOURCE-ID \
+  --save-plan worker-review
+nagarectl inventory apply worker-review --yes
+```
+
+The image resource must name the exact image and tag resolved by the worker
+config. A retained PVC also needs one `--volume-recovery
+VOLUME=BACKUP:KEY:VERSION` per retained volume. Runtime Secret references need
+the corresponding accepted `--env-secret-resource RESOURCE-ID`. This reviewed
+path currently refuses worker database and broker references until their typed
+dependencies can be bound; it does not build or publish images.
+
+The existing direct deploy command is:
 
 ```bash
 $ nagarectl worker deploy

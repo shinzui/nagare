@@ -223,3 +223,5 @@ DependencyExports contains typed capability witnesses and selected revision/phys
 2026-09-24: Added a reviewed exact Runtime Secret input channel with an explicit rotation version. It has a separate scope from application deployment and plain Runtime env so replacing one channel preserves the others. The existing M2 milestone remains open for Build/Preview input, merge intent, and publication integration.
 
 2026-09-24: Resolved Service and worker broker bindings independently against accepted standalone broker scopes. Application-level bindings apply to all workloads, while local bindings affect only their workload; a workload with conflicting generated broker targets refuses. This completes the existing per-workload binding part of M1 without changing its milestone boundary.
+
+2026-09-24: Added a reviewed standalone worker deploy route under its own scope. It reuses the application worker binder, requires an accepted Namespace and exact OCI publication, binds retained PVC recovery and runtime Secrets, and refuses unresolved database and broker inputs. M1 remains open for the other declared resource kinds and complete application review.
