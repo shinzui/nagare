@@ -85,7 +85,7 @@ Every supported application-side mutation is either a desired-scope update, a re
 
 ## Outcomes & Retrospective
 
-In progress. Stable identity inputs and a standalone database scope compiler are present; application compilation, command migration, scope-isolation proof, and complete mutation coverage remain open.
+In progress. Stable identity inputs, standalone database and topic-free broker scopes, and a supported-subset application scope compiler are present. Application broker/access/CDN/TLS integration, reviewed operational actions, command migration, scope-isolation proof, and complete mutation coverage remain open.
 
 
 ## Context and Orientation
