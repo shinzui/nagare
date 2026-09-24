@@ -12,6 +12,7 @@ module Nagare.Inventory.Application
   , applicationNativeOwned
   , nativeWorkloadOwned
   , acceptedApplicationImage
+  , databaseRecoveryBindings
   ) where
 
 import Data.Aeson (Value)
@@ -28,7 +29,7 @@ import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend)
 import Nagare.App.Deploy (RolloutEnv, renderServiceObjects, renderTaskObjects, renderWorkerObjects)
 import Nagare.Dsl.Application (Application (..), mkApplication)
-import Nagare.Dsl.Database (Database (..))
+import Nagare.Dsl.Database (Database (..), dbSecretName)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Render (pvcName)
 import Nagare.Dsl.Types (DatabaseName, Deployment (..), DomainSpec (..), DomainTls (..), EnvScope (Runtime), EnvVar (..), ScopedEnvVar (..), SecretName, Volume (..), VolumeName, databaseNameText, domainText, mkSecretName, namespaceText, secretNameText, serviceNameText, volumeNameText)
@@ -43,7 +44,7 @@ import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
 import Nagare.Resource.Policy (DataPolicy (..), LifecyclePolicy (..), Sensitivity (Private))
-import Nagare.Resource.Policy (RecoveryIntent)
+import Nagare.Resource.Policy (RecoveryIntent (..), mkSecretRef)
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
@@ -97,6 +98,32 @@ acceptedApplicationImage snapshot imageId taggedImage =
         | nameText kind == "oci-image" && destination == taggedImage -> Right ()
       _ -> Left "accepted image resource is not the requested OCI publication"
     _ -> Left "image resource is absent or ambiguous in accepted inventory"
+
+-- | Require one explicit recovery binding for every application-owned
+-- database. The credential name is derived from the typed database identity;
+-- the operator supplies only the backup identity and key version.
+databaseRecoveryBindings :: Application -> [T.Text] -> Either T.Text (Map DatabaseName RecoveryIntent)
+databaseRecoveryBindings app raw = do
+  pairs <- traverse parseOne raw
+  let bindings = Map.fromList pairs
+      declared = Set.fromList (map (^. #name) (app ^. #databases))
+  unless (length pairs == Map.size bindings)
+    (Left "database recovery bindings repeat a database")
+  unless (Map.keysSet bindings == declared)
+    (Left "database recovery bindings must cover exactly the declared databases")
+  pure bindings
+  where
+    parseOne value = case (T.splitOn "=" value) of
+      [databaseText, recoveryText] -> case T.splitOn ":" recoveryText of
+        [backupText, versionText] -> do
+          database <- maybe (Left "database recovery names an undeclared database") Right
+            (find ((== databaseText) . databaseNameText . (^. #name)) (app ^. #databases))
+          backup <- mkName backupText
+          version <- mkName versionText
+          credential <- mkName (dbSecretName databaseText)
+          pure (database ^. #name, RecoveryIntent backup (mkSecretRef credential version NE.:| []))
+        _ -> Left "database recovery must be NAME=BACKUP:KEY_VERSION"
+      _ -> Left "database recovery must be NAME=BACKUP:KEY_VERSION"
 
 -- | The reviewed dependencies and recovery decisions supplied by the command
 -- service. A caller must bind the namespace and image publication to accepted

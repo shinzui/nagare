@@ -15,8 +15,9 @@ generated:
 
 `nagarectl app deploy` can save an inventory review for an application whose
 image is already an accepted OCI publication. The current reviewed path supports
-a web Service and workers without application databases, hooks, broker bindings,
-access changes, build inputs, or retained volumes. Its config still goes through
+a web Service, workers, and application databases with explicit recovery bindings.
+It does not yet support hooks, broker bindings, access changes, build inputs, or
+retained service/worker volumes. Its config still goes through
 the typed `Application` loader. Use the exact resource ID of the accepted OCI
 publication, and an explicit tag that resolves to that publication's destination:
 
@@ -26,6 +27,12 @@ nagarectl app deploy --file nagare/Config.hs --tag v1 \
   --save-plan app-review
 nagarectl inventory apply app-review --yes
 ```
+
+For each declared application database, add
+`--database-recovery NAME=BACKUP:KEY_VERSION` to the planning command. The
+review keeps the database credential and PVC under retained data policy and
+records the backup and key version as recovery intent. A missing, repeated, or
+unknown database binding refuses the review.
 
 The resource ID above is illustrative; obtain the real ID from your accepted
 inventory. Planning checks the accepted platform Namespace and the image's

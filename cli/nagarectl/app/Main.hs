@@ -270,7 +270,7 @@ import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedApplicationImage, applicationNativeOwned, compileApplicationScope, nativeWorkloadOwned)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedApplicationImage, applicationNativeOwned, compileApplicationScope, databaseRecoveryBindings, nativeWorkloadOwned)
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, compileStandaloneBroker, compileStandaloneDatabase, standaloneRetirementScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
@@ -548,6 +548,7 @@ data AppDeployOpts = AppDeployOpts
   , source :: !(Maybe String)
   , savePlan :: !(Maybe FilePath)
   , imageResource :: !(Maybe String)
+  , databaseRecovery :: ![String]
   }
   deriving stock (Generic, Show)
 
@@ -1453,6 +1454,8 @@ appDeployOptsParser defaultFile =
       (strOption (long "save-plan" <> metavar "FILE" <> help "Save a reviewed inventory plan for a prepublished-image application"))
     <*> optional
       (strOption (long "image-resource" <> metavar "RESOURCE-ID" <> help "Accepted OCI image inventory resource used by --save-plan"))
+    <*> many
+      (strOption (long "database-recovery" <> metavar "NAME=BACKUP:KEY_VERSION" <> help "Recovery binding for an application database; repeat for each database with --save-plan"))
 
 workerDeployOptsParser :: FilePath -> Parser WorkerDeployOpts
 workerDeployOptsParser defaultFile =
@@ -2811,7 +2814,8 @@ main = do
       tp <- activeProfile mctx
       case o ^. #savePlan of
         Nothing -> do
-          when (isJust (o ^. #imageResource)) (dieT "--image-resource requires --save-plan")
+          when (isJust (o ^. #imageResource) || not (null (o ^. #databaseRecovery)))
+            (dieT "image and database recovery options require --save-plan")
           runAppDeployWithGuard (refuseDirectApplicationDeployIfOwned mctx) (toAppDeployParams tp o)
         Just output -> runAppDeployPlan mctx (toAppDeployParams tp o) o output
     DeploymentsList o -> runDeploymentsList o
@@ -6803,9 +6807,11 @@ runAppDeployPlan mctx params appOptions output = do
         <> map (^. #build) (app ^. #workers)
   when (any requiresBuild builds)
     (dieT "reviewed app deploy requires an already published image")
-  unless (null (app ^. #databases) && null (app ^. #tasks)
-      && null (app ^. #brokers) && isNothing (app ^. #access))
-    (dieT "reviewed app deploy currently supports service and worker declarations without data, hooks, brokers, or access")
+  unless (null (app ^. #tasks) && null (app ^. #brokers)
+      && isNothing (app ^. #access))
+    (dieT "reviewed app deploy currently supports service, worker, and database declarations without hooks, brokers, or access")
+  databaseRecovery <- either dieT pure
+    (databaseRecoveryBindings app (map T.pack (appOptions ^. #databaseRecovery)))
   rollout <- resolveAppRollout params app
   unless (all (\build -> resolveImageTag build (rollout ^. #imageTag)
       == rollout ^. #effectiveTag) builds)
@@ -6828,7 +6834,7 @@ runAppDeployPlan mctx params appOptions output = do
         , scopeNamespace = namespaceId
         , scopeNamespaceContributionOwner = Nothing
         , scopeImage = imageId
-        , scopeDatabaseRecovery = Map.empty
+        , scopeDatabaseRecovery = databaseRecovery
         , scopeServiceVolumeRecovery = Map.empty
         , scopeTlsSecrets = Map.empty
         , scopeEnvSecrets = Map.empty

@@ -24,7 +24,7 @@ import Data.Text.Encoding qualified as TE
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.App.Deploy
-import Nagare.Inventory.Application (ApplicationScopeInput (..), applicationNativeOwned, nativeWorkloadOwned, compileApplicationScope, compileApplicationService, compileStandaloneService, compileApplicationTasks, compileApplicationWorkers)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), applicationNativeOwned, nativeWorkloadOwned, compileApplicationScope, compileApplicationService, compileStandaloneService, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings)
 import Nagare.Resource.Application (applicationScopeId, volumeResourceId)
 import Nagare.Resource.Database (databaseResourceId)
 import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (..), ManagedResource (..), DesiredSpec (KnativeService), Contribution (RegisterNamespace), ContributionGrant (NamespaceGrant), ScopeChange (ReplaceScope), candidateGenerations, candidateInventory, composeInventory, contributionResourceId, inventoryDeclarations, inventoryScopes, mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeId)
@@ -335,6 +335,16 @@ renderTests =
             , scopeSource = Resource.SourceLocation "test" "application"
             }
       (scope, native) <- either (fail . show) pure (compileApplicationScope input)
+      bindings <- either (fail . T.unpack) pure
+        (databaseRecoveryBindings app ["kizashi-db=backup:v1"])
+      Map.keys bindings @?= map (^. #name) (app ^. #databases)
+      assertBool "missing database recovery was accepted"
+        (isLeft (databaseRecoveryBindings app []))
+      assertBool "duplicate database recovery was accepted"
+        (isLeft (databaseRecoveryBindings app
+          ["kizashi-db=backup:v1", "kizashi-db=backup:v1"]))
+      assertBool "unknown database recovery was accepted"
+        (isLeft (databaseRecoveryBindings app ["other=backup:v1"]))
       length (scopeBundles scope) @?= 6
       Map.size native @?= 10
       length [() | bundle <- scopeBundles scope, Managed _ <- declarations bundle] @?= 10
