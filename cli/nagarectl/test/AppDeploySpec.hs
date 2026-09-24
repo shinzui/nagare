@@ -437,6 +437,34 @@ renderTests =
       assertBool "private native members lost their reviewed broker dependency"
         (all (\member -> maybe False ((== member) . fst)
           (Map.lookup (member ^. #identity) brokerNative)) brokerWorkloads)
+      let localApp = app
+            & #service %~ fmap (#brokers .~ [brokerBinding])
+            & #workers %~ (\case
+                [] -> []
+                firstWorker : rest -> (firstWorker & #brokers .~ [brokerBinding]) : rest)
+          localInput = input
+            { scopeApplication = localApp
+            , scopeBrokerServices = brokerServices
+            }
+      (_, localNative) <- either (fail . show) pure (compileApplicationScope localInput)
+      brokerId <- case brokerServiceIds of
+        [resource] -> pure resource
+        _ -> assertFailure "expected one accepted broker Service"
+      let localWorkloads =
+            [(member, bytes) | (member, bytes) <- Map.elems localNative
+            , case member ^. #address of
+                Resource.Kubernetes _ "apps" kind _ _ -> kind == unsafe (Resource.mkName "deployment")
+                Resource.Kubernetes _ "serving.knative.dev" kind _ _ -> kind == unsafe (Resource.mkName "service")
+                _ -> False]
+          consumers = [(member, bytes) | (member, bytes) <- localWorkloads
+            , OrderedAfter brokerId `elem` member ^. #dependencies]
+      length consumers @?= 2
+      assertBool "local broker connection missing from its workload bytes"
+        (all (BS.isInfixOf "KAFKA_BOOTSTRAP_SERVERS" . snd) consumers)
+      assertBool "unbound workers acquired the broker connection"
+        (all (not . BS.isInfixOf "KAFKA_BOOTSTRAP_SERVERS" . snd)
+          [(member, bytes) | (member, bytes) <- localWorkloads
+          , OrderedAfter brokerId `notElem` member ^. #dependencies])
       assertBool "unaccepted broker reference was accepted"
         (isLeft (acceptedBrokerBindings secretSnapshot cluster "personal" [brokerBinding]))
       assertBool "unreviewed broker topic was accepted"

@@ -373,27 +373,34 @@ compileApplicationScope input = do
   unless (scopeRollout input ^. #appName == serviceNameText (app ^. #name)
       && scopeRollout input ^. #namespace == namespaceText (app ^. #namespace))
     (Left (invalid "rollout identity differs from the application name or namespace"))
-  brokerEnv <- first invalid (mergeBrokerConnectionEnvs =<< traverse
-    (\binding -> do
-      service <- maybe (Left "broker has no typed Service dependency") Right
-        (Map.lookup (binding ^. #name) (scopeBrokerServices input))
-      unless (null (binding ^. #topics))
-        (Left "broker topics require reviewed logical topic ownership")
-      expected <- kubernetesAddress (scopeCluster input) "v1" "Service"
-        (Just (namespaceText (app ^. #namespace))) (brokerNameText (binding ^. #name))
-      case service of
-        Managed resource | resource ^. #address == expected
-          && scopeKind (resource ^. #owner) == Standalone -> pure ()
-        _ -> Left "broker dependency is not an accepted standalone Service at the declared address"
-      brokerConnectionEnv binding BrokerConn
-        { provider = Redpanda
-        , bootstrapServers = brokerNameText (binding ^. #name) <> "."
-            <> namespaceText (app ^. #namespace) <> ".svc.cluster.local:9092"
-        , topics = []
-        }) (app ^. #brokers))
+  let brokerEnvFor bindings = do
+        envs <- traverse (\binding -> do
+          service <- maybe (Left "broker has no typed Service dependency") Right
+            (Map.lookup (binding ^. #name) (scopeBrokerServices input))
+          unless (null (binding ^. #topics))
+            (Left "broker topics require reviewed logical topic ownership")
+          expected <- kubernetesAddress (scopeCluster input) "v1" "Service"
+            (Just (namespaceText (app ^. #namespace))) (brokerNameText (binding ^. #name))
+          case service of
+            Managed resource | resource ^. #address == expected
+              && scopeKind (resource ^. #owner) == Standalone -> pure ()
+            _ -> Left "broker dependency is not an accepted standalone Service at the declared address"
+          brokerConnectionEnv binding BrokerConn
+            { provider = Redpanda
+            , bootstrapServers = brokerNameText (binding ^. #name) <> "."
+                <> namespaceText (app ^. #namespace) <> ".svc.cluster.local:9092"
+            , topics = []
+            }) bindings
+        mergeBrokerConnectionEnvs envs
+  brokerEnv <- first invalid (brokerEnvFor (app ^. #brokers))
+  _ <- traverse (first invalid . brokerEnvFor)
+    (maybe [] (pure . (^. #brokers)) (app ^. #service)
+      <> map (^. #brokers) (app ^. #workers))
+  let allBrokerBindings = app ^. #brokers
+        <> maybe [] (^. #brokers) (app ^. #service)
+        <> concatMap (^. #brokers) (app ^. #workers)
   unless (Map.keysSet (scopeBrokerServices input)
-      == Set.fromList (map (^. #name) (app ^. #brokers))
-      && Map.size (scopeBrokerServices input) == length (app ^. #brokers))
+      == Set.fromList (map (^. #name) allBrokerBindings))
     (Left (invalid "broker dependencies must cover exactly the application bindings"))
   unless (scopeRollout input ^. #appEnv == mergeGenerated brokerEnv (app ^. #env))
     (Left (invalid "rollout environment differs from the declared application channels"))
@@ -444,10 +451,16 @@ compileApplicationScope input = do
     (namespaceText (app ^. #namespace)) envSecrets) requiredEnvSecrets
   serviceWithConnection <- traverse (\service -> do
     generated <- first invalid (declaredConnectionEnv app (service ^. #databases))
-    pure (service & #env %~ mergeGenerated generated)) (app ^. #service)
+    localBrokerEnv <- first invalid (brokerEnvFor (service ^. #brokers))
+    _ <- first invalid (mergeBrokerConnectionEnvs [brokerEnv, localBrokerEnv])
+    pure (service & #env %~ mergeGenerated (mergeGenerated localBrokerEnv generated)
+      & #brokers .~ [])) (app ^. #service)
   workersWithConnection <- traverse (\worker -> do
     generated <- first invalid (declaredConnectionEnv app (worker ^. #databases))
-    pure (worker & #env %~ mergeGenerated generated)) (app ^. #workers)
+    localBrokerEnv <- first invalid (brokerEnvFor (worker ^. #brokers))
+    _ <- first invalid (mergeBrokerConnectionEnvs [brokerEnv, localBrokerEnv])
+    pure (worker & #env %~ mergeGenerated (mergeGenerated localBrokerEnv generated)
+      & #brokers .~ [])) (app ^. #workers)
   let scopedApp = app & #service .~ serviceWithConnection
         & #workers .~ workersWithConnection
   serviceResult <- case scopedApp ^. #service of
@@ -461,11 +474,24 @@ compileApplicationScope input = do
   (taskBundle, taskNative) <- compileApplicationTasks app (scopeRollout input)
     (scopeCluster input) (scopeNamespace input) (scopeImage input) envSecrets source
   let namespaceBundles = maybe [] (\request -> [ResourceBundle [] [] [] [request] [] []]) namespaceContribution
-      brokerIds = map declarationId (Map.elems (scopeBrokerServices input))
+      brokerIdsFor bindings = Set.toList (Set.fromList
+        [declarationId declaration | binding <- bindings,
+          Just declaration <- [Map.lookup (binding ^. #name) (scopeBrokerServices input)]])
+      appBrokerIds = brokerIdsFor (app ^. #brokers)
       addBrokerResource resource
         | brokerConsumer (resource ^. #address) =
-            resource & #dependencies %~ (<> map OrderedAfter brokerIds)
+            resource & #dependencies %~ (<> map OrderedAfter (brokerDependencies resource))
         | otherwise = resource
+      brokerDependencies resource = Set.toList (Set.fromList (case resource ^. #address of
+        Kubernetes _ "serving.knative.dev" kind _ _
+          | nameText kind == "service" -> appBrokerIds
+              <> maybe [] (brokerIdsFor . (^. #brokers)) (app ^. #service)
+        Kubernetes _ "apps" kind _ name
+          | nameText kind == "deployment" -> appBrokerIds
+              <> maybe [] (brokerIdsFor . (^. #brokers))
+                (find ((== nameText name) . serviceNameText . (^. #name)) (app ^. #workers))
+        Kubernetes _ "batch" kind _ _ | nameText kind == "cronjob" -> appBrokerIds
+        _ -> []))
       addBrokerEdges bundle = bundle & #declarations %~ map (\case
         Managed resource -> Managed (addBrokerResource resource)
         declaration -> declaration)

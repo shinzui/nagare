@@ -173,6 +173,13 @@ manifest. This is deliberate: the config says the workload depends on that
 broker contract. The same check runs for `--dry-run`, so a broker-bound workload
 dry-run also needs the referenced broker and topics to exist.
 
+For `app deploy --save-plan`, an application, Service, or worker may bind to a
+topic-free broker that already has an accepted standalone inventory scope. The
+reviewed workload receives the broker connection values and depends on that
+broker's Service. Other workers do not inherit a Service or worker binding;
+application-level bindings reach every workload. Reviewed topic creation and
+topic-bearing bindings are still pending, so those inputs refuse a saved plan.
+
 ## Worker or service?
 
 Use a **worker** when the process must run continuously, such as a queue

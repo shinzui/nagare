@@ -6961,8 +6961,13 @@ runAppDeployPlan mctx params appOptions output = do
         (foundationCluster, acceptedNamespace) <- either dieT pure
           (acceptedFoundationNamespace snapshot appNamespaceName)
         pure (foundationCluster, acceptedNamespace, Nothing)
-  (brokerServices, brokerEnv) <- either dieT pure
+  (appBrokerServices, brokerEnv) <- either dieT pure
     (acceptedBrokerBindings snapshot cluster appNamespaceName (app ^. #brokers))
+  workloadBrokers <- either dieT pure (traverse
+    (acceptedBrokerBindings snapshot cluster appNamespaceName)
+    (maybe [] (pure . (^. #brokers)) (app ^. #service)
+      <> map (^. #brokers) (app ^. #workers)))
+  let brokerServices = Map.unions (appBrokerServices : map fst workloadBrokers)
   rollout <- resolveAppRolloutWithBrokerEnv params app brokerEnv
   unless (all (\build -> resolveImageTag build (rollout ^. #imageTag)
       == rollout ^. #effectiveTag) builds)
