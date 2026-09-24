@@ -316,6 +316,11 @@ inventoryTransactionTests =
         _ <- initializeStore store fixtureBinding "transfer-test" >>= expectRight
         _ <- seedInventoryHistory store seedCandidate >>= expectRight
         history <- loadInventoryHistory store >>= expectRight
+        case (oldDeclaration, renamed) of
+          (Managed source, Managed destination) ->
+            Map.lookup resourceId (migrationIncarnations (observationRequirements rename history))
+              @?= Just (source, destination)
+          _ -> assertFailure "migration fixture has no managed declarations"
         case planChanges transfer noLifecycleDecisions history observations of
           Left errors -> assertBool "implicit scope transfer was accepted"
             ("owner-transfer-required" `elem` map planErrorCode (NE.toList errors))

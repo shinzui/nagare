@@ -12,6 +12,7 @@ module Nagare.Inventory.Plan
   , observationRequirements
   , requiredResources
   , requirementsByExecutor
+  , migrationIncarnations
   , LifecycleDecisionKind (..)
   , LifecycleProposal (..)
   , LifecycleDecisions
@@ -212,14 +213,25 @@ seedInventoryHistory store candidate = do
 data ObservationRequirements = ObservationRequirements
   { requiredResources :: !(Set ResourceId)
   , requirementsByExecutor :: !(Map Executor [ResourceId])
+  , migrationIncarnations :: !(Map ResourceId (ManagedResource, ManagedResource))
   }
   deriving stock (Eq, Show)
 
 observationRequirements :: CompositionCandidate -> InventoryHistory -> ObservationRequirements
 observationRequirements candidate history =
-  ObservationRequirements ids grouped
+  ObservationRequirements ids grouped migrations
   where
     declarations = inventoryDeclarations (candidateInventory candidate) <> historyDeclarations history
+    desiredManaged = Map.fromList
+      [(resource ^. #identity, resource) | Managed resource <- inventoryDeclarations (candidateInventory candidate)]
+    historicalManaged = Map.fromList
+      [(resource ^. #identity, resource) | Managed resource <- historyDeclarations history]
+    migrations = Map.mapMaybe migration
+      (Map.intersectionWith (,) historicalManaged desiredManaged)
+    migration (source, destination)
+      | source ^. #executor /= destination ^. #executor
+        || source ^. #address /= destination ^. #address = Just (source, destination)
+      | otherwise = Nothing
     managed = [(resource ^. #identity, resource ^. #executor) | Managed resource <- declarations]
       <> [(resourceId, resource ^. #executor)
          | CollectRetained resourceId <- NE.toList (candidateChanges candidate)
