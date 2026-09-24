@@ -103,14 +103,16 @@ logical owner. A changed or unavailable second read leaves health `unknown`.
 A malformed Helm status response is unavailable, while a readable release with
 a missing or mismatched owner stamp is foreign.
 
-The first collection route accepts only retained stateless namespaced ConfigMaps
+The collection route accepts retained stateless namespaced ConfigMaps, Services,
+and CronJobs
 whose lifecycle policy is `DeleteWhenUnreferenced`, whose exact stamped UID is
 present, and whose active and retained consumers are absent. Run `nagarectl
 inventory collect --resource RESOURCE_ID --out REVIEW_DIRECTORY`, inspect the
 ordinary review, then apply it. Admission checks the reviewed Kubernetes
 resourceVersion and UID again. The DELETE request carries both as server-side
 preconditions and uses orphan propagation; the adapter verifies confirmed
-absence before the context head drops the retained claim and records a tombstone
+absence after a bounded deletion wait before the context head drops the
+retained claim and records a tombstone
 bound to the review digest. A replacement or changed object refuses. A resumed
 transaction can finish an already verified tombstone without deleting again.
 Status lists collected tombstones, and `inventory explain RESOURCE_ID --json`
@@ -150,8 +152,9 @@ dependent consumers, an unverified physical identity, an unsupported conditional
 collection transport, or an active transaction.
 The report records `deletionAuthorized: false`; a candidate still needs the
 separate reviewed `inventory collect` transaction before any object can be
-deleted. The current executor supports only stateless namespaced ConfigMaps with
-`DeleteWhenUnreferenced`; other kinds and providers carry an explicit transport
+deleted. The current executor supports stateless namespaced ConfigMaps,
+Services, and CronJobs with `DeleteWhenUnreferenced`; other kinds and providers
+carry an explicit transport
 blocker in this assessment.
 
 ## Operator recovery

@@ -54,11 +54,17 @@ inventoryStatusTests = testGroup "inventory status"
       let supported = resource {lifecycle = DeleteWhenUnreferenced}
           service = supported {address = Kubernetes cluster "" (known (mkName "service"))
             (Just (known (mkName "default"))) (known (mkName "status-fixture"))}
+          cronJob = supported {address = Kubernetes cluster "batch" (known (mkName "cronjob"))
+            (Just (known (mkName "default"))) (known (mkName "status-fixture"))}
+          statefulSet = supported {address = Kubernetes cluster "apps" (known (mkName "statefulset"))
+            (Just (known (mkName "default"))) (known (mkName "status-fixture"))}
           clusterScoped = supported {address = Kubernetes cluster "" (known (mkName "configmap"))
             Nothing (known (mkName "status-fixture"))}
       supportsRetainedCollection supported @?= True
       supportsRetainedCollection resource @?= False
-      supportsRetainedCollection service @?= False
+      supportsRetainedCollection service @?= True
+      supportsRetainedCollection cronJob @?= True
+      supportsRetainedCollection statefulSet @?= False
       supportsRetainedCollection clusterScoped @?= False
   , testCase "read-only status does not initialize a missing inventory store" $
       withSystemTempDirectory "inventory-status" $ \temporary -> do

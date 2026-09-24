@@ -55,6 +55,41 @@ import System.Environment (lookupEnv)
 import System.Exit (ExitCode (ExitSuccess))
 import System.Process (readProcessWithExitCode)
 
+collectOne :: String -> (String, Value) -> IO ()
+collectOne selectedContext (kind, value) = do
+  let bytes = ok (canonicalValue value)
+      bound = Map.singleton resource (ok (bindKubernetesObject
+        (input {inputObject = value, objectDigest = contentDigest bytes,
+          lifecyclePolicy = DeleteWhenUnreferenced, inputSensitivity = Public})))
+      config = KubernetesRuntimeConfig (ok (mkContextId "test")) (T.pack selectedContext) (pure (Right ()))
+      adapter = mkKubernetesAdapter bound (mkKubernetesRuntimeOps config bound)
+      nativeName = "nagare-ep149-collect-" <> kind
+      cleanup = do
+        _ <- readProcessWithExitCode "kubectl"
+          ["--context", selectedContext, "delete", kind, nativeName,
+           "--namespace", "default", "--ignore-not-found"] ""
+        pure ()
+  cleanup
+  (do
+    created <- adapterPrepare adapter createOperation >>= expectRight
+    adapterPreflight adapter createOperation created >>= expectRight
+    adapterExecute adapter createOperation created >>= (@?= AdapterEffectCompleted)
+    _ <- adapterVerify adapter createOperation created >>= expectRight
+    let collectionOperation = operation RetireResource
+    collected <- adapterPrepare adapter collectionOperation >>= expectRight
+    (annotationExit, _, _) <- readProcessWithExitCode "kubectl"
+      ["--context", selectedContext, "annotate", kind, nativeName,
+       "--namespace", "default", "collection-probe=changed"] ""
+    annotationExit @?= ExitSuccess
+    stale <- adapterPreflight adapter collectionOperation collected
+    assertBool "stale resourceVersion must refuse collection" (isLeft stale)
+    refreshed <- adapterPrepare adapter collectionOperation >>= expectRight
+    adapterPreflight adapter collectionOperation refreshed >>= expectRight
+    adapterExecute adapter collectionOperation refreshed >>= (@?= AdapterEffectCompleted)
+    _ <- adapterVerify adapter collectionOperation refreshed >>= expectRight
+    pure ())
+    `finally` cleanup
+
 inventoryKubernetesTests :: TestTree
 inventoryKubernetesTests =
   testGroup
@@ -825,6 +860,26 @@ inventoryKubernetesTests =
               observed <- adapterObserve adapter [resource] >>= expectRight
               Map.lookup resource (observationMap observed) @?= Just (ConfirmedAbsent (contentDigest (TE.encodeUtf8 (resourceIdText resource <> ":absent")))))
               `finally` cleanup
+    , testCase "disposable cluster conditionally collects owned Service and CronJob" $ do
+        selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
+        case selected of
+          Nothing -> pure ()
+          Just selectedContext -> do
+            assertBool "refusing a non-disposable Kubernetes context"
+              ("k3d-nagare-inventory-" `T.isPrefixOf` T.pack selectedContext)
+            let named kind spec = object
+                  ["apiVersion" .= (if kind == "Service" then "v1" else "batch/v1" :: Text)
+                  ,"kind" .= kind
+                  ,"metadata" .= object ["name" .= ("nagare-ep149-collect-" <> T.toLower kind), "namespace" .= ("default" :: Text)]
+                  ,"spec" .= spec]
+                service = named "Service" (object ["ports" .= [object ["port" .= (8080 :: Int)]]])
+                container = object ["name" .= ("run" :: Text), "image" .= ("busybox:1.36" :: Text),
+                  "command" .= (["true"] :: [Text])]
+                pod = object ["restartPolicy" .= ("Never" :: Text), "containers" .= [container]]
+                cronJob = named "CronJob" (object
+                  ["schedule" .= ("0 0 1 1 *" :: Text)
+                  ,"jobTemplate" .= object ["spec" .= object ["template" .= object ["spec" .= pod]]]])
+            mapM_ (collectOne selectedContext) [("service", service), ("cronjob", cronJob)]
     , testCase "private review reconstructs contributed Namespace members" $ do
         state <- newIORef (KubernetesAbsent absence)
         calls <- newIORef (0 :: Int)

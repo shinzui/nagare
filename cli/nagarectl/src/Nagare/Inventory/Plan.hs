@@ -473,7 +473,7 @@ validateLifecycleDecisions candidate history observations proposals =
                 , supportsRetainedCollection old
                 , null [consumer | consumer <- historyDeclarations history <> map (Managed . snd) (Map.elems (historyRetained history)),
                     any ((== resource) . dependencyTarget) (declarationDependencies consumer)] -> []
-              _ -> issue "invalid-collection" "collection needs a selected retained Kubernetes ConfigMap incarnation, exact present UID, stateless deletion policy, and no known consumers"
+              _ -> issue "invalid-collection" "collection needs a selected retained Kubernetes incarnation of a supported kind, exact present UID, stateless deletion policy, and no known consumers"
             ApproveMigration -> issue "unsupported-migration" "migration needs a reviewed data and cutover contract"
        in evidence <> shape
     selectedScopes = Set.fromList

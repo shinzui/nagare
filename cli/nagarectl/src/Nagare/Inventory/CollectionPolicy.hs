@@ -16,5 +16,6 @@ supportsRetainedCollection declaration =
     && declaration ^. #lifecycle == DeleteWhenUnreferenced
     && declaration ^. #dataPolicy == Stateless
     && case declaration ^. #address of
-      Kubernetes _ "" kind (Just _) _ -> nameText kind == "configmap"
+      Kubernetes _ "" kind (Just _) _ -> nameText kind `elem` ["configmap", "service"]
+      Kubernetes _ "batch" kind (Just _) _ -> nameText kind == "cronjob"
       _ -> False

@@ -167,23 +167,43 @@ mkKubernetesRuntimeOpsWithCacheKey config resolveCacheKey specs =
               result <- invoke config arguments (T.unpack body)
               case result of
                 Right (ExitSuccess, _, _)
-                  | mutationAction mutation == RetireResource -> pure AdapterEffectCompleted
+                  | mutationAction mutation == RetireResource ->
+                      waitForCollection config (mutationAddress mutation)
                   | otherwise -> waitForReadiness config (mutationAddress mutation)
                 _ -> pure (AdapterEffectAmbiguous "Kubernetes write did not return success; reobserve before retry")
 
 collectionDeleteRequest :: ProviderAddress -> PhysicalIdentity -> Text -> Either Text ([String], Text)
 collectionDeleteRequest address uid revision = case address of
-  Kubernetes _ "" kind (Just namespace) name | nameText kind == "configmap" -> do
+  Kubernetes _ group kind (Just namespace) name
+    | Just prefix <- collectionPathPrefix group (nameText kind) -> do
     bytes <- canonicalValue (object
       ["apiVersion" .= ("meta.k8s.io/v1" :: Text)
       ,"kind" .= ("DeleteOptions" :: Text)
       ,"preconditions" .= object
         ["uid" .= physicalIdentityText uid, "resourceVersion" .= revision]
       ,"propagationPolicy" .= ("Orphan" :: Text)])
-    let path = "/api/v1/namespaces/" <> T.unpack (nameText namespace)
-          <> "/configmaps/" <> T.unpack (nameText name)
+    let path = prefix <> "/namespaces/" <> T.unpack (nameText namespace)
+          <> "/" <> T.unpack (nameText kind) <> "s/" <> T.unpack (nameText name)
     pure (["delete", "--raw", path, "-f", "-"], TE.decodeUtf8 bytes)
-  _ -> Left "conditional collection supports only namespaced ConfigMaps"
+  _ -> Left "conditional collection does not support this Kubernetes kind"
+
+collectionPathPrefix :: Text -> Text -> Maybe String
+collectionPathPrefix "" kind | kind `elem` ["configmap", "service"] = Just "/api/v1"
+collectionPathPrefix "batch" "cronjob" = Just "/apis/batch/v1"
+collectionPathPrefix _ _ = Nothing
+
+-- | A successful DELETE can precede actual removal, especially for controllers.
+-- Keep the effect ambiguous until the API confirms the address is absent; the
+-- adapter's final verification also checks for a replacement incarnation.
+waitForCollection :: KubernetesRuntimeConfig -> ProviderAddress -> IO AdapterExecution
+waitForCollection config address = case address of
+  Kubernetes _ group kind namespace name -> do
+    let token = kindToken group kind <> "/" <> T.unpack (nameText name)
+    waited <- invoke config (["wait", "--for=delete", token, "--timeout=30s"] <> namespaceArgs namespace) ""
+    pure $ case waited of
+      Right (ExitSuccess, _, _) -> AdapterEffectCompleted
+      _ -> AdapterEffectAmbiguous "Kubernetes delete returned success but removal is not yet confirmed"
+  _ -> pure (AdapterEffectAmbiguous "Kubernetes collection has no native address")
 
 -- | Each admitted kind has disposable-cluster evidence for ownership checks,
 -- UID/resourceVersion handling, and its normal update form. New kinds require

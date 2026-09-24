@@ -62,6 +62,11 @@ provenance:
       at: 2026-09-24T13:22:43Z
       mode: "implement"
       note: "Keep executor-change observations single-valued before migration review"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-24T18:03:32Z
+      mode: "implement"
+      note: "Extend exact reviewed collection to stateless Services and CronJobs with disposable proof"
 ---
 
 # Explain drift and execute reviewed adoption migration and retirement
@@ -101,6 +106,7 @@ This plan delivers provider-independent lifecycle planning plus inventory status
 - [x] (2026-09-23) M1 partial: Explain now includes consumers from both active and retained declarations, and traces a retained resource's own prerequisites to their historical owner and source. A two-resource retirement fixture proves the dependency remains visible after both active declarations leave the accepted scope vector. Focused retirement and dependency tests pass; collection still needs its complete dependency and recovery gates.
 - [x] (2026-09-23) M3/M4 partial: `inventory gc --plan --out DIRECTORY` now writes a read-only collection assessment for retained resources, screening policy, durable data, active and retained consumers, exact present UID, and active transactions. Every report explicitly says deletion is unauthorized; a candidate is only eligible to enter a future reviewed collection protocol. The retained-dependent fixture proves a consumer blocker. Deletion execution and tombstones remain open.
 - [x] (2026-09-23) M3/M4 narrow collection route: `CollectRetained` is a versioned candidate change requiring an authoritative retained claim. `inventory collect --resource RESOURCE_ID --out DIRECTORY` reviews an exact historical UID and immutable owner revision for a stateless namespaced ConfigMap with `DeleteWhenUnreferenced` and no known consumers. Admission rechecks the current UID/resourceVersion; the native DELETE carries both server-side preconditions and orphan propagation. Confirmed absence moves the retained entry to a review-bound tombstone; resume is idempotent and logical-ID reuse refuses. Recording-adapter create/retire/collect and disposable native ConfigMap collection pass. A separate disposable raw API probe returned Conflict for stale UID and stale resourceVersion, then deleted the exact incarnation. Broader kinds, durable recovery, and migration remain open.
+- [x] (2026-09-24) M3 collection extension: Retained stateless namespaced Services and CronJobs now share the exact UID/resourceVersion-bound DELETE and tombstone route. A focused disposable cluster test creates, verifies, rejects a stale preflight after a concurrent annotation, conditionally collects, and confirms absence for both kinds. StatefulSet and durable data collection remain closed.
 - [x] (2026-09-23) M4 partial: `inventory recover TRANSACTION --operation OPERATION --decision FILE` accepts a strict version 1 decision bound to the transaction, operation, and immutable review. Under the writer lock it asks the issued adapter to prove completion or safe retry before appending an audited journal state; unresolved and contrary proofs refuse. A focused recording-adapter fixture proves completion without replay, rejects a contrary retry decision and duplicate recovery, and checks strict DTO decoding. Migration and provider-specific forward recovery remain open.
 - [x] (2026-09-23) M1 partial: Read-only status probes Kubernetes Job, CRD, cert-manager, Knative Service, and Deployment conditions independently of configuration drift. It accepts a condition only when the second read has the same UID as the inventory observation, and otherwise leaves health unknown. A pure kind-selection fixture and the CLI executable build pass. Other provider health remains open.
 - [x] (2026-09-23) M2 compatibility: Legacy `platform adopt` now says explicitly in text and JSON that it pins the platform release without adopting any provider object into inventory. The upgrade runbook links the per-resource exact-incarnation adoption review. The legacy status and marker flow remains intact.
@@ -158,6 +164,8 @@ When a known logical resource changed executor, `observationRequirements` reques
 After a migration, read-only status had the same single-valued problem: merging source and destination facts under one ResourceId could misclassify both or reject duplicate observations. Native evidence and observations now stay separate for active and retained incarnations. A retained migration source is screened from collection while that logical ID remains active.
 
 The initial migration operation map associated a migrating ResourceId with its final `RetainSource` stage. Ordinary dependent updates would then run after source retention, while the graph's `SwitchConsumers` stage had no edge to wait for them. The graph now exposes destination verification as the dependency target and makes the switch wait for those updates.
+
+A conditional Service DELETE can return success while the object is still visible with a deletion timestamp. Immediate final verification treated this as an unresolved collection. The native transport now waits up to 30 seconds for the address to disappear; final adapter verification still rejects a replacement incarnation. The disposable Service and CronJob test also forces resourceVersion churn between preparation and preflight and proves refusal before collection.
 
 
 ## Decision Log
@@ -351,6 +359,8 @@ Support types are explicit alternatives in Lifecycle/Migration; identity and pol
 2026-09-24: Added a bounded StatefulSet readiness contract based on its controller generation and ready/updated replicas, alongside the earlier immutable field classification. This is workload health evidence, not application data or schema verification.
 
 2026-09-24: Extended no-delete retirement to stamped Helm releases. Both planning and admission reconstruct the original immutable native contract and require the same exact release Secret UID before recording retained history.
+
+2026-09-24: Extended the existing reviewed collection transport to stateless namespaced Services and CronJobs after a disposable create/collect proof for both kinds. The same historical UID, current resourceVersion, consumer check, and review-bound tombstone apply. StatefulSets remain outside the proved deletion policy.
 
 2026-09-24: Fixed executor-change observation routing so a cross-provider candidate reaches the explicit migration-review guard. The single-valued ordinary observation map now selects only the desired executor for each ResourceId; separate source/destination observation remains part of the unfinished migration protocol.
 

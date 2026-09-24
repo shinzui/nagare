@@ -154,7 +154,7 @@ singleSpec specs operation = do
   (declaration, native) <- maybe (Left "Kubernetes resource has no bound native object") Right (Map.lookup resource specs)
   unless (declaration ^. #identity == resource && declaration ^. #executor == KubernetesExecutor) (Left "bound declaration identity or executor differs")
   when (plannedAction operation == RetireResource && not (supportsRetainedCollection declaration))
-    (Left "reviewed collection currently supports only stateless namespaced ConfigMaps with deletion policy")
+    (Left "reviewed collection supports only proved stateless namespaced kinds with deletion policy")
   when (plannedAction operation == RunDeclaredOperation) $ case declaration ^. #address of
     Kubernetes _ "batch" kind _ _ | nameText kind == "job" -> pure ()
     _ -> Left "Kubernetes declared operation must verify a bound Job"

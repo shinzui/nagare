@@ -1914,7 +1914,7 @@ opts =
                   (info (InventoryGc <$> (flag' () (long "plan" <> help "Write a read-only collection assessment") *> strOption (long "out" <> metavar "DIRECTORY")) <**> helper) (progDesc "Screen retained resources for later collection review"))
                 <> command
                   "collect"
-                  (info (InventoryCollect <$> strOption (long "resource" <> metavar "RESOURCE_ID") <*> strOption (long "out" <> metavar "DIRECTORY") <**> helper) (progDesc "Review exact collection of a retained stateless ConfigMap"))
+                  (info (InventoryCollect <$> strOption (long "resource" <> metavar "RESOURCE_ID") <*> strOption (long "out" <> metavar "DIRECTORY") <**> helper) (progDesc "Review exact collection of a retained stateless Kubernetes resource"))
                 <> command
                   "apply"
                   (info (InventoryApply <$> strArgument (metavar "REVIEW_DIRECTORY") <*> switch (long "yes") <**> helper) (progDesc "Apply an issued inventory review"))
