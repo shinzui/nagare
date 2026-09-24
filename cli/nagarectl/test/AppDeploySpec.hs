@@ -32,6 +32,7 @@ import Nagare.Resource.Policy (RecoveryIntent (..), mkSecretRef)
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Dsl.Load (loadApplication)
+import Nagare.Dsl.Database (dbSecretName)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (AccessMode (ReadWriteOnce), DomainTls (SuppliedTlsSecret), EnvScope (Build), EnvVar (EnvSecretRef), RetentionPolicy (Retain), Volume (..), databaseNameText, mkDomains, mkEnvName, mkImageRef, mkMountPath, mkNamespace, mkQuantity, mkSecretName, mkServiceName, mkVolumeName, runtimeScoped, scopedEnv, serviceNameText)
 import Nagare.Dsl.Worker (Worker (..))
@@ -485,6 +486,33 @@ renderTests =
       case compileApplicationScope (secretInput {scopeEnvSecrets = Map.singleton secretName wrongSecret}) of
         Left _ -> pure ()
         Right _ -> assertFailure "runtime Secret in another namespace was accepted"
+      case app ^. #databases of
+        database : _ -> do
+          let credentialName = unsafe (mkSecretName (dbSecretName (databaseNameText (database ^. #name))))
+              ownSecretApp = app & #env .~ Map.singleton (unsafe (mkEnvName "DB_PASSWORD"))
+                (runtimeScoped (EnvSecretRef credentialName))
+              ownSecretInput = input
+                { scopeApplication = ownSecretApp
+                , scopeRollout = scopeRollout input & #appEnv .~ ownSecretApp ^. #env
+                }
+          (ownScope, _) <- either (fail . show) pure (compileApplicationScope ownSecretInput)
+          let credentials = [member ^. #identity | bundle <- scopeBundles ownScope,
+                Managed member <- declarations bundle,
+                Resource.Kubernetes _ "" kind _ name <- [member ^. #address],
+                Resource.nameText kind == "secret", Resource.nameText name == dbSecretName (databaseNameText (database ^. #name))]
+              workloads = [member | bundle <- scopeBundles ownScope, Managed member <- declarations bundle,
+                Resource.Kubernetes _ group kind _ name <- [member ^. #address],
+                (group == "serving.knative.dev" && Resource.nameText kind == "service")
+                  || (group == "apps" && Resource.nameText kind == "deployment")
+                  || (group == "batch" && Resource.nameText kind == "cronjob"
+                    && not ("nagare-dbbackup-" `T.isPrefixOf` Resource.nameText name))]
+          case credentials of
+            [credentialId] -> do
+              length workloads @?= 5
+              assertBool "application workloads lack their own credential dependency"
+                (all (elem (OrderedAfter credentialId) . (^. #dependencies)) workloads)
+            _ -> assertFailure "application database has no unique credential Secret"
+        _ -> assertFailure "fixture needs an application database"
       let buildSecret = secretApp & #env .~ Map.singleton (unsafe (mkEnvName "PRIVATE_TOKEN"))
             (unsafe (scopedEnv (Set.singleton Build) (EnvSecretRef secretName)))
       case compileApplicationScope (secretInput

@@ -28,7 +28,7 @@ import Nagare.Dsl.Application (Application (..), mkApplication)
 import Nagare.Dsl.Database (Database (..))
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Render (pvcName)
-import Nagare.Dsl.Types (DatabaseName, Deployment (..), DomainSpec (..), DomainTls (..), EnvScope (Runtime), EnvVar (..), ScopedEnvVar (..), SecretName, Volume (..), VolumeName, databaseNameText, domainText, namespaceText, secretNameText, serviceNameText, volumeNameText)
+import Nagare.Dsl.Types (DatabaseName, Deployment (..), DomainSpec (..), DomainTls (..), EnvScope (Runtime), EnvVar (..), ScopedEnvVar (..), SecretName, Volume (..), VolumeName, databaseNameText, domainText, mkSecretName, namespaceText, secretNameText, serviceNameText, volumeNameText)
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Dsl.Worker (Worker (..))
 import Nagare.Dsl.Task (Task (..), mkTask, taskResourceName)
@@ -116,10 +116,6 @@ compileApplicationScope input = do
         <> concatMap (Map.elems . (^. #env)) (app ^. #workers)
         <> concatMap (Map.elems . (^. #env)) (app ^. #tasks)
   requiredEnvSecrets <- first invalid (runtimeSecretNames envValues)
-  unless (Map.keysSet (scopeEnvSecrets input) == Set.fromList requiredEnvSecrets)
-    (Left (invalid "runtime Secret environment requires exactly its typed dependencies"))
-  _ <- traverse (first invalid . secretDependency (scopeCluster input)
-    (namespaceText (app ^. #namespace)) (scopeEnvSecrets input)) requiredEnvSecrets
   case app ^. #service of
     Nothing -> pure ()
     Just service -> unless (null (service ^. #tasks) && service ^. #access == Nothing
@@ -138,16 +134,36 @@ compileApplicationScope input = do
   (databaseBundles, databaseNative) <- compileApplicationDatabases app
     (scopeCluster input) (Just (scopeNamespace input)) (scopeDatabaseRecovery input)
     (scopeBackupBackend input) source
+  ownSecrets <- traverse (\declaration -> case declaration of
+      Managed resource -> case resource ^. #address of
+        Kubernetes _ "" kind (Just _) secretName | nameText kind == "secret" -> do
+          key <- first invalid (mkSecretName (nameText secretName))
+          pure (key, declaration)
+        _ -> Left (invalid "database Secret has an unexpected native address")
+      _ -> Left (invalid "database credential is not a managed Secret"))
+    [declaration | bundle <- databaseBundles, declaration@(Managed resource) <- declarations bundle,
+      case resource ^. #address of
+        Kubernetes _ "" kind _ _ -> nameText kind == "secret"
+        _ -> False]
+  let ownSecretMap = Map.fromList ownSecrets
+      requiredSet = Set.fromList requiredEnvSecrets
+  unless (length ownSecrets == Map.size ownSecretMap)
+    (Left (invalid "database credentials share a Secret name"))
+  unless (Map.keysSet (scopeEnvSecrets input) == requiredSet `Set.difference` Map.keysSet ownSecretMap)
+    (Left (invalid "runtime Secret environment requires exactly its external typed dependencies"))
+  let envSecrets = Map.union ownSecretMap (scopeEnvSecrets input)
+  _ <- traverse (first invalid . secretDependency (scopeCluster input)
+    (namespaceText (app ^. #namespace)) envSecrets) requiredEnvSecrets
   serviceResult <- case app ^. #service of
     Nothing -> Right Nothing
     Just _ -> Just <$> compileApplicationService app (scopeRollout input)
       (scopeCluster input) (scopeNamespace input) (scopeImage input)
-      (scopeServiceVolumeRecovery input) (scopeTlsSecrets input) (scopeEnvSecrets input) source
+      (scopeServiceVolumeRecovery input) (scopeTlsSecrets input) envSecrets source
   (workerBundles, workerNative) <- compileApplicationWorkers app (scopeRollout input)
     (scopeCluster input) (scopeNamespace input) (scopeImage input)
-    (scopeWorkerVolumeRecovery input) (scopeEnvSecrets input) source
+    (scopeWorkerVolumeRecovery input) envSecrets source
   (taskBundle, taskNative) <- compileApplicationTasks app (scopeRollout input)
-    (scopeCluster input) (scopeNamespace input) (scopeImage input) (scopeEnvSecrets input) source
+    (scopeCluster input) (scopeNamespace input) (scopeImage input) envSecrets source
   let namespaceBundles = maybe [] (\request -> [ResourceBundle [] [] [] [request] [] []]) namespaceContribution
       bundles = namespaceBundles <> databaseBundles <> maybe [] (pure . fst) serviceResult
         <> workerBundles <> [taskBundle]
