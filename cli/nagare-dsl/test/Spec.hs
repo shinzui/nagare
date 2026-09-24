@@ -25,7 +25,7 @@ import Nagare.Dsl.Build
 import Nagare.Dsl.Config (encodeBroker, encodeDatabase, encodeDeployment, encodeTask)
 import Nagare.Dsl.Database
 import Nagare.Resource.Database (DatabaseDirectInput (..), compileDatabaseBundle, compileDatabaseDirect, databaseResourceId)
-import Nagare.Resource.Application (deploymentResourceId, taskResourceId, volumeResourceId)
+import Nagare.Resource.Application (deploymentResourceId, domainMappingResourceId, taskResourceId, volumeResourceId)
 import Nagare.Resource.Broker (brokerResourceId)
 import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (..), ManagedResource (..))
 import Nagare.Resource.Policy (DataPolicy (..), LifecyclePolicy (DeleteWhenUnreferenced), RecoveryIntent (..), Sensitivity (..), mkSecretRef)
@@ -954,6 +954,19 @@ extendedModelTests =
       assertInfix "/healthz" yaml
   , testCase "renderDomainMappings emits one document per domain" $
       length (renderDomainMappings richDep) @?= 2
+  , testCase "pinned domain key survives JSON round-trip and hostname rename" $ do
+      case unsafe (mkDomains [("first.example.com", True)]) of
+        [domain] -> do
+          let keyed = domain & #logicalKey .~ Just (unsafe (mkLogicalKey "public-entry"))
+              renamed = keyed & #domain .~ unsafe (mkDomain "second.example.com")
+              owner = unsafe (mkScopeId Application "hello")
+              deployment = helloDep & #domains .~ [keyed]
+          decodeDeployment (toStrict (encodeDeployment deployment)) @?= Right deployment
+          domainMappingResourceId owner keyed @?= domainMappingResourceId owner renamed
+          assertBool "unpinned hostname rename kept its resource identity"
+            (domainMappingResourceId owner domain /= domainMappingResourceId owner
+              (domain & #domain .~ unsafe (mkDomain "second.example.com")))
+        other -> assertFailure ("expected one DomainSpec, got " <> show (length other))
   , testCase "supplied TLS secret is explicit in DomainMapping spec" $ do
       case unsafe (mkDomains [("secure.example.com", True)]) of
         [automatic] ->

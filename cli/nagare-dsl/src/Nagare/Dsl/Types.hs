@@ -506,6 +506,9 @@ data DomainTls
 -- canonical" invariant for a non-empty list and defaults TLS to automatic.
 data DomainSpec = DomainSpec
   { domain :: !Domain
+  , logicalKey :: !(Maybe LogicalKey)
+  -- ^ Pin before a hostname rename to preserve the DomainMapping identity.
+  -- A new key is a new resource and still needs reviewed lifecycle handling.
   , canonical :: !Bool
   , tls :: !DomainTls
   }
@@ -532,7 +535,7 @@ mkDomains pairs = do
   where
     toSpec (host, isCanon) = do
       d <- mkDomain host
-      Right (DomainSpec {domain = d, canonical = isCanon, tls = AutomaticTls})
+      Right (DomainSpec {domain = d, logicalKey = Nothing, canonical = isCanon, tls = AutomaticTls})
     firstDuplicate = go Set.empty
     go _ [] = Nothing
     go seen (x : xs)

@@ -411,10 +411,11 @@ scopeTokensJSON sev = map (Text.pack . show) (Set.toAscList (sev ^. #scopes))
 domainSpecJSON :: DomainSpec -> Value
 domainSpecJSON ds =
   object
-    [ "domain" .= domainText (ds ^. #domain)
+    ( [ "domain" .= domainText (ds ^. #domain)
     , "canonical" .= (ds ^. #canonical)
     , "tls" .= domainTlsJSON (ds ^. #tls)
-    ]
+    ] <> maybe [] (\key -> ["logicalKey" .= logicalKeyText key]) (ds ^. #logicalKey)
+    )
   where
     domainTlsJSON AutomaticTls = object ["mode" .= ("automatic" :: Text)]
     domainTlsJSON (SuppliedTlsSecret secret) =

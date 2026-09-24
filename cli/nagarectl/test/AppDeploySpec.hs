@@ -23,7 +23,7 @@ import Data.Text.Encoding qualified as TE
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.App.Deploy
-import Nagare.Inventory.Application (ApplicationScopeInput (..), compileApplicationScope, compileApplicationService, compileApplicationTasks, compileApplicationWorkers)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), compileApplicationScope, compileApplicationService, compileStandaloneService, compileApplicationTasks, compileApplicationWorkers)
 import Nagare.Resource.Application (applicationScopeId, volumeResourceId)
 import Nagare.Resource.Database (databaseResourceId)
 import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (..), ManagedResource (..), DesiredSpec (KnativeService), Contribution (RegisterNamespace), ContributionGrant (NamespaceGrant), ScopeChange (ReplaceScope), candidateGenerations, candidateInventory, composeInventory, contributionResourceId, inventoryDeclarations, inventoryScopes, mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeId)
@@ -159,6 +159,40 @@ renderTests =
       case compileApplicationService supplied testEnv cluster namespaceId publication Map.empty source of
         Left _ -> pure ()
         Right _ -> assertFailure "supplied TLS domain lacked a typed secret dependency"
+  , testCase "standalone Service binds the same rendered object under its own scope" $ do
+      loaded <- loadApplication fixturePath
+      app <- either (fail . show) pure loaded
+      service <- maybe (assertFailure "fixture has no service" >> fail "missing service") pure
+        (app ^. #service)
+      let owner = unsafe (Resource.mkScopeId Resource.Standalone "kizashi-service")
+          foundation = unsafe (Resource.mkScopeId Resource.Platform "foundation")
+          cluster = Resource.mintResourceId foundation
+            (unsafe (Resource.mkLogicalKey "cluster")) (unsafe (Resource.mkName "resource"))
+          namespaceId = Resource.mintResourceId foundation
+            (unsafe (Resource.mkLogicalKey "foundation")) (unsafe (Resource.mkName "namespace-personal"))
+          publication = Resource.mintResourceId foundation
+            (unsafe (Resource.mkLogicalKey "image")) (unsafe (Resource.mkName "publication"))
+          independent = service & #databases .~ []
+          rollout = testEnv & #appName .~ serviceNameText (service ^. #name)
+          source = Resource.SourceLocation "test" "standalone-service"
+      (scope, native) <- either (fail . show) pure
+        (compileStandaloneService owner independent rollout cluster namespaceId publication Map.empty source)
+      let members = [member | bundle <- scopeBundles scope, Managed member <- declarations bundle]
+      case members of
+        [member] -> do
+          member ^. #owner @?= owner
+          Map.keys native @?= [member ^. #identity]
+        other -> assertFailure ("unexpected standalone service members: " <> show other)
+      case app ^. #databases of
+        database : _ ->
+          case compileStandaloneService owner (independent & #databases .~ [database ^. #name])
+              rollout cluster namespaceId publication Map.empty source of
+            Left _ -> pure ()
+            Right _ -> assertFailure "standalone Service accepted an unbound database"
+        [] -> assertFailure "fixture has no database for the dependency refusal check"
+      case compileStandaloneService foundation independent rollout cluster namespaceId publication Map.empty source of
+        Left _ -> pure ()
+        Right _ -> assertFailure "standalone Service accepted a platform owner"
   , testCase "worker deployments and retained PVCs join the application scope" $ do
       loaded <- loadApplication fixturePath
       app <- either (fail . show) pure loaded

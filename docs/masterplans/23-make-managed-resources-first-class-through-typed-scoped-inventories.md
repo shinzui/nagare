@@ -300,6 +300,8 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-24) EP-148 M1 partial: A standalone Redpanda broker without topics compiles three direct Kubernetes members with retained PVC recovery; topic-bearing brokers refuse pending logical operation ownership.
 - [x] (2026-09-24) EP-148 M1 partial: Database and broker builders refuse renderer/member count drift before binding roles; command-path parity remains open.
 - [x] (2026-09-24) EP-148 M1 partial: Database native binding refuses duplicate or missing declaration IDs before retaining execution bytes.
+- [x] (2026-09-24) EP-148 M1 partial: Standalone web Services reuse the application native binder under independent scope identity; unsupported intent refuses.
+- [x] (2026-09-24) EP-148 M1 partial: Optional DomainMapping keys preserve logical identity across reviewed hostname changes and survive config round-trip.
 - [ ] EP-148 M1: Complete application/data scopes.
 - [x] (2026-09-24) EP-148 M2 partial: Application namespace requests compose under an explicit owner grant and preserve the platform scope revision.
 - [ ] EP-148 M2: Shared contributions, env/secret intent, and publication.
@@ -479,3 +481,7 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 2026-09-24: Extended the database native adapter's parity proof to exact declaration IDs and private member cardinality. No dependency or registry status changed.
 
 2026-09-24: EP-148 now submits namespace contributions through EP-147's owner composer with exact dependency identity. Offline composition proves granted application requests leave the platform scope revision unchanged and ungranted requests refuse; other EP-148 M2 channels remain open.
+
+2026-09-24: EP-148 added a standalone Service scope through the same native binder as an application Service. This expands the M1 supported subset without changing adapter ownership or the EP-150 dependency gate.
+
+2026-09-24: EP-148 added optional DomainMapping logical keys to config emission/loading and identity minting. The existing provider-address migration gate remains necessary; no dependency or registry status changed.

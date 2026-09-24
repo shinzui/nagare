@@ -6,6 +6,7 @@ module Nagare.Inventory.Application
   , compileApplicationScope
   , compileApplicationDatabases
   , compileApplicationService
+  , compileStandaloneService
   , compileApplicationWorkers
   , compileApplicationTasks
   ) where
@@ -27,7 +28,7 @@ import Nagare.Dsl.Application (Application (..), mkApplication)
 import Nagare.Dsl.Database (Database (..))
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Render (pvcName)
-import Nagare.Dsl.Types (DatabaseName, DomainSpec (..), DomainTls (AutomaticTls), EnvVar (..), ScopedEnvVar (..), Volume (..), VolumeName, databaseNameText, domainText, namespaceText, serviceNameText, volumeNameText)
+import Nagare.Dsl.Types (DatabaseName, Deployment (..), DomainSpec (..), DomainTls (AutomaticTls), EnvVar (..), ScopedEnvVar (..), Volume (..), VolumeName, databaseNameText, domainText, namespaceText, serviceNameText, volumeNameText)
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Dsl.Worker (Worker (..))
 import Nagare.Dsl.Task (Task (..), mkTask, taskResourceName)
@@ -306,9 +307,52 @@ compileApplicationService app rollout cluster namespaceId imageId recoveryByVolu
   _ <- first invalid (mkApplication app)
   owner <- first invalid (applicationScopeId app)
   service <- maybe (Left (invalid "application has no web service")) Right (app ^. #service)
+  databasePrerequisites <- databaseDependencies app owner (service ^. #databases) invalid
+  compileServiceMembers owner service rollout cluster namespaceId imageId
+    databasePrerequisites recoveryByVolume source
+  where
+    invalid message = inventoryError "invalid-application-service" message
+      & #sources .~ [source]
+      & (:| [])
+
+-- | A separately owned web Service uses the same exact native binding as an
+-- application service. It carries no application database or shared policy
+-- authority; callers must supply the accepted namespace and image identities.
+compileStandaloneService
+  :: ScopeId -> Deployment -> RolloutEnv -> ResourceId -> ResourceId -> ResourceId
+  -> Map VolumeName RecoveryIntent -> SourceLocation
+  -> Either (NonEmpty InventoryError)
+       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileStandaloneService owner service rollout cluster namespaceId imageId recovery source = do
+  unless (scopeKind owner == Standalone)
+    (Left (invalid "standalone service requires a standalone scope"))
+  unless (rollout ^. #appName == serviceNameText (service ^. #name)
+      && rollout ^. #namespace == namespaceText (service ^. #namespace)
+      && Map.null (rollout ^. #appEnv))
+    (Left (invalid "standalone rollout identity, namespace, or environment differs from its service"))
+  unless (null (service ^. #databases))
+    (Left (invalid "standalone database bindings require typed dependencies"))
+  (bundle, native) <- compileServiceMembers owner service rollout cluster namespaceId imageId
+    [] recovery source
+  scope <- mkScopeDeclaration owner [bundle]
+  pure (scope, native)
+  where
+    invalid message = inventoryError "invalid-standalone-service" message
+      & #scopes .~ [owner]
+      & #sources .~ [source]
+      & (:| [])
+
+compileServiceMembers
+  :: ScopeId -> Deployment -> RolloutEnv -> ResourceId -> ResourceId -> ResourceId
+  -> [ResourceId] -> Map VolumeName RecoveryIntent -> SourceLocation
+  -> Either (NonEmpty InventoryError)
+       (ResourceBundle, Map ResourceId (ManagedResource, ByteString))
+compileServiceMembers owner service rollout cluster namespaceId imageId databasePrerequisites recoveryByVolume source = do
   unless (null (service ^. #brokers))
     (Left (invalid "service broker bindings require typed broker dependencies"))
-  databasePrerequisites <- databaseDependencies app owner (service ^. #databases) invalid
+  unless (null (service ^. #tasks) && service ^. #access == Nothing
+      && service ^. #cdn == Nothing)
+    (Left (invalid "service hooks, access, and CDN require typed operations or contributions"))
   unless (all ((== AutomaticTls) . (^. #tls)) (service ^. #domains))
     (Left (invalid "supplied TLS domain requires a typed secret dependency"))
   resource <- first invalid (deploymentResourceId owner (known "service") service)
@@ -317,32 +361,32 @@ compileApplicationService app rollout cluster namespaceId imageId recoveryByVolu
       (volumeRendered, serviceRendered) = splitAt (length volumes) rendered
   serviceBytes <- case serviceRendered of
     ("service", manifest) : _ -> Right manifest
-    _ -> Left (invalid "application service renderer produced unexpected members")
+    _ -> Left (invalid "service renderer produced unexpected members")
   let domainRendered = drop 1 serviceRendered
       domains = service ^. #domains
   unless (length domainRendered == length domains && all ((== "service") . fst) domainRendered)
-    (Left (invalid "application domain renderer produced unexpected members"))
+    (Left (invalid "service domain renderer produced unexpected members"))
   unless (length volumeRendered == length volumes && all ((== "service") . fst) volumeRendered)
-    (Left (invalid "application volume renderer produced unexpected members"))
-  volumeMembers <- traverse (compileVolume owner service) (zip volumes (map snd volumeRendered))
+    (Left (invalid "service volume renderer produced unexpected members"))
+  volumeMembers <- traverse compileVolume (zip volumes (map snd volumeRendered))
   let volumeIds = map ((^. #identity) . fst) volumeMembers
-  serviceMember <- bindOne owner resource DeleteWhenUnreferenced Stateless
+  serviceMember <- bindOne resource DeleteWhenUnreferenced Stateless
     (map OrderedAfter (namespaceId : imageId : volumeIds <> databasePrerequisites)) source serviceBytes
-  domainMembers <- traverse (compileDomain owner resource) (zip domains (map snd domainRendered))
+  domainMembers <- traverse (compileDomain resource) (zip domains (map snd domainRendered))
   let members = volumeMembers <> [serviceMember] <> domainMembers
       declarations = [Managed declaration | (declaration, _) <- members]
       native = Map.fromList [(declaration ^. #identity, member) | member@(declaration, _) <- members]
       bundle = ResourceBundle declarations [] [] [] [] []
   _ <- mkScopeDeclaration owner [bundle]
   unless (Map.size native == length members)
-    (Left (invalid "application service members share an identity"))
+    (Left (invalid "service members share an identity"))
   pure (bundle, native)
   where
     known = either (error . T.unpack) id . mkName
-    invalid message = single (inventoryError "invalid-application-service" message
+    invalid message = single (inventoryError "invalid-service-declaration" message
       & #sources .~ [source])
     single errorValue = errorValue :| []
-    compileVolume owner service (volume, bytes) = do
+    compileVolume (volume, bytes) = do
       recovery <- case volume ^. #retention of
         Dsl.Retain -> Just <$> maybe (Left (invalid "retained service volume has no recovery intent")) Right
           (Map.lookup (volume ^. #name) recoveryByVolume)
@@ -352,7 +396,7 @@ compileApplicationService app rollout cluster namespaceId imageId recoveryByVolu
             {path = path source <> "/volume/" <> volumeNameText (volume ^. #name)}
           lifecycle = if volume ^. #retention == Dsl.Retain then Retain else DeleteWhenUnreferenced
           dataPolicy = maybe Stateless Durable recovery
-      member@(declaration, _) <- bindOne owner volumeId lifecycle dataPolicy
+      member@(declaration, _) <- bindOne volumeId lifecycle dataPolicy
         [OrderedAfter namespaceId] volumeSource bytes
       expected <- first invalid (kubernetesAddress cluster "v1" "PersistentVolumeClaim"
         (Just (rollout ^. #namespace))
@@ -360,19 +404,19 @@ compileApplicationService app rollout cluster namespaceId imageId recoveryByVolu
       unless (declaration ^. #address == expected)
         (Left (invalid "service volume render has an unexpected PVC address"))
       pure member
-    compileDomain owner serviceId (domain, bytes) = do
+    compileDomain serviceId (domain, bytes) = do
       domainId <- first invalid (domainMappingResourceId owner domain)
       host <- first invalid (mkName (domainText (domain ^. #domain)))
       let domainSource = source
             {path = path source <> "/domain/" <> domainText (domain ^. #domain)}
-      (declaration, native) <- bindOne owner domainId DeleteWhenUnreferenced Stateless
+      (declaration, native) <- bindOne domainId DeleteWhenUnreferenced Stateless
         [OrderedAfter namespaceId, OrderedAfter serviceId] domainSource bytes
       expected <- first invalid (kubernetesAddress cluster "serving.knative.dev/v1beta1"
         "DomainMapping" (Just (rollout ^. #namespace)) (domainText (domain ^. #domain)))
       unless (declaration ^. #address == expected)
-        (Left (invalid "application domain render has an unexpected address"))
+        (Left (invalid "service domain render has an unexpected address"))
       pure (declaration {aliases = [Hostname host]}, native)
-    bindOne owner resource lifecycle dataPolicy dependencies location bytes = do
+    bindOne resource lifecycle dataPolicy dependencies location bytes = do
       value <- first (invalid . T.pack . show) (Yaml.decodeEither' bytes :: Either Yaml.ParseException Value)
       canonical <- first invalid (canonicalValue value)
       (declaration, native) <- first single (bindKubernetesObject KubernetesInput

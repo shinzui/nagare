@@ -46,7 +46,8 @@ volumeResourceId owner role volume =
 
 domainMappingResourceId :: ScopeId -> DomainSpec -> Either Text ResourceId
 domainMappingResourceId owner domain =
-  mintResourceId owner <$> mkLogicalKey (domainText (domain ^. #domain))
+  mintResourceId owner <$> maybe (mkLogicalKey (domainText (domain ^. #domain))) Right
+    (domain ^. #logicalKey)
     <*> mkName "domain-mapping"
 
 workerResourceId :: ScopeId -> Name -> Worker -> Either Text ResourceId

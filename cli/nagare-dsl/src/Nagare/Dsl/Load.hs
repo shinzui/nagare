@@ -235,6 +235,7 @@ data JsonDomainSpec = JsonDomainSpec
   { domain :: !Text
   , canonical :: !Bool
   , tls :: !(Maybe JsonDomainTls)
+  , logicalKey :: !(Maybe Text)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -244,6 +245,7 @@ instance FromJSON JsonDomainSpec where
       <$> o .: "domain"
       <*> o .:? "canonical" .!= False
       <*> o .:? "tls"
+      <*> o .:? "logicalKey"
 
 data JsonDomainEntry
   = JsonDomainObject !JsonDomainSpec
@@ -267,7 +269,7 @@ toDomainSpecs field entries
   | Just specs <- traverse objectSpec entries = do
       domains' <-
         first (MarshalError field) $
-          mkDomains [(host, isCanonical) | JsonDomainSpec host isCanonical _ <- specs]
+          mkDomains [(host, isCanonical) | JsonDomainSpec host isCanonical _ _ <- specs]
       traverse applyTls (zip specs domains')
   | otherwise = Left (MarshalError field "domain entries must be either all strings or all objects")
   where
@@ -276,17 +278,21 @@ toDomainSpecs field entries
     objectSpec (JsonDomainObject spec) = Just spec
     objectSpec _ = Nothing
 
-    applyTls (JsonDomainSpec _ _ Nothing, spec) = Right spec
-    applyTls (JsonDomainSpec _ _ (Just (JsonDomainTls "automatic" Nothing)), spec) = Right spec
-    applyTls (JsonDomainSpec _ _ (Just (JsonDomainTls "automatic" (Just _))), _) =
-      Left (MarshalError field "automatic TLS must not name a supplied secret")
-    applyTls (JsonDomainSpec _ _ (Just (JsonDomainTls "supplied-secret" Nothing)), _) =
-      Left (MarshalError field "supplied-secret TLS requires secretName")
-    applyTls (JsonDomainSpec _ _ (Just (JsonDomainTls "supplied-secret" (Just rawSecret))), spec) = do
-      secret <- first (MarshalError field) (mkSecretName rawSecret)
-      Right (withTlsSecret secret spec)
-    applyTls (JsonDomainSpec _ _ (Just (JsonDomainTls unknownMode _)), _) =
-      Left (MarshalError field ("unknown domain TLS mode: " <> unknownMode))
+    applyTls (raw, spec) = do
+      key <- traverse (first (MarshalError field) . mkLogicalKey) (raw ^. #logicalKey)
+      let keyed = spec & #logicalKey .~ key
+      case raw ^. #tls of
+        Nothing -> Right keyed
+        Just (JsonDomainTls "automatic" Nothing) -> Right keyed
+        Just (JsonDomainTls "automatic" (Just _)) ->
+          Left (MarshalError field "automatic TLS must not name a supplied secret")
+        Just (JsonDomainTls "supplied-secret" Nothing) ->
+          Left (MarshalError field "supplied-secret TLS requires secretName")
+        Just (JsonDomainTls "supplied-secret" (Just rawSecret)) -> do
+          secret <- first (MarshalError field) (mkSecretName rawSecret)
+          Right (withTlsSecret secret keyed)
+        Just (JsonDomainTls unknownMode _) ->
+          Left (MarshalError field ("unknown domain TLS mode: " <> unknownMode))
 
 -- | The @healthCheck@ sub-object (see 'Nagare.Dsl.Config'). Every field is
 -- optional so a partial object is reported as a precise 'MarshalError' by

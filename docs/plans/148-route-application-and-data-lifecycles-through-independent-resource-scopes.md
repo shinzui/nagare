@@ -59,6 +59,8 @@ Every supported application-side mutation is either a desired-scope update, a re
 - [x] (2026-09-24) M1 partial: Database and broker scope builders refuse renderer membership changes before role-to-object binding; 450 DSL tests, 769 operator tests, and the Haskell style check pass.
 - [x] (2026-09-24) M1 partial: Database native binding verifies the complete declaration-ID set and refuses duplicate or missing private members instead of accepting a lossy map.
 - [x] (2026-09-24) M2 partial: Application scopes can submit an explicit namespace contribution bound to their namespace dependency ID. Composition accepts a granted custom namespace without advancing the platform scope revision and refuses an ungranted request; operator tests pass.
+- [x] (2026-09-24) M1 partial: A standalone web Service now compiles under its own scope through the same native service/PVC/domain binder as an application Service. Unsupported database, broker, hook, access, CDN, and supplied TLS inputs still refuse.
+- [x] (2026-09-24) M1 partial: DomainMapping declarations accept an optional stable logical key through config emission/loading; a pinned key retains the ResourceId across a hostname change, which still requires EP-149 review before execution.
 - [ ] M1: Compile applications and standalone services into complete scopes.
 - [ ] M2: Integrate shared-owner contributions, environment intent, and publication.
 - [ ] M3: Route operational and data lifecycle commands through reviewed operations.
@@ -92,6 +94,10 @@ Every supported application-side mutation is either a desired-scope update, a re
 2026-09-24: The database adapter bound each native member to a declaration but then built a `Map` without proving equal membership. A duplicate ID could collapse during that conversion. Binding now compares the exact declaration and native ID sets and counts before returning private execution bytes.
 
 2026-09-24: The shared namespace composer already enforced owner grants, but the application scope compiler had no way to submit a request. An optional owner input now emits `RegisterNamespace` only after checking that its generated ID equals the Namespace ID used by application workloads. An offline composed candidate proves that the platform's accepted scope revision remains fixed, and missing grants refuse. Application command construction and other shared contributions remain open.
+
+2026-09-24: The application Service binder already bound exact rendered bytes for Service, PVC, and DomainMapping members, but it minted IDs in an application scope. Extracting its member binder lets a standalone Service use the same declaration path with its own stable scope. The wrapper requires matching rollout identity and no undeclared shared app environment; it still has no public command cutover.
+
+2026-09-24: DomainMapping IDs previously derived only from the hostname, so a hostname change could not preserve logical identity even when the operator intended a reviewed migration. DomainSpec now carries an optional logical key in config JSON. The unpinned path keeps the previous hostname-derived ID; pinning a key retains the ID, while EP-149 must still authorize any changed provider address.
 
 ## Decision Log
 
