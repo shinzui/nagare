@@ -57,6 +57,11 @@ provenance:
       at: 2026-09-24T04:46:40Z
       mode: "implement"
       note: "Classify immutable StatefulSet identity changes"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-24T13:22:43Z
+      mode: "implement"
+      note: "Keep executor-change observations single-valued before migration review"
 ---
 
 # Explain drift and execute reviewed adoption migration and retirement
@@ -114,6 +119,7 @@ This plan delivers provider-independent lifecycle planning plus inventory status
 - [x] (2026-09-24) M3 migration observation discovery: `observationRequirements` now exposes each accepted logical resource whose executor or address changes as an old/new `ManagedResource` pair. A rename fixture proves the source and destination declarations stay distinct while ordinary planning still refuses migration. Separate dual-incarnation observation, review, execution, and recovery remain open.
 - [x] (2026-09-24) M3 Helm retention: `inventory retire` now keeps a stamped Helm release under its original scope revision and physical release Secret UID without a Helm mutation. Planning and apply reconstruct retained native evidence; admission refuses a changed UID. The recording fixture, full 751-test CLI suite, executable build, and style check pass. Controller-child history, durable data migration, and broader collection remain open.
 - [x] (2026-09-24) M1: Read-only status and explain classify active and retained resources, separate controller health from configuration, expose partial provider coverage and recovery state, and bound findings by observation start/end times. The full 750-test CLI suite and executable build pass. Kinds without a proved condition probe report health `unknown`; unmanaged discovery remains an optional read-only extension.
+- [x] (2026-09-24) M3 migration guard: Ordinary observation requests now select the desired executor once for each logical ID, while `migrationIncarnations` retains the historical source and desired destination declarations separately. An executor-change fixture proves that the old executor is not queried through the single-valued observation map and planning returns `migration-review-required`. All 753 CLI tests and Haskell style checks pass. Dual-incarnation observation and reviewed migration execution remain open.
 - [ ] M2: Plan explicit legacy adoption and ownership transfer.
 - [ ] M3: Plan migration/retirement with retained data and recovery evidence.
 - [ ] M4: Expose lifecycle commands and verify decision/recovery fixtures.
@@ -138,6 +144,8 @@ The ordinary planner classified an accepted ResourceId solely from the observati
 An opaque lifecycle decision could be passed to `planChanges` with a later candidate, accepted history, or observation. Revalidating its proposal detects observation changes; carrying the original composition candidate and history also detects declaration and authority changes that preserve the observation. Disjoint decisions can now be combined only when both were validated for the same context.
 
 The Helm runtime parsed deployment status before reading the Nagare owner stamp. A pending release therefore became `foreign-owner` even when the stamp was valid. Parsing the stamp first retains its ownership and physical identity, while adapter preparation still requires a deployed release. Malformed status responses also need an unavailable category separate from a readable foreign stamp.
+
+When a known logical resource changed executor, `observationRequirements` requested the same ResourceId from both old and new adapters. `observeWithRegistry` then rejected the duplicate before the planner could emit its migration-review refusal. The ordinary observation map can represent only one incarnation per ResourceId; source observation needs a separate, explicitly bound channel.
 
 
 ## Decision Log
@@ -167,6 +175,8 @@ The Helm runtime parsed deployment status before reading the Nagare owner stamp.
 2026-09-24: Extend the scope transfer verification route to Helm releases whose existing adapter proves the stamped context/ResourceId, release revision, and unchanged reviewed native contract. Keep the same two-scope and contract equality requirements as Kubernetes. This is a verification handoff, not a Helm upgrade.
 
 2026-09-24: Treat a known ResourceId's provider address or executor change as requiring a reviewed migration even when the destination is absent or appears already owned. An ordinary create or update observes only one incarnation and cannot prove retention or cutover of the source.
+
+2026-09-24: For ordinary planning, observe the desired incarnation of a known ID exactly once and keep the old/new declaration pair in `migrationIncarnations`. This preserves the fail-closed migration refusal for executor changes without treating a duplicate observation as a provider error. A later migration protocol must observe both incarnations independently and bind both facts into its review.
 
 
 ## Outcomes & Retrospective
@@ -319,3 +329,5 @@ Support types are explicit alternatives in Lifecycle/Migration; identity and pol
 2026-09-24: Added a bounded StatefulSet readiness contract based on its controller generation and ready/updated replicas, alongside the earlier immutable field classification. This is workload health evidence, not application data or schema verification.
 
 2026-09-24: Extended no-delete retirement to stamped Helm releases. Both planning and admission reconstruct the original immutable native contract and require the same exact release Secret UID before recording retained history.
+
+2026-09-24: Fixed executor-change observation routing so a cross-provider candidate reaches the explicit migration-review guard. The single-valued ordinary observation map now selects only the desired executor for each ResourceId; separate source/destination observation remains part of the unfinished migration protocol.

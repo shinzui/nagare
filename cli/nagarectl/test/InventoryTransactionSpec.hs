@@ -300,6 +300,14 @@ inventoryTransactionTests =
                 (ok (mkName "renamed-config"))})
               _ -> error "fixture resource must be managed"
             renamedScope = ok (mkScopeDeclaration oldOwner [ResourceBundle [renamed] [] [] [] [] []])
+            movedToHelm = case oldDeclaration of
+              Managed value -> Managed (value
+                { executor = HelmExecutor
+                , address = Helm cluster (ok (mkName "system")) (ok (mkName "config"))
+                , spec = HelmRelease (value ^. #address :| []) (contentDigest "chart")
+                })
+              _ -> error "fixture resource must be managed"
+            helmScope = ok (mkScopeDeclaration oldOwner [ResourceBundle [movedToHelm] [] [] [] [] []])
             dummyScope = ok (mkScopeDeclaration dummyOwner [])
             generation = ok (mkScopeGeneration 1)
             snapshot = ok (mkScopeSnapshot fixtureBinding
@@ -310,6 +318,7 @@ inventoryTransactionTests =
             changedTransfer = ok (composeInventory snapshot
               (RetireScope oldOwner RetainResources :| [ReplaceScope changedScope]))
             rename = ok (composeInventory snapshot (ReplaceScope renamedScope :| []))
+            changeExecutor = ok (composeInventory snapshot (ReplaceScope helmScope :| []))
             observations = ok (observationSet
               [(resourceId, ObservedPresent (ok (mkPhysicalIdentity "same-uid")))])
         store <- newMemoryStore
@@ -321,6 +330,13 @@ inventoryTransactionTests =
             Map.lookup resourceId (migrationIncarnations (observationRequirements rename history))
               @?= Just (source, destination)
           _ -> assertFailure "migration fixture has no managed declarations"
+        let requirements = observationRequirements changeExecutor history
+        Map.lookup resourceId (migrationIncarnations requirements)
+          @?= case (oldDeclaration, movedToHelm) of
+            (Managed source, Managed destination) -> Just (source, destination)
+            _ -> Nothing
+        Map.lookup KubernetesExecutor (requirementsByExecutor requirements) @?= Nothing
+        Map.lookup HelmExecutor (requirementsByExecutor requirements) @?= Just [resourceId]
         case planChanges transfer noLifecycleDecisions history observations of
           Left errors -> assertBool "implicit scope transfer was accepted"
             ("owner-transfer-required" `elem` map planErrorCode (NE.toList errors))
@@ -335,6 +351,10 @@ inventoryTransactionTests =
           Left failures -> assertBool "an address rename became an ordinary update"
             ("migration-review-required" `elem` map planErrorCode (NE.toList failures))
           Right _ -> assertFailure "an address rename became an ordinary update"
+        case planChanges changeExecutor noLifecycleDecisions history newAddressAbsent of
+          Left failures -> assertBool "an executor change skipped migration review"
+            ("migration-review-required" `elem` map planErrorCode (NE.toList failures))
+          Right _ -> assertFailure "an executor change became an ordinary create"
         let decision = LifecycleProposal resourceId ApproveTransfer
               (lifecycleObservationDigest fixtureBinding resourceId
                 (ObservedPresent (ok (mkPhysicalIdentity "same-uid"))))

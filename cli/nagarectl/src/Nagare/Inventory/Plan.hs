@@ -221,7 +221,6 @@ observationRequirements :: CompositionCandidate -> InventoryHistory -> Observati
 observationRequirements candidate history =
   ObservationRequirements ids grouped migrations
   where
-    declarations = inventoryDeclarations (candidateInventory candidate) <> historyDeclarations history
     desiredManaged = Map.fromList
       [(resource ^. #identity, resource) | Managed resource <- inventoryDeclarations (candidateInventory candidate)]
     historicalManaged = Map.fromList
@@ -232,7 +231,13 @@ observationRequirements candidate history =
       | source ^. #executor /= destination ^. #executor
         || source ^. #address /= destination ^. #address = Just (source, destination)
       | otherwise = Nothing
-    managed = [(resource ^. #identity, resource ^. #executor) | Managed resource <- declarations]
+    -- The ordinary observation map has one entry per logical resource. For a
+    -- changed executor it must ask only the destination adapter; otherwise
+    -- observeWithRegistry receives duplicate IDs and refuses before the
+    -- planner can report the required migration review. The source remains
+    -- available separately in migrationIncarnations for a future dual read.
+    managed = [(resourceId, resource ^. #executor)
+      | (resourceId, resource) <- Map.toAscList (Map.union desiredManaged historicalManaged)]
       <> [(resourceId, resource ^. #executor)
          | CollectRetained resourceId <- NE.toList (candidateChanges candidate)
          , Just (_, resource) <- [Map.lookup resourceId (historyRetained history)]]
