@@ -24,19 +24,22 @@ import Data.Text.Encoding qualified as TE
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.App.Deploy
-import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedSecretBindings, applicationNativeOwned, applicationVolumeRecoveryBindings, nativeWorkloadOwned, compileApplicationScope, compileApplicationService, compileStandaloneService, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedBrokerBindings, acceptedSecretBindings, applicationNativeOwned, applicationVolumeRecoveryBindings, nativeWorkloadOwned, compileApplicationScope, compileApplicationService, compileStandaloneService, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings)
+import Nagare.Inventory.DataService (compileStandaloneBroker)
+import Nagare.Dsl.Broker (BrokerBinding (..), mkTopicName)
 import Nagare.Resource.Application (applicationScopeId, volumeResourceId)
 import Nagare.Resource.Database (databaseResourceId)
-import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (..), ManagedResource (..), DesiredSpec (KnativeService), Contribution (RegisterNamespace), ContributionGrant (NamespaceGrant), ScopeChange (ReplaceScope), candidateGenerations, candidateInventory, composeInventory, contributionResourceId, inventoryDeclarations, inventoryScopes, mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeId)
+import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (..), ManagedResource (..), DesiredSpec (KnativeService), Contribution (RegisterNamespace), ContributionGrant (NamespaceGrant), ScopeChange (ReplaceScope), candidateGenerations, candidateInventory, composeInventory, contributionResourceId, declarationId, inventoryDeclarations, inventoryScopes, mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeId)
 import Nagare.Resource.Policy (RecoveryIntent (..), mkSecretRef)
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types qualified as Resource
-import Nagare.Dsl.Load (loadApplication)
+import Nagare.Dsl.Load (loadApplication, loadBroker)
 import Nagare.Dsl.Database (dbSecretName)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (AccessMode (ReadWriteOnce), DomainTls (SuppliedTlsSecret), EnvScope (Build), EnvVar (EnvSecretRef), RetentionPolicy (Retain), Volume (..), databaseNameText, mkDomains, mkEnvName, mkImageRef, mkMountPath, mkNamespace, mkQuantity, mkSecretName, mkServiceName, mkVolumeName, runtimeScoped, scopedEnv, serviceNameText)
 import Nagare.Dsl.Worker (Worker (..))
 import Nagare.Dsl.Presets (attachVolume)
+import Nagare.Env.Generated (mergeGenerated)
 import Nagare.Target (InventoryStoreKind (..), Mode (..), PulumiBackendKind (..), TargetProfile (..))
 import System.Exit (ExitCode (..))
 import Test.Tasty
@@ -345,6 +348,7 @@ renderTests =
             , scopeNamespace = namespaceId
             , scopeNamespaceContributionOwner = Nothing
             , scopeImage = publication
+            , scopeBrokerServices = Map.empty
             , scopeDatabaseRecovery = Map.fromList
                 [(database ^. #name, recovery) | database <- app ^. #databases]
             , scopeServiceVolumeRecovery = Map.empty
@@ -396,6 +400,51 @@ renderTests =
       assertBool "reviewed workloads omit credential Secret references"
         (all (BS.isInfixOf "POSTGRES_PASSWORD") workloadBytes
           && all (BS.isInfixOf "secretKeyRef") workloadBytes)
+      loadedBroker <- loadBroker "../nagare-dsl/test/fixtures/broker/redpanda/nagare/Config.hs"
+      broker <- either (fail . show) pure loadedBroker
+      let brokerOwner = unsafe (Resource.mkScopeId Resource.Standalone "broker-events")
+          brokerRecovery = RecoveryIntent (unsafe (Resource.mkName "backup"))
+            (mkSecretRef (unsafe (Resource.mkName "broker-key"))
+              (unsafe (Resource.mkName "v1")) :| [])
+          brokerBinding = BrokerBinding (broker ^. #name) []
+          brokerApp = app & #brokers .~ [brokerBinding]
+      (brokerScope, _) <- either (fail . show) pure (compileStandaloneBroker
+        (broker & #topics .~ []) brokerOwner cluster namespaceId brokerRecovery
+        (Resource.SourceLocation "test" "broker"))
+      brokerSnapshot <- either (fail . show) pure (mkScopeSnapshot historyBinding
+        (Map.singleton brokerOwner (unsafe (Resource.mkScopeGeneration 1), brokerScope)) Map.empty)
+      (brokerServices, brokerEnv) <- either (fail . T.unpack) pure
+        (acceptedBrokerBindings brokerSnapshot cluster "personal" [brokerBinding])
+      let brokerInput = input
+            { scopeApplication = brokerApp
+            , scopeRollout = scopeRollout input & #appEnv .~ mergeGenerated brokerEnv (app ^. #env)
+            , scopeBrokerServices = brokerServices
+            }
+      (brokerAppScope, brokerNative) <- either (fail . show) pure
+        (compileApplicationScope brokerInput)
+      let brokerServiceIds = map declarationId (Map.elems brokerServices)
+          brokerWorkloads =
+            [member | bundle <- scopeBundles brokerAppScope, Managed member <- declarations bundle
+            , case member ^. #address of
+                Resource.Kubernetes _ "apps" kind _ _ -> kind == unsafe (Resource.mkName "deployment")
+                Resource.Kubernetes _ "serving.knative.dev" kind _ _ -> kind == unsafe (Resource.mkName "service")
+                _ -> False]
+      assertBool "reviewed workloads omit the accepted broker dependency"
+        (all (\member -> all (\resource -> OrderedAfter resource `elem` member ^. #dependencies)
+          brokerServiceIds) brokerWorkloads)
+      assertBool "reviewed workload bytes omit the broker connection"
+        (any (BS.isInfixOf "KAFKA_BOOTSTRAP_SERVERS" . snd) (Map.elems brokerNative))
+      assertBool "private native members lost their reviewed broker dependency"
+        (all (\member -> maybe False ((== member) . fst)
+          (Map.lookup (member ^. #identity) brokerNative)) brokerWorkloads)
+      assertBool "unaccepted broker reference was accepted"
+        (isLeft (acceptedBrokerBindings secretSnapshot cluster "personal" [brokerBinding]))
+      assertBool "unreviewed broker topic was accepted"
+        (isLeft (acceptedBrokerBindings brokerSnapshot cluster "personal"
+          [brokerBinding & #topics .~ [unsafe (mkTopicName "orders")]]))
+      assertBool "duplicate broker reference was accepted"
+        (isLeft (acceptedBrokerBindings brokerSnapshot cluster "personal"
+          [brokerBinding, brokerBinding]))
       case compileApplicationScope (input {scopeNamespaceContributionOwner = Just foundation}) of
         Left _ -> pure ()
         Right _ -> assertFailure "namespace contribution used an unrelated namespace identity"

@@ -14,6 +14,7 @@ module Nagare.Inventory.Application
   , acceptedApplicationImage
   , databaseRecoveryBindings
   , acceptedSecretBindings
+  , acceptedBrokerBindings
   , applicationVolumeRecoveryBindings
   ) where
 
@@ -30,7 +31,9 @@ import Data.Text qualified as T
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend)
 import Nagare.App.Deploy (RolloutEnv, renderServiceObjects, renderTaskObjects, renderWorkerObjects)
+import Nagare.Broker.Connection (BrokerConn (..), brokerConnectionEnv, mergeBrokerConnectionEnvs)
 import Nagare.Dsl.Application (Application (..), mkApplication)
+import Nagare.Dsl.Broker (BrokerBinding (..), BrokerName, BrokerProvider (Redpanda), brokerNameText)
 import Nagare.Database.Connection (ConnIdentity (..), connectionEnv, mergeConnectionEnvs)
 import Nagare.Dsl.Database (Database (..), Engine (..), dbSecretName)
 import Nagare.Dsl.Prelude
@@ -174,6 +177,55 @@ acceptedSecretBindings snapshot ids = do
         _ -> Left "accepted resource is not a namespaced Kubernetes Secret"
       _ -> Left "Secret resource is absent or ambiguous in accepted inventory"
 
+-- | Bind an application-level Kafka connection only to a complete accepted
+-- standalone broker. Topic-bearing bindings wait for reviewed logical topic
+-- ownership, so absence cannot be mistaken for a created topic.
+acceptedBrokerBindings
+  :: ScopeSnapshot -> ResourceId -> T.Text -> [BrokerBinding]
+  -> Either T.Text (Map BrokerName Declaration, Map Dsl.EnvName ScopedEnvVar)
+acceptedBrokerBindings snapshot cluster namespaceName bindings = do
+  pairs <- traverse resolve bindings
+  let services = Map.fromList (map fst pairs)
+  unless (length pairs == Map.size services)
+    (Left "application broker bindings repeat a broker")
+  env <- mergeBrokerConnectionEnvs (map snd pairs)
+  pure (services, env)
+  where
+    resolve binding = do
+      unless (null (binding ^. #topics))
+        (Left "broker topics require reviewed logical topic ownership")
+      let name = brokerNameText (binding ^. #name)
+          expected (kind :: T.Text) = kubernetesAddress cluster
+            (if kind == "statefulset" then "apps/v1" else "v1")
+            (if kind == "statefulset" then "StatefulSet" else "Service")
+            (Just namespaceName) name
+      serviceAddress <- expected "service"
+      statefulAddress <- expected "statefulset"
+      let candidates =
+            [ service
+            | (owner, (_, scope)) <- Map.toList (snapshotScopes snapshot)
+            , scopeKind owner == Standalone
+            , bundle <- scopeBundles scope
+            , service@(Managed serviceResource) <- declarations bundle
+            , serviceResource ^. #address == serviceAddress
+            , Just brokerKey <- [T.stripSuffix "/service" (resourceIdText (serviceResource ^. #identity))]
+            , T.isSuffixOf "/broker/service" (path (serviceResource ^. #source))
+            , any (\case
+                Managed member -> member ^. #address == statefulAddress
+                  && resourceIdText (member ^. #identity) == brokerKey <> "/statefulset"
+                  && T.isSuffixOf "/broker/statefulset" (path (member ^. #source))
+                _ -> False) (concatMap declarations (scopeBundles scope))
+            ]
+      service <- case candidates of
+        [found] -> Right found
+        _ -> Left "broker has no unique accepted Service and StatefulSet in one standalone scope"
+      env <- brokerConnectionEnv binding BrokerConn
+        { provider = Redpanda
+        , bootstrapServers = name <> "." <> namespaceName <> ".svc.cluster.local:9092"
+        , topics = []
+        }
+      pure ((binding ^. #name, service), env)
+
 -- | Bind retained PVC recovery by typed Service volume name and by each
 -- worker volume's stable ResourceId. Throwaway volumes cannot borrow a
 -- recovery decision, and a missing retained volume refuses planning.
@@ -247,6 +299,7 @@ data ApplicationScopeInput = ApplicationScopeInput
   -- ^ When present, request this owner to compose the namespace. Composition
   -- still requires that owner's explicit grant to the application scope.
   , scopeImage :: !ResourceId
+  , scopeBrokerServices :: !(Map BrokerName Declaration)
   , scopeDatabaseRecovery :: !(Map DatabaseName RecoveryIntent)
   , scopeServiceVolumeRecovery :: !(Map VolumeName RecoveryIntent)
   , scopeTlsSecrets :: !(Map SecretName Declaration)
@@ -320,10 +373,32 @@ compileApplicationScope input = do
   unless (scopeRollout input ^. #appName == serviceNameText (app ^. #name)
       && scopeRollout input ^. #namespace == namespaceText (app ^. #namespace))
     (Left (invalid "rollout identity differs from the application name or namespace"))
-  unless (scopeRollout input ^. #appEnv == app ^. #env)
-    (Left (invalid "rollout environment differs from the declared application channel"))
-  unless (null (app ^. #brokers) && app ^. #access == Nothing)
-    (Left (invalid "application brokers and access contributions need typed owners"))
+  brokerEnv <- first invalid (mergeBrokerConnectionEnvs =<< traverse
+    (\binding -> do
+      service <- maybe (Left "broker has no typed Service dependency") Right
+        (Map.lookup (binding ^. #name) (scopeBrokerServices input))
+      unless (null (binding ^. #topics))
+        (Left "broker topics require reviewed logical topic ownership")
+      expected <- kubernetesAddress (scopeCluster input) "v1" "Service"
+        (Just (namespaceText (app ^. #namespace))) (brokerNameText (binding ^. #name))
+      case service of
+        Managed resource | resource ^. #address == expected
+          && scopeKind (resource ^. #owner) == Standalone -> pure ()
+        _ -> Left "broker dependency is not an accepted standalone Service at the declared address"
+      brokerConnectionEnv binding BrokerConn
+        { provider = Redpanda
+        , bootstrapServers = brokerNameText (binding ^. #name) <> "."
+            <> namespaceText (app ^. #namespace) <> ".svc.cluster.local:9092"
+        , topics = []
+        }) (app ^. #brokers))
+  unless (Map.keysSet (scopeBrokerServices input)
+      == Set.fromList (map (^. #name) (app ^. #brokers))
+      && Map.size (scopeBrokerServices input) == length (app ^. #brokers))
+    (Left (invalid "broker dependencies must cover exactly the application bindings"))
+  unless (scopeRollout input ^. #appEnv == mergeGenerated brokerEnv (app ^. #env))
+    (Left (invalid "rollout environment differs from the declared application channels"))
+  unless (app ^. #access == Nothing)
+    (Left (invalid "application access contributions need typed owners"))
   let envValues = Map.elems (app ^. #env)
         <> maybe [] (Map.elems . (^. #env)) (app ^. #service)
         <> concatMap (Map.elems . (^. #env)) (app ^. #workers)
@@ -386,11 +461,26 @@ compileApplicationScope input = do
   (taskBundle, taskNative) <- compileApplicationTasks app (scopeRollout input)
     (scopeCluster input) (scopeNamespace input) (scopeImage input) envSecrets source
   let namespaceBundles = maybe [] (\request -> [ResourceBundle [] [] [] [request] [] []]) namespaceContribution
-      bundles = namespaceBundles <> databaseBundles <> maybe [] (pure . fst) serviceResult
-        <> workerBundles <> [taskBundle]
+      brokerIds = map declarationId (Map.elems (scopeBrokerServices input))
+      addBrokerResource resource
+        | brokerConsumer (resource ^. #address) =
+            resource & #dependencies %~ (<> map OrderedAfter brokerIds)
+        | otherwise = resource
+      addBrokerEdges bundle = bundle & #declarations %~ map (\case
+        Managed resource -> Managed (addBrokerResource resource)
+        declaration -> declaration)
+      brokerConsumer = \case
+        Kubernetes _ "serving.knative.dev" kind _ _ -> nameText kind == "service"
+        Kubernetes _ "apps" kind _ _ -> nameText kind == "deployment"
+        Kubernetes _ "batch" kind _ _ -> nameText kind == "cronjob"
+        _ -> False
+      bundles = namespaceBundles <> databaseBundles
+        <> map addBrokerEdges (maybe [] (pure . fst) serviceResult <> workerBundles <> [taskBundle])
       nativeMaps = [databaseNative] <> maybe [] (pure . snd) serviceResult
         <> [workerNative, taskNative]
-      native = Map.unions nativeMaps
+      native = Map.union databaseNative
+        (Map.map (\(resource, bytes) -> (addBrokerResource resource, bytes))
+          (Map.unions (maybe [] (pure . snd) serviceResult <> [workerNative, taskNative])))
       claims = [claim | bundle <- bundles, declaration <- declarations bundle
         , (_, claim) <- NE.toList (claimsOf declaration)]
   scope <- mkScopeDeclaration owner bundles

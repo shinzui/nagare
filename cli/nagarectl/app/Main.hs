@@ -67,7 +67,7 @@ import Nagare.App
   , stopApp
   , streamServiceLogs
   )
-import Nagare.App.Deploy (AppDeployParams (..), RolloutEnv (..), resolveAppRollout, runAppDeployWithGuard)
+import Nagare.App.Deploy (AppDeployParams (..), RolloutEnv (..), resolveAppRolloutWithBrokerEnv, runAppDeployWithGuard)
 import Nagare.App.Deployments
   ( formatDeploymentsTable
   , readDeployments
@@ -270,7 +270,7 @@ import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedApplicationImage, acceptedSecretBindings, applicationNativeOwned, applicationVolumeRecoveryBindings, compileApplicationScope, databaseRecoveryBindings, nativeWorkloadOwned)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedApplicationImage, acceptedBrokerBindings, acceptedSecretBindings, applicationNativeOwned, applicationVolumeRecoveryBindings, compileApplicationScope, databaseRecoveryBindings, nativeWorkloadOwned)
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, compileStandaloneDatabase, databaseNativeOwned, standaloneRetirementScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
@@ -6835,31 +6835,27 @@ runAppDeployPlan mctx params appOptions output = do
         <> map (^. #build) (app ^. #workers)
   when (any requiresBuild builds)
     (dieT "reviewed app deploy requires an already published image")
-  unless (null (app ^. #tasks) && null (app ^. #brokers)
-      && isNothing (app ^. #access))
-    (dieT "reviewed app deploy currently supports service, worker, and database declarations without hooks, brokers, or access")
+  unless (null (app ^. #tasks) && isNothing (app ^. #access))
+    (dieT "reviewed app deploy currently supports service, worker, and database declarations without hooks or access")
   databaseRecovery <- either dieT pure
     (databaseRecoveryBindings app (map T.pack (appOptions ^. #databaseRecovery)))
   (serviceVolumeRecovery, workerVolumeRecovery) <- either dieT pure
     (applicationVolumeRecoveryBindings app
       (map T.pack (appOptions ^. #serviceVolumeRecovery))
       (map T.pack (appOptions ^. #workerVolumeRecovery)))
-  rollout <- resolveAppRollout params app
-  unless (all (\build -> resolveImageTag build (rollout ^. #imageTag)
-      == rollout ^. #effectiveTag) builds)
-    (dieT "application workloads resolve to different prepublished image tags")
   active <- activeTarget mctx
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   snapshot <- Inventory.loadTargetSnapshot active
+  let appNamespaceName = namespaceText (app ^. #namespace)
   (cluster, namespaceId, namespaceOwner) <-
     if appOptions ^. #requestNamespace
       then do
         (foundationCluster, _) <- either dieT pure
           (acceptedFoundationNamespace snapshot "personal")
         foundation <- either dieT pure (Resource.mkScopeId Resource.Platform "foundation")
-        namespaceName <- either dieT pure (Resource.mkName (rollout ^. #namespace))
-        namespaceKey <- either dieT pure (Resource.mkLogicalKey (rollout ^. #namespace))
-        case acceptedFoundationNamespace snapshot (rollout ^. #namespace) of
+        namespaceName <- either dieT pure (Resource.mkName appNamespaceName)
+        namespaceKey <- either dieT pure (Resource.mkLogicalKey appNamespaceName)
+        case acceptedFoundationNamespace snapshot appNamespaceName of
           Right _ -> dieT "requested namespace is already accepted by the platform foundation"
           Left _ -> pure ()
         let request = ResourceInventory.RegisterNamespace foundation foundationCluster
@@ -6867,8 +6863,14 @@ runAppDeployPlan mctx params appOptions output = do
         pure (foundationCluster, ResourceInventory.contributionResourceId request, Just foundation)
       else do
         (foundationCluster, acceptedNamespace) <- either dieT pure
-          (acceptedFoundationNamespace snapshot (rollout ^. #namespace))
+          (acceptedFoundationNamespace snapshot appNamespaceName)
         pure (foundationCluster, acceptedNamespace, Nothing)
+  (brokerServices, brokerEnv) <- either dieT pure
+    (acceptedBrokerBindings snapshot cluster appNamespaceName (app ^. #brokers))
+  rollout <- resolveAppRolloutWithBrokerEnv params app brokerEnv
+  unless (all (\build -> resolveImageTag build (rollout ^. #imageTag)
+      == rollout ^. #effectiveTag) builds)
+    (dieT "application workloads resolve to different prepublished image tags")
   either dieT pure (acceptedApplicationImage snapshot imageId (rollout ^. #taggedAppImage))
   tlsIds <- traverse (either dieT pure . Resource.mkResourceId . T.pack)
     (appOptions ^. #tlsSecretResources)
@@ -6888,6 +6890,7 @@ runAppDeployPlan mctx params appOptions output = do
         , scopeNamespace = namespaceId
         , scopeNamespaceContributionOwner = namespaceOwner
         , scopeImage = imageId
+        , scopeBrokerServices = brokerServices
         , scopeDatabaseRecovery = databaseRecovery
         , scopeServiceVolumeRecovery = serviceVolumeRecovery
         , scopeTlsSecrets = tlsSecrets

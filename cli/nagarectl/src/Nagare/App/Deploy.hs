@@ -22,6 +22,7 @@ module Nagare.App.Deploy
   , runAppDeploy
   , runAppDeployWithGuard
   , resolveAppRollout
+  , resolveAppRolloutWithBrokerEnv
 
     -- * Rollout phases (EP-2 M2)
   , Phase (..)
@@ -484,12 +485,18 @@ runAppDeployWithGuard ownershipGuard p = do
 -- compilation. A reviewed caller checks unsupported broker effects first.
 resolveAppRollout :: AppDeployParams -> Application -> IO RolloutEnv
 resolveAppRollout p app = do
+  brokerEnv <- resolveBrokerEnv (app ^. #namespace) (app ^. #brokers)
+  resolveAppRolloutWithBrokerEnv p app brokerEnv
+
+-- | Reviewed planning supplies broker environment derived from accepted
+-- inventory history, avoiding a live discovery result outside the review.
+resolveAppRolloutWithBrokerEnv
+  :: AppDeployParams -> Application -> Map EnvName ScopedEnvVar -> IO RolloutEnv
+resolveAppRolloutWithBrokerEnv p app brokerEnv = do
   qImg <- case qualifyImage tp (app ^. #image) of
     Left e -> dieT ("nagarectl app deploy: " <> e)
     Right q -> pure q
   imageTag <- resolveTag (T.unpack <$> p ^. #tag)
-  brokerEnv <- resolveBrokerEnv (app ^. #namespace) (app ^. #brokers)
-
   let effTag = maybe imageTag (\b -> resolveImageTag b imageTag) (buildForTag app)
   pure RolloutEnv
           { appName = serviceNameText (app ^. #name)

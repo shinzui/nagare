@@ -15,8 +15,9 @@ generated:
 
 `nagarectl app deploy` can save an inventory review for an application whose
 image is already an accepted OCI publication. The current reviewed path supports
-a web Service, workers, and application databases with explicit recovery bindings.
-It does not yet support hooks, broker bindings, access changes, or build inputs.
+a web Service, workers, application databases with explicit recovery bindings,
+and topic-free references to accepted standalone brokers. It does not yet
+support hooks, broker topics, access changes, or build inputs.
 Its config still goes through
 the typed `Application` loader. Use the exact resource ID of the accepted OCI
 publication, and an explicit tag that resolves to that publication's destination:
@@ -38,6 +39,12 @@ credential fields through references to the database's owned Secret. The review
 contains the references and no password value. Two referenced databases using
 the same engine and environment variable names refuse instead of silently
 selecting one.
+
+An application-level broker binding with no topics uses the accepted standalone
+broker Service in the same cluster and namespace. Planning requires its
+StatefulSet in the same accepted scope, records the Service as a dependency for
+each workload, and derives Kafka connection variables without live discovery.
+A topic reference refuses until logical topic creation has a reviewed operation.
 
 When the application references an already accepted Secret, supply its resource
 ID with `--tls-secret-resource RESOURCE-ID` for a supplied-TLS domain or
