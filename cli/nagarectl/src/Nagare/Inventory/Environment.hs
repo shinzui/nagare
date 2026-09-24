@@ -10,6 +10,7 @@ module Nagare.Inventory.Environment
   , compilePreviewSecretChannel
   , validateSecretRotation
   , acceptedEnvChannelValues
+  , acceptedSecretChannelValues
   ) where
 
 import Data.Aeson (Value (..))
@@ -25,7 +26,7 @@ import Data.Yaml qualified as Yaml
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Render (managedConfigMapName, managedSecretName)
 import Nagare.Dsl.Types (EnvScope (Build, Preview, Runtime))
-import Nagare.Env.Store (renderEnvConfigMap, renderEnvSecret)
+import Nagare.Env.Store (extractSecretData, renderEnvConfigMap, renderEnvSecret)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Resource.Inventory
@@ -139,6 +140,43 @@ acceptedEnvChannelValues snapshot native candidate = case Map.lookup (scopeId ca
           Nothing -> Left "accepted environment channel has no data"
         _ -> Left "accepted environment channel has invalid native bytes"
     _ -> Left "accepted environment channel has unexpected membership"
+
+-- | Recover Secret values only from the accepted private review. Callers must
+-- keep the returned map private and submit a new explicit rotation version.
+acceptedSecretChannelValues
+  :: ScopeSnapshot -> Map ResourceId (ManagedResource, ByteString) -> ScopeDeclaration
+  -> Either T.Text (Map T.Text T.Text)
+acceptedSecretChannelValues snapshot native candidate = case Map.lookup (scopeId candidate) (snapshotScopes snapshot) of
+  Nothing -> Right Map.empty
+  Just (_, scope) -> case
+    [resource | bundle <- scopeBundles scope, Managed resource <- declarations bundle] of
+    [resource] -> do
+      let expected = [member | bundle <- scopeBundles candidate,
+            Managed member <- declarations bundle]
+      unless (case expected of
+          [member] -> member ^. #identity == resource ^. #identity
+            && member ^. #address == resource ^. #address
+          _ -> False)
+        (Left "accepted Secret channel identity or address differs from requested channel")
+      unless (resource ^. #executor == KubernetesExecutor
+          && case resource ^. #address of
+               Kubernetes _ "" kind (Just _) _ -> nameText kind == "secret"
+               _ -> False)
+        (Left "accepted Secret channel is not a namespaced Secret")
+      (nativeResource, bytes) <- maybe (Left "accepted Secret channel has no private native member")
+        Right (Map.lookup (resource ^. #identity) native)
+      unless (nativeResource == resource)
+        (Left "accepted Secret channel native member differs from accepted declaration")
+      value <- first (const "accepted Secret channel has invalid native bytes")
+        (Yaml.decodeEither' bytes :: Either Yaml.ParseException Value)
+      case value of
+        Object fields -> case KM.lookup "data" fields of
+          Just dataValue -> case Aeson.fromJSON dataValue :: Aeson.Result (Map T.Text T.Text) of
+            Aeson.Success _ -> extractSecretData bytes
+            Aeson.Error _ -> Left "accepted Secret channel has invalid data"
+          Nothing -> Left "accepted Secret channel has no data"
+        _ -> Left "accepted Secret channel has invalid native bytes"
+    _ -> Left "accepted Secret channel has unexpected membership"
 
 -- | One opaque version identifies one exact Secret payload. Reusing a version
 -- with different native content would make a rotation receipt ambiguous.

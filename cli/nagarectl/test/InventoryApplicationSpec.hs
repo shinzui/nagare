@@ -13,7 +13,7 @@ import Nagare.Dsl.Prelude
 import Nagare.Inventory.Application (compileApplicationDatabases, reviewedTaskImages)
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), compileFoundation)
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, databaseNativeOwned, standaloneRetirementScope)
-import Nagare.Inventory.Environment (acceptedEnvChannelValues, compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
+import Nagare.Inventory.Environment (acceptedEnvChannelValues, acceptedSecretChannelValues, compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
 import Nagare.Env.Store (ReconcileMode (..), reconcile)
 import Nagare.Resource.Application (applicationScopeId)
 import Nagare.Resource.Inventory (Declaration (Managed), ManagedResource (..), ResourceBundle (..), mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeId)
@@ -131,6 +131,9 @@ inventoryApplicationTests = testGroup "application inventory compilation"
           source = SourceLocation "secret-file" "runtime-secret"
       snapshot <- either (fail . show) pure (mkScopeSnapshot binding
         (Map.singleton (scopeId scope) (checked (mkScopeGeneration 1), scope)) Map.empty)
+      acceptedSecretChannelValues snapshot native scope @?= Right values
+      acceptedSecretChannelValues snapshot Map.empty scope @?=
+        Left "accepted Secret channel has no private native member"
       (changed, _) <- either (fail . show) pure (compileRuntimeSecretChannel
         "kizashi" "personal" cluster namespaceId (checked (mkName "v2"))
         (Map.singleton "TOKEN" "different-value") source)

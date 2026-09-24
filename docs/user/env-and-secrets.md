@@ -119,9 +119,9 @@ nagarectl env list   APP [-f|--config CONFIG] [--all]
 nagarectl env set    APP KEY VALUE [-f|--config CONFIG] [--runtime] [--build] [--preview] [--dry-run] [--save-plan DIR]
 nagarectl env delete APP KEY       [-f|--config CONFIG] [--runtime] [--build] [--preview] [--dry-run] [--save-plan DIR]
 nagarectl env sync   APP --file FILE [-f|--config CONFIG] [--runtime] [--build] [--preview] [--merge | --reconcile-exact] [--dry-run]
-nagarectl secret set    APP KEY    [-f|--config CONFIG] [--runtime] [--build] [--preview] [--dry-run]   # value from stdin
+nagarectl secret set    APP KEY    [-f|--config CONFIG] [--runtime] [--build] [--preview] [--dry-run] [--version TOKEN --save-plan DIR]   # value from stdin
 nagarectl secret list   APP        [-f|--config CONFIG] [--all]
-nagarectl secret delete APP KEY    [-f|--config CONFIG] [--runtime] [--build] [--preview] [--dry-run]
+nagarectl secret delete APP KEY    [-f|--config CONFIG] [--runtime] [--build] [--preview] [--dry-run] [--version TOKEN --save-plan DIR]
 nagarectl secret sync   APP --file FILE --version TOKEN --save-plan DIR [-f|--config CONFIG] [--runtime | --build | --preview]
 ```
 
@@ -235,11 +235,15 @@ with accepted channel history; delete requires the key to exist there. These
 reviewed commands use the same private native evidence and revision binding as
 `env sync --save-plan`.
 
-Runtime, Build, and Preview Secret values also have separate exact reviewed
-input channels. Pass `--build` or `--preview` to select one; Runtime is the default. Supply an
-opaque version token for each rotation. The file must remain available while
-planning; the saved review binds its native Secret bytes and does not print
-them in the public review. A later application deployment preserves this
+Runtime, Build, and Preview Secret values also have separate reviewed
+input channels. `secret set` and `secret delete` can save a review for one key:
+supply both `--version TOKEN` and `--save-plan DIR`. Set reads the value from
+stdin; delete requires the key in accepted history. Both reconstruct the
+complete next Secret from the accepted private review and bind it to the new
+rotation version. Pass `--build` or `--preview` to select one; Runtime is the
+default. `secret sync` takes an exact dotenv file, which must remain available
+while planning. The saved review binds private native Secret bytes and does
+not print them in the public review. A later application deployment preserves this
 channel's revision. Reusing a version with different Secret content is refused.
 A preexisting unmanaged Secret requires reviewed adoption
 before its first managed write.
