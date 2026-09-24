@@ -6524,12 +6524,18 @@ runSiteDeploy mctx sopts = do
   -- and server site records are distinct types.
   case esite of
     Left err -> dieT (Load.renderLoadError err)
-    Right (Load.SiteStatic s) -> case qualifyImage tp (s ^. #image) of
-      Left e -> dieT ("nagarectl deploy: " <> e)
-      Right qimg -> deployStatic mctx tp sopts (s & #image %~ const qimg) bd
-    Right (Load.SiteServer s) -> case qualifyImage tp (s ^. #image) of
-      Left e -> dieT ("nagarectl deploy: " <> e)
-      Right qimg -> deployServer mctx tp sopts (s & #image %~ const qimg) bd
+    Right (Load.SiteStatic s) -> do
+      refuseDirectServiceMutationIfOwned mctx "site deploy"
+        (siteNameText (s ^. #name)) (namespaceText (s ^. #namespace))
+      case qualifyImage tp (s ^. #image) of
+        Left e -> dieT ("nagarectl deploy: " <> e)
+        Right qimg -> deployStatic mctx tp sopts (s & #image %~ const qimg) bd
+    Right (Load.SiteServer s) -> do
+      refuseDirectServiceMutationIfOwned mctx "site deploy"
+        (siteNameText (s ^. #name)) (namespaceText (s ^. #namespace))
+      case qualifyImage tp (s ^. #image) of
+        Left e -> dieT ("nagarectl deploy: " <> e)
+        Right qimg -> deployServer mctx tp sopts (s & #image %~ const qimg) bd
 
 -- | The static (Nginx) deploy path.
 --
@@ -6705,6 +6711,7 @@ runSiteRollback mctx copts rid = do
     Left err -> dieT (Load.renderLoadError err)
     Right sc -> do
       let (name, ns) = siteConfigIdentity sc
+      refuseDirectServiceMutationIfOwned mctx "site rollback" name ns
       elog <- readReleaseLog name ns
       logv <- case elog of
         Left err -> dieT err
@@ -6756,6 +6763,8 @@ runPreviewDeploy mctx sopts pname = do
   imageTag <- resolveTag (sopts ^. #tag)
   let inputs = siteDeployInputs tp sopts site imageTag bd
   m <- orDie (previewManifests inputs pname)
+  refuseDirectServiceMutationIfOwned mctx "site preview deploy"
+    (m ^. #serviceName) (namespaceText (site ^. #namespace))
 
   if sopts ^. #dryRun
     then do
@@ -6790,6 +6799,7 @@ runPreviewDelete mctx copts pname = do
       ns = namespaceText (site ^. #namespace)
   svcName <- orDie (previewServiceName prodName pname)
   pdomText <- orDie (previewDomain prodName pname bd)
+  refuseDirectServiceMutationIfOwned mctx "site preview delete" svcName ns
   deletePreview ns svcName pdomText
   TIO.putStrLn ("Deleted preview: " <> svcName)
 
@@ -6973,7 +6983,7 @@ runAppRestart :: Maybe String -> AppNameOpts -> IO ()
 runAppRestart mctx o = do
   let ns = appNamespace (o ^. #namespace)
       name = T.pack (o ^. #nameArg)
-  refuseDirectServiceMutationIfOwned mctx "restart" name ns
+  refuseDirectServiceMutationIfOwned mctx "app restart" name ns
   stamp <- computeTag
   restartApp ns name stamp
   waitForReady name ns >>= requireWait ("service '" <> name <> "'")
@@ -6984,7 +6994,7 @@ runAppStop :: Maybe String -> AppNameOpts -> IO ()
 runAppStop mctx o = do
   let ns = appNamespace (o ^. #namespace)
       name = T.pack (o ^. #nameArg)
-  refuseDirectServiceMutationIfOwned mctx "stop" name ns
+  refuseDirectServiceMutationIfOwned mctx "app stop" name ns
   stopApp ns name
   TIO.putStrLn
     ( "Stopped "
@@ -7001,7 +7011,7 @@ runAppDelete :: Maybe String -> AppDeleteOpts -> IO ()
 runAppDelete mctx o = do
   let ns = appNamespace (o ^. #namespace)
       name = T.pack (o ^. #nameArg)
-  refuseDirectServiceMutationIfOwned mctx "delete" name ns
+  refuseDirectServiceMutationIfOwned mctx "app delete" name ns
   domains <- resolveDeleteDomains o ns name
   deleteApp ns name domains
   TIO.putStrLn ("Deleted " <> name)
@@ -7372,10 +7382,10 @@ refuseDirectApplicationDeployIfOwned mctx app =
 
 refuseDirectServiceMutationIfOwned :: Maybe String -> Text -> Text -> Text -> IO ()
 refuseDirectServiceMutationIfOwned mctx operation name namespaceName =
-  withAcceptedInventoryHistory mctx ("app " <> operation) $ \history ->
+  withAcceptedInventoryHistory mctx operation $ \history ->
     when (nativeWorkloadOwned "serving.knative.dev" "service" name namespaceName
         (ownedHistoryResources history))
-      (dieT ("Service " <> name <> " is owned by accepted or retained inventory history; direct app " <> operation <> " is refused"))
+      (dieT ("Service " <> name <> " is owned by accepted or retained inventory history; direct " <> operation <> " is refused"))
 
 refuseDirectWorkerDeployIfOwned :: Maybe String -> Text -> Text -> IO ()
 refuseDirectWorkerDeployIfOwned mctx name namespaceName =
