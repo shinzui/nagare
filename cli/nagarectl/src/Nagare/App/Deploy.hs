@@ -96,6 +96,7 @@ import Nagare.Image (configureDockerAuthFor, pushImage, qualifyImage, taggedImag
 import Nagare.Target (TargetProfile (..), storeBackendFor)
 import Nagare.Task.Resolve (predefinedTaskEnv, renderResolvedTask)
 import Nagare.Task.Run (oneOffJobName, runArgs)
+import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..), exitFailure)
 import System.IO (stderr)
 
@@ -447,6 +448,9 @@ toRenderedObject ph bs =
 -- @nagare.dev/app@ label — in rollout order. The live apply path lands in M2/M4.
 runAppDeploy :: AppDeployParams -> IO ()
 runAppDeploy p = do
+  transaction <- lookupEnv "NAGARE_INVENTORY_TRANSACTION"
+  when (isJust transaction) $
+    dieT "app deploy cannot run inside a reviewed inventory transaction"
   eapp <- loadApplication (p ^. #configPath)
   let tp = p ^. #targetProfile
   app <- case eapp of

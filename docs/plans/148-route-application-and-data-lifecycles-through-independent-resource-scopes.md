@@ -50,6 +50,7 @@ Every supported application-side mutation is either a desired-scope update, a re
 - [x] (2026-09-24) M1 partial: The supported multi-workload fixture composes five database members, a service, three workers, and a scheduled CronJob into one scope with ten native members; cross-component ID/address collisions and unsupported fields refuse compilation.
 - [x] (2026-09-24) M1 partial: A Redpanda broker without topics compiles its retained PVC, Service, and StatefulSet into an independent scope with exact native bytes; declared topics refuse pending logical operation ownership.
 - [x] (2026-09-24) M1 partial: Aggregate compilation refuses rollout environment drift and environment Secret references without typed ownership or external dependency evidence.
+- [x] (2026-09-24) M4 partial: Legacy app deploy and broker create refuse inventory transaction re-entry, matching the database create guard, while their public command paths remain active.
 - [ ] M1: Compile applications and standalone services into complete scopes.
 - [ ] M2: Integrate shared-owner contributions, environment intent, and publication.
 - [ ] M3: Route operational and data lifecycle commands through reviewed operations.
@@ -75,6 +76,8 @@ Every supported application-side mutation is either a desired-scope update, a re
 2026-09-24: A co-located task can carry an `app` association that differs from the containing Application while the aggregate renderer still stamps the containing app's label. Aggregate validation now rejects that mismatch before declaration or preview.
 
 2026-09-24: RolloutEnv is currently assembled outside the typed intent channel. Without a match check, its env map could inject values into native workload bytes that the Application did not declare. The supported-subset compiler now requires equality with the Application's env channel and refuses Secret references until a typed external or owned dependency is provided. Separately managed env inputs remain M2 work.
+
+2026-09-24: The inventory executor marks subprocesses with `NAGARE_INVENTORY_TRANSACTION`; only the old database create command refused re-entry. App deploy and broker create now reject that marker before loading input or provider work, preventing an adapter from indirectly invoking a second imperative mutation path.
 
 
 ## Decision Log

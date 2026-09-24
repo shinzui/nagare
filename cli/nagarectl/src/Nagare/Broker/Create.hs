@@ -28,6 +28,7 @@ import Nagare.Dsl.Types
   , namespaceText
   , quantityText
   )
+import System.Environment (lookupEnv)
 import System.Exit (exitFailure)
 import System.IO (stderr)
 
@@ -88,6 +89,9 @@ buildTopic params topicT = do
 
 runBrokerCreate :: BrokerProvider -> Text -> BrokerCreateParams -> IO ()
 runBrokerCreate provider nameT params = do
+  transaction <- lookupEnv "NAGARE_INVENTORY_TRANSACTION"
+  when (isJust transaction) $
+    dieT "broker create cannot run inside a reviewed inventory transaction"
   broker <- case params ^. #config of
     Just path -> do
       eBroker <- loadBroker path
