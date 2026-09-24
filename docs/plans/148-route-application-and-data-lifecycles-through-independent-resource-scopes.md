@@ -46,6 +46,7 @@ Every supported application-side mutation is either a desired-scope update, a re
 - [x] (2026-09-24) M1 partial: Automatic-TLS DomainMappings compile as distinct native members with exact hostname claims and service ordering; supplied TLS refuses pending a typed Secret dependency.
 - [x] (2026-09-24) M1 partial: Workers have optional stable logical keys and compile as independently identified Deployment/PVC members in the application scope, with namespace/image/PVC ordering and explicit recovery for retained PVCs.
 - [x] (2026-09-24) M1 partial: Application services and workers now order after their declared database StatefulSets; broker bindings refuse until their typed dependencies exist.
+- [x] (2026-09-24) M1 partial: Scheduled task CronJobs compile from the same resolved preview bytes and carry optional stable logical keys; invoking a migration hook remains outside this declaration-only step.
 - [ ] M1: Compile applications and standalone services into complete scopes.
 - [ ] M2: Integrate shared-owner contributions, environment intent, and publication.
 - [ ] M3: Route operational and data lifecycle commands through reviewed operations.
@@ -61,6 +62,8 @@ Every supported application-side mutation is either a desired-scope update, a re
 2026-09-24: Automatic-TLS DomainMappings can join the same service bundle with a `Hostname` alias claim, so two scopes cannot silently route one hostname. A supplied TLS Secret is supported by the legacy renderer but lacks a typed resource/capability dependency in this component; compilation refuses that case until the dependency is supplied rather than assuming the namespace-local Secret is ready.
 
 2026-09-24: The application loader sorts workers by name, so worker resource identity must derive from each worker's validated name or pinned logical key rather than list position. Each worker PVC uses a role that includes its worker key, preventing two workers' equal volume names from sharing a recovery grant.
+
+2026-09-24: The current Task render describes a CronJob, while running a pre-deploy migration creates a separate Job with unknown data effects. The CronJob can be a native declaration now; managed hook execution still requires a reviewed operation with affected resources and recovery semantics.
 
 
 ## Decision Log

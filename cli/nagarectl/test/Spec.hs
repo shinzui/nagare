@@ -2100,6 +2100,7 @@ taskResolveTests =
         mkTask
           Task
             { name = unsafe (mkServiceName "sync")
+            , logicalKey = Nothing
             , namespace = unsafe (mkNamespace "personal")
             , schedule = unsafe (mkSchedule "*/15 * * * *")
             , image = Nothing

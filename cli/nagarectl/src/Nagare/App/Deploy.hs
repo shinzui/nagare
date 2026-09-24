@@ -35,6 +35,7 @@ module Nagare.App.Deploy
   , renderAppObjects
   , renderServiceObjects
   , renderWorkerObjects
+  , renderTaskObjects
   , stampAppLabel
 
     -- * Machine-readable plan (EP-2 M3, the kotei contract)

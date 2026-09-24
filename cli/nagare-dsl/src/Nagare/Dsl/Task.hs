@@ -44,6 +44,7 @@ import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Text qualified as Text
 import Nagare.Dsl.Prelude
+import Nagare.Resource.Types (LogicalKey)
 import Nagare.Dsl.Types
   ( EnvName
   , ImageRef
@@ -218,6 +219,7 @@ parseRestartPolicy _ = Nothing
 -- a command or an inheriting app+image).
 data Task = Task
   { name :: !ServiceName
+  , logicalKey :: !(Maybe LogicalKey)
   -- ^ DNS-1123 label; the CronJob is named @nagare-task-\<name\>@ (IP3).
   , namespace :: !Namespace
   , schedule :: !Schedule
@@ -297,6 +299,7 @@ scheduledTask nameT scheduleT imageT commandT = do
   mkTask
     Task
       { name = n
+      , logicalKey = Nothing
       , namespace = defaultNamespace
       , schedule = sched
       , image = Just img

@@ -171,7 +171,7 @@ encodeTask = encode . taskJSON
 -- | The JSON shape the loader reads back (see 'Nagare.Dsl.Load.decodeTask').
 taskJSON :: Task -> Value
 taskJSON t =
-  object
+  object $
     [ "kind" .= ("Task" :: Text)
     , "name" .= serviceNameText (t ^. #name)
     , "namespace" .= namespaceText (t ^. #namespace)
@@ -193,6 +193,7 @@ taskJSON t =
     , "failedJobsHistoryLimit" .= (t ^. #failedJobsHistoryLimit)
     , "startingDeadlineSeconds" .= (t ^. #startingDeadlineSeconds)
     ]
+      <> maybe [] (\key -> ["logicalKey" .= logicalKeyText key]) (t ^. #logicalKey)
   where
     res = t ^. #resources
     taskEnvJSON (n, sev) = case sev ^. #value of

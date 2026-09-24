@@ -79,6 +79,7 @@ migrateTask =
     mkTask
       Task
         { name = unsafe (mkServiceName "kizashi-migrate")
+        , logicalKey = Nothing
         , namespace = unsafe (mkNamespace "personal")
         , schedule = unsafe (mkSchedule "0 0 * * *")
         , image = Nothing

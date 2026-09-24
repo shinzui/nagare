@@ -22,7 +22,7 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Yaml qualified as Yaml
 import Nagare.App.Deploy
-import Nagare.Inventory.Application (compileApplicationService, compileApplicationWorkers)
+import Nagare.Inventory.Application (compileApplicationService, compileApplicationTasks, compileApplicationWorkers)
 import Nagare.Resource.Application (applicationScopeId, volumeResourceId)
 import Nagare.Resource.Database (databaseResourceId)
 import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (Managed), ManagedResource (..), DesiredSpec (KnativeService))
@@ -211,6 +211,31 @@ renderTests =
       assertBool "worker volume has an owner declaration"
         (any ((== volumeId) . (^. #identity))
           [member | bundle <- volumeBundles, Managed member <- declarations bundle])
+  , testCase "application scheduled task binds its reviewed CronJob bytes" $ do
+      loaded <- loadApplication fixturePath
+      app <- either (fail . show) pure loaded
+      let foundation = unsafe (Resource.mkScopeId Resource.Platform "foundation")
+          cluster = Resource.mintResourceId foundation
+            (unsafe (Resource.mkLogicalKey "cluster")) (unsafe (Resource.mkName "resource"))
+          namespaceId = Resource.mintResourceId foundation
+            (unsafe (Resource.mkLogicalKey "foundation")) (unsafe (Resource.mkName "namespace-personal"))
+          publication = Resource.mintResourceId foundation
+            (unsafe (Resource.mkLogicalKey "image")) (unsafe (Resource.mkName "publication"))
+          source = Resource.SourceLocation "test" "tasks"
+      (bundle, native) <- either (fail . show) pure
+        (compileApplicationTasks app testEnv cluster namespaceId publication source)
+      owner <- either (fail . show) pure (applicationScopeId app)
+      case declarations bundle of
+        [Managed task] -> do
+          task ^. #owner @?= owner
+          task ^. #dependencies @?= [OrderedAfter namespaceId, OrderedAfter publication]
+          case task ^. #address of
+            Resource.Kubernetes _ "batch" kind _ name -> do
+              kind @?= unsafe (Resource.mkName "cronjob")
+              name @?= unsafe (Resource.mkName "nagare-task-kizashi-migrate")
+            other -> assertFailure ("unexpected task address: " <> show other)
+          Map.keys native @?= [task ^. #identity]
+        other -> assertFailure ("unexpected task declarations: " <> show other)
   , testCase "the rollout begins with the public-certificate namespace opt-in" $ do
       result <- loadApplication fixturePath
       case result of

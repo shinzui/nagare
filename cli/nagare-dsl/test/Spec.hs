@@ -25,7 +25,7 @@ import Nagare.Dsl.Build
 import Nagare.Dsl.Config (encodeBroker, encodeDatabase, encodeDeployment, encodeTask)
 import Nagare.Dsl.Database
 import Nagare.Resource.Database (DatabaseDirectInput (..), compileDatabaseBundle, compileDatabaseDirect, databaseResourceId)
-import Nagare.Resource.Application (deploymentResourceId, volumeResourceId)
+import Nagare.Resource.Application (deploymentResourceId, taskResourceId, volumeResourceId)
 import Nagare.Resource.Broker (brokerResourceId)
 import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (..), ManagedResource (..))
 import Nagare.Resource.Policy (DataPolicy (..), LifecyclePolicy (DeleteWhenUnreferenced), RecoveryIntent (..), Sensitivity (..), mkSecretRef)
@@ -1098,6 +1098,7 @@ standaloneTask =
     mkTask
       Task
         { name = unsafe (mkServiceName "cleanup")
+        , logicalKey = Nothing
         , namespace = unsafe (mkNamespace "personal")
         , schedule = unsafe (mkSchedule "0 3 * * *")
         , image = Just (unsafe (mkImageRef "gcr.io/myproject/notes"))
@@ -1126,6 +1127,7 @@ appTask =
     mkTask
       Task
         { name = unsafe (mkServiceName "sync")
+        , logicalKey = Nothing
         , namespace = unsafe (mkNamespace "personal")
         , schedule = unsafe (mkSchedule "*/15 * * * *")
         , image = Nothing
@@ -1169,6 +1171,14 @@ taskTests =
       "JSON round-trip and kind discrimination"
       [ testCase "standalone task survives emit -> decode round-trip" $
           decodeTask (toStrict (encodeTask standaloneTask)) @?= Right standaloneTask
+      , testCase "pinned task key survives rename and JSON round-trip" $ do
+          let key = unsafe (mkLogicalKey "cleanup")
+              pinned = standaloneTask & #logicalKey .~ Just key
+              renamed = pinned & #name .~ unsafe (mkServiceName "cleanup-new")
+              owner = unsafe (mkScopeId Application "notes")
+              role = unsafe (mkName "cronjob")
+          decodeTask (toStrict (encodeTask renamed)) @?= Right renamed
+          taskResourceId owner role pinned @?= taskResourceId owner role renamed
       , testCase "app-associated task round-trips" $
           decodeTask (toStrict (encodeTask appTask)) @?= Right appTask
       , testCase "decoding a Task as a Deployment is UnexpectedKind" $

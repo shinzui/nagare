@@ -90,7 +90,7 @@ that will outlive the plans.
 4. **Logical identity comes from a stable key, not the provider name.** A changed key is a new
    resource. Only a reviewed migration makes a rename anything else.
    An application scope may pin an explicit logical key before its display name changes;
-   without one, its current declared name supplies the scope key. Deployment, worker, broker, and
+   without one, its current declared name supplies the scope key. Deployment, worker, task, broker, and
    volume values follow the same optional-key rule for their resource identities.
 5. **Authority to cause effects exists only under the writer lock.** A plan verified against a
    snapshot is evidence, not permission. Admission under the lock re-checks the head, reservations,

@@ -22,6 +22,7 @@ task = first show $ do
   mkTask
     Task
       { name = n
+      , logicalKey = Nothing
       , namespace = ns
       , schedule = sched
       , image = Nothing

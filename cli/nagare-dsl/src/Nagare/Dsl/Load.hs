@@ -879,6 +879,7 @@ decodeDatabase bs =
 -- is a precise 'MarshalError', not an aeson parse error.
 data JsonTask = JsonTask
   { name :: !Text
+  , logicalKey :: !(Maybe Text)
   , namespace :: !Text
   , schedule :: !Text
   , image :: !(Maybe Text)
@@ -904,6 +905,7 @@ instance FromJSON JsonTask where
   parseJSON = withObject "Task" $ \o ->
     JsonTask
       <$> o .: "name"
+      <*> o .:? "logicalKey"
       <*> o .: "namespace"
       <*> o .: "schedule"
       <*> o .:? "image"
@@ -931,6 +933,7 @@ instance FromJSON JsonTask where
 toTask :: JsonTask -> Either LoadError Task
 toTask j = do
   name' <- first (MarshalError "name") $ mkServiceName (j ^. #name)
+  logicalKey' <- traverse (first (MarshalError "logicalKey") . mkLogicalKey) (j ^. #logicalKey)
   ns' <- first (MarshalError "namespace") $ mkNamespace (j ^. #namespace)
   sched' <- first (MarshalError "schedule") $ mkSchedule (j ^. #schedule)
   img' <- traverse (first (MarshalError "image") . mkImageRef) (j ^. #image)
@@ -957,6 +960,7 @@ toTask j = do
     mkTask
       Task
         { name = name'
+        , logicalKey = logicalKey'
         , namespace = ns'
         , schedule = sched'
         , image = img'

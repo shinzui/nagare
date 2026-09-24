@@ -39,6 +39,7 @@ dep = first show $ do
     mkTask
       Task
         { name = taskN
+        , logicalKey = Nothing
         , namespace = ns
         , schedule = sched
         , image = Nothing

@@ -42,6 +42,7 @@ deployment = first show $ do
     mkTask
       Task
         { name = taskN
+        , logicalKey = Nothing
         , namespace = ns
         , schedule = sched
         , image = Nothing -- inherit heartbeat-app's image

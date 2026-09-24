@@ -5,6 +5,7 @@ module Nagare.Inventory.Application
   ( compileApplicationDatabases
   , compileApplicationService
   , compileApplicationWorkers
+  , compileApplicationTasks
   ) where
 
 import Data.Aeson (Value)
@@ -17,7 +18,7 @@ import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend)
-import Nagare.App.Deploy (RolloutEnv, renderServiceObjects, renderWorkerObjects)
+import Nagare.App.Deploy (RolloutEnv, renderServiceObjects, renderTaskObjects, renderWorkerObjects)
 import Nagare.Dsl.Application (Application (..), mkApplication)
 import Nagare.Dsl.Database (Database (..))
 import Nagare.Dsl.Prelude
@@ -25,10 +26,11 @@ import Nagare.Dsl.Render (pvcName)
 import Nagare.Dsl.Types (DatabaseName, DomainSpec (..), DomainTls (AutomaticTls), Volume (..), VolumeName, databaseNameText, domainText, serviceNameText, volumeNameText)
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Dsl.Worker (Worker (..))
+import Nagare.Dsl.Task (Task (..), mkTask, taskResourceName)
 import Nagare.Inventory.Database (compileDatabaseForBackend)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
-import Nagare.Resource.Application (applicationScopeId, deploymentResourceId, domainMappingResourceId, volumeResourceId, workerResourceId)
+import Nagare.Resource.Application (applicationScopeId, deploymentResourceId, domainMappingResourceId, taskResourceId, volumeResourceId, workerResourceId)
 import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
@@ -52,6 +54,55 @@ databaseDependencies app owner names invalid = traverse resolve names
         (find ((== dbName) . (^. #name)) (app ^. #databases))
       role <- first invalid (mkName "statefulset")
       first invalid (databaseResourceId owner role database)
+
+-- | Bind scheduled CronJobs from the same resolved image/env render shown by
+-- preview. Executing a hook remains a separate operation with effect proof.
+compileApplicationTasks
+  :: Application -> RolloutEnv -> ResourceId -> ResourceId -> ResourceId -> SourceLocation
+  -> Either (NonEmpty InventoryError)
+       (ResourceBundle, Map ResourceId (ManagedResource, ByteString))
+compileApplicationTasks app rollout cluster namespaceId imageId source = do
+  _ <- first invalid (mkApplication app)
+  owner <- first invalid (applicationScopeId app)
+  members <- traverse (compileTask owner) (app ^. #tasks)
+  let bundle = ResourceBundle (map (Managed . fst) members) [] [] [] [] []
+      native = Map.fromList [(member ^. #identity, pair) | pair@(member, _) <- members]
+  _ <- mkScopeDeclaration owner [bundle]
+  unless (Map.size native == length members)
+    (Left (invalid "scheduled tasks share an identity"))
+  pure (bundle, native)
+  where
+    invalid message = inventoryError "invalid-application-task" message
+      & #sources .~ [source]
+      & (:| [])
+    compileTask owner task = do
+      _ <- first invalid (mkTask task)
+      role <- first invalid (mkName "cronjob")
+      resource <- first invalid (taskResourceId owner role task)
+      rendered <- first invalid (renderTaskObjects rollout task)
+      bytes <- case rendered of
+        [("hook", manifest)] -> Right manifest
+        _ -> Left (invalid "task renderer produced unexpected members")
+      value <- first (invalid . T.pack . show) (Yaml.decodeEither' bytes :: Either Yaml.ParseException Value)
+      canonical <- first invalid (canonicalValue value)
+      let taskSource = source {path = path source <> "/task/" <> serviceNameText (task ^. #name)}
+      (declaration, native) <- first (:| []) (bindKubernetesObject KubernetesInput
+        { resourceId = resource
+        , ownerScope = owner
+        , clusterId = cluster
+        , inputObject = value
+        , objectDigest = contentDigest canonical
+        , lifecyclePolicy = DeleteWhenUnreferenced
+        , inputDataPolicy = Stateless
+        , inputSensitivity = Private
+        , sourceLocation = taskSource
+        })
+      expected <- first invalid (kubernetesAddress cluster "batch/v1" "CronJob"
+        (Just (rollout ^. #namespace))
+        (taskResourceName (serviceNameText (task ^. #name))))
+      unless (declaration ^. #address == expected)
+        (Left (invalid "task render has an unexpected CronJob address"))
+      pure (declaration {dependencies = map OrderedAfter [namespaceId, imageId]}, native)
 
 -- | Compile each application worker's PVCs and Deployment from one render.
 -- Recovery is keyed by the generated volume ResourceId so an unrelated

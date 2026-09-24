@@ -83,6 +83,7 @@ applicationConfig = do
     mkTask
       Task
         { name = migrateNm
+        , logicalKey = Nothing
         , namespace = ns
         , schedule = sched
         , image = Nothing
