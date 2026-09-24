@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "candidate": "../compiled-candidate",
+  "binding": {
+    "identity": "context-1",
+    "project": "project"
+  },
+  "resources": [
+    {
+      "resource": "platform:foundation/cache/resource",
+      "address": {
+        "tag": "Kubernetes",
+        "contents": ["platform:foundation/cluster/resource", "", "service", "nagare-system", "cache"]
+      },
+      "physicalIdentity": "replace-with-observed-cache-service-uid"
+    }
+  ]
+}

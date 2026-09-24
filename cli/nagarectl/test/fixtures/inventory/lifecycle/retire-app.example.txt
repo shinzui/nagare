@@ -1,0 +1,6 @@
+Compile or accept the application scope first, then review retirement:
+
+nagarectl inventory retire --scope application:app --out REVIEW_DIRECTORY
+nagarectl inventory apply REVIEW_DIRECTORY --yes
+
+Inspect inventory status and gc --plan before requesting any collection.

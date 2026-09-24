@@ -389,3 +389,11 @@ evidence identifiers alone do not prove backup, compatibility, fencing, or
 recovery; a provider adapter must verify those facts before issuing a usable
 review. A retained migration source is not collectible while its logical ID
 remains active under the current collection route.
+
+The current `DeleteWhenUnreferenced` policy has no configured minimum age and
+is used only for the proved stateless ConfigMap deletion route. `Retain` and
+`Protect` never imply an elapsed-time deletion grant. Durable or timed
+retention needs a typed policy and provider backup/recovery evidence before
+collection can be reviewed. The head continues to reserve a migrated source
+while its logical destination is active; source-specific collection requires
+an incarnation-aware tombstone and adapter binding in later work.

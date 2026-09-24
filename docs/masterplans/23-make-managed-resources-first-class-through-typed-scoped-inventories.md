@@ -86,6 +86,11 @@ provenance:
       at: 2026-09-24T04:46:40Z
       mode: "implement"
       note: "Track EP-149 StatefulSet immutable classification"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-24T14:21:55Z
+      mode: "implement"
+      note: "Complete EP-149 provider-independent lifecycle and update dependent plan gates"
 ---
 
 # Make managed resources first-class through typed scoped inventories
@@ -128,7 +133,7 @@ Rejected alternatives were isolated platform/application inventories without sha
 | 146 | Reconcile cloud host and artifact resources through inventory adapters | docs/plans/146-reconcile-cloud-host-and-artifact-resources-through-inventory-adapters.md | EP-144, EP-145 | EP-149 | Complete |
 | 147 | Compile cluster bootstrap into owned resource components | docs/plans/147-compile-cluster-bootstrap-into-owned-resource-components.md | EP-144, EP-145 | EP-146, EP-149 | Complete |
 | 148 | Route application and data lifecycles through independent resource scopes | docs/plans/148-route-application-and-data-lifecycles-through-independent-resource-scopes.md | EP-146, EP-147, EP-149 | EP-151 | Not Started |
-| 149 | Explain drift and execute reviewed adoption migration and retirement | docs/plans/149-explain-drift-and-execute-reviewed-adoption-migration-and-retirement.md | EP-144, EP-145 | EP-146, EP-147 | In Progress |
+| 149 | Explain drift and execute reviewed adoption migration and retirement | docs/plans/149-explain-drift-and-execute-reviewed-adoption-migration-and-retirement.md | EP-144, EP-145 | EP-146, EP-147 | Complete |
 | 150 | Integrate resource inventories into upgrades and release verification | docs/plans/150-integrate-resource-inventories-into-upgrades-and-release-verification.md | EP-146, EP-147, EP-148, EP-149, EP-151 | None | Not Started |
 | 151 | Store inventory history in the context state bucket with conditional writes | docs/plans/151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes.md | EP-145 | EP-146 | Complete |
 
@@ -268,9 +273,9 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-23) EP-147 M3: Cloud/local components, owner-composed auth settings, foundation Namespace/certificate policy, and bounded host timer credential delegation are recorded and validated.
 - [x] (2026-09-23) EP-147 M4: Supported bootstrap orchestration enters reviewed inventory; the disposable full bootstrap and accepted replay converged.
 - [x] (2026-09-24) EP-149 M1: Read-only drift, status, explanation, retained findings, provider coverage, controller health, and recovery visibility; the full 750-test CLI suite and executable build pass.
-- [ ] EP-149 M2: Reviewed adoption and transfer.
-- [ ] EP-149 M3: Data-preserving migration and retention/collection.
-- [ ] EP-149 M4: Commands and recovery decision fixtures.
+- [x] (2026-09-24) EP-149 M2: Versioned per-resource adoption, known-owner Kubernetes/Helm transfer, and explicit legacy platform-version adoption boundary.
+- [x] (2026-09-24) EP-149 M3: Provider-independent reviewed dual-incarnation migration graph, retained history and claims, conservative collection, and recording data/recovery proofs. Native migration stages and broader deletion remain for provider/integration work.
+- [x] (2026-09-24) EP-149 M4: Lifecycle commands, normal recording-adapter migration review publication, status/explain and recovery fixtures, and operator examples. All 762 nagarectl tests pass.
 - [x] (2026-09-23) EP-151 M1: Bounded live GCS conditional-write probe and transport decision.
 - [x] (2026-09-23) EP-151 M2: Object-backed store passed the shared conformance suite against fake and real GCS operations.
 - [x] (2026-09-23) EP-151 M3: Context selection, guarded opening, and resumable migration.
@@ -286,6 +291,8 @@ These ownership, identity, review, storage, migration, and controller-delegation
 
 
 ## Surprises & Discoveries
+
+2026-09-24: EP-149's single-valued ordinary observation and adapter registries cannot represent a migrated source and destination under one ResourceId. Separate paired observations, a canonical migration review marker, and disjoint retained claims now carry the generic contract. EP-148 and EP-150 must use the two-incarnation path for address/executor changes and must not infer adoption or deletion from a provider stamp or missing declaration. Production migration stage verification remains their adapter/integration responsibility.
 
 2026-09-23: EP-149 found that the operator adoption DTO required an unowned observation but the lower-level lifecycle validator still accepted stamped present/drifted resources without accepted history. The validator and planner now refuse those resources. EP-148 must use the versioned proposal path and cannot treat provider stamps as recovered ownership authority.
 
@@ -355,6 +362,8 @@ One question is open and is the operator's to decide. ADR 13 moved tan-nb-exp's 
 
 ## Decision Log
 
+2026-09-24: Mark EP-149 Complete at its explicitly provider-independent boundary: exact adoption and retirement routes have native proof where implemented, and migration is proved by command-path and stage-aware recording adapters while production provider stages still refuse. EP-148 and EP-150 remain responsible for application command migration and real provider/integrated coverage; completion of this child does not authorize unproved migration or collection. ADR 22 records the durable two-incarnation and recovery constraints.
+
 2026-09-24: Keep immutable replacement distinct from configuration drift at the shared observation boundary. An adapter may report replacement required, but the generic planner must refuse an ordinary update until EP-149 provides a reviewed replacement or migration contract. ADR 22 records this durable rule.
 
 2026-09-23: Keep adoption authority consistent at the operator DTO, generic lifecycle validator, and planner boundaries. A matching provider stamp without accepted history is not proof of ownership; the current route requires an unowned physical incarnation. Rationale: direct callers of the shared validator must not bypass the reviewed proposal's ownership check.
@@ -393,7 +402,7 @@ One question is open and is the operator's to decide. ADR 13 moved tan-nb-exp's 
 
 ## Outcomes & Retrospective
 
-EP-144, EP-145, EP-146, EP-147, and EP-151 are complete as of 2026-09-23; EP-149 is in progress and EP-148/EP-150 remain. Cloud, host, artifact, and cluster bootstrap scopes have production adapters behind typed composition, digest-bound review, lock-scoped admission, durable receipt, and recovery. EP-148 can now consume EP-147's database and shared-owner interfaces while retaining its EP-149 lifecycle dependency. Completion still requires all eight child outcomes, IR-24's full verification set, independent-scope isolation, complete declaration/execution parity, removed compatibility paths, legacy recovery compatibility, and EP-150's integrated release evidence. The disposable EP-147 bootstrap proves local component convergence; it does not substitute for EP-150's cloud and upgrade rehearsal.
+EP-144, EP-145, EP-146, EP-147, EP-149, and EP-151 are complete as of 2026-09-24; EP-148/EP-150 remain. Cloud, host, artifact, and cluster bootstrap scopes have production adapters behind typed composition, digest-bound review, lock-scoped admission, durable receipt, and recovery. EP-148 can now consume EP-147's database/shared-owner interfaces and EP-149's lifecycle decisions. Completion still requires all eight child outcomes, IR-24's full verification set, independent-scope isolation, complete declaration/execution parity, removed compatibility paths, legacy recovery compatibility, and EP-150's integrated release evidence. The disposable EP-147 bootstrap proves local component convergence; it does not substitute for EP-150's cloud and upgrade rehearsal. EP-149's recording migration proof does not authorize a native provider migration.
 
 At completion, compare these outcomes with IR-24, update its status only with evidence, and distill durable lessons into ADR 22 and affected existing ADRs. Do not publish a release or modify existing operator deployments as a side effect of updating plan status.
 
@@ -437,3 +446,5 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 2026-09-24: Corrected EP-149 Helm status classification so a pending release with a valid inventory stamp retains its owner evidence and cannot pass mutation verification. Active and retained Helm health now uses a second read bound to the observed revision Secret UID. Migration and dependent child gates remain open.
 
 2026-09-24: Exposed accepted source and desired destination declarations for changed resource addresses/executors in EP-149 observation requirements. The ordinary planner still refuses such changes pending the dual-incarnation review and execution contract; EP-148/150 remain gated.
+
+2026-09-24: Marked EP-149 complete after its provider-independent migration graph, separate incarnation observations, retained history, command-path review, and recording data/recovery fixtures passed. EP-148 may consume its lifecycle contract; EP-150 retains real provider and integrated release acceptance. No dependency edge changed.

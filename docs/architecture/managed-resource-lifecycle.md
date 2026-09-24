@@ -43,7 +43,8 @@ delegations, policies, and source alongside its dependency trace.
 
 Compile the complete candidate with `inventory compile`, then write a version 1 adoption
 proposal. [The example](../../cli/nagarectl/test/fixtures/inventory/lifecycle/adopt.example.json)
-shows its wire shape. `candidate` is relative to the proposal file unless absolute. Its
+shows its wire shape; a [legacy cache Service example](../../cli/nagarectl/test/fixtures/inventory/lifecycle/adopt-cache.example.json)
+uses the same per-resource review. `candidate` is relative to the proposal file unless absolute. Its
 `binding` must equal the candidate's context/project; each resource must name the exact
 composed provider address and a freshly observed physical identity. It does not repeat the
 desired specification, owner, dependencies, or data policy.
@@ -76,7 +77,8 @@ An unreviewed move between files or scopes is refused as `owner-transfer-require
 
 Run `nagarectl inventory retire --scope KIND:NAME --out REVIEW_DIRECTORY` to review
 retention of an accepted scope. `KIND` is `platform`, `application`, `standalone`, or
-`publication`. The current route accepts directly declared Kubernetes resources
+`publication`; the [application example](../../cli/nagarectl/test/fixtures/inventory/lifecycle/retire-app.example.txt)
+shows the review and apply commands. The current route accepts directly declared Kubernetes resources
 and stamped Helm releases whose exact owned UIDs can be observed. It refuses if another scope still depends
 on the retiring declarations or if a disappearing resource lacks the required
 retention proof. A scope with observed controller children also refuses until
@@ -121,7 +123,7 @@ refuses while the same logical ID has an active incarnation.
 
 Changing an accepted ResourceId's provider address or executor requires
 `inventory migrate --input PROPOSAL.json --out REVIEW_DIRECTORY`. The
-[version 1 example](../../cli/nagarectl/test/fixtures/inventory/lifecycle/migrate.example.json)
+[version 1 database Service rename example](../../cli/nagarectl/test/fixtures/inventory/lifecycle/migrate.example.json)
 shows the source address and UID, destination address and absence proof, and
 data contract. The candidate supplies the desired declaration; the input does
 not repeat it. The command observes source and destination through separate

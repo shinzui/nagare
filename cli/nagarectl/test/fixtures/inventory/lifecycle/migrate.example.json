@@ -7,17 +7,17 @@
   },
   "resources": [
     {
-      "resource": "application:app/service/resource",
+      "resource": "standalone:database/service/resource",
       "sourceAddress": {
         "tag": "Kubernetes",
-        "contents": ["platform:foundation/cluster/resource", "", "service", "nagare-system", "old-service"]
+        "contents": ["platform:foundation/cluster/resource", "", "service", "nagare-system", "database-old"]
       },
       "sourcePhysicalIdentity": "replace-with-observed-source-uid",
       "destinationAddress": {
         "tag": "Kubernetes",
-        "contents": ["platform:foundation/cluster/resource", "", "service", "nagare-system", "new-service"]
+        "contents": ["platform:foundation/cluster/resource", "", "service", "nagare-system", "database-new"]
       },
-      "destinationAbsence": "replace-with-observed-absence-digest",
+      "destinationAbsence": "0000000000000000000000000000000000000000000000000000000000000000",
       "contract": {"mode": "stateless"}
     }
   ]

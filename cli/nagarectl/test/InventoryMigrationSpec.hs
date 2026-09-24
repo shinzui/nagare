@@ -1,7 +1,9 @@
 module InventoryMigrationSpec (inventoryMigrationTests) where
 
+import Control.Exception (bracket)
 import Data.Aeson (object, (.=))
-import Data.Either (isLeft)
+import Data.ByteString qualified as BS
+import Data.Either (isLeft, isRight)
 import Data.IORef
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
@@ -13,6 +15,7 @@ import Data.Text.Encoding qualified as TE
 import Control.Monad (forM_)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
+import Nagare.Inventory.Command (compileInput, openTargetStore, planInventoryMigrationWith)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
 import Nagare.Inventory.Journal (operationIdText)
@@ -25,13 +28,56 @@ import Nagare.Resource.Policy
 import Nagare.Resource.Reference (Dependency (..))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
+import Nagare.Resource.Wire (CandidateInput (..), candidateInputValue)
+import Nagare.Target (ActiveTarget (..), mkContextName, profileFromContextMap)
 import InventoryTransactionSpec (recordingRegistryWith)
+import System.Directory (createDirectoryIfMissing)
+import System.Environment (lookupEnv, setEnv, unsetEnv)
+import System.FilePath ((</>))
+import System.IO.Temp (withSystemTempDirectory)
 import Test.Tasty
 import Test.Tasty.HUnit
 
 inventoryMigrationTests :: TestTree
 inventoryMigrationTests = testGroup "inventory migration"
-  [ testCase "reviewed migration retains the old incarnation after an ordered recording run" $ do
+  [ testCase "versioned command publishes a normal migration review with paired observers" $
+      withSystemTempDirectory "inventory-migrate" $ \root ->
+      withStateRoot root $ do
+        let compiled = root </> "candidate"
+            proposalFile = root </> "migration.json"
+            reviewDirectory = root </> "review"
+            sourceAdapter = observingAdapter (ObservedPresent physical)
+            destinationAdapter = observingAdapter (ConfirmedAbsent absence)
+            registryFor adapter _ _ = pure (ok (mkAdapterRegistry [adapter]))
+            proposalBytes = ok (canonicalValue (object
+              ["version" .= (1 :: Int), "candidate" .= ("candidate" :: Text),
+               "binding" .= binding, "resources" .= [object
+                 ["resource" .= resourceId, "sourceAddress" .= address oldResource,
+                  "sourcePhysicalIdentity" .= physical,
+                  "destinationAddress" .= address newResource,
+                  "destinationAbsence" .= absence,
+                  "contract" .= object ["mode" .= ("stateless" :: Text)]]]]))
+            inputBytes = ok (canonicalValue (candidateInputValue
+              (CandidateInput snapshot (ReplaceScope newScope :| []))))
+            files = ok (compileInput inputBytes)
+            profileValue = profileFromContextMap (Map.singleton "CLOUDSDK_CORE_PROJECT" "project")
+            activeTarget = ActiveTarget (ok (mkContextName "migration")) profileValue
+        createDirectoryIfMissing True (compiled </> "scopes")
+        mapM_ (\(path, bytes) -> BS.writeFile (compiled </> path) bytes) files
+        BS.writeFile proposalFile proposalBytes
+        store <- openTargetStore activeTarget
+        _ <- initializeStore store binding "migration-command-test"
+          >>= either (assertFailure . show) pure
+        let seed = ok (composeInventory snapshot
+              (ReplaceScope (ok (mkScopeDeclaration dummyScope [])) :| []))
+        _ <- seedInventoryHistory store seed >>= either (assertFailure . show) pure
+        planInventoryMigrationWith (registryFor sourceAdapter)
+          (registryFor destinationAdapter) activeTarget proposalFile reviewDirectory
+        public <- loadReviewBundle reviewDirectory >>= either (assertFailure . show) pure
+        Map.keys (reviewMigrations (reviewBundleDocument public)) @?= [resourceId]
+        _ <- loadPublishedReview store (reviewDigest public) >>= either (assertFailure . show) pure
+        pure ()
+  , testCase "reviewed migration retains the old incarnation after an ordered recording run" $ do
       store <- acceptedStore
       history <- loadInventoryHistory store >>= either (assertFailure . show) pure
       let destinationFacts = ok (observationSet [(resourceId, ConfirmedAbsent absence)])
@@ -240,6 +286,9 @@ inventoryMigrationTests = testGroup "inventory migration"
             (RetireScope scope RetainResources :| [ReplaceScope wrongScope]))
       assertCode "invalid-migration" (validateMigrationInput changed history observations input)
   , testCase "proposal decoder rejects unknown fields and incomplete recovery contracts" $ do
+      exampleBytes <- BS.readFile "test/fixtures/inventory/lifecycle/migrate.example.json"
+      assertBool "documented migration example did not decode"
+        (isRight (decodeMigrationInput exampleBytes))
       let valid = object
             [ "version" .= (1 :: Int), "candidate" .= ("compiled" :: Text)
             , "binding" .= binding
@@ -331,3 +380,13 @@ inventoryMigrationTests = testGroup "inventory migration"
     acceptedHistory = do
       store <- acceptedStore
       loadInventoryHistory store >>= either (assertFailure . show) pure
+    observingAdapter fact =
+      let base = ok (lookupAdapter (recordingRegistryWith (\_ _ -> pure (Right ()))
+            (\_ _ -> pure AdapterEffectCompleted) (\_ _ -> pure RecoverySafeToRetry))
+            KubernetesExecutor)
+       in base {adapterObserve = \resources -> pure (observationSet
+            [(resource, fact) | resource <- resources])}
+    withStateRoot root action = bracket
+      (lookupEnv "XDG_STATE_HOME" <* setEnv "XDG_STATE_HOME" root)
+      (maybe (unsetEnv "XDG_STATE_HOME") (setEnv "XDG_STATE_HOME"))
+      (const action)

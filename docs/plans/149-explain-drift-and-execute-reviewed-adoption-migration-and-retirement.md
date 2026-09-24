@@ -126,9 +126,11 @@ This plan delivers provider-independent lifecycle planning plus inventory status
 - [x] (2026-09-24) M3 migration safety follow-up: A retained source sharing an active logical ID now carries an `active-incarnation` collection blocker. The recording fixture checks that screening and rejects a tampered head that removes the canonical migration review marker. The proposal command also refuses a migration stage backed only by the manifest-only adapter. All 758 CLI tests pass; production stage contracts remain open.
 - [x] (2026-09-24) M3 mixed-change ordering: Ordinary updates to declared consumers of a migrating ResourceId now depend on destination verification, and the migration's `SwitchConsumers` stage waits for those updates. A two-resource fixture checks both graph edges; the full CLI suite passes. Provider-specific cutover remains the adapter's responsibility.
 - [x] (2026-09-24) M3 recording data proof: A stage-aware recording adapter now tracks source data, a backup copy, writer fence, destination transfer, consumer switch, and write admission. The run converges only when each stage sees its required predecessor state; the final assertions show source, backup, and destination data all remain equal. The full 761-test CLI suite passes. This is a generic protocol fixture, not a provider backup or schema validation claim.
-- [ ] M2: Plan explicit legacy adoption and ownership transfer.
-- [ ] M3: Plan migration/retirement with retained data and recovery evidence.
-- [ ] M4: Expose lifecycle commands and verify decision/recovery fixtures.
+- [x] (2026-09-24) M4 command-path proof: An isolated local inventory store and compiled candidate exercise `planInventoryMigrationWith` through versioned input, separate source/destination recording observers, normal review publication, and immutable reload. The documented migration DTO decodes. Cache adoption, database Service rename, and application retirement examples are present. All 762 CLI tests pass.
+- [x] (2026-09-24) Final validation: All 762 nagarectl tests, the CLI executable build, and Haskell style checks pass. `inventory status --json` against the currently selected default context exits with `StoreConditionFailed "inventory store is not initialized"`, the expected read-only refusal for an uninitialized store; the isolated status and lifecycle fixtures cover populated history.
+- [x] (2026-09-24) M2: Explicit versioned adoption, Kubernetes/Helm unchanged owner transfer, and the legacy platform-version adoption boundary are implemented and documented. Unsupported provider imports continue to refuse during native preparation.
+- [x] (2026-09-24) M3: Provider-independent migration, retained history, conservative collection, and recovery contracts are implemented with recording proofs. Exact stateless namespaced ConfigMap collection is the only production delete route; durable, controller-child, and migrated-source collection remain refused until their provider and incarnation-specific contracts are available.
+- [x] (2026-09-24) M4: Lifecycle proposal/status/recovery commands and decision, execution, interruption, tamper, and command-path fixtures are delivered. Production migration stages remain assigned to adapter-specific work and EP-150, as stated in this plan's purpose.
 
 
 ## Surprises & Discoveries
@@ -196,10 +198,12 @@ The initial migration operation map associated a migrating ResourceId with its f
 
 2026-09-24: In a mixed migration review, a dependent resource update belongs between destination verification and the consumer switch stage. Bind it with operation dependencies so cutover cannot pass before declared consumer updates complete; provider-specific switch verification remains mandatory inside the adapter.
 
+2026-09-24: Treat the existing `DeleteWhenUnreferenced` stateless policy as having no minimum hold time; the domain policy has no retention-age field. `Retain` and `Protect` do not authorize collection, and every durable or age-sensitive case stays retained until a typed policy and provider evidence can express its release condition. This avoids inventing a hidden duration in the command layer.
+
 
 ## Outcomes & Retrospective
 
-M1 is complete: read-only status and explain report accepted and retained identity, drift, provider coverage, health, dependency traces, collection screening, and active recovery state without mutation. M2-M4 remain open. The currently executable production lifecycle routes are Kubernetes adoption, Kubernetes/Helm unchanged scope transfer and direct retention, exact stateless ConfigMap collection, and adapter-proved operator recovery. Generic migration review, execution, retained history, and recovery are proved with a recording adapter; production migration stages, broader provider adoption and collection, and complete lifecycle command acceptance still require implementation.
+M1-M4 are complete for this plan's provider-independent scope. Status and explain report accepted and retained identity, drift, provider coverage, health, dependency traces, collection screening, and active recovery state without mutation. Versioned lifecycle proposals feed one planner; a reviewed migration binds two incarnations and an ordered graph, preserves source data in a recording model, and recovers at every interruption boundary. The production lifecycle routes proved here are Kubernetes adoption, Kubernetes/Helm unchanged scope transfer and direct retention, exact stateless ConfigMap collection, and adapter-proved operator recovery. Production migration stages, other-provider imports, durable/age-sensitive collection, controller-child retention, and migrated-source collection refuse until adapter-specific or later typed-policy work supplies their evidence. The final real-provider inventory coverage belongs to the adapter children and EP-150.
 
 
 ## Context and Orientation
@@ -357,3 +361,5 @@ Support types are explicit alternatives in Lifecycle/Migration; identity and pol
 2026-09-24: Connected migration validation to opaque decisions, review proof, eight ordered stages, retained source history, and stage-by-stage recording recovery. Added the CLI proposal route and kept active/retained native evidence separate in status. Production adapter stage contracts remain explicit acceptance work; their refusal prevents the generic graph from being mistaken for verified live data migration.
 
 2026-09-24: Corrected mixed-change migration ordering so a declared consumer update follows destination verification and precedes the consumer switch stage. Added a fixture that would fail with the earlier final-stage dependency mapping.
+
+2026-09-24: Completed the provider-independent lifecycle command path and recording migration protocol, including a compiled proposal fixture, data-preservation state model, and example files. Marked M2-M4 complete within the plan's stated boundary and recorded the conservative provider and policy exclusions above.
