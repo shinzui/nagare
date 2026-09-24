@@ -62,12 +62,13 @@ import Nagare.Access.Resolve (resolveDeploymentAccess)
 import Nagare.Build (addBuildArgs, performBuild)
 import Nagare.Cluster.Namespace (NamespacePurpose (..), ensureNamespace, renderNamespace)
 import Nagare.Database.Create (DbCreateParams (..), runDbCreate)
+import Nagare.Database.Backup (renderDbBackupCronJob)
 import Nagare.Deploy (applyManifests, waitForReady, waitForWorkerRollout)
 import Nagare.Deploy.Resolve (resolveBrokerEnv, resolveBuildSpec, resolveTag)
 import Nagare.Dsl.Application (Application (..))
 import Nagare.Dsl.Build (BuildSpec, requiresBuild, resolveImageTag)
-import Nagare.Dsl.Database (Database, engineVersionText)
-import Nagare.Dsl.Database.Render (renderDatabase)
+import Nagare.Dsl.Database (Database (..), engineVersionText)
+import Nagare.Dsl.Database.Render (databaseCredentialTemplate, renderDatabase)
 import Nagare.Dsl.Load (loadApplication, renderLoadError)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Render (renderDomainMappings, renderService, renderVolumeClaims)
@@ -77,6 +78,7 @@ import Nagare.Dsl.Types
   , EnvName
   , ImageRef
   , ScopedEnvVar
+  , RetentionPolicy (Delete)
   , databaseNameText
   , imageRefText
   , namespaceText
@@ -88,7 +90,7 @@ import Nagare.Dsl.Worker.Render (renderWorker)
 import Nagare.Env.BuildArgs (gatherBuildArgs, printBuildArgWarnings)
 import Nagare.Env.Generated (mergeGenerated)
 import Nagare.Image (configureDockerAuthFor, pushImage, qualifyImage, taggedImageRef)
-import Nagare.Target (TargetProfile (..))
+import Nagare.Target (TargetProfile (..), storeBackendFor)
 import Nagare.Task.Resolve (predefinedTaskEnv, renderResolvedTask)
 import Nagare.Task.Run (oneOffJobName, runArgs)
 import System.Exit (ExitCode (..), exitFailure)
@@ -212,8 +214,8 @@ waitResult what (ExitFailure code) =
 -- | Render every object an 'Application' produces, in rollout-phase order, each
 -- paired with its phase tag and stamped with the shared @nagare.dev/app@ label.
 -- Pure (no cluster): the basis of both the human dry-run transcript and the
--- machine-readable @--json@ plan (EP-2 M3). Database manifests are rendered by
--- the database phase in M3; M1 renders hooks, service, and workers.
+-- machine-readable @--json@ plan. The database phase includes a data-free
+-- credential template and the retained database's scheduled backup.
 renderAppObjects :: RolloutEnv -> Application -> Either Text [(Text, ByteString)]
 renderAppObjects env app = do
   namespace <- renderNamespace ApplicationNamespace (env ^. #namespace)
@@ -227,11 +229,22 @@ renderPhaseObjects env (PhaseDatabases dbs) = concat <$> traverse (renderDatabas
 renderPhaseObjects env (PhaseService svc) = renderServiceObjects env svc
 renderPhaseObjects env (PhaseWorkers ws) = concat <$> traverse (renderWorkerObjects env) ws
 
--- | Render a managed database's manifests (PVC, optional ConfigMap, Service,
--- StatefulSet) and stamp the app label. The database keeps its OWN engine image
--- (it is not the shared app image), so no image/env flow-down applies.
+-- | Present the full database membership used by the inventory builder. The
+-- credential is a data-free template; real secret data is generated only at
+-- guarded execution. Retained databases also declare their backup CronJob.
 renderDatabaseObjects :: RolloutEnv -> Database -> Either Text [(Text, ByteString)]
-renderDatabaseObjects env db = traverse (stamp env "database") (renderDatabase db)
+renderDatabaseObjects env db = do
+  let profile = env ^. #targetProfile
+  backend <- storeBackendFor profile (profile ^. #backupBucket)
+  let secret = Yaml.encode (databaseCredentialTemplate db)
+      backup = renderDbBackupCronJob
+        (namespaceText (db ^. #namespace))
+        (databaseNameText (db ^. #name))
+        (db ^. #engine)
+        (engineVersionText (db ^. #version)) backend 7
+      members = [secret] <> renderDatabase db
+        <> [backup | db ^. #retention /= Delete]
+  traverse (stamp env "database") members
 
 -- | Apply the shared image + shared env to the web service, render its PVCs,
 -- Knative Service, and DomainMappings, and stamp the app label on each.

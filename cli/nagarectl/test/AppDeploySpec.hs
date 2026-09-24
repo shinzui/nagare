@@ -18,6 +18,7 @@ import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.Map qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Data.Yaml qualified as Yaml
 import Nagare.App.Deploy
 import Nagare.Dsl.Load (loadApplication)
@@ -97,7 +98,7 @@ renderTests =
         Right app -> do
           objects <- unwrapRender (renderAppObjects testEnv app)
           map fst objects
-            @?= ["namespace", "hook", "database", "database", "database", "service", "worker", "worker", "worker"]
+            @?= ["namespace", "hook", "database", "database", "database", "database", "database", "service", "worker", "worker", "worker"]
   , testCase "the rollout begins with the public-certificate namespace opt-in" $ do
       result <- loadApplication fixturePath
       case result of
@@ -181,7 +182,16 @@ planTests =
           plan ^. #app @?= "kizashi"
           plan ^. #image @?= "gcr.io/knative-samples/helloworld-go:20260619-120000"
           map (^. #phase) (plan ^. #objects)
-            @?= ["namespace", "hook", "database", "database", "database", "service", "worker", "worker", "worker"]
+            @?= ["namespace", "hook", "database", "database", "database", "database", "database", "service", "worker", "worker", "worker"]
+          let databaseKinds = [o ^. #kind | o <- plan ^. #objects, o ^. #phase == "database"]
+          assertBool "credential template omitted" ("Secret" `elem` databaseKinds)
+          assertBool "backup CronJob omitted" ("CronJob" `elem` databaseKinds)
+          let credentialManifests = [o ^. #manifest | o <- plan ^. #objects, o ^. #kind == "Secret"]
+          case credentialManifests of
+            [manifest] -> case Yaml.decodeEither' (TE.encodeUtf8 manifest) of
+              Right (Aeson.Object secret) -> KeyMap.lookup "data" secret @?= Nothing
+              other -> assertFailure ("credential template did not decode: " <> show other)
+            _ -> assertFailure "expected one database credential template"
   , testCase "every plan object's labels carry nagare.dev/app = the app" $ do
       result <- loadApplication fixturePath
       case result of

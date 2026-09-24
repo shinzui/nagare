@@ -286,6 +286,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-23) EP-151 M3: Context selection, guarded opening, and resumable migration.
 - [x] (2026-09-23) EP-151 M4: Live two-state-root migration, documentation, and ADR 13/22 amendments.
 - [x] (2026-09-24) EP-148 M1 partial: Stable application scope/resource keys and native-backed standalone database scope compiler.
+- [x] (2026-09-24) EP-148 M1 partial: Application previews include the data-free database credential template and retained backup CronJob.
 - [ ] EP-148 M1: Complete application/data scopes.
 - [ ] EP-148 M2: Shared contributions, env/secret intent, and publication.
 - [ ] EP-148 M3: Operational/data command coverage.
@@ -298,7 +299,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 
 ## Surprises & Discoveries
 
-2026-09-24: EP-148 can wrap EP-147's complete database builder directly for a standalone scope: the canonical credential and backup members already exist and need no second renderer. The application deploy path still uses its older four-object database render and remains outside inventory admission. EP-148 M1 therefore stays open, and EP-150 remains gated.
+2026-09-24: EP-148 can wrap EP-147's complete database builder directly for a standalone scope: the canonical credential and backup members already exist and need no second renderer. Application preview now shows those two missing members without secret data, while live deploy remains outside inventory admission. EP-148 M1 therefore stays open, and EP-150 remains gated.
 
 2026-09-24: EP-149's single-valued ordinary observation and adapter registries cannot represent a migrated source and destination under one ResourceId. Separate paired observations, a canonical migration review marker, and disjoint retained claims now carry the generic contract. EP-148 and EP-150 must use the two-incarnation path for address/executor changes and must not infer adoption or deletion from a provider stamp or missing declaration. Production migration stage verification remains their adapter/integration responsibility.
 

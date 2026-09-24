@@ -39,6 +39,7 @@ Every supported application-side mutation is either a desired-scope update, a re
 ## Progress
 
 - [x] (2026-09-24) M1 partial: Application, Deployment, Broker, and Volume carry optional validated logical keys through config emission/loading; stable scope/resource-ID helpers and a complete standalone database scope compiler are covered by DSL and operator tests.
+- [x] (2026-09-24) M1 partial: App dry-run/JSON rendering includes the database credential template and retained backup CronJob; the Secret contains no password data.
 - [ ] M1: Compile applications and standalone services into complete scopes.
 - [ ] M2: Integrate shared-owner contributions, environment intent, and publication.
 - [ ] M3: Route operational and data lifecycle commands through reviewed operations.
@@ -47,7 +48,7 @@ Every supported application-side mutation is either a desired-scope update, a re
 
 ## Surprises & Discoveries
 
-2026-09-24: The existing database builder already binds all five retained-database members, including the credential template and backup CronJob, to canonical native bytes. A standalone database scope can wrap this builder without reconstructing database flags. The current application deploy still renders databases from the old four-object path, so application compilation and command routing remain open. Existing config literals must initialize the new optional keys explicitly because their records have strict fields.
+2026-09-24: The existing database builder already binds all five retained-database members, including the credential template and backup CronJob, to canonical native bytes. A standalone database scope can wrap this builder without reconstructing database flags. The application preview used the old four-object render path; it now displays the data-free credential template and backup while application compilation and command routing remain open. Existing config literals must initialize the new optional keys explicitly because their records have strict fields.
 
 
 ## Decision Log
