@@ -139,6 +139,7 @@ import Nagare.Dsl.Render (pvcName, renderDomainMappings, renderService, renderVo
 import Nagare.Dsl.Server.Types (ServerSite)
 import Nagare.Dsl.Static.Render (StaticDeployContext (..))
 import Nagare.Dsl.Static.Types (StaticSite, siteNameText)
+import Nagare.Dsl.Task (taskResourceName)
 import Nagare.Dsl.Types
   ( DatabaseName
   , Deployment
@@ -2818,7 +2819,7 @@ main = do
     Storage scmd -> runStorage mctx scmd
     Broker bcmd -> runBroker mctx bcmd
     Db dcmd -> runDb mctx dcmd
-    Task tcmd -> runTask tcmd
+    Task tcmd -> runTask mctx tcmd
     Worker wcmd -> runWorker mctx wcmd
     Access acmd -> runAccess mctx acmd
     ServerStatus o -> runServerStatus mctx o
@@ -7351,6 +7352,15 @@ refuseDirectWorkerDeployIfOwned mctx name namespaceName =
         (ownedHistoryResources history))
       (dieT ("worker " <> name <> " is owned by accepted or retained inventory history; direct deploy is refused"))
 
+refuseDirectTaskMutationIfOwned :: Maybe String -> Text -> Text -> Text -> IO ()
+refuseDirectTaskMutationIfOwned mctx operation name namespaceName =
+  withAcceptedInventoryHistory mctx ("task " <> operation) $ \history ->
+    let resources = ownedHistoryResources history
+        cronjob = nativeWorkloadOwned "batch" "cronjob" (taskResourceName name) namespaceName resources
+        historyMap = nativeWorkloadOwned "" "configmap" ("nagare-task-runs-" <> name) namespaceName resources
+    in when (cronjob || historyMap)
+      (dieT ("task " <> name <> " is owned by accepted or retained inventory history; direct " <> operation <> " is refused"))
+
 -- | Dispatch the @worker@ command group (EP-71). Provisions the GHC environment
 -- before loading the worker's @Config.hs@ (mirroring @db create --config@), then
 -- runs the deploy. Cluster I/O and rendering live in 'Nagare.Worker.Deploy'.
@@ -7415,10 +7425,11 @@ runAccess mctx = \case
 -- | Dispatch the @task@ command group (MasterPlan 10, EP-51). Mirrors 'runDb'.
 -- The @APP@ positional becomes an 'AppScope': @-@ means app-less, anything else is
 -- that app; for @task list@ an omitted @APP@ means "any app".
-runTask :: TaskCommand -> IO ()
-runTask = \case
+runTask :: Maybe String -> TaskCommand -> IO ()
+runTask mctx = \case
   TaskList o -> runTaskList (nsOf (o ^. #namespace)) (scopeOfMaybe (o ^. #app))
-  TaskRun o ->
+  TaskRun o -> do
+    refuseDirectTaskMutationIfOwned mctx "run" (T.pack (o ^. #task)) (nsOf (o ^. #namespace))
     runTaskRun
       TaskRunParams
         { app = T.pack (o ^. #app)
@@ -7436,7 +7447,8 @@ runTask = \case
         , follow = o ^. #follow
         , tail = o ^. #tail
         }
-  TaskDelete o ->
+  TaskDelete o -> do
+    refuseDirectTaskMutationIfOwned mctx "delete" (T.pack (o ^. #task)) (nsOf (o ^. #namespace))
     runTaskDelete
       TaskDeleteParams
         { name = T.pack (o ^. #task)

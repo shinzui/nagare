@@ -320,6 +320,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-24) EP-148 M1/M4 partial: `app deploy --save-plan` submits a typed Service/worker scope with an accepted Namespace and exact prepublished OCI image dependency to the shared inventory review path; unsupported operational and data inputs refuse.
 - [x] (2026-09-24) EP-148 M4 partial: Legacy single-Service and worker deploy now refuse native addresses in accepted or retained inventory history before image or cluster mutation.
 - [x] (2026-09-24) EP-148 M3/M4 partial: Direct database shell/restart/backup/restore and broker restart refuse accepted or retained StatefulSet ownership; reviewed operational contracts remain open.
+- [x] (2026-09-24) EP-148 M3/M4 partial: Direct task run/delete refuse accepted or retained CronJob and run-history ConfigMap ownership.
 - [ ] EP-148 M4: Removed alternate paths and scope isolation.
 - [ ] EP-150 M1: Platform/legacy transaction integration.
 - [ ] EP-150 M2: Packaging and complete mutation audit.

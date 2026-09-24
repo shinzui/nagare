@@ -295,6 +295,8 @@ renderTests =
       case declarations bundle of
         [Managed task] -> do
           task ^. #owner @?= owner
+          assertBool "direct task run/delete must detect an owned CronJob"
+            (nativeWorkloadOwned "batch" "cronjob" "nagare-task-kizashi-migrate" "personal" [task])
           task ^. #dependencies @?= [OrderedAfter namespaceId, OrderedAfter publication]
           case task ^. #address of
             Resource.Kubernetes _ "batch" kind _ name -> do
