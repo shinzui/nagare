@@ -64,8 +64,10 @@ nagarectl inventory apply service-review --yes
 It requires the accepted namespace and image. Add
 `--service-volume-recovery VOLUME=BACKUP:KEY:VERSION` for each retained PVC,
 `--tls-secret-resource RESOURCE-ID` for supplied TLS, and
-`--env-secret-resource RESOURCE-ID` for runtime Secret references. Tasks, database and broker
-bindings, access, and CDN settings currently refuse this single-Service route.
+`--env-secret-resource RESOURCE-ID` for runtime Secret references. Scheduled
+tasks join the same review when they resolve to its accepted image. Database and
+broker bindings, access, and CDN settings currently refuse this single-Service
+route.
 
 For each declared application database, add
 `--database-recovery NAME=BACKUP:KEY_VERSION` to the planning command. The

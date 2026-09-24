@@ -137,7 +137,7 @@ mkApplication app = do
 -- different app while the renderer stamps it with this aggregate's label.
 checkTaskAssociation :: Application -> Either Text ()
 checkTaskAssociation app =
-  case [task ^. #name | task <- app ^. #tasks
+  case [task ^. #name | task <- applicationTasks app
         , Just parent <- [task ^. #app], parent /= app ^. #name] of
     [] -> Right ()
     taskName : _ -> Left ("task '" <> serviceNameText taskName
@@ -151,7 +151,7 @@ workloadImages app =
   [(serviceNameText (svc ^. #name), svc ^. #image) | Just svc <- [app ^. #service]]
     <> [(serviceNameText (w ^. #name), w ^. #image) | w <- app ^. #workers]
     <> [ (serviceNameText (t ^. #name), img)
-       | t <- app ^. #tasks
+       | t <- applicationTasks app
        , Just img <- [t ^. #image]
        ]
 
@@ -204,7 +204,7 @@ checkUniqueNames app =
     workloadNames =
       [serviceNameText (svc ^. #name) | Just svc <- [app ^. #service]]
         <> map (\w -> serviceNameText (w ^. #name)) (app ^. #workers)
-        <> map (\t -> serviceNameText (t ^. #name)) (app ^. #tasks)
+        <> map (\t -> serviceNameText (t ^. #name)) (applicationTasks app)
     dbNames = map (\db -> databaseNameText (db ^. #name)) (app ^. #databases)
 
 checkNamespaceAgreement :: Application -> Either Text ()
@@ -226,7 +226,10 @@ checkNamespaceAgreement app =
     workloadNamespaces =
       [(serviceNameText (svc ^. #name), svc ^. #namespace) | Just svc <- [app ^. #service]]
         <> map (\w -> (serviceNameText (w ^. #name), w ^. #namespace)) (app ^. #workers)
-        <> map (\t -> (serviceNameText (t ^. #name), t ^. #namespace)) (app ^. #tasks)
+        <> map (\t -> (serviceNameText (t ^. #name), t ^. #namespace)) (applicationTasks app)
+
+applicationTasks :: Application -> [Task]
+applicationTasks app = app ^. #tasks <> maybe [] (^. #tasks) (app ^. #service)
 
 -- | The first element that appears more than once in the list, in order, or
 -- 'Nothing' when all elements are unique. (Mirrors the helper in

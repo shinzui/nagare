@@ -6435,10 +6435,10 @@ runDeployPlan mctx options output = do
     >>= either (dieT . Load.renderLoadError) pure
   when (requiresBuild (service ^. #build))
     (dieT "reviewed deploy requires an already published image")
-  unless (null (service ^. #tasks) && null (service ^. #databases)
+  unless (null (service ^. #databases)
       && null (service ^. #brokers) && isNothing (service ^. #access)
       && isNothing (service ^. #cdn))
-    (dieT "reviewed single-Service deploy requires typed task, database, broker, access, and CDN bindings")
+    (dieT "reviewed single-Service deploy requires typed database, broker, access, and CDN bindings")
   let app = Application
         { name = service ^. #name
         , logicalKey = service ^. #logicalKey
@@ -6511,6 +6511,9 @@ runDirectDeploy mctx dopts = do
     Right d -> do
       refuseDirectServiceMutationIfOwned mctx "deploy" (serviceNameText (d ^. #name))
         (namespaceText (d ^. #namespace))
+      forM_ (d ^. #tasks) $ \task ->
+        refuseDirectTaskMutationIfOwned mctx "deploy" (serviceNameText (task ^. #name))
+          (namespaceText (d ^. #namespace))
       case qualifyImage tp (d ^. #image) of
         Left e -> dieT ("nagarectl deploy: " <> e)
         Right qimg -> pure (d & #image %~ const qimg)

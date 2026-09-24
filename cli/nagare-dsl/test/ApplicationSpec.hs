@@ -177,6 +177,15 @@ mkApplicationTests =
         "different application"
         (mkApplication (multiAppRec & #tasks .~
           [migrateTask & #app .~ Just (unsafe (mkServiceName "other"))]))
+  , testCase "service-local scheduled tasks obey application identity and uniqueness" $ do
+      let withServiceTask = multiAppRec & #tasks .~ []
+            & #service .~ Just (kizashiServe & #tasks .~ [migrateTask])
+      assertRight (mkApplication withServiceTask)
+      assertLeftContains "duplicate workload name"
+        (mkApplication (withServiceTask & #tasks .~ [migrateTask]))
+      assertLeftContains "different application"
+        (mkApplication (withServiceTask & #service .~ Just
+          (kizashiServe & #tasks .~ [migrateTask & #app .~ Just (unsafe (mkServiceName "other"))])))
   ]
 
 -- ---------------------------------------------------------------------------

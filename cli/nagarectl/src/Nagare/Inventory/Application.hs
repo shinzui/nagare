@@ -93,7 +93,8 @@ applicationNativeOwned app = any matches
         <> [("batch", "cronjob", "nagare-dbbackup-" <> databaseNameText (database ^. #name))
            | database <- app ^. #databases, database ^. #retention /= Dsl.Delete]
         <> [("batch", "cronjob", taskResourceName (serviceNameText (task ^. #name)))
-           | task <- app ^. #tasks]
+           | task <- app ^. #tasks
+             <> maybe [] (^. #tasks) (app ^. #service)]
     matches resource = case resource ^. #address of
       Kubernetes _ group kind (Just namespace) name ->
         nameText namespace == namespaceName
@@ -417,7 +418,8 @@ compileApplicationScope input = do
     (Left (invalid "broker dependencies must cover exactly the application bindings"))
   unless (scopeRollout input ^. #appEnv == mergeGenerated brokerEnv (app ^. #env))
     (Left (invalid "rollout environment differs from the declared application channels"))
-  first invalid (reviewedTaskImages (app ^. #tasks)
+  first invalid (reviewedTaskImages (app ^. #tasks
+      <> maybe [] (^. #tasks) (app ^. #service))
     (scopeRollout input ^. #taggedAppImage) (scopeRollout input ^. #effectiveTag))
   unless (app ^. #access == Nothing)
     (Left (invalid "application access contributions need typed owners"))
@@ -425,12 +427,13 @@ compileApplicationScope input = do
         <> maybe [] (Map.elems . (^. #env)) (app ^. #service)
         <> concatMap (Map.elems . (^. #env)) (app ^. #workers)
         <> concatMap (Map.elems . (^. #env)) (app ^. #tasks)
+        <> maybe [] (concatMap (Map.elems . (^. #env)) . (^. #tasks)) (app ^. #service)
   requiredEnvSecrets <- first invalid (runtimeSecretNames envValues)
   case app ^. #service of
     Nothing -> pure ()
-    Just service -> unless (null (service ^. #tasks) && service ^. #access == Nothing
+    Just service -> unless (service ^. #access == Nothing
         && service ^. #cdn == Nothing)
-      (Left (invalid "service tasks, access, and CDN need typed members"))
+      (Left (invalid "service access and CDN need typed owners"))
   owner <- first invalid (applicationScopeId app)
   namespaceContribution <- case scopeNamespaceContributionOwner input of
     Nothing -> Right Nothing
@@ -556,7 +559,26 @@ compileApplicationTasks
 compileApplicationTasks app rollout cluster namespaceId imageId envSecrets source = do
   _ <- first invalid (mkApplication app)
   owner <- first invalid (applicationScopeId app)
-  members <- traverse (compileTask owner) (app ^. #tasks)
+  compileTaskMembers owner (app ^. #tasks
+    <> maybe [] (^. #tasks) (app ^. #service)) rollout cluster namespaceId imageId envSecrets source
+  where
+    invalid message = inventoryError "invalid-application-task" message
+      & #sources .~ [source]
+      & (:| [])
+
+compileTaskMembers
+  :: ScopeId -> [Task] -> RolloutEnv -> ResourceId -> ResourceId -> ResourceId
+  -> Map SecretName Declaration -> SourceLocation
+  -> Either (NonEmpty InventoryError)
+       (ResourceBundle, Map ResourceId (ManagedResource, ByteString))
+compileTaskMembers owner tasks rollout cluster namespaceId imageId envSecrets source = do
+  unless (all ((== rollout ^. #namespace) . namespaceText . (^. #namespace)) tasks)
+    (Left (invalid "scheduled task namespace differs from rollout"))
+  unless (all (maybe True ((== rollout ^. #appName) . serviceNameText) . (^. #app)) tasks)
+    (Left (invalid "scheduled task references a different application"))
+  first invalid (reviewedTaskImages tasks (rollout ^. #taggedAppImage)
+    (rollout ^. #effectiveTag))
+  members <- traverse compileTask tasks
   let bundle = ResourceBundle (map (Managed . fst) members) [] [] [] [] []
       native = Map.fromList [(member ^. #identity, pair) | pair@(member, _) <- members]
   _ <- mkScopeDeclaration owner [bundle]
@@ -564,10 +586,10 @@ compileApplicationTasks app rollout cluster namespaceId imageId envSecrets sourc
     (Left (invalid "scheduled tasks share an identity"))
   pure (bundle, native)
   where
-    invalid message = inventoryError "invalid-application-task" message
+    invalid message = inventoryError "invalid-scheduled-task" message
       & #sources .~ [source]
       & (:| [])
-    compileTask owner task = do
+    compileTask task = do
       _ <- first invalid (mkTask task)
       secretNames <- first invalid (runtimeSecretNames
         (Map.elems (rollout ^. #appEnv) <> Map.elems (task ^. #env)))
@@ -733,13 +755,20 @@ compileStandaloneService owner service rollout cluster namespaceId imageId recov
     (Left (invalid "standalone rollout identity, namespace, or environment differs from its service"))
   unless (null (service ^. #databases))
     (Left (invalid "standalone database bindings require typed dependencies"))
-  requiredEnvSecrets <- first invalid (runtimeSecretNames (Map.elems (service ^. #env)))
+  requiredEnvSecrets <- first invalid (runtimeSecretNames
+    (Map.elems (service ^. #env)
+      <> concatMap (Map.elems . (^. #env)) (service ^. #tasks)))
   unless (Map.keysSet envSecrets == Set.fromList requiredEnvSecrets)
     (Left (invalid "standalone runtime Secret environment requires exactly its typed dependencies"))
   (bundle, native) <- compileServiceMembers owner service rollout cluster namespaceId imageId
     [] recovery tlsSecrets envSecrets source
-  scope <- mkScopeDeclaration owner [bundle]
-  pure (scope, native)
+  (taskBundle, taskNative) <- compileTaskMembers owner (service ^. #tasks) rollout
+    cluster namespaceId imageId envSecrets source
+  let allNative = Map.union native taskNative
+  unless (Map.size allNative == Map.size native + Map.size taskNative)
+    (Left (invalid "standalone Service and tasks share a resource identity"))
+  scope <- mkScopeDeclaration owner [bundle, taskBundle]
+  pure (scope, allNative)
   where
     invalid message = inventoryError "invalid-standalone-service" message
       & #scopes .~ [owner]
@@ -754,9 +783,9 @@ compileServiceMembers
 compileServiceMembers owner service rollout cluster namespaceId imageId databasePrerequisites recoveryByVolume tlsSecrets envSecrets source = do
   unless (null (service ^. #brokers))
     (Left (invalid "service broker bindings require typed broker dependencies"))
-  unless (null (service ^. #tasks) && service ^. #access == Nothing
+  unless (service ^. #access == Nothing
       && service ^. #cdn == Nothing)
-    (Left (invalid "service hooks, access, and CDN require typed operations or contributions"))
+    (Left (invalid "service access and CDN require typed owners"))
   let requiredTls = Set.fromList [secret | domain <- service ^. #domains,
         SuppliedTlsSecret secret <- [domain ^. #tls]]
   unless (Map.keysSet tlsSecrets == requiredTls)

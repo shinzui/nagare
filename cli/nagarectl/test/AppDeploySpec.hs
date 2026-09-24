@@ -229,6 +229,23 @@ renderTests =
           member ^. #owner @?= owner
           Map.keys native @?= [member ^. #identity]
         other -> assertFailure ("unexpected standalone service members: " <> show other)
+      case app ^. #tasks of
+        [task] -> do
+          let ownTask = task & #app .~ Just (service ^. #name)
+              withTask = independent & #tasks .~ [ownTask]
+          (taskScope, taskNative) <- either (fail . show) pure
+            (compileStandaloneService owner withTask rollout cluster namespaceId
+              publication Map.empty Map.empty Map.empty source)
+          Map.size taskNative @?= 2
+          assertBool "standalone scope includes its scheduled CronJob"
+            (any (nativeWorkloadOwned "batch" "cronjob"
+              "nagare-task-kizashi-migrate" "personal" . pure)
+              [member | bundle <- scopeBundles taskScope, Managed member <- declarations bundle])
+          case compileStandaloneService owner (independent & #tasks .~ [task])
+              rollout cluster namespaceId publication Map.empty Map.empty Map.empty source of
+            Left _ -> pure ()
+            Right _ -> assertFailure "standalone task referenced a different application"
+        _ -> assertFailure "fixture did not contain one scheduled task"
       case app ^. #databases of
         database : _ ->
           case compileStandaloneService owner (independent & #databases .~ [database ^. #name])
@@ -328,6 +345,15 @@ renderTests =
             other -> assertFailure ("unexpected task address: " <> show other)
           Map.keys native @?= [task ^. #identity]
         other -> assertFailure ("unexpected task declarations: " <> show other)
+      case (app ^. #service, app ^. #tasks) of
+        (Just service, [task]) -> do
+          let serviceLocal = app & #tasks .~ []
+                & #service .~ Just (service & #tasks .~ [task])
+          (localBundle, localNative) <- either (fail . show) pure
+            (compileApplicationTasks serviceLocal testEnv cluster namespaceId publication Map.empty source)
+          declarations localBundle @?= declarations bundle
+          Map.keys localNative @?= Map.keys native
+        _ -> assertFailure "fixture lacks a Service and one scheduled task"
   , testCase "composed application scope contains every supported member" $ do
       loaded <- loadApplication fixturePath
       app <- either (fail . show) pure loaded
