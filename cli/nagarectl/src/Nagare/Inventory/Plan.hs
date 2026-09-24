@@ -18,6 +18,7 @@ module Nagare.Inventory.Plan
   , noLifecycleDecisions
   , lifecycleObservationDigest
   , validateLifecycleDecisions
+  , combineDecisions
   , PlanError (..)
   , ChangeProposal
   , proposalOperations
@@ -236,11 +237,25 @@ data LifecycleProposal = LifecycleProposal
   }
   deriving stock (Eq, Show, Generic)
 
-newtype LifecycleDecisions = LifecycleDecisions (Map ResourceId LifecycleProposal)
+data LifecycleDecisions = LifecycleDecisions !(Maybe CompositionCandidate) !(Map ResourceId LifecycleProposal)
   deriving stock (Eq, Show)
 
 noLifecycleDecisions :: LifecycleDecisions
-noLifecycleDecisions = LifecycleDecisions Map.empty
+noLifecycleDecisions = LifecycleDecisions Nothing Map.empty
+
+-- | A review can combine independently validated lifecycle requests only
+-- when each names a different logical resource. planChanges revalidates the
+-- combined set against its own candidate, history, and observations.
+combineDecisions :: LifecycleDecisions -> LifecycleDecisions -> Either (NonEmpty PlanError) LifecycleDecisions
+combineDecisions (LifecycleDecisions firstCandidate firstDecisions) (LifecycleDecisions secondCandidate secondDecisions) =
+  case Map.keys (Map.intersection firstDecisions secondDecisions) of
+    overlapping@(_:_) -> Left (PlanError "duplicate-lifecycle-decision"
+      "resource has more than one lifecycle decision" overlapping :| [])
+    [] -> case (firstCandidate, secondCandidate) of
+      (Just firstReviewed, Just secondReviewed) | firstReviewed /= secondReviewed -> Left (PlanError "stale-lifecycle-candidate"
+        "lifecycle decisions were validated for different composition candidates" [] :| [])
+      _ -> Right (LifecycleDecisions (firstCandidate <|> secondCandidate)
+        (Map.union firstDecisions secondDecisions))
 
 -- | Bind an operator decision to one observed incarnation in one provider
 -- target. A new observation or a different target requires a fresh decision.
@@ -251,7 +266,7 @@ lifecycleObservationDigest binding resource fact =
 
 validateLifecycleDecisions :: CompositionCandidate -> InventoryHistory -> ObservationSet -> [LifecycleProposal] -> Either (NonEmpty PlanError) LifecycleDecisions
 validateLifecycleDecisions candidate history observations proposals =
-  if null errors then Right (LifecycleDecisions values) else Left (NE.fromList errors)
+  if null errors then Right (LifecycleDecisions (Just candidate) values) else Left (NE.fromList errors)
   where
     values = Map.fromList [(lifecycleResource proposal, proposal) | proposal <- proposals]
     desired = Map.fromList [(declarationId declaration, declaration) | declaration <- inventoryDeclarations (candidateInventory candidate)]
@@ -356,9 +371,16 @@ data RetentionProof = RetentionProof
 planChanges :: CompositionCandidate -> LifecycleDecisions -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) ChangeProposal
 planChanges candidate decisions history observations = do
   unless (null structuralErrors) (Left (NE.fromList structuralErrors))
-  operations <- buildOperations candidate decisions history observations
-  retentions <- buildRetentionProofs candidate decisions history observations
-  collections <- buildCollectionProofs candidate decisions history observations
+  case decisions of
+    LifecycleDecisions (Just reviewed) _ | reviewed /= candidate ->
+      Left (PlanError "stale-lifecycle-candidate"
+        "lifecycle decisions were validated for a different composition candidate" [] :| [])
+    _ -> pure ()
+  checkedDecisions <- validateLifecycleDecisions candidate history observations
+    (case decisions of LifecycleDecisions _ values -> Map.elems values)
+  operations <- buildOperations candidate checkedDecisions history observations
+  retentions <- buildRetentionProofs candidate checkedDecisions history observations
+  collections <- buildCollectionProofs candidate checkedDecisions history observations
   let desiredScopes = inventoryScopes (candidateInventory candidate)
       scopeMembers = Map.fromList [(contentDigest bytes, bytes) | declaration <- Map.elems desiredScopes, let bytes = encodeCanonicalScope declaration]
       desiredRevisions =
@@ -414,7 +436,7 @@ planChanges candidate decisions history observations = do
         (Set.fromList (map declarationId (inventoryDeclarations (candidateInventory candidate)))))
 
 buildRetentionProofs :: CompositionCandidate -> LifecycleDecisions -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) (Map ResourceId RetentionProof)
-buildRetentionProofs candidate (LifecycleDecisions decisions) history observations = do
+buildRetentionProofs candidate (LifecycleDecisions _ decisions) history observations = do
   unless (null disappearingChildren)
     (Left (PlanError "retained-child-history" "retirement of observed controller children requires retained child claims" disappearingChildren :| []))
   Map.fromList <$> traverse one selected
@@ -439,7 +461,7 @@ buildRetentionProofs candidate (LifecycleDecisions decisions) history observatio
       _ -> Left (PlanError "retention-proof" "retired resource lacks a reviewed present incarnation" [resourceId] :| [])
 
 buildCollectionProofs :: CompositionCandidate -> LifecycleDecisions -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) (Map ResourceId RetentionProof)
-buildCollectionProofs candidate (LifecycleDecisions decisions) history observations =
+buildCollectionProofs candidate (LifecycleDecisions _ decisions) history observations =
   Map.fromList <$> traverse one selected
   where
     selected = [resource | CollectRetained resource <- NE.toList (candidateChanges candidate)]
@@ -453,7 +475,7 @@ buildCollectionProofs candidate (LifecycleDecisions decisions) history observati
       _ -> Left (PlanError "collection-proof" "collection lacks an exact retained incarnation proof" [resource] :| [])
 
 buildOperations :: CompositionCandidate -> LifecycleDecisions -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) [PlannedOperation]
-buildOperations candidate (LifecycleDecisions decisions) history observations =
+buildOperations candidate (LifecycleDecisions _ decisions) history observations =
   if null errors then Right (map addDependencies preliminary <> map snd declaredOperations) else Left (NE.fromList errors)
   where
     desiredDeclarations = Map.fromList [(declarationId declaration, declaration) | declaration <- inventoryDeclarations (candidateInventory candidate)]

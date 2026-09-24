@@ -53,6 +53,20 @@ inventoryLifecycleTests = testGroup "inventory lifecycle"
       approved <- expectRight decisions
       map plannedAction (proposalOperations (ok (planChanges candidate approved history observations)))
         @?= [AdoptResource]
+      assertCode "stale-lifecycle-evidence" (planChanges candidate approved history
+        (ok (observationSet [(resourceId, ObservedUnowned (ok (mkPhysicalIdentity "uid-2")))])))
+      let changedResource = resource {address = otherAddress}
+          changedDeclaration = ok (mkScopeDeclaration scope
+            [ResourceBundle [Managed changedResource] [] [] [] [] []])
+          changedCandidate = ok (composeInventory
+            (ok (mkScopeSnapshot binding Map.empty Map.empty))
+            (ReplaceScope changedDeclaration :| []))
+      assertCode "stale-lifecycle-candidate"
+        (planChanges changedCandidate approved history observations)
+      assertCode "duplicate-lifecycle-decision" (combineDecisions approved approved)
+      separatelyReviewed <- expectRight (validateLifecycleDecisions
+        changedCandidate history observations [])
+      assertCode "stale-lifecycle-candidate" (combineDecisions approved separatelyReviewed)
       assertCode "adoption-incarnation" (decideAdoption candidate history observations
         (input {adoptionTargets = [target {adoptionPhysical = ok (mkPhysicalIdentity "other")}] }))
       assertCode "adoption-declaration" (decideAdoption candidate history observations
