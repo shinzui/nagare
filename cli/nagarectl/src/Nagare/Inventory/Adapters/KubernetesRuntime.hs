@@ -10,6 +10,7 @@ module Nagare.Inventory.Adapters.KubernetesRuntime
   , mkKubernetesRuntimeOps
   , mkKubernetesRuntimeOpsWithCacheKey
   , desiredFieldsMatch
+  , deploymentSelectorReplacement
   , confirmInventoryFieldOwnership
   , confirmInventoryFieldOwnershipFor
   , jobCompleted
@@ -443,7 +444,25 @@ parseObserved config resource native response = do
   -- refused below rather than being misclassified as an unstamped object.
   when (stampedContext /= Nothing && stampedContext /= Just (contextIdText (runtimeContext config)))
     (Left "Kubernetes object belongs to a different inventory context")
-  pure (KubernetesPresent uid revision owner driftDigest)
+  pure $ if deploymentSelectorReplacement desired observed
+    then KubernetesReplacementRequired uid revision owner driftDigest
+    else KubernetesPresent uid revision owner driftDigest
+
+-- A Deployment's selector is immutable at the API server. Only classify a
+-- change when both sides state it explicitly; an incomplete projection must
+-- remain ordinary drift or unknown rather than claiming replacement proof.
+deploymentSelectorReplacement :: Value -> Value -> Bool
+deploymentSelectorReplacement desired observed =
+  case (selector desired, selector observed) of
+    (Just before, Just after) -> before /= after
+    _ -> False
+  where
+    selector (Object root)
+      | KM.lookup "apiVersion" root == Just (String "apps/v1")
+      , KM.lookup "kind" root == Just (String "Deployment") = do
+          Object specValue <- KM.lookup "spec" root
+          KM.lookup "selector" specValue
+    selector _ = Nothing
 
 jobCompleted :: Value -> Bool
 jobCompleted = hasCondition "Complete"

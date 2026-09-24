@@ -40,6 +40,7 @@ import Nagare.Resource.Wire (canonicalValue)
 data KubernetesState
   = KubernetesAbsent !ContentDigest
   | KubernetesPresent !PhysicalIdentity !Text !(Maybe ResourceId) !ContentDigest
+  | KubernetesReplacementRequired !PhysicalIdentity !Text !(Maybe ResourceId) !ContentDigest
   | KubernetesUnknown !Text
   deriving stock (Eq, Show, Generic)
 
@@ -91,6 +92,10 @@ mkKubernetesAdapter specs ops =
         | Just (_, native) <- Map.lookup resource specs
         , digest /= contentDigest native -> ObservedDrifted physical digest
         | otherwise -> ObservedPresent physical
+      KubernetesReplacementRequired physical _ owner digest
+        | owner == Nothing -> ObservedUnowned physical
+        | owner /= Just resource -> ObservedForeign physical
+        | otherwise -> ObservedReplacementRequired physical digest
       KubernetesUnknown reason -> ObservationUnavailable reason)
     prepare operation = case singleSpec specs operation of
       Left reason -> pure (Left (PrepareRefused (plannedOperationId operation) reason))
@@ -359,6 +364,7 @@ instance ToJSON KubernetesState where
   toJSON = \case
     KubernetesAbsent proof -> object ["kind" .= ("absent" :: Text), "proof" .= proof]
     KubernetesPresent physical revision owner digest -> object ["kind" .= ("present" :: Text), "physical" .= physical, "resourceVersion" .= revision, "owner" .= owner, "digest" .= digest]
+    KubernetesReplacementRequired physical revision owner digest -> object ["kind" .= ("replacement-required" :: Text), "physical" .= physical, "resourceVersion" .= revision, "owner" .= owner, "digest" .= digest]
     KubernetesUnknown reason -> object ["kind" .= ("unknown" :: Text), "reason" .= reason]
 
 instance FromJSON KubernetesState where
@@ -367,6 +373,7 @@ instance FromJSON KubernetesState where
     case kind of
       "absent" -> KubernetesAbsent <$> o .: "proof"
       "present" -> KubernetesPresent <$> o .: "physical" <*> o .: "resourceVersion" <*> o .: "owner" <*> o .: "digest"
+      "replacement-required" -> KubernetesReplacementRequired <$> o .: "physical" <*> o .: "resourceVersion" <*> o .: "owner" <*> o .: "digest"
       "unknown" -> KubernetesUnknown <$> o .: "reason"
       _ -> fail "unknown Kubernetes state"
 

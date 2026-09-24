@@ -42,6 +42,11 @@ provenance:
       at: 2026-09-23T23:54:30Z
       mode: "implement"
       note: "Align collection screening with proved Kubernetes delete transport"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-24T01:53:10Z
+      mode: "implement"
+      note: "Classify immutable Kubernetes Deployment selector changes"
 ---
 
 # Explain drift and execute reviewed adoption migration and retirement
@@ -87,6 +92,7 @@ This plan delivers provider-independent lifecycle planning plus inventory status
 - [x] (2026-09-23) M3 collection screening: Read-only `gc --plan`, lifecycle validation, and conditional Kubernetes deletion now share one supported-kind predicate. Unsupported resources carry `unsupported-collection-transport` rather than appearing collectible, and cannot enter a reviewed collection plan. The 150 focused inventory tests and Haskell style check pass; durable-data and other-provider collection remain open.
 - [x] (2026-09-24) M1 partial: Status includes the read-only collection assessments for retained objects, while retained explain exposes historical aliases, required conditions, delegation, policies, and declaration source alongside dependency traces. The CLI executable builds. Immutable replacement classification, unmanaged discovery, and broader provider health remain open.
 - [x] (2026-09-24) M1 replacement boundary: Typed observations now distinguish an immutable replacement requirement from ordinary drift. Status reports its physical identity and digest; the generic planner refuses `UpdateResource` with `replacement-review-required`. Retained observation also reports the condition without permitting collection. The 150 focused inventory tests pass. Production adapters still need provider-specific immutable-change classification, and reviewed replacement/migration execution remains open.
+- [x] (2026-09-24) M1 Kubernetes immutable classification: The production observer recognizes a changed explicit `apps/v1` Deployment selector and reports replacement required for its stamped ResourceId. Unowned and foreign objects retain their ownership categories, and the existing generic planner refuses an ordinary update. Eleven focused Deployment tests and Haskell style checks pass. Other immutable fields, unhealthy Deployment observation, and reviewed migration remain open.
 - [ ] M1: Classify observations and expose complete read-only status/explain.
 - [ ] M2: Plan explicit legacy adoption and ownership transfer.
 - [ ] M3: Plan migration/retirement with retained data and recovery evidence.
@@ -261,6 +267,8 @@ Support types are explicit alternatives in Lifecycle/Migration; identity and pol
 2026-09-24: Added retained collection assessments to status and declaration detail parity to retained explain; M1 remains open for provider and replacement coverage.
 
 2026-09-24: Added an explicit replacement-required observation and fail-closed planning rule. Provider classification and execution remain future EP-149 work.
+
+2026-09-24: Classified explicit immutable Deployment selector changes in the production Kubernetes observer, preserving physical identity and the existing ownership priority. This is one proved provider case; no replacement execution authority was added.
 
 2026-09-23: Recorded the precise source/destination observation gap for migration after tracing the current head, planner, and adapter registry contracts; the migration refusal remains in force.
 

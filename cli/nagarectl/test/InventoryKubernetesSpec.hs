@@ -1,11 +1,12 @@
 module InventoryKubernetesSpec (inventoryKubernetesTests) where
 
 import Control.Exception (finally)
-import Data.Aeson (Value (..), eitherDecodeStrict, object, (.=))
+import Data.Aeson (Value (..), eitherDecodeStrict, encode, object, (.=))
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
+import Data.ByteString.Lazy qualified as BL
 import Data.Either (isLeft)
 import Data.Generics.Labels ()
 import Data.IORef
@@ -24,7 +25,7 @@ import Nagare.Dsl.Database (Database (Database), Engine (..), defaultEngineVersi
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes
-import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), cacheClientDataMatches, certificateReady, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, credentialDataMatches, deploymentAvailable, desiredFieldsMatch, generatedCredentialTemplate, jobCompleted, knativeReady, materializeCacheKey, materializeCredential, mkKubernetesRuntimeOps, observeCacheClientOutput, readinessForAddress, supportedUpdateAddress, withoutCacheClientData)
+import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), cacheClientDataMatches, certificateReady, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, credentialDataMatches, deploymentAvailable, deploymentSelectorReplacement, desiredFieldsMatch, generatedCredentialTemplate, jobCompleted, knativeReady, materializeCacheKey, materializeCredential, mkKubernetesRuntimeOps, observeCacheClientOutput, readinessForAddress, supportedUpdateAddress, withoutCacheClientData)
 import Nagare.Inventory.Database (compileDatabaseForBackend, compileDatabaseNative, compileDatabaseNativeWithBackup)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Components.Foundation (compileContributedNamespaces)
@@ -56,7 +57,30 @@ inventoryKubernetesTests :: TestTree
 inventoryKubernetesTests =
   testGroup
     "Kubernetes inventory adapter"
-    [ testCase "reviewed create uses the retained native object and proves completion" $ do
+    [ testCase "Deployment selector change requires replacement review" $ do
+        let deployment selectorValue = object
+              [ "apiVersion" .= ("apps/v1" :: Text)
+              , "kind" .= ("Deployment" :: Text)
+              , "spec" .= object ["selector" .= object ["matchLabels" .= object ["app" .= (selectorValue :: Text)]]]
+              ]
+            desired = deployment "new"
+            observed = deployment "old"
+        assertBool "changed immutable selector was ordinary drift"
+          (deploymentSelectorReplacement desired observed)
+        assertBool "matching selector required replacement"
+          (not (deploymentSelectorReplacement desired desired))
+        assertBool "non-Deployment object required replacement"
+          (not (deploymentSelectorReplacement (object ["kind" .= ("ConfigMap" :: Text)]) observed))
+        let state = KubernetesReplacementRequired physical "4" (Just resource) (contentDigest "changed")
+        eitherDecodeStrict (BL.toStrict (encode state)) @?= Right state
+        calls <- newIORef (0 :: Int)
+        stateRef <- newIORef state
+        let adapter = mkKubernetesAdapter specs (ops stateRef calls)
+        result <- adapterObserve adapter [resource] >>= expectRight
+        Map.lookup resource (observationMap result)
+          @?= Just (ObservedReplacementRequired physical (contentDigest "changed"))
+        readIORef calls >>= (@?= 0)
+    , testCase "reviewed create uses the retained native object and proves completion" $ do
         state <- newIORef (KubernetesAbsent absence)
         calls <- newIORef (0 :: Int)
         let adapter = mkKubernetesAdapter specs (ops state calls)
