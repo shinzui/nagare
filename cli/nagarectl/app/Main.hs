@@ -7147,7 +7147,9 @@ runBroker mctx = \case
           (o ^. #recoveryBackup) (o ^. #recoveryKey)
           (o ^. #recoveryKeyVersion) output
   BrokerGet o -> runBrokerGet (nsOf (o ^. #namespace)) (T.pack (o ^. #name))
-  BrokerRestart o dryRun -> runBrokerRestart (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) dryRun
+  BrokerRestart o dryRun -> do
+    refuseDirectDataMutationIfOwned mctx "broker" "restart" (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
+    runBrokerRestart (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) dryRun
   BrokerDelete o ->
     refuseDirectDataMutationIfOwned mctx "broker" "delete" (T.pack (o ^. #name)) (nsOf (o ^. #namespace)) >>
     runBrokerDelete
@@ -7220,8 +7222,12 @@ runDb mctx = \case
         runDbCreatePlan mctx eng (T.pack name) params
           (o ^. #recoveryBackup) (o ^. #recoveryKeyVersion) output
   DbGet o -> runDbGet (nsOf (o ^. #namespace)) (T.pack (o ^. #name))
-  DbShell o -> runDbShell (nsOf (o ^. #namespace)) (T.pack (o ^. #name))
-  DbRestart o dry -> runDbRestart (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) dry
+  DbShell o -> do
+    refuseDirectDataMutationIfOwned mctx "database" "shell" (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
+    runDbShell (nsOf (o ^. #namespace)) (T.pack (o ^. #name))
+  DbRestart o dry -> do
+    refuseDirectDataMutationIfOwned mctx "database" "restart" (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
+    runDbRestart (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) dry
   DbDelete o ->
     refuseDirectDataMutationIfOwned mctx "database" "delete" (T.pack (o ^. #name)) (nsOf (o ^. #namespace)) >>
     runDbDelete
@@ -7235,9 +7241,11 @@ runDb mctx = \case
     runStandaloneRetirePlan mctx "database" (T.pack (o ^. #name))
       (nsOf (o ^. #namespace)) (T.pack <$> o ^. #scopeKey) (o ^. #savePlan)
   DbBackup o -> do
+    refuseDirectDataMutationIfOwned mctx "database" "backup" (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
     backend <- resolveStoreBackend mctx (o ^. #bucket)
     runDbBackup (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) backend (o ^. #keep) (o ^. #dryRun)
   DbRestore o -> do
+    refuseDirectDataMutationIfOwned mctx "database" "restore" (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
     backend <- resolveStoreBackend mctx (o ^. #bucket)
     runDbRestore (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) (T.pack (o ^. #backupId)) (o ^. #live) backend (o ^. #dryRun)
   where
