@@ -696,7 +696,19 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
     preliminary = mapMaybe snd classified <> mapMaybe retireOperation retired
       <> concatMap migrationOperations (Map.toAscList migrations)
       <> [resourceOperation RetireResource resource | (_, resource) <- selectedCollections]
-    operationByResource = Map.fromList [(resource, plannedOperationId operation) | operation <- preliminary, resource <- NE.toList (plannedResources operation)]
+    -- A dependent update may start after the destination is verified, but
+    -- the consumer-switch stage must wait for that update to complete. The
+    -- final RetainSource stage is too late to be the dependency target.
+    migrationVerification = Map.fromList
+      [(resource, plannedOperationId operation)
+      | operation <- preliminary
+      , plannedAction operation == MigrateResource VerifyDestination
+      , resource <- NE.toList (plannedResources operation)]
+    operationByResource = Map.union migrationVerification (Map.fromList
+      [(resource, plannedOperationId operation)
+      | operation <- preliminary
+      , case plannedAction operation of MigrateResource _ -> False; _ -> True
+      , resource <- NE.toList (plannedResources operation)])
     operationByDeclaration =
       Map.fromList
         [ (declaredOperation ^. #identity, plannedOperationId operation)
@@ -713,8 +725,18 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
               , dependency <- declarationDependencies declaration
               , Just dependencyOperation <- [operationForDependency dependency]
               , dependencyOperation /= plannedOperationId operation
-              ]))
+              ] <> switchPrerequisites operation))
         }
+    switchPrerequisites operation = case plannedAction operation of
+      MigrateResource SwitchConsumers ->
+        [plannedOperationId consumerOperation
+        | migrated <- NE.toList (plannedResources operation)
+        , consumerOperation <- preliminary
+        , case plannedAction consumerOperation of MigrateResource _ -> False; _ -> True
+        , consumer <- NE.toList (plannedResources consumerOperation)
+        , Just declaration <- [Map.lookup consumer desiredDeclarations]
+        , migrated `elem` map dependencyResource (declarationDependencies declaration)]
+      _ -> []
     declaredSeeds = concatMap scopeDeclared (Map.elems (inventoryScopes (candidateInventory candidate)))
     cacheOutputOperations =
       Map.fromList

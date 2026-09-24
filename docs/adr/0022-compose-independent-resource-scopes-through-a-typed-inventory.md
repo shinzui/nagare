@@ -377,7 +377,9 @@ the source claim and its immutable native evidence. An active and retained
 record may share a logical ID only when their provider claims are disjoint and
 the retained entry points to a canonical immutable migration review with
 matching source and destination addresses. Status must observe these two
-incarnations independently.
+incarnations independently. Ordinary updates to declared consumers run after
+destination verification and before the consumer switch stage, which still
+requires provider-specific cutover proof.
 
 This is a provider-independent contract proved with a recording adapter,
 including recovery from an ambiguous result at each stage. Production

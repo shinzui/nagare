@@ -22,6 +22,7 @@ import Nagare.Inventory.Status qualified as Status
 import Nagare.Inventory.Store
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
+import Nagare.Resource.Reference (Dependency (..))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
 import InventoryTransactionSpec (recordingRegistryWith)
@@ -107,6 +108,49 @@ inventoryMigrationTests = testGroup "inventory migration"
         executed @?= take (length executed) [PrepareDestination, BackUpSource, FenceWriters,
           TransferState, VerifyDestination, SwitchConsumers, AdmitWrites, RetainSource]
         length (filter (== interrupted) executed) @?= 1
+  , testCase "changed source incarnation refuses admission before advancing history" $ do
+      store <- acceptedStore
+      history <- loadInventoryHistory store >>= either (assertFailure . show) pure
+      let destinationFacts = ok (observationSet [(resourceId, ConfirmedAbsent absence)])
+          decisions = ok (decideMigration candidate input history destinationFacts observations)
+          proposal = ok (planChanges candidate decisions history destinationFacts)
+          registry = recordingRegistryWith preflight
+            (\_ _ -> pure AdapterEffectCompleted) (\_ _ -> pure RecoverySafeToRetry)
+          preflight operation _ = pure $ case plannedAction operation of
+            MigrateResource BackUpSource -> Left "source UID changed"
+            _ -> Right ()
+      before <- readStoreSnapshot store >>= either (assertFailure . show) pure
+      bundle <- prepareReview registry before proposal >>= either (assertFailure . show . NE.toList) pure
+      _ <- publishReview store bundle >>= either (assertFailure . show) pure
+      published <- readStoreSnapshot store >>= either (assertFailure . show) pure
+      reviewed <- either (assertFailure . show . NE.toList) pure (verifyReview published bundle)
+      refused <- applyReviewed store registry reviewed
+      assertBool "changed source was admitted" (isLeft refused)
+      current <- readHead store >>= either (assertFailure . show) pure
+      fmap headAccepted current @?= Just (headAccepted (storeSnapshotHead published))
+      fmap headRetained current @?= Just (headRetained (storeSnapshotHead published))
+  , testCase "dependent update completes between destination verification and consumer switch" $ do
+      store <- acceptedStoreFor snapshotWithConsumer
+      history <- loadInventoryHistory store >>= either (assertFailure . show) pure
+      let destinationFacts = ok (observationSet
+            [(resourceId, ConfirmedAbsent absence),
+             (consumerId, ObservedDrifted physical (contentDigest "consumer-old"))])
+          decisions = ok (decideMigration candidateWithConsumer input history destinationFacts observations)
+          operations = proposalOperations (ok
+            (planChanges candidateWithConsumer decisions history destinationFacts))
+          stage name = case [operation | operation <- operations,
+              plannedAction operation == MigrateResource name] of
+            [operation] -> operation
+            _ -> error "missing migration stage"
+          consumerUpdate = case [operation | operation <- operations,
+              plannedAction operation == UpdateResource,
+              consumerId `elem` NE.toList (plannedResources operation)] of
+            [operation] -> operation
+            _ -> error "missing dependent update"
+      plannedOperationId (stage VerifyDestination) `elem`
+        plannedDependencies consumerUpdate @?= True
+      plannedOperationId consumerUpdate `elem`
+        plannedDependencies (stage SwitchConsumers) @?= True
   , testCase "versioned proposal binds old and new declarations and exact observations" $ do
       history <- acceptedHistory
       let validated = ok (validateMigrationInput candidate history observations input)
@@ -189,6 +233,7 @@ inventoryMigrationTests = testGroup "inventory migration"
     dummyScope = ok (mkScopeId Platform "migration-seed")
     cluster = mintResourceId scope (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
     resourceId = mintResourceId scope (ok (mkLogicalKey "config")) (ok (mkName "resource"))
+    consumerId = mintResourceId scope (ok (mkLogicalKey "consumer")) (ok (mkName "resource"))
     oldResource = ManagedResource resourceId scope KubernetesExecutor
       (Kubernetes cluster "" (ok (mkName "configmap")) (Just (ok (mkName "default")))
         (ok (mkName "old"))) []
@@ -200,10 +245,25 @@ inventoryMigrationTests = testGroup "inventory migration"
       , spec = NativeObject (contentDigest "new-native")
       , source = SourceLocation "fixture" "new"
       }
+    oldConsumer = ManagedResource consumerId scope KubernetesExecutor
+      (Kubernetes cluster "" (ok (mkName "configmap")) (Just (ok (mkName "default")))
+        (ok (mkName "consumer"))) []
+      (NativeObject (contentDigest "consumer-old")) Retain Stateless Public
+      [OrderedAfter resourceId] [] (SourceLocation "fixture" "consumer-old")
+    newConsumer = oldConsumer
+      {spec = NativeObject (contentDigest "consumer-new"), source = SourceLocation "fixture" "consumer-new"}
     oldScope = ok (mkScopeDeclaration scope [ResourceBundle [Managed oldResource] [] [] [] [] []])
     newScope = ok (mkScopeDeclaration scope [ResourceBundle [Managed newResource] [] [] [] [] []])
     snapshot = ok (mkScopeSnapshot binding
       (Map.singleton scope (ok (mkScopeGeneration 1), oldScope)) Map.empty)
+    oldScopeWithConsumer = ok (mkScopeDeclaration scope
+      [ResourceBundle [Managed oldResource, Managed oldConsumer] [] [] [] [] []])
+    newScopeWithConsumer = ok (mkScopeDeclaration scope
+      [ResourceBundle [Managed newResource, Managed newConsumer] [] [] [] [] []])
+    snapshotWithConsumer = ok (mkScopeSnapshot binding
+      (Map.singleton scope (ok (mkScopeGeneration 1), oldScopeWithConsumer)) Map.empty)
+    candidateWithConsumer = ok (composeInventory snapshotWithConsumer
+      (ReplaceScope newScopeWithConsumer :| []))
     candidate = ok (composeInventory snapshot (ReplaceScope newScope :| []))
     physical = ok (mkPhysicalIdentity "source-uid")
     absence = contentDigest "destination-absent"
@@ -215,10 +275,11 @@ inventoryMigrationTests = testGroup "inventory migration"
     input = MigrationInput "compiled" binding [target]
     durableContract = DurableMigration (contentDigest "backup")
       (contentDigest "compatibility") (contentDigest "fence") (contentDigest "recovery")
-    acceptedStore = do
+    acceptedStore = acceptedStoreFor snapshot
+    acceptedStoreFor sourceSnapshot = do
       store <- newMemoryStore
       _ <- initializeStore store binding "migration-test" >>= either (assertFailure . show) pure
-      let seed = ok (composeInventory snapshot
+      let seed = ok (composeInventory sourceSnapshot
             (ReplaceScope (ok (mkScopeDeclaration dummyScope [])) :| []))
       _ <- seedInventoryHistory store seed >>= either (assertFailure . show) pure
       pure store
