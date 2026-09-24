@@ -7,6 +7,10 @@ metadata:
     nagare.dev/managed-by: nagarectl
     nagare.dev/database: redis-cache
     nagare.dev/engine: redis
+  annotations:
+    nagare.dev/retention: Retain
+    nagare.dev/size: 2Gi
+    nagare.dev/version: '8'
 spec:
   serviceName: redis-cache
   replicas: 1

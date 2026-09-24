@@ -7,6 +7,10 @@ metadata:
     nagare.dev/managed-by: nagarectl
     nagare.dev/database: analytics
     nagare.dev/engine: clickhouse
+  annotations:
+    nagare.dev/retention: Retain
+    nagare.dev/size: 5Gi
+    nagare.dev/version: '25.8'
 spec:
   serviceName: analytics
   replicas: 1

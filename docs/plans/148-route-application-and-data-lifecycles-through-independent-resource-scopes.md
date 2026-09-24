@@ -63,6 +63,7 @@ Every supported application-side mutation is either a desired-scope update, a re
 - [x] (2026-09-24) M1 partial: DomainMapping declarations accept an optional stable logical key through config emission/loading; a pinned key retains the ResourceId across a hostname change, which still requires EP-149 review before execution.
 - [x] (2026-09-24) M4 partial: An offline context with platform plus two application scopes preserves the unselected platform/application declarations and generations when replacing one application; a duplicate Knative Service claim across applications refuses composition. This is compiler isolation, not migrated command execution.
 - [x] (2026-09-24) M3 partial: `db create --save-plan` compiles the same validated typed database used by direct create into a standalone scope, requires explicit recovery inputs, and saves an opaque inventory review for `inventory apply`; direct create remains a compatibility path.
+- [x] (2026-09-24) M3 partial: `broker create --save-plan` compiles a topic-free Redpanda broker into its standalone scope and saves an inventory review. The StatefulSet renderer now includes the discovery metadata previously added by a post-apply `kubectl annotate` call.
 - [ ] M1: Compile applications and standalone services into complete scopes.
 - [ ] M2: Integrate shared-owner contributions, environment intent, and publication.
 - [ ] M3: Route operational and data lifecycle commands through reviewed operations.
@@ -104,6 +105,8 @@ Every supported application-side mutation is either a desired-scope update, a re
 2026-09-24: Composing a platform scope and two simple application scopes confirmed the existing omission rule at the application boundary: replacing one app leaves the other app and platform at their accepted generations. Giving the changed app the other app's Knative Service name fails the shared address claim check. This validates the compiler's isolation behavior but does not exercise legacy deploy command migration.
 
 2026-09-24: The standalone database builder was adapter-ready but had no public reviewed entry point. `db create --save-plan` now shares the typed input resolver with direct create and composes one standalone scope against accepted context history. The command requires explicit recovery policy and credential key version; composition refuses missing platform dependencies. Applying the saved review is a separate `inventory apply --yes` step. This is a first routed path, not full operational-command migration.
+
+2026-09-24: Broker and database renderers omitted discovery annotations and their direct create paths stamped them after applying the StatefulSet. Reviewed execution cannot perform an unreviewed follow-up annotation, so both renderers now include the annotations in the StatefulSet object. Direct create uses those same bytes and no longer issues separate annotations. Topics still refuse reviewed broker planning because they require typed logical operations.
 
 ## Decision Log
 

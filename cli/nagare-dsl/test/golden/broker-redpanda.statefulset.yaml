@@ -7,6 +7,9 @@ metadata:
     nagare.dev/managed-by: nagarectl
     nagare.dev/broker: events
     nagare.dev/broker-provider: redpanda
+  annotations:
+    nagare.dev/size: 5Gi
+    nagare.dev/version: v26.1.8
 spec:
   serviceName: events
   replicas: 1

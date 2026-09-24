@@ -49,6 +49,23 @@ nagarectl broker create redpanda events \
 This creates a single-replica StatefulSet, a ClusterIP Service, a durable
 `local-path` PVC, and topic `jobs`. The broker is internal only:
 
+For a broker without topics, the reviewed inventory path saves a plan before
+changing the cluster:
+
+```bash
+nagarectl broker create redpanda events \
+  --recovery-backup redpanda-backup \
+  --recovery-key broker-key \
+  --recovery-key-version v1 \
+  --save-plan ./events-review
+nagarectl inventory apply ./events-review --yes
+```
+
+The recovery options identify the durable PVC's backup policy and key
+reference. The plan requires an accepted platform cluster and Namespace.
+Broker topics are not part of this reviewed path yet; a topic-bearing input
+is refused during compilation.
+
 ```text
 events.personal.svc.cluster.local:9092
 ```

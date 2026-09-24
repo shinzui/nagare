@@ -35,7 +35,7 @@ import Data.Generics.Labels ()
 import Data.Yaml.Pretty qualified as YP
 import Nagare.Dsl.Database
 import Nagare.Dsl.Prelude hiding ((.=))
-import Nagare.Dsl.Types (Resources, namespaceText, quantityText)
+import Nagare.Dsl.Types (Resources, RetentionPolicy (..), namespaceText, quantityText)
 
 -- ---------------------------------------------------------------------------
 -- Deterministic resource names (single owners; EP-45/47 discover by label).
@@ -146,7 +146,16 @@ statefulSetValue db =
   object
     [ "apiVersion" .= txt "apps/v1"
     , "kind" .= txt "StatefulSet"
-    , "metadata" .= metadataValue (statefulSetName (nameText db)) db
+    , "metadata" .= object
+        [ "name" .= statefulSetName (nameText db)
+        , "namespace" .= nsText db
+        , "labels" .= dbLabels db
+        , "annotations" .= object
+            [ "nagare.dev/version" .= engineVersionText (db ^. #version)
+            , "nagare.dev/size" .= quantityText (db ^. #size)
+            , "nagare.dev/retention" .= retentionToken (db ^. #retention)
+            ]
+        ]
     , "spec"
         .= object
           [ "serviceName" .= dbServiceName (nameText db)
@@ -163,6 +172,9 @@ statefulSetValue db =
                 ]
           ]
     ]
+  where
+    retentionToken Retain = txt "Retain"
+    retentionToken Delete = txt "Delete"
 
 containerValue :: Database -> Value
 containerValue db =

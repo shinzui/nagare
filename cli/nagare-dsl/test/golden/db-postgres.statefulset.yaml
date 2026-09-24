@@ -7,6 +7,10 @@ metadata:
     nagare.dev/managed-by: nagarectl
     nagare.dev/database: pg-main
     nagare.dev/engine: postgres
+  annotations:
+    nagare.dev/retention: Retain
+    nagare.dev/size: 10Gi
+    nagare.dev/version: '18'
 spec:
   serviceName: pg-main
   replicas: 1

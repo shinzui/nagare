@@ -52,7 +52,6 @@ import Nagare.Dsl.Types
   , mkNamespace
   , mkQuantity
   , namespaceText
-  , quantityText
   )
 import Nagare.Env.Store (extractSecretData)
 import Nagare.Target (TargetProfile (..), storeBackendFor)
@@ -163,7 +162,6 @@ runDbCreate eng nameT params = do
       ensureNamespace purpose ns >>= orDie
       _ <- ensureDatabaseSecret ns name engine' mkParts
       applyManifests manifests
-      stampMetadata ns name db
       when backsUp (applyManifests [cronJob])
       waitForRollout ns (statefulSetName name)
         >>= requireWait ("database '" <> name <> "'")
@@ -245,27 +243,6 @@ generatePassword = do
   case code of
     ExitSuccess -> pure (T.strip (TE.decodeUtf8 out))
     ExitFailure _ -> dieT "could not generate a password: 'openssl rand' failed"
-
--- | Stamp version/size/retention as annotations on the StatefulSet so
--- @db list@/@get@/@delete@ can read state back (EP-44's renderer stamps only the
--- managed-by/database/engine labels). Idempotent (@--overwrite@); best-effort.
-stampMetadata :: Text -> Text -> Database -> IO ()
-stampMetadata ns name db =
-  run_ $
-    cmd "kubectl"
-      & addArgs
-        [ "annotate"
-        , "statefulset/" <> T.unpack name
-        , "-n"
-        , T.unpack ns
-        , "--overwrite"
-        , "nagare.dev/version=" <> T.unpack (engineVersionText (db ^. #version))
-        , "nagare.dev/size=" <> T.unpack (quantityText (db ^. #size))
-        , "nagare.dev/retention=" <> retentionToken (db ^. #retention)
-        ]
-  where
-    retentionToken Retain = "Retain"
-    retentionToken Delete = "Delete"
 
 -- | Print one manifest with a @--- <Kind> manifest ---@ header.
 printManifest :: ByteString -> IO ()

@@ -74,7 +74,7 @@ import Nagare.App.Deployments
   , recordDeploymentFor
   , resolveRevisionForTag
   )
-import Nagare.Broker.Create (BrokerCreateParams (..), runBrokerCreate)
+import Nagare.Broker.Create (BrokerCreateParams (..), resolveBroker, runBrokerCreate)
 import Nagare.Broker.Delete (BrokerDeleteParams (..), runBrokerDelete)
 import Nagare.Broker.Get (runBrokerGet)
 import Nagare.Broker.List (runBrokerList)
@@ -128,7 +128,7 @@ import Nagare.Domain.Binding
   , waitForDomainBindings
   )
 import Nagare.Domain.Tls (preflightDomainTls, renderDomainTlsCheck, verifyDomainTlsReady)
-import Nagare.Dsl.Broker (BrokerProvider (..))
+import Nagare.Dsl.Broker (BrokerProvider (..), brokerNameText)
 import Nagare.Dsl.Build (BuildSpec, requiresBuild, resolveImageTag)
 import Nagare.Dsl.Cdn.Types (Cdn)
 import Nagare.Dsl.Database (Database (..), Engine (..), dbSecretName)
@@ -269,6 +269,7 @@ import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.DataService (compileStandaloneDatabase)
+import Nagare.Inventory.DataService (compileStandaloneBroker)
 import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
@@ -1099,6 +1100,10 @@ data BrokerCreateOpts = BrokerCreateOpts
   , topics :: ![String]
   , topicPartitions :: !(Maybe Int)
   , topicRetentionMs :: !(Maybe Int)
+  , savePlan :: !(Maybe FilePath)
+  , recoveryBackup :: !(Maybe String)
+  , recoveryKey :: !(Maybe String)
+  , recoveryKeyVersion :: !(Maybe String)
   }
   deriving stock (Generic, Show)
 
@@ -1740,6 +1745,10 @@ brokerCreateOptsParser =
     <*> many (strOption (long "topic" <> metavar "TOPIC" <> help "Topic to create; repeat for multiple topics"))
     <*> optional (option auto (long "topic-partitions" <> metavar "N" <> help "Partitions for topics declared with --topic"))
     <*> optional (option auto (long "topic-retention-ms" <> metavar "MS" <> help "retention.ms for topics declared with --topic"))
+    <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed topic-free broker plan for inventory apply"))
+    <*> optional (strOption (long "recovery-backup" <> metavar "NAME" <> help "Recovery backup policy for a reviewed broker"))
+    <*> optional (strOption (long "recovery-key" <> metavar "NAME" <> help "Recovery key name for a reviewed broker"))
+    <*> optional (strOption (long "recovery-key-version" <> metavar "VERSION" <> help "Recovery key version for a reviewed broker"))
 
 brokerDeleteOptsParser :: Parser BrokerDeleteOpts
 brokerDeleteOptsParser =
@@ -2758,7 +2767,7 @@ main = do
     DeploymentsList o -> runDeploymentsList o
     DeploymentsLogs o -> runDeploymentsLogs o
     Storage scmd -> runStorage mctx scmd
-    Broker bcmd -> runBroker bcmd
+    Broker bcmd -> runBroker mctx bcmd
     Db dcmd -> runDb mctx dcmd
     Task tcmd -> runTask tcmd
     Worker wcmd -> runWorker mctx wcmd
@@ -6996,28 +7005,35 @@ runStorage mctx = \case
 
 -- | Dispatch the @broker@ subcommands (MasterPlan 15, EP-78). The namespace
 -- defaults to @personal@.
-runBroker :: BrokerCommand -> IO ()
-runBroker = \case
+runBroker :: Maybe String -> BrokerCommand -> IO ()
+runBroker mctx = \case
   BrokerList o -> runBrokerList (nsOf (o ^. #namespace))
   BrokerCreate provider name o -> do
     when (isJust (o ^. #config)) (provisionGhcEnv Nothing)
-    runBrokerCreate
-      provider
-      (T.pack name)
-      BrokerCreateParams
-        { namespace = nsOf (o ^. #namespace)
-        , version = T.pack <$> o ^. #version
-        , size = T.pack <$> o ^. #size
-        , cpu = T.pack <$> o ^. #cpu
-        , memory = T.pack <$> o ^. #memory
-        , config = o ^. #config
-        , dryRun = o ^. #dryRun
-        , redpandaSmp = o ^. #redpandaSmp
-        , redpandaMemory = T.pack <$> o ^. #redpandaMemory
-        , topics = map T.pack (o ^. #topics)
-        , topicPartitions = o ^. #topicPartitions
-        , topicRetentionMs = o ^. #topicRetentionMs
-        }
+    let params = BrokerCreateParams
+          { namespace = nsOf (o ^. #namespace)
+          , version = T.pack <$> o ^. #version
+          , size = T.pack <$> o ^. #size
+          , cpu = T.pack <$> o ^. #cpu
+          , memory = T.pack <$> o ^. #memory
+          , config = o ^. #config
+          , dryRun = o ^. #dryRun
+          , redpandaSmp = o ^. #redpandaSmp
+          , redpandaMemory = T.pack <$> o ^. #redpandaMemory
+          , topics = map T.pack (o ^. #topics)
+          , topicPartitions = o ^. #topicPartitions
+          , topicRetentionMs = o ^. #topicRetentionMs
+          }
+    case o ^. #savePlan of
+      Nothing -> do
+        when (any isJust [o ^. #recoveryBackup, o ^. #recoveryKey, o ^. #recoveryKeyVersion])
+          (dieT "recovery options require --save-plan")
+        runBrokerCreate provider (T.pack name) params
+      Just output -> do
+        when (o ^. #dryRun) (dieT "--dry-run and --save-plan cannot be combined")
+        runBrokerCreatePlan mctx provider (T.pack name) params
+          (o ^. #recoveryBackup) (o ^. #recoveryKey)
+          (o ^. #recoveryKeyVersion) output
   BrokerGet o -> runBrokerGet (nsOf (o ^. #namespace)) (T.pack (o ^. #name))
   BrokerRestart o dryRun -> runBrokerRestart (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) dryRun
   BrokerDelete o ->
@@ -7030,6 +7046,37 @@ runBroker = \case
         }
   where
     nsOf = maybe "personal" T.pack
+
+runBrokerCreatePlan :: Maybe String -> BrokerProvider -> Text -> BrokerCreateParams
+  -> Maybe String -> Maybe String -> Maybe String -> FilePath -> IO ()
+runBrokerCreatePlan mctx provider name params backupName keyName keyVersion output = do
+  broker <- resolveBroker provider name params
+  let brokerName = brokerNameText (broker ^. #name)
+      namespaceName = namespaceText (broker ^. #namespace)
+      scopeName = maybe brokerName Resource.logicalKeyText (broker ^. #logicalKey)
+  owner <- either dieT pure (Resource.mkScopeId Resource.Standalone ("broker-" <> scopeName))
+  foundation <- either dieT pure (Resource.mkScopeId Resource.Platform "foundation")
+  clusterKey <- either dieT pure (Resource.mkLogicalKey "cluster")
+  foundationKey <- either dieT pure (Resource.mkLogicalKey "foundation")
+  clusterRole <- either dieT pure (Resource.mkName "cluster")
+  namespaceRole <- either dieT pure (Resource.mkName ("namespace-" <> namespaceName))
+  backup <- maybe (dieT "--save-plan requires --recovery-backup") (either dieT pure . Resource.mkName . T.pack) backupName
+  key <- maybe (dieT "--save-plan requires --recovery-key") (either dieT pure . Resource.mkName . T.pack) keyName
+  version <- maybe (dieT "--save-plan requires --recovery-key-version") (either dieT pure . Resource.mkName . T.pack) keyVersion
+  let recovery = RecoveryIntent backup (mkSecretRef key version NE.:| [])
+      cluster = Resource.mintResourceId foundation clusterKey clusterRole
+      namespaceId = Resource.mintResourceId foundation foundationKey namespaceRole
+      source = Resource.SourceLocation
+        (maybe "broker create" T.pack (params ^. #config)) brokerName
+  active <- activeTarget mctx
+  (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+  snapshot <- Inventory.loadTargetSnapshot active
+  (scope, native) <- either (dieT . T.pack . show) pure
+    (compileStandaloneBroker broker owner cluster namespaceId recovery source)
+  candidate <- either (dieT . T.pack . show) pure
+    (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
+  Inventory.planInventoryCandidateWith
+    (inventoryPlanRegistryWithNative active workspace native) active candidate output
 
 -- | Dispatch the @db@ subcommands (MasterPlan 9, EP-45). The namespace defaults
 -- to @personal@. EP-47 adds @DbBackup@/@DbRestore@ cases here.

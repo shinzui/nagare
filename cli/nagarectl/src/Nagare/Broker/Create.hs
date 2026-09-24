@@ -4,11 +4,11 @@
 module Nagare.Broker.Create
   ( BrokerCreateParams (..)
   , buildBroker
+  , resolveBroker
   , runBrokerCreate
   )
 where
 
-import Cradle
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
 import Data.Text qualified as T
@@ -26,7 +26,6 @@ import Nagare.Dsl.Types
   , mkNamespace
   , mkQuantity
   , namespaceText
-  , quantityText
   )
 import System.Environment (lookupEnv)
 import System.Exit (exitFailure)
@@ -92,13 +91,7 @@ runBrokerCreate provider nameT params = do
   transaction <- lookupEnv "NAGARE_INVENTORY_TRANSACTION"
   when (isJust transaction) $
     dieT "broker create cannot run inside a reviewed inventory transaction"
-  broker <- case params ^. #config of
-    Just path -> do
-      eBroker <- loadBroker path
-      case eBroker of
-        Left err -> dieT (renderLoadError err)
-        Right b -> pure b
-    Nothing -> orDie (buildBroker provider nameT params)
+  broker <- resolveBroker provider nameT params
   let name = brokerNameText (broker ^. #name)
       ns = namespaceText (broker ^. #namespace)
       manifests = renderBroker broker
@@ -117,25 +110,19 @@ runBrokerCreate provider nameT params = do
     else do
       ensureNamespace ApplicationNamespace ns >>= orDie
       applyManifests manifests
-      stampMetadata ns name broker
       waitForRollout ns (brokerStatefulSetName name)
         >>= requireWait ("broker '" <> name <> "'")
       reconcileBrokerTopics broker
       TIO.putStrLn ("Created broker " <> name <> " at " <> bootstrap)
 
-stampMetadata :: Text -> Text -> Broker -> IO ()
-stampMetadata ns name broker =
-  run_ $
-    cmd "kubectl"
-      & addArgs
-        [ "annotate"
-        , "statefulset/" <> T.unpack name
-        , "-n"
-        , T.unpack ns
-        , "--overwrite"
-        , "nagare.dev/version=" <> T.unpack (brokerVersionText (broker ^. #version))
-        , "nagare.dev/size=" <> T.unpack (quantityText (broker ^. #storageSize))
-        ]
+resolveBroker :: BrokerProvider -> Text -> BrokerCreateParams -> IO Broker
+resolveBroker provider nameT params = case params ^. #config of
+    Just path -> do
+      eBroker <- loadBroker path
+      case eBroker of
+        Left err -> dieT (renderLoadError err)
+        Right b -> pure b
+    Nothing -> orDie (buildBroker provider nameT params)
 
 printManifest :: ByteString -> IO ()
 printManifest m = do
