@@ -196,6 +196,14 @@ inventoryTransactionTests =
                 InventoryStatus.retainedResource finding == resourceId]
         retainedHealth (ObservedPresent physical) @?= [InventoryStatus.HealthUnknown]
         retainedHealth (ConfirmedAbsent (contentDigest "absent")) @?= [InventoryStatus.HealthUnavailable]
+        let healthTargets currentFact = InventoryStatus.retainedHealthTargets retainedHistory
+              (ok (observationSet [(resourceId, currentFact)]))
+        healthTargets (ObservedPresent physical) @?=
+          [(resourceId, case oldResource of Managed value -> value ^. #address; _ -> error "expected managed resource", physical)]
+        healthTargets (ObservedDrifted physical (contentDigest "changed")) @?=
+          healthTargets (ObservedPresent physical)
+        healthTargets (ObservedPresent (ok (mkPhysicalIdentity "replacement-uid"))) @?= []
+        healthTargets (ConfirmedAbsent (contentDigest "absent")) @?= []
         let retainedSnapshot = ok (mkScopeSnapshot fixtureBinding Map.empty
               (historyReservations retainedHistory))
             emptyInventory = ok (composeSnapshot retainedSnapshot)

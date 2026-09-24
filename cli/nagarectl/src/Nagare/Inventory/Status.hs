@@ -13,6 +13,7 @@ module Nagare.Inventory.Status
   , traceRetainedDependencies
   , consumersOf
   , retainedFindings
+  , retainedHealthTargets
   , assessCollections
   , loadAcceptedNative
   , loadActiveTransactionStatus
@@ -169,6 +170,22 @@ retainedFindings history observations =
       ObservedUnowned physical -> Just physical
       ObservedForeign physical -> Just physical
       _ -> Nothing
+
+-- | A retained condition probe is meaningful only for the historical
+-- incarnation. A replacement at the same address must not lend its health to
+-- the retained entry.
+retainedHealthTargets :: InventoryHistory -> ObservationSet -> [(ResourceId, ProviderAddress, PhysicalIdentity)]
+retainedHealthTargets history observations =
+  [(resourceId, managed ^. #address, physical)
+  | (resourceId, (incarnation, managed)) <- Map.toAscList (historyRetained history)
+  , managed ^. #executor == KubernetesExecutor
+  , Just fact <- [Map.lookup resourceId (observationMap observations)]
+  , Just physical <- [case fact of
+      ObservedPresent uid -> Just uid
+      ObservedDrifted uid _ -> Just uid
+      ObservedReplacementRequired uid _ -> Just uid
+      _ -> Nothing]
+  , physical == retainedPhysical incarnation]
 
 instance ToJSON RetainedFinding where
   toJSON finding = object

@@ -4430,16 +4430,10 @@ runInventoryStatus mctx requested json gcOutput = do
         observeKubernetesHealth healthConfig (resource ^. #address) uid
       _ -> pure Nothing
     pure (resourceId, health)
-  retainedHealthPairs <- forM (Map.toAscList (InventoryPlan.historyRetained history)) $ \(resourceId, (incarnation, resource)) -> do
-    let matchesHistorical = case Map.lookup resourceId kubeObserved of
-          Just (InventoryAdapter.ObservedPresent uid) -> uid == InventoryStore.retainedPhysical incarnation
-          Just (InventoryAdapter.ObservedDrifted uid _) -> uid == InventoryStore.retainedPhysical incarnation
-          Just (InventoryAdapter.ObservedReplacementRequired uid _) -> uid == InventoryStore.retainedPhysical incarnation
-          _ -> False
-    health <- if resource ^. #executor == ResourceInventory.KubernetesExecutor && matchesHistorical
-      then observeKubernetesHealth healthConfig (resource ^. #address)
-        (InventoryStore.retainedPhysical incarnation)
-      else pure Nothing
+  let kubernetesObservations = either (error . T.unpack) (\value -> value)
+        (InventoryAdapter.observationSet kubeFacts)
+  retainedHealthPairs <- forM (InventoryStatus.retainedHealthTargets history kubernetesObservations) $ \(resourceId, address, physical) -> do
+    health <- observeKubernetesHealth healthConfig address physical
     pure (resourceId, health)
   transactionStatus <- InventoryStatus.loadActiveTransactionStatus store (InventoryPlan.historyHead history)
     >>= either dieT pure
