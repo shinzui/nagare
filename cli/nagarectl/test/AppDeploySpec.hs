@@ -29,7 +29,7 @@ import Nagare.Resource.Policy (RecoveryIntent (..), mkSecretRef)
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Dsl.Load (loadApplication)
 import Nagare.Dsl.Prelude
-import Nagare.Dsl.Types (mkImageRef, mkVolumeName)
+import Nagare.Dsl.Types (DomainTls (SuppliedTlsSecret), mkDomains, mkImageRef, mkSecretName, mkVolumeName)
 import Nagare.Dsl.Presets (attachVolume)
 import Nagare.Target (InventoryStoreKind (..), Mode (..), PulumiBackendKind (..), TargetProfile (..))
 import System.Exit (ExitCode (..))
@@ -141,6 +141,20 @@ renderTests =
           (Map.singleton volumeName recovery) source)
       length (declarations volumeBundle) @?= 2
       Map.size volumeNative @?= 2
+      let withDomain = app & #service %~ fmap
+            (#domains .~ unsafe (mkDomains [("app.example.com", True)]))
+      (domainBundle, domainNative) <- either (fail . show) pure
+        (compileApplicationService withDomain testEnv cluster namespaceId publication Map.empty source)
+      length (declarations domainBundle) @?= 2
+      Map.size domainNative @?= 2
+      assertBool "domain hostname claim omitted"
+        (any (elem (Resource.Hostname (unsafe (Resource.mkName "app.example.com"))) . (^. #aliases))
+          [member | Managed member <- declarations domainBundle])
+      let supplied = withDomain & #service %~ fmap
+            (#domains . traverse . #tls .~ SuppliedTlsSecret (unsafe (mkSecretName "custom-tls")))
+      case compileApplicationService supplied testEnv cluster namespaceId publication Map.empty source of
+        Left _ -> pure ()
+        Right _ -> assertFailure "supplied TLS domain lacked a typed secret dependency"
   , testCase "the rollout begins with the public-certificate namespace opt-in" $ do
       result <- loadApplication fixturePath
       case result of

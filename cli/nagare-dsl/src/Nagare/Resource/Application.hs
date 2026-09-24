@@ -5,6 +5,7 @@ module Nagare.Resource.Application
   ( applicationScopeId
   , deploymentResourceId
   , volumeResourceId
+  , domainMappingResourceId
   ) where
 
 import Data.Generics.Labels ()
@@ -12,7 +13,9 @@ import Nagare.Dsl.Application (Application)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types
   ( Deployment (..)
+  , DomainSpec (..)
   , Volume (..)
+  , domainText
   , serviceNameText
   , volumeNameText
   )
@@ -36,3 +39,8 @@ volumeResourceId owner role volume =
   where
     key = maybe (mkLogicalKey (volumeNameText (volume ^. #name))) Right
       (volume ^. #logicalKey)
+
+domainMappingResourceId :: ScopeId -> DomainSpec -> Either Text ResourceId
+domainMappingResourceId owner domain =
+  mintResourceId owner <$> mkLogicalKey (domainText (domain ^. #domain))
+    <*> mkName "domain-mapping"
