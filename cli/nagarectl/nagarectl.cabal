@@ -128,6 +128,7 @@ library
     Nagare.Inventory.Plan
     Nagare.Inventory.Lifecycle
     Nagare.Inventory.Migration
+    Nagare.Inventory.Migration.Types
     Nagare.Inventory.Status
     Nagare.Inventory.Store
     Nagare.Inventory.Store.ObjectOps

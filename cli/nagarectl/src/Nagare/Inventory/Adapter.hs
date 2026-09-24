@@ -8,6 +8,7 @@ module Nagare.Inventory.Adapter
   , migrationObservationSet
   , migrationObservationMap
   , OperationAction (..)
+  , MigrationStage (..)
   , PlannedOperation (..)
   , PreparedNative (..)
   , ReviewBarrier (..)
@@ -81,7 +82,20 @@ migrationObservationSet expected sources destinations
 migrationObservationMap :: MigrationObservationSet -> Map ResourceId (ResourceObservation, ResourceObservation)
 migrationObservationMap (MigrationObservationSet values) = values
 
-data OperationAction = CreateResource | UpdateResource | VerifyResource | AdoptResource | RetireResource | RunDeclaredOperation
+data MigrationStage
+  = PrepareDestination
+  | BackUpSource
+  | FenceWriters
+  | TransferState
+  | VerifyDestination
+  | SwitchConsumers
+  | AdmitWrites
+  | RetainSource
+  deriving stock (Eq, Ord, Show, Generic)
+
+data OperationAction
+  = CreateResource | UpdateResource | VerifyResource | AdoptResource | RetireResource
+  | RunDeclaredOperation | MigrateResource !MigrationStage
   deriving stock (Eq, Ord, Show, Generic)
 
 data PlannedOperation = PlannedOperation
@@ -143,6 +157,10 @@ instance FromJSON ResourceObservation where parseJSON = genericParseJSON default
 instance ToJSON OperationAction where toJSON = genericToJSON defaultOptions
 
 instance FromJSON OperationAction where parseJSON = genericParseJSON defaultOptions
+
+instance ToJSON MigrationStage where toJSON = genericToJSON defaultOptions
+
+instance FromJSON MigrationStage where parseJSON = genericParseJSON defaultOptions
 
 instance ToJSON PlannedOperation where
   toJSON operation =

@@ -21,12 +21,14 @@ module Nagare.Inventory.Plan
   , noLifecycleDecisions
   , lifecycleObservationDigest
   , validateLifecycleDecisions
+  , approveMigrations
   , combineDecisions
   , PlanError (..)
   , ChangeProposal
   , proposalOperations
   , proposalDesired
   , RetentionProof (..)
+  , MigrationProof (..)
   , planChanges
   , ReviewOperation (..)
   , ReviewDocument (..)
@@ -75,6 +77,7 @@ import Nagare.Inventory.Adapter
 import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Journal
+import Nagare.Inventory.Migration.Types
 import Nagare.Inventory.Store
 import Nagare.Inventory.Store qualified as InventoryStore
 import Nagare.Resource.Inventory
@@ -106,10 +109,14 @@ loadInventoryHistory store = do
       loaded <- traverse (loadScope store) (Map.toAscList (headAccepted headValue))
       retained <- traverse (loadRetained store) (Map.toAscList (headRetained headValue))
       collected <- traverse (loadCollected store) (Map.toAscList (headCollected headValue))
+      migrations <- traverse (loadMigrationReview store)
+        [(resource, digest) | (resource, incarnation) <- Map.toAscList (headRetained headValue)
+        , Just digest <- [retainedMigrationReview incarnation]]
       pure $ do
         accepted <- Map.fromList <$> sequence loaded
         historical <- Map.fromList <$> sequence retained
         _ <- sequence collected
+        migrationProofs <- Map.fromList <$> sequence migrations
         let reservations = retainedReservations historical
             count = sum [length (NE.toList (claimsOf (Managed resource))) | (_, resource) <- Map.elems historical]
         unless (Map.size reservations == count)
@@ -117,8 +124,24 @@ loadInventoryHistory store = do
         acceptedDeclarations <- first (StoreInvalidObject "head.json" . T.pack . show)
           (composedDeclarations (fmap snd accepted))
         let acceptedIds = Set.fromList (map declarationId acceptedDeclarations)
-        unless (Set.null (Set.intersection acceptedIds (Map.keysSet historical `Set.union` Map.keysSet (headCollected headValue))))
-          (Left (StoreInvalidObject "head.json" "historical resource is also active"))
+            activeManaged = Map.fromList
+              [(resource ^. #identity, resource) | Managed resource <- acceptedDeclarations]
+            activeRetained = Set.intersection acceptedIds (Map.keysSet historical)
+        unless (Set.null (Set.intersection acceptedIds (Map.keysSet (headCollected headValue))))
+          (Left (StoreInvalidObject "head.json" "collected resource is also active"))
+        forM_ (Set.toAscList activeRetained) $ \resource ->
+          case (Map.lookup resource historical, Map.lookup resource activeManaged,
+                Map.lookup resource migrationProofs) of
+            (Just (incarnation, source), Just destination, Just proof)
+              | retainedOwner incarnation == migrationProofOwner proof
+              , retainedRevision incarnation == migrationProofRevision proof
+              , retainedPhysical incarnation == migrationProofPhysical proof
+              , source ^. #address == migrationProofSourceAddress proof
+              , destination ^. #address == migrationProofDestinationAddress proof
+              , Set.null (Set.intersection
+                  (Set.fromList (map snd (NE.toList (claimsOf (Managed source)))))
+                  (Set.fromList (map snd (NE.toList (claimsOf (Managed destination)))))) -> pure ()
+            _ -> Left (StoreInvalidObject "head.json" "active retained resource lacks a disjoint reviewed migration")
         pure (InventoryHistory headValue accepted (headConverged headValue) historical)
   where
     loadScope inventoryStore (scope, revision) = do
@@ -148,7 +171,7 @@ loadInventoryHistory store = do
         pure (resourceId, (retained, managed))
     loadCollected inventoryStore (resourceId, tombstone) = do
       let historical = InventoryStore.RetainedIncarnation (tombstoneOwner tombstone)
-            (tombstoneRevision tombstone) (tombstonePhysical tombstone) (tombstoneAt tombstone)
+            (tombstoneRevision tombstone) (tombstonePhysical tombstone) (tombstoneAt tombstone) Nothing
           digest = tombstoneReview tombstone
           key = reviewKey digest
       declaration <- loadRetained inventoryStore (resourceId, historical)
@@ -159,6 +182,19 @@ loadInventoryHistory store = do
         unless (contentDigest bytes == digest)
           (Left (StoreInvalidObject key "collection review digest mismatch"))
         pure ()
+    loadMigrationReview inventoryStore (resourceId, digest) = do
+      let key = reviewKey digest
+      review <- readObject inventoryStore key
+      pure $ do
+        bytes <- review >>= maybe (Left (StoreInvalidObject key "migration review is missing")) Right
+        unless (contentDigest bytes == digest)
+          (Left (StoreInvalidObject key "migration review digest mismatch"))
+        document <- first (StoreInvalidObject key . T.pack) (eitherDecodeStrict' bytes)
+        unless (encodeReviewDocument document == bytes)
+          (Left (StoreInvalidObject key "migration review is not canonical"))
+        proof <- maybe (Left (StoreInvalidObject key "migration proof is missing")) Right
+          (Map.lookup resourceId (reviewMigrations document))
+        pure (resourceId, proof)
 
 historyReservations :: InventoryHistory -> Map CanonicalClaim ClaimHolder
 historyReservations = retainedReservations . historyRetained
@@ -279,17 +315,21 @@ data LifecycleProposal = LifecycleProposal
   }
   deriving stock (Eq, Show, Generic)
 
-data LifecycleDecisions = LifecycleDecisions !(Maybe (CompositionCandidate, InventoryHistory)) !(Map ResourceId LifecycleProposal)
+data LifecycleDecisions = LifecycleDecisions
+  !(Maybe (CompositionCandidate, InventoryHistory))
+  !(Map ResourceId LifecycleProposal)
+  !(Map ResourceId (ValidatedMigration, (ResourceObservation, ResourceObservation)))
   deriving stock (Eq, Show)
 
 noLifecycleDecisions :: LifecycleDecisions
-noLifecycleDecisions = LifecycleDecisions Nothing Map.empty
+noLifecycleDecisions = LifecycleDecisions Nothing Map.empty Map.empty
 
 -- | A review can combine independently validated lifecycle requests only
 -- when each names a different logical resource. planChanges revalidates the
 -- combined set against its own candidate, history, and observations.
 combineDecisions :: LifecycleDecisions -> LifecycleDecisions -> Either (NonEmpty PlanError) LifecycleDecisions
-combineDecisions (LifecycleDecisions firstCandidate firstDecisions) (LifecycleDecisions secondCandidate secondDecisions) =
+combineDecisions (LifecycleDecisions firstCandidate firstDecisions firstMigrations)
+  (LifecycleDecisions secondCandidate secondDecisions secondMigrations) =
   case Map.keys (Map.intersection firstDecisions secondDecisions) of
     overlapping@(_:_) -> Left (PlanError "duplicate-lifecycle-decision"
       "resource has more than one lifecycle decision" overlapping :| [])
@@ -297,7 +337,7 @@ combineDecisions (LifecycleDecisions firstCandidate firstDecisions) (LifecycleDe
       (Just firstReviewed, Just secondReviewed) | firstReviewed /= secondReviewed -> Left (PlanError "stale-lifecycle-context"
         "lifecycle decisions were validated for different candidates or inventory histories" [] :| [])
       _ -> Right (LifecycleDecisions (firstCandidate <|> secondCandidate)
-        (Map.union firstDecisions secondDecisions))
+        (Map.union firstDecisions secondDecisions) (Map.union firstMigrations secondMigrations))
 
 -- | Bind an operator decision to one observed incarnation in one provider
 -- target. A new observation or a different target requires a fresh decision.
@@ -306,9 +346,78 @@ lifecycleObservationDigest binding resource fact =
   contentDigest (either (error . T.unpack) id (canonicalValue
     (object ["binding" .= binding, "resource" .= resource, "observation" .= fact])))
 
+migrationObservationDigest
+  :: ContextBinding -> ResourceId -> ValidatedMigration
+  -> (ResourceObservation, ResourceObservation) -> ContentDigest
+migrationObservationDigest binding resource migration (sourceFact, destinationFact) =
+  contentDigest (either (error . T.unpack) id (canonicalValue (object
+    [ "binding" .= binding
+    , "resource" .= resource
+    , "sourceRevision" .= fst (validatedSource migration)
+    , "source" .= sourceFact
+    , "destination" .= destinationFact
+    , "contract" .= validatedContract migration
+    ])))
+
+-- | Only a paired, freshly observed migration can build an opaque approval.
+-- The planner rechecks this value against its own candidate and destination
+-- observation; admission must reobserve the source under the writer lock.
+approveMigrations
+  :: CompositionCandidate -> InventoryHistory -> ObservationSet
+  -> MigrationObservationSet -> Map ResourceId ValidatedMigration
+  -> Either (NonEmpty PlanError) LifecycleDecisions
+approveMigrations candidate history observations pairs migrations
+  | not (null missing) = Left (PlanError "migration-coverage"
+      "validated migration lacks one paired source and destination observation" missing :| [])
+  | otherwise = validatePairedMigrations candidate history observations paired
+  where
+    paired = Map.intersectionWith (,) migrations (migrationObservationMap pairs)
+    missing = Set.toAscList (Map.keysSet migrations `Set.difference` Map.keysSet paired)
+
+validatePairedMigrations
+  :: CompositionCandidate -> InventoryHistory -> ObservationSet
+  -> Map ResourceId (ValidatedMigration, (ResourceObservation, ResourceObservation))
+  -> Either (NonEmpty PlanError) LifecycleDecisions
+validatePairedMigrations candidate history observations paired =
+  if null errors then Right (LifecycleDecisions (Just (candidate, history)) proposals paired)
+  else Left (NE.fromList errors)
+  where
+    binding = inventoryBinding (candidateInventory candidate)
+    desired = Map.fromList
+      [(resource ^. #identity, resource)
+      | Managed resource <- inventoryDeclarations (candidateInventory candidate)]
+    accepted = Map.fromList
+      [(resource ^. #identity, (revision, resource))
+      | (scope, (revision, declaration)) <- Map.toAscList (historyAccepted history)
+      , bundle <- scopeBundles declaration
+      , Managed resource <- bundle ^. #declarations
+      , resource ^. #owner == scope]
+    proposals = Map.mapWithKey (\resource (migration, facts) -> LifecycleProposal
+      resource ApproveMigration (migrationObservationDigest binding resource migration facts)) paired
+    errors =
+      [PlanError "invalid-migration" "migration differs from accepted source, composed destination, data policy, or exact observations" [resource]
+         | (resource, (migration, (sourceFact, destinationFact))) <- Map.toAscList paired
+         , let (revision, source) = validatedSource migration
+               destination = validatedDestination migration
+         , Map.lookup resource accepted /= Just (revision, source)
+           || Map.lookup resource desired /= Just destination
+           || source ^. #owner /= destination ^. #owner
+           || (source ^. #address == destination ^. #address
+             && source ^. #executor == destination ^. #executor)
+           || source ^. #dataPolicy /= destination ^. #dataPolicy
+           || not (case (source ^. #dataPolicy, validatedContract migration) of
+             (Stateless, StatelessMigration) -> True
+             (Durable _, DurableMigration {}) -> True
+             _ -> False)
+           || sourceFact /= ObservedPresent (validatedSourcePhysical migration)
+           || destinationFact /= ConfirmedAbsent (validatedDestinationAbsence migration)
+           || Map.lookup resource (observationMap observations) /= Just destinationFact
+           || Map.member resource (historyRetained history)
+           || Map.member resource (headCollected (historyHead history))]
+
 validateLifecycleDecisions :: CompositionCandidate -> InventoryHistory -> ObservationSet -> [LifecycleProposal] -> Either (NonEmpty PlanError) LifecycleDecisions
 validateLifecycleDecisions candidate history observations proposals =
-  if null errors then Right (LifecycleDecisions (Just (candidate, history)) values) else Left (NE.fromList errors)
+  if null errors then Right (LifecycleDecisions (Just (candidate, history)) values Map.empty) else Left (NE.fromList errors)
   where
     values = Map.fromList [(lifecycleResource proposal, proposal) | proposal <- proposals]
     desired = Map.fromList [(declarationId declaration, declaration) | declaration <- inventoryDeclarations (candidateInventory candidate)]
@@ -400,6 +509,7 @@ data ChangeProposal = ChangeProposal
   , proposalOperations :: ![PlannedOperation]
   , proposalRetentions :: !(Map ResourceId RetentionProof)
   , proposalCollections :: !(Map ResourceId RetentionProof)
+  , proposalMigrations :: !(Map ResourceId MigrationProof)
   }
   deriving stock (Eq, Show)
 
@@ -414,17 +524,24 @@ planChanges :: CompositionCandidate -> LifecycleDecisions -> InventoryHistory ->
 planChanges candidate decisions history observations = do
   unless (null structuralErrors) (Left (NE.fromList structuralErrors))
   case decisions of
-    LifecycleDecisions (Just (reviewed, reviewedHistory)) _
+    LifecycleDecisions (Just (reviewed, reviewedHistory)) _ _
       | reviewed /= candidate -> Left (PlanError "stale-lifecycle-candidate"
           "lifecycle decisions were validated for a different composition candidate" [] :| [])
       | reviewedHistory /= history -> Left (PlanError "stale-lifecycle-history"
           "lifecycle decisions were validated for a different inventory history" [] :| [])
     _ -> pure ()
-  checkedDecisions <- validateLifecycleDecisions candidate history observations
-    (case decisions of LifecycleDecisions _ values -> Map.elems values)
+  let (submitted, migrations) = case decisions of
+        LifecycleDecisions _ values migrationValues -> (values, migrationValues)
+  ordinary <- validateLifecycleDecisions candidate history observations
+    [proposal | proposal <- Map.elems submitted, lifecycleDecision proposal /= ApproveMigration]
+  migrationDecisions <- validatePairedMigrations candidate history observations migrations
+  checkedDecisions@(LifecycleDecisions _ checked _) <- combineDecisions ordinary migrationDecisions
+  unless (submitted == checked) (Left (PlanError "stale-lifecycle-evidence"
+    "lifecycle decision evidence differs from current candidate and observations" [] :| []))
   operations <- buildOperations candidate checkedDecisions history observations
   retentions <- buildRetentionProofs candidate checkedDecisions history observations
   collections <- buildCollectionProofs candidate checkedDecisions history observations
+  let migrationProofs = buildMigrationProofs checkedDecisions
   let desiredScopes = inventoryScopes (candidateInventory candidate)
       scopeMembers = Map.fromList [(contentDigest bytes, bytes) | declaration <- Map.elems desiredScopes, let bytes = encodeCanonicalScope declaration]
       desiredRevisions =
@@ -450,6 +567,7 @@ planChanges candidate decisions history observations = do
       , proposalOperations = sortOn (operationIdText . plannedOperationId) operations
       , proposalRetentions = retentions
       , proposalCollections = collections
+      , proposalMigrations = migrationProofs
       }
   where
     baseRevisions = fmap fst (historyAccepted history)
@@ -473,14 +591,28 @@ planChanges candidate decisions history observations = do
         <> [PlanError "observation-coverage" "required resource was not observed" missing | not (null missing)]
         <> [PlanError "observation-unavailable" "required resource observation is unavailable" unavailable | not (null unavailable)]
     retainedReactivations = Set.toAscList
-      (Set.intersection (Map.keysSet (headRetained (historyHead history)))
-        (Set.fromList (map declarationId (inventoryDeclarations (candidateInventory candidate)))))
+      (Set.filter (\resource ->
+        Map.notMember resource (Map.fromList
+          [(declarationId declaration, ()) | declaration <- historyDeclarations history]))
+        (Set.intersection (Map.keysSet (headRetained (historyHead history)))
+          (Set.fromList (map declarationId (inventoryDeclarations (candidateInventory candidate))))))
     collectedReactivations = Set.toAscList
       (Set.intersection (Map.keysSet (headCollected (historyHead history)))
         (Set.fromList (map declarationId (inventoryDeclarations (candidateInventory candidate)))))
 
+buildMigrationProofs :: LifecycleDecisions -> Map ResourceId MigrationProof
+buildMigrationProofs (LifecycleDecisions _ _ migrations) = Map.map one migrations
+  where
+    one (migration, _) =
+      let (revision, source) = validatedSource migration
+          destination = validatedDestination migration
+       in MigrationProof (source ^. #owner) revision
+          (validatedSourcePhysical migration) (source ^. #address)
+          (destination ^. #address) (validatedDestinationAbsence migration)
+          (validatedContract migration)
+
 buildRetentionProofs :: CompositionCandidate -> LifecycleDecisions -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) (Map ResourceId RetentionProof)
-buildRetentionProofs candidate (LifecycleDecisions _ decisions) history observations = do
+buildRetentionProofs candidate (LifecycleDecisions _ decisions _) history observations = do
   unless (null disappearingChildren)
     (Left (PlanError "retained-child-history" "retirement of observed controller children requires retained child claims" disappearingChildren :| []))
   Map.fromList <$> traverse one selected
@@ -505,7 +637,7 @@ buildRetentionProofs candidate (LifecycleDecisions _ decisions) history observat
       _ -> Left (PlanError "retention-proof" "retired resource lacks a reviewed present incarnation" [resourceId] :| [])
 
 buildCollectionProofs :: CompositionCandidate -> LifecycleDecisions -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) (Map ResourceId RetentionProof)
-buildCollectionProofs candidate (LifecycleDecisions _ decisions) history observations =
+buildCollectionProofs candidate (LifecycleDecisions _ decisions _) history observations =
   Map.fromList <$> traverse one selected
   where
     selected = [resource | CollectRetained resource <- NE.toList (candidateChanges candidate)]
@@ -519,7 +651,7 @@ buildCollectionProofs candidate (LifecycleDecisions _ decisions) history observa
       _ -> Left (PlanError "collection-proof" "collection lacks an exact retained incarnation proof" [resource] :| [])
 
 buildOperations :: CompositionCandidate -> LifecycleDecisions -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) [PlannedOperation]
-buildOperations candidate (LifecycleDecisions _ decisions) history observations =
+buildOperations candidate (LifecycleDecisions _ decisions migrations) history observations =
   if null errors then Right (map addDependencies preliminary <> map snd declaredOperations) else Left (NE.fromList errors)
   where
     desiredDeclarations = Map.fromList [(declarationId declaration, declaration) | declaration <- inventoryDeclarations (candidateInventory candidate)]
@@ -562,6 +694,7 @@ buildOperations candidate (LifecycleDecisions _ decisions) history observations 
       <> [PlanError "collection-decision" "retained collection lacks a validated lifecycle decision" [resourceId]
          | (resourceId, _) <- selectedCollections, not (decisionIs ApproveCollection resourceId)]
     preliminary = mapMaybe snd classified <> mapMaybe retireOperation retired
+      <> concatMap migrationOperations (Map.toAscList migrations)
       <> [resourceOperation RetireResource resource | (_, resource) <- selectedCollections]
     operationByResource = Map.fromList [(resource, plannedOperationId operation) | operation <- preliminary, resource <- NE.toList (plannedResources operation)]
     operationByDeclaration =
@@ -573,14 +706,14 @@ buildOperations candidate (LifecycleDecisions _ decisions) history observations 
     addDependencies operation =
       operation
         { plannedDependencies =
-            sort
+            Set.toAscList (Set.fromList (plannedDependencies operation <>
               [ dependencyOperation
               | resource <- NE.toList (plannedResources operation)
               , Just declaration <- [Map.lookup resource desiredDeclarations]
               , dependency <- declarationDependencies declaration
               , Just dependencyOperation <- [operationForDependency dependency]
               , dependencyOperation /= plannedOperationId operation
-              ]
+              ]))
         }
     declaredSeeds = concatMap scopeDeclared (Map.elems (inventoryScopes (candidateInventory candidate)))
     cacheOutputOperations =
@@ -631,6 +764,9 @@ buildOperations candidate (LifecycleDecisions _ decisions) history observations 
               == canonicalBytes (toJSON (Managed (canonicalDependencies resource)))
       _ -> False
     classifyDesired (resourceId, resource, Just (Managed old), _)
+      | old ^. #address /= resource ^. #address
+        || old ^. #executor /= resource ^. #executor
+      , decisionIs ApproveMigration resourceId = ([], Nothing)
       | old ^. #address /= resource ^. #address
         || old ^. #executor /= resource ^. #executor =
           ([PlanError "migration-review-required" "changing a known resource address or executor needs a reviewed source and destination migration" [resourceId]], Nothing)
@@ -695,6 +831,35 @@ buildOperations candidate (LifecycleDecisions _ decisions) history observations 
       let digest = contentDigest (canonicalBytes (toJSON (Managed resource)))
           recovery = case resource ^. #dataPolicy of Stateless -> Idempotent; Durable _ -> VerifyBeforeRetry
        in mkPlanned action (resource ^. #executor) (resource ^. #identity :| []) digest recovery
+    migrationOperations (resourceId, (migration, _)) =
+      zipWith addPrevious stages (Nothing : map (Just . plannedOperationId) stages)
+      where
+        (sourceRevision, sourceResource) = validatedSource migration
+        destinationResource = validatedDestination migration
+        digest = contentDigest (canonicalBytes (object
+          [ "resource" .= resourceId
+          , "sourceRevision" .= sourceRevision
+          , "source" .= Managed sourceResource
+          , "sourcePhysical" .= validatedSourcePhysical migration
+          , "destination" .= Managed destinationResource
+          , "destinationAbsence" .= validatedDestinationAbsence migration
+          , "contract" .= validatedContract migration
+          ]))
+        stages =
+          [ stage PrepareDestination (destinationResource ^. #executor) Idempotent
+          , stage BackUpSource (sourceResource ^. #executor) VerifyBeforeRetry
+          , stage FenceWriters (sourceResource ^. #executor) OperatorRecovery
+          , stage TransferState (destinationResource ^. #executor) VerifyBeforeRetry
+          , stage VerifyDestination (destinationResource ^. #executor) Idempotent
+          , stage SwitchConsumers (destinationResource ^. #executor) OperatorRecovery
+          , stage AdmitWrites (destinationResource ^. #executor) OperatorRecovery
+          , stage RetainSource (sourceResource ^. #executor) Idempotent
+          ]
+        stage name executor recovery = mkPlanned (MigrateResource name)
+          executor (resourceId :| []) digest recovery
+        addPrevious operation Nothing = operation
+        addPrevious operation (Just predecessor) = operation
+          {plannedDependencies = [predecessor]}
     isMigrationJob (Kubernetes _ "batch" kind _ _) = nameText kind == "job"
     isMigrationJob _ = False
     mkPlanned action executor resources digest recovery =
@@ -716,6 +881,17 @@ data ReviewOperation = ReviewOperation
   }
   deriving stock (Eq, Show, Generic)
 
+data MigrationProof = MigrationProof
+  { migrationProofOwner :: !ScopeId
+  , migrationProofRevision :: !ScopeRevision
+  , migrationProofPhysical :: !PhysicalIdentity
+  , migrationProofSourceAddress :: !ProviderAddress
+  , migrationProofDestinationAddress :: !ProviderAddress
+  , migrationProofDestinationAbsence :: !ContentDigest
+  , migrationProofContract :: !MigrationContract
+  }
+  deriving stock (Eq, Show, Generic)
+
 data ReviewDocument = ReviewDocument
   { reviewSchemaVersion :: !Int
   , reviewContextBinding :: !ContextBinding
@@ -730,6 +906,7 @@ data ReviewDocument = ReviewDocument
   , reviewBarriers :: ![ReviewBarrier]
   , reviewRetentions :: !(Map ResourceId RetentionProof)
   , reviewCollections :: !(Map ResourceId RetentionProof)
+  , reviewMigrations :: !(Map ResourceId MigrationProof)
   }
   deriving stock (Eq, Show, Generic)
 
@@ -801,6 +978,25 @@ instance FromJSON RetentionProof where
       (fail "retention proof has an unknown field")
     RetentionProof <$> o .: "owner" <*> o .: "revision" <*> o .: "physical"
 
+instance ToJSON MigrationProof where
+  toJSON proof = object
+    [ "owner" .= migrationProofOwner proof
+    , "revision" .= migrationProofRevision proof
+    , "physical" .= migrationProofPhysical proof
+    , "sourceAddress" .= migrationProofSourceAddress proof
+    , "destinationAddress" .= migrationProofDestinationAddress proof
+    , "destinationAbsence" .= migrationProofDestinationAbsence proof
+    , "contract" .= migrationProofContract proof
+    ]
+
+instance FromJSON MigrationProof where
+  parseJSON = withObject "MigrationProof" $ \o -> do
+    unless (all (`elem` ["owner", "revision", "physical", "sourceAddress", "destinationAddress", "destinationAbsence", "contract"]) (KM.keys o))
+      (fail "migration proof has an unknown field")
+    MigrationProof <$> o .: "owner" <*> o .: "revision" <*> o .: "physical"
+      <*> o .: "sourceAddress" <*> o .: "destinationAddress"
+      <*> o .: "destinationAbsence" <*> o .: "contract"
+
 instance ToJSON ReviewDocument where
   toJSON document =
     object
@@ -818,20 +1014,26 @@ instance ToJSON ReviewDocument where
       ] <> ["retentions" .= retentionEntries (reviewRetentions document)
            | not (Map.null (reviewRetentions document))]
         <> ["collections" .= retentionEntries (reviewCollections document)
-           | not (Map.null (reviewCollections document))])
+           | not (Map.null (reviewCollections document))]
+        <> ["migrations" .= migrationEntries (reviewMigrations document)
+           | not (Map.null (reviewMigrations document))])
     where
       retentionEntries entries =
+        [object ["resource" .= resource, "proof" .= proof]
+        | (resource, proof) <- Map.toAscList entries]
+      migrationEntries entries =
         [object ["resource" .= resource, "proof" .= proof]
         | (resource, proof) <- Map.toAscList entries]
 
 instance FromJSON ReviewDocument where
   parseJSON = withObject "ReviewDocument" $ \o -> do
-    let allowed = ["version", "context", "headGeneration", "headSequence", "baseRevisions", "desiredRevisions", "candidateDigest", "payloadIdentity", "policyVersion", "operations", "barriers", "retentions", "collections"]
+    let allowed = ["version", "context", "headGeneration", "headSequence", "baseRevisions", "desiredRevisions", "candidateDigest", "payloadIdentity", "policyVersion", "operations", "barriers", "retentions", "collections", "migrations"]
     unless (all (`elem` allowed) (KM.keys o)) (fail "review document has an unknown field")
     version <- o .: "version"
     unless (version == (1 :: Int)) (fail "unsupported review schema version")
     retentions <- parseRetentions =<< o .:? "retentions" .!= []
     collections <- parseRetentions =<< o .:? "collections" .!= []
+    migrations <- parseMigrations =<< o .:? "migrations" .!= []
     ReviewDocument version
       <$> o .: "context"
       <*> o .: "headGeneration"
@@ -845,10 +1047,15 @@ instance FromJSON ReviewDocument where
       <*> o .: "barriers"
       <*> pure retentions
       <*> pure collections
+      <*> pure migrations
     where
       parseRetentions values = do
         entries <- traverse (withObject "retention entry" (\v -> (,) <$> v .: "resource" <*> v .: "proof")) values
         unless (length entries == Map.size (Map.fromList entries)) (fail "duplicate retention proof")
+        pure (Map.fromList entries)
+      parseMigrations values = do
+        entries <- traverse (withObject "migration entry" (\v -> (,) <$> v .: "resource" <*> v .: "proof")) values
+        unless (length entries == Map.size (Map.fromList entries)) (fail "duplicate migration proof")
         pure (Map.fromList entries)
 
 prepareReview :: AdapterRegistry -> StoreSnapshot -> ChangeProposal -> IO (Either (NonEmpty PrepareError) ReviewBundle)
@@ -872,11 +1079,13 @@ prepareReview registry snapshot proposal = do
               , reviewDesiredRevisions = proposalDesired proposal
               , reviewCandidateDigest = proposalCandidateDigest proposal
               , reviewPayloadIdentity = "operator-cli"
-              , reviewPolicyVersion = "inventory-policy-v1"
+              , reviewPolicyVersion = if Map.null (proposalMigrations proposal)
+                  then "inventory-policy-v1" else "inventory-policy-v2-migration"
               , reviewOperations = operations
               , reviewBarriers = barriers
               , reviewRetentions = proposalRetentions proposal
               , reviewCollections = proposalCollections proposal
+              , reviewMigrations = proposalMigrations proposal
               }
       pure (Right (ReviewBundle document (proposalScopes proposal) native))
   where
@@ -1023,6 +1232,7 @@ verifyReview snapshot bundle =
         <> [ReviewError "stale-base" "review base revisions differ from accepted desired state" | reviewBaseRevisions document /= headAccepted headValue]
         <> retentionReviewErrors headValue document
         <> collectionReviewErrors headValue document
+        <> migrationReviewErrors headValue document
         <> [ReviewError "scope-member" "review scope member is missing or has a different digest" | not (membersMatch (bundleScopes bundle) (map revisionDigest (Map.elems (reviewDesiredRevisions document))))]
         <> [ReviewError "native-member" "review native member is missing or has a different digest" | not (membersMatch (bundleNative bundle) [member | operation <- reviewOperations document, Just member <- [reviewNativeDigest operation]])]
         <> [ReviewError "operation-dependency" "review operation depends on an operation absent from the same review" | not (null missingDependencies)]
@@ -1048,6 +1258,14 @@ verifyActiveReview snapshot transaction bundle =
                Just retained -> retainedOwner retained /= retentionOwner proof
                  || retainedRevision retained /= retentionRevision proof
                  || retainedPhysical retained /= retentionPhysical proof
+               Nothing -> True]
+        <> [ReviewError "active-migration" "active migration source differs from the reviewed retained incarnation"
+           | (resource, proof) <- Map.toAscList (reviewMigrations document)
+           , case Map.lookup resource (headRetained headValue) of
+               Just retained -> retainedOwner retained /= migrationProofOwner proof
+                 || retainedRevision retained /= migrationProofRevision proof
+                 || retainedPhysical retained /= migrationProofPhysical proof
+                 || retainedMigrationReview retained /= Just digest
                Nothing -> True]
         <> activeCollectionReviewErrors headValue document
         <> [ReviewError "scope-member" "active review scope member is missing or has a different digest" | not (membersMatch (bundleScopes bundle) (map revisionDigest (Map.elems (reviewDesiredRevisions document))))]
@@ -1079,6 +1297,41 @@ collectionReviewErrors headValue document =
          [resource | operation <- reviewOperations document
          , plannedAction (reviewPlannedOperation operation) == RetireResource
          , resource <- NE.toList (plannedResources (reviewPlannedOperation operation))]]
+
+migrationReviewErrors :: HeadManifest -> ReviewDocument -> [ReviewError]
+migrationReviewErrors headValue document =
+  [ReviewError "migration-operations" "migration actions and proofs name different resources"
+  | Map.keysSet (reviewMigrations document) /= Set.fromList
+      [resource | operation <- reviewOperations document
+      , MigrateResource _ <- [plannedAction (reviewPlannedOperation operation)]
+      , resource <- NE.toList (plannedResources (reviewPlannedOperation operation))]]
+  <> [ReviewError "migration-base" "migration source proof differs from accepted ownership history"
+  | (resource, proof) <- Map.toAscList (reviewMigrations document)
+  , Map.lookup (migrationProofOwner proof) (headAccepted headValue)
+      /= Just (migrationProofRevision proof)
+    || Map.notMember (migrationProofOwner proof) (reviewDesiredRevisions document)
+    || Map.member resource (headRetained headValue)
+    || Map.member resource (headCollected headValue)
+    || migrationProofSourceAddress proof == migrationProofDestinationAddress proof]
+  <> [ReviewError "migration-operations" "migration proof needs exactly one ordered operation for every stage"
+     | (resource, _) <- Map.toAscList (reviewMigrations document)
+     , not (stagesValid resource)]
+  where
+    stagesValid resource =
+      let stageOperations =
+            [(stage, reviewPlannedOperation operation)
+            | operation <- reviewOperations document
+            , resource `elem` NE.toList (plannedResources (reviewPlannedOperation operation))
+            , MigrateResource stage <- [plannedAction (reviewPlannedOperation operation)]]
+          ordered = [PrepareDestination, BackUpSource, FenceWriters, TransferState,
+            VerifyDestination, SwitchConsumers, AdmitWrites, RetainSource]
+          stageMap = Map.fromList stageOperations
+          linked = all link (zip ordered (drop 1 ordered))
+          link (previous, next) = case (Map.lookup previous stageMap, Map.lookup next stageMap) of
+            (Just predecessor, Just successor) -> plannedOperationId predecessor
+              `elem` plannedDependencies successor
+            _ -> False
+       in sort (map fst stageOperations) == ordered && linked
 
 activeCollectionReviewErrors :: HeadManifest -> ReviewDocument -> [ReviewError]
 activeCollectionReviewErrors headValue document =

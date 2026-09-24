@@ -100,6 +100,7 @@ mkHostAdapter ops =
 
 validatePlan :: PlannedOperation -> HostActivationPlan -> Either PrepareError ()
 validatePlan operation plan
+  | MigrateResource _ <- plannedAction operation = refusal "host adapter has no migration stage contract"
   | hostPlanVersion plan /= 1 = refusal "unsupported host activation plan version"
   | hostPlanOperation plan /= plannedOperationId operation = refusal "host activation operation identity changed"
   | hostPlanInputDigest plan /= plannedInputDigest operation = refusal "host activation input digest changed"

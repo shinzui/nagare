@@ -40,10 +40,12 @@ import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Journal
+import Nagare.Inventory.Migration.Types (MigrationContract (..))
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
 import Nagare.Resource.Inventory (Executor (..))
 import Nagare.Resource.Inventory qualified as Resource
+import Nagare.Resource.Policy (DataPolicy (..))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (decodeScope)
 import System.Environment (lookupEnv, setEnv, unsetEnv)
@@ -115,6 +117,12 @@ admit locked registry reviewed = do
                    || Map.member (retentionOwner proof) (reviewDesiredRevisions document)]
               <> [AdmissionError "retention-history" "retained resource already has a historical incarnation"
                  | resource <- Map.keys (reviewRetentions document), Map.member resource (headRetained headValue)]
+              <> [AdmissionError "migration-base" "migration source differs from the accepted scope revision"
+                 | (resource, proof) <- Map.toAscList (reviewMigrations document)
+                 , Map.lookup (migrationProofOwner proof) (headAccepted headValue)
+                     /= Just (migrationProofRevision proof)
+                   || Map.member resource (headRetained headValue)
+                   || Map.member resource (headCollected headValue)]
       case staticErrors of
         firstError : rest -> pure (Left (firstError :| rest))
         [] -> do
@@ -122,6 +130,7 @@ admit locked registry reviewed = do
           case coverage of
             Left err -> pure (failure "retention-coverage" err)
             Right retainedRequests -> do
+              migrationChecked <- migrationCoverage store document
               checked <- if Map.null retainedRequests
                 then pure (Right ())
                 else do
@@ -132,36 +141,40 @@ admit locked registry reviewed = do
                       unless (Map.lookup resource (observationMap facts)
                         == Just (ObservedPresent (retentionPhysical proof)))
                         (Left "retained physical incarnation changed since review")
-              case checked of
-                Left _ -> pure (failure "retention-observation" "retained physical incarnation could not be reverified")
-                Right () -> do
-                  preflightErrors <- preflightOperations registry reviewed Map.empty
-                  case preflightErrors of
-                    firstError : rest -> pure (Left (firstError :| rest))
-                    [] -> do
-                      now <- timestamp
-                      let client = maybe (headClientIdentity headValue) id (storeClientIdentity store)
-                          claim = ExecutorClaim (transactionIdText transaction) client 1 now
-                          activated =
-                            headValue
+              case migrationChecked of
+                Left err -> pure (failure "migration-coverage" err)
+                Right () -> case checked of
+                  Left _ -> pure (failure "retention-observation" "retained physical incarnation could not be reverified")
+                  Right () -> do
+                    preflightErrors <- preflightOperations registry reviewed Map.empty
+                    case preflightErrors of
+                      firstError : rest -> pure (Left (firstError :| rest))
+                      [] -> do
+                        now <- timestamp
+                        let client = maybe (headClientIdentity headValue) id (storeClientIdentity store)
+                            claim = ExecutorClaim (transactionIdText transaction) client 1 now
+                            retained = Map.map (\proof -> RetainedIncarnation
+                              (retentionOwner proof) (retentionRevision proof)
+                              (retentionPhysical proof) now Nothing) (reviewRetentions document)
+                            migrated = Map.map (\proof -> RetainedIncarnation
+                              (migrationProofOwner proof) (migrationProofRevision proof)
+                              (migrationProofPhysical proof) now
+                              (Just (reviewDocumentDigest document))) (reviewMigrations document)
+                            activated = headValue
                               { headGeneration = headGeneration headValue + 1
                               , headAccepted = reviewDesiredRevisions document
-                              , headRetained = Map.union
-                                  (Map.map (\proof -> RetainedIncarnation
-                                    (retentionOwner proof) (retentionRevision proof)
-                                    (retentionPhysical proof) now) (reviewRetentions document))
-                                  (headRetained headValue)
+                              , headRetained = Map.unions [retained, migrated, headRetained headValue]
                               , headActiveTransaction = Just (transactionIdText transaction)
                               , headExecutorClaim = Just claim
                               }
-                      activation <- replaceHeadIfGenerationMatches store (Just (headGeneration headValue)) activated
-                      case activation of
-                        Left err -> pure (failure "head-condition" (showText err))
-                        Right () -> do
-                          event <- appendEvent locked transaction Nothing Pending ("admitted review " <> digestText (reviewDocumentDigest document))
-                          pure $ case event of
-                            Left err -> failure "journal" (showText err)
-                            Right _ -> Right (ExecutablePlan transaction reviewed)
+                        activation <- replaceHeadIfGenerationMatches store (Just (headGeneration headValue)) activated
+                        case activation of
+                          Left err -> pure (failure "head-condition" (showText err))
+                          Right () -> do
+                            event <- appendEvent locked transaction Nothing Pending ("admitted review " <> digestText (reviewDocumentDigest document))
+                            pure $ case event of
+                              Left err -> failure "journal" (showText err)
+                              Right _ -> Right (ExecutablePlan transaction reviewed)
 
 -- | No accepted managed declaration may disappear solely because a scope
 -- revision was replaced. A reviewed retention proof is required for every
@@ -189,7 +202,10 @@ retentionCoverage store document = do
         proofs = reviewRetentions document
     unless (null removedChildren)
       (Left "observed controller children cannot disappear without retained child claims")
-    unless (Set.null (Set.intersection desiredIds (Map.keysSet (headRetained (historyHead history)))))
+    let previouslyActive = Set.fromList (map Resource.declarationId oldDeclarations)
+    unless (Set.null (Set.difference
+      (Set.intersection desiredIds (Map.keysSet (headRetained (historyHead history))))
+      previouslyActive))
       (Left "retained logical identity cannot be reactivated without reviewed recovery")
     unless (Set.null (Set.intersection desiredIds (Map.keysSet (headCollected (historyHead history)))))
       (Left "collected logical identity cannot be reused after its deletion tombstone")
@@ -209,6 +225,56 @@ retentionCoverage store document = do
         bytes <- first showText loaded >>= maybe (Left "desired scope member is missing") Right
         unless (contentDigest bytes == revisionDigest revision)
           (Left "desired scope member digest mismatch")
+        first showText (decodeScope bytes)
+
+-- | Reconstruct both declarations from immutable scope members before the
+-- accepted head can advance. Provider adapters then recheck physical identity
+-- during preflight while the writer lock is held.
+migrationCoverage :: InventoryStore -> ReviewDocument -> IO (Either Text ())
+migrationCoverage _ document | Map.null (reviewMigrations document) = pure (Right ())
+migrationCoverage store document = do
+  historical <- loadInventoryHistory store
+  desired <- traverse loadDesired (Map.elems (reviewDesiredRevisions document))
+  pure $ do
+    history <- first showText historical
+    scopes <- sequence desired
+    desiredDeclarations <- first showText (Resource.composedDeclarations
+      (Map.fromList [(Resource.scopeId scope, scope) | scope <- scopes]))
+    oldDeclarations <- first showText (Resource.composedDeclarations
+      (fmap snd (historyAccepted history)))
+    let oldManaged = Map.fromList
+          [(resource ^. #identity, resource) | Resource.Managed resource <- oldDeclarations]
+        newManaged = Map.fromList
+          [(resource ^. #identity, resource) | Resource.Managed resource <- desiredDeclarations]
+    forM_ (Map.toAscList (reviewMigrations document)) $ \(resourceId, proof) -> do
+      source <- maybe (Left "migration source declaration is missing") Right
+        (Map.lookup resourceId oldManaged)
+      destination <- maybe (Left "migration destination declaration is missing") Right
+        (Map.lookup resourceId newManaged)
+      let sourceClaims = Set.fromList (map snd (NE.toList (Resource.claimsOf (Resource.Managed source))))
+          destinationClaims = Set.fromList (map snd (NE.toList (Resource.claimsOf (Resource.Managed destination))))
+      unless (source ^. #owner == migrationProofOwner proof
+        && fmap fst (Map.lookup (migrationProofOwner proof) (historyAccepted history))
+          == Just (migrationProofRevision proof)
+        && source ^. #owner == destination ^. #owner
+        && source ^. #address == migrationProofSourceAddress proof
+        && destination ^. #address == migrationProofDestinationAddress proof
+        && source ^. #dataPolicy == destination ^. #dataPolicy
+        && Set.null (Set.intersection sourceClaims destinationClaims)
+        && case (source ^. #dataPolicy, migrationProofContract proof) of
+          (Stateless, StatelessMigration) -> True
+          (Durable _, DurableMigration {}) -> True
+          _ -> False)
+        (Left "migration proof differs from historical or destination declaration")
+    pure ()
+  where
+    loadDesired revision = do
+      let key = scopeKey (revisionDigest revision)
+      loaded <- readObject store key
+      pure $ do
+        bytes <- first showText loaded >>= maybe (Left "migration destination scope is missing") Right
+        unless (contentDigest bytes == revisionDigest revision)
+          (Left "migration destination scope digest mismatch")
         first showText (decodeScope bytes)
 
 execute :: LockedStore s -> AdapterRegistry -> ExecutablePlan s -> IO TransactionResult

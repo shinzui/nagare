@@ -100,6 +100,7 @@ mkArtifactAdapter specs ops =
 
 validatePlan :: Map ResourceId ArtifactExecutionSpec -> PlannedOperation -> ArtifactMutationPlan -> Either PrepareError ()
 validatePlan specs operation plan
+  | MigrateResource _ <- plannedAction operation = refusal "artifact adapter has no migration stage contract"
   | artifactPlanVersion plan /= 1 = refusal "unsupported artifact plan version"
   | artifactPlanOperation plan /= plannedOperationId operation = refusal "artifact operation identity changed"
   | artifactPlanInputDigest plan /= plannedInputDigest operation = refusal "artifact operation input digest changed"

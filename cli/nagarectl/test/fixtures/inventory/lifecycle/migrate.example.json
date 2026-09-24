@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "candidate": "../compiled-candidate",
+  "binding": {
+    "identity": "context-1",
+    "project": "project"
+  },
+  "resources": [
+    {
+      "resource": "application:app/service/resource",
+      "sourceAddress": {
+        "tag": "Kubernetes",
+        "contents": ["platform:foundation/cluster/resource", "", "service", "nagare-system", "old-service"]
+      },
+      "sourcePhysicalIdentity": "replace-with-observed-source-uid",
+      "destinationAddress": {
+        "tag": "Kubernetes",
+        "contents": ["platform:foundation/cluster/resource", "", "service", "nagare-system", "new-service"]
+      },
+      "destinationAbsence": "replace-with-observed-absence-digest",
+      "contract": {"mode": "stateless"}
+    }
+  ]
+}

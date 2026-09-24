@@ -16,6 +16,7 @@ module Nagare.Inventory.Status
   , retainedHealthTargets
   , assessCollections
   , loadAcceptedNative
+  , loadRetainedNative
   , loadActiveTransactionStatus
   , summarizeActiveTransaction
   ) where
@@ -224,6 +225,8 @@ assessCollections history inventory observations =
           consumers = consumersOf history inventory resource
           reasons =
             ["retention-policy" | retainedLifecycle finding /= DeleteWhenUnreferenced]
+              <> ["active-incarnation" | resource `elem`
+                [declarationId declaration | declaration <- inventoryDeclarations inventory]]
               <> ["durable-recovery-evidence" | retainedDataPolicy finding /= Stateless]
               <> ["unsupported-collection-transport"
                  | Just (_, managed) <- [Map.lookup resource (historyRetained history)]
@@ -323,7 +326,21 @@ loadAcceptedNative
   :: InventoryStore -> InventoryHistory -> ValidatedInventory
   -> IO (Either Text (Map ResourceId (ManagedResource, ByteString),
                       Map ResourceId (ManagedResource, ByteString)))
-loadAcceptedNative store history inventory = do
+loadAcceptedNative = loadNativeFor False
+
+-- | The historical source is a separate incarnation after a reviewed rename.
+-- Callers observing it must use an adapter built from these old native bytes.
+loadRetainedNative
+  :: InventoryStore -> InventoryHistory -> ValidatedInventory
+  -> IO (Either Text (Map ResourceId (ManagedResource, ByteString),
+                      Map ResourceId (ManagedResource, ByteString)))
+loadRetainedNative = loadNativeFor True
+
+loadNativeFor
+  :: Bool -> InventoryStore -> InventoryHistory -> ValidatedInventory
+  -> IO (Either Text (Map ResourceId (ManagedResource, ByteString),
+                      Map ResourceId (ManagedResource, ByteString)))
+loadNativeFor retainedOnly store history inventory = do
   snapshot <- readStoreSnapshot store
   case snapshot of
     Left failure -> pure (Left (T.pack (show failure)))
@@ -343,8 +360,9 @@ loadAcceptedNative store history inventory = do
       ]
     collect bundle = do
       let revisions = reviewDesiredRevisions (reviewBundleDocument bundle)
-          current member =
-            activeCurrent member || retainedCurrent member
+          current member = if retainedOnly then retainedCurrent member else
+            activeCurrent member || (retainedCurrent member
+              && Map.notMember (member ^. #identity) desired)
           activeCurrent member =
             Map.lookup (member ^. #owner) revisions == Map.lookup (member ^. #owner) accepted
               && case Map.lookup (member ^. #identity) desired of

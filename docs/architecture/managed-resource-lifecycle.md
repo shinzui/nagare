@@ -116,12 +116,30 @@ returns the collection record after the retained entry leaves the catalogue.
 
 Collection of durable data, controller children, other Kubernetes kinds, and
 other executors still refuses until their dependency, backup, recovery, and
-deletion contracts are proved. Migration also refuses until a reviewed prepare,
-seed, verify, switch, write-admission, and recovery graph is available.
-Changing an accepted ResourceId's provider address or executor currently
-returns `migration-review-required`, even when the new address is absent or
-already bears that ResourceId stamp. Ordinary create or update cannot prove
-what happened to the old incarnation.
+deletion contracts are proved. Collection of a retained migration source also
+refuses while the same logical ID has an active incarnation.
+
+Changing an accepted ResourceId's provider address or executor requires
+`inventory migrate --input PROPOSAL.json --out REVIEW_DIRECTORY`. The
+[version 1 example](../../cli/nagarectl/test/fixtures/inventory/lifecycle/migrate.example.json)
+shows the source address and UID, destination address and absence proof, and
+data contract. The candidate supplies the desired declaration; the input does
+not repeat it. The command observes source and destination through separate
+provider bindings, validates both facts against accepted history, and plans
+eight ordered stages: prepare destination, back up source, fence writers,
+transfer state, verify destination, switch consumers, admit writes, and retain
+source. The immutable review binds the old and new addresses, old scope
+revision and UID, destination absence, and stateless or durable contract.
+Durable input must name backup, compatibility, fence, and recovery evidence
+digests; the adapter must verify what those digests attest before issuing a
+review. Generic recording-adapter tests prove execution and recovery after an
+interruption at each stage. The head then holds the destination as active and
+the source as a retained physical incarnation with a separate address claim.
+Status observes each incarnation through its own immutable native evidence.
+Production provider adapters do not yet implement the eight stage contract,
+so a real migration proposal refuses during native preparation. Ordinary
+`inventory plan` continues to return `migration-review-required` for the
+address or executor change.
 
 `nagarectl inventory gc --plan --out DIRECTORY` writes a read-only
 `collection-plan.json`. Each retained resource has a candidate flag and reasons

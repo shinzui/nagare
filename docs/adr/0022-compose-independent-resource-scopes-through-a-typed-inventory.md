@@ -357,3 +357,33 @@ become an ordinary `UpdateResource` plan. It requires a separate reviewed
 replacement or migration contract with recovery evidence. This generic
 boundary is implemented; production adapters have not yet been taught to
 classify specific immutable changes.
+
+## Amendment — 2026-09-24: reviewed migration incarnations
+
+A rename or executor change keeps one logical ResourceId while temporarily
+holding two physical incarnations. The ordinary observation set remains
+single-valued and observes the desired address. Migration observes the
+historical source through a separate adapter registry and pairs it with the
+destination fact only after exact coverage checks. An input file names the
+source UID, destination absence proof, and a stateless or durable data
+contract, but accepted and composed declarations supply ownership and policy.
+
+The generic planner records a review-bound eight-stage graph covering
+destination preparation, source backup, writer fencing, state transfer,
+destination verification, consumer switch, write admission, and source
+retention. Admission binds the old scope revision and source physical identity
+under the writer lock. It advances the accepted destination while retaining
+the source claim and its immutable native evidence. An active and retained
+record may share a logical ID only when their provider claims are disjoint and
+the retained entry points to a canonical immutable migration review with
+matching source and destination addresses. Status must observe these two
+incarnations independently.
+
+This is a provider-independent contract proved with a recording adapter,
+including recovery from an ambiguous result at each stage. Production
+Kubernetes, Helm, Pulumi, host, artifact, and cache adapters have no native
+migration stage contract yet and refuse preparation or execution. Durable
+evidence identifiers alone do not prove backup, compatibility, fencing, or
+recovery; a provider adapter must verify those facts before issuing a usable
+review. A retained migration source is not collectible while its logical ID
+remains active under the current collection route.

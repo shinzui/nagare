@@ -13,10 +13,12 @@ module Nagare.Inventory.Migration
   , validatedContract
   , decodeMigrationInput
   , validateMigrationInput
+  , decideMigration
   ) where
 
 import Data.Aeson
 import Data.Aeson.KeyMap qualified as KM
+import Data.Aeson.Types (Parser)
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty)
@@ -25,28 +27,15 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isNothing, mapMaybe)
 import Data.Text qualified as T
-import Data.Aeson.Types (Parser)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
+import Nagare.Inventory.Migration.Types
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Store (HeadManifest (..), ScopeRevision)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy (DataPolicy (..))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire ()
-
--- | Evidence identifiers are references for adapters to verify, not proofs
--- supplied by an operator. Durable migrations need each of these independent
--- contracts before any stage can enter a reviewed operation graph.
-data MigrationContract
-  = StatelessMigration
-  | DurableMigration
-      { migrationBackupEvidence :: !ContentDigest
-      , migrationCompatibilityEvidence :: !ContentDigest
-      , migrationFenceEvidence :: !ContentDigest
-      , migrationRecoveryEvidence :: !ContentDigest
-      }
-  deriving stock (Eq, Show)
 
 data MigrationTarget = MigrationTarget
   { migrationResource :: !ResourceId
@@ -65,19 +54,16 @@ data MigrationInput = MigrationInput
   }
   deriving stock (Eq, Show)
 
--- | A validated pair retains the immutable accepted scope revision that owns
--- the source. Its constructor stays private to this module.
-data ValidatedMigration = ValidatedMigration
-  { validatedSource :: !(ScopeRevision, ManagedResource)
-  , validatedDestination :: !ManagedResource
-  , validatedSourcePhysical :: !PhysicalIdentity
-  , validatedDestinationAbsence :: !ContentDigest
-  , validatedContract :: !MigrationContract
-  }
-  deriving stock (Eq, Show)
-
 decodeMigrationInput :: ByteString -> Either Text MigrationInput
 decodeMigrationInput bytes = first (T.pack . show) (eitherDecodeStrict' bytes)
+
+decideMigration
+  :: CompositionCandidate -> MigrationInput -> InventoryHistory
+  -> ObservationSet -> MigrationObservationSet
+  -> Either (NonEmpty PlanError) LifecycleDecisions
+decideMigration candidate input history destinations pairs = do
+  validated <- validateMigrationInput candidate history pairs input
+  approveMigrations candidate history destinations pairs validated
 
 validateMigrationInput
   :: CompositionCandidate -> InventoryHistory -> MigrationObservationSet
@@ -129,20 +115,6 @@ validateMigrationInput candidate history observations input = do
          | resource <- duplicateIds (map migrationResource (migrationTargets input))]
     duplicateIds values = Map.keys (Map.filter (> (1 :: Int))
       (Map.fromListWith (+) [(value, 1 :: Int) | value <- values]))
-
-instance FromJSON MigrationContract where
-  parseJSON = withObject "MigrationContract" $ \o -> do
-    mode <- o .: "mode" :: Parser Text
-    case mode of
-      "stateless" -> do
-        unless (all (`elem` ["mode"]) (KM.keys o)) (fail "stateless migration contract has an unknown field")
-        pure StatelessMigration
-      "durable" -> do
-        unless (all (`elem` ["mode", "backupEvidence", "compatibilityEvidence", "fenceEvidence", "recoveryEvidence"]) (KM.keys o))
-          (fail "durable migration contract has an unknown field")
-        DurableMigration <$> o .: "backupEvidence" <*> o .: "compatibilityEvidence"
-          <*> o .: "fenceEvidence" <*> o .: "recoveryEvidence"
-      _ -> fail "unsupported migration contract mode"
 
 instance FromJSON MigrationTarget where
   parseJSON = withObject "MigrationTarget" $ \o -> do

@@ -10,6 +10,7 @@ module Nagare.Inventory.Command
   , planInventoryWith
   , planInventoryCandidateWith
   , planInventoryAdoptionWith
+  , planInventoryMigrationWith
   , planInventoryRetirementWith
   , planInventoryCollectionWith
   , applyInventory
@@ -53,6 +54,7 @@ import Nagare.Inventory.Digest
 import Nagare.Inventory.Execute hiding (withProcessLock)
 import Nagare.Inventory.Journal
 import Nagare.Inventory.Lifecycle
+import Nagare.Inventory.Migration
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
 import Nagare.Inventory.Store.ObjectOps (gcloudObjectOps)
@@ -221,6 +223,44 @@ planInventoryAdoptionWith registryFor target inputFile output = do
   planInventoryCandidateWithDecider registryFor
     (\history observations -> decideAdoption candidate history observations proposalInput)
     target candidate output
+
+-- | A migration reads source and destination through distinct registries.
+-- One ordinary registry cannot represent two physical incarnations of an ID.
+planInventoryMigrationWith
+  :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry)
+  -> (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry)
+  -> ActiveTarget -> FilePath -> FilePath -> IO ()
+planInventoryMigrationWith sourceRegistryFor destinationRegistryFor target inputFile output = do
+  bytes <- (try (BS.readFile inputFile) :: IO (Either IOException ByteString))
+    >>= either (dieText . showText) pure
+  proposalInput <- either dieText pure (decodeMigrationInput bytes)
+  let relative = migrationCandidateDirectory proposalInput
+      candidateDirectory = if isAbsolute relative then relative else takeDirectory inputFile </> relative
+  candidate <- loadCandidate candidateDirectory >>= either dieText pure
+  rejectReentry
+  validateTarget target candidate
+  store <- openTargetStore target
+  let binding = inventoryBinding (candidateInventory candidate)
+  _ <- initializeStore store binding (clientIdentity target) >>= either (dieText . showText) pure
+  _ <- seedInventoryHistory store candidate >>= either (dieText . showText) pure
+  history <- loadInventoryHistory store >>= either (dieText . showText) pure
+  destinationRegistry <- destinationRegistryFor candidate history
+  sourceRegistry <- sourceRegistryFor candidate history
+  let requirements = observationRequirements candidate history
+  destinations <- observeWithRegistry destinationRegistry (requirementsByExecutor requirements)
+    >>= either dieText pure
+  incarnationFacts <- observeMigrationIncarnations sourceRegistry destinationRegistry requirements
+    >>= either dieText pure
+  decisions <- either (dieText . showText . NE.toList) pure
+    (decideMigration candidate proposalInput history destinations incarnationFacts)
+  proposal <- either (dieText . showText . NE.toList) pure
+    (planChanges candidate decisions history destinations)
+  snapshot <- readStoreSnapshot store >>= either (dieText . showText) pure
+  bundle <- prepareReview destinationRegistry snapshot proposal
+    >>= either (dieText . showText . NE.toList) pure
+  digest <- publishReview store bundle >>= either (dieText . showText) pure
+  _ <- writeReviewBundle output bundle >>= either dieText pure
+  TIO.putStrLn (digestText digest)
 
 planInventoryRetirementWith
   :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry)

@@ -101,6 +101,8 @@ mkPulumiAdapter declared ops =
     , adapterRecover = recoverPlan
     }
   where
+    prepare operation | MigrateResource _ <- plannedAction operation =
+      pure (Left (PrepareRefused (plannedOperationId operation) "Pulumi adapter has no migration stage contract"))
     prepare operation = do
       prepared <- pulumiPrepareSavedPlan ops operation
       pure $ do
@@ -165,6 +167,7 @@ actionMatches UpdateResource OpUpdate = True
 actionMatches UpdateResource OpReplaceLike {} = True
 actionMatches RetireResource OpDelete = True
 actionMatches RunDeclaredOperation _ = True
+actionMatches (MigrateResource _) _ = False
 actionMatches _ OpSame = True
 actionMatches _ OpRefresh = True
 actionMatches _ _ = False

@@ -112,6 +112,7 @@ data RetainedIncarnation = RetainedIncarnation
   , retainedRevision :: !ScopeRevision
   , retainedPhysical :: !PhysicalIdentity
   , retainedAt :: !Text
+  , retainedMigrationReview :: !(Maybe ContentDigest)
   }
   deriving stock (Eq, Show, Generic)
 
@@ -190,17 +191,19 @@ instance FromJSON MigrationTombstone where
 
 instance ToJSON RetainedIncarnation where
   toJSON retained = object
-    [ "owner" .= retainedOwner retained
+    ([ "owner" .= retainedOwner retained
     , "revision" .= retainedRevision retained
     , "physical" .= retainedPhysical retained
     , "retainedAt" .= retainedAt retained
-    ]
+    ] <> maybe [] (\digest -> ["migrationReview" .= digest])
+      (retainedMigrationReview retained))
 
 instance FromJSON RetainedIncarnation where
   parseJSON = withObject "RetainedIncarnation" $ \o -> do
-    unless (all (`elem` ["owner", "revision", "physical", "retainedAt"]) (KM.keys o))
+    unless (all (`elem` ["owner", "revision", "physical", "retainedAt", "migrationReview"]) (KM.keys o))
       (fail "retained incarnation has an unknown field")
-    RetainedIncarnation <$> o .: "owner" <*> o .: "revision" <*> o .: "physical" <*> o .: "retainedAt"
+    RetainedIncarnation <$> o .: "owner" <*> o .: "revision" <*> o .: "physical"
+      <*> o .: "retainedAt" <*> o .:? "migrationReview"
 
 instance ToJSON DeletionTombstone where
   toJSON tombstone = object

@@ -668,6 +668,7 @@ data Command
   | InventoryCompile FilePath FilePath Bool
   | InventoryPlan FilePath FilePath
   | InventoryAdopt FilePath FilePath
+  | InventoryMigrate FilePath FilePath
   | InventoryRetire String FilePath
   | InventoryGc FilePath
   | InventoryCollect String FilePath
@@ -1863,6 +1864,9 @@ opts =
                   "adopt"
                   (info (InventoryAdopt <$> strOption (long "input" <> metavar "FILE") <*> strOption (long "out" <> metavar "DIRECTORY") <**> helper) (progDesc "Review exact adoption or known-owner transfer incarnations"))
                 <> command
+                  "migrate"
+                  (info (InventoryMigrate <$> strOption (long "input" <> metavar "FILE") <*> strOption (long "out" <> metavar "DIRECTORY") <**> helper) (progDesc "Review exact source and destination migration incarnations"))
+                <> command
                   "retire"
                   (info (InventoryRetire <$> strOption (long "scope" <> metavar "KIND:NAME") <*> strOption (long "out" <> metavar "DIRECTORY") <**> helper) (progDesc "Review retention of an accepted scope without deleting its resources"))
                 <> command
@@ -2764,6 +2768,7 @@ main = do
     InventoryCompile input output json -> Inventory.compileInventory input output json
     InventoryPlan input output -> runInventoryPlan mctx input output
     InventoryAdopt input output -> runInventoryAdopt mctx input output
+    InventoryMigrate input output -> runInventoryMigrate mctx input output
     InventoryRetire owner output -> runInventoryRetire mctx owner output
     InventoryGc output -> runInventoryStatus mctx Nothing True (Just output)
     InventoryCollect resource output -> runInventoryCollect mctx resource output
@@ -4370,6 +4375,8 @@ runInventoryStatus mctx requested json gcOutput = do
   inventory <- either (dieT . T.pack . show) pure (ResourceInventory.composeSnapshot snapshot)
   (kubernetesNative, helmNative) <- InventoryStatus.loadAcceptedNative store history inventory
     >>= either dieT pure
+  (retainedKubernetesNative, retainedHelmNative) <- InventoryStatus.loadRetainedNative store history inventory
+    >>= either dieT pure
   pathsResult <- resolvePlatformPaths Nothing
   paths <- either (dieT . renderPlatformPathError) pure pathsResult
   stateRoot <- nagareStateDir
@@ -4381,7 +4388,7 @@ runInventoryStatus mctx requested json gcOutput = do
       managed = [resource | ResourceInventory.Managed resource <- ResourceInventory.inventoryDeclarations inventory]
       byId = Map.fromList [(resource ^. #identity, resource) | resource <- managed]
       ids executor = [resource ^. #identity | resource <- managed, resource ^. #executor == executor]
-        <> [resource | (resource, (_, declaration)) <- Map.toAscList (InventoryPlan.historyRetained history),
+      retainedIds executor = [resource | (resource, (_, declaration)) <- Map.toAscList (InventoryPlan.historyRetained history),
               declaration ^. #executor == executor]
   registrations <- either dieT pure (InventoryCloud.registrationsFromDeclarations declarations)
   artifactSpecs <- either dieT pure (InventoryArtifact.artifactExecutionSpecsFromDeclarations declarations)
@@ -4400,6 +4407,8 @@ runInventoryStatus mctx requested json gcOutput = do
   kubernetes <- inventoryKubernetesAdapter active binding
     cacheKey kubernetesNative
   helm <- inventoryHelmAdapter active workspace binding helmNative
+  retainedKubernetes <- inventoryKubernetesAdapter active binding cacheKey retainedKubernetesNative
+  retainedHelm <- inventoryHelmAdapter active workspace binding retainedHelmNative
   let inspect adapter executor = do
         let requestedIds = ids executor
         if null requestedIds then pure [] else do
@@ -4416,6 +4425,18 @@ runInventoryStatus mctx requested json gcOutput = do
   artifactFacts <- inspect artifact ResourceInventory.ArtifactExecutor
   hostFacts <- inspect host ResourceInventory.HostExecutor
   cacheFacts <- inspect cache ResourceInventory.CacheExecutor
+  let inspectRetained adapter executor = do
+        let requestedIds = retainedIds executor
+        if null requestedIds then pure [] else do
+          result <- InventoryAdapter.adapterObserve adapter requestedIds
+          pure $ case result of
+            Left reason -> [(resource, InventoryAdapter.ObservationUnavailable reason) | resource <- requestedIds]
+            Right facts ->
+              [(resource, Map.findWithDefault (InventoryAdapter.ObservationUnavailable
+                "adapter omitted this retained resource") resource (InventoryAdapter.observationMap facts))
+              | resource <- requestedIds]
+  retainedKubeFacts <- inspectRetained retainedKubernetes ResourceInventory.KubernetesExecutor
+  retainedHelmFacts <- inspectRetained retainedHelm ResourceInventory.HelmExecutor
   let helmObserved = Map.fromList helmFacts
       helmStatusOps = helmRuntimeOps (inventoryHelmRuntimeConfig active workspace binding helmNative)
       helmObservedPhysical = \case
@@ -4427,6 +4448,15 @@ runInventoryStatus mctx requested json gcOutput = do
     health <- case Map.lookup resourceId helmObserved of
       Just fact | helmObservedPhysical fact -> do
         state <- helmObserve helmStatusOps resourceId
+        pure (helmStateHealth resourceId fact state)
+      _ -> pure Nothing
+    pure (resourceId, health)
+  let retainedHelmObserved = Map.fromList retainedHelmFacts
+      retainedHelmStatusOps = helmRuntimeOps (inventoryHelmRuntimeConfig active workspace binding retainedHelmNative)
+  retainedHelmHealthPairs <- forM (retainedIds ResourceInventory.HelmExecutor) $ \resourceId -> do
+    health <- case Map.lookup resourceId retainedHelmObserved of
+      Just fact | helmObservedPhysical fact -> do
+        state <- helmObserve retainedHelmStatusOps resourceId
         pure (helmStateHealth resourceId fact state)
       _ -> pure Nothing
     pure (resourceId, health)
@@ -4446,7 +4476,7 @@ runInventoryStatus mctx requested json gcOutput = do
       _ -> pure Nothing
     pure (resourceId, health)
   let kubernetesObservations = either (error . T.unpack) (\value -> value)
-        (InventoryAdapter.observationSet kubeFacts)
+        (InventoryAdapter.observationSet retainedKubeFacts)
   retainedHealthPairs <- forM (InventoryStatus.retainedHealthTargets history kubernetesObservations) $ \(resourceId, address, physical) -> do
     health <- observeKubernetesHealth healthConfig address physical
     pure (resourceId, health)
@@ -4463,6 +4493,8 @@ runInventoryStatus mctx requested json gcOutput = do
         | resource <- managed, Map.notMember (resource ^. #identity) knownFacts]
       observations = either (error . T.unpack) (\value -> value)
         (InventoryAdapter.observationSet (allFacts <> remaining))
+      retainedObservations = either (error . T.unpack) (\value -> value)
+        (InventoryAdapter.observationSet (retainedKubeFacts <> retainedHelmFacts))
       healthById = Map.fromList (healthPairs <> helmHealthPairs)
       findings =
         [finding {InventoryStatus.findingHealth = case Map.lookup (InventoryStatus.findingResource finding) healthById of
@@ -4470,14 +4502,14 @@ runInventoryStatus mctx requested json gcOutput = do
           Just (Just False) -> InventoryStatus.HealthNotReady
           _ -> InventoryStatus.findingHealth finding}
         | finding <- InventoryStatus.classifyDrift inventory observations]
-      retainedHealthById = Map.fromList (retainedHealthPairs <> helmHealthPairs)
+      retainedHealthById = Map.fromList (retainedHealthPairs <> retainedHelmHealthPairs)
       retainedFindings =
         [finding {InventoryStatus.retainedHealth = case Map.lookup (InventoryStatus.retainedResource finding) retainedHealthById of
           Just (Just True) -> InventoryStatus.HealthReady
           Just (Just False) -> InventoryStatus.HealthNotReady
           _ -> InventoryStatus.retainedHealth finding}
-        | finding <- InventoryStatus.retainedFindings history observations]
-      collectionAssessments = InventoryStatus.assessCollections history inventory observations
+        | finding <- InventoryStatus.retainedFindings history retainedObservations]
+      collectionAssessments = InventoryStatus.assessCollections history inventory retainedObservations
       collectedEntries = Map.toAscList (InventoryStore.headCollected (InventoryPlan.historyHead history))
       unavailable = Set.toAscList (Set.fromList
         ([InventoryStatus.findingExecutor finding | finding <- findings,
@@ -4680,6 +4712,42 @@ runInventoryAdopt mctx input output = do
   active <- activeTarget mctx
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   Inventory.planInventoryAdoptionWith (inventoryPlanRegistry active workspace) active input output
+
+runInventoryMigrate :: Maybe String -> FilePath -> FilePath -> IO ()
+runInventoryMigrate mctx input output = do
+  active <- activeTarget mctx
+  (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+  Inventory.planInventoryMigrationWith
+    (inventoryMigrationSourceRegistry active workspace)
+    (inventoryPlanRegistry active workspace) active input output
+
+inventoryMigrationSourceRegistry :: ActiveTarget -> PlatformWorkspace
+  -> ResourceInventory.CompositionCandidate -> InventoryPlan.InventoryHistory
+  -> IO InventoryAdapter.AdapterRegistry
+inventoryMigrationSourceRegistry active workspace candidate history = do
+  let requirements = InventoryPlan.observationRequirements candidate history
+      sourceIds = Map.keysSet (InventoryPlan.migrationIncarnations requirements)
+      binding = ResourceInventory.inventoryBinding (ResourceInventory.candidateInventory candidate)
+  store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+  acceptedSnapshot <- either (dieT . T.pack . show) pure (ResourceInventory.mkScopeSnapshot
+    binding
+    (Map.map (\(revision, scope) -> (InventoryStore.revisionGeneration revision, scope))
+      (InventoryPlan.historyAccepted history))
+    (InventoryPlan.historyReservations history))
+  acceptedInventory <- either (dieT . T.pack . show) pure
+    (ResourceInventory.composeSnapshot acceptedSnapshot)
+  (allKubernetes, allHelm) <- InventoryStatus.loadAcceptedNative store history acceptedInventory
+    >>= either dieT pure
+  let oldKubernetes = Map.filterWithKey (\resource _ -> Set.member resource sourceIds) allKubernetes
+      oldHelm = Map.filterWithKey (\resource _ -> Set.member resource sourceIds) allHelm
+      selected = Map.keysSet oldKubernetes `Set.union` Map.keysSet oldHelm
+      unsupported = sourceIds `Set.difference` selected
+  unless (Set.null unsupported)
+    (dieT "migration source needs an installed immutable provider observation contract")
+  kubernetes <- inventoryKubernetesAdapter active binding
+    (\_ -> pure (Left "migration source cache output unavailable")) oldKubernetes
+  helm <- inventoryHelmAdapter active workspace binding oldHelm
+  either dieT pure (InventoryAdapter.mkAdapterRegistry [kubernetes, helm])
 
 runInventoryRetire :: Maybe String -> String -> FilePath -> IO ()
 runInventoryRetire mctx rawScope output = do
