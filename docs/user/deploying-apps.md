@@ -16,8 +16,8 @@ generated:
 `nagarectl app deploy` can save an inventory review for an application whose
 image is already an accepted OCI publication. The current reviewed path supports
 a web Service, workers, and application databases with explicit recovery bindings.
-It does not yet support hooks, broker bindings, access changes, build inputs, or
-retained service/worker volumes. Its config still goes through
+It does not yet support hooks, broker bindings, access changes, or build inputs.
+Its config still goes through
 the typed `Application` loader. Use the exact resource ID of the accepted OCI
 publication, and an explicit tag that resolves to that publication's destination:
 
@@ -41,6 +41,13 @@ option for distinct Secrets. Planning checks the exact cluster, namespace, and
 Secret name and refuses missing, extra, or wrong-address bindings. An
 application-owned database credential can satisfy its runtime environment
 reference without a second Secret option.
+
+Retained PVCs need explicit recovery inputs. Use
+`--service-volume-recovery VOLUME=BACKUP:KEY:VERSION` for a Service volume and
+`--worker-volume-recovery WORKER/VOLUME=BACKUP:KEY:VERSION` for a worker volume.
+Repeat each option for all retained volumes. The worker name and volume name
+select the typed declaration; the review binds the decision to its stable
+resource ID. Missing, repeated, unknown, or throwaway-volume bindings refuse.
 
 The resource ID above is illustrative; obtain the real ID from your accepted
 inventory. Planning checks the accepted platform Namespace and the image's

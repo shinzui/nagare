@@ -14,6 +14,7 @@ module Nagare.Inventory.Application
   , acceptedApplicationImage
   , databaseRecoveryBindings
   , acceptedSecretBindings
+  , applicationVolumeRecoveryBindings
   ) where
 
 import Data.Aeson (Value)
@@ -151,6 +152,66 @@ acceptedSecretBindings snapshot ids = do
           pure (secretName, Managed resource)
         _ -> Left "accepted resource is not a namespaced Kubernetes Secret"
       _ -> Left "Secret resource is absent or ambiguous in accepted inventory"
+
+-- | Bind retained PVC recovery by typed Service volume name and by each
+-- worker volume's stable ResourceId. Throwaway volumes cannot borrow a
+-- recovery decision, and a missing retained volume refuses planning.
+applicationVolumeRecoveryBindings
+  :: Application -> [T.Text] -> [T.Text]
+  -> Either T.Text (Map VolumeName RecoveryIntent, Map ResourceId RecoveryIntent)
+applicationVolumeRecoveryBindings app serviceRaw workerRaw = do
+  owner <- applicationScopeId app
+  servicePairs <- traverse parseService serviceRaw
+  workerPairs <- traverse (parseWorker owner) workerRaw
+  let serviceBindings = Map.fromList servicePairs
+      workerBindings = Map.fromList workerPairs
+      serviceExpected = Set.fromList
+        [volume ^. #name
+        | service <- maybe [] pure (app ^. #service)
+        , volume <- service ^. #volumes, volume ^. #retention == Dsl.Retain]
+  workerExpected <- Set.fromList <$> traverse (workerVolumeId owner)
+    [(worker, volume) | worker <- app ^. #workers
+      , volume <- worker ^. #volumes, volume ^. #retention == Dsl.Retain]
+  unless (length servicePairs == Map.size serviceBindings
+      && Map.keysSet serviceBindings == serviceExpected)
+    (Left "service volume recovery must cover exactly the retained volumes")
+  unless (length workerPairs == Map.size workerBindings
+      && Map.keysSet workerBindings == workerExpected)
+    (Left "worker volume recovery must cover exactly the retained volumes")
+  pure (serviceBindings, workerBindings)
+  where
+    parseRecovery value = case T.splitOn ":" value of
+      [backupText, keyText, versionText] -> do
+        backup <- mkName backupText
+        key <- mkName keyText
+        version <- mkName versionText
+        pure (RecoveryIntent backup (mkSecretRef key version NE.:| []))
+      _ -> Left "volume recovery must be BACKUP:KEY:VERSION"
+    parseService value = case T.splitOn "=" value of
+      [volumeText, recoveryText] -> do
+        volume <- maybe (Left "service volume recovery names an undeclared volume") Right
+          (find ((== volumeText) . volumeNameText . (^. #name))
+            (maybe [] (^. #volumes) (app ^. #service)))
+        recovery <- parseRecovery recoveryText
+        pure (volume ^. #name, recovery)
+      _ -> Left "service volume recovery must be VOLUME=BACKUP:KEY:VERSION"
+    parseWorker owner value = case T.splitOn "=" value of
+      [workloadText, recoveryText] -> case T.splitOn "/" workloadText of
+        [workerText, volumeText] -> do
+          worker <- maybe (Left "worker volume recovery names an undeclared worker") Right
+            (find ((== workerText) . serviceNameText . (^. #name)) (app ^. #workers))
+          volume <- maybe (Left "worker volume recovery names an undeclared volume") Right
+            (find ((== volumeText) . volumeNameText . (^. #name)) (worker ^. #volumes))
+          resourceId <- workerVolumeId owner (worker, volume)
+          recovery <- parseRecovery recoveryText
+          pure (resourceId, recovery)
+        _ -> Left "worker volume recovery must be WORKER/VOLUME=BACKUP:KEY:VERSION"
+      _ -> Left "worker volume recovery must be WORKER/VOLUME=BACKUP:KEY:VERSION"
+    workerVolumeId owner (worker, volume) = do
+      workerKey <- maybe (mkLogicalKey (serviceNameText (worker ^. #name))) Right
+        (worker ^. #logicalKey)
+      role <- mkName ("worker-" <> logicalKeyText workerKey <> "-pvc")
+      volumeResourceId owner role volume
 
 -- | The reviewed dependencies and recovery decisions supplied by the command
 -- service. A caller must bind the namespace and image publication to accepted

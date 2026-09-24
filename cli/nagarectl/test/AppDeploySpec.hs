@@ -24,7 +24,7 @@ import Data.Text.Encoding qualified as TE
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.App.Deploy
-import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedSecretBindings, applicationNativeOwned, nativeWorkloadOwned, compileApplicationScope, compileApplicationService, compileStandaloneService, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedSecretBindings, applicationNativeOwned, applicationVolumeRecoveryBindings, nativeWorkloadOwned, compileApplicationScope, compileApplicationService, compileStandaloneService, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings)
 import Nagare.Resource.Application (applicationScopeId, volumeResourceId)
 import Nagare.Resource.Database (databaseResourceId)
 import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (..), ManagedResource (..), DesiredSpec (KnativeService), Contribution (RegisterNamespace), ContributionGrant (NamespaceGrant), ScopeChange (ReplaceScope), candidateGenerations, candidateInventory, composeInventory, contributionResourceId, inventoryDeclarations, inventoryScopes, mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeId)
@@ -150,6 +150,11 @@ renderTests =
           recovery = RecoveryIntent (unsafe (Resource.mkName "backup"))
             (mkSecretRef (unsafe (Resource.mkName "volume-key"))
               (unsafe (Resource.mkName "v1")) :| [])
+      (serviceRecovery, _) <- either (fail . T.unpack) pure
+        (applicationVolumeRecoveryBindings withVolume ["data=backup:volume-key:v1"] [])
+      Map.lookup volumeName serviceRecovery @?= Just recovery
+      assertBool "retained Service volume without recovery was accepted"
+        (isLeft (applicationVolumeRecoveryBindings withVolume [] []))
       (volumeBundle, volumeNative) <- either (fail . show) pure
         (compileApplicationService withVolume testEnv cluster namespaceId publication
           (Map.singleton volumeName recovery) Map.empty Map.empty source)
@@ -267,6 +272,12 @@ renderTests =
           recovery = RecoveryIntent (unsafe (Resource.mkName "backup"))
             (mkSecretRef (unsafe (Resource.mkName "volume-key"))
               (unsafe (Resource.mkName "v1")) :| [])
+      (_, workerRecovery) <- either (fail . T.unpack) pure
+        (applicationVolumeRecoveryBindings withVolume []
+          [serviceNameText (worker ^. #name) <> "/scratch=backup:volume-key:v1"])
+      Map.lookup volumeId workerRecovery @?= Just recovery
+      assertBool "retained worker volume without recovery was accepted"
+        (isLeft (applicationVolumeRecoveryBindings withVolume [] []))
       case compileApplicationWorkers withVolume testEnv cluster namespaceId publication Map.empty Map.empty source of
         Left _ -> pure ()
         Right _ -> assertFailure "retained worker volume without recovery was accepted"
