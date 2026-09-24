@@ -332,6 +332,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-24) EP-148 M4 partial: Direct app, database, and broker create now guard every companion Kubernetes address and use loaded typed config identity before mutation; focused tests and executable build pass.
 - [x] (2026-09-24) EP-148 M1/M2 partial: Reviewed apps can reference an accepted standalone broker without topics, derive Kafka env, and order workload members after its Service; logical topics and per-workload bindings remain open.
 - [x] (2026-09-24) EP-148 M2 partial: Application OCI archives can be planned as scoped digest-bound publications and copied by the artifact adapter after exact source and registry checks; automatic builds and other M2 channels remain open.
+- [x] (2026-09-24) EP-148 M2 partial: Exact Runtime dotenv input now has an independent reviewed ConfigMap scope through `env sync --save-plan`; app scope replacement preserves that channel. Other env and Secret channels remain open.
 - [ ] EP-148 M4: Removed alternate paths and scope isolation.
 - [ ] EP-150 M1: Platform/legacy transaction integration.
 - [ ] EP-150 M2: Packaging and complete mutation audit.

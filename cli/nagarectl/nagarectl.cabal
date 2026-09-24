@@ -118,6 +118,7 @@ library
     Nagare.Inventory.Components.Upstream
     Nagare.Inventory.Database
     Nagare.Inventory.DataService
+    Nagare.Inventory.Environment
     Nagare.Inventory.Application
     Nagare.Inventory.Digest
     Nagare.Inventory.Execute

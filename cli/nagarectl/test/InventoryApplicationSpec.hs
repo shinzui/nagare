@@ -1,6 +1,7 @@
 module InventoryApplicationSpec (inventoryApplicationTests) where
 
 import Data.Generics.Labels ()
+import Data.ByteString.Char8 qualified as BC
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
@@ -10,8 +11,9 @@ import Nagare.Dsl.Prelude
 import Nagare.Inventory.Application (compileApplicationDatabases)
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), compileFoundation)
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, databaseNativeOwned, standaloneRetirementScope)
+import Nagare.Inventory.Environment (compileRuntimeEnvChannel)
 import Nagare.Resource.Application (applicationScopeId)
-import Nagare.Resource.Inventory (Declaration (Managed), ManagedResource (..), ResourceBundle (..), mkScopeDeclaration, mkScopeSnapshot, scopeBundles)
+import Nagare.Resource.Inventory (Declaration (Managed), ManagedResource (..), ResourceBundle (..), mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeId)
 import Nagare.Resource.Policy (RecoveryIntent (..), mkSecretRef)
 import Nagare.Resource.Types
 import Test.Tasty (TestTree, testGroup)
@@ -19,7 +21,28 @@ import Test.Tasty.HUnit (assertFailure, testCase, (@?=))
 
 inventoryApplicationTests :: TestTree
 inventoryApplicationTests = testGroup "application inventory compilation"
-  [ testCase "standalone data planning requires the accepted platform Namespace" $ do
+  [ testCase "Runtime env intent compiles into an independent exact ConfigMap channel" $ do
+      let checked = either (error . show) id
+          foundation = checked (mkScopeId Platform "foundation")
+          cluster = mintResourceId foundation (checked (mkLogicalKey "cluster"))
+            (checked (mkName "cluster"))
+          namespaceId = mintResourceId foundation (checked (mkLogicalKey "foundation"))
+            (checked (mkName "namespace-personal"))
+          values = Map.fromList [("MODE", "reviewed"), ("TIMEOUT", "30")]
+      (scope, native) <- either (fail . show) pure (compileRuntimeEnvChannel
+        "kizashi" "personal" cluster namespaceId values (SourceLocation "env" "runtime-env"))
+      scopeId scope @?= checked (mkScopeId Application "env-kizashi-runtime")
+      case [resource | bundle <- scopeBundles scope, Managed resource <- declarations bundle] of
+        [resource] -> do
+          resource ^. #address @?= checked (kubernetesAddress cluster "v1" "ConfigMap"
+            (Just "personal") "nagare-env-kizashi-runtime")
+          case Map.lookup (resource ^. #identity) native of
+            Just (_, bytes) -> do
+              BC.isInfixOf "reviewed" bytes @?= True
+              BC.isInfixOf "TIMEOUT" bytes @?= True
+            Nothing -> assertFailure "env channel lost its native ConfigMap"
+        _ -> assertFailure "env channel has unexpected declarations"
+  , testCase "standalone data planning requires the accepted platform Namespace" $ do
       let checked = either (error . show) id
           owner = checked (mkScopeId Platform "foundation")
           cluster = mintResourceId owner (checked (mkLogicalKey "cluster"))

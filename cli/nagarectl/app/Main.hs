@@ -273,6 +273,7 @@ import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManager
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedApplicationImage, acceptedBrokerBindings, acceptedSecretBindings, applicationNativeOwned, applicationVolumeRecoveryBindings, compileApplicationScope, databaseRecoveryBindings, nativeWorkloadOwned)
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, compileStandaloneDatabase, databaseNativeOwned, standaloneRetirementScope, standaloneStatefulSetOwned)
+import Nagare.Inventory.Environment (compileRuntimeEnvChannel)
 import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
@@ -924,8 +925,8 @@ data EnvCommand
     EnvSet StoreCommonOpts ScopeSelection Bool String String
   | -- | dryRun, KEY
     EnvDelete StoreCommonOpts ScopeSelection Bool String
-  | -- | dryRun, reconcileExact, dotenv file
-    EnvSync StoreCommonOpts ScopeSelection Bool Bool FilePath
+  | -- | dryRun, reconcileExact, dotenv file, reviewed plan directory
+    EnvSync StoreCommonOpts ScopeSelection Bool Bool FilePath (Maybe FilePath)
   deriving stock (Generic, Show)
 
 -- | The @secret@ subcommands. @SecretSet@'s value is read from stdin, never argv.
@@ -2467,6 +2468,7 @@ opts =
                       <*> dryRunOpt
                       <*> reconcileExactParser
                       <*> strOption (long "file" <> metavar "FILE" <> help "dotenv file to import")
+                      <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Review an exact Runtime env channel replacement"))
                         <**> helper
                   )
                   (progDesc "Bulk-import a dotenv file into the env store")
@@ -7184,9 +7186,8 @@ runDeploymentsLogs o = do
 -- ---------------------------------------------------------------------------
 -- env / secret handlers (EP-25)
 
--- | Resolve @(name, namespace)@ from a config of any kind: a plain Deployment, a
--- StaticSite, or a ServerSite. Tries the Deployment loader first; on an
--- 'Load.UnexpectedKind' (the config is a site) falls back to the site loader.
+-- | Resolve @(name, namespace)@ from a Deployment, aggregate Application,
+-- StaticSite, or ServerSite. Each loader identifies its own typed config kind.
 --
 -- (Distinct from 'Nagare.App.appIdentityOrDie', which is Deployment-only and is
 -- the IP2 helper the @app@/@deployments@ commands use. This site-aware resolver
@@ -7197,7 +7198,12 @@ configIdentityOrDie file = do
   case edep of
     Right dep ->
       pure (serviceNameText (dep ^. #name), namespaceText (dep ^. #namespace))
-    Left (Load.UnexpectedKind _ _) -> siteIdentityOrDie file
+    Left (Load.UnexpectedKind _ _) -> do
+      application <- Load.loadApplication file
+      case application of
+        Right app -> pure (serviceNameText (app ^. #name), namespaceText (app ^. #namespace))
+        Left (Load.UnexpectedKind _ _) -> siteIdentityOrDie file
+        Left err -> dieT (Load.renderLoadError err)
     Left err -> dieT (Load.renderLoadError err)
 
 -- | Resolve @(name, namespace)@ from the loaded config and reconcile it against
@@ -7679,18 +7685,34 @@ runEnv mctx = \case
       let desired = reconcile ReconcileExact mempty (Map.delete (T.pack key) existing)
       applyOrDryRunEnv dry name ns scope desired
     unless dry $ TIO.putStrLn ("Deleted " <> T.pack key <> " from env for " <> name <> ".")
-  EnvSync copts sel dry exact dotenvPath -> do
+  EnvSync copts sel dry exact dotenvPath savePlan -> do
     (name, ns) <- resolveAppOrDie copts
-    refuseDirectStoreMutationIfOwned mctx False name ns (selectedScopes sel)
     raw <- TIO.readFile dotenvPath
     incoming <- orDie (parseDotenv raw)
-    let mode = reconcileModeFrom exact
-    forM_ (selectedScopes sel) $ \scope -> do
-      existing <- orDie =<< readEnvStore name ns scope
-      let desired = reconcile mode existing incoming
-      applyOrDryRunEnv dry name ns scope desired
-    unless dry $
-      TIO.putStrLn ("Synced " <> tShow (Map.size incoming) <> " key(s) into env for " <> name <> ".")
+    case savePlan of
+      Just output -> do
+        unless (exact && not dry && selectedScopes sel == [Runtime])
+          (dieT "reviewed env sync requires --reconcile-exact, Runtime scope only, and no --dry-run")
+        active <- activeTarget mctx
+        (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+        snapshot <- Inventory.loadTargetSnapshot active
+        (cluster, namespaceId) <- either dieT pure (acceptedFoundationNamespace snapshot ns)
+        (channel, native) <- either (dieT . T.pack . show) pure
+          (compileRuntimeEnvChannel name ns cluster namespaceId incoming
+            (Resource.SourceLocation (T.pack dotenvPath) "runtime-env"))
+        candidate <- either (dieT . T.pack . show) pure
+          (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope channel NE.:| []))
+        Inventory.planInventoryCandidateWith
+          (inventoryPlanRegistryWithNative active workspace native) active candidate output
+      Nothing -> do
+        refuseDirectStoreMutationIfOwned mctx False name ns (selectedScopes sel)
+        let mode = reconcileModeFrom exact
+        forM_ (selectedScopes sel) $ \scope -> do
+          existing <- orDie =<< readEnvStore name ns scope
+          let desired = reconcile mode existing incoming
+          applyOrDryRunEnv dry name ns scope desired
+        unless dry $
+          TIO.putStrLn ("Synced " <> tShow (Map.size incoming) <> " key(s) into env for " <> name <> ".")
 
 runSecret :: Maybe String -> SecretCommand -> IO ()
 runSecret mctx = \case

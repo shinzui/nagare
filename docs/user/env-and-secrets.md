@@ -210,6 +210,22 @@ interpolation (`${X}`) is **not** supported.
 - **`--reconcile-exact`**: make the store *exactly* the file's contents, dropping any key
   not present.
 
+For a Runtime ConfigMap owned by inventory history, save an exact review and
+apply it with the shared inventory command. This gives the separately managed
+env channel its own revision, so a later application scope deployment preserves
+its keys. Planning uses the dotenv file as the complete desired channel and
+requires the accepted platform Namespace. A preexisting unmanaged ConfigMap
+requires reviewed adoption before its first managed write.
+
+```bash
+nagarectl env sync envdemo --file .env.production --reconcile-exact \
+  --save-plan env-review
+nagarectl inventory apply env-review --yes
+```
+
+The reviewed path currently supports Runtime plain values. Build/Preview
+channels and Secret values still need their reviewed input paths.
+
 ```console
 $ nagarectl env sync envdemo \
     --file cluster/examples/env-and-secrets/.env.production --reconcile-exact \
