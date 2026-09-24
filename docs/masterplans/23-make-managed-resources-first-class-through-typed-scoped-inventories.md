@@ -260,6 +260,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-24) EP-149 M1 replacement boundary: Shared observations distinguish immutable replacement from ordinary drift, and planning refuses an ordinary update. The 150 focused inventory tests pass; adapters do not yet classify concrete immutable provider changes.
 - [x] (2026-09-24) EP-149 M1 Kubernetes replacement classification: The production observer identifies an explicit changed Deployment selector as immutable and reports replacement required while preserving ownership categories. Focused Deployment tests and style checks pass. Other provider fields and reviewed migration remain open.
 - [x] (2026-09-24) EP-149 M1 StatefulSet replacement classification: The production observer identifies changes to four explicit immutable StatefulSet fields and refuses an ordinary update. Focused tests and style checks pass; reviewed migration remains open.
+- [x] (2026-09-24) EP-149 M1 condition separation: Existing Kubernetes objects with unready controller conditions retain ownership and configuration findings in status, while execution verification continues to require readiness. A focused Job fixture passes; EP-149 remains in progress.
 - [x] (2026-09-23) EP-147/149 follow-up: Bootstrap component guides now use reviewed plan/apply and pinned inputs. Status reports health independently of configuration and refuses a report when the accepted head changes during provider observation.
 - [x] (2026-09-23) EP-147 M2c: Complete cache/database bundles execute through reviewed bootstrap; EP-148 owns standalone and application database command migration.
 - [x] (2026-09-23) EP-147 M3: Cloud/local components, owner-composed auth settings, foundation Namespace/certificate policy, and bounded host timer credential delegation are recorded and validated.
@@ -420,3 +421,5 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 2026-09-24: Recorded the first production immutable-change classifier for Kubernetes Deployment selectors. This advances EP-149 M1 without changing its in-progress status or the hard dependencies of EP-148 and EP-150.
 
 2026-09-24: Extended EP-149's production immutable-change classification to StatefulSet identity fields. The child remains in progress, and EP-148/150 retain their hard dependency.
+
+2026-09-24: Preserved read-only Kubernetes object facts when controller conditions are unready without relaxing execution completion. Dependency edges and child status are unchanged.

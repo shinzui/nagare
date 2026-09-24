@@ -12,6 +12,7 @@ module Nagare.Inventory.Adapters.KubernetesRuntime
   , desiredFieldsMatch
   , deploymentSelectorReplacement
   , statefulSetImmutableReplacement
+  , parseObserved
   , confirmInventoryFieldOwnership
   , confirmInventoryFieldOwnershipFor
   , jobCompleted
@@ -422,21 +423,6 @@ parseObserved config resource native response = do
       stampMatches = textAt "nagare.dev/spec-digest" annotations == Just (digestText desiredDigest)
       hasAnyStamp = any (`KM.member` annotations)
         ["nagare.dev/context-id", "nagare.dev/resource-id", "nagare.dev/spec-digest"]
-  case observed of
-    Object root -> case KM.lookup "kind" root of
-      Just (String "Job") -> unless (jobCompleted observed) (Left "Kubernetes Job has not completed")
-      Just (String "CustomResourceDefinition") ->
-        unless (crdEstablished observed) (Left "Kubernetes CustomResourceDefinition is not established")
-      Just (String "Certificate") ->
-        unless (certificateReady observed) (Left "Kubernetes Certificate is not ready")
-      Just (String "ClusterIssuer") ->
-        unless (certificateReady observed) (Left "Kubernetes ClusterIssuer is not ready")
-      Just (String "Service") | KM.lookup "apiVersion" root == Just (String "serving.knative.dev/v1") ->
-        unless (knativeReady observed) (Left "Knative Service is not ready")
-      Just (String "Deployment") ->
-        unless (deploymentAvailable observed) (Left "Kubernetes Deployment is not available")
-      _ -> pure ()
-    _ -> pure ()
   when (hasAnyStamp && (stampedContext == Nothing || stampedOwner == Nothing))
     (Left "Kubernetes inventory ownership stamp is incomplete or malformed")
   driftDigest <- if fieldsMatch && (not hasAnyStamp || stampMatches)
@@ -448,7 +434,23 @@ parseObserved config resource native response = do
   pure $ if deploymentSelectorReplacement desired observed
       || statefulSetImmutableReplacement desired observed
     then KubernetesReplacementRequired uid revision owner driftDigest
+    else if not (observedReady observed)
+      then KubernetesNotReady uid revision owner driftDigest
     else KubernetesPresent uid revision owner driftDigest
+
+-- A failed controller condition is a health finding, not a failed read of
+-- the object's configuration or ownership. Execution still refuses to verify
+-- a KubernetesNotReady state as completed.
+observedReady :: Value -> Bool
+observedReady (Object root) = case (KM.lookup "apiVersion" root, KM.lookup "kind" root) of
+  (_, Just (String "Job")) -> jobCompleted (Object root)
+  (_, Just (String "CustomResourceDefinition")) -> crdEstablished (Object root)
+  (_, Just (String "Certificate")) -> certificateReady (Object root)
+  (_, Just (String "ClusterIssuer")) -> certificateReady (Object root)
+  (Just (String "serving.knative.dev/v1"), Just (String "Service")) -> knativeReady (Object root)
+  (_, Just (String "Deployment")) -> deploymentAvailable (Object root)
+  _ -> True
+observedReady _ = True
 
 -- A Deployment's selector is immutable at the API server. Only classify a
 -- change when both sides state it explicitly; an incomplete projection must

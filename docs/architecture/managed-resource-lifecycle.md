@@ -25,6 +25,9 @@ Knative Services, and Deployments, status separately probes controller
 conditions and reports health as `ready` or `not-ready` when the second read
 still has the observed UID. Other kinds and failed or changed reads remain
 `unknown`; a missing resource is `unavailable`.
+An existing supported object whose controller condition is not ready remains
+observable for configuration and ownership status. It reports `not-ready`
+health, while reviewed execution still requires a ready completion proof.
 Retained Kubernetes resources use the same separate health probe only when
 their observed UID still matches the historical UID. A replacement at the
 same address cannot lend readiness to the retained incarnation. Confirmed

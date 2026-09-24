@@ -25,7 +25,7 @@ import Nagare.Dsl.Database (Database (Database), Engine (..), defaultEngineVersi
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes
-import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), cacheClientDataMatches, certificateReady, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, credentialDataMatches, deploymentAvailable, deploymentSelectorReplacement, desiredFieldsMatch, generatedCredentialTemplate, jobCompleted, knativeReady, materializeCacheKey, materializeCredential, mkKubernetesRuntimeOps, observeCacheClientOutput, readinessForAddress, statefulSetImmutableReplacement, supportedUpdateAddress, withoutCacheClientData)
+import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), cacheClientDataMatches, certificateReady, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, credentialDataMatches, deploymentAvailable, deploymentSelectorReplacement, desiredFieldsMatch, generatedCredentialTemplate, jobCompleted, knativeReady, materializeCacheKey, materializeCredential, mkKubernetesRuntimeOps, observeCacheClientOutput, parseObserved, readinessForAddress, statefulSetImmutableReplacement, supportedUpdateAddress, withoutCacheClientData)
 import Nagare.Inventory.Database (compileDatabaseForBackend, compileDatabaseNative, compileDatabaseNativeWithBackup)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Components.Foundation (compileContributedNamespaces)
@@ -117,6 +117,32 @@ inventoryKubernetesTests =
           (not (statefulSetImmutableReplacement base (stateful (object []))))
         assertBool "different kind claimed StatefulSet replacement"
           (not (statefulSetImmutableReplacement (object ["kind" .= ("Deployment" :: Text)]) base))
+    , testCase "unready Job retains configuration observation without completing execution" $ do
+        let config = KubernetesRuntimeConfig (ok (mkContextId "test")) "unused" (pure (Right ()))
+            desired = object
+              ["apiVersion" .= ("batch/v1" :: Text), "kind" .= ("Job" :: Text),
+               "metadata" .= object ["name" .= ("work" :: Text)]]
+            native = BL.toStrict (encode desired)
+            live condition = object
+              ["apiVersion" .= ("batch/v1" :: Text), "kind" .= ("Job" :: Text),
+               "metadata" .= object
+                 ["name" .= ("work" :: Text), "uid" .= physical,
+                  "resourceVersion" .= ("5" :: Text)],
+               "status" .= object ["conditions" .= [object
+                 ["type" .= ("Complete" :: Text), "status" .= (condition :: Text)]]]]
+            observe condition = parseObserved config resource native
+              (TE.decodeUtf8 (BL.toStrict (encode (live condition))))
+        observe "False" @?= Right (KubernetesNotReady physical "5" Nothing (contentDigest native))
+        observe "True" @?= Right (KubernetesPresent physical "5" Nothing (contentDigest native))
+        calls <- newIORef (0 :: Int)
+        state <- newIORef (KubernetesAbsent absence)
+        let adapter = mkKubernetesAdapter specs (ops state calls)
+        prepared <- adapterPrepare adapter createOperation >>= expectRight
+        writeIORef state (KubernetesNotReady physical "5" (Just resource) (contentDigest nativeBytes))
+        result <- adapterObserve adapter [resource] >>= expectRight
+        Map.lookup resource (observationMap result) @?= Just (ObservedPresent physical)
+        verified <- adapterVerify adapter createOperation prepared
+        assertBool "unready object completed the reviewed operation" (case verified of Left _ -> True; Right _ -> False)
     , testCase "reviewed create uses the retained native object and proves completion" $ do
         state <- newIORef (KubernetesAbsent absence)
         calls <- newIORef (0 :: Int)
