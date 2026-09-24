@@ -35,7 +35,7 @@ import Nagare.Inventory.KubernetesSources (loadKubernetesSources)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
 import Nagare.Inventory.Lifecycle (decideCollection, decideRetirement)
 import Nagare.Inventory.Plan
-import Nagare.Inventory.Status (loadAcceptedNative)
+import Nagare.Inventory.Status (DriftCategory (ImmutableReplacementRequired), classifyDrift, findingCategory, loadAcceptedNative)
 import Nagare.Inventory.Store
 import Nagare.Resource.Inventory hiding (cluster)
 import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
@@ -187,6 +187,14 @@ inventoryKubernetesTests =
         let repair = ok (planChanges next noLifecycleDecisions history drifted)
         assertBool "unchanged accepted drift had no repair operation"
           (any ((== UpdateResource) . plannedAction) (proposalOperations repair))
+        let replacement = ok (observationSet
+              [(resource, ObservedReplacementRequired physical (contentDigest "immutable-change"))])
+        map findingCategory (classifyDrift (candidateInventory next) replacement)
+          @?= [ImmutableReplacementRequired]
+        case planChanges next noLifecycleDecisions history replacement of
+          Left errors -> assertBool "immutable replacement was treated as an update"
+            (any ((== "replacement-review-required") . planErrorCode) (NE.toList errors))
+          Right _ -> assertFailure "immutable replacement entered ordinary update planning"
         writeIORef state (KubernetesPresent physical "7" Nothing (contentDigest nativeBytes))
         foreignObservation <- observeWithRegistry registry
           (requirementsByExecutor (observationRequirements next history)) >>= expectRight

@@ -576,6 +576,8 @@ buildOperations candidate (LifecycleDecisions decisions) history observations =
         ([PlanError "unverified-owner" "resource has an ownership stamp but no accepted history" [resourceId]], Nothing)
       (Nothing, Just (ObservedDrifted _ _)) ->
         ([PlanError "unverified-owner" "resource has an ownership stamp but no accepted history" [resourceId]], Nothing)
+      (Nothing, Just (ObservedReplacementRequired _ _)) ->
+        ([PlanError "unverified-owner" "resource has an ownership stamp but no accepted history" [resourceId]], Nothing)
       (Nothing, Just (ObservedUnowned _)) ->
         if decisionIs ApproveAdoption resourceId
           then ([], Just (resourceOperation AdoptResource resource))
@@ -600,6 +602,8 @@ buildOperations candidate (LifecycleDecisions decisions) history observations =
           , Nothing
           )
       (Just _, Just (ObservedDrifted _ _)) -> ([], Just (resourceOperation UpdateResource resource))
+      (Just _, Just (ObservedReplacementRequired _ _)) ->
+        ([PlanError "replacement-review-required" "provider requires an explicit reviewed replacement or migration" [resourceId]], Nothing)
       (Just old, _)
         | sameManaged old resource ->
             ( []

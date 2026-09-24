@@ -151,6 +151,8 @@ retainedFindings history observations =
       Just (ObservedPresent _) -> "replaced-incarnation"
       Just (ObservedDrifted physical _) | physical == retainedPhysical incarnation -> "drifted"
       Just (ObservedDrifted _ _) -> "replaced-incarnation"
+      Just (ObservedReplacementRequired physical _) | physical == retainedPhysical incarnation -> "replacement-required"
+      Just (ObservedReplacementRequired _ _) -> "replaced-incarnation"
       Just (ObservedUnowned _) -> "unowned"
       Just (ObservedForeign _) -> "foreign-owner"
       Just (ConfirmedAbsent _) -> "confirmed-absent"
@@ -159,6 +161,7 @@ retainedFindings history observations =
     observedIdentity fact = case fact of
       ObservedPresent physical -> Just physical
       ObservedDrifted physical _ -> Just physical
+      ObservedReplacementRequired physical _ -> Just physical
       ObservedUnowned physical -> Just physical
       ObservedForeign physical -> Just physical
       _ -> Nothing
@@ -348,6 +351,7 @@ loadAcceptedNative store history inventory = do
 data DriftCategory
   = Converged
   | ConfigurationDrift
+  | ImmutableReplacementRequired
   | MissingResource
   | UnownedResource
   | ForeignOwner
@@ -384,6 +388,9 @@ classifyDrift inventory observations =
             Just (ObservedPresent uid) -> (Converged, HealthUnknown, Just uid, Nothing, Nothing)
             Just (ObservedDrifted uid changed) ->
               (ConfigurationDrift, HealthUnknown, Just uid, Just changed, Nothing)
+            Just (ObservedReplacementRequired uid changed) ->
+              (ImmutableReplacementRequired, HealthUnknown, Just uid, Just changed,
+               Just "provider requires a reviewed replacement or migration")
             Just (ObservedForeign uid) ->
               (ForeignOwner, HealthUnknown, Just uid, Nothing, Just "observed object has a different owner")
             Just (ObservedUnowned uid) ->
@@ -405,6 +412,7 @@ instance ToJSON DriftCategory where
   toJSON category = toJSON $ case category of
     Converged -> ("converged" :: Text)
     ConfigurationDrift -> "configuration-drift"
+    ImmutableReplacementRequired -> "immutable-replacement-required"
     MissingResource -> "missing"
     UnownedResource -> "unowned"
     ForeignOwner -> "foreign-owner"

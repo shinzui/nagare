@@ -346,3 +346,14 @@ preconditions and orphan propagation. Only confirmed absence permits a
 review-bound deletion tombstone to replace the retained claim in the head.
 The tombstone keeps the old logical ID unavailable for silent reuse. Other
 kinds and durable data remain outside this proved route.
+
+## Amendment — 2026-09-24: immutable replacement observations
+
+Provider observations distinguish an in-place configuration drift from a
+change requiring physical replacement. The shared typed observation carries
+the current physical identity and observed digest for either case. A
+replacement-required observation is visible in read-only status but cannot
+become an ordinary `UpdateResource` plan. It requires a separate reviewed
+replacement or migration contract with recovery evidence. This generic
+boundary is implemented; production adapters have not yet been taught to
+classify specific immutable changes.

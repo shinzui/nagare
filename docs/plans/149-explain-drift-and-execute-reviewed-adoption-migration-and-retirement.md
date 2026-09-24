@@ -86,6 +86,7 @@ This plan delivers provider-independent lifecycle planning plus inventory status
 - [x] (2026-09-23) M2 compatibility: Legacy `platform adopt` now says explicitly in text and JSON that it pins the platform release without adopting any provider object into inventory. The upgrade runbook links the per-resource exact-incarnation adoption review. The legacy status and marker flow remains intact.
 - [x] (2026-09-23) M3 collection screening: Read-only `gc --plan`, lifecycle validation, and conditional Kubernetes deletion now share one supported-kind predicate. Unsupported resources carry `unsupported-collection-transport` rather than appearing collectible, and cannot enter a reviewed collection plan. The 150 focused inventory tests and Haskell style check pass; durable-data and other-provider collection remain open.
 - [x] (2026-09-24) M1 partial: Status includes the read-only collection assessments for retained objects, while retained explain exposes historical aliases, required conditions, delegation, policies, and declaration source alongside dependency traces. The CLI executable builds. Immutable replacement classification, unmanaged discovery, and broader provider health remain open.
+- [x] (2026-09-24) M1 replacement boundary: Typed observations now distinguish an immutable replacement requirement from ordinary drift. Status reports its physical identity and digest; the generic planner refuses `UpdateResource` with `replacement-review-required`. Retained observation also reports the condition without permitting collection. The 150 focused inventory tests pass. Production adapters still need provider-specific immutable-change classification, and reviewed replacement/migration execution remains open.
 - [ ] M1: Classify observations and expose complete read-only status/explain.
 - [ ] M2: Plan explicit legacy adoption and ownership transfer.
 - [ ] M3: Plan migration/retirement with retained data and recovery evidence.
@@ -128,6 +129,8 @@ The read-only collection assessment and lifecycle validator previously checked l
 2026-09-23: An operator recovery file selects only an action for one uncertain issued operation; the registered adapter supplies the current completion or safe-retry proof. An unresolved adapter result cannot be overridden by the file, and the normal journaled resume remains the convergence step.
 
 2026-09-23: Kubernetes health remains a separate read-only observation using the runtime's existing readiness predicates. A second read must match the first observation's UID before its condition can be attached to a status finding.
+
+2026-09-24: An adapter-proved immutable replacement requirement is a separate observation, and the generic planner refuses to turn it into an ordinary update. Rationale: drift alone does not say whether mutation in place is possible, and replacement requires its own review and recovery contract. No production adapter emits this outcome yet.
 
 
 ## Outcomes & Retrospective
@@ -256,6 +259,8 @@ Support types are explicit alternatives in Lifecycle/Migration; identity and pol
 2026-09-23: Aligned read-only collection candidate screening and lifecycle validation with the Kubernetes executor's conditional deletion support; unsupported kinds and providers report a blocker before review.
 
 2026-09-24: Added retained collection assessments to status and declaration detail parity to retained explain; M1 remains open for provider and replacement coverage.
+
+2026-09-24: Added an explicit replacement-required observation and fail-closed planning rule. Provider classification and execution remain future EP-149 work.
 
 2026-09-23: Recorded the precise source/destination observation gap for migration after tracing the current head, planner, and adapter registry contracts; the migration refusal remains in force.
 

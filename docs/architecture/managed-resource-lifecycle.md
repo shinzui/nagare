@@ -4,6 +4,11 @@ The accepted inventory names logical resources and their owning scopes. A provid
 the same address is not ownership proof. `inventory status --json` reports an unstamped
 Kubernetes object as `unowned` and an object stamped for another logical resource as
 `foreign-owner`. An observation error is `unknown`, never confirmed absence.
+An adapter can report `immutable-replacement-required` when it proves that a
+changed object cannot be updated in place. Status shows the physical identity
+and observed digest, while ordinary planning refuses an update until a reviewed
+replacement or migration path exists. Current production adapters do not yet
+emit this outcome.
 
 When a transaction is active, status and explain include `transactionStatus` with the
 latest committed state of each journaled operation. `recoveryRequired` marks an

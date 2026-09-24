@@ -37,6 +37,7 @@ import Nagare.Resource.Wire ()
 data ResourceObservation
   = ObservedPresent !PhysicalIdentity
   | ObservedDrifted !PhysicalIdentity !ContentDigest
+  | ObservedReplacementRequired !PhysicalIdentity !ContentDigest
   | ObservedUnowned !PhysicalIdentity
   | ObservedForeign !PhysicalIdentity
   | ConfirmedAbsent !ContentDigest

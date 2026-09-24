@@ -4423,6 +4423,7 @@ runInventoryStatus mctx requested json gcOutput = do
         physical = case Map.lookup resourceId kubeObserved of
           Just (InventoryAdapter.ObservedPresent uid) -> Just uid
           Just (InventoryAdapter.ObservedDrifted uid _) -> Just uid
+          Just (InventoryAdapter.ObservedReplacementRequired uid _) -> Just uid
           _ -> Nothing
     health <- case (resource ^. #executor, physical) of
       (ResourceInventory.KubernetesExecutor, Just uid) ->

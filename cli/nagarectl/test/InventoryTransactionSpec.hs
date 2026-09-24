@@ -185,6 +185,8 @@ inventoryTransactionTests =
                   (ok (observationSet [(resourceId, currentFact)])),
                 InventoryStatus.retainedResource finding == resourceId]
         retainedCategory (ObservedPresent physical) @?= ["present"]
+        retainedCategory (ObservedReplacementRequired physical (contentDigest "immutable-change"))
+          @?= ["replacement-required"]
         retainedCategory (ObservedPresent (ok (mkPhysicalIdentity "replacement-uid"))) @?= ["replaced-incarnation"]
         retainedCategory (ConfirmedAbsent (contentDigest "absent")) @?= ["confirmed-absent"]
         let retainedSnapshot = ok (mkScopeSnapshot fixtureBinding Map.empty

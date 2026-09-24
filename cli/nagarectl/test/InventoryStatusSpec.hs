@@ -30,6 +30,7 @@ inventoryStatusTests = testGroup "inventory status"
             _ -> error "status fixture has no unique managed resource"
       category [(resourceId, ObservedPresent uid)] @?= Converged
       category [(resourceId, ObservedDrifted uid changed)] @?= ConfigurationDrift
+      category [(resourceId, ObservedReplacementRequired uid changed)] @?= ImmutableReplacementRequired
       category [(resourceId, ObservedUnowned uid)] @?= UnownedResource
       category [(resourceId, ObservedForeign uid)] @?= ForeignOwner
       category [(resourceId, ConfirmedAbsent changed)] @?= MissingResource

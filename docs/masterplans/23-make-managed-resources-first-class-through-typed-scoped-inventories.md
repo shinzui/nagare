@@ -247,6 +247,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-23) EP-149 M1 partial: Status reports controller-condition health for supported Kubernetes kinds after a second read confirms the observed UID. The full 743-test CLI suite passes; other provider condition probes remain open.
 - [x] (2026-09-23) EP-149 M3 collection screening: GC assessment, lifecycle validation, and native preparation now share the proved conditional-delete kind rule, so unsupported resources receive a blocker before review. The 150 focused inventory tests and style check pass; broader collection and migration remain open.
 - [x] (2026-09-24) EP-149 M1 partial: Status exposes read-only collection assessments and retained explain exposes aliases, required conditions, delegation, policies, and source; the CLI builds. Replacement classification and broader provider coverage remain open.
+- [x] (2026-09-24) EP-149 M1 replacement boundary: Shared observations distinguish immutable replacement from ordinary drift, and planning refuses an ordinary update. The 150 focused inventory tests pass; adapters do not yet classify concrete immutable provider changes.
 - [x] (2026-09-23) EP-147/149 follow-up: Bootstrap component guides now use reviewed plan/apply and pinned inputs. Status reports health independently of configuration and refuses a report when the accepted head changes during provider observation.
 - [x] (2026-09-23) EP-147 M2c: Complete cache/database bundles execute through reviewed bootstrap; EP-148 owns standalone and application database command migration.
 - [x] (2026-09-23) EP-147 M3: Cloud/local components, owner-composed auth settings, foundation Namespace/certificate policy, and bounded host timer credential delegation are recorded and validated.
@@ -339,6 +340,8 @@ One question is open and is the operator's to decide. ADR 13 moved tan-nb-exp's 
 
 ## Decision Log
 
+2026-09-24: Keep immutable replacement distinct from configuration drift at the shared observation boundary. An adapter may report replacement required, but the generic planner must refuse an ordinary update until EP-149 provides a reviewed replacement or migration contract. ADR 22 records this durable rule.
+
 2026-09-23: Keep adoption authority consistent at the operator DTO, generic lifecycle validator, and planner boundaries. A matching provider stamp without accepted history is not proof of ownership; the current route requires an unowned physical incarnation. Rationale: direct callers of the shared validator must not bypass the reviewed proposal's ownership check.
 
 2026-09-23: Mark EP-147 Complete when its supported bootstrap path, reusable database/cache builders, cluster executors, shared owner composition, and host timer delegation have evidence. Keep EP-148's standalone/application database command migration and EP-149/150's lifecycle and integrated cloud work visible as separate children; completion of this child does not imply complete mutation coverage for the MasterPlan.
@@ -399,3 +402,5 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 2026-09-23: Kept EP-149 in progress while aligning read-only collection screening with the proved conditional-delete transport. No dependency edge or child scope changed.
 
 2026-09-24: Recorded additional read-only EP-149 status and explain coverage. The registry and dependency graph are unchanged.
+
+2026-09-24: Recorded EP-149's typed immutable-replacement observation and fail-closed planner rule. Provider classification and executable migration remain outstanding; dependencies are unchanged.
