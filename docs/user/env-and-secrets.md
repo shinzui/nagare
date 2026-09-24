@@ -122,6 +122,7 @@ nagarectl env sync   APP --file FILE [-f|--config CONFIG] [--runtime] [--build] 
 nagarectl secret set    APP KEY    [-f|--config CONFIG] [--runtime] [--build] [--preview] [--dry-run]   # value from stdin
 nagarectl secret list   APP        [-f|--config CONFIG] [--all]
 nagarectl secret delete APP KEY    [-f|--config CONFIG] [--runtime] [--build] [--preview] [--dry-run]
+nagarectl secret sync   APP --file FILE --version TOKEN --save-plan DIR [-f|--config CONFIG] [--runtime | --build]
 ```
 
 Defaults and rules:
@@ -228,7 +229,8 @@ channel. The Build ConfigMap feeds the existing image-build argument reader;
 its keys do not enter the running container. One review selects exactly one
 of these two channels.
 
-Runtime Secret values also have an exact reviewed input channel. Supply an
+Runtime and Build Secret values also have separate exact reviewed input
+channels. Pass `--build` to select Build; Runtime is the default. Supply an
 opaque version token for each rotation. The file must remain available while
 planning; the saved review binds its native Secret bytes and does not print
 them in the public review. A later application deployment preserves this

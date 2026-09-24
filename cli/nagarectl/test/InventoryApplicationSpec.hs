@@ -13,7 +13,7 @@ import Nagare.Dsl.Prelude
 import Nagare.Inventory.Application (compileApplicationDatabases, reviewedTaskImages)
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), compileFoundation)
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, databaseNativeOwned, standaloneRetirementScope)
-import Nagare.Inventory.Environment (compileBuildEnvChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateRuntimeSecretRotation)
+import Nagare.Inventory.Environment (compileBuildEnvChannel, compileBuildSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
 import Nagare.Resource.Application (applicationScopeId)
 import Nagare.Resource.Inventory (Declaration (Managed), ManagedResource (..), ResourceBundle (..), mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeId)
 import Nagare.Resource.Policy (RecoveryIntent (..), Sensitivity (Secret), mkSecretRef)
@@ -109,13 +109,34 @@ inventoryApplicationTests = testGroup "application inventory compilation"
       (changed, _) <- either (fail . show) pure (compileRuntimeSecretChannel
         "kizashi" "personal" cluster namespaceId (checked (mkName "v2"))
         (Map.singleton "TOKEN" "different-value") source)
-      case validateRuntimeSecretRotation snapshot changed of
+      case validateSecretRotation snapshot changed of
         Left _ -> pure ()
         Right _ -> assertFailure "one rotation version accepted different Secret bytes"
       (rotated, _) <- either (fail . show) pure (compileRuntimeSecretChannel
         "kizashi" "personal" cluster namespaceId (checked (mkName "v3"))
         (Map.singleton "TOKEN" "different-value") source)
-      validateRuntimeSecretRotation snapshot rotated @?= Right ()
+      validateSecretRotation snapshot rotated @?= Right ()
+      (buildScope, buildNative) <- either (fail . show) pure
+        (compileBuildSecretChannel "kizashi" "personal" cluster namespaceId
+          (checked (mkName "v2")) values source)
+      scopeId buildScope @?= checked (mkScopeId Application "secret-kizashi-build")
+      case [resource | bundle <- scopeBundles buildScope, Managed resource <- declarations bundle] of
+        [resource] -> do
+          resource ^. #address @?= checked (kubernetesAddress cluster "v1" "Secret"
+            (Just "personal") "nagare-secret-kizashi-build")
+          resource ^. #sensitivity @?= Secret
+          resource ^. #source @?= SourceLocation "secret-file" "build-secret/v2"
+          Map.size buildNative @?= 1
+        _ -> assertFailure "Build Secret channel has unexpected membership"
+      validateSecretRotation snapshot buildScope @?= Right ()
+      buildSnapshot <- either (fail . show) pure (mkScopeSnapshot binding
+        (Map.singleton (scopeId buildScope) (checked (mkScopeGeneration 1), buildScope)) Map.empty)
+      (changedBuild, _) <- either (fail . show) pure
+        (compileBuildSecretChannel "kizashi" "personal" cluster namespaceId
+          (checked (mkName "v2")) (Map.singleton "TOKEN" "changed-build-value") source)
+      case validateSecretRotation buildSnapshot changedBuild of
+        Left _ -> pure ()
+        Right _ -> assertFailure "Build Secret reused a version with changed content"
   , testCase "standalone data planning requires the accepted platform Namespace" $ do
       let checked = either (error . show) id
           owner = checked (mkScopeId Platform "foundation")

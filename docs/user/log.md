@@ -4,6 +4,7 @@
 * **Update**: Document scheduled CronJobs in reviewed application deployment and the accepted-image requirement.
 * **Update**: Document the reviewed single-Service deploy route, its scheduled CronJobs, and explicit image, recovery, and Secret dependencies.
 * **Update**: Document the separate reviewed Build environment channel and its exact-replacement behavior.
+* **Update**: Document the versioned reviewed Build Secret channel and its separate rotation history.
 
 ## 2026-09-23
 * **Update**: Document the opt-in shared inventory history store, conditional migration, explicit takeover, backup coverage, and bucket-reader access to private native reviews.

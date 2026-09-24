@@ -273,7 +273,7 @@ import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManager
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedApplicationImage, acceptedBrokerBindings, acceptedSecretBindings, applicationNativeOwned, applicationVolumeRecoveryBindings, compileApplicationScope, compileStandaloneService, databaseRecoveryBindings, nativeWorkloadOwned, reviewedTaskImages)
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, compileStandaloneDatabase, databaseNativeOwned, standaloneRetirementScope, standaloneStatefulSetOwned)
-import Nagare.Inventory.Environment (compileBuildEnvChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateRuntimeSecretRotation)
+import Nagare.Inventory.Environment (compileBuildEnvChannel, compileBuildSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
 import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
@@ -942,8 +942,8 @@ data SecretCommand
     SecretList StoreCommonOpts Bool
   | -- | dryRun, KEY
     SecretDelete StoreCommonOpts ScopeSelection Bool String
-  | -- | exact Runtime dotenv file, opaque rotation version, reviewed plan directory
-    SecretSync StoreCommonOpts FilePath String FilePath
+  | -- | exact Runtime or Build dotenv file, opaque rotation version, reviewed plan directory
+    SecretSync StoreCommonOpts ScopeSelection FilePath String FilePath
   deriving stock (Generic, Show)
 
 -- | The @storage@ subcommands (EP-35). Both reuse 'StoreCommonOpts' (positional
@@ -2531,12 +2531,13 @@ opts =
               ( info
                   ( SecretSync
                       <$> storeCommonOptsParser
-                      <*> strOption (long "file" <> metavar "FILE" <> help "dotenv file with exact Runtime Secret values")
+                      <*> scopeSelectionParser
+                      <*> strOption (long "file" <> metavar "FILE" <> help "dotenv file with exact Runtime or Build Secret values")
                       <*> strOption (long "version" <> metavar "TOKEN" <> help "Opaque Secret rotation version")
-                      <*> strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed Runtime Secret replacement")
+                      <*> strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed Runtime or Build Secret replacement")
                         <**> helper
                   )
-                  (progDesc "Review an exact Runtime Secret replacement")
+                  (progDesc "Review an exact Runtime or Build Secret replacement")
               )
         )
     appCmd =
@@ -7865,7 +7866,9 @@ runSecret mctx = \case
       let desired = reconcile ReconcileExact mempty (Map.delete (T.pack key) existing)
       applyOrDryRunSecret dry name ns scope desired
     unless dry $ TIO.putStrLn ("Deleted " <> T.pack key <> " from secret for " <> name <> ".")
-  SecretSync copts dotenvPath rawVersion output -> do
+  SecretSync copts sel dotenvPath rawVersion output -> do
+    unless (selectedScopes sel `elem` [[Runtime], [Build]])
+      (dieT "reviewed Secret sync requires one Runtime or Build scope")
     (name, ns) <- resolveAppOrDie copts
     version <- either dieT pure (Resource.mkName (T.pack rawVersion))
     raw <- TIO.readFile dotenvPath
@@ -7874,10 +7877,13 @@ runSecret mctx = \case
     (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
     snapshot <- Inventory.loadTargetSnapshot active
     (cluster, namespaceId) <- either dieT pure (acceptedFoundationNamespace snapshot ns)
+    let compile = if selectedScopes sel == [Build]
+          then compileBuildSecretChannel else compileRuntimeSecretChannel
+        channelName = if selectedScopes sel == [Build] then "build-secret" else "runtime-secret"
     (channel, native) <- either (dieT . T.pack . show) pure
-      (compileRuntimeSecretChannel name ns cluster namespaceId version incoming
-        (Resource.SourceLocation (T.pack dotenvPath) "runtime-secret"))
-    either dieT pure (validateRuntimeSecretRotation snapshot channel)
+      (compile name ns cluster namespaceId version incoming
+        (Resource.SourceLocation (T.pack dotenvPath) channelName))
+    either dieT pure (validateSecretRotation snapshot channel)
     candidate <- either (dieT . T.pack . show) pure
       (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope channel NE.:| []))
     Inventory.planInventoryCandidateWith
