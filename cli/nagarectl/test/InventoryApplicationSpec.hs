@@ -8,9 +8,10 @@ import Nagare.Dsl.Database (mkDatabaseName)
 import Nagare.Dsl.Load (loadApplication, loadBroker)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Application (compileApplicationDatabases)
-import Nagare.Inventory.DataService (compileStandaloneBroker, standaloneRetirementScope)
+import Nagare.Inventory.Components.Foundation (FoundationInput (..), compileFoundation)
+import Nagare.Inventory.DataService (acceptedFoundationNamespace, compileStandaloneBroker, standaloneRetirementScope)
 import Nagare.Resource.Application (applicationScopeId)
-import Nagare.Resource.Inventory (Declaration (Managed), ManagedResource (..), ResourceBundle (..), mkScopeSnapshot, scopeBundles)
+import Nagare.Resource.Inventory (Declaration (Managed), ManagedResource (..), ResourceBundle (..), mkScopeDeclaration, mkScopeSnapshot, scopeBundles)
 import Nagare.Resource.Policy (RecoveryIntent (..), mkSecretRef)
 import Nagare.Resource.Types
 import Test.Tasty (TestTree, testGroup)
@@ -18,7 +19,28 @@ import Test.Tasty.HUnit (assertFailure, testCase, (@?=))
 
 inventoryApplicationTests :: TestTree
 inventoryApplicationTests = testGroup "application inventory compilation"
-  [ testCase "complete typed database members join the application scope" $ do
+  [ testCase "standalone data planning requires the accepted platform Namespace" $ do
+      let checked = either (error . show) id
+          owner = checked (mkScopeId Platform "foundation")
+          cluster = mintResourceId owner (checked (mkLogicalKey "cluster"))
+            (checked (mkName "cluster"))
+          binding = ContextBinding (checked (mkContextId "fixture")) (checked (mkName "project"))
+          empty = either (error . show) id (mkScopeSnapshot binding Map.empty Map.empty)
+      case acceptedFoundationNamespace empty "personal" of
+        Left _ -> pure ()
+        Right _ -> assertFailure "standalone planning accepted an absent foundation"
+      (bundle, _) <- compileFoundation (FoundationInput owner cluster
+        "../../cluster/bootstrap/job-runs/resourcequota.yaml" []) >>= either (fail . show) pure
+      scope <- either (fail . show) pure (mkScopeDeclaration owner [bundle])
+      snapshot <- either (fail . show) pure (mkScopeSnapshot binding
+        (Map.singleton owner (checked (mkScopeGeneration 1), scope)) Map.empty)
+      let namespaceId = mintResourceId owner (checked (mkLogicalKey "foundation"))
+            (checked (mkName "namespace-personal"))
+      acceptedFoundationNamespace snapshot "personal" @?= Right (cluster, namespaceId)
+      case acceptedFoundationNamespace snapshot "other" of
+        Left _ -> pure ()
+        Right _ -> assertFailure "standalone planning accepted an unowned Namespace"
+  , testCase "complete typed database members join the application scope" $ do
       loaded <- loadApplication "test/fixtures/app/kizashi/Config.hs"
       app <- either (fail . show) pure loaded
       owner <- either (fail . show) pure (applicationScopeId app)

@@ -268,7 +268,7 @@ import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.DataService (compileStandaloneBroker, compileStandaloneDatabase, standaloneRetirementScope)
+import Nagare.Inventory.DataService (acceptedFoundationNamespace, compileStandaloneBroker, compileStandaloneDatabase, standaloneRetirementScope)
 import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
@@ -7070,22 +7070,16 @@ runBrokerCreatePlan mctx provider name params backupName keyName keyVersion outp
       namespaceName = namespaceText (broker ^. #namespace)
       scopeName = maybe brokerName Resource.logicalKeyText (broker ^. #logicalKey)
   owner <- either dieT pure (Resource.mkScopeId Resource.Standalone ("broker-" <> scopeName))
-  foundation <- either dieT pure (Resource.mkScopeId Resource.Platform "foundation")
-  clusterKey <- either dieT pure (Resource.mkLogicalKey "cluster")
-  foundationKey <- either dieT pure (Resource.mkLogicalKey "foundation")
-  clusterRole <- either dieT pure (Resource.mkName "cluster")
-  namespaceRole <- either dieT pure (Resource.mkName ("namespace-" <> namespaceName))
   backup <- maybe (dieT "--save-plan requires --recovery-backup") (either dieT pure . Resource.mkName . T.pack) backupName
   key <- maybe (dieT "--save-plan requires --recovery-key") (either dieT pure . Resource.mkName . T.pack) keyName
   version <- maybe (dieT "--save-plan requires --recovery-key-version") (either dieT pure . Resource.mkName . T.pack) keyVersion
   let recovery = RecoveryIntent backup (mkSecretRef key version NE.:| [])
-      cluster = Resource.mintResourceId foundation clusterKey clusterRole
-      namespaceId = Resource.mintResourceId foundation foundationKey namespaceRole
       source = Resource.SourceLocation
         (maybe "broker create" T.pack (params ^. #config)) brokerName
   active <- activeTarget mctx
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   snapshot <- Inventory.loadTargetSnapshot active
+  (cluster, namespaceId) <- either dieT pure (acceptedFoundationNamespace snapshot namespaceName)
   (scope, native) <- either (dieT . T.pack . show) pure
     (compileStandaloneBroker broker owner cluster namespaceId recovery source)
   candidate <- either (dieT . T.pack . show) pure
@@ -7157,23 +7151,17 @@ runDbCreatePlan mctx eng name params backupName keyVersion output = do
       namespaceName = namespaceText (db ^. #namespace)
       scopeName = maybe databaseName Resource.logicalKeyText (db ^. #logicalKey)
   owner <- either dieT pure (Resource.mkScopeId Resource.Standalone ("database-" <> scopeName))
-  foundation <- either dieT pure (Resource.mkScopeId Resource.Platform "foundation")
-  clusterKey <- either dieT pure (Resource.mkLogicalKey "cluster")
-  foundationKey <- either dieT pure (Resource.mkLogicalKey "foundation")
-  clusterRole <- either dieT pure (Resource.mkName "cluster")
-  namespaceRole <- either dieT pure (Resource.mkName ("namespace-" <> namespaceName))
   backup <- maybe (dieT "--save-plan requires --recovery-backup") (either dieT pure . Resource.mkName . T.pack) backupName
   version <- maybe (dieT "--save-plan requires --recovery-key-version") (either dieT pure . Resource.mkName . T.pack) keyVersion
   credential <- either dieT pure (Resource.mkName (dbSecretName databaseName))
   let recovery = RecoveryIntent backup (mkSecretRef credential version NE.:| [])
-      cluster = Resource.mintResourceId foundation clusterKey clusterRole
-      namespaceId = Resource.mintResourceId foundation foundationKey namespaceRole
       source = Resource.SourceLocation
         (maybe "db create" T.pack (params ^. #config)) databaseName
-      direct = DatabaseDirectInput db owner cluster (Just namespaceId) recovery source
   active <- activeTarget mctx
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   snapshot <- Inventory.loadTargetSnapshot active
+  (cluster, namespaceId) <- either dieT pure (acceptedFoundationNamespace snapshot namespaceName)
+  let direct = DatabaseDirectInput db owner cluster (Just namespaceId) recovery source
   backend <- either dieT pure (storeBackendFor (active ^. #profile) (active ^. #profile . #backupBucket))
   (scope, native) <- either (dieT . T.pack . show) pure (compileStandaloneDatabase direct backend)
   candidate <- either (dieT . T.pack . show) pure

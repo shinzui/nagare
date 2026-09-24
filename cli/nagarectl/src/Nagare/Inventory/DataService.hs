@@ -5,6 +5,7 @@ module Nagare.Inventory.DataService
   ( compileStandaloneDatabase
   , compileStandaloneBroker
   , standaloneRetirementScope
+  , acceptedFoundationNamespace
   ) where
 
 import Data.Aeson (Value)
@@ -138,3 +139,30 @@ standaloneRetirementScope kind name namespaceName pinnedKey snapshot = do
   unless (length statefulSets == 1)
     (Left "accepted standalone scope has no unique StatefulSet for that name and namespace")
   pure owner
+
+-- | Resolve the accepted platform Namespace by both stable identity and
+-- provider address. A matching ID with a different native name is not enough
+-- authority for a standalone workload to enter that namespace.
+acceptedFoundationNamespace :: ScopeSnapshot -> T.Text -> Either T.Text (ResourceId, ResourceId)
+acceptedFoundationNamespace snapshot requestedNamespace = do
+  foundation <- mkScopeId Platform "foundation"
+  clusterKey <- mkLogicalKey "cluster"
+  foundationKey <- mkLogicalKey "foundation"
+  clusterRole <- mkName "cluster"
+  namespaceRole <- mkName ("namespace-" <> requestedNamespace)
+  nativeName <- mkName requestedNamespace
+  nativeKind <- mkName "namespace"
+  accepted <- maybe (Left "platform foundation scope is absent from accepted inventory history")
+    (Right . snd) (Map.lookup foundation (snapshotScopes snapshot))
+  let cluster = mintResourceId foundation clusterKey clusterRole
+      namespaceId = mintResourceId foundation foundationKey namespaceRole
+      members =
+        [ resource
+        | bundle <- scopeBundles accepted
+        , Managed resource <- declarations bundle
+        , resource ^. #identity == namespaceId
+        , resource ^. #address == Kubernetes cluster "" nativeKind Nothing nativeName
+        ]
+  unless (length members == 1)
+    (Left "accepted platform Namespace does not match the requested name and cluster")
+  pure (cluster, namespaceId)
