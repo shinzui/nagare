@@ -325,6 +325,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-24) EP-148 M1/M2 partial: Reviewed application planning accepts exact accepted Secret IDs for supplied TLS and runtime environment references; the typed compiler checks their native addresses and reference sets.
 - [x] (2026-09-24) EP-148 M1/M3 partial: Reviewed application planning binds explicit recovery for retained Service and worker PVCs, with worker decisions keyed by stable resource identity.
 - [x] (2026-09-24) EP-148 M2/M4 partial: Direct env/secret writes refuse accepted or retained ConfigMap/Secret ownership for the selected app and scope.
+- [x] (2026-09-24) EP-148 M3/M4 partial: Direct storage snapshot/restore refuse a PVC address held in accepted or retained history before data Jobs.
 - [ ] EP-148 M4: Removed alternate paths and scope isolation.
 - [ ] EP-150 M1: Platform/legacy transaction integration.
 - [ ] EP-150 M2: Packaging and complete mutation audit.

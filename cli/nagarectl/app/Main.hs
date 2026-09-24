@@ -7138,10 +7138,12 @@ runStorage mctx = \case
     runStorageInspect dep (T.pack vol)
   StorageSnapshot copts vol bucket keep -> do
     dep <- resolveStorageDep copts
+    refuseDirectVolumeMutationIfOwned mctx "snapshot" dep (T.pack vol)
     backend <- resolveStoreBackend mctx bucket
     runSnapshot dep (T.pack vol) backend keep
   StorageRestore copts vol backupId bucket live dryRun -> do
     dep <- resolveStorageDep copts
+    refuseDirectVolumeMutationIfOwned mctx "restore" dep (T.pack vol)
     backend <- resolveStoreBackend mctx bucket
     runStorageRestore dep (T.pack vol) (T.pack backupId) live backend dryRun
 
@@ -7403,6 +7405,17 @@ refuseDirectStoreMutationIfOwned mctx secret appName namespaceName scopes =
     when (any owned scopes)
       (dieT ("environment store for " <> appName
         <> " is owned by accepted or retained inventory history; direct write is refused"))
+
+refuseDirectVolumeMutationIfOwned :: Maybe String -> Text -> Deployment -> Text -> IO ()
+refuseDirectVolumeMutationIfOwned mctx operation deployment volumeName =
+  withAcceptedInventoryHistory mctx ("storage " <> operation) $ \history -> do
+    let appName = serviceNameText (deployment ^. #name)
+        namespaceName = namespaceText (deployment ^. #namespace)
+        nativeName = pvcName appName volumeName
+    when (nativeWorkloadOwned "" "persistentvolumeclaim" nativeName namespaceName
+        (ownedHistoryResources history))
+      (dieT ("volume " <> volumeName
+        <> " is owned by accepted or retained inventory history; direct " <> operation <> " is refused"))
 
 -- | Dispatch the @worker@ command group (EP-71). Provisions the GHC environment
 -- before loading the worker's @Config.hs@ (mirroring @db create --config@), then
