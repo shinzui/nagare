@@ -66,6 +66,7 @@ import Nagare.Dsl.Types
   )
 import Nagare.Storage.Discover (pvcName)
 import System.Exit (ExitCode (..), exitFailure)
+import System.Environment (lookupEnv)
 import System.IO (hClose, stderr)
 import System.IO.Temp (withSystemTempFile)
 
@@ -207,6 +208,8 @@ jobValue i =
 -- stay deterministic).
 runSnapshot :: Deployment -> Text -> StoreBackend -> Int -> IO ()
 runSnapshot dep volume backend keep = do
+  transaction <- lookupEnv "NAGARE_INVENTORY_TRANSACTION"
+  when (isJust transaction) (die "storage snapshot cannot run inside a reviewed inventory transaction")
   let app = serviceNameText (dep ^. #name)
       ns = namespaceText (dep ^. #namespace)
       declared = map (volumeNameText . (^. #name)) (dep ^. #volumes)

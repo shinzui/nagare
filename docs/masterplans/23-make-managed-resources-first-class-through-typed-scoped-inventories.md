@@ -306,6 +306,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-24) EP-148 M2 partial: Application namespace requests compose under an explicit owner grant and preserve the platform scope revision.
 - [ ] EP-148 M2: Shared contributions, env/secret intent, and publication.
 - [ ] EP-148 M3: Operational/data command coverage.
+- [x] (2026-09-24) EP-148 M3 partial: Standalone database and topic-free broker create/delete commands can save reviewed scope replacement/retirement plans; retained native metadata and accepted StatefulSet selection are covered by focused tests. Direct compatibility paths remain.
 - [x] (2026-09-24) EP-148 M4 partial: Offline platform/two-app composition preserves unselected scope generations and refuses a shared Knative Service claim.
 - [ ] EP-148 M4: Removed alternate paths and scope isolation.
 - [ ] EP-150 M1: Platform/legacy transaction integration.
@@ -488,3 +489,5 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 2026-09-24: EP-148 added optional DomainMapping logical keys to config emission/loading and identity minting. The existing provider-address migration gate remains necessary; no dependency or registry status changed.
 
 2026-09-24: EP-148's composed two-application fixture proves compiler-level scope isolation and cross-application claim refusal. Application command routing and legacy path removal still gate M4 and EP-150.
+
+2026-09-24: EP-148 now exposes saved inventory reviews for standalone database and topic-free broker creation and retirement. The create paths share their typed input with legacy direct creation, and the renderers include metadata previously applied by separate annotation calls. Retirement selects only an accepted scope containing the requested StatefulSet and namespace and retains durable resources. Direct compatibility paths, application deployment, logical topics, environment channels, and operational actions still gate EP-148 and EP-150.

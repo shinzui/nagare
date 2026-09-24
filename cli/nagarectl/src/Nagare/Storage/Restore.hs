@@ -53,6 +53,7 @@ import Nagare.Dsl.Types
 import Nagare.Storage.Discover (pvcName)
 import Nagare.Storage.Snapshot (snapshotObjectPath, snapshotTimestamp)
 import System.Exit (ExitCode (..), exitFailure)
+import System.Environment (lookupEnv)
 import System.IO (hClose, stderr)
 import System.IO.Temp (withSystemTempFile)
 
@@ -171,6 +172,8 @@ renderScratchPvc ns name size =
 -- and apply nothing.
 runStorageRestore :: Deployment -> Text -> Text -> Bool -> StoreBackend -> Bool -> IO ()
 runStorageRestore dep volume backupId live backend dryRun = do
+  transaction <- lookupEnv "NAGARE_INVENTORY_TRANSACTION"
+  when (isJust transaction) (die "storage restore cannot run inside a reviewed inventory transaction")
   let app = serviceNameText (dep ^. #name)
       ns = namespaceText (dep ^. #namespace)
       vols = dep ^. #volumes

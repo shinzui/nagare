@@ -10,11 +10,16 @@ import Data.Text.IO qualified as TIO
 import Nagare.Broker.Discover (getBroker)
 import Nagare.Deploy (requireWait, waitForRollout)
 import Nagare.Dsl.Prelude
+import System.Environment (lookupEnv)
 import System.Exit (exitFailure)
 import System.IO (stderr)
 
 runBrokerRestart :: Text -> Text -> Bool -> IO ()
 runBrokerRestart ns name dryRun = do
+  transaction <- lookupEnv "NAGARE_INVENTORY_TRANSACTION"
+  when (isJust transaction && not dryRun) $ do
+    TIO.hPutStrLn stderr "nagarectl: broker restart cannot run inside a reviewed inventory transaction"
+    exitFailure
   erow <- getBroker ns name
   case erow of
     Left err -> do

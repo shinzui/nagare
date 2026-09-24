@@ -64,6 +64,7 @@ import Nagare.Dsl.Database (Engine (..), dbSecretName, engineImage, parseEngine)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Storage.Snapshot (snapshotTimestamp, snapshotsToPrune)
 import System.Exit (ExitCode (..), exitFailure)
+import System.Environment (lookupEnv)
 import System.IO (hClose, stderr)
 import System.IO.Temp (withSystemTempFile)
 
@@ -367,6 +368,8 @@ renderDbBackupCronJob ns name eng version backend keep =
 -- @--dry-run@, print the Job (and the CronJob) manifests and apply nothing.
 runDbBackup :: Text -> Text -> StoreBackend -> Int -> Bool -> IO ()
 runDbBackup ns name backend keep dryRun = do
+  transaction <- lookupEnv "NAGARE_INVENTORY_TRANSACTION"
+  when (isJust transaction) (die "db backup cannot run inside a reviewed inventory transaction")
   erow <- getDatabase ns name
   case erow of
     Left err -> die err

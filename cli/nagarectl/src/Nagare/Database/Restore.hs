@@ -44,6 +44,7 @@ import Nagare.Dsl.Database (Engine (..), dbSecretName, engineImage, parseEngine)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Storage.Snapshot (snapshotTimestamp)
 import System.Exit (ExitCode (..), exitFailure)
+import System.Environment (lookupEnv)
 import System.IO (hClose, stderr)
 import System.IO.Temp (withSystemTempFile)
 
@@ -211,6 +212,8 @@ warn False = ""
 -- | Run @db restore NAME BACKUP_ID@.
 runDbRestore :: Text -> Text -> Text -> Bool -> StoreBackend -> Bool -> IO ()
 runDbRestore ns name backupId live backend dryRun = do
+  transaction <- lookupEnv "NAGARE_INVENTORY_TRANSACTION"
+  when (isJust transaction) (die "db restore cannot run inside a reviewed inventory transaction")
   erow <- getDatabase ns name
   case erow of
     Left err -> die err

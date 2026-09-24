@@ -17,6 +17,7 @@ import Data.Text.IO qualified as TIO
 import Nagare.Dsl.Prelude
 import Nagare.Task.Discover (AppScope, getTask)
 import System.Exit (exitFailure)
+import System.Environment (lookupEnv)
 import System.IO (stderr)
 
 data TaskDeleteParams = TaskDeleteParams
@@ -30,6 +31,10 @@ data TaskDeleteParams = TaskDeleteParams
 
 runTaskDelete :: TaskDeleteParams -> IO ()
 runTaskDelete p = do
+  transaction <- lookupEnv "NAGARE_INVENTORY_TRANSACTION"
+  when (isJust transaction) $ do
+    TIO.hPutStrLn stderr "nagarectl: task delete cannot run inside a reviewed inventory transaction"
+    exitFailure
   erow <- getTask (p ^. #namespace) (p ^. #scope) (p ^. #name)
   case erow of
     Left err -> do

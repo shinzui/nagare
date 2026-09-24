@@ -23,6 +23,7 @@ import Data.Time (UTCTime, defaultTimeLocale, formatTime, getCurrentTime)
 import Nagare.Dsl.Prelude
 import Nagare.Task.Discover (AppScope, getTask)
 import System.Exit (ExitCode (..), exitFailure)
+import System.Environment (lookupEnv)
 import System.IO (stderr)
 
 data TaskRunParams = TaskRunParams
@@ -76,6 +77,10 @@ runTaskRun p
             <> ns
         )
   | otherwise = do
+      transaction <- lookupEnv "NAGARE_INVENTORY_TRANSACTION"
+      when (isJust transaction) $ do
+        TIO.hPutStrLn stderr "nagarectl: task run cannot run inside a reviewed inventory transaction"
+        exitFailure
       erow <- getTask (p ^. #namespace) (p ^. #scope) (p ^. #task)
       case erow of
         Left err -> do

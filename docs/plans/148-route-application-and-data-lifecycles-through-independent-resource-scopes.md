@@ -66,6 +66,8 @@ Every supported application-side mutation is either a desired-scope update, a re
 - [x] (2026-09-24) M3 partial: `broker create --save-plan` compiles a topic-free Redpanda broker into its standalone scope and saves an inventory review. The StatefulSet renderer now includes the discovery metadata previously added by a post-apply `kubectl annotate` call.
 - [x] (2026-09-24) M3 partial: `db delete --save-plan` and `broker delete --save-plan` select an accepted standalone scope, verify the named StatefulSet and namespace, and save a retained-resource retirement review. Direct delete remains a compatibility path.
 - [x] (2026-09-24) M4 partial: Legacy direct database and broker delete refuse inventory transaction re-entry before observing or mutating the cluster, matching their create guards.
+- [x] (2026-09-24) M4 partial: Legacy database backup/restore and application storage snapshot/restore also refuse inventory transaction re-entry before provider observation or mutation; their reviewed operation contracts remain open.
+- [x] (2026-09-24) M4 partial: Legacy task run/delete and database/broker restart reject inventory transaction re-entry before direct mutations; reviewed operational actions remain open.
 - [ ] M1: Compile applications and standalone services into complete scopes.
 - [ ] M2: Integrate shared-owner contributions, environment intent, and publication.
 - [ ] M3: Route operational and data lifecycle commands through reviewed operations.
