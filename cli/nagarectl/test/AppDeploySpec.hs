@@ -34,7 +34,7 @@ import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedAccessB
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps (..), KubernetesMutation (..), KubernetesState (..), mkKubernetesAdapter)
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), mkKubernetesRuntimeOps)
-import Nagare.Inventory.Command (convergeInventoryCandidateWith, loadTargetSnapshot)
+import Nagare.Inventory.Command (convergeInventoryCandidateWith, loadTargetSnapshot, openTargetStore)
 import Nagare.Inventory.DataService (compileStandaloneBroker, compileStandaloneDatabase)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
@@ -46,7 +46,7 @@ import Nagare.Dsl.Broker (BrokerBinding (..), mkTopicName)
 import Nagare.Dsl.Access (authPortal, requireLogin)
 import Nagare.Resource.Application (applicationScopeId, taskResourceId, volumeResourceId)
 import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
-import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (..), ManagedResource (..), DesiredSpec (KnativeService), OperationKind (PreDeployHook), Contribution (RegisterBackend, RegisterNamespace), ContributionGrant (BackendMapGrant, NamespaceGrant, ShomeiSettingsGrant), ScopeChange (ReplaceScope), backendMapResourceId, candidateGenerations, candidateInventory, composeInventory, contributionResourceId, declarationId, inventoryDeclarations, inventoryScopes, mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeConfigDigest, scopeId, scopeOverrides, shomeiSettingsResourceId, snapshotScopes)
+import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (..), ManagedResource (..), DesiredSpec (KnativeService), Executor (PulumiExecutor), OperationKind (PreDeployHook), Contribution (RegisterBackend, RegisterNamespace), ContributionGrant (BackendMapGrant, NamespaceGrant, ShomeiSettingsGrant), ScopeChange (ReplaceScope), backendMapResourceId, candidateGenerations, candidateInventory, composeInventory, contributionResourceId, declarationId, inventoryDeclarations, inventoryScopes, mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeConfigDigest, scopeId, scopeOverrides, shomeiSettingsResourceId, snapshotScopes)
 import Nagare.Resource.Wire (canonicalValue, decodeScope, encodeCanonicalScope)
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
 import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (DeleteWhenUnreferenced), RecoveryIntent (..), Sensitivity (Private), mkSecretRef)
@@ -151,6 +151,8 @@ commandReview = do
     checked = either (error . show) id
     owner = checked (Resource.mkScopeId Resource.Application "command-fixture")
     foundation = checked (Resource.mkScopeId Resource.Platform "foundation")
+    cloudOwner = checked (Resource.mkScopeId Resource.Platform "unrelated-cloud")
+    otherOwner = checked (Resource.mkScopeId Resource.Application "other-app")
     cluster = Resource.mintResourceId foundation
       (checked (Resource.mkLogicalKey "cluster")) (checked (Resource.mkName "resource"))
     resource = Resource.mintResourceId owner
@@ -174,8 +176,26 @@ commandReview = do
         DeleteWhenUnreferenced Stateless Private source))
     scope = checked (mkScopeDeclaration owner
       [ResourceBundle [Managed member] [] [] [] [] []])
-    accepted = checked (mkScopeSnapshot binding Map.empty Map.empty)
-    candidate = checked (composeInventory accepted (ReplaceScope scope :| []))
+    cloudId = Resource.mintResourceId cloudOwner
+      (checked (Resource.mkLogicalKey "unrelated")) (checked (Resource.mkName "bucket"))
+    cloud = member
+      { identity = cloudId
+      , owner = cloudOwner
+      , executor = PulumiExecutor
+      , address = Resource.GlobalBucket (checked (Resource.mkName "unrelated-bucket"))
+      }
+    cloudScope = checked (mkScopeDeclaration cloudOwner
+      [ResourceBundle [Managed cloud] [] [] [] [] []])
+    otherId = Resource.mintResourceId otherOwner
+      (checked (Resource.mkLogicalKey "other")) (checked (Resource.mkName "configmap"))
+    other = member
+      { identity = otherId
+      , owner = otherOwner
+      , address = Resource.Kubernetes cluster "" (checked (Resource.mkName "configmap"))
+          (Just (checked (Resource.mkName "default"))) (checked (Resource.mkName "other-app"))
+      }
+    otherScope = checked (mkScopeDeclaration otherOwner
+      [ResourceBundle [Managed other] [] [] [] [] []])
     run = do
       observed <- newIORef Map.empty
       writes <- newIORef (0 :: Int)
@@ -198,11 +218,21 @@ commandReview = do
           applyRegistry reviewBundle = pure
             (registryFor (checked (kubernetesSpecsFromReview reviewBundle)))
       doesFileExist "absent-source/Config.hs" >>= (@?= False)
+      store <- openTargetStore target
+      _ <- initializeStore store binding "scope-isolation-command" >>= either (fail . show) pure
+      let empty = checked (mkScopeSnapshot binding Map.empty Map.empty)
+          seeded = checked (composeInventory empty
+            (ReplaceScope cloudScope :| [ReplaceScope otherScope]))
+      _ <- seedInventoryHistory store seeded >>= either (fail . show) pure
+      before <- loadTargetSnapshot target
+      let candidate = checked (composeInventory before (ReplaceScope scope :| []))
       convergeInventoryCandidateWith planRegistry applyRegistry target candidate
       readIORef writes >>= (@?= 1)
       snapshot <- loadTargetSnapshot target
       assertBool "single-invocation review did not accept the scope"
         (Map.member owner (snapshotScopes snapshot))
+      forM_ [cloudOwner, otherOwner] $ \unchanged ->
+        Map.lookup unchanged (snapshotScopes snapshot) @?= Map.lookup unchanged (snapshotScopes before)
 
 nativeApplicationReview :: IO ()
 nativeApplicationReview = do
