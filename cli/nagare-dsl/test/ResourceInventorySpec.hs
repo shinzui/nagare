@@ -409,6 +409,13 @@ resourceInventoryTests =
         fmap encodeCanonicalScope (decodeScope (encodeCanonicalScope firstScope)) @?= Right (encodeCanonicalScope firstScope)
     , testCase "canonical empty scope golden bytes" $
         encodeCanonicalScope (ok (mkScopeDeclaration a [])) @?= "{\"bundles\":[],\"scope\":{\"kind\":\"Application\",\"name\":\"app\"},\"version\":1}"
+    , testCase "public scope overrides are canonical and survive saved review" $ do
+        let overrides = Map.fromList [("tag", "v1"), ("baseDomain", "example.test")]
+            declared = withScopeOverrides overrides (ok (mkScopeDeclaration a []))
+        scopeOverrides declared @?= overrides
+        fmap scopeOverrides (decodeScope (encodeCanonicalScope declared)) @?= Right overrides
+        assertBool "overrides do not change old empty scope bytes"
+          (encodeCanonicalScope declared /= encodeCanonicalScope (ok (mkScopeDeclaration a [])))
     , testCase "unknown fields and schema versions refuse" $ do
         rejects "wire" (decodeScope "{\"version\":2,\"scope\":{},\"bundles\":[]}")
         rejects "wire" (decodeScope "{\"version\":1,\"scope\":{\"kind\":\"Application\",\"name\":\"app\"},\"bundles\":[],\"delete\":true}")

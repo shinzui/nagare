@@ -120,7 +120,8 @@ witness NixCachePublicKey = SomeWitness NixCachePublicKeyW
 scopeValue :: ScopeDeclaration -> Value
 scopeValue s = object
   (["version" .= (1 :: Integer), "scope" .= scopeId s, "bundles" .= normalizeBundles (scopeBundles s)]
-    <> ["configDigest" .= digest | Just digest <- [scopeConfigDigest s]])
+    <> ["configDigest" .= digest | Just digest <- [scopeConfigDigest s]]
+    <> ["overrides" .= overrides | let overrides = scopeOverrides s, not (Map.null overrides)])
 
 -- Bundles and all set-valued fields have no execution order. Canonicalize them.
 normalizeBundles :: [ResourceBundle] -> [ResourceBundle]
@@ -149,14 +150,15 @@ normalizeBundles =
     normalizeDeclaration d = d
 
 parseScope :: Value -> Parser ScopeDeclaration
-parseScope = strictObject "scope" ["version", "scope", "bundles", "configDigest"] $ \o -> do
+parseScope = strictObject "scope" ["version", "scope", "bundles", "configDigest", "overrides"] $ \o -> do
   version <- o .: "version" :: Parser Integer
   unless (version == 1) (fail "unsupported inventory schema version")
   s <- o .: "scope"
   bs <- o .: "bundles"
   digest <- o .:? "configDigest"
+  overrides <- o .:? "overrides" .!= Map.empty
   declaration <- parseChecked (mkScopeDeclaration s bs)
-  pure (maybe declaration (`withScopeConfigDigest` declaration) digest)
+  pure (withScopeOverrides overrides (maybe declaration (`withScopeConfigDigest` declaration) digest))
 
 encodeCanonicalScope :: ScopeDeclaration -> ByteString
 encodeCanonicalScope = either (error . T.unpack) id . canonicalValue . scopeValue

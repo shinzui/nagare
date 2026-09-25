@@ -21,8 +21,10 @@ module Nagare.Resource.Inventory
   , ScopeDeclaration
   , mkScopeDeclaration
   , withScopeConfigDigest
+  , withScopeOverrides
   , scopeId
   , scopeConfigDigest
+  , scopeOverrides
   , scopeBundles
   , ClaimHolder (..)
   , ReservationReason (..)
@@ -188,23 +190,31 @@ data ResourceBundle = ResourceBundle
   }
   deriving stock (Eq, Ord, Show, Generic)
 
-data ScopeDeclaration = ScopeDeclaration ScopeId (Maybe ContentDigest) [ResourceBundle]
+data ScopeDeclaration = ScopeDeclaration ScopeId (Maybe ContentDigest) (Map Text Text) [ResourceBundle]
   deriving stock (Eq, Ord, Show)
 
 scopeId :: ScopeDeclaration -> ScopeId
-scopeId (ScopeDeclaration s _ _) = s
+scopeId (ScopeDeclaration s _ _ _) = s
 
 scopeConfigDigest :: ScopeDeclaration -> Maybe ContentDigest
-scopeConfigDigest (ScopeDeclaration _ digest _) = digest
+scopeConfigDigest (ScopeDeclaration _ digest _ _) = digest
 
 withScopeConfigDigest :: ContentDigest -> ScopeDeclaration -> ScopeDeclaration
-withScopeConfigDigest digest (ScopeDeclaration s _ bs) = ScopeDeclaration s (Just digest) bs
+withScopeConfigDigest digest (ScopeDeclaration s _ overrides bs) = ScopeDeclaration s (Just digest) overrides bs
+
+-- | Public, nonsecret command inputs that changed the compiled intent. The
+-- caller supplies only reviewed values; keys and values are sorted by Map.
+scopeOverrides :: ScopeDeclaration -> Map Text Text
+scopeOverrides (ScopeDeclaration _ _ overrides _) = overrides
+
+withScopeOverrides :: Map Text Text -> ScopeDeclaration -> ScopeDeclaration
+withScopeOverrides overrides (ScopeDeclaration s digest _ bs) = ScopeDeclaration s digest overrides bs
 
 scopeBundles :: ScopeDeclaration -> [ResourceBundle]
-scopeBundles (ScopeDeclaration _ _ bs) = bs
+scopeBundles (ScopeDeclaration _ _ _ bs) = bs
 
 mkScopeDeclaration :: ScopeId -> [ResourceBundle] -> Either (NonEmpty InventoryError) ScopeDeclaration
-mkScopeDeclaration s bs = checked errors (ScopeDeclaration s Nothing (sort bs))
+mkScopeDeclaration s bs = checked errors (ScopeDeclaration s Nothing Map.empty (sort bs))
   where
     ds = concatMap (^. #declarations) bs
     ids = map declarationId ds <> map (^. #identity) (concatMap (^. #operations) bs)

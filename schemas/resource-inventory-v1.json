@@ -1236,6 +1236,10 @@
         "configDigest": {
           "$ref": "#/$defs/digest"
         },
+        "overrides": {
+          "type": "object",
+          "additionalProperties": {"type": "string"}
+        },
         "bundles": {
           "type": "array",
           "items": {

@@ -7761,6 +7761,11 @@ runAppDeployPlan mctx params appOptions output = do
         , scopeWorkerVolumeRecovery = workerVolumeRecovery
         , scopeBackupBackend = backend
         , scopeRelease = (priorReleases, release)
+        , scopeInputOverrides = Map.fromList
+            ([("tag", T.pack selected) | selected <- maybe [] pure (appOptions ^. #tag)]
+              <> [("baseDomain", T.pack selected) | selected <- maybe [] pure (appOptions ^. #baseDomain)]
+              <> [("imageResource", T.pack selected) | selected <- maybe [] pure (appOptions ^. #imageResource)]
+              <> [("requestNamespace", "true") | appOptions ^. #requestNamespace])
         , scopeSource = source
         }
   (scope, native) <- either (dieT . T.pack . show) pure (compileApplicationScope input)

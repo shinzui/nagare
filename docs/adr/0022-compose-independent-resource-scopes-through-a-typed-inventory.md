@@ -424,3 +424,9 @@ while each native resource keeps its own independently derived spec digest.
 Earlier scope documents omit the optional field and remain valid. Reviewed apply
 and resume use the saved scope and private native evidence, so they do not need
 the source checkout that produced the accepted config.
+
+The scope document can also retain a canonical map of explicit, public command
+overrides alongside that digest. Reviewed application deployment records its
+tag, optional base domain, accepted image resource, and optional namespace
+request. These are input evidence; provider credentials and secret values do not
+belong in this map. Older scope documents decode with an empty override map.

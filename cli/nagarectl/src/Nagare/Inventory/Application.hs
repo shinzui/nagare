@@ -598,6 +598,8 @@ data ApplicationScopeInput = ApplicationScopeInput
   , scopeRelease :: !(StaticReleaseLog, StaticRelease)
   -- ^ Accepted prior log and the release this rollout records. The command
   -- service must source the prior log from immutable accepted native evidence.
+  , scopeInputOverrides :: !(Map T.Text T.Text)
+  -- ^ Explicit public command choices retained with the config digest.
   , scopeSource :: !SourceLocation
   }
 
@@ -991,7 +993,8 @@ compileApplicationScope input = do
       claims = [claim | bundle <- bundles, declaration <- declarations bundle
         , (_, claim) <- NE.toList (claimsOf declaration)]
   configDigest <- first invalid (configDigestOf (encodeApplication app))
-  scope <- withScopeConfigDigest configDigest <$> mkScopeDeclaration owner bundles
+  scope <- withScopeOverrides (scopeInputOverrides input)
+    . withScopeConfigDigest configDigest <$> mkScopeDeclaration owner bundles
   unless (Map.size native == sum (map Map.size nativeMaps))
     (Left (invalid "application native members share an identity"))
   unless (length claims == Set.size (Set.fromList claims))
