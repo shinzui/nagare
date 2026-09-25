@@ -1888,8 +1888,8 @@ dbCreateOptsParser =
     <*> optional (strOption (long "config" <> metavar "FILE" <> help "Load a typed Database from a Config.hs instead of building from flags"))
     <*> dryRunOpt
     <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed standalone database plan for inventory apply"))
-    <*> optional (strOption (long "recovery-backup" <> metavar "NAME" <> help "Recovery backup policy for a reviewed database"))
-    <*> optional (strOption (long "recovery-key-version" <> metavar "VERSION" <> help "Credential recovery key version for a reviewed database"))
+    <*> optional (strOption (long "recovery-backup" <> metavar "NAME" <> help "Recovery backup policy for reviewed database creation"))
+    <*> optional (strOption (long "recovery-key-version" <> metavar "VERSION" <> help "Credential recovery key version for reviewed database creation"))
 
 dbDeleteOptsParser :: Parser DbDeleteOpts
 dbDeleteOptsParser =
@@ -1932,7 +1932,7 @@ brokerCreateOptsParser =
     <*> many (strOption (long "topic" <> metavar "TOPIC" <> help "Topic to create; repeat for multiple topics"))
     <*> optional (option auto (long "topic-partitions" <> metavar "N" <> help "Partitions for topics declared with --topic"))
     <*> optional (option auto (long "topic-retention-ms" <> metavar "MS" <> help "retention.ms for topics declared with --topic"))
-    <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed topic-free broker plan for inventory apply"))
+    <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed standalone broker plan for inventory apply"))
     <*> optional (strOption (long "recovery-backup" <> metavar "NAME" <> help "Recovery backup policy for a reviewed broker"))
     <*> optional (strOption (long "recovery-key" <> metavar "NAME" <> help "Recovery key name for a reviewed broker"))
     <*> optional (strOption (long "recovery-key-version" <> metavar "VERSION" <> help "Recovery key version for a reviewed broker"))
@@ -8178,19 +8178,17 @@ runBroker mctx = \case
           , topicPartitions = o ^. #topicPartitions
           , topicRetentionMs = o ^. #topicRetentionMs
           }
-    case o ^. #savePlan of
-      Nothing -> do
-        when (any isJust [o ^. #recoveryBackup, o ^. #recoveryKey, o ^. #recoveryKeyVersion])
-          (dieT "recovery options require --save-plan")
-        runBrokerCreateWithGuard provider (T.pack name) params $ \broker ->
-          withAcceptedInventoryHistory mctx "broker create" $ \history ->
-            when (brokerNativeOwned broker (ownedHistoryResources history))
-              (dieT "broker objects are owned by accepted or retained inventory history; direct create is refused")
-      Just output -> do
-        when (o ^. #dryRun) (dieT "--dry-run and --save-plan cannot be combined")
+    if isJust (o ^. #savePlan)
+        || any isJust [o ^. #recoveryBackup, o ^. #recoveryKey, o ^. #recoveryKeyVersion]
+      then do
+        when (o ^. #dryRun) (dieT "reviewed broker create cannot combine with --dry-run")
         runBrokerCreatePlan mctx provider (T.pack name) params
           (o ^. #recoveryBackup) (o ^. #recoveryKey)
-          (o ^. #recoveryKeyVersion) output
+          (o ^. #recoveryKeyVersion) (o ^. #savePlan)
+      else runBrokerCreateWithGuard provider (T.pack name) params $ \broker ->
+        withAcceptedInventoryHistory mctx "broker create" $ \history ->
+          when (brokerNativeOwned broker (ownedHistoryResources history))
+            (dieT "broker objects are owned by accepted or retained inventory history; direct create is refused")
   BrokerGet o -> runBrokerGet (nsOf (o ^. #namespace)) (T.pack (o ^. #name))
   BrokerRestart o dryRun -> do
     refuseDirectDataMutationIfOwned mctx BrokerObjects "restart" (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
@@ -8211,7 +8209,7 @@ runBroker mctx = \case
     nsOf = maybe "personal" T.pack
 
 runBrokerCreatePlan :: Maybe String -> BrokerProvider -> Text -> BrokerCreateParams
-  -> Maybe String -> Maybe String -> Maybe String -> FilePath -> IO ()
+  -> Maybe String -> Maybe String -> Maybe String -> Maybe FilePath -> IO ()
 runBrokerCreatePlan mctx provider name params backupName keyName keyVersion output = do
   broker <- resolveBroker provider name params
   let brokerName = brokerNameText (broker ^. #name)
@@ -8220,9 +8218,9 @@ runBrokerCreatePlan mctx provider name params backupName keyName keyVersion outp
   unless (brokerName == name && broker ^. #provider == provider)
     (dieT "reviewed broker config must match the command's provider and name")
   owner <- either dieT pure (Resource.mkScopeId Resource.Standalone ("broker-" <> scopeName))
-  backup <- maybe (dieT "--save-plan requires --recovery-backup") (either dieT pure . Resource.mkName . T.pack) backupName
-  key <- maybe (dieT "--save-plan requires --recovery-key") (either dieT pure . Resource.mkName . T.pack) keyName
-  version <- maybe (dieT "--save-plan requires --recovery-key-version") (either dieT pure . Resource.mkName . T.pack) keyVersion
+  backup <- maybe (dieT "reviewed broker create requires --recovery-backup") (either dieT pure . Resource.mkName . T.pack) backupName
+  key <- maybe (dieT "reviewed broker create requires --recovery-key") (either dieT pure . Resource.mkName . T.pack) keyName
+  version <- maybe (dieT "reviewed broker create requires --recovery-key-version") (either dieT pure . Resource.mkName . T.pack) keyVersion
   let recovery = RecoveryIntent backup (mkSecretRef key version NE.:| [])
       source = Resource.SourceLocation
         (maybe "broker create" T.pack (params ^. #config)) brokerName
@@ -8234,8 +8232,12 @@ runBrokerCreatePlan mctx provider name params backupName keyName keyVersion outp
     (compileStandaloneBroker broker owner cluster namespaceId recovery source)
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
-  Inventory.planInventoryCandidateWith
-    (inventoryPlanRegistryWithNative active workspace native) active candidate output
+  case output of
+    Nothing -> Inventory.convergeInventoryCandidateWith
+      (inventoryPlanRegistryWithNative active workspace native)
+      (inventoryExecutionRegistry mctx) active candidate
+    Just directory -> Inventory.planInventoryCandidateWith
+      (inventoryPlanRegistryWithNative active workspace native) active candidate directory
 
 -- | Dispatch the @db@ subcommands (MasterPlan 9, EP-45). The namespace defaults
 -- to @personal@. EP-47 adds @DbBackup@/@DbRestore@ cases here.
@@ -8256,18 +8258,16 @@ runDb mctx = \case
           , dryRun = o ^. #dryRun
           , targetProfile = tp
           }
-    case o ^. #savePlan of
-      Nothing -> do
-        when (isJust (o ^. #recoveryBackup) || isJust (o ^. #recoveryKeyVersion))
-          (dieT "recovery options require --save-plan")
-        runDbCreateWithGuard eng (T.pack name) params $ \database ->
-          withAcceptedInventoryHistory mctx "database create" $ \history ->
-            when (databaseNativeOwned database (ownedHistoryResources history))
-              (dieT "database objects are owned by accepted or retained inventory history; direct create is refused")
-      Just output -> do
-        when (o ^. #dryRun) (dieT "--dry-run and --save-plan cannot be combined")
+    if isJust (o ^. #savePlan)
+        || isJust (o ^. #recoveryBackup) || isJust (o ^. #recoveryKeyVersion)
+      then do
+        when (o ^. #dryRun) (dieT "reviewed database create cannot combine with --dry-run")
         runDbCreatePlan mctx eng (T.pack name) params
-          (o ^. #recoveryBackup) (o ^. #recoveryKeyVersion) output
+          (o ^. #recoveryBackup) (o ^. #recoveryKeyVersion) (o ^. #savePlan)
+      else runDbCreateWithGuard eng (T.pack name) params $ \database ->
+        withAcceptedInventoryHistory mctx "database create" $ \history ->
+          when (databaseNativeOwned database (ownedHistoryResources history))
+            (dieT "database objects are owned by accepted or retained inventory history; direct create is refused")
   DbGet o -> runDbGet (nsOf (o ^. #namespace)) (T.pack (o ^. #name))
   DbShell o -> do
     refuseDirectDataMutationIfOwned mctx DatabaseObjects "shell" (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
@@ -8299,7 +8299,7 @@ runDb mctx = \case
     nsOf = maybe "personal" T.pack
 
 runDbCreatePlan :: Maybe String -> Engine -> Text -> DbCreateParams
-  -> Maybe String -> Maybe String -> FilePath -> IO ()
+  -> Maybe String -> Maybe String -> Maybe FilePath -> IO ()
 runDbCreatePlan mctx eng name params backupName keyVersion output = do
   db <- resolveDatabase eng name params
   let databaseName = databaseNameText (db ^. #name)
@@ -8308,8 +8308,8 @@ runDbCreatePlan mctx eng name params backupName keyVersion output = do
   unless (databaseName == name && db ^. #engine == eng)
     (dieT "reviewed database config must match the command's engine and name")
   owner <- either dieT pure (Resource.mkScopeId Resource.Standalone ("database-" <> scopeName))
-  backup <- maybe (dieT "--save-plan requires --recovery-backup") (either dieT pure . Resource.mkName . T.pack) backupName
-  version <- maybe (dieT "--save-plan requires --recovery-key-version") (either dieT pure . Resource.mkName . T.pack) keyVersion
+  backup <- maybe (dieT "reviewed database create requires --recovery-backup") (either dieT pure . Resource.mkName . T.pack) backupName
+  version <- maybe (dieT "reviewed database create requires --recovery-key-version") (either dieT pure . Resource.mkName . T.pack) keyVersion
   credential <- either dieT pure (Resource.mkName (dbSecretName databaseName))
   let recovery = RecoveryIntent backup (mkSecretRef credential version NE.:| [])
       source = Resource.SourceLocation
@@ -8323,8 +8323,12 @@ runDbCreatePlan mctx eng name params backupName keyVersion output = do
   (scope, native) <- either (dieT . T.pack . show) pure (compileStandaloneDatabase direct backend)
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
-  Inventory.planInventoryCandidateWith
-    (inventoryPlanRegistryWithNative active workspace native) active candidate output
+  case output of
+    Nothing -> Inventory.convergeInventoryCandidateWith
+      (inventoryPlanRegistryWithNative active workspace native)
+      (inventoryExecutionRegistry mctx) active candidate
+    Just directory -> Inventory.planInventoryCandidateWith
+      (inventoryPlanRegistryWithNative active workspace native) active candidate directory
 
 -- | Select only an accepted standalone data scope whose StatefulSet has the
 -- requested native identity. A display name alone must never authorize

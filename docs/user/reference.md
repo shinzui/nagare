@@ -442,7 +442,7 @@ runner `nagared` (`cluster/bootstrap/nagared/`) does Git-triggered deploys.
 
 | Command | Does |
 | --- | --- |
-| `nagarectl broker create redpanda NAME` | Provision a Redpanda-backed internal broker with PVC, Service, StatefulSet, and optional topics. |
+| `nagarectl broker create redpanda NAME` | With all three recovery options, publish and apply a reviewed broker and its topics; `--save-plan` saves the review. Without recovery options, use the legacy direct provisioner. |
 | `nagarectl broker create redpanda NAME --dry-run` | Print the broker manifests and topic plan; no cluster changes. |
 | `nagarectl broker list` | List managed brokers in a namespace. |
 | `nagarectl broker get NAME` | Show provider, version, bootstrap, PVC, readiness, metrics endpoint health, and VictoriaMetrics scrape status. |
@@ -508,7 +508,7 @@ the labels `nagare.dev/managed-by: nagarectl` + `nagare.dev/database=<name>` +
 | Command | Does |
 | --- | --- |
 | `nagarectl db list [-n NS]` | Table of managed databases: name, engine, version, size, status, host. |
-| `nagarectl db create ENGINE NAME [--version V] [--size Q] [--memory Q] [--config F]` | Generate credentials and provision the database; idempotent (never regenerates the password). |
+| `nagarectl db create ENGINE NAME [--version V] [--size Q] [--memory Q] [--config F]` | With backup and key-version recovery options, publish and apply a reviewed database; `--save-plan` saves the review. Without recovery options, use the legacy direct provisioner. |
 | `nagarectl db get NAME` | Detail: engine, version, size, in-cluster host, retention, ready, Secret key names. |
 | `nagarectl db shell NAME` | Interactive `psql`/`redis-cli`/`clickhouse-client` inside the pod. |
 | `nagarectl db restart NAME` | Roll the StatefulSet and wait for ready. |

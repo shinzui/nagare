@@ -163,6 +163,16 @@ nagarectl db create postgres pg-main \
 nagarectl inventory apply ./pg-main-review --yes
 ```
 
+For a standard create or update, omit `--save-plan` while supplying both
+recovery options. The command publishes and reloads its immutable review,
+prints the public operations, and applies them through the inventory journal:
+
+```bash
+nagarectl db create postgres pg-main \
+  --recovery-backup postgres-backup \
+  --recovery-key-version v1
+```
+
 To retire a database already accepted into a standalone inventory scope, review
 the retirement separately:
 
@@ -190,9 +200,8 @@ includes the scheduled backup for retained data. The recovery options identify
 the backup policy and credential key version used by that scope. The plan
 requires the platform's accepted Namespace declaration bound to the selected
 cluster identity. A `--config` database must match the command's engine and
-name. The older
-`db create` form without `--save-plan` still uses the direct create path during
-the command migration.
+name. The older `db create` form without recovery options still uses the direct
+create path during the command migration.
 
 `db create` generates the `nagare-db-<name>` Secret, then applies the PVC,
 ClickHouse memory ConfigMap (ClickHouse only), Service, and StatefulSet, then

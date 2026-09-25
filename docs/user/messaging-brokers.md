@@ -64,6 +64,17 @@ nagarectl broker create redpanda events \
 nagarectl inventory apply ./events-review --yes
 ```
 
+For a standard create or update, omit `--save-plan` while supplying all three
+recovery options. The command publishes and reloads its immutable review,
+prints the public operations, and applies them through the inventory journal:
+
+```bash
+nagarectl broker create redpanda events \
+  --topic jobs --topic-partitions 1 --topic-retention-ms 86400000 \
+  --recovery-backup redpanda-backup \
+  --recovery-key broker-key --recovery-key-version v1
+```
+
 For a broker already accepted into a standalone scope, review retirement with
 `nagarectl broker retire events --save-plan ./events-retire`, then run
 `nagarectl inventory apply ./events-retire --yes`. Supply `--scope-key KEY` if
