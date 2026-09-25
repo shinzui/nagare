@@ -4,16 +4,18 @@ import Data.Aeson (Value (..))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString.Char8 qualified as BC
+import Control.Exception (finally)
 import Data.Either (isLeft)
 import Data.Foldable (toList)
 import Data.Generics.Labels ()
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
+import Data.Text qualified as T
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Cdn
-import Nagare.Inventory.Adapters.CdnRuntime (DnsChangeStatus (..), dnsChangeBody, parseDnsChangeStatus, parseExactDnsListing)
+import Nagare.Inventory.Adapters.CdnRuntime (DnsChangeStatus (..), DnsRuntimeConfig (..), dnsChangeBody, dnsRuntimeOps, parseDnsChangeStatus, parseExactDnsListing)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (mkOperationId)
 import Nagare.Inventory.Plan (LifecycleDecisionKind (ApproveRetirement), LifecycleProposal (..), lifecycleObservationDigest, loadInventoryHistory, planChanges, validateLifecycleDecisions)
@@ -23,6 +25,9 @@ import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (encodeCanonicalScope)
+import System.Environment (lookupEnv)
+import System.Exit (ExitCode (..))
+import System.Process (readProcessWithExitCode)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
@@ -147,7 +152,92 @@ inventoryCdnTests = testGroup "reviewed CDN DNS"
         @?= Right (DnsChangePending "42")
       assertBool "a pending change without an exact provider ID must refuse"
         (isLeft (parseDnsChangeStatus "{\"status\":\"pending\",\"id\":\"../other\"}"))
+  , testCase "disposable Cloud DNS adapter create, update, and stale-old refusal" liveDnsProof
   ]
+
+-- Run explicitly with NAGARE_EP148_DNS_ZONE set to a dedicated zone named
+-- nagare-ep148-... in tan-ng-labs. The proof owns only its derived A record.
+liveDnsProof :: IO ()
+liveDnsProof = lookupEnv "NAGARE_EP148_DNS_ZONE" >>= \case
+  Nothing -> pure ()
+  Just zoneString -> do
+    let zoneText = T.pack zoneString
+    suffix <- maybe (assertFailure "live DNS zone must start with nagare-ep148-") pure
+      (T.stripPrefix "nagare-" zoneText)
+    unless ("ep148-" `T.isPrefixOf` suffix && T.all (\c -> c == '-' || c >= '0' && c <= '9')
+      (T.drop 6 suffix)) (assertFailure "live DNS zone has an unsafe name")
+    let hostText = "www." <> suffix <> ".invalid"
+        project = ok (mkName "tan-ng-labs")
+        zone = ok (mkName zoneText)
+        host = ok (mkName hostText)
+        owner = ok (mkScopeId Application "ep148-dns-live")
+        platform = ok (mkScopeId Platform "ep148-dns-live")
+        source = SourceLocation "live-proof" "cdn"
+        cluster = mintResourceId platform (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+        backendId = mintResourceId platform (ok (mkLogicalKey "backend")) (ok (mkName "backend"))
+        domainId = mintResourceId owner (ok (mkLogicalKey hostText)) (ok (mkName "domain-mapping"))
+        backend = ManagedResource backendId platform PulumiExecutor
+          (PulumiUrn "urn:pulumi:stack::project::gcp:compute/backendService:BackendService::backend")
+          [] (NativeObject (contentDigest "backend")) Retain Stateless Private [] [] source
+        domain = ManagedResource domainId owner KubernetesExecutor
+          (ok (kubernetesAddress cluster "serving.knative.dev/v1" "DomainMapping"
+            (Just "nagare-system") hostText))
+          [Hostname host] (NativeObject (contentDigest "domain")) Retain Stateless Private [] [] source
+        bundle = ok (compileGoogleDnsRecord owner (ok (mkLogicalKey hostText))
+          project zone host "203.0.113.4" domainId backendId source)
+        dns = case declarations bundle of
+          [Managed resource] -> resource
+          _ -> error "live DNS bundle has unexpected membership"
+        resourceId = dns ^. #identity
+        specs = ok (dnsSpecsFromDeclarations [Managed backend, Managed domain, Managed dns])
+        config = DnsRuntimeConfig project (\resource -> pure $ if resource == resourceId
+          then Right () else Left "live DNS proof rejected a foreign resource") specs
+        ops = dnsRuntimeOps config
+        action kind = PlannedOperation (ok (mkOperationId "op-ep148-live-dns")) kind CdnExecutor
+          (resourceId :| []) (contentDigest "ep148-live-review") [] VerifyBeforeRetry
+        adapter = mkDnsAdapter Map.empty specs ops
+    initial <- dnsInspect ops resourceId
+    initial @?= DnsMissing
+    (do
+      create <- adapterPrepare adapter (action CreateResource) >>= either (fail . show) pure
+      adapterPreflight adapter (action CreateResource) create >>= (@?= Right ())
+      adapterExecute adapter (action CreateResource) create >>= (@?= AdapterEffectCompleted)
+      created <- adapterVerify adapter (action CreateResource) create
+      assertBool "live DNS create did not verify" (either (const False) (const True) created)
+      let updated = dns & #spec .~ DnsARecord "203.0.113.5" 300
+          updatedSpecs = Map.insert resourceId (DnsBinding updated) specs
+          updateConfig = config {dnsRuntimeSpecs = updatedSpecs}
+          updateAdapter = mkDnsAdapter (Map.singleton resourceId dns) updatedSpecs
+            (dnsRuntimeOps updateConfig)
+      change <- adapterPrepare updateAdapter (action UpdateResource)
+        >>= either (fail . show) pure
+      adapterPreflight updateAdapter (action UpdateResource) change >>= (@?= Right ())
+      adapterExecute updateAdapter (action UpdateResource) change
+        >>= (@?= AdapterEffectCompleted)
+      changed <- adapterVerify updateAdapter (action UpdateResource) change
+      assertBool "live DNS update did not verify" (either (const False) (const True) changed)
+      stale <- adapterPreflight updateAdapter (action UpdateResource) change
+      assertBool "stale accepted DNS value must refuse a second update" (isLeft stale)
+      adapterRecover updateAdapter (action UpdateResource) change >>= \case
+        RecoveryUnresolved _ -> pure ()
+        other -> assertFailure ("DNS update recovery was unsafe: " <> show other))
+      `finally` cleanupLiveRecord zoneString (T.unpack hostText)
+
+cleanupLiveRecord :: String -> String -> IO ()
+cleanupLiveRecord zone host = do
+  (listedCode, listed, listedError) <- readProcessWithExitCode "gcloud"
+    ["dns", "record-sets", "list", "--name=" <> host <> ".", "--type=A"
+    ,"--zone=" <> zone, "--format=json", "--project=tan-ng-labs"] ""
+  unless (listedCode == ExitSuccess) (assertFailure ("live DNS cleanup listing failed: " <> listedError))
+  case parseExactDnsListing (ok (mkName (T.pack host))) (BC.pack listed) of
+    Right Nothing -> pure ()
+    Right (Just (target, 300)) | target `elem` ["203.0.113.4", "203.0.113.5"] -> do
+      (deletedCode, _, deletedError) <- readProcessWithExitCode "gcloud"
+        ["dns", "record-sets", "delete", host <> ".", "--type=A", "--zone=" <> zone
+        ,"--project=tan-ng-labs", "--quiet"] ""
+      unless (deletedCode == ExitSuccess)
+        (assertFailure ("live DNS record cleanup failed: " <> deletedError))
+    other -> assertFailure ("live DNS record changed unexpectedly; refusing cleanup: " <> show other)
 
 
 fixture :: (ScopeDeclaration, ScopeDeclaration, [ManagedResource])
