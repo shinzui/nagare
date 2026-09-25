@@ -276,7 +276,7 @@ import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Application (ApplicationScopeInput (..), DatabaseBinding, acceptedAccessBinding, acceptedApplicationImage, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationScope, compileStandaloneServiceWithRelease, compileStandaloneWorkerWithDependencies, databaseRecoveryBindings, legacyApplicationReleaseImport, legacyStandaloneReleaseImport, nativeWorkloadOwned, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
-import Nagare.Inventory.Site (acceptedStaticSiteReleaseLog, compileStaticSiteScope, legacyStaticSiteReleaseImport)
+import Nagare.Inventory.Site (acceptedSiteReleaseLog, compileServerSiteScope, compileStaticSiteScope, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport)
 import Nagare.Inventory.Lifecycle qualified as InventoryLifecycle
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, compileStandaloneDatabase, databaseNativeOwned, standaloneRetirementScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Environment (acceptedEnvChannelValues, acceptedSecretChannelValues, compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
@@ -6870,41 +6870,81 @@ runSiteDeploy mctx sopts = do
           Just output -> runStaticSiteDeployPlan mctx tp sopts
             (s & #image %~ const qimg) bd output
     Right (Load.SiteServer s) -> do
-      when (isJust (sopts ^. #savePlan) || isJust (sopts ^. #imageResource)
-          || isJust (sopts ^. #legacyReleaseImport)
-          || isJust (sopts ^. #releaseAdoptionInput))
-        (dieT "reviewed server-site deployment is not yet supported")
-      refuseDirectServiceMutationIfOwned mctx "site deploy"
-        (siteNameText (s ^. #name)) (namespaceText (s ^. #namespace))
       case qualifyImage tp (s ^. #image) of
         Left e -> dieT ("nagarectl deploy: " <> e)
-        Right qimg -> deployServer mctx tp sopts (s & #image %~ const qimg) bd
+        Right qimg -> case sopts ^. #savePlan of
+          Nothing -> do
+            when (isJust (sopts ^. #imageResource)
+                || isJust (sopts ^. #legacyReleaseImport)
+                || isJust (sopts ^. #releaseAdoptionInput))
+              (dieT "server-site inventory options require --save-plan")
+            refuseDirectServiceMutationIfOwned mctx "site deploy"
+              (siteNameText (s ^. #name)) (namespaceText (s ^. #namespace))
+            deployServer mctx tp sopts (s & #image %~ const qimg) bd
+          Just output -> runServerSiteDeployPlan mctx tp sopts
+            (s & #image %~ const qimg) bd output
 
 runStaticSiteDeployPlan
   :: Maybe String -> TargetProfile -> SiteDeployOpts -> StaticSite -> Text -> FilePath -> IO ()
 runStaticSiteDeployPlan mctx tp options site bd output = do
+  tag <- reviewedSiteTag options
+  let inputs = siteDeployInputs tp options site tag bd
+      rendered = productionManifests inputs
+  runReviewedSiteDeployPlan mctx options
+    (siteNameText (site ^. #name)) (namespaceText (site ^. #namespace))
+    (imageRefText (site ^. #image)) (rendered ^. #url) tag
+    (compileStaticSiteScope inputs) (legacyStaticSiteReleaseImport site) output
+
+runServerSiteDeployPlan
+  :: Maybe String -> TargetProfile -> SiteDeployOpts -> ServerSite -> Text -> FilePath -> IO ()
+runServerSiteDeployPlan mctx tp options original bd output = do
+  tag <- reviewedSiteTag options
+  let site = serverSiteWithGeneratedEnv options original bd tag
+      inputs = ServerDeployInputs
+        { site = site
+        , imageTag = tag
+        , baseDomain = bd
+        , projectDir = options ^. #projectDir
+        , skipBuild = True
+        , targetProfile = tp
+        }
+      rendered = serverManifests inputs
+  runReviewedSiteDeployPlan mctx options
+    (siteNameText (site ^. #name)) (namespaceText (site ^. #namespace))
+    (imageRefText (site ^. #image)) (rendered ^. #url) tag
+    (compileServerSiteScope inputs) (legacyServerSiteReleaseImport site) output
+
+reviewedSiteTag :: SiteDeployOpts -> IO Text
+reviewedSiteTag options = do
+  when (options ^. #dryRun || not (options ^. #skipBuild))
+    (dieT "reviewed site deployment requires --skip-build and no --dry-run")
+  maybe (dieT "reviewed site deployment requires --tag")
+    (pure . T.pack) (options ^. #tag)
+
+runReviewedSiteDeployPlan
+  :: Maybe String -> SiteDeployOpts -> Text -> Text -> Text -> Text -> Text
+  -> (Resource.ResourceId -> Resource.ResourceId -> Resource.ResourceId
+      -> StaticReleaseLog -> StaticRelease -> Resource.SourceLocation
+      -> Either (NE.NonEmpty Resource.InventoryError)
+           (ResourceInventory.ScopeDeclaration,
+            Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString)))
+  -> (Text -> ByteString -> Either Text (StaticReleaseLog, StaticRelease))
+  -> FilePath -> IO ()
+runReviewedSiteDeployPlan mctx options siteName ns imageName url tag compile importLegacy output = do
   case (options ^. #legacyReleaseImport, options ^. #releaseAdoptionInput) of
     (Nothing, Nothing) -> pure ()
     (Just _, Just _) -> pure ()
-    _ -> dieT "static-site import requires both --legacy-release-import and --release-adoption-input"
-  when (options ^. #dryRun || not (options ^. #skipBuild))
-    (dieT "reviewed static-site deployment requires --skip-build and no --dry-run")
-  tag <- maybe (dieT "reviewed static-site deployment requires --tag")
-    (pure . T.pack) (options ^. #tag)
-  imageId <- maybe (dieT "reviewed static-site deployment requires --image-resource")
+    _ -> dieT "site import requires both --legacy-release-import and --release-adoption-input"
+  imageId <- maybe (dieT "reviewed site deployment requires --image-resource")
     (either dieT pure . Resource.mkResourceId . T.pack) (options ^. #imageResource)
   active <- activeTarget mctx
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   snapshot <- Inventory.loadTargetSnapshot active
-  let siteName = siteNameText (site ^. #name)
-      ns = namespaceText (site ^. #namespace)
-      inputs = siteDeployInputs tp options site tag bd
-      rendered = productionManifests inputs
-      source = Resource.SourceLocation
+  let source = Resource.SourceLocation
         (maybe (T.pack (options ^. #file)) T.pack (options ^. #source)) siteName
   (cluster, namespaceId) <- either dieT pure (acceptedFoundationNamespace snapshot ns)
   either dieT pure (acceptedApplicationImage snapshot imageId
-    (imageRefText (site ^. #image) <> ":" <> tag))
+    (imageName <> ":" <> tag))
   store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
   history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
   acceptedInventory <- either (dieT . T.pack . show) pure
@@ -6915,15 +6955,15 @@ runStaticSiteDeployPlan mctx tp options site bd output = do
     (options ^. #legacyReleaseImport, options ^. #releaseAdoptionInput) of
     (Nothing, Nothing) -> do
       accepted <- either dieT pure
-        (acceptedStaticSiteReleaseLog snapshot acceptedNative siteName ns cluster)
+        (acceptedSiteReleaseLog snapshot acceptedNative siteName ns cluster)
       releasedAt <- getCurrentTime
       pure (accepted, StaticRelease
         { releaseId = tag
         , siteName = siteName
         , namespace = ns
-        , image = imageRefText (site ^. #image)
+        , image = imageName
         , imageTag = tag
-        , url = rendered ^. #url
+        , url = url
         , source = T.pack <$> options ^. #source
         , createdAt = releasedAt
         }, Nothing)
@@ -6931,16 +6971,16 @@ runStaticSiteDeployPlan mctx tp options site bd output = do
       legacyBytes <- (try (BS.readFile legacyFile) :: IO (Either IOException ByteString))
         >>= either (dieT . T.pack . show) pure
       (oldLog, oldRelease) <- either dieT pure
-        (legacyStaticSiteReleaseImport site tag legacyBytes)
+        (importLegacy tag legacyBytes)
       proposalBytes <- (try (BS.readFile proposalFile) :: IO (Either IOException ByteString))
         >>= either (dieT . T.pack . show) pure
       proposal <- either dieT pure (InventoryLifecycle.decodeAdoptionInput proposalBytes)
       unless (InventoryLifecycle.adoptionCandidateDirectory proposal == ".")
-        (dieT "inline static-site import requires candidate '.' in its adoption proposal")
+        (dieT "inline site import requires candidate '.' in its adoption proposal")
       pure (oldLog, oldRelease, Just proposal)
-    _ -> dieT "static-site import options are incomplete"
+    _ -> dieT "site import options are incomplete"
   (scope, native) <- either (dieT . T.pack . show) pure
-    (compileStaticSiteScope inputs cluster namespaceId imageId prior release source)
+    (compile cluster namespaceId imageId prior release source)
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
   case adoption of
@@ -6985,19 +7025,7 @@ deployStatic mctx tp sopts site bd = do
 deployServer :: Maybe String -> TargetProfile -> SiteDeployOpts -> ServerSite -> Text -> IO ()
 deployServer mctx tp sopts site0 bd = do
   imageTag <- resolveTag (sopts ^. #tag)
-  -- EP-26: inject the generated NAGARE_* identity variables into the ServerSite's
-  -- env before rendering. The server path carries --source, so NAGARE_SOURCE is
-  -- present when provided. serverUrl matches the URL serverManifests renders.
-  let gctx =
-        Gen.GeneratedContext
-          { Gen.serviceName = siteNameText (site0 ^. #name)
-          , Gen.namespace = namespaceText (site0 ^. #namespace)
-          , Gen.serviceUrl = serverUrl site0 bd
-          , Gen.baseDomain = bd
-          , Gen.releaseId = imageTag
-          , Gen.source = T.pack <$> sopts ^. #source
-          }
-      site = site0 & #env %~ mergeGenerated (generatedEnv gctx)
+  let site = serverSiteWithGeneratedEnv sopts site0 bd imageTag
       inputs =
         ServerDeployInputs
           { site = site
@@ -7035,6 +7063,19 @@ deployServer mctx tp sopts site0 bd = do
         Right u -> do
           TIO.putStrLn ("Deployed server site: " <> u)
           cdnDeployStep mctx False (site ^. #cdn) (siteHostnames (site ^. #domains)) (namespaceText (site ^. #namespace)) (siteNameText (site ^. #name))
+
+-- | Direct and reviewed server deploys render the same generated identity env.
+serverSiteWithGeneratedEnv :: SiteDeployOpts -> ServerSite -> Text -> Text -> ServerSite
+serverSiteWithGeneratedEnv options site bd tag =
+  let context = Gen.GeneratedContext
+        { Gen.serviceName = siteNameText (site ^. #name)
+        , Gen.namespace = namespaceText (site ^. #namespace)
+        , Gen.serviceUrl = serverUrl site bd
+        , Gen.baseDomain = bd
+        , Gen.releaseId = tag
+        , Gen.source = T.pack <$> options ^. #source
+        }
+  in site & #env %~ mergeGenerated (generatedEnv context)
 
 -- | MasterPlan 11 / EP-58: the CDN provisioning step, run as the last step of a
 -- deploy (after the origin is Ready) or printed under @--dry-run@. A 'Nothing'

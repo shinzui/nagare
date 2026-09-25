@@ -535,4 +535,6 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 
 2026-09-24: EP-148 added an exact static-site import for old direct release logs and current Service/domain members. A changed log or physical incarnation refuses adoption; later reviewed site deploys use accepted private history.
 
+2026-09-24: EP-148 now shares the site binder and review command across static and stateless server sites. Both preserve/import release history; server volumes and Secrets, CDN, supplied TLS, preview, and rollback paths remain open.
+
 2026-09-24: EP-148 applied the same distinction to legacy env and Secret reads and now refuses malformed `data` entries instead of silently dropping keys. Direct store writes and reviewed preview/deploy integration remain open.

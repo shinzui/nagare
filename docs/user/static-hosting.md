@@ -214,9 +214,9 @@ config copied over Nginx's `default.conf`.
 
 ### Reviewed static-site deployment
 
-For a `StaticSite` with an already accepted OCI image publication, save a
-resource review for the production Service, its DomainMappings, and the
-release-history ConfigMap:
+For a site with an already accepted OCI image publication, save a resource
+review for its production Service, DomainMappings, and release-history
+ConfigMap:
 
 ```bash
 nagarectl site deploy --skip-build --tag TAG \
@@ -226,11 +226,13 @@ nagarectl inventory apply site-review --yes
 
 The publication must have the exact tagged image reference in the active
 context registry; `nagarectl app image plan` can review publication from a
-Docker archive. The Namespace must already be accepted. The static-site review
-uses the same renderer as direct deployment, checks the image and release tag,
-and keeps earlier history from accepted private evidence. It currently supports
-automatic TLS without CDN. Server sites, previews, and site rollback still use
-their direct paths and cannot use these production review flags.
+Docker archive. The Namespace must already be accepted. Static and server site
+reviews use the same renderers as direct deployment, check the image and release
+tag, and keep earlier history from accepted private evidence. They currently
+support automatic TLS without CDN. A reviewed server site must also be
+stateless and have no typed Secret environment references until volume recovery
+and credential dependencies are available. Previews and site rollback still
+use their direct paths and cannot use these production review flags.
 
 For a site created by the direct deploy path, save the full legacy release
 ConfigMap JSON to a private file. Prepare a versioned adoption proposal using

@@ -201,7 +201,7 @@ import Nagare.Gcp.Adc
   , validateAdc
   )
 import Nagare.GhcEnv (findGhcEnvIn)
-import Nagare.Inventory.Site (compileStaticSiteScope, legacyStaticSiteReleaseImport)
+import Nagare.Inventory.Site (compileServerSiteScope, compileStaticSiteScope, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport)
 import Nagare.Image (DockerAuth (..), dockerAuthPlan, dockerBuildArgs, nixpacksBuildArgs, qualifyImage)
 import Nagare.Infra.Plan
   ( CurrentInfraIdentity (..)
@@ -322,13 +322,14 @@ import Nagare.Ops.PulumiBackend
 import Nagare.Ops.Status (parseHostAgeKeyProbe, probeCertificatePolicyWith)
 import Nagare.Platform.Paths (PlatformRootSource (InstalledRoot, SourceRoot))
 import Nagare.Server.Build
+import Nagare.Server.Deploy qualified as ServerDeploy
 import Nagare.Static.Build
 import Nagare.Static.Image (staticDockerfile)
 import Nagare.Static.Deploy (DeployInputs (..), staticUrl)
 import Nagare.Static.Preview
 import Nagare.Static.Release
 import Nagare.Static.Webhook
-import Nagare.Resource.Inventory (Declaration (Managed), ResourceBundle (..), scopeBundles)
+import Nagare.Resource.Inventory (Declaration (Managed), ResourceBundle (..), scopeBundles, scopeId)
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Storage.Discover
   ( PVCRow (..)
@@ -3906,6 +3907,7 @@ staticInventoryTests =
           source = Resource.SourceLocation "fixture" "static-site"
       (scope, native) <- either (fail . show) pure
         (compileStaticSiteScope inputs cluster namespaceId imageId emptyReleaseLog release source)
+      Resource.scopeKind (scopeId scope) @?= Resource.Standalone
       Map.size native @?= 3
       let members = [member | bundle <- scopeBundles scope,
             Managed member <- declarations bundle]
@@ -3925,6 +3927,47 @@ staticInventoryTests =
         (isLeft (legacyStaticSiteReleaseImport site "v1"
           (renderReleaseConfigMap "demo" "personal"
             (oldLog & #releases %~ reverse))))
+  , testCase "server site review binds its release and refuses untyped Secrets" $ do
+      let site = ServerSite
+            { name = unsafe (mkSiteName "demo")
+            , namespace = unsafe (mkNamespace "personal")
+            , image = unsafe (mkImageRef "us-west1-docker.pkg.dev/tan-nb-exp/nagare/demo")
+            , build = tanstackStartBuild
+            , runtime = defaultServerRuntime
+            , port = defaultPort
+            , env = Map.empty
+            , resources = Nothing
+            , scale = Nothing
+            , domains = unsafe (mkDomains [("demo.example.com", True)])
+            , volumes = []
+            , cdn = Nothing
+            }
+          inputs = ServerDeploy.ServerDeployInputs site "v1" "example.com" "." True initProfile
+          foundation = unsafe (Resource.mkScopeId Resource.Platform "foundation")
+          cluster = Resource.mintResourceId foundation
+            (unsafe (Resource.mkLogicalKey "cluster")) (unsafe (Resource.mkName "resource"))
+          namespaceId = Resource.mintResourceId foundation
+            (unsafe (Resource.mkLogicalKey "namespace")) (unsafe (Resource.mkName "resource"))
+          imageId = Resource.mintResourceId foundation
+            (unsafe (Resource.mkLogicalKey "image")) (unsafe (Resource.mkName "publication"))
+          release = StaticRelease "v1" "demo" "personal"
+            "us-west1-docker.pkg.dev/tan-nb-exp/nagare/demo" "v1"
+            (ServerDeploy.serverUrl site "example.com") Nothing
+            (UTCTime (fromGregorian 2026 9 24) 0)
+          source = Resource.SourceLocation "fixture" "server-site"
+      (scope, native) <- either (fail . show) pure
+        (compileServerSiteScope inputs cluster namespaceId imageId emptyReleaseLog release source)
+      Map.size native @?= 3
+      length [member | bundle <- scopeBundles scope, Managed member <- declarations bundle]
+        @?= 3
+      legacyServerSiteReleaseImport site "v1"
+        (renderReleaseConfigMap "demo" "personal" (addRelease release emptyReleaseLog))
+        @?= Right (addRelease release emptyReleaseLog, release)
+      let secretSite = site & #env .~ Map.singleton (unsafe (mkEnvName "API_KEY"))
+            (runtimeScoped (EnvSecretRef (unsafe (mkSecretName "external"))))
+      assertBool "server-site Secret bypassed typed dependency check"
+        (isLeft (compileServerSiteScope (inputs {ServerDeploy.site = secretSite})
+          cluster namespaceId imageId emptyReleaseLog release source))
   ]
 
 noBuildSite :: Text -> StaticSite
