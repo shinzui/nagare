@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-24
+* **Update**: Clarify that a changed direct database config still checks older retained backup and configuration addresses.
 * **Update**: Document direct database and broker operation guards across retained companion addresses.
 * **Update**: Document the direct server deploy guard for retained site PVC addresses.
 * **Update**: Explain dependency-ordered preview collection and conditional deletion of delete-policy PVCs after their Service.

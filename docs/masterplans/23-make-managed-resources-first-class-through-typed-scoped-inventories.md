@@ -146,6 +146,11 @@ provenance:
       at: 2026-09-25T02:42:55Z
       mode: "implement"
       note: "Track full companion-address guards for direct data commands"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-25T02:45:56Z
+      mode: "implement"
+      note: "Unify direct data create address guards"
 ---
 
 # Make managed resources first-class through typed scoped inventories
@@ -587,5 +592,7 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 2026-09-24: EP-148 extended the direct server deploy ownership guard to every PVC it would write, including retained claims whose Service was already collected.
 
 2026-09-24: EP-148 extended direct database and broker operation guards from the StatefulSet alone to all possible companion native addresses, so retained data and credentials remain protected after workload collection.
+
+2026-09-24: EP-148 made direct database and broker create use the same full address guard, including companions omitted by a changed incoming database configuration.
 
 2026-09-24: EP-148 applied the same distinction to legacy env and Secret reads and now refuses malformed `data` entries instead of silently dropping keys. Direct store writes and reviewed preview/deploy integration remain open.

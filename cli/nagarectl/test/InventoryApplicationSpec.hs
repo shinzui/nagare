@@ -10,7 +10,7 @@ import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.Dsl.Database (mkDatabaseName)
 import Nagare.Dsl.Load (loadApplication, loadBroker)
 import Nagare.Dsl.Task (Task (..), scheduledTask)
-import Nagare.Dsl.Types (databaseNameText, mkServiceName, namespaceText)
+import Nagare.Dsl.Types (RetentionPolicy (Delete), databaseNameText, mkServiceName, namespaceText)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Application (compileApplicationDatabases, reviewedTaskImages)
 import Nagare.Inventory.Adapter
@@ -239,6 +239,12 @@ inventoryApplicationTests = testGroup "application inventory compilation"
           length claims @?= 1
           dataCommandNativeOwned DatabaseObjects name ns claims @?= True
           dataCommandNativeOwned DatabaseObjects "other" ns claims @?= False
+          let retainedBackups = [resource | (resource, _) <- Map.elems native,
+                case resource ^. #address of
+                  Kubernetes _ "batch" kind _ _ -> nameText kind == "cronjob"
+                  _ -> False]
+          length retainedBackups @?= 1
+          databaseNativeOwned (database & #retention .~ Delete) retainedBackups @?= True
         _ -> assertFailure "fixture did not contain exactly one database"
       case compileApplicationDatabases app cluster Nothing Map.empty backend source of
         Left (err :| _) -> code err @?= "missing-database-recovery"

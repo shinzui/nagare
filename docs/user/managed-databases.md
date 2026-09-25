@@ -180,7 +180,9 @@ separate direct deletion workflow; reviewed Kubernetes deletion is not yet
 supported for these resources.
 Direct database operations refuse accepted or retained workload, Service,
 credential, backup, configuration, or PVC addresses, including when the
-StatefulSet has already been collected.
+StatefulSet has already been collected. The direct create check includes a
+retained backup or configuration object even if the new config changes its
+retention or database engine.
 
 Planning uses the typed database input from the flags or `--config`, binds the
 credential template and all database objects to the standalone scope, and

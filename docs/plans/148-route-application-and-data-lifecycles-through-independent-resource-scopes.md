@@ -72,6 +72,11 @@ provenance:
       at: 2026-09-25T02:42:55Z
       mode: "implement"
       note: "Guard direct data operations after workload collection"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-25T02:45:56Z
+      mode: "implement"
+      note: "Check retained companions across database config changes"
 ---
 
 # Route application and data lifecycles through independent resource scopes
@@ -202,6 +207,8 @@ Reviewed application deploy also declares the per-Service release-history Config
 2026-09-24: Direct server deploy now checks every rendered PVC address against accepted and retained inventory history before calling its legacy volume creator. This closes the case where the reviewed Service and domain were already collected but a retained volume still occupies the direct deploy target. The guard does not block unrelated volume names.
 
 2026-09-24: Legacy database and broker operations that receive only a native name now check their full possible companion-address sets in accepted and retained history. They refuse even when the StatefulSet was collected but its Service, credential, backup CronJob, ConfigMap, or PVC remains. The typed database/broker selector is shared by restart/delete and the database shell, backup, and restore paths; reviewed operation routing is still open.
+
+2026-09-24: Direct database and broker create now reuse that same complete native-address selector. In particular, a new database config with Delete retention still refuses an older retained backup CronJob, and an engine change cannot overlook a retained configuration object at the same name.
 
 2026-09-24: The legacy env and Secret store reader had the same failed-read-to-empty behavior. Its JSON extractor also silently dropped any `data` entry whose value was not a string, contrary to its strictness comment. Both stores now accept only a successful empty `--ignore-not-found` response as absence; failed reads, non-object `data`, and non-string values refuse before a merge or exact replacement. Disposable-context reads of absent ConfigMap and Secret names both exited successfully with empty output, and 785 CLI tests pass. The reviewed channels still need complete preview/deploy integration.
 

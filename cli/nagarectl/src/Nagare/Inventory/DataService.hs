@@ -24,10 +24,10 @@ import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend)
 import Nagare.Dsl.Broker (Broker (..), BrokerProvider (Redpanda), brokerNameText)
 import Nagare.Dsl.Broker.Render (brokerPvcName, renderBroker)
-import Nagare.Dsl.Database (Database (..), Engine (ClickHouse), dbSecretName)
+import Nagare.Dsl.Database (Database (..), dbSecretName)
 import Nagare.Dsl.Database.Render (dbConfigMapName, dbPvcName)
 import Nagare.Dsl.Prelude
-import Nagare.Dsl.Types (RetentionPolicy (Delete), databaseNameText, namespaceText)
+import Nagare.Dsl.Types (databaseNameText, namespaceText)
 import Nagare.Inventory.Database (compileDatabaseForBackend)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
@@ -189,27 +189,16 @@ dataCommandNativeOwned kind name namespaceName = any (nativeOwned namespaceName 
 -- StatefulSets. Match every possible native address against accepted and
 -- retained history before letting either direct create path proceed.
 databaseNativeOwned :: Database -> [ManagedResource] -> Bool
-databaseNativeOwned database = any (nativeOwned namespaceName addresses)
+databaseNativeOwned database = dataCommandNativeOwned DatabaseObjects name namespaceName
   where
     name = databaseNameText (database ^. #name)
     namespaceName = namespaceText (database ^. #namespace)
-    addresses =
-      [("", "secret", dbSecretName name)
-      , ("", "persistentvolumeclaim", dbPvcName name)
-      , ("", "service", name)
-      , ("apps", "statefulset", name)]
-        <> [("", "configmap", dbConfigMapName name) | database ^. #engine == ClickHouse]
-        <> [("batch", "cronjob", "nagare-dbbackup-" <> name) | database ^. #retention /= Delete]
 
 brokerNativeOwned :: Broker -> [ManagedResource] -> Bool
-brokerNativeOwned broker = any (nativeOwned namespaceName addresses)
+brokerNativeOwned broker = dataCommandNativeOwned BrokerObjects name namespaceName
   where
     name = brokerNameText (broker ^. #name)
     namespaceName = namespaceText (broker ^. #namespace)
-    addresses =
-      [("", "persistentvolumeclaim", brokerPvcName name)
-      , ("", "service", name)
-      , ("apps", "statefulset", name)]
 
 nativeOwned :: T.Text -> [(T.Text, T.Text, T.Text)] -> ManagedResource -> Bool
 nativeOwned namespaceName addresses resource = case resource ^. #address of
