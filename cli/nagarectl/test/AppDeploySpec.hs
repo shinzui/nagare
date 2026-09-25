@@ -30,7 +30,7 @@ import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.App.Deployments (appDeploymentsPrefix)
 import Nagare.App.Deploy
-import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedAccessBinding, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, standaloneWorkerVolumeRecoveryBindings, nativeWorkloadOwned, compileApplicationDeployment, compileApplicationScope, compileApplicationService, compileStandaloneService, compileStandaloneServiceWithBrokers, compileStandaloneServiceWithDependencies, compileStandaloneServiceWithRelease, compileStandaloneWorker, compileStandaloneWorkerWithDependencies, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings, legacyApplicationReleaseImport, recordReviewedStandaloneOverrides, workerRetirementScope)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedAccessBinding, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, standaloneWorkerVolumeRecoveryBindings, nativeWorkloadOwned, hostnameClaimOwned, compileApplicationDeployment, compileApplicationScope, compileApplicationService, compileStandaloneService, compileStandaloneServiceWithBrokers, compileStandaloneServiceWithDependencies, compileStandaloneServiceWithRelease, compileStandaloneWorker, compileStandaloneWorkerWithDependencies, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings, legacyApplicationReleaseImport, recordReviewedStandaloneOverrides, workerRetirementScope)
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps (..), KubernetesMutation (..), KubernetesState (..), mkKubernetesAdapter)
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), mkKubernetesRuntimeOps)
@@ -392,6 +392,14 @@ renderTests =
             (not (nativeWorkloadOwned "serving.knative.dev" "service" "other" "personal" [service]))
           assertBool "another namespace must not claim the app workload"
             (not (applicationNativeOwned (app & #namespace .~ unsafe (mkNamespace "other")) [service]))
+          let claimed = service & #aliases .~ [Resource.Hostname (unsafe (Resource.mkName "kizashi.example.com"))]
+          assertBool "direct CDN mutation must detect a globally claimed hostname"
+            (hostnameClaimOwned "kizashi.example.com" [Managed claimed])
+          assertBool "a different hostname remains unclaimed"
+            (not (hostnameClaimOwned "other.example.com" [Managed claimed]))
+          assertBool "direct CDN mutation must also respect a platform external hostname"
+            (hostnameClaimOwned "platform.example.com"
+              [External publication (Resource.Hostname (unsafe (Resource.mkName "platform.example.com"))) [] source])
           let accepted kind name = service & #address .~ Resource.Kubernetes cluster "" (unsafe (Resource.mkName kind))
                 (Just (unsafe (Resource.mkName "personal"))) (unsafe (Resource.mkName name))
               withVolume = app & #service %~ fmap (unsafe . attachVolume "data" "1Gi" "/data")

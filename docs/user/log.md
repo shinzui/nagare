@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-25
+* **Fix**: Treat the Google CDN apex as a checked Pulumi-owned DNS reference, and refuse direct CDN or deploy writes to hostnames claimed by accepted or retained inventory.
 * **Update**: Explain that Google CDN application deploys inherit the Pulumi-owned backend cache policy and refuse per-application overrides.
 * **Update**: Document reviewed explicit Redpanda topic retention changes and conservative recovery after an uncertain update.
 * **Update**: Document reviewed aggregate pre-deploy hooks, explicit affected resources, stable per-tag Jobs, and completion ordering before workloads.

@@ -5047,6 +5047,15 @@ cdnProvisionTests =
       assertBool
         "Cloudflare remains unrestricted"
         (isRight (planCdn cfCdn (cfTarget & #hostnames .~ ["deep.unrelated.example.net"]) noRefs))
+  , testCase "Google apex CDN uses the Pulumi-owned DNS record without writing it" $ do
+      let target = gcpTarget & #hostnames .~ ["apps.example.com", "app.apps.example.com"]
+          plan = unsafe (planCdn gcpCdn target gcpRefs)
+      plan ^. #actions @?=
+        [ DnsReference "apps.example.com" "203.0.113.20"
+        , DnsUpsert "app.apps.example.com" "203.0.113.20" "Cloud DNS A-record"
+        ]
+      assertBool "apex is a reference in the public review"
+        ("Pulumi-owned reference; no write" `T.isInfixOf` renderCdnPlan plan)
   , testCase "gcloudDnsUpsertArgs: exact argv (more-specific A record to the global IP)" $
       gcloudDnsUpsertArgs "tan-nb-exp" "nagare-zone" "app.example.com" "203.0.113.20"
         @?= [ "dns"

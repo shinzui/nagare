@@ -25,6 +25,10 @@ The reviewed inventory deploy path currently refuses `cdn` until DNS and edge
 ownership are represented in its saved review. The direct deploy path remains
 available. Google CDN uses the standing cache policy owned by Pulumi; a
 per-application TTL, cache-mode change, or path rule refuses during planning.
+For the base-domain apex, direct deploy reads and checks the Pulumi-owned A
+record before changing any application host record; it never writes that apex
+record. Direct deploy, purge, and disable refuse a hostname already claimed by
+accepted or retained inventory history, including claims from another namespace.
 
 A **Content Delivery Network (CDN)** is a globally distributed cache that sits in
 front of your origin. Instead of every request travelling to Nagare's one VM in

@@ -277,7 +277,7 @@ import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.Application (ApplicationScopeInput (..), DatabaseBinding, acceptedAccessBinding, acceptedApplicationImage, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationDeployment, compileStandaloneServiceWithRelease, compileStandaloneWorkerWithDependencies, databaseRecoveryBindings, legacyApplicationReleaseImport, legacyStandaloneReleaseImport, nativeWorkloadOwned, recordReviewedStandaloneOverrides, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), DatabaseBinding, acceptedAccessBinding, acceptedApplicationImage, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationDeployment, compileStandaloneServiceWithRelease, compileStandaloneWorkerWithDependencies, databaseRecoveryBindings, hostnameClaimOwned, legacyApplicationReleaseImport, legacyStandaloneReleaseImport, nativeWorkloadOwned, recordReviewedStandaloneOverrides, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
 import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteReleaseLog, acceptedSiteSource, compileServerSitePreviewScope, compileServerSiteRollbackScope, compileServerSiteScope, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteScope, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteNativeOwned, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
 import Nagare.Inventory.TaskRun (compileTaskRunScope)
 import Nagare.Inventory.Lifecycle qualified as InventoryLifecycle
@@ -6478,7 +6478,7 @@ runCdn :: Maybe String -> CdnCommand -> IO ()
 runCdn mctx = \case
   CdnList o -> runCdnList mctx o
   CdnStatus o -> runCdnStatus mctx o
-  CdnPurge o -> runCdnPurge o
+  CdnPurge o -> runCdnPurge mctx o
   CdnDisable o -> runCdnDisable mctx o
 
 -- | @cdn list@: enumerate CDN-fronted hostnames and their provider/DNS/cache/
@@ -6542,14 +6542,15 @@ runCdnStatus mctx o = do
 
 -- | @cdn purge HOST [--path P]...@: purge the Cloudflare edge cache. @--dry-run@
 -- prints the planned purge; live needs @CF_API_TOKEN@.
-runCdnPurge :: CdnPurgeOpts -> IO ()
-runCdnPurge o = do
+runCdnPurge :: Maybe String -> CdnPurgeOpts -> IO ()
+runCdnPurge mctx o = do
   let host = T.pack (o ^. #host)
       paths = map T.pack (o ^. #paths)
       pathsDesc = if null paths then "everything" else T.intercalate ", " paths
   if o ^. #dryRun
     then TIO.putStrLn ("Would purge Cloudflare edge cache for " <> host <> " (paths: " <> pathsDesc <> ")")
     else do
+      refuseDirectCdnHostMutationIfOwned mctx "cdn purge" host
       ecreds <- loadCloudflareCreds
       case ecreds of
         Left e -> dieT ("cdn purge needs Cloudflare credentials: " <> e)
@@ -6592,6 +6593,7 @@ runCdnDisable mctx o = do
       TIO.putStrLn ("  Google: gcloud " <> T.unwords gArgs)
       TIO.putStrLn "  Cloudflare: re-point the proxied record to DNS-only (un-proxy)"
     else do
+      refuseDirectCdnHostMutationIfOwned mctx "cdn disable" host
       m <- captureTool "gcloud" (map T.unpack gArgs)
       case m of
         Just _ -> TIO.putStrLn ("Reverted " <> host <> " to the VM (deleted the more-specific A record).")
@@ -6810,6 +6812,8 @@ runDirectDeploy mctx dopts = do
     Right d -> do
       refuseDirectServiceMutationIfOwned mctx "deploy" (serviceNameText (d ^. #name))
         (namespaceText (d ^. #namespace))
+      forM_ (d ^. #domains) $ \domain ->
+        refuseDirectCdnHostMutationIfOwned mctx "deploy" (domainText (domain ^. #domain))
       refuseDirectAccessOwnerIfManaged mctx "deploy"
       forM_ (d ^. #tasks) $ \task ->
         refuseDirectTaskMutationIfOwned mctx "deploy" (serviceNameText (task ^. #name))
@@ -7256,6 +7260,7 @@ serverSiteWithGeneratedEnvFor serviceName targetUrl source site bd tag =
 cdnDeployStep :: Maybe String -> Bool -> Maybe Cdn -> [Text] -> Text -> Text -> IO ()
 cdnDeployStep _ _ Nothing _ _ _ = pure ()
 cdnDeployStep mctx dry (Just c) hostnames ns service = do
+  unless dry $ forM_ hostnames (refuseDirectCdnHostMutationIfOwned mctx "CDN provision")
   (_, workspace) <- ensurePulumiForActiveContext mctx
   originIp <- fromMaybe "<publicIp>" <$> stackOutput (workspace ^. #pulumiDir) "publicIp"
   tp <- activeProfile mctx
@@ -8469,6 +8474,15 @@ ownedHistoryResources history =
   , ResourceInventory.Managed resource <- ResourceInventory.declarations bundle
   ] <> map snd (Map.elems (InventoryPlan.historyRetained history))
 
+historyHostnameDeclarations :: InventoryPlan.InventoryHistory -> [ResourceInventory.Declaration]
+historyHostnameDeclarations history =
+  [ declaration
+  | (_, scope) <- Map.elems (InventoryPlan.historyAccepted history)
+  , bundle <- ResourceInventory.scopeBundles scope
+  , declaration <- ResourceInventory.declarations bundle
+  ] <> [ResourceInventory.Managed resource
+       | (_, resource) <- Map.elems (InventoryPlan.historyRetained history)]
+
 -- The accepted auth owner composes the entire backend map from contributor
 -- scopes. The legacy resolver can rewrite that ConfigMap even when the Service
 -- it deploys is otherwise unowned, so it cannot run beside this owner.
@@ -8502,9 +8516,23 @@ refuseDirectApplicationDeployIfOwned mctx app =
     owner <- either dieT pure (ResourceApplication.applicationScopeId app)
     when (isJust (app ^. #service) && authBackendOwned history)
       (dieT "the shared auth backend map is owned by accepted or retained inventory; direct app deploy is refused")
+    let resources = ownedHistoryResources history
+        claimedHostnames =
+          [ domainText (domain ^. #domain)
+          | service <- maybe [] pure (app ^. #service)
+          , domain <- service ^. #domains
+          ]
     when (Map.member owner (InventoryPlan.historyAccepted history)
-        || applicationNativeOwned app (ownedHistoryResources history))
+        || applicationNativeOwned app resources
+        || any (\host -> hostnameClaimOwned host (historyHostnameDeclarations history)) claimedHostnames)
       (dieT "application is owned by accepted or retained inventory history; direct app deploy is refused")
+
+refuseDirectCdnHostMutationIfOwned :: Maybe String -> Text -> Text -> IO ()
+refuseDirectCdnHostMutationIfOwned mctx operation host =
+  withAcceptedInventoryHistory mctx operation $ \history ->
+    when (hostnameClaimOwned host (historyHostnameDeclarations history))
+      (dieT ("hostname " <> host <> " is claimed by accepted or retained inventory; direct "
+        <> operation <> " is refused"))
 
 refuseDirectServiceMutationIfOwned :: Maybe String -> Text -> Text -> Text -> IO ()
 refuseDirectServiceMutationIfOwned mctx operation name namespaceName =
@@ -8519,8 +8547,9 @@ refuseDirectSiteMutationIfOwned
   :: Maybe String -> Text -> Text -> Text -> [Text] -> [Text] -> Bool -> IO ()
 refuseDirectSiteMutationIfOwned mctx operation name namespaceName domains volumes writesHistory =
   withAcceptedInventoryHistory mctx operation $ \history ->
-    when (siteNativeOwned name namespaceName domains volumes writesHistory
-        (ownedHistoryResources history))
+    let resources = ownedHistoryResources history
+    in when (siteNativeOwned name namespaceName domains volumes writesHistory resources
+        || any (\host -> hostnameClaimOwned host (historyHostnameDeclarations history)) domains)
       (dieT ("site " <> name <> " has an accepted or retained native address; direct "
         <> operation <> " is refused"))
 

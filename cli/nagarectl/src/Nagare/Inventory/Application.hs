@@ -18,6 +18,7 @@ module Nagare.Inventory.Application
   , compileApplicationTasks
   , applicationNativeOwned
   , nativeWorkloadOwned
+  , hostnameClaimOwned
   , acceptedApplicationImage
   , reviewedTaskImages
   , databaseRecoveryBindings
@@ -169,6 +170,15 @@ nativeWorkloadOwned group kind name namespaceName = any matches
           && nameText nativeName == name
           && nameText nativeNamespace == namespaceName
       _ -> False
+
+-- | Direct DNS/CDN commands must respect all global hostname claims,
+-- including external platform declarations and aliases on managed resources.
+hostnameClaimOwned :: T.Text -> [Declaration] -> Bool
+hostnameClaimOwned host declarations = case mkName host of
+  Left _ -> False
+  Right name ->
+    let claim = canonicalClaim (Hostname name)
+     in any (any ((== claim) . snd) . NE.toList . claimsOf) declarations
 
 -- | Select retirement from accepted application or standalone web-Service
 -- history and the exact native address. A display name or key alone carries

@@ -97,6 +97,8 @@ data CdnPlan = CdnPlan
 data CdnAction
   = -- | hostname, target IP, kind ("proxied" | "A-record")
     DnsUpsert !Text !Text !Text
+  | -- | The platform's Pulumi scope owns this record; no application write.
+    DnsReference !Text !Text
   | -- | path prefix, ttl description ("31536000s" | "never")
     CacheRule !Text !Text
   | -- | origin-TLS mode description, e.g. "Flexible"
@@ -150,7 +152,9 @@ cloudflareActions cdn target =
 
 gcpActions :: CdnTarget -> GcpStackRefs -> [CdnAction]
 gcpActions target refs =
-  [ DnsUpsert h (refs ^. #globalIp) "Cloud DNS A-record"
+  [ if h == target ^. #baseDomain
+      then DnsReference h (refs ^. #globalIp)
+      else DnsUpsert h (refs ^. #globalIp) "Cloud DNS A-record"
   | h <- target ^. #hostnames
   ]
 
@@ -213,6 +217,8 @@ renderCdnPlan plan =
     providerToken GcpCloudCdn = "GcpCloudCdn"
     renderAction (DnsUpsert host ip kind) =
       "DNS: " <> host <> " -> " <> ip <> " (" <> kind <> ")"
+    renderAction (DnsReference host ip) =
+      "DNS: " <> host <> " -> " <> ip <> " (Pulumi-owned reference; no write)"
     renderAction (CacheRule prefix ttl) = "Cache: " <> prefix <> " -> " <> ttl
     renderAction (OriginTls mode) = "Origin TLS: " <> mode
 
@@ -259,7 +265,13 @@ provisionCloudflare cdn target = do
             )
 
 provisionGcp :: GcpStackRefs -> CdnPlan -> CdnTarget -> IO (Either Text CdnResult)
-provisionGcp refs plan target = go (plan ^. #actions)
+provisionGcp refs plan target = do
+  referenced <- runSteps
+    [verifyGcpDnsReference refs hostname ip
+    | DnsReference hostname ip <- plan ^. #actions]
+  case referenced of
+    Left err -> pure (Left err)
+    Right () -> go (plan ^. #actions)
   where
     hosts = target ^. #hostnames
     done =
@@ -274,7 +286,20 @@ provisionGcp refs plan target = go (plan ^. #actions)
       case result of
         Left err -> pure (Left err)
         Right () -> go rest
+    go (DnsReference _ _ : rest) = go rest
     go (_ : rest) = go rest
+
+-- | The platform owns the apex record. Confirm its accepted target before
+-- touching any application-owned host record, without assuming its TTL.
+verifyGcpDnsReference :: GcpStackRefs -> Text -> Text -> IO (Either Text ())
+verifyGcpDnsReference refs hostname ip = do
+  described <- runGcloud (gcloudDnsDescribeArgs (refs ^. #project) (refs ^. #dnsZone) hostname)
+  pure $ case described of
+    Left diagnostic -> Left (hostname <> ": platform-owned Cloud DNS record cannot be read: " <> diagnostic)
+    Right out -> case parseRecordSet out of
+      Left err -> Left (hostname <> ": platform-owned Cloud DNS record is invalid: " <> err)
+      Right ([current], _) | current == ip -> Right ()
+      Right _ -> Left (hostname <> ": platform-owned Cloud DNS record does not point to the selected CDN IP")
 
 upsertGcpDns :: GcpStackRefs -> Text -> Text -> IO (Either Text ())
 upsertGcpDns refs hostname ip = do
