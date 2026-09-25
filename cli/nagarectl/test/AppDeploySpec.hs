@@ -82,6 +82,7 @@ appDeployTests =
     "Nagare.App.Deploy (EP-2)"
     [ testGroup "render + shared label (M1)" renderTests
     , testCase "reviewed data restart preserves accepted broker companions" reviewedDataRestart
+    , testCase "disposable database StatefulSet restart uses the reviewed native adapter" nativeDataRestartReview
     , testCase "disposable application review resumes from saved native members" nativeApplicationReview
     , testCase "reviewed command publishes and applies its immutable review" commandReview
     , testGroup "rollout phases (M2)" phaseTests
@@ -130,6 +131,112 @@ reviewedDataRestart = do
   assertBool "changed private evidence was accepted"
     (isLeft (compileStatefulSetRestartScope BrokerObjects "events" "personal" "stamp" accepted
       (Map.adjust (\(member, _) -> (member, "{}")) statefulId native)))
+
+nativeDataRestartReview :: Assertion
+nativeDataRestartReview = do
+  selected <- lookupEnv "NAGARE_EP148_TEST_CONTEXT"
+  case selected of
+    Nothing -> pure ()
+    Just selectedContext -> do
+      assertBool "refusing a non-disposable Kubernetes context"
+        ("k3d-nagare-inventory-" `T.isPrefixOf` T.pack selectedContext)
+      let checked :: Show e => Either e a -> a
+          checked = either (error . show) id
+          owner = checked (Resource.mkScopeId Resource.Standalone "database-ep148-restart")
+          foundation = checked (Resource.mkScopeId Resource.Platform "foundation")
+          cluster = Resource.mintResourceId foundation
+            (checked (Resource.mkLogicalKey "cluster")) (checked (Resource.mkName "resource"))
+          statefulId = Resource.mintResourceId owner
+            (checked (Resource.mkLogicalKey "ep148-db-restart")) (checked (Resource.mkName "statefulset"))
+          secretId = Resource.mintResourceId owner
+            (checked (Resource.mkLogicalKey "ep148-db-restart")) (checked (Resource.mkName "secret"))
+          nativeName = "ep148-db-restart" :: Text
+          secretName = dbSecretName nativeName
+          source = Resource.SourceLocation "absent-source/Config.hs" "data-restart"
+          binding = Resource.ContextBinding
+            (checked (Resource.mkContextId "ep148-native-restart")) (checked (Resource.mkName "project"))
+          config = KubernetesRuntimeConfig (checked (Resource.mkContextId "ep148-native-restart"))
+            (T.pack selectedContext) (pure (Right ()))
+          metadata name = Aeson.object
+            ["name" Aeson..= name, "namespace" Aeson..= ("default" :: Text)]
+          secretValue = Aeson.object
+            ["apiVersion" Aeson..= ("v1" :: Text), "kind" Aeson..= ("Secret" :: Text)
+            ,"metadata" Aeson..= metadata secretName
+            ,"type" Aeson..= ("Opaque" :: Text)
+            ,"data" Aeson..= Aeson.object ["PASSWORD" Aeson..= ("c2FtcGxl" :: Text)]]
+          labels = Aeson.object ["app" Aeson..= nativeName]
+          container = Aeson.object
+            ["name" Aeson..= ("db" :: Text), "image" Aeson..= ("busybox:1.36" :: Text)
+            ,"command" Aeson..= (["sleep", "3600"] :: [Text])]
+          template = Aeson.object
+            ["metadata" Aeson..= Aeson.object ["labels" Aeson..= labels]
+            ,"spec" Aeson..= Aeson.object ["containers" Aeson..= [container]]]
+          statefulValue = Aeson.object
+            ["apiVersion" Aeson..= ("apps/v1" :: Text), "kind" Aeson..= ("StatefulSet" :: Text)
+            ,"metadata" Aeson..= metadata nativeName
+            ,"spec" Aeson..= Aeson.object
+              ["serviceName" Aeson..= nativeName, "replicas" Aeson..= (0 :: Int)
+              ,"selector" Aeson..= Aeson.object ["matchLabels" Aeson..= labels]
+              ,"template" Aeson..= template]]
+          bind resource value lifecycle = checked (bindKubernetesObject
+            (KubernetesInput resource owner cluster value
+              (contentDigest (checked (canonicalValue value))) lifecycle Stateless Private source))
+          (secret, secretBytes) = bind secretId secretValue ResourcePolicy.Retain
+          (stateful, statefulBytes) = bind statefulId statefulValue DeleteWhenUnreferenced
+          scope = checked (mkScopeDeclaration owner
+            [ResourceBundle [Managed secret, Managed stateful] [] [] [] [] []])
+          native = Map.fromList [(secretId, (secret, secretBytes)),
+            (statefulId, (stateful, statefulBytes))]
+          registryFor members = checked (mkAdapterRegistry
+            [mkKubernetesAdapter members (mkKubernetesRuntimeOps config members)])
+          cleanup = forM_ [("statefulset", nativeName), ("secret", secretName)] $ \(kind, name) -> do
+            _ <- readProcessWithExitCode "kubectl"
+              ["--context", selectedContext, "-n", "default", "delete", kind,
+                T.unpack name, "--ignore-not-found", "--wait=false"] ""
+            pure ()
+          converge store candidate members = do
+            history <- loadInventoryHistory store >>= either (fail . show) pure
+            let registry = registryFor members
+            observed <- observeWithRegistry registry
+              (requirementsByExecutor (observationRequirements candidate history))
+              >>= either (fail . show) pure
+            proposal <- either (fail . show) pure
+              (planChanges candidate noLifecycleDecisions history observed)
+            before <- readStoreSnapshot store >>= either (fail . show) pure
+            reviewBundle <- prepareReview registry before proposal >>= either (fail . show) pure
+            let reviewedNative = checked (kubernetesSpecsFromReview reviewBundle)
+            assertBool "review selected native bytes outside the accepted candidate"
+              (not (Map.null reviewedNative) && Map.isSubmapOfBy (==) reviewedNative members)
+            _ <- publishReview store reviewBundle >>= either (fail . show) pure
+            published <- readStoreSnapshot store >>= either (fail . show) pure
+            reviewed <- either (fail . show) pure (verifyReview published reviewBundle)
+            result <- applyReviewed store (registryFor reviewedNative) reviewed
+              >>= either (fail . show) pure
+            case result of
+              Converged _ -> pure ()
+              other -> assertFailure ("native data review did not converge: " <> show other)
+      cleanup
+      (do
+        store <- newMemoryStore
+        _ <- initializeStore store binding "ep148-native-restart" >>= either (fail . show) pure
+        let empty = checked (mkScopeSnapshot binding Map.empty Map.empty)
+            initial = checked (composeInventory empty (ReplaceScope scope :| []))
+        converge store initial native
+        accepted <- loadInventoryHistory store >>= either (fail . show) pure
+        let acceptedScopes = Map.map (\(revision, declaration) ->
+              (revisionGeneration revision, declaration)) (historyAccepted accepted)
+            snapshot = checked (mkScopeSnapshot binding acceptedScopes Map.empty)
+            (revised, changed) = checked (compileStatefulSetRestartScope DatabaseObjects
+              nativeName "default" "2026-09-25T00:00:00Z" scope native)
+            restart = checked (composeInventory snapshot (ReplaceScope revised :| []))
+        converge store restart changed
+        (code, observed, _) <- readProcessWithExitCode "kubectl"
+          ["--context", selectedContext, "-n", "default", "get", "statefulset",
+            T.unpack nativeName, "-o", "json"] ""
+        code @?= ExitSuccess
+        assertBool "native StatefulSet lacks the reviewed restart annotation"
+          ("nagare.dev/restartedAt" `T.isInfixOf` T.pack observed)
+        ) `finally` cleanup
 
 -- | A deterministic rollout context (fixed tag, unqualified shared image) so the
 -- rendered bytes are stable.

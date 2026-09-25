@@ -163,6 +163,8 @@ Accepted database and broker `restart` commands now select their exact StatefulS
 
 The restart compiler also verifies the database credential Secret or broker PVC in the same accepted scope, so a name shared with the wrong command family cannot authorize a restart.
 
+A disposable `k3d-nagare-inventory-ep148` transaction then created a synthetic database credential Secret and zero-replica StatefulSet through the reviewed native adapter, published a second review containing only the StatefulSet update, applied its restart annotation, and observed it on the provider. Both test objects were removed and the cluster was stopped. This proves native restart transport and review selection, not a live database or broker pod rollout.
+
 M1 completed for the reviewed Kubernetes lifecycle: application and standalone scope compilers bind the supported native members, accepted dependencies, explicit recovery and input choices, release history, scheduled tasks, and independent per-tag hook Jobs. The accepted-image dry-run, saved review, and one-invocation live route share those compiled declarations. At M1 closure, unsupported CDN and build publication inputs refused before mutation. The full CLI suite and a disposable native two-worker review/resume passed. Google DNS and the selected offline Cloudflare ownership proof have since advanced in M2; build/input integration and full native provider membership, reviewed operational/data actions in M3, and removal of direct render/apply paths in M4 remain required for final acceptance.
 
 - [x] M1: Compile and execute reviewed application and standalone Kubernetes lifecycles for supported intent, with unsupported provider effects refusing before mutation.
@@ -469,6 +471,8 @@ DependencyExports contains typed capability witnesses and selected revision/phys
 
 
 ## Revision Notes
+
+2026-09-25: Added a gated disposable Kubernetes review/apply test for accepted data restart. It verifies initial Secret/StatefulSet creation, selected-only restart membership, exact saved native bytes, and the live StatefulSet annotation before cleanup. A real database/broker pod rollout remains M3 validation.
 
 2026-09-25: Allowed accepted OCI publications to satisfy reviewed deployment for configs that describe a Dockerfile or Nixpacks build. This removes a source-mode refusal while retaining exact image/tag validation; build production and its input provenance still need M2 integration.
 
