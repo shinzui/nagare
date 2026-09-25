@@ -1,6 +1,8 @@
 # Bundle Update Log
 
 ## 2026-09-24
+* **Update**: Allow reviewed one-off Jobs from accepted unlabeled CronJobs using the `-` app sentinel and exact label matching.
+* **Fix**: Address co-located tasks by their deployed app ownership label even when the optional managed-environment association is unset.
 * **Update**: Document reviewed one-off Task Job planning from accepted CronJob evidence, stable run IDs, and guarded Job collection.
 * **Update**: Clarify that a changed direct database config still checks older retained backup and configuration addresses.
 * **Update**: Document direct database and broker operation guards across retained companion addresses.

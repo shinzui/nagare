@@ -58,7 +58,7 @@ inventoryApplicationTests = testGroup "application inventory compilation"
             (contentDigest cronCanonical) DeleteWhenUnreferenced Stateless Private source
           (cronJob, _) = checked (bindKubernetesObject input)
       (scope, native) <- either (fail . show) pure
-        (compileTaskRunScope "demo" cronJob cronBytes "r1" source)
+        (compileTaskRunScope (Just "demo") cronJob cronBytes "r1" source)
       scopeId scope @?= checked (mkScopeId Standalone "task-run-personal-r1-nagare-task-cleanup")
       Map.size native @?= 1
       let jobs = [resource | bundle <- scopeBundles scope,
@@ -72,17 +72,44 @@ inventoryApplicationTests = testGroup "application inventory compilation"
           BS.isInfixOf "backoffLimit" jobBytes @?= True
           BS.isInfixOf "example.test/demo" jobBytes @?= True
         _ -> assertFailure "manual task review lacks exactly one Job"
-      compileTaskRunScope "demo" cronJob cronBytes "r1" source @?= Right (scope, native)
-      case compileTaskRunScope "demo" (cronJob & #spec .~ NativeObject (contentDigest "other"))
+      compileTaskRunScope (Just "demo") cronJob cronBytes "r1" source @?= Right (scope, native)
+      case compileTaskRunScope (Just "demo") (cronJob & #spec .~ NativeObject (contentDigest "other"))
           cronBytes "r2" source of
         Left _ -> pure ()
         Right _ -> assertFailure "manual task accepted a different CronJob template digest"
-      case compileTaskRunScope "other" cronJob cronBytes "r2" source of
+      case compileTaskRunScope (Just "other") cronJob cronBytes "r2" source of
         Left _ -> pure ()
         Right _ -> assertFailure "manual task accepted another app's CronJob"
-      case compileTaskRunScope "demo" cronJob cronBytes "bad.id" source of
+      case compileTaskRunScope (Just "demo") cronJob cronBytes "bad.id" source of
         Left _ -> pure ()
         Right _ -> assertFailure "manual task accepted an invalid Kubernetes run ID"
+      case compileTaskRunScope Nothing cronJob cronBytes "r2" source of
+        Left _ -> pure ()
+        Right _ -> assertFailure "manual app-less run accepted an app-owned task"
+  , testCase "manual app-less Job uses an accepted unlabeled CronJob" $ do
+      let checked :: Show e => Either e a -> a
+          checked = either (error . show) id
+          task = checked (scheduledTask "cleanup" "0 2 * * *" "example.test/demo" "cleanup")
+          cronBytes = renderTask task
+          cronValue = checked (Yaml.decodeEither' cronBytes)
+          cronCanonical = checked (canonicalValue cronValue)
+          foundation = checked (mkScopeId Platform "foundation")
+          cluster = mintResourceId foundation (checked (mkLogicalKey "cluster"))
+            (checked (mkName "cluster"))
+          owner = checked (mkScopeId Standalone "tasks")
+          cronId = mintResourceId owner (checked (mkLogicalKey "cleanup"))
+            (checked (mkName "cronjob"))
+          source = SourceLocation "fixture" "task-run/app-less"
+          input = KubernetesInput cronId owner cluster cronValue
+            (contentDigest cronCanonical) DeleteWhenUnreferenced Stateless Private source
+          (cronJob, _) = checked (bindKubernetesObject input)
+      (scope, native) <- either (fail . show) pure
+        (compileTaskRunScope Nothing cronJob cronBytes "r1" source)
+      Map.size native @?= 1
+      scopeId scope @?= checked (mkScopeId Standalone "task-run-personal-r1-nagare-task-cleanup")
+      case compileTaskRunScope (Just "demo") cronJob cronBytes "r2" source of
+        Left _ -> pure ()
+        Right _ -> assertFailure "manual app run accepted an unlabeled task"
   , testCase "reviewed scheduled tasks use the accepted application image" $ do
       let checked = either (error . show) id
           sameImage = checked (scheduledTask "cleanup" "0 2 * * *" "registry/app" "cleanup")

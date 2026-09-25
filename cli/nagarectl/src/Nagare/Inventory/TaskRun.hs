@@ -28,7 +28,7 @@ import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
 
 compileTaskRunScope ::
-  T.Text ->
+  Maybe T.Text ->
   ManagedResource ->
   ByteString ->
   T.Text ->
@@ -75,9 +75,9 @@ compileTaskRunScope appName cronJob cronBytes runId source = do
         (Left (invalid "accepted task template differs from its native address"))
       labels <- case KM.lookup "labels" metadata of
         Just (Object values)
-          | KM.lookup "nagare.dev/app" values == Just (String appName) ->
+          | KM.lookup "nagare.dev/app" values == (String <$> appName) ->
               Right (Object values)
-        _ -> Left (invalid "accepted task template does not belong to the requested application")
+        _ -> Left (invalid "accepted task template app label differs from requested APP")
       spec <- objectField invalid "spec" top
       jobTemplate <- objectField invalid "jobTemplate" spec
       unless

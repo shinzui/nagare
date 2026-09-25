@@ -14,7 +14,7 @@ generated:
 > 🟡 **In progress.** Built and offline-verified — the typed `Task` model, the
 > CronJob renderer, the `nagarectl task` command group, and app↔task image/env
 > inheritance all ship and are covered by unit and golden tests. A reviewed
-> one-off Job plan is available for accepted app-associated CronJobs. An app config
+> one-off Job plan is available for accepted CronJobs. An app config
 > that co-locates a task emits valid JSON and renders a `nagare-task-<name>`
 > CronJob via `nagarectl deploy --dry-run`. The full **live** end-to-end run
 > (apply the CronJob, run a Job, stream logs) is pending because
@@ -67,17 +67,16 @@ nagarectl deploy -f nagare/Config.hs
 
 # See it, run it once now, and read the logs:
 nagarectl task list
-nagarectl task run - heartbeat    # "-" addresses an app-less task (see note)
-nagarectl task logs - heartbeat
+nagarectl task run notes heartbeat
+nagarectl task logs notes heartbeat
 ```
 
-> A task carries an optional **app association** (the `taskApp` field). The
-> `scheduledTask` preset leaves it unset, so the `heartbeat` task above is
-> *app-less* even though it is co-located in the `notes` app's config — it is
-> addressed on the CLI with the `-` sentinel: `nagarectl task run - heartbeat`. A
-> task that opts into inheritance (`taskApp = Just "notes"`, the common case — see
-> "Running in an app's world") is addressed by its app name:
-> `nagarectl task run notes cleanup`.
+> A task carries an optional **app association** (the `taskApp` field), which
+> controls managed runtime `envFrom` and `NAGARE_APP`; `taskImage = Nothing`
+> selects the app's deployed image. The `scheduledTask` preset
+> leaves it unset. A task co-located in the `notes` application is still deployed
+> with the `notes` ownership label, so address it as `nagarectl task run notes
+> heartbeat`. Use the `-` sentinel only for a task deployed without an app label.
 
 
 ## Concepts
@@ -219,7 +218,7 @@ $ nagarectl task list -n personal
 the deployed CronJob, waits for it to finish, and reports. `--dry-run` prints the
 exact command and contacts no cluster:
 
-For an app-associated CronJob already accepted in the resource inventory, plan
+For a CronJob already accepted in the resource inventory, plan
 the run with a stable ID and apply its saved review:
 
 ```bash
@@ -231,10 +230,11 @@ The Job has an independent scope and the name
 `nagare-task-cleanup-manual-cleanup-20260924`. Reusing the same run ID targets
 that identity; it cannot silently submit another Job. Planning reads the exact
 accepted CronJob template from private inventory evidence and refuses an
-unaccepted or differently labeled task. The review binds creation and waits for
+unaccepted or differently labeled task. Pass `-` as `APP` only when the accepted
+CronJob has no app label. The review binds creation and waits for
 Job completion; an uncertain effect needs inventory recovery before retry.
-`--dry-run` cannot be combined with `--save-plan`. Reviewed app-less tasks and
-pre-deploy migration hooks are not supported yet.
+`--dry-run` cannot be combined with `--save-plan`. Pre-deploy migration hooks are
+not supported yet.
 
 The direct route below remains for tasks outside accepted inventory:
 

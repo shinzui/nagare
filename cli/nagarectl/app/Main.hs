@@ -8621,8 +8621,7 @@ runReviewedTaskRunPlan mctx options output = do
   let appName = T.pack (options ^. #app)
       taskName = T.pack (options ^. #task)
       ns = maybe "personal" T.pack (options ^. #namespace)
-  when (appName == "-")
-    (dieT "reviewed task run requires an accepted application task")
+      appLabel = if appName == "-" then Nothing else Just appName
   runId <- maybe (dieT "reviewed task run requires --run-id")
     (pure . T.pack) (options ^. #runId)
   active <- activeTarget mctx
@@ -8651,7 +8650,7 @@ runReviewedTaskRunPlan mctx options output = do
   let source = Resource.SourceLocation
         ("task/" <> appName <> "/" <> taskName) ("manual-run/" <> runId)
   (scope, native) <- either (dieT . T.pack . show) pure
-    (compileTaskRunScope appName cronJob cronBytes runId source)
+    (compileTaskRunScope appLabel cronJob cronBytes runId source)
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
   Inventory.planInventoryCandidateWith
