@@ -157,6 +157,8 @@ Application OCI archive publication now uses the same one-invocation review serv
 
 Legacy `access portal sync` now refuses a direct Shomei write when either shared auth settings resource is accepted or retained. The same ownership guard protects direct Service/app deploy and delete. A context with no registered portal remains a read-only successful no-op. The reviewed application contribution path remains the managed way to change portal settings; direct access grant/revoke operations still need M3 routing.
 
+Accepted database and broker `restart` commands now select their exact StatefulSet from accepted history and replace only its pod template restart annotation through the shared reviewed command service. They carry forward accepted credentials, PVCs, backup policy, Service, topic claims, and private native bytes for other members; `--save-plan` allows separate inspection and apply. Legacy workloads retain the direct restart route. Focused database and broker compiler tests passed, and the executable built. A disposable StatefulSet execution and the remaining data actions are still M3 work.
+
 M1 completed for the reviewed Kubernetes lifecycle: application and standalone scope compilers bind the supported native members, accepted dependencies, explicit recovery and input choices, release history, scheduled tasks, and independent per-tag hook Jobs. The accepted-image dry-run, saved review, and one-invocation live route share those compiled declarations. At M1 closure, unsupported CDN and build publication inputs refused before mutation. The full CLI suite and a disposable native two-worker review/resume passed. Google DNS and the selected offline Cloudflare ownership proof have since advanced in M2; build/input integration and full native provider membership, reviewed operational/data actions in M3, and removal of direct render/apply paths in M4 remain required for final acceptance.
 
 - [x] M1: Compile and execute reviewed application and standalone Kubernetes lifecycles for supported intent, with unsupported provider effects refusing before mutation.
@@ -463,6 +465,8 @@ DependencyExports contains typed capability witnesses and selected revision/phys
 
 
 ## Revision Notes
+
+2026-09-25: Routed accepted database and broker restart through an exact native StatefulSet scope update, with one-invocation apply or an optional saved review. Kept legacy direct restart for unclaimed workloads and refused managed `--dry-run` in favor of the actual saved review. M3 remains open for provider proof and backup, restore, deletion, and access actions.
 
 2026-09-25: Routed accepted Service stop/restart through reviewed application or standalone scope updates, preserving stopped visibility across ordinary convergence and documenting the guarded legacy fallback. Added a one-invocation OCI archive publication route while retaining saved review. M3 still needs live provider proof and the remaining data and operational commands; M2 still needs build-input integration and full application provider membership.
 

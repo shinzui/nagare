@@ -29,7 +29,7 @@ import Nagare.Inventory.Adapters.Kubernetes
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), cacheClientDataMatches, certificateReady, collectionDeleteRequest, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, credentialDataMatches, deploymentAvailable, deploymentSelectorReplacement, desiredFieldsMatch, generatedCredentialTemplate, jobCompleted, knativeReady, materializeCacheKey, materializeCredential, mkKubernetesRuntimeOps, observeCacheClientOutput, parseObserved, readinessForAddress, statefulSetImmutableReplacement, statefulSetReady, supportedUpdateAddress, withoutCacheClientData)
 import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
 import Nagare.Inventory.Database (compileDatabaseForBackend, compileDatabaseNative, compileDatabaseNativeWithBackup)
-import Nagare.Inventory.DataService (compileStandaloneDatabase, standaloneStatefulSetOwned)
+import Nagare.Inventory.DataService (compileStandaloneDatabase, compileStatefulSetRestartScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Components.Foundation (compileContributedNamespaces)
 import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
@@ -433,6 +433,15 @@ inventoryKubernetesTests =
         sort removedKinds @?= ["cronjob", "service", "statefulset"]
         let owned = map fst (Map.elems native)
         assertBool "accepted StatefulSet owns the direct name" (standaloneStatefulSetOwned "pg-main" "personal" owned)
+        let (restarted, restartedNative) = ok (compileStatefulSetRestartScope
+              "pg-main" "personal" "2026-09-25T00:00:00Z" declaration native)
+            statefulIds = [member ^. #identity | (member, _) <- Map.elems native,
+              Kubernetes _ "apps" kind _ _ <- [address member], nameText kind == "statefulset"]
+        case statefulIds of
+          [statefulId] -> Map.delete statefulId restartedNative @?= Map.delete statefulId native
+          _ -> assertFailure "expected one database StatefulSet"
+        Map.lookup "operational.restart.pg-main" (scopeOverrides restarted)
+          @?= Just "2026-09-25T00:00:00Z"
         assertBool "different namespace is not owned" (not (standaloneStatefulSetOwned "pg-main" "other" owned))
         assertBool "different name is not owned" (not (standaloneStatefulSetOwned "other" "personal" owned))
         case compileStandaloneDatabase (direct {directOwnerScope = scope}) backend of

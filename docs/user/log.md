@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-25
+* **Update**: Route accepted database and broker restarts through reviewed StatefulSet scope updates with optional saved plans while preserving data companions.
 * **Fix**: Explain that direct portal sync refuses accepted or retained shared auth settings and uses reviewed application contributions for managed portals.
 * **Update**: Document single-invocation reviewed application image publication and exact remote tag refusal.
 * **Update**: Explain reviewed application and standalone Service stop/restart, the persisted cluster-local override, and explicit reviewed recovery.

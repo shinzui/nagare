@@ -37,7 +37,7 @@ import Nagare.Inventory.Adapters.Cdn (DnsAdapterOps (..), DnsObservation (..), d
 import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps (..), KubernetesMutation (..), KubernetesState (..), mkKubernetesAdapter)
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), mkKubernetesRuntimeOps)
 import Nagare.Inventory.Command (convergeInventoryCandidateWith, loadTargetSnapshot, openTargetStore)
-import Nagare.Inventory.DataService (compileStandaloneBroker, compileStandaloneDatabase)
+import Nagare.Inventory.DataService (compileStandaloneBroker, compileStandaloneDatabase, compileStatefulSetRestartScope)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Environment (compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeSecretChannel)
 import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
@@ -81,6 +81,7 @@ appDeployTests =
   testGroup
     "Nagare.App.Deploy (EP-2)"
     [ testGroup "render + shared label (M1)" renderTests
+    , testCase "reviewed data restart preserves accepted broker companions" reviewedDataRestart
     , testCase "disposable application review resumes from saved native members" nativeApplicationReview
     , testCase "reviewed command publishes and applies its immutable review" commandReview
     , testGroup "rollout phases (M2)" phaseTests
@@ -90,6 +91,43 @@ appDeployTests =
 
 fixturePath :: FilePath
 fixturePath = "test/fixtures/app/kizashi/Config.hs"
+
+reviewedDataRestart :: Assertion
+reviewedDataRestart = do
+  loaded <- loadBroker "../nagare-dsl/test/fixtures/broker/redpanda/nagare/Config.hs"
+  broker <- either (fail . show) pure loaded
+  let owner = unsafe (Resource.mkScopeId Resource.Standalone "broker-restart")
+      foundation = unsafe (Resource.mkScopeId Resource.Platform "foundation")
+      cluster = Resource.mintResourceId foundation
+        (unsafe (Resource.mkLogicalKey "cluster")) (unsafe (Resource.mkName "resource"))
+      namespaceId = Resource.mintResourceId foundation
+        (unsafe (Resource.mkLogicalKey "foundation")) (unsafe (Resource.mkName "namespace-personal"))
+      recovery = RecoveryIntent (unsafe (Resource.mkName "backup"))
+        (mkSecretRef (unsafe (Resource.mkName "broker-key"))
+          (unsafe (Resource.mkName "v1")) :| [])
+  (accepted, native) <- either (fail . show) pure (compileStandaloneBroker
+    broker owner cluster namespaceId recovery (Resource.SourceLocation "test" "restart"))
+  let stateful = [(resource ^. #identity, resource) |
+        bundle <- scopeBundles accepted, Managed resource <- declarations bundle,
+        Resource.Kubernetes _ "apps" kind _ _ <- [resource ^. #address],
+        Resource.nameText kind == "statefulset"]
+  (statefulId, _) <- case stateful of
+    [single] -> pure single
+    _ -> assertFailure "expected one accepted broker StatefulSet" >> fail "missing StatefulSet"
+  (revised, changed) <- either (fail . show) pure
+    (compileStatefulSetRestartScope "events" "personal" "2026-09-25T00:00:00Z" accepted native)
+  Map.delete statefulId changed @?= Map.delete statefulId native
+  scopeConfigDigest revised @?= scopeConfigDigest accepted
+  Map.lookup "operational.restart.events" (scopeOverrides revised)
+    @?= Just "2026-09-25T00:00:00Z"
+  assertBool "restart annotation missing from accepted pod template"
+    (maybe False (BS.isInfixOf "nagare.dev/restartedAt" . snd)
+      (Map.lookup statefulId changed))
+  assertBool "wrong StatefulSet name was accepted"
+    (isLeft (compileStatefulSetRestartScope "other" "personal" "stamp" accepted native))
+  assertBool "changed private evidence was accepted"
+    (isLeft (compileStatefulSetRestartScope "events" "personal" "stamp" accepted
+      (Map.adjust (\(member, _) -> (member, "{}")) statefulId native)))
 
 -- | A deterministic rollout context (fixed tag, unqualified shared image) so the
 -- rendered bytes are stable.

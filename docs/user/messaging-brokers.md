@@ -116,6 +116,12 @@ nagarectl broker restart NAME [--namespace personal]
 nagarectl broker delete NAME [--namespace personal] [--yes]
 ```
 
+For an accepted broker, `broker restart` reviews and applies a pod template
+update while preserving its PVC, Service, and topic claims. To inspect before
+apply, run `nagarectl broker restart events --save-plan ./events-restart`, then
+`nagarectl inventory apply ./events-restart --yes`. An accepted broker refuses
+`--dry-run`; legacy brokers keep the direct restart behavior.
+
 `broker delete` removes the StatefulSet and Service but keeps the PVC by default
 so data is not destroyed accidentally. Delete the PVC only when you intend to
 lose broker data:

@@ -11,10 +11,12 @@ module Nagare.Inventory.DataService
   , databaseNativeOwned
   , brokerNativeOwned
   , brokerTopicChangeRequiresReview
+  , compileStatefulSetRestartScope
   , acceptedFoundationNamespace
   ) where
 
-import Data.Aeson (Value)
+import Data.Aeson (Value (..))
+import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
@@ -40,6 +42,91 @@ import Nagare.Resource.Policy (DataPolicy (..), LifecyclePolicy (..), RecoveryIn
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
+
+-- | Restart one accepted data workload by changing only its pod template.
+-- The scope's other declarations and private bytes remain those of the
+-- accepted revision, including credentials, backup policy, and retained PVCs.
+compileStatefulSetRestartScope
+  :: T.Text -> T.Text -> T.Text -> ScopeDeclaration
+  -> Map ResourceId (ManagedResource, ByteString)
+  -> Either (NonEmpty InventoryError)
+       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileStatefulSetRestartScope name namespaceName stamp accepted native = do
+  let invalid message = inventoryError "invalid-data-restart" message
+        & #scopes .~ [scopeId accepted] & (:| [])
+      matches resource = case resource ^. #address of
+        Kubernetes _ "apps" kind (Just ns) nativeName ->
+          nameText kind == "statefulset" && nameText ns == namespaceName
+            && nameText nativeName == name
+        _ -> False
+      selected = [resource | bundle <- scopeBundles accepted,
+        Managed resource <- declarations bundle, matches resource]
+  resource <- case selected of
+    [single] -> Right single
+    _ -> Left (invalid "accepted scope has no unique StatefulSet at the selected address")
+  unless (scopeKind (scopeId accepted) `elem` [Application, Standalone])
+    (Left (invalid "data restart requires an application or standalone scope"))
+  unless (not (T.null stamp) && T.all (>= ' ') stamp)
+    (Left (invalid "restart stamp is invalid"))
+  (bound, bytes) <- maybe (Left (invalid "accepted StatefulSet lacks private native evidence")) Right
+    (Map.lookup (resource ^. #identity) native)
+  unless (bound == resource)
+    (Left (invalid "accepted StatefulSet differs from its private native evidence"))
+  value <- first (invalid . T.pack . show)
+    (Yaml.decodeEither' bytes :: Either Yaml.ParseException Value)
+  canonical <- first invalid (canonicalValue value)
+  case resource ^. #spec of
+    StatefulSet _ _ digest | digest == contentDigest canonical -> pure ()
+    _ -> Left (invalid "accepted StatefulSet native digest differs from its declaration")
+  cluster <- case resource ^. #address of
+    Kubernetes clusterId _ _ _ _ -> Right clusterId
+    _ -> Left (invalid "accepted StatefulSet has no Kubernetes address")
+  changed <- first invalid (stampPodTemplate stamp value)
+  canonicalChanged <- first invalid (canonicalValue changed)
+  (rebound, changedBytes) <- first (:| []) (bindKubernetesObject KubernetesInput
+    { resourceId = resource ^. #identity
+    , ownerScope = resource ^. #owner
+    , clusterId = cluster
+    , inputObject = changed
+    , objectDigest = contentDigest canonicalChanged
+    , lifecyclePolicy = resource ^. #lifecycle
+    , inputDataPolicy = resource ^. #dataPolicy
+    , inputSensitivity = resource ^. #sensitivity
+    , sourceLocation = resource ^. #source
+    })
+  let updated = rebound {dependencies = resource ^. #dependencies}
+  unless ((updated & #spec .~ resource ^. #spec) == resource)
+    (Left (invalid "restart changed StatefulSet data or replica intent"))
+  let replace bundle = bundle & #declarations %~ map (\case
+        Managed member | member ^. #identity == resource ^. #identity -> Managed updated
+        declaration -> declaration)
+      overrides = Map.insert ("operational.restart." <> name) stamp (scopeOverrides accepted)
+  base <- mkScopeDeclaration (scopeId accepted) (map replace (scopeBundles accepted))
+  let revised = withScopeOverrides overrides $ case scopeConfigDigest accepted of
+        Nothing -> base
+        Just digest -> withScopeConfigDigest digest base
+  pure (revised, Map.insert (resource ^. #identity) (updated, changedBytes) native)
+  where
+    stampPodTemplate token (Object root) = do
+      spec <- objectAt "spec" root
+      template <- objectAt "template" spec
+      metadata <- case KM.lookup "metadata" template of
+        Nothing -> Right KM.empty
+        Just (Object fields) -> Right fields
+        _ -> Left "StatefulSet template metadata is not an object"
+      annotations <- case KM.lookup "annotations" metadata of
+        Nothing -> Right KM.empty
+        Just (Object fields) -> Right fields
+        _ -> Left "StatefulSet template annotations are not an object"
+      let stamped = KM.insert "nagare.dev/restartedAt" (String token) annotations
+          newTemplate = KM.insert "metadata" (Object
+            (KM.insert "annotations" (Object stamped) metadata)) template
+      pure (Object (KM.insert "spec" (Object
+        (KM.insert "template" (Object newTemplate) spec)) root))
+    stampPodTemplate _ _ = Left "StatefulSet native evidence is not an object"
+    objectAt key fields = case KM.lookup key fields of
+      Just (Object value) -> Right value
+      _ -> Left "StatefulSet has no required object"
 
 compileStandaloneDatabase
   :: DatabaseDirectInput

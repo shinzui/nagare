@@ -287,7 +287,7 @@ import Nagare.Inventory.Application (ApplicationScopeInput (..), GoogleCdnBindin
 import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteReleaseLog, acceptedSiteSource, compileServerSitePreviewScope, compileServerSiteRollbackScope, compileServerSiteRollbackScopeWithCdn, compileServerSiteRollbackScopeWithCloudflare, compileServerSiteScope, compileServerSiteScopeWithCdn, compileServerSiteScopeWithCloudflare, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteRollbackScopeWithCdn, compileStaticSiteRollbackScopeWithCloudflare, compileStaticSiteScope, compileStaticSiteScopeWithCdn, compileStaticSiteScopeWithCloudflare, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteNativeOwned, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
 import Nagare.Inventory.TaskRun (compileTaskRunScope)
 import Nagare.Inventory.Lifecycle qualified as InventoryLifecycle
-import Nagare.Inventory.DataService (NativeDataKind (..), acceptedFoundationNamespace, brokerNativeOwned, brokerTopicChangeRequiresReview, compileStandaloneBroker, compileStandaloneDatabase, dataCommandNativeOwned, databaseNativeOwned, standaloneRetirementScope)
+import Nagare.Inventory.DataService (NativeDataKind (..), acceptedFoundationNamespace, brokerNativeOwned, brokerTopicChangeRequiresReview, compileStandaloneBroker, compileStandaloneDatabase, compileStatefulSetRestartScope, dataCommandNativeOwned, databaseNativeOwned, standaloneRetirementScope)
 import Nagare.Inventory.Environment (acceptedEnvChannelValues, acceptedSecretChannelValues, compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
 import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
@@ -1069,7 +1069,7 @@ data DbCommand
   | -- | nagarectl db shell NAME [-n NS]
     DbShell DbNameOpts
   | -- | nagarectl db restart NAME [-n NS] [--dry-run]
-    DbRestart DbNameOpts Bool
+    DbRestart DbNameOpts Bool (Maybe FilePath)
   | -- | nagarectl db delete NAME [-n NS] [--yes] [--dry-run]
     DbDelete DbDeleteOpts
   | -- | nagarectl db retire NAME [-n NS] --save-plan DIR
@@ -1089,7 +1089,7 @@ data BrokerCommand
   | -- | nagarectl broker get NAME [-n NS]
     BrokerGet BrokerNameOpts
   | -- | nagarectl broker restart NAME [-n NS] [--dry-run]
-    BrokerRestart BrokerNameOpts Bool
+    BrokerRestart BrokerNameOpts Bool (Maybe FilePath)
   | -- | nagarectl broker delete NAME [-n NS] [--yes] [--dry-run]
     BrokerDelete BrokerDeleteOpts
   | -- | nagarectl broker retire NAME [-n NS] --save-plan DIR
@@ -2874,8 +2874,9 @@ opts =
             <> command
               "restart"
               ( info
-                  (Broker <$> (BrokerRestart <$> brokerNameOptsParser <*> dryRunOpt) <**> helper)
-                  (progDesc "Roll the broker StatefulSet and wait for Ready")
+                  (Broker <$> (BrokerRestart <$> brokerNameOptsParser <*> dryRunOpt
+                    <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed restart of an accepted broker"))) <**> helper)
+                  (progDesc "Roll a legacy broker directly or review an accepted broker restart")
               )
             <> command
               "delete"
@@ -2926,8 +2927,9 @@ opts =
             <> command
               "restart"
               ( info
-                  (Db <$> (DbRestart <$> dbNameOptsParser <*> dryRunOpt) <**> helper)
-                  (progDesc "Roll the database StatefulSet and wait for Ready")
+                  (Db <$> (DbRestart <$> dbNameOptsParser <*> dryRunOpt
+                    <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed restart of an accepted database"))) <**> helper)
+                  (progDesc "Roll a legacy database directly or review an accepted database restart")
               )
             <> command
               "delete"
@@ -8596,9 +8598,10 @@ runBroker mctx = \case
           when (brokerNativeOwned broker (ownedHistoryResources history))
             (dieT "broker objects are owned by accepted or retained inventory history; direct create is refused")
   BrokerGet o -> runBrokerGet (nsOf (o ^. #namespace)) (T.pack (o ^. #name))
-  BrokerRestart o dryRun -> do
-    refuseDirectDataMutationIfOwned mctx BrokerObjects "restart" (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
-    runBrokerRestart (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) dryRun
+  BrokerRestart o dryRun output ->
+    runDataRestart mctx BrokerObjects (T.pack (o ^. #name))
+      (nsOf (o ^. #namespace)) dryRun output
+      (runBrokerRestart (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) dryRun)
   BrokerDelete o ->
     refuseDirectDataMutationIfOwned mctx BrokerObjects "delete" (T.pack (o ^. #name)) (nsOf (o ^. #namespace)) >>
     runBrokerDelete
@@ -8681,9 +8684,10 @@ runDb mctx = \case
   DbShell o -> do
     refuseDirectDataMutationIfOwned mctx DatabaseObjects "shell" (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
     runDbShell (nsOf (o ^. #namespace)) (T.pack (o ^. #name))
-  DbRestart o dry -> do
-    refuseDirectDataMutationIfOwned mctx DatabaseObjects "restart" (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
-    runDbRestart (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) dry
+  DbRestart o dry output ->
+    runDataRestart mctx DatabaseObjects (T.pack (o ^. #name))
+      (nsOf (o ^. #namespace)) dry output
+      (runDbRestart (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) dry)
   DbDelete o ->
     refuseDirectDataMutationIfOwned mctx DatabaseObjects "delete" (T.pack (o ^. #name)) (nsOf (o ^. #namespace)) >>
     runDbDelete
@@ -8706,6 +8710,52 @@ runDb mctx = \case
     runDbRestore (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) (T.pack (o ^. #backupId)) (o ^. #live) backend (o ^. #dryRun)
   where
     nsOf = maybe "personal" T.pack
+
+-- | Accepted data workloads restart from exact private native evidence. A
+-- legacy name can still use the direct command when no companion is claimed.
+runDataRestart :: Maybe String -> NativeDataKind -> Text -> Text -> Bool
+  -> Maybe FilePath -> IO () -> IO ()
+runDataRestart mctx kind name namespaceName dryRun output legacy = do
+  owned <- withAcceptedInventoryHistoryResult mctx "data restart" False $ \history ->
+    pure (dataCommandNativeOwned kind name namespaceName
+      (ownedHistoryResources history))
+  if owned || isJust output
+    then do
+      when dryRun (dieT "accepted data restart requires a review; use --save-plan to inspect it")
+      active <- activeTarget mctx
+      (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+      snapshot <- Inventory.loadTargetSnapshot active
+      let selected = [scope | (_, scope) <- Map.elems (ResourceInventory.snapshotScopes snapshot),
+            bundle <- ResourceInventory.scopeBundles scope,
+            ResourceInventory.Managed resource <- ResourceInventory.declarations bundle,
+            case resource ^. #address of
+              Resource.Kubernetes _ "apps" resourceKind (Just ns) nativeName ->
+                Resource.nameText resourceKind == "statefulset"
+                  && Resource.nameText ns == namespaceName
+                  && Resource.nameText nativeName == name
+              _ -> False]
+      scope <- case selected of
+        [single] -> pure single
+        _ -> dieT "reviewed data restart requires one accepted StatefulSet scope"
+      store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+      history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
+      acceptedInventory <- either (dieT . T.pack . show) pure
+        (ResourceInventory.composeSnapshot snapshot)
+      (acceptedNative, _) <- InventoryStatus.loadAcceptedNative store history acceptedInventory
+        >>= either dieT pure
+      stamp <- currentTimestamp
+      (revised, native) <- either (dieT . T.pack . show) pure
+        (compileStatefulSetRestartScope name namespaceName stamp scope acceptedNative)
+      candidate <- either (dieT . T.pack . show) pure
+        (ResourceInventory.composeInventory snapshot
+          (ResourceInventory.ReplaceScope revised NE.:| []))
+      case output of
+        Nothing -> Inventory.convergeInventoryCandidateWith
+          (inventoryPlanRegistryWithNative active workspace native)
+          (inventoryExecutionRegistry mctx) active candidate
+        Just directory -> Inventory.planInventoryCandidateWith
+          (inventoryPlanRegistryWithNative active workspace native) active candidate directory
+    else legacy
 
 runDbCreatePlan :: Maybe String -> Engine -> Text -> DbCreateParams
   -> Maybe String -> Maybe String -> Maybe FilePath -> IO ()

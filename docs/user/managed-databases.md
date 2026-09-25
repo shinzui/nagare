@@ -173,6 +173,19 @@ nagarectl db create postgres pg-main \
   --recovery-key-version v1
 ```
 
+`db restart` uses a reviewed scope update when the StatefulSet is accepted in
+inventory. It changes the pod template restart annotation while carrying forward
+the accepted credential, PVC, Service, and backup declarations. The command
+applies its immutable review in one invocation, or saves it for separate apply:
+
+```bash
+nagarectl db restart pg-main --save-plan ./pg-main-restart
+nagarectl inventory apply ./pg-main-restart --yes
+```
+
+An accepted database refuses `db restart --dry-run`; use `--save-plan` to inspect
+the actual update. A legacy database still uses the direct restart command.
+
 To retire a database already accepted into a standalone inventory scope, review
 the retirement separately:
 
