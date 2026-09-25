@@ -646,6 +646,7 @@ data SiteDeployOpts = SiteDeployOpts
   , siteEnvSecretResources :: ![String]
   , siteTlsSecretResources :: ![String]
   , sitePreviewEnvResources :: ![String]
+  , sitePreviewAdoptionInput :: !(Maybe FilePath)
   , legacyReleaseImport :: !(Maybe FilePath)
   , releaseAdoptionInput :: !(Maybe FilePath)
   }
@@ -1665,6 +1666,7 @@ siteDeployOptsParser defaultFile =
     <*> many (strOption (long "env-secret-resource" <> metavar "RESOURCE-ID" <> help "Accepted runtime Secret dependency for reviewed server sites"))
     <*> many (strOption (long "tls-secret-resource" <> metavar "RESOURCE-ID" <> help "Accepted supplied-TLS Secret dependency for reviewed site domains"))
     <*> many (strOption (long "preview-env-resource" <> metavar "RESOURCE-ID" <> help "Accepted Runtime/Preview environment store for reviewed static preview"))
+    <*> optional (strOption (long "preview-adoption-input" <> metavar "FILE" <> help "Exact-incarnation adoption proposal for an existing direct preview"))
     <*> optional (strOption (long "legacy-release-import" <> metavar "FILE" <> help "Legacy site release ConfigMap JSON for exact adoption"))
     <*> optional (strOption (long "release-adoption-input" <> metavar "FILE" <> help "Versioned exact-incarnation adoption proposal"))
 
@@ -6906,6 +6908,7 @@ runSiteDeploy mctx sopts = do
                 || not (null (sopts ^. #siteEnvSecretResources))
                 || not (null (sopts ^. #siteTlsSecretResources))
                 || not (null (sopts ^. #sitePreviewEnvResources))
+                || isJust (sopts ^. #sitePreviewAdoptionInput)
                 || isJust (sopts ^. #legacyReleaseImport)
                 || isJust (sopts ^. #releaseAdoptionInput))
               (dieT "static-site inventory options require --save-plan")
@@ -6925,6 +6928,7 @@ runSiteDeploy mctx sopts = do
                 || not (null (sopts ^. #siteEnvSecretResources))
                 || not (null (sopts ^. #siteTlsSecretResources))
                 || not (null (sopts ^. #sitePreviewEnvResources))
+                || isJust (sopts ^. #sitePreviewAdoptionInput)
                 || isJust (sopts ^. #legacyReleaseImport)
                 || isJust (sopts ^. #releaseAdoptionInput))
               (dieT "server-site inventory options require --save-plan")
@@ -6996,6 +7000,8 @@ runReviewedSiteDeployPlan
 runReviewedSiteDeployPlan mctx options siteName ns imageName url tag compile importLegacy output = do
   unless (null (options ^. #sitePreviewEnvResources))
     (dieT "production site review has no preview environment resources")
+  when (isJust (options ^. #sitePreviewAdoptionInput))
+    (dieT "production site review has no preview adoption input")
   case (options ^. #legacyReleaseImport, options ^. #releaseAdoptionInput) of
     (Nothing, Nothing) -> pure ()
     (Just _, Just _) -> pure ()
@@ -7370,7 +7376,8 @@ runPreviewDeploy mctx sopts pname = do
     Just output -> runReviewedStaticPreviewPlan mctx tp sopts site bd pname output
     Nothing -> do
       when (isJust (sopts ^. #imageResource)
-          || not (null (sopts ^. #sitePreviewEnvResources)))
+          || not (null (sopts ^. #sitePreviewEnvResources))
+          || isJust (sopts ^. #sitePreviewAdoptionInput))
         (dieT "site preview inventory resources require --save-plan")
       imageTag <- resolveTag (sopts ^. #tag)
       let inputs = siteDeployInputs tp sopts site imageTag bd
@@ -7421,8 +7428,19 @@ runReviewedStaticPreviewPlan mctx tp options original bd pname output = do
       dependencies source)
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
-  Inventory.planInventoryCandidateWith
-    (inventoryPlanRegistryWithNative active workspace native) active candidate output
+  case options ^. #sitePreviewAdoptionInput of
+    Nothing -> Inventory.planInventoryCandidateWith
+      (inventoryPlanRegistryWithNative active workspace native) active candidate output
+    Just proposalFile -> do
+      proposalBytes <- (try (BS.readFile proposalFile) :: IO (Either IOException ByteString))
+        >>= either (dieT . T.pack . show) pure
+      proposal <- either dieT pure (InventoryLifecycle.decodeAdoptionInput proposalBytes)
+      unless (InventoryLifecycle.adoptionCandidateDirectory proposal == ".")
+        (dieT "inline preview adoption requires candidate '.' in its proposal")
+      validateInlinePreviewAdoption scope proposal
+      Inventory.planInventoryCandidateAdoptionWith
+        (inventoryPlanRegistryWithNative active workspace native)
+        active candidate proposal output
 
 -- | @site preview list@: list the site's preview Service names.
 runPreviewList :: SiteCommonOpts -> IO ()
@@ -7698,6 +7716,19 @@ validateInlineReleaseAdoption scope releaseName proposal = do
   unless (any ((== releaseMember ^. #identity) . InventoryLifecycle.adoptionResource) proposed)
     (dieT ("legacy import proposal must adopt the unowned release resource "
       <> Resource.resourceIdText (releaseMember ^. #identity)))
+
+validateInlinePreviewAdoption
+  :: ResourceInventory.ScopeDeclaration -> InventoryLifecycle.AdoptionInput -> IO ()
+validateInlinePreviewAdoption scope proposal = do
+  let managedIds = Set.fromList
+        [member ^. #identity | bundle <- ResourceInventory.scopeBundles scope,
+          ResourceInventory.Managed member <- ResourceInventory.declarations bundle]
+      proposed = InventoryLifecycle.adoptionTargets proposal
+      targetIds = map InventoryLifecycle.adoptionResource proposed
+  unless (not (null proposed) && Set.size (Set.fromList targetIds) == length proposed
+      && all (\target -> InventoryLifecycle.adoptionResource target `Set.member` managedIds
+        && isNothing (InventoryLifecycle.adoptionPreviousOwner target)) proposed)
+    (dieT "preview adoption can target only distinct unowned resources in its selected scope")
 
 toAppDeployParams :: TargetProfile -> AppDeployOpts -> AppDeployParams
 toAppDeployParams tp o =

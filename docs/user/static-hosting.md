@@ -331,7 +331,13 @@ nagarectl inventory apply preview-review --yes
 
 The review owns the preview Service and DomainMapping in a separate scope. It
 refuses missing or differently addressed stores, an unaccepted image, and a
-direct preview already present without adoption. To remove a reviewed preview,
+direct preview already present without adoption. For an existing direct
+preview, prepare a versioned adoption proposal with `candidate` set to `"."`
+and each present member's exact address, UID, and resourceVersion. Pass
+`--preview-adoption-input FILE` with the saved deploy command. The proposal
+can adopt only unowned members of that preview scope.
+
+To remove a reviewed preview,
 retire its scope, then separately review exact collection of its retained
 Service and DomainMapping:
 
