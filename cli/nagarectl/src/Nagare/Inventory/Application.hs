@@ -26,6 +26,8 @@ module Nagare.Inventory.Application
   , acceptedBrokerBindings
   , AccessBinding (..)
   , GoogleCdnBinding (..)
+  , CloudflareCdnBinding (..)
+  , ReviewedCdnBinding (..)
   , acceptedAccessBinding
   , acceptedApplicationReleaseLog
   , acceptedStandaloneReleaseLog
@@ -63,7 +65,7 @@ import Nagare.Broker.Connection (BrokerConn (..), brokerConnectionEnv, mergeBrok
 import Nagare.Dsl.Application (Application (..), mkApplication)
 import Nagare.Dsl.Application qualified as DslApp
 import Nagare.Dsl.Config (encodeApplication, encodeDeployment, encodeWorker)
-import Nagare.Dsl.Cdn.Types (Cdn (..), CdnProvider (GcpCloudCdn))
+import Nagare.Dsl.Cdn.Types (Cdn (..), CdnProvider (CloudflareCdn, GcpCloudCdn))
 import Nagare.Dsl.Access (AccessRole (..))
 import Nagare.Dsl.Broker (BrokerBinding (..), BrokerName, BrokerProvider (Redpanda), TopicName, brokerNameText, topicNameText)
 import Nagare.Database.Connection (ConnIdentity (..), connectionEnv, mergeConnectionEnvs)
@@ -86,7 +88,7 @@ import Nagare.Inventory.Adapters.KubernetesRuntime (databaseCredentialKind)
 import Nagare.Static.Release (StaticRelease (..), StaticReleaseLog (..), addRelease, emptyReleaseLog, extractReleaseLog, findRelease, renderReleaseConfigMapWith)
 import Nagare.Resource.Application (applicationScopeId, deploymentResourceId, domainMappingResourceId, taskResourceId, volumeResourceId, workerResourceId)
 import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
-import Nagare.Resource.Cdn (compileGoogleDnsRecord)
+import Nagare.Resource.Cdn (compileGoogleDnsRecord, compileCloudflareDnsRecord, compileCloudflareCacheContribution)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
 import Nagare.Resource.Policy (DataPolicy (..), LifecyclePolicy (..), RecoveryClass (VerifyBeforeRetry), Sensitivity (Private))
@@ -614,6 +616,17 @@ data GoogleCdnBinding = GoogleCdnBinding
   , googleCdnBackend :: !Declaration
   } deriving stock (Eq, Show)
 
+data CloudflareCdnBinding = CloudflareCdnBinding
+  { cloudflareCdnZone :: !Name
+  , cloudflareCdnOwner :: !ScopeId
+  , cloudflareCdnOriginIp :: !T.Text
+  } deriving stock (Eq, Show)
+
+data ReviewedCdnBinding
+  = GoogleCdnBindingFor !GoogleCdnBinding
+  | CloudflareCdnBindingFor !CloudflareCdnBinding
+  deriving stock (Eq, Show)
+
 data ApplicationScopeInput = ApplicationScopeInput
   { scopeApplication :: !Application
   , scopeRollout :: !RolloutEnv
@@ -627,7 +640,7 @@ data ApplicationScopeInput = ApplicationScopeInput
   , scopeBrokerServices :: !(Map BrokerName Declaration)
   , scopeBrokerTopics :: !(Map BrokerName (Map TopicName Declaration))
   , scopeAccessBinding :: !(Maybe AccessBinding)
-  , scopeCdnBinding :: !(Maybe GoogleCdnBinding)
+  , scopeCdnBinding :: !(Maybe ReviewedCdnBinding)
   , scopeDatabaseRecovery :: !(Map DatabaseName RecoveryIntent)
   , scopeServiceVolumeRecovery :: !(Map VolumeName RecoveryIntent)
   , scopeTlsSecrets :: !(Map SecretName Declaration)
@@ -881,17 +894,30 @@ compileApplicationScope input = do
   let overrides = scopeInputOverrides input
       rollout = scopeRollout input
   unless (Map.keysSet overrides `Set.isSubsetOf`
-      Set.fromList ["tag", "baseDomain", "imageResource", "requestNamespace", "cdnBackendResource", "cdnTarget"]
+      Set.fromList ["tag", "baseDomain", "imageResource", "requestNamespace", "cdnBackendResource", "cdnTarget", "cdnZone", "cdnOriginIp"]
       && Map.lookup "tag" overrides == Just (rollout ^. #imageTag)
       && Map.lookup "imageResource" overrides == Just (resourceIdText (scopeImage input))
       && maybe True (== rollout ^. #baseDomain) (Map.lookup "baseDomain" overrides)
       && Map.lookup "requestNamespace" overrides
         == (if isJust (scopeNamespaceContributionOwner input) then Just "true" else Nothing)
       && Map.lookup "cdnBackendResource" overrides
-        == (resourceIdText . (^. #identity) <$> (scopeCdnBinding input >>= \binding ->
-          case googleCdnBackend binding of Managed resource -> Just resource; _ -> Nothing))
+        == (resourceIdText . (^. #identity) <$> (scopeCdnBinding input >>= \case
+          GoogleCdnBindingFor binding -> case googleCdnBackend binding of
+            Managed resource -> Just resource
+            _ -> Nothing
+          _ -> Nothing))
       && Map.lookup "cdnTarget" overrides
-        == (globalIp . googleCdnRefs <$> scopeCdnBinding input))
+        == (globalIp . googleCdnRefs <$> (scopeCdnBinding input >>= \case
+          GoogleCdnBindingFor binding -> Just binding
+          _ -> Nothing))
+      && Map.lookup "cdnZone" overrides
+        == (nameText . cloudflareCdnZone <$> (scopeCdnBinding input >>= \case
+          CloudflareCdnBindingFor binding -> Just binding
+          _ -> Nothing))
+      && Map.lookup "cdnOriginIp" overrides
+        == (cloudflareCdnOriginIp <$> (scopeCdnBinding input >>= \case
+          CloudflareCdnBindingFor binding -> Just binding
+          _ -> Nothing)))
     (Left (invalid "application command overrides differ from reviewed rollout inputs"))
   let brokerEnvFor bindings = do
         envs <- traverse (\binding -> do
@@ -943,9 +969,9 @@ compileApplicationScope input = do
   requiredEnvSecrets <- first invalid (runtimeSecretNames envValues)
   case (app ^. #service >>= (^. #cdn), scopeCdnBinding input) of
     (Nothing, Nothing) -> pure ()
-    (Just cdn, Just binding) -> do
+    (Just cdn, Just (GoogleCdnBindingFor binding)) -> do
       unless (cdn ^. #provider == GcpCloudCdn)
-        (Left (invalid "reviewed Cloudflare CDN requires its own DNS and shared-rules owner"))
+        (Left (invalid "Google CDN intent requires a Google backend binding"))
       let refs = googleCdnRefs binding
           hosts = maybe [] (map (domainText . (^. #domain)) . (^. #domains)) (app ^. #service)
           target = CdnTarget hosts "" (namespaceText (app ^. #namespace))
@@ -962,7 +988,14 @@ compileApplicationScope input = do
               [urn | PulumiUrn urn <- backend ^. #address : backend ^. #aliases])
           (Left (invalid "CDN backend is not an accepted platform Pulumi BackendService"))
         _ -> Left (invalid "CDN backend is not an accepted managed platform resource")
-    _ -> Left (invalid "service CDN requires exactly one typed Google backend binding")
+    (Just cdn, Just (CloudflareCdnBindingFor binding)) -> do
+      unless (cdn ^. #provider == CloudflareCdn)
+        (Left (invalid "Cloudflare CDN intent requires a Cloudflare zone binding"))
+      unless (scopeKind (cloudflareCdnOwner binding) == Platform
+          && validDnsIpv4 (cloudflareCdnOriginIp binding)
+          && maybe False (not . null . (^. #domains)) (app ^. #service))
+        (Left (invalid "Cloudflare CDN requires a platform zone owner, origin IPv4, and hostnames"))
+    _ -> Left (invalid "service CDN requires exactly one matching typed binding")
   owner <- first invalid (applicationScopeId app)
   namespaceContribution <- case scopeNamespaceContributionOwner input of
     Nothing -> Right Nothing
@@ -1018,7 +1051,7 @@ compileApplicationScope input = do
       (scopeServiceVolumeRecovery input) (scopeTlsSecrets input) envSecrets source
   cdnBundles <- case (app ^. #service >>= (^. #cdn), scopeCdnBinding input) of
     (Nothing, Nothing) -> Right []
-    (Just _, Just binding) -> do
+    (Just _, Just (GoogleCdnBindingFor binding)) -> do
       let refs = googleCdnRefs binding
           backendId = declarationId (googleCdnBackend binding)
           domains = maybe [] (^. #domains) (app ^. #service)
@@ -1031,6 +1064,20 @@ compileApplicationScope input = do
         host <- first invalid (mkName (domainText (domain ^. #domain)))
         compileGoogleDnsRecord owner key project zone host (refs ^. #globalIp)
           domainId backendId source) domains
+    (Just cdn, Just (CloudflareCdnBindingFor binding)) -> do
+      let zone = cloudflareCdnZone binding
+          ruleset = cloudflareRulesResourceId (cloudflareCdnOwner binding) zone
+          domains = maybe [] (^. #domains) (app ^. #service)
+      fmap concat $ traverse (\domain -> do
+        domainId <- first invalid (domainMappingResourceId owner domain)
+        key <- first invalid (maybe (mkLogicalKey (domainText (domain ^. #domain))) Right
+          (domain ^. #logicalKey))
+        host <- first invalid (mkName (domainText (domain ^. #domain)))
+        cache <- compileCloudflareCacheContribution owner (cloudflareCdnOwner binding)
+          zone host cdn domainId source
+        dns <- compileCloudflareDnsRecord owner key zone host
+          (cloudflareCdnOriginIp binding) domainId ruleset source
+        pure [cache, dns]) domains
     _ -> Left (invalid "CDN input is incomplete")
   (workerBundles, workerNative) <- compileApplicationWorkers scopedApp (scopeRollout input)
     (scopeCluster input) (scopeNamespace input) (scopeImage input)
@@ -1084,8 +1131,10 @@ compileApplicationScope input = do
       claims = [claim | bundle <- bundles, declaration <- declarations bundle
         , (_, claim) <- NE.toList (claimsOf declaration)
         , not (case declaration of
-            Managed resource | DnsRecord _ _ host <- resource ^. #address ->
-              claim == canonicalClaim (Hostname host)
+            Managed resource -> case resource ^. #address of
+              DnsRecord _ _ host -> claim == canonicalClaim (Hostname host)
+              CloudflareDnsRecord _ host -> claim == canonicalClaim (Hostname host)
+              _ -> False
             _ -> False)]
   configDigest <- first invalid (configDigestOf (encodeApplication app))
   scope <- withScopeOverrides (scopeInputOverrides input)

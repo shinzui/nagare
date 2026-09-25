@@ -206,8 +206,8 @@ import Nagare.Gcp.Adc
 import Nagare.GhcEnv (findGhcEnvIn)
 import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteSource, compileServerSitePreviewScope, compileServerSiteRollbackScope, compileServerSiteScope, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteScope, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteNativeOwned, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
 import Nagare.Inventory.Environment (compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel)
-import Nagare.Inventory.Site (compileServerSiteScopeWithCdn, compileStaticSiteRollbackScopeWithCdn, compileStaticSiteScopeWithCdn)
-import Nagare.Inventory.Application (GoogleCdnBinding (..))
+import Nagare.Inventory.Site (compileServerSiteScopeWithCdn, compileServerSiteScopeWithCloudflare, compileServerSiteRollbackScopeWithCloudflare, compileStaticSiteRollbackScopeWithCdn, compileStaticSiteScopeWithCdn, compileStaticSiteScopeWithCloudflare, compileStaticSiteRollbackScopeWithCloudflare)
+import Nagare.Inventory.Application (GoogleCdnBinding (..), CloudflareCdnBinding (..))
 import Nagare.Image (DockerAuth (..), dockerAuthPlan, dockerBuildArgs, nixpacksBuildArgs, qualifyImage)
 import Nagare.Infra.Plan
   ( CurrentInfraIdentity (..)
@@ -3947,6 +3947,24 @@ staticInventoryTests =
             member ^. #executor == InventoryModel.CdnExecutor]
       length dnsMembers @?= 1
       Map.size cdnNative @?= Map.size native
+      let cloudflareSite = site & #cdn .~ Just cloudflareCdn
+          cloudflareInputs = inputs & #site .~ cloudflareSite
+          cloudflareBinding = CloudflareCdnBinding
+            (unsafe (Resource.mkName "zone-id")) cdnOwner "203.0.113.5"
+      (cloudflareScope, cloudflareNative) <- either (fail . show) pure
+        (compileStaticSiteScopeWithCloudflare cloudflareBinding cloudflareInputs
+          cluster namespaceId imageId Map.empty emptyReleaseLog release source)
+      let cloudflareDns = [member | bundle <- scopeBundles cloudflareScope,
+            Managed member <- declarations bundle,
+            member ^. #spec == InventoryModel.CloudflareProxiedARecord "203.0.113.5"]
+          cloudflareCache = [request | bundle <- scopeBundles cloudflareScope,
+            request@InventoryModel.RegisterCloudflareCache {} <- contributions bundle]
+      length cloudflareDns @?= 1
+      length cloudflareCache @?= 1
+      Map.keysSet cloudflareNative @?= Map.keysSet native
+      assertBool "site accepted a Cloudflare binding for Google CDN intent"
+        (isLeft (compileStaticSiteScopeWithCloudflare cloudflareBinding cdnInputs
+          cluster namespaceId imageId Map.empty emptyReleaseLog release source))
       assertBool "site CDN without a typed owner must refuse"
         (isLeft (compileStaticSiteScope cdnInputs cluster namespaceId imageId
           Map.empty emptyReleaseLog release source))
@@ -4019,6 +4037,14 @@ staticInventoryTests =
         (any (\bundle -> any (\case
           Managed member -> member ^. #executor == InventoryModel.CdnExecutor
           _ -> False) (declarations bundle)) (scopeBundles cdnRollbackScope))
+      (cloudflareRollback, _) <- either (fail . show) pure
+        (compileStaticSiteRollbackScopeWithCloudflare cloudflareBinding
+          (cloudflareInputs & #imageTag .~ "v0") cluster namespaceId imageId
+          Map.empty oldLog older source)
+      assertBool "Cloudflare rollback lost its DNS declaration"
+        (any (\bundle -> any (\case
+          Managed member -> member ^. #spec == InventoryModel.CloudflareProxiedARecord "203.0.113.5"
+          _ -> False) (declarations bundle)) (scopeBundles cloudflareRollback))
       assertBool "rollback invented a release outside accepted history"
         (isLeft (compileStaticSiteRollbackScope (inputs & #imageTag .~ "v2")
           cluster namespaceId imageId Map.empty oldLog
@@ -4213,6 +4239,19 @@ staticInventoryTests =
       Map.size native @?= 3
       length [member | bundle <- scopeBundles scope, Managed member <- declarations bundle]
         @?= 3
+      let cloudflareOwner = unsafe (Resource.mkScopeId Resource.Platform "cdn")
+          cloudflareBinding = CloudflareCdnBinding
+            (unsafe (Resource.mkName "zone-id")) cloudflareOwner "203.0.113.5"
+          cloudflareInputs = inputs & #site . #cdn .~ Just cloudflareCdn
+      (cloudflareScope, _) <- either (fail . show) pure
+        (compileServerSiteScopeWithCloudflare cloudflareBinding cloudflareInputs
+          cluster namespaceId imageId Map.empty Map.empty Map.empty
+          emptyReleaseLog release source)
+      length [member | bundle <- scopeBundles cloudflareScope,
+        Managed member <- declarations bundle,
+        member ^. #spec == InventoryModel.CloudflareProxiedARecord "203.0.113.5"] @?= 1
+      length [request | bundle <- scopeBundles cloudflareScope,
+        request@InventoryModel.RegisterCloudflareCache {} <- contributions bundle] @?= 1
       let older = release {releaseId = "v0", imageTag = "v0",
             createdAt = UTCTime (fromGregorian 2026 9 23) 0}
           oldLog = addRelease release (addRelease older emptyReleaseLog)
@@ -4226,6 +4265,13 @@ staticInventoryTests =
       (_, rollbackHistoryBytes) <- maybe (fail "missing server rollback history") pure
         (Map.lookup historyId rollbackNative)
       extractReleaseLog rollbackHistoryBytes @?= Right (oldLog & #current .~ Just "v0")
+      (cloudflareRollback, _) <- either (fail . show) pure
+        (compileServerSiteRollbackScopeWithCloudflare cloudflareBinding
+          (cloudflareInputs & #imageTag .~ "v0") cluster namespaceId imageId
+          Map.empty Map.empty Map.empty oldLog older source)
+      length [member | bundle <- scopeBundles cloudflareRollback,
+        Managed member <- declarations bundle,
+        member ^. #spec == InventoryModel.CloudflareProxiedARecord "203.0.113.5"] @?= 1
       legacyServerSiteReleaseImport site "v1"
         (renderReleaseConfigMap "demo" "personal" (addRelease release emptyReleaseLog))
         @?= Right (addRelease release emptyReleaseLog, release)

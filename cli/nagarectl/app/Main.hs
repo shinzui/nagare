@@ -283,8 +283,8 @@ import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.Application (ApplicationScopeInput (..), GoogleCdnBinding (..), DatabaseBinding, acceptedAccessBinding, acceptedApplicationImage, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationDeployment, compileStandaloneServiceWithRelease, compileStandaloneWorkerWithDependencies, databaseRecoveryBindings, hostnameClaimOwned, legacyApplicationReleaseImport, legacyStandaloneReleaseImport, nativeWorkloadOwned, recordReviewedStandaloneOverrides, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
-import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteReleaseLog, acceptedSiteSource, compileServerSitePreviewScope, compileServerSiteRollbackScope, compileServerSiteRollbackScopeWithCdn, compileServerSiteScope, compileServerSiteScopeWithCdn, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteRollbackScopeWithCdn, compileStaticSiteScope, compileStaticSiteScopeWithCdn, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteNativeOwned, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), GoogleCdnBinding (..), CloudflareCdnBinding (..), ReviewedCdnBinding (..), DatabaseBinding, acceptedAccessBinding, acceptedApplicationImage, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationDeployment, compileStandaloneServiceWithRelease, compileStandaloneWorkerWithDependencies, databaseRecoveryBindings, hostnameClaimOwned, legacyApplicationReleaseImport, legacyStandaloneReleaseImport, nativeWorkloadOwned, recordReviewedStandaloneOverrides, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
+import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteReleaseLog, acceptedSiteSource, compileServerSitePreviewScope, compileServerSiteRollbackScope, compileServerSiteRollbackScopeWithCdn, compileServerSiteRollbackScopeWithCloudflare, compileServerSiteScope, compileServerSiteScopeWithCdn, compileServerSiteScopeWithCloudflare, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteRollbackScopeWithCdn, compileStaticSiteRollbackScopeWithCloudflare, compileStaticSiteScope, compileStaticSiteScopeWithCdn, compileStaticSiteScopeWithCloudflare, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteNativeOwned, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
 import Nagare.Inventory.TaskRun (compileTaskRunScope)
 import Nagare.Inventory.Lifecycle qualified as InventoryLifecycle
 import Nagare.Inventory.DataService (NativeDataKind (..), acceptedFoundationNamespace, brokerNativeOwned, brokerTopicChangeRequiresReview, compileStandaloneBroker, compileStandaloneDatabase, dataCommandNativeOwned, databaseNativeOwned, standaloneRetirementScope)
@@ -7202,7 +7202,8 @@ runStaticSiteDeployPlan mctx tp options site bd output = do
     (\cdn _ tls cluster namespaceId imageId ->
       case cdn of
         Nothing -> compileStaticSiteScope inputs cluster namespaceId imageId tls
-        Just binding -> compileStaticSiteScopeWithCdn binding inputs cluster namespaceId imageId tls)
+        Just (GoogleCdnBindingFor binding) -> compileStaticSiteScopeWithCdn binding inputs cluster namespaceId imageId tls
+        Just (CloudflareCdnBindingFor binding) -> compileStaticSiteScopeWithCloudflare binding inputs cluster namespaceId imageId tls)
     (legacyStaticSiteReleaseImport site) output
 
 runServerSiteDeployPlan
@@ -7227,7 +7228,8 @@ runServerSiteDeployPlan mctx tp options original bd output = do
     (\cdn bindings tls cluster namespaceId imageId ->
       case cdn of
         Nothing -> compileServerSiteScope inputs cluster namespaceId imageId recovery bindings tls
-        Just binding -> compileServerSiteScopeWithCdn binding inputs cluster namespaceId imageId recovery bindings tls)
+        Just (GoogleCdnBindingFor binding) -> compileServerSiteScopeWithCdn binding inputs cluster namespaceId imageId recovery bindings tls
+        Just (CloudflareCdnBindingFor binding) -> compileServerSiteScopeWithCloudflare binding inputs cluster namespaceId imageId recovery bindings tls)
     (legacyServerSiteReleaseImport site) output
 
 reviewedSiteTag :: SiteDeployOpts -> IO Text
@@ -7239,7 +7241,7 @@ reviewedSiteTag options = do
 
 runReviewedSiteDeployPlan
   :: Maybe String -> SiteDeployOpts -> Text -> Text -> Text -> Text -> Text -> Maybe Cdn
-  -> (Maybe GoogleCdnBinding
+  -> (Maybe ReviewedCdnBinding
       -> Map.Map SecretName ResourceInventory.Declaration
       -> Map.Map SecretName ResourceInventory.Declaration
       -> Resource.ResourceId -> Resource.ResourceId -> Resource.ResourceId
@@ -7265,7 +7267,7 @@ runReviewedSiteDeployPlan mctx options siteName ns imageName url tag cdnIntent c
   active <- activeTarget mctx
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   snapshot <- Inventory.loadTargetSnapshot active
-  cdnBinding <- reviewedGoogleCdnBinding active workspace snapshot cdnIntent
+  cdnBinding <- reviewedCdnBinding active workspace snapshot cdnIntent
     (options ^. #cdnBackendResource)
   secretIds <- traverse (either dieT pure . Resource.mkResourceId . T.pack)
     (options ^. #siteEnvSecretResources)
@@ -7494,6 +7496,34 @@ reviewedGoogleCdnBinding active workspace snapshot intent rawBackend =
       pure (Just (GoogleCdnBinding refs backend))
     _ -> dieT "reviewed CDN intent and --cdn-backend-resource must be supplied together"
 
+reviewedCdnBinding
+  :: ActiveTarget -> PlatformWorkspace -> ResourceInventory.ScopeSnapshot
+  -> Maybe Cdn -> Maybe String -> IO (Maybe ReviewedCdnBinding)
+reviewedCdnBinding active workspace snapshot intent rawBackend = case intent of
+  Just cdn | cdn ^. #provider == CloudflareCdn -> do
+    when (isJust rawBackend)
+      (dieT "Cloudflare CDN uses an accepted zone grant, not --cdn-backend-resource")
+    guardInputs <- projectGuardInputsFor (active ^. #contextName) (active ^. #profile) workspace
+    either dieT pure (projectGuardVerdict guardInputs)
+    rawZone <- lookupEnv "CF_ZONE_ID" >>= maybe
+      (dieT "reviewed Cloudflare CDN requires CF_ZONE_ID") (pure . T.pack)
+    zone <- either dieT pure (Resource.mkName rawZone)
+    let owners = [ResourceInventory.scopeId scope
+          | (_, scope) <- Map.elems (ResourceInventory.snapshotScopes snapshot)
+          , bundle <- ResourceInventory.scopeBundles scope
+          , ResourceInventory.CloudflareZoneGrant grantedZone _ <- ResourceInventory.grants bundle
+          , grantedZone == zone]
+    owner <- case owners of
+      [single] | Resource.scopeKind single == Resource.Platform -> pure single
+      _ -> dieT "Cloudflare zone must have exactly one accepted platform grant matching CF_ZONE_ID"
+    originIp <- maybe (dieT "reviewed Cloudflare CDN requires the platform publicIp stack output") pure
+      =<< stackOutput (workspace ^. #pulumiDir) "publicIp"
+    unless (ResourceInventory.validDnsIpv4 originIp)
+      (dieT "reviewed Cloudflare CDN requires an IPv4 platform publicIp stack output")
+    pure (Just (CloudflareCdnBindingFor (CloudflareCdnBinding zone owner originIp)))
+  _ -> fmap (fmap GoogleCdnBindingFor)
+    (reviewedGoogleCdnBinding active workspace snapshot intent rawBackend)
+
 -- | The custom-domain hostnames of a site (in declaration order) — the hostnames
 -- a CDN fronts.
 siteHostnames :: [DomainSpec] -> [Text]
@@ -7584,7 +7614,7 @@ runReviewedSiteRollbackPlan mctx tp options config bd rid output = do
   let cdnIntent = case config of
         Load.SiteStatic site -> site ^. #cdn
         Load.SiteServer site -> site ^. #cdn
-  cdnBinding <- reviewedGoogleCdnBinding active workspace snapshot cdnIntent
+  cdnBinding <- reviewedCdnBinding active workspace snapshot cdnIntent
     (options ^. #cdnBackendResource)
   (cluster, namespaceId) <- either dieT pure (acceptedFoundationNamespace snapshot ns)
   store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
@@ -7616,7 +7646,9 @@ runReviewedSiteRollbackPlan mctx tp options config bd rid output = do
       either (dieT . T.pack . show) pure $ case cdnBinding of
         Nothing -> compileStaticSiteRollbackScope inputs cluster namespaceId imageId
           tlsSecrets prior release source
-        Just binding -> compileStaticSiteRollbackScopeWithCdn binding inputs
+        Just (GoogleCdnBindingFor binding) -> compileStaticSiteRollbackScopeWithCdn binding inputs
+          cluster namespaceId imageId tlsSecrets prior release source
+        Just (CloudflareCdnBindingFor binding) -> compileStaticSiteRollbackScopeWithCloudflare binding inputs
           cluster namespaceId imageId tlsSecrets prior release source
     Load.SiteServer original -> do
       qualifiedImage <- either dieT pure (qualifyImage tp (original ^. #image))
@@ -7629,7 +7661,9 @@ runReviewedSiteRollbackPlan mctx tp options config bd rid output = do
       either (dieT . T.pack . show) pure $ case cdnBinding of
         Nothing -> compileServerSiteRollbackScope inputs cluster namespaceId imageId
           recovery envSecrets tlsSecrets prior release source
-        Just binding -> compileServerSiteRollbackScopeWithCdn binding inputs
+        Just (GoogleCdnBindingFor binding) -> compileServerSiteRollbackScopeWithCdn binding inputs
+          cluster namespaceId imageId recovery envSecrets tlsSecrets prior release source
+        Just (CloudflareCdnBindingFor binding) -> compileServerSiteRollbackScopeWithCloudflare binding inputs
           cluster namespaceId imageId recovery envSecrets tlsSecrets prior release source
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
@@ -7969,7 +8003,7 @@ runAppDeployPlan mctx params appOptions output = do
   active <- activeTarget mctx
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   snapshot <- Inventory.loadTargetSnapshot active
-  cdnBinding <- reviewedGoogleCdnBinding active workspace snapshot
+  cdnBinding <- reviewedCdnBinding active workspace snapshot
     (app ^. #service >>= (^. #cdn)) (appOptions ^. #cdnBackendResource)
   let appNamespaceName = namespaceText (app ^. #namespace)
   (cluster, namespaceId, namespaceOwner) <-
@@ -8083,9 +8117,13 @@ runAppDeployPlan mctx params appOptions output = do
               <> [("baseDomain", T.pack selected) | selected <- maybe [] pure (appOptions ^. #baseDomain)]
               <> [("imageResource", T.pack selected) | selected <- maybe [] pure (appOptions ^. #imageResource)]
               <> [("cdnBackendResource", Resource.resourceIdText (ResourceInventory.declarationId (googleCdnBackend selected)))
-                 | selected <- maybe [] pure cdnBinding]
+                 | GoogleCdnBindingFor selected <- maybe [] pure cdnBinding]
               <> [("cdnTarget", globalIp (googleCdnRefs selected))
-                 | selected <- maybe [] pure cdnBinding]
+                 | GoogleCdnBindingFor selected <- maybe [] pure cdnBinding]
+              <> [("cdnZone", Resource.nameText (cloudflareCdnZone selected))
+                 | CloudflareCdnBindingFor selected <- maybe [] pure cdnBinding]
+              <> [("cdnOriginIp", cloudflareCdnOriginIp selected)
+                 | CloudflareCdnBindingFor selected <- maybe [] pure cdnBinding]
               <> [("requestNamespace", "true") | appOptions ^. #requestNamespace]
               <> [("hook/" <> name, T.intercalate "," (map Resource.resourceIdText affected))
                  | (name, affected) <- Map.toList hookEffects])

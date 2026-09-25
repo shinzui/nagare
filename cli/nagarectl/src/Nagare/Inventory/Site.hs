@@ -4,12 +4,16 @@
 module Nagare.Inventory.Site
   ( compileStaticSiteScope
   , compileStaticSiteScopeWithCdn
+  , compileStaticSiteScopeWithCloudflare
   , compileStaticSiteRollbackScope
   , compileStaticSiteRollbackScopeWithCdn
+  , compileStaticSiteRollbackScopeWithCloudflare
   , compileServerSiteScope
   , compileServerSiteScopeWithCdn
+  , compileServerSiteScopeWithCloudflare
   , compileServerSiteRollbackScope
   , compileServerSiteRollbackScopeWithCdn
+  , compileServerSiteRollbackScopeWithCloudflare
   , compileStaticSitePreviewScope
   , compileServerSitePreviewScope
   , acceptedSiteReleaseLog
@@ -33,9 +37,9 @@ import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Nagare.Cdn.Provision (CdnTarget (..), GcpStackRefs (..), planCdn)
-import Nagare.Dsl.Cdn.Types (Cdn (..), CdnProvider (GcpCloudCdn))
-import Nagare.Inventory.Application (GoogleCdnBinding (..))
-import Nagare.Resource.Cdn (compileGoogleDnsRecord)
+import Nagare.Dsl.Cdn.Types (Cdn (..), CdnProvider (CloudflareCdn, GcpCloudCdn))
+import Nagare.Inventory.Application (GoogleCdnBinding (..), CloudflareCdnBinding (..), ReviewedCdnBinding (..))
+import Nagare.Resource.Cdn (compileGoogleDnsRecord, compileCloudflareDnsRecord, compileCloudflareCacheContribution)
 import Data.Yaml qualified as Yaml
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Server.Types (ServerSite (..))
@@ -70,7 +74,15 @@ compileStaticSiteScopeWithCdn
   -> Map SecretName Declaration -> StaticReleaseLog -> StaticRelease -> SourceLocation
   -> Either (NonEmpty InventoryError)
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileStaticSiteScopeWithCdn binding = compileStaticSiteScopeWith RecordRelease (Just binding)
+compileStaticSiteScopeWithCdn binding = compileStaticSiteScopeWith RecordRelease (Just (GoogleCdnBindingFor binding))
+
+compileStaticSiteScopeWithCloudflare
+  :: CloudflareCdnBinding -> DeployInputs -> ResourceId -> ResourceId -> ResourceId
+  -> Map SecretName Declaration -> StaticReleaseLog -> StaticRelease -> SourceLocation
+  -> Either (NonEmpty InventoryError)
+       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileStaticSiteScopeWithCloudflare binding =
+  compileStaticSiteScopeWith RecordRelease (Just (CloudflareCdnBindingFor binding))
 
 compileStaticSiteRollbackScope
   :: DeployInputs -> ResourceId -> ResourceId -> ResourceId
@@ -84,10 +96,18 @@ compileStaticSiteRollbackScopeWithCdn
   -> Map SecretName Declaration -> StaticReleaseLog -> StaticRelease -> SourceLocation
   -> Either (NonEmpty InventoryError)
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileStaticSiteRollbackScopeWithCdn binding = compileStaticSiteScopeWith SelectRelease (Just binding)
+compileStaticSiteRollbackScopeWithCdn binding = compileStaticSiteScopeWith SelectRelease (Just (GoogleCdnBindingFor binding))
+
+compileStaticSiteRollbackScopeWithCloudflare
+  :: CloudflareCdnBinding -> DeployInputs -> ResourceId -> ResourceId -> ResourceId
+  -> Map SecretName Declaration -> StaticReleaseLog -> StaticRelease -> SourceLocation
+  -> Either (NonEmpty InventoryError)
+       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileStaticSiteRollbackScopeWithCloudflare binding =
+  compileStaticSiteScopeWith SelectRelease (Just (CloudflareCdnBindingFor binding))
 
 compileStaticSiteScopeWith
-  :: SiteReleaseAction -> Maybe GoogleCdnBinding -> DeployInputs -> ResourceId -> ResourceId -> ResourceId
+  :: SiteReleaseAction -> Maybe ReviewedCdnBinding -> DeployInputs -> ResourceId -> ResourceId -> ResourceId
   -> Map SecretName Declaration -> StaticReleaseLog -> StaticRelease -> SourceLocation
   -> Either (NonEmpty InventoryError)
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
@@ -339,7 +359,16 @@ compileServerSiteScopeWithCdn
   -> StaticReleaseLog -> StaticRelease -> SourceLocation
   -> Either (NonEmpty InventoryError)
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileServerSiteScopeWithCdn binding = compileServerSiteScopeWith RecordRelease (Just binding)
+compileServerSiteScopeWithCdn binding = compileServerSiteScopeWith RecordRelease (Just (GoogleCdnBindingFor binding))
+
+compileServerSiteScopeWithCloudflare
+  :: CloudflareCdnBinding -> Server.ServerDeployInputs -> ResourceId -> ResourceId -> ResourceId
+  -> Map VolumeName RecoveryIntent -> Map SecretName Declaration -> Map SecretName Declaration
+  -> StaticReleaseLog -> StaticRelease -> SourceLocation
+  -> Either (NonEmpty InventoryError)
+       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileServerSiteScopeWithCloudflare binding =
+  compileServerSiteScopeWith RecordRelease (Just (CloudflareCdnBindingFor binding))
 
 compileServerSiteRollbackScope
   :: Server.ServerDeployInputs -> ResourceId -> ResourceId -> ResourceId
@@ -355,10 +384,19 @@ compileServerSiteRollbackScopeWithCdn
   -> StaticReleaseLog -> StaticRelease -> SourceLocation
   -> Either (NonEmpty InventoryError)
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileServerSiteRollbackScopeWithCdn binding = compileServerSiteScopeWith SelectRelease (Just binding)
+compileServerSiteRollbackScopeWithCdn binding = compileServerSiteScopeWith SelectRelease (Just (GoogleCdnBindingFor binding))
+
+compileServerSiteRollbackScopeWithCloudflare
+  :: CloudflareCdnBinding -> Server.ServerDeployInputs -> ResourceId -> ResourceId -> ResourceId
+  -> Map VolumeName RecoveryIntent -> Map SecretName Declaration -> Map SecretName Declaration
+  -> StaticReleaseLog -> StaticRelease -> SourceLocation
+  -> Either (NonEmpty InventoryError)
+       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileServerSiteRollbackScopeWithCloudflare binding =
+  compileServerSiteScopeWith SelectRelease (Just (CloudflareCdnBindingFor binding))
 
 compileServerSiteScopeWith
-  :: SiteReleaseAction -> Maybe GoogleCdnBinding -> Server.ServerDeployInputs -> ResourceId -> ResourceId -> ResourceId
+  :: SiteReleaseAction -> Maybe ReviewedCdnBinding -> Server.ServerDeployInputs -> ResourceId -> ResourceId -> ResourceId
   -> Map VolumeName RecoveryIntent -> Map SecretName Declaration -> Map SecretName Declaration
   -> StaticReleaseLog -> StaticRelease -> SourceLocation
   -> Either (NonEmpty InventoryError)
@@ -412,7 +450,7 @@ siteReleaseHistory SelectRelease prior release = do
   pure (prior {current = Just (release ^. #releaseId)})
 
 compileSiteRenderedScope
-  :: T.Text -> T.Text -> [DomainSpec] -> Maybe Cdn -> Maybe GoogleCdnBinding -> T.Text
+  :: T.Text -> T.Text -> [DomainSpec] -> Maybe Cdn -> Maybe ReviewedCdnBinding -> T.Text
   -> ByteString -> [ByteString]
   -> [(Volume, ByteString)] -> Map VolumeName RecoveryIntent -> [ResourceId]
   -> Map SecretName Declaration
@@ -476,9 +514,9 @@ compileSiteRenderedScope name ns domains cdn cdnBinding baseDomain serviceBytes 
     (zip domains domainBytes)
   cdnBundles <- case (cdn, cdnBinding) of
     (Nothing, Nothing) -> Right []
-    (Just requested, Just binding) -> do
+    (Just requested, Just (GoogleCdnBindingFor binding)) -> do
       unless (requested ^. #provider == GcpCloudCdn)
-        (Left (invalid "reviewed Cloudflare CDN requires separate DNS and shared-rules ownership"))
+        (Left (invalid "Google CDN intent requires a Google backend binding"))
       let refs = googleCdnRefs binding
           hosts = map (domainText . (^. #domain)) domains
           target = CdnTarget hosts "" ns name baseDomain
@@ -502,7 +540,25 @@ compileSiteRenderedScope name ns domains cdn cdnBinding baseDomain serviceBytes 
         host <- first invalid (mkName (domainText (domain ^. #domain)))
         compileGoogleDnsRecord owner key project zone host (refs ^. #globalIp)
           domainId backendId source) domains
-    _ -> Left (invalid "site CDN requires exactly one typed Google backend binding")
+    (Just requested, Just (CloudflareCdnBindingFor binding)) -> do
+      unless (requested ^. #provider == CloudflareCdn
+          && scopeKind (cloudflareCdnOwner binding) == Platform
+          && validDnsIpv4 (cloudflareCdnOriginIp binding)
+          && not (null domains))
+        (Left (invalid "Cloudflare CDN requires a platform zone owner, origin IPv4, and hostnames"))
+      let zone = cloudflareCdnZone binding
+          ruleset = cloudflareRulesResourceId (cloudflareCdnOwner binding) zone
+      fmap concat $ traverse (\domain -> do
+        domainId <- first invalid (domainMappingResourceId owner domain)
+        key <- first invalid (maybe (mkLogicalKey (domainText (domain ^. #domain))) Right
+          (domain ^. #logicalKey))
+        host <- first invalid (mkName (domainText (domain ^. #domain)))
+        cache <- compileCloudflareCacheContribution owner (cloudflareCdnOwner binding)
+          zone host requested domainId source
+        dns <- compileCloudflareDnsRecord owner key zone host
+          (cloudflareCdnOriginIp binding) domainId ruleset source
+        pure [cache, dns]) domains
+    _ -> Left (invalid "site CDN requires exactly one matching typed binding")
   let historyBytes = renderReleaseConfigMap name ns history
       historySource = source {path = path source <> "/release-history"}
       workloadIds = volumeIds <> [serviceId] <> map ((^. #identity) . fst) domainMembers

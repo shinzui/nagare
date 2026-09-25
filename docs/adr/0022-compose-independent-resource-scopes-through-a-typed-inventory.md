@@ -449,6 +449,7 @@ context's explicit binding. Nagare's context journal serializes its own writes;
 the documented Cloudflare DNS overwrite and zone ruleset update requests do
 not expose an atomic old-value precondition, so an external writer may still
 race that final read. An uncertain response stays unresolved for operator
-recovery. Live Cloudflare validation remains separate from this offline
-contract, and typed application/site compilation must submit the zone grant
-before it can use the reviewed provider route.
+recovery. Typed application and production-site compilers bind an accepted
+platform zone grant and origin IPv4, then submit per-host DNS and cache
+contributions. Live Cloudflare validation remains separate from this offline
+contract.

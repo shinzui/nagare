@@ -244,8 +244,11 @@ support automatic or supplied TLS. Google CDN production hosts join the review
 when `--cdn-backend-resource RESOURCE-ID` names the accepted platform Pulumi
 BackendService; the host must be one label below the context base domain and
 cannot be the Pulumi-owned apex. A preexisting unowned A record requires a
-separate ownership resolution. Cloudflare CDN remains on the guarded direct
-path. For each supplied TLS domain,
+separate ownership resolution. Cloudflare CDN production hosts join the same
+review when `CF_ZONE_ID` matches an accepted platform zone grant and the
+platform `publicIp` output supplies an IPv4 origin. Set `CF_ACCOUNT_ID` and
+`CF_API_TOKEN` for provider observation and apply; omit
+`--cdn-backend-resource`. For each supplied TLS domain,
 add `--tls-secret-resource RESOURCE-ID` for its accepted Secret in the same
 cluster and namespace. For each runtime Secret reference in a
 server site's environment, add `--env-secret-resource RESOURCE-ID` for the
@@ -309,8 +312,9 @@ nagarectl inventory apply site-rollback-review --yes
 ```
 
 For a reviewed Google CDN site, also pass its accepted platform BackendService
-with `--cdn-backend-resource RESOURCE-ID`. The rollback preserves the site's
-claimed DNS record and selects only the accepted release image.
+with `--cdn-backend-resource RESOURCE-ID`. For a Cloudflare site, select its
+accepted platform zone through `CF_ZONE_ID`. The rollback preserves the site's
+claimed DNS record and cache contribution while selecting the accepted image.
 
 Supply `--tls-secret-resource`, `--env-secret-resource`, and
 `--volume-recovery` as needed for the same site resources described above. The

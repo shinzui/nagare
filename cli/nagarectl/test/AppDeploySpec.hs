@@ -31,7 +31,7 @@ import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.Cdn.Provision (GcpStackRefs (..))
 import Nagare.App.Deployments (appDeploymentsPrefix)
 import Nagare.App.Deploy
-import Nagare.Inventory.Application (ApplicationScopeInput (..), GoogleCdnBinding (..), acceptedAccessBinding, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, standaloneWorkerVolumeRecoveryBindings, nativeWorkloadOwned, hostnameClaimOwned, compileApplicationDeployment, compileApplicationScope, compileApplicationService, compileStandaloneService, compileStandaloneServiceWithBrokers, compileStandaloneServiceWithDependencies, compileStandaloneServiceWithRelease, compileStandaloneWorker, compileStandaloneWorkerWithDependencies, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings, legacyApplicationReleaseImport, recordReviewedStandaloneOverrides, workerRetirementScope)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), GoogleCdnBinding (..), CloudflareCdnBinding (..), ReviewedCdnBinding (..), acceptedAccessBinding, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, standaloneWorkerVolumeRecoveryBindings, nativeWorkloadOwned, hostnameClaimOwned, compileApplicationDeployment, compileApplicationScope, compileApplicationService, compileStandaloneService, compileStandaloneServiceWithBrokers, compileStandaloneServiceWithDependencies, compileStandaloneServiceWithRelease, compileStandaloneWorker, compileStandaloneWorkerWithDependencies, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings, legacyApplicationReleaseImport, recordReviewedStandaloneOverrides, workerRetirementScope)
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Cdn (DnsAdapterOps (..), DnsObservation (..), dnsSpecsFromDeclarations, mkDnsAdapter)
 import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps (..), KubernetesMutation (..), KubernetesState (..), mkKubernetesAdapter)
@@ -47,11 +47,11 @@ import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
 import Nagare.Dsl.Broker (BrokerBinding (..), mkTopicName)
-import Nagare.Dsl.Cdn.Types (gcpCloudCdn)
+import Nagare.Dsl.Cdn.Types (gcpCloudCdn, cloudflareCdn)
 import Nagare.Dsl.Access (authPortal, requireLogin)
 import Nagare.Resource.Application (applicationScopeId, taskResourceId, volumeResourceId)
 import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
-import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (..), ManagedResource (..), DesiredSpec (KnativeService, NativeObject, DnsARecord), Executor (KubernetesExecutor, PulumiExecutor, CdnExecutor), OperationKind (PreDeployHook), Contribution (RegisterBackend, RegisterNamespace), ContributionGrant (BackendMapGrant, NamespaceGrant, ShomeiSettingsGrant), ScopeChange (ReplaceScope), backendMapResourceId, candidateGenerations, candidateInventory, composeInventory, contributionResourceId, declarationId, inventoryDeclarations, inventoryScopes, mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeConfigDigest, scopeId, scopeOverrides, shomeiSettingsResourceId, snapshotScopes)
+import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (..), ManagedResource (..), DesiredSpec (KnativeService, NativeObject, DnsARecord, CloudflareProxiedARecord), Executor (KubernetesExecutor, PulumiExecutor, CdnExecutor), OperationKind (PreDeployHook), Contribution (RegisterBackend, RegisterNamespace, RegisterCloudflareCache), ContributionGrant (BackendMapGrant, NamespaceGrant, ShomeiSettingsGrant), ScopeChange (ReplaceScope), backendMapResourceId, candidateGenerations, candidateInventory, composeInventory, contributionResourceId, declarationId, inventoryDeclarations, inventoryScopes, mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeConfigDigest, scopeId, scopeOverrides, shomeiSettingsResourceId, snapshotScopes)
 import Nagare.Resource.Wire (canonicalValue, decodeScope, encodeCanonicalScope)
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
 import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (DeleteWhenUnreferenced), RecoveryClass (VerifyBeforeRetry), RecoveryIntent (..), Sensitivity (Private), mkSecretRef)
@@ -793,7 +793,7 @@ renderTests =
             & #cdn .~ Just gcpCloudCdn)
           cdnInput = input
             { scopeApplication = cdnApp
-            , scopeCdnBinding = Just (GoogleCdnBinding cdnRefs (Managed cdnBackend))
+            , scopeCdnBinding = Just (GoogleCdnBindingFor (GoogleCdnBinding cdnRefs (Managed cdnBackend)))
             , scopeRelease = (emptyReleaseLog, release
                 {url = serviceUrl (case cdnApp ^. #service of Just selected -> selected; Nothing -> error "missing service")
                   (testEnv ^. #baseDomain)})
@@ -816,6 +816,33 @@ renderTests =
       Map.size cdnNative @?= Map.size native + 1
       assertBool "CDN cannot disappear without a typed backend"
         (isLeft (compileApplicationScope (cdnInput {scopeCdnBinding = Nothing})))
+      let cloudflareApp = cdnApp & #service %~ fmap (#cdn .~ Just cloudflareCdn)
+          cloudflareBinding = CloudflareCdnBinding
+            (checked (Resource.mkName "zone-id")) cdnOwner "203.0.113.5"
+          cloudflareInput = cdnInput
+            { scopeApplication = cloudflareApp
+            , scopeCdnBinding = Just (CloudflareCdnBindingFor cloudflareBinding)
+            , scopeInputOverrides = Map.insert "cdnZone" "zone-id"
+                (Map.insert "cdnOriginIp" "203.0.113.5"
+                  (Map.delete "cdnTarget" (Map.delete "cdnBackendResource"
+                    (scopeInputOverrides cdnInput))))
+            }
+      (cloudflareScope, _) <- either (fail . ("cloudflare: " <>) . show) pure
+        (compileApplicationScope cloudflareInput)
+      let cloudflareDns = [member | bundle <- scopeBundles cloudflareScope,
+            Managed member <- declarations bundle,
+            member ^. #spec == CloudflareProxiedARecord "203.0.113.5"]
+          cacheRequests = [request | bundle <- scopeBundles cloudflareScope,
+            request@RegisterCloudflareCache {} <- contributions bundle]
+      length cloudflareDns @?= 1
+      length cacheRequests @?= 1
+      assertBool "Cloudflare intent accepted a Google backend binding"
+        (isLeft (compileApplicationScope (cloudflareInput
+          {scopeCdnBinding = scopeCdnBinding cdnInput})))
+      assertBool "Cloudflare intent accepted a wrong origin override"
+        (isLeft (compileApplicationScope (cloudflareInput
+          {scopeInputOverrides = Map.insert "cdnOriginIp" "203.0.113.7"
+            (scopeInputOverrides cloudflareInput)})))
       assertBool "reviewed app accepted a false command tag"
         (isLeft (compileApplicationScope (input {scopeInputOverrides =
           Map.insert "tag" "different" (scopeInputOverrides input)})))
@@ -1074,7 +1101,7 @@ renderTests =
             Nothing -> error "expanded application has no Service"
           expandedInput = input
             { scopeApplication = expandedApp
-            , scopeCdnBinding = Just (GoogleCdnBinding cdnRefs (Managed cdnBackend))
+            , scopeCdnBinding = Just (GoogleCdnBindingFor (GoogleCdnBinding cdnRefs (Managed cdnBackend)))
             , scopeRelease = (emptyReleaseLog, release
                 {url = serviceUrl expandedService (testEnv ^. #baseDomain)})
             , scopeInputOverrides = Map.insert "cdnTarget" "203.0.113.4"

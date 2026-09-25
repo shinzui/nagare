@@ -35,13 +35,17 @@ an immediate listing is empty. A successful change waits for the provider's
 pending status and the exact target record before completion. Generic inventory
 reviews can now route an explicitly declared Cloudflare zone owner, complete
 cache ruleset, origin-TLS setting, and per-host proxied A records through the
-reviewed CDN executor. The transport checks the exact zone ID and account on
+reviewed CDN executor. Typed application and production static/server-site
+deploys and rollbacks also submit Cloudflare host DNS and cache contributions
+when `CF_ZONE_ID` matches exactly one accepted platform zone grant and the
+platform `publicIp` output supplies an IPv4 origin. They do not take
+`--cdn-backend-resource`. The platform grant owns the zone ruleset and TLS
+setting; each workload owns its host A record. The transport checks the exact zone ID and account on
 each read, records provider IDs and versions in the private review, and refuses
 an update when the observed old state changes. A lost write acknowledgement
 requires operator recovery. Set `CF_ZONE_ID`, `CF_ACCOUNT_ID`, and
-`CF_API_TOKEN` for that reviewed route. The typed application and site deploy
-compilers still refuse Cloudflare intent because they do not yet submit its
-zone grant and host contributions. Direct Cloudflare deploy remains available
+`CF_API_TOKEN` for that reviewed route. Create and accept the platform zone
+grant before reviewing a workload. Direct Cloudflare deploy remains available
 only in contexts with no accepted or retained Cloudflare zone owner.
 Google CDN uses the standing cache policy owned by Pulumi; a
 per-application TTL, cache-mode change, or path rule refuses during planning.

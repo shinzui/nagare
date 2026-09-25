@@ -22,8 +22,11 @@ ConfigMap after its workloads. Pre-deploy hooks are reviewed when each declares
 its affected resources, or explicitly asserts that it has no data effects.
 Google CDN host DNS joins the review when each host has a DomainMapping and
 `--cdn-backend-resource RESOURCE-ID` names the accepted platform Pulumi
-BackendService. The platform retains its shared cache policy and apex record;
-Cloudflare and build inputs still refuse in this reviewed route.
+BackendService. Cloudflare CDN joins when `CF_ZONE_ID` names exactly one
+accepted platform zone grant and its `publicIp` stack output is an IPv4 origin;
+set `CF_ACCOUNT_ID` and `CF_API_TOKEN` for provider observation and apply.
+Each host contributes cache intent to the platform ruleset and owns its proxied
+A record. Build inputs still refuse in this reviewed route.
 Its config still goes through
 the typed `Application` loader. Use the exact resource ID of the accepted OCI
 publication, and an explicit tag that resolves to that publication's destination:
