@@ -533,4 +533,6 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 
 2026-09-24: EP-148 added a supported reviewed static-site production scope from the existing render: Service, DomainMappings, and per-site release metadata depend on accepted Namespace and image publication. Server sites, previews, CDN, supplied TLS, and direct-site adoption still need implementation.
 
+2026-09-24: EP-148 added an exact static-site import for old direct release logs and current Service/domain members. A changed log or physical incarnation refuses adoption; later reviewed site deploys use accepted private history.
+
 2026-09-24: EP-148 applied the same distinction to legacy env and Secret reads and now refuses malformed `data` entries instead of silently dropping keys. Direct store writes and reviewed preview/deploy integration remain open.

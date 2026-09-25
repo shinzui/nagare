@@ -4,9 +4,11 @@
 module Nagare.Inventory.Site
   ( compileStaticSiteScope
   , acceptedStaticSiteReleaseLog
+  , legacyStaticSiteReleaseImport
   ) where
 
-import Data.Aeson (Value)
+import Data.Aeson (Value (..), eitherDecodeStrict)
+import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
@@ -28,7 +30,7 @@ import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
 import Nagare.Static.Deploy (DeployInputs (..), StaticManifests (..), productionManifests)
-import Nagare.Static.Release (StaticRelease (..), StaticReleaseLog (..), addRelease, emptyReleaseLog, extractReleaseLog, renderReleaseConfigMap)
+import Nagare.Static.Release (StaticRelease (..), StaticReleaseLog (..), addRelease, emptyReleaseLog, extractReleaseLog, findRelease, renderReleaseConfigMap)
 
 compileStaticSiteScope
   :: DeployInputs -> ResourceId -> ResourceId -> ResourceId
@@ -126,6 +128,39 @@ acceptedStaticSiteReleaseLog snapshot native name ns cluster = do
         pure logv
       [] -> Left "accepted static-site scope lacks release history"
       _ -> Left "accepted static-site scope has duplicate release history"
+
+-- | Keep the old site's log byte-for-byte stable in the candidate before
+-- submitting its live ConfigMap to the exact-incarnation adoption decision.
+legacyStaticSiteReleaseImport
+  :: StaticSite -> T.Text -> ByteString
+  -> Either T.Text (StaticReleaseLog, StaticRelease)
+legacyStaticSiteReleaseImport site tag bytes = do
+  value <- first T.pack (eitherDecodeStrict bytes)
+  let name = siteNameText (site ^. #name)
+      ns = namespaceText (site ^. #namespace)
+  metadata <- case value of
+    Object fields
+      | KM.lookup "apiVersion" fields == Just (String "v1")
+      , KM.lookup "kind" fields == Just (String "ConfigMap")
+      , Just (Object meta) <- KM.lookup "metadata" fields -> Right meta
+    _ -> Left "legacy static-site release is not a v1 ConfigMap"
+  unless (KM.lookup "name" metadata == Just (String ("nagare-static-releases-" <> name))
+      && KM.lookup "namespace" metadata == Just (String ns))
+    (Left "legacy static-site release has a different name or namespace")
+  logv <- extractReleaseLog bytes
+  unless (validLog name ns logv)
+    (Left "legacy static-site release history is inconsistent")
+  currentId <- maybe (Left "legacy static-site release has no current tag") Right
+    (logv ^. #current)
+  currentRelease <- maybe (Left "legacy static-site release has no current record") Right
+    (findRelease currentId logv)
+  unless (currentRelease ^. #releaseId == tag
+      && currentRelease ^. #imageTag == tag
+      && currentRelease ^. #image == imageRefText (site ^. #image))
+    (Left "legacy static-site release differs from the selected image or tag")
+  unless (addRelease currentRelease logv == logv)
+    (Left "legacy static-site release history would change during import")
+  pure (logv, currentRelease)
 
 validLog :: T.Text -> T.Text -> StaticReleaseLog -> Bool
 validLog name ns logv =

@@ -276,7 +276,7 @@ import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Application (ApplicationScopeInput (..), DatabaseBinding, acceptedAccessBinding, acceptedApplicationImage, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationScope, compileStandaloneServiceWithRelease, compileStandaloneWorkerWithDependencies, databaseRecoveryBindings, legacyApplicationReleaseImport, legacyStandaloneReleaseImport, nativeWorkloadOwned, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
-import Nagare.Inventory.Site (acceptedStaticSiteReleaseLog, compileStaticSiteScope)
+import Nagare.Inventory.Site (acceptedStaticSiteReleaseLog, compileStaticSiteScope, legacyStaticSiteReleaseImport)
 import Nagare.Inventory.Lifecycle qualified as InventoryLifecycle
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, compileStandaloneDatabase, databaseNativeOwned, standaloneRetirementScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Environment (acceptedEnvChannelValues, acceptedSecretChannelValues, compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
@@ -641,6 +641,8 @@ data SiteDeployOpts = SiteDeployOpts
   -- ^ Free-form provenance recorded with the release (e.g. a git SHA or branch).
   , savePlan :: !(Maybe FilePath)
   , imageResource :: !(Maybe String)
+  , legacyReleaseImport :: !(Maybe FilePath)
+  , releaseAdoptionInput :: !(Maybe FilePath)
   }
   deriving stock (Generic, Show)
 
@@ -1638,6 +1640,8 @@ siteDeployOptsParser defaultFile =
       )
     <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save reviewed static-site deployment"))
     <*> optional (strOption (long "image-resource" <> metavar "RESOURCE-ID" <> help "Accepted prepublished OCI image with --save-plan"))
+    <*> optional (strOption (long "legacy-release-import" <> metavar "FILE" <> help "Legacy static-site release ConfigMap JSON for exact adoption"))
+    <*> optional (strOption (long "release-adoption-input" <> metavar "FILE" <> help "Versioned exact-incarnation adoption proposal"))
 
 siteCommonOptsParser :: FilePath -> Parser SiteCommonOpts
 siteCommonOptsParser defaultFile =
@@ -6668,7 +6672,8 @@ runDeployPlan mctx options output = do
     Nothing -> Inventory.planInventoryCandidateWith
       (inventoryPlanRegistryWithNative active workspace native) active candidate output
     Just proposal -> do
-      validateInlineReleaseAdoption scope (serviceNameText (service ^. #name)) proposal
+      validateInlineReleaseAdoption scope
+        (appConfigMapName (serviceNameText (service ^. #name))) proposal
       Inventory.planInventoryCandidateAdoptionWith
         (inventoryPlanRegistryWithNative active workspace native)
         active candidate proposal output
@@ -6855,15 +6860,19 @@ runSiteDeploy mctx sopts = do
         Left e -> dieT ("nagarectl deploy: " <> e)
         Right qimg -> case sopts ^. #savePlan of
           Nothing -> do
-            when (isJust (sopts ^. #imageResource))
-              (dieT "--image-resource requires --save-plan")
+            when (isJust (sopts ^. #imageResource)
+                || isJust (sopts ^. #legacyReleaseImport)
+                || isJust (sopts ^. #releaseAdoptionInput))
+              (dieT "static-site inventory options require --save-plan")
             refuseDirectServiceMutationIfOwned mctx "site deploy"
               (siteNameText (s ^. #name)) (namespaceText (s ^. #namespace))
             deployStatic mctx tp sopts (s & #image %~ const qimg) bd
           Just output -> runStaticSiteDeployPlan mctx tp sopts
             (s & #image %~ const qimg) bd output
     Right (Load.SiteServer s) -> do
-      when (isJust (sopts ^. #savePlan) || isJust (sopts ^. #imageResource))
+      when (isJust (sopts ^. #savePlan) || isJust (sopts ^. #imageResource)
+          || isJust (sopts ^. #legacyReleaseImport)
+          || isJust (sopts ^. #releaseAdoptionInput))
         (dieT "reviewed server-site deployment is not yet supported")
       refuseDirectServiceMutationIfOwned mctx "site deploy"
         (siteNameText (s ^. #name)) (namespaceText (s ^. #namespace))
@@ -6874,6 +6883,10 @@ runSiteDeploy mctx sopts = do
 runStaticSiteDeployPlan
   :: Maybe String -> TargetProfile -> SiteDeployOpts -> StaticSite -> Text -> FilePath -> IO ()
 runStaticSiteDeployPlan mctx tp options site bd output = do
+  case (options ^. #legacyReleaseImport, options ^. #releaseAdoptionInput) of
+    (Nothing, Nothing) -> pure ()
+    (Just _, Just _) -> pure ()
+    _ -> dieT "static-site import requires both --legacy-release-import and --release-adoption-input"
   when (options ^. #dryRun || not (options ^. #skipBuild))
     (dieT "reviewed static-site deployment requires --skip-build and no --dry-run")
   tag <- maybe (dieT "reviewed static-site deployment requires --tag")
@@ -6898,10 +6911,13 @@ runStaticSiteDeployPlan mctx tp options site bd output = do
     (ResourceInventory.composeSnapshot snapshot)
   (acceptedNative, _) <- InventoryStatus.loadAcceptedNative store history acceptedInventory
     >>= either dieT pure
-  prior <- either dieT pure
-    (acceptedStaticSiteReleaseLog snapshot acceptedNative siteName ns cluster)
-  releasedAt <- getCurrentTime
-  let release = StaticRelease
+  (prior, release, adoption) <- case
+    (options ^. #legacyReleaseImport, options ^. #releaseAdoptionInput) of
+    (Nothing, Nothing) -> do
+      accepted <- either dieT pure
+        (acceptedStaticSiteReleaseLog snapshot acceptedNative siteName ns cluster)
+      releasedAt <- getCurrentTime
+      pure (accepted, StaticRelease
         { releaseId = tag
         , siteName = siteName
         , namespace = ns
@@ -6910,13 +6926,31 @@ runStaticSiteDeployPlan mctx tp options site bd output = do
         , url = rendered ^. #url
         , source = T.pack <$> options ^. #source
         , createdAt = releasedAt
-        }
+        }, Nothing)
+    (Just legacyFile, Just proposalFile) -> do
+      legacyBytes <- (try (BS.readFile legacyFile) :: IO (Either IOException ByteString))
+        >>= either (dieT . T.pack . show) pure
+      (oldLog, oldRelease) <- either dieT pure
+        (legacyStaticSiteReleaseImport site tag legacyBytes)
+      proposalBytes <- (try (BS.readFile proposalFile) :: IO (Either IOException ByteString))
+        >>= either (dieT . T.pack . show) pure
+      proposal <- either dieT pure (InventoryLifecycle.decodeAdoptionInput proposalBytes)
+      unless (InventoryLifecycle.adoptionCandidateDirectory proposal == ".")
+        (dieT "inline static-site import requires candidate '.' in its adoption proposal")
+      pure (oldLog, oldRelease, Just proposal)
+    _ -> dieT "static-site import options are incomplete"
   (scope, native) <- either (dieT . T.pack . show) pure
     (compileStaticSiteScope inputs cluster namespaceId imageId prior release source)
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
-  Inventory.planInventoryCandidateWith
-    (inventoryPlanRegistryWithNative active workspace native) active candidate output
+  case adoption of
+    Nothing -> Inventory.planInventoryCandidateWith
+      (inventoryPlanRegistryWithNative active workspace native) active candidate output
+    Just proposal -> do
+      validateInlineReleaseAdoption scope ("nagare-static-releases-" <> siteName) proposal
+      Inventory.planInventoryCandidateAdoptionWith
+        (inventoryPlanRegistryWithNative active workspace native)
+        active candidate proposal output
 
 -- | The static (Nginx) deploy path.
 --
@@ -7137,7 +7171,9 @@ rollbackManifests tp (Load.SiteServer s) bd tag =
 -- the production release history.
 runPreviewDeploy :: Maybe String -> SiteDeployOpts -> Text -> IO ()
 runPreviewDeploy mctx sopts pname = do
-  when (isJust (sopts ^. #savePlan) || isJust (sopts ^. #imageResource))
+  when (isJust (sopts ^. #savePlan) || isJust (sopts ^. #imageResource)
+      || isJust (sopts ^. #legacyReleaseImport)
+      || isJust (sopts ^. #releaseAdoptionInput))
     (dieT "site preview deploy does not support production inventory options")
   bd <- resolveBaseDomain mctx (sopts ^. #baseDomain)
   tp <- activeProfile mctx
@@ -7393,20 +7429,20 @@ runAppDeployPlan mctx params appOptions output = do
     Nothing -> Inventory.planInventoryCandidateWith
       (inventoryPlanRegistryWithNative active workspace native) active candidate output
     Just proposal -> do
-      validateInlineReleaseAdoption scope releaseSubject proposal
+      validateInlineReleaseAdoption scope (appConfigMapName releaseSubject) proposal
       Inventory.planInventoryCandidateAdoptionWith
         (inventoryPlanRegistryWithNative active workspace native)
         active candidate proposal output
 
 validateInlineReleaseAdoption
   :: ResourceInventory.ScopeDeclaration -> Text -> InventoryLifecycle.AdoptionInput -> IO ()
-validateInlineReleaseAdoption scope subject proposal = do
+validateInlineReleaseAdoption scope releaseName proposal = do
   let releaseMembers = [member | bundle <- ResourceInventory.scopeBundles scope,
         ResourceInventory.Managed member <- ResourceInventory.declarations bundle,
         case member ^. #address of
           Resource.Kubernetes _ "" kind _ name ->
             Resource.nameText kind == "configmap"
-              && Resource.nameText name == appConfigMapName subject
+              && Resource.nameText name == releaseName
           _ -> False]
       managedIds = Set.fromList
         [member ^. #identity | bundle <- ResourceInventory.scopeBundles scope,

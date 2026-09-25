@@ -229,10 +229,30 @@ context registry; `nagarectl app image plan` can review publication from a
 Docker archive. The Namespace must already be accepted. The static-site review
 uses the same renderer as direct deployment, checks the image and release tag,
 and keeps earlier history from accepted private evidence. It currently supports
-automatic TLS without CDN. An existing direct-deploy Service or release
-ConfigMap remains unowned and needs an exact adoption review before this route
-can manage it. Server sites, previews, and site rollback still use their direct
-paths and cannot use these production review flags.
+automatic TLS without CDN. Server sites, previews, and site rollback still use
+their direct paths and cannot use these production review flags.
+
+For a site created by the direct deploy path, save the full legacy release
+ConfigMap JSON to a private file. Prepare a versioned adoption proposal using
+`cli/nagarectl/test/fixtures/inventory/lifecycle/adopt.example.json` as the
+shape. Set `candidate` to `"."`; bind the active context and project; include
+the release member's exact address and observed UID, plus the current Service
+and every DomainMapping that the review must adopt. Then run:
+
+```bash
+nagarectl site deploy --skip-build --tag CURRENT_TAG \
+  --image-resource RESOURCE-ID \
+  --legacy-release-import legacy-site-releases.json \
+  --release-adoption-input site-adoption.json \
+  --save-plan site-import-review
+nagarectl inventory apply site-import-review --yes
+```
+
+The ConfigMap must contain the current tag and image selected by the command.
+Planning and apply require the live content, UID, and resourceVersion to match
+the reviewed incarnation. A changed image, domain, or release log refuses
+adoption. Later reviewed deploys read the accepted private history and append
+their new release.
 
 ---
 

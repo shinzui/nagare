@@ -201,7 +201,7 @@ import Nagare.Gcp.Adc
   , validateAdc
   )
 import Nagare.GhcEnv (findGhcEnvIn)
-import Nagare.Inventory.Site (compileStaticSiteScope)
+import Nagare.Inventory.Site (compileStaticSiteScope, legacyStaticSiteReleaseImport)
 import Nagare.Image (DockerAuth (..), dockerAuthPlan, dockerBuildArgs, nixpacksBuildArgs, qualifyImage)
 import Nagare.Infra.Plan
   ( CurrentInfraIdentity (..)
@@ -3914,6 +3914,17 @@ staticInventoryTests =
       assertBool "static release accepted a different image tag"
         (isLeft (compileStaticSiteScope inputs cluster namespaceId imageId
           emptyReleaseLog (release {imageTag = "other"}) source))
+      let older = release {releaseId = "v0", imageTag = "v0",
+            createdAt = UTCTime (fromGregorian 2026 9 23) 0}
+          oldLog = addRelease release (addRelease older emptyReleaseLog)
+          legacyBytes = renderReleaseConfigMap "demo" "personal" oldLog
+      legacyStaticSiteReleaseImport site "v1" legacyBytes @?= Right (oldLog, release)
+      assertBool "legacy static-site import accepted a different rollout tag"
+        (isLeft (legacyStaticSiteReleaseImport site "v2" legacyBytes))
+      assertBool "legacy static-site import would reorder old entries"
+        (isLeft (legacyStaticSiteReleaseImport site "v1"
+          (renderReleaseConfigMap "demo" "personal"
+            (oldLog & #releases %~ reverse))))
   ]
 
 noBuildSite :: Text -> StaticSite
