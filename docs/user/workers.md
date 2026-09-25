@@ -101,6 +101,9 @@ nagarectl worker deploy --tag release-1 \
 
 The command prints the published review digest and public operations before
 applying them. Retiring a worker still uses a separate review.
+The reviewed route also accepts a worker config with a Dockerfile or Nixpacks
+build when `--image-resource` names its already accepted image and tag; it does
+not rebuild the image during deployment.
 
 To inspect that same public worker scope before saving a review, supply the
 accepted image with `--dry-run` instead of `--save-plan`:

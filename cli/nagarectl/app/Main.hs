@@ -6836,8 +6836,6 @@ runDeployPlan mctx options output = do
   provisionGhcEnv (options ^. #ghcEnv)
   service <- Load.loadDeployment (options ^. #file)
     >>= either (dieT . Load.renderLoadError) pure
-  when (requiresBuild (service ^. #build))
-    (dieT "reviewed deploy requires an already published image")
   unless (isNothing (service ^. #cdn))
     (dieT "reviewed single-Service deploy requires typed CDN ownership")
   let app = Application
@@ -7998,8 +7996,6 @@ runAppDeployPlan mctx params appOptions output = do
     (appOptions ^. #hookAffects) (appOptions ^. #hookNoDataEffects))
   let builds = maybe [] (pure . (^. #build)) (app ^. #service)
         <> map (^. #build) (app ^. #workers)
-  when (any requiresBuild builds)
-    (dieT "reviewed app deploy requires an already published image")
   databaseRecovery <- either dieT pure
     (databaseRecoveryBindings app (map T.pack (appOptions ^. #databaseRecovery)))
   (serviceVolumeRecovery, workerVolumeRecovery) <- either dieT pure
@@ -9055,8 +9051,6 @@ runWorkerPlan mctx options output = do
   provisionGhcEnv (options ^. #ghcEnv)
   worker <- Load.loadWorker (options ^. #file)
     >>= either (dieT . Load.renderLoadError) pure
-  when (requiresBuild (worker ^. #build))
-    (dieT "reviewed worker deploy requires an already published image")
   key <- maybe (either dieT pure (Resource.mkLogicalKey (serviceNameText (worker ^. #name)))) pure
     (worker ^. #logicalKey)
   owner <- either dieT pure (Resource.mkScopeId Resource.Standalone

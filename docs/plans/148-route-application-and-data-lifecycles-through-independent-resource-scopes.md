@@ -155,6 +155,8 @@ Accepted application and standalone Knative Services now route `app stop` and `a
 
 Application OCI archive publication now uses the same one-invocation review service as deployment when `app image-plan` has no `--save-plan`; supplying it still writes a separate review. The artifact adapter refuses a remote tag whose digest differs from the reviewed archive, and execution reloads the immutable publication review. The executable builds; a live registry publication and integration of build inputs with this path remain M2 work.
 
+Reviewed application, standalone Service, and worker deploy now accept a separately published image even when the typed config declares a Dockerfile or Nixpacks build. The accepted publication's destination and the explicit tag remain bound to the rendered workload. Build production and Build-channel input provenance are still outside the publication review, so M2 remains open.
+
 Legacy `access portal sync` now refuses a direct Shomei write when either shared auth settings resource is accepted or retained. The same ownership guard protects direct Service/app deploy and delete. A context with no registered portal remains a read-only successful no-op. The reviewed application contribution path remains the managed way to change portal settings; direct access grant/revoke operations still need M3 routing.
 
 Accepted database and broker `restart` commands now select their exact StatefulSet from accepted history and replace only its pod template restart annotation through the shared reviewed command service. They carry forward accepted credentials, PVCs, backup policy, Service, topic claims, and private native bytes for other members; `--save-plan` allows separate inspection and apply. Legacy workloads retain the direct restart route. Focused database and broker compiler tests passed, and the executable built. A disposable StatefulSet execution and the remaining data actions are still M3 work.
@@ -465,6 +467,8 @@ DependencyExports contains typed capability witnesses and selected revision/phys
 
 
 ## Revision Notes
+
+2026-09-25: Allowed accepted OCI publications to satisfy reviewed deployment for configs that describe a Dockerfile or Nixpacks build. This removes a source-mode refusal while retaining exact image/tag validation; build production and its input provenance still need M2 integration.
 
 2026-09-25: Routed accepted database and broker restart through an exact native StatefulSet scope update, with one-invocation apply or an optional saved review. Kept legacy direct restart for unclaimed workloads and refused managed `--dry-run` in favor of the actual saved review. M3 remains open for provider proof and backup, restore, deletion, and access actions.
 

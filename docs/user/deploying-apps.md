@@ -78,6 +78,12 @@ replacement, and resource retirement still require separate review decisions;
 the one-invocation route refuses them. It also requires the selected context's
 inventory store and accepted image publication.
 
+The typed config may still describe a Dockerfile or Nixpacks build. On the
+reviewed route, Nagare deploys the accepted publication named by
+`--image-resource`; it does not rebuild from the source tree. The published
+destination must match the config's image reference and explicit tag. Build
+path overrides remain available only on the legacy build route.
+
 To preview the same supported scope without saving or publishing a review, use
 `--dry-run` with the same accepted image and recovery inputs. It reads the
 selected context's accepted inventory and prints resource identities and
@@ -137,6 +143,8 @@ nagarectl deploy --file nagare/Config.hs --tag v1 \
 The command prints the published review digest and public operations before
 applying them. An existing direct release history still needs the separate
 exact adoption review described below.
+The same accepted image binding works when the Service config describes a
+Dockerfile or Nixpacks build; the reviewed deploy uses the published image.
 
 Use the same accepted image and inputs with `--dry-run` to print the public
 canonical Service scope before saving a review:
