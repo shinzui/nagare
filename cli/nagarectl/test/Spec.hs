@@ -3390,6 +3390,17 @@ envStoreTests =
       case extractConfigMapData "not json" of
         Left _ -> pure ()
         Right _ -> assertFailure "expected Left for malformed JSON"
+  , testCase "env and Secret reads distinguish absence from provider failure" $ do
+      decodeStoreRead "configmap" extractConfigMapData ExitSuccess "" @?= Right Map.empty
+      decodeStoreRead "secret" extractSecretData ExitSuccess "" @?= Right Map.empty
+      let config = renderEnvConfigMap "notes" "personal" Runtime (Map.singleton "KEEP" "old")
+          secret = renderEnvSecret "notes" "personal" Runtime (Map.singleton "KEEP" "private")
+      assertLeftText (decodeStoreRead "configmap" extractConfigMapData (ExitFailure 1) config)
+      assertLeftText (decodeStoreRead "secret" extractSecretData (ExitFailure 1) secret)
+  , testCase "malformed environment data cannot silently drop keys" $ do
+      assertLeftText (extractConfigMapData "{\"kind\":\"ConfigMap\",\"data\":{\"KEEP\":\"old\",\"BROKEN\":3}}")
+      assertLeftText (extractSecretData "{\"kind\":\"Secret\",\"data\":{\"KEEP\":\"cHJpdmF0ZQ==\",\"BROKEN\":null}}")
+      assertLeftText (extractConfigMapData "{\"kind\":\"ConfigMap\",\"data\":null}")
   , testCase "extractSecretData rejects malformed base64 (no silent loss)" $
       case extractSecretData "{\"kind\":\"Secret\",\"data\":{\"K\":\"!!!notb64!!!\"}}" of
         Left _ -> pure ()

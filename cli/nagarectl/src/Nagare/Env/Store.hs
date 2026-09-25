@@ -24,6 +24,7 @@ module Nagare.Env.Store
   , extractSecretData
   , readEnvStore
   , readSecretStore
+  , decodeStoreRead
   , writeEnvStore
   , writeSecretStore
   )
@@ -41,6 +42,7 @@ import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteArray.Encoding (Base (Base64), convertFromBase, convertToBase)
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.Map (Map)
 import Data.Map qualified as Map
@@ -127,17 +129,16 @@ extractData :: (Text -> Either Text Text) -> ByteString -> Either Text (Map Text
 extractData f bs =
   case eitherDecodeStrict bs of
     Left e -> Left ("could not decode resource JSON: " <> T.pack e)
-    Right v -> case dataMap v of
+    Right (Aeson.Object root) -> case KeyMap.lookup (Key.fromText "data") root of
       Nothing -> Right Map.empty
-      Just kvs -> traverse f kvs
+      Just (Aeson.Object values) -> do
+        entries <- traverse decodeEntry (KeyMap.toList values)
+        traverse f (Map.fromList entries)
+      Just _ -> Left "resource data must be an object"
+    Right _ -> Left "resource JSON must be an object"
   where
-    dataMap :: Aeson.Value -> Maybe (Map Text Text)
-    dataMap val = do
-      Aeson.Object o <- Just val
-      case KeyMap.lookup (Key.fromText "data") o of
-        Just (Aeson.Object d) ->
-          Just (Map.fromList [(Key.toText k, s) | (k, Aeson.String s) <- KeyMap.toList d])
-        _ -> Nothing
+    decodeEntry (key, Aeson.String value) = Right (Key.toText key, value)
+    decodeEntry _ = Left "resource data values must be strings"
 
 -- base64 helpers (isolate the codec choice behind these two functions). We use
 -- 'Data.ByteArray.Encoding' from the @memory@ package, already a dependency of
@@ -157,14 +158,14 @@ b64decode t =
 -- ---------------------------------------------------------------------------
 -- kubectl IO (thin shell; mirrors Nagare.Static.Release.read/writeReleaseLog)
 
--- | Read the ConfigMap-backed env store for @app@/@scope@ in @ns@. A missing
--- ConfigMap (non-zero exit) is an empty map; a present-but-malformed one is
--- 'Left'.
+-- | Read the ConfigMap-backed env store for @app@/@scope@ in @ns@. Only a
+-- confirmed missing ConfigMap is empty; failed and malformed reads refuse.
 readEnvStore :: Text -> Text -> EnvScope -> IO (Either Text (Map Text Text))
 readEnvStore app ns scope =
   readStore "configmap" (managedConfigMapName app scope) ns extractConfigMapData
 
--- | Read the Secret-backed store, base64-decoding values. Missing ⇒ empty map.
+-- | Read the Secret-backed store, base64-decoding values. Only confirmed
+-- absence is empty; a failed read cannot become a replacement Secret.
 readSecretStore :: Text -> Text -> EnvScope -> IO (Either Text (Map Text Text))
 readSecretStore app ns scope =
   readStore "secret" (managedSecretName app scope) ns extractSecretData
@@ -179,11 +180,16 @@ readStore kind name ns extract = do
   (exitCode, StdoutRaw out) <-
     run $
       cmd "kubectl"
-        & addArgs ["get", kind, T.unpack name, "-n", T.unpack ns, "-o", "json"]
+        & addArgs ["get", kind, T.unpack name, "-n", T.unpack ns, "-o", "json", "--ignore-not-found"]
         & silenceStderr
-  pure $ case exitCode of
-    ExitFailure _ -> Right Map.empty
-    ExitSuccess -> extract out
+  pure (decodeStoreRead kind extract exitCode out)
+
+decodeStoreRead :: String -> (ByteString -> Either Text (Map Text Text))
+  -> ExitCode -> ByteString -> Either Text (Map Text Text)
+decodeStoreRead kind extract exitCode out = case exitCode of
+  ExitFailure _ -> Left ("could not read " <> T.pack kind <> " environment store")
+  ExitSuccess | BS.null out -> Right Map.empty
+  ExitSuccess -> extract out
 
 -- | Persist the ConfigMap-backed store by applying the rendered manifest.
 writeEnvStore :: Text -> Text -> EnvScope -> Map Text Text -> IO ()

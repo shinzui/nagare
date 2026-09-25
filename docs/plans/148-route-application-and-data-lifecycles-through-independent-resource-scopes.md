@@ -132,6 +132,8 @@ Implementation evidence is recorded in the commits linked to this plan and in Su
 
 2026-09-24: The legacy application/static release-history reader treated every nonzero `kubectl get` as an absent ConfigMap. A permission, context, or transport failure could therefore turn a later deploy into a fresh empty log. It now uses `--ignore-not-found`, accepts only a successful empty response as absence, and returns an error for all failed reads. A regression keeps an existing log from being interpreted as empty on failure. Full reviewed release metadata declaration and import are still open.
 
+2026-09-24: The legacy env and Secret store reader had the same failed-read-to-empty behavior. Its JSON extractor also silently dropped any `data` entry whose value was not a string, contrary to its strictness comment. Both stores now accept only a successful empty `--ignore-not-found` response as absence; failed reads, non-object `data`, and non-string values refuse before a merge or exact replacement. Disposable-context reads of absent ConfigMap and Secret names both exited successfully with empty output, and 785 CLI tests pass. The reviewed channels still need complete preview/deploy integration.
+
 ## Decision Log
 
 2026-09-16: Preserve separately submitted environment/secret intent across configuration deploys. Inputs are explicit versioned intent channels composed into one owner declaration, not live cluster data silently copied into desired state.

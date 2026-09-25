@@ -520,3 +520,5 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 2026-09-24: EP-148 corrected retained Kubernetes collection of unready central access DomainMappings. An owned route with exact native digest and UID may be deleted using its reviewed resourceVersion even when its origin has failed; a changed resourceVersion still refuses. The 782-test CLI suite passes. Other EP-148 milestones and EP-150 remain open.
 
 2026-09-24: EP-148 changed the legacy release-history read to distinguish a confirmed missing ConfigMap from any failed Kubernetes read. This closes a history-loss path during application/static deployment while reviewed release metadata and migration remain open.
+
+2026-09-24: EP-148 applied the same distinction to legacy env and Secret reads and now refuses malformed `data` entries instead of silently dropping keys. Direct store writes and reviewed preview/deploy integration remain open.
