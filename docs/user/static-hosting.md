@@ -239,7 +239,7 @@ refuse. For each retained server volume, add
 `--volume-recovery VOLUME=BACKUP:KEY:VERSION` to the saved-plan command. The
 review declares the rendered PVC before the Service and keeps the backup/key
 recovery identity with that durable resource. Previews and site rollback still
-use their direct paths and cannot use these production review flags.
+use their direct paths unless a rollback is saved for review.
 
 For a site created by the direct deploy path, save the full legacy release
 ConfigMap JSON to a private file. Prepare a versioned adoption proposal using
@@ -280,6 +280,21 @@ nagarectl site rollback 20260609-120000   # re-point production at a prior image
 Rollback re-applies the Service with the older image (already in the registry —
 no rebuild) and marks that release current. History is capped at 50 records and a
 re-deploy of the same tag updates in place rather than duplicating.
+
+For a site already owned by inventory, review the rollback against its accepted
+private release history and the publication for the selected image tag:
+
+```bash
+nagarectl site rollback RELEASE_ID --image-resource RESOURCE-ID \
+  --save-plan site-rollback-review
+nagarectl inventory apply site-rollback-review --yes
+```
+
+Supply `--tls-secret-resource`, `--env-secret-resource`, and
+`--volume-recovery` as needed for the same site resources described above. The
+review changes the selected Service image and current release pointer without
+adding a release record. It refuses a release absent from accepted history, an
+unaccepted image, or a site config whose image or URL differs from that release.
 
 ---
 

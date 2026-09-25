@@ -3,8 +3,11 @@
 -- separate publication operation.
 module Nagare.Inventory.Site
   ( compileStaticSiteScope
+  , compileStaticSiteRollbackScope
   , compileServerSiteScope
+  , compileServerSiteRollbackScope
   , acceptedSiteReleaseLog
+  , acceptedSiteSource
   , legacyServerSiteReleaseImport
   , legacyStaticSiteReleaseImport
   , siteVolumeRecoveryBindings
@@ -47,7 +50,21 @@ compileStaticSiteScope
   -> Map SecretName Declaration -> StaticReleaseLog -> StaticRelease -> SourceLocation
   -> Either (NonEmpty InventoryError)
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileStaticSiteScope inputs cluster namespaceId imageId tlsSecrets prior release source = do
+compileStaticSiteScope = compileStaticSiteScopeWith RecordRelease
+
+compileStaticSiteRollbackScope
+  :: DeployInputs -> ResourceId -> ResourceId -> ResourceId
+  -> Map SecretName Declaration -> StaticReleaseLog -> StaticRelease -> SourceLocation
+  -> Either (NonEmpty InventoryError)
+       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileStaticSiteRollbackScope = compileStaticSiteScopeWith SelectRelease
+
+compileStaticSiteScopeWith
+  :: SiteReleaseAction -> DeployInputs -> ResourceId -> ResourceId -> ResourceId
+  -> Map SecretName Declaration -> StaticReleaseLog -> StaticRelease -> SourceLocation
+  -> Either (NonEmpty InventoryError)
+       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileStaticSiteScopeWith action inputs cluster namespaceId imageId tlsSecrets prior release source = do
   let site = inputs ^. #site
       name = siteNameText (site ^. #name)
       ns = namespaceText (site ^. #namespace)
@@ -64,9 +81,10 @@ compileStaticSiteScope inputs cluster namespaceId imageId tlsSecrets prior relea
     (Left (invalid "static-site release differs from its selected image or render"))
   unless (validLog name ns prior)
     (Left (invalid "static-site prior release history is inconsistent"))
+  history <- first invalid (siteReleaseHistory action prior release)
   compileSiteRenderedScope name ns (site ^. #domains)
     (rendered ^. #service) (rendered ^. #domainMappings) [] Map.empty [] tlsSecrets
-    cluster namespaceId imageId prior release source
+    cluster namespaceId imageId history source
 
 siteVolumeRecoveryBindings
   :: ServerSite -> [T.Text] -> Either T.Text (Map VolumeName RecoveryIntent)
@@ -102,7 +120,23 @@ compileServerSiteScope
   -> StaticReleaseLog -> StaticRelease -> SourceLocation
   -> Either (NonEmpty InventoryError)
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileServerSiteScope inputs cluster namespaceId imageId recovery envSecrets tlsSecrets prior release source = do
+compileServerSiteScope = compileServerSiteScopeWith RecordRelease
+
+compileServerSiteRollbackScope
+  :: Server.ServerDeployInputs -> ResourceId -> ResourceId -> ResourceId
+  -> Map VolumeName RecoveryIntent -> Map SecretName Declaration -> Map SecretName Declaration
+  -> StaticReleaseLog -> StaticRelease -> SourceLocation
+  -> Either (NonEmpty InventoryError)
+       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileServerSiteRollbackScope = compileServerSiteScopeWith SelectRelease
+
+compileServerSiteScopeWith
+  :: SiteReleaseAction -> Server.ServerDeployInputs -> ResourceId -> ResourceId -> ResourceId
+  -> Map VolumeName RecoveryIntent -> Map SecretName Declaration -> Map SecretName Declaration
+  -> StaticReleaseLog -> StaticRelease -> SourceLocation
+  -> Either (NonEmpty InventoryError)
+       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileServerSiteScopeWith action inputs cluster namespaceId imageId recovery envSecrets tlsSecrets prior release source = do
   let site = inputs ^. #site
       name = siteNameText (site ^. #name)
       ns = namespaceText (site ^. #namespace)
@@ -131,6 +165,7 @@ compileServerSiteScope inputs cluster namespaceId imageId recovery envSecrets tl
     (Left (invalid "server-site release differs from its selected image or render"))
   unless (validLog name ns prior)
     (Left (invalid "server-site prior release history is inconsistent"))
+  history <- first invalid (siteReleaseHistory action prior release)
   let volumeBytes = ServerRender.renderServerVolumeClaims site
         (ServerRender.ServerDeployContext tag Nothing)
   unless (length volumeBytes == length (site ^. #volumes))
@@ -138,18 +173,28 @@ compileServerSiteScope inputs cluster namespaceId imageId recovery envSecrets tl
   compileSiteRenderedScope name ns (site ^. #domains)
     (rendered ^. #service) (rendered ^. #domainMappings)
     (zip (site ^. #volumes) volumeBytes) recovery secretIds tlsSecrets
-    cluster namespaceId imageId prior release source
+    cluster namespaceId imageId history source
+
+data SiteReleaseAction = RecordRelease | SelectRelease
+
+siteReleaseHistory :: SiteReleaseAction -> StaticReleaseLog -> StaticRelease
+  -> Either T.Text StaticReleaseLog
+siteReleaseHistory RecordRelease prior release = Right (addRelease release prior)
+siteReleaseHistory SelectRelease prior release = do
+  unless (findRelease (release ^. #releaseId) prior == Just release)
+    (Left "selected site release is absent or differs from accepted history")
+  pure (prior {current = Just (release ^. #releaseId)})
 
 compileSiteRenderedScope
   :: T.Text -> T.Text -> [DomainSpec] -> ByteString -> [ByteString]
   -> [(Volume, ByteString)] -> Map VolumeName RecoveryIntent -> [ResourceId]
   -> Map SecretName Declaration
   -> ResourceId -> ResourceId -> ResourceId
-  -> StaticReleaseLog -> StaticRelease -> SourceLocation
+  -> StaticReleaseLog -> SourceLocation
   -> Either (NonEmpty InventoryError)
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
 compileSiteRenderedScope name ns domains serviceBytes domainBytes volumeInputs recovery secretIds tlsSecrets
-    cluster namespaceId imageId prior release source = do
+    cluster namespaceId imageId history source = do
   let invalid message = inventoryError "invalid-site-scope" message
         & #sources .~ [source] & (:| [])
       requiredTls = Set.fromList [secret | domain <- domains,
@@ -202,7 +247,7 @@ compileSiteRenderedScope name ns domains serviceBytes domainBytes volumeInputs r
         ns (domainText (domain ^. #domain)) member
       pure (first (\resource -> resource {aliases = [Hostname host]}) member))
     (zip domains domainBytes)
-  let historyBytes = renderReleaseConfigMap name ns (addRelease release prior)
+  let historyBytes = renderReleaseConfigMap name ns history
       historySource = source {path = path source <> "/release-history"}
       workloadIds = volumeIds <> [serviceId] <> map ((^. #identity) . fst) domainMembers
   historyMember <- bindOne owner cluster historyId Retain Stateless
@@ -248,6 +293,30 @@ acceptedSiteReleaseLog snapshot native name ns cluster = do
         pure logv
       [] -> Left "accepted site scope lacks release history"
       _ -> Left "accepted site scope has duplicate release history"
+
+-- | Reuse the accepted source root when reviewing a rollback. Recompilation
+-- should only change the selected workload image and history pointer.
+acceptedSiteSource :: ScopeSnapshot -> T.Text -> T.Text -> ResourceId
+  -> Either T.Text SourceLocation
+acceptedSiteSource snapshot name ns cluster = do
+  owner <- mkScopeId Standalone ("site-" <> name)
+  key <- mkLogicalKey name
+  role <- mkName "service"
+  expected <- kubernetesAddress cluster "serving.knative.dev/v1" "Service"
+    (Just ns) name
+  let serviceId = mintResourceId owner key role
+  (_, scope) <- maybe (Left "accepted site scope is absent") Right
+    (Map.lookup owner (snapshotScopes snapshot))
+  resource <- case [member | bundle <- scopeBundles scope,
+      Managed member <- declarations bundle,
+      member ^. #identity == serviceId] of
+    [member] -> Right member
+    _ -> Left "accepted site scope lacks one Service member"
+  unless (resource ^. #address == expected)
+    (Left "accepted site Service has a different address")
+  basePath <- maybe (Left "accepted site Service lacks its source root") Right
+    (T.stripSuffix "/service" (path (resource ^. #source)))
+  pure ((resource ^. #source) {path = basePath})
 
 -- | Keep the old site's log byte-for-byte stable in the candidate before
 -- submitting its live ConfigMap to the exact-incarnation adoption decision.

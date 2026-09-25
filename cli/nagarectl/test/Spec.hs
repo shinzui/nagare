@@ -201,7 +201,7 @@ import Nagare.Gcp.Adc
   , validateAdc
   )
 import Nagare.GhcEnv (findGhcEnvIn)
-import Nagare.Inventory.Site (compileServerSiteScope, compileStaticSiteScope, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteNativeOwned, siteVolumeRecoveryBindings)
+import Nagare.Inventory.Site (acceptedSiteSource, compileServerSiteRollbackScope, compileServerSiteScope, compileStaticSiteRollbackScope, compileStaticSiteScope, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteNativeOwned, siteVolumeRecoveryBindings)
 import Nagare.Image (DockerAuth (..), dockerAuthPlan, dockerBuildArgs, nixpacksBuildArgs, qualifyImage)
 import Nagare.Infra.Plan
   ( CurrentInfraIdentity (..)
@@ -329,7 +329,7 @@ import Nagare.Static.Deploy (DeployInputs (..), staticUrl)
 import Nagare.Static.Preview
 import Nagare.Static.Release
 import Nagare.Static.Webhook
-import Nagare.Resource.Inventory (Declaration (External, Managed), ResourceBundle (..), scopeBundles, scopeId)
+import Nagare.Resource.Inventory (Declaration (External, Managed), ResourceBundle (..), mkScopeSnapshot, scopeBundles, scopeId)
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Storage.Discover
@@ -3908,6 +3908,12 @@ staticInventoryTests =
           source = Resource.SourceLocation "fixture" "static-site"
       (scope, native) <- either (fail . show) pure
         (compileStaticSiteScope inputs cluster namespaceId imageId Map.empty emptyReleaseLog release source)
+      let binding = Resource.ContextBinding (unsafe (Resource.mkContextId "test"))
+            (unsafe (Resource.mkName "project"))
+      snapshot <- either (fail . show) pure (mkScopeSnapshot binding
+        (Map.singleton (scopeId scope) (unsafe (Resource.mkScopeGeneration 1), scope))
+        Map.empty)
+      acceptedSiteSource snapshot "demo" "personal" cluster @?= Right source
       Resource.scopeKind (scopeId scope) @?= Resource.Standalone
       Map.size native @?= 3
       let members = [member | bundle <- scopeBundles scope,
@@ -3956,6 +3962,17 @@ staticInventoryTests =
             createdAt = UTCTime (fromGregorian 2026 9 23) 0}
           oldLog = addRelease release (addRelease older emptyReleaseLog)
           legacyBytes = renderReleaseConfigMap "demo" "personal" oldLog
+      (_, rollbackNative) <- either (fail . show) pure
+        (compileStaticSiteRollbackScope (inputs & #imageTag .~ "v0")
+          cluster namespaceId imageId Map.empty oldLog older source)
+      Map.keysSet rollbackNative @?= Map.keysSet native
+      (_, rollbackHistoryBytes) <- maybe (fail "missing rollback history") pure
+        (Map.lookup releaseId rollbackNative)
+      extractReleaseLog rollbackHistoryBytes @?= Right (oldLog & #current .~ Just "v0")
+      assertBool "rollback invented a release outside accepted history"
+        (isLeft (compileStaticSiteRollbackScope (inputs & #imageTag .~ "v2")
+          cluster namespaceId imageId Map.empty oldLog
+          (older {releaseId = "v2", imageTag = "v2"}) source))
       legacyStaticSiteReleaseImport site "v1" legacyBytes @?= Right (oldLog, release)
       assertBool "legacy static-site import accepted a different rollout tag"
         (isLeft (legacyStaticSiteReleaseImport site "v2" legacyBytes))
@@ -3996,6 +4013,19 @@ staticInventoryTests =
       Map.size native @?= 3
       length [member | bundle <- scopeBundles scope, Managed member <- declarations bundle]
         @?= 3
+      let older = release {releaseId = "v0", imageTag = "v0",
+            createdAt = UTCTime (fromGregorian 2026 9 23) 0}
+          oldLog = addRelease release (addRelease older emptyReleaseLog)
+          historyId = Resource.mintResourceId (scopeId scope)
+            (unsafe (Resource.mkLogicalKey "release-history"))
+            (unsafe (Resource.mkName "configmap"))
+      (_, rollbackNative) <- either (fail . show) pure
+        (compileServerSiteRollbackScope (inputs & #imageTag .~ "v0")
+          cluster namespaceId imageId Map.empty Map.empty Map.empty oldLog older source)
+      Map.keysSet rollbackNative @?= Map.keysSet native
+      (_, rollbackHistoryBytes) <- maybe (fail "missing server rollback history") pure
+        (Map.lookup historyId rollbackNative)
+      extractReleaseLog rollbackHistoryBytes @?= Right (oldLog & #current .~ Just "v0")
       legacyServerSiteReleaseImport site "v1"
         (renderReleaseConfigMap "demo" "personal" (addRelease release emptyReleaseLog))
         @?= Right (addRelease release emptyReleaseLog, release)

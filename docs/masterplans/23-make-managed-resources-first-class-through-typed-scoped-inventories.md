@@ -545,4 +545,6 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 
 2026-09-24: EP-148 expanded direct site mutation guards to include retained release-history ConfigMaps and owned DomainMappings as well as Services, closing a bypass after Service collection or a site name change. Reviewed preview and rollback remain open.
 
+2026-09-24: EP-148 added reviewed static and server site rollback using accepted private history and an accepted publication for the selected tag. The review changes the Service and current pointer without inventing a release. Previews, CDN, and broader operational command cutover remain open.
+
 2026-09-24: EP-148 applied the same distinction to legacy env and Secret reads and now refuses malformed `data` entries instead of silently dropping keys. Direct store writes and reviewed preview/deploy integration remain open.

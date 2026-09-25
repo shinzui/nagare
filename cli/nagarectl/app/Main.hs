@@ -277,7 +277,7 @@ import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Application (ApplicationScopeInput (..), DatabaseBinding, acceptedAccessBinding, acceptedApplicationImage, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationScope, compileStandaloneServiceWithRelease, compileStandaloneWorkerWithDependencies, databaseRecoveryBindings, legacyApplicationReleaseImport, legacyStandaloneReleaseImport, nativeWorkloadOwned, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
-import Nagare.Inventory.Site (acceptedSiteReleaseLog, compileServerSiteScope, compileStaticSiteScope, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteNativeOwned, siteVolumeRecoveryBindings)
+import Nagare.Inventory.Site (acceptedSiteReleaseLog, acceptedSiteSource, compileServerSiteRollbackScope, compileServerSiteScope, compileStaticSiteRollbackScope, compileStaticSiteScope, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteNativeOwned, siteVolumeRecoveryBindings)
 import Nagare.Inventory.Lifecycle qualified as InventoryLifecycle
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, compileStandaloneDatabase, databaseNativeOwned, standaloneRetirementScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Environment (acceptedEnvChannelValues, acceptedSecretChannelValues, compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
@@ -660,6 +660,16 @@ data SiteCommonOpts = SiteCommonOpts
   }
   deriving stock (Generic, Show)
 
+data SiteRollbackOpts = SiteRollbackOpts
+  { common :: !SiteCommonOpts
+  , savePlan :: !(Maybe FilePath)
+  , imageResource :: !(Maybe String)
+  , siteVolumeRecovery :: ![String]
+  , siteEnvSecretResources :: ![String]
+  , siteTlsSecretResources :: ![String]
+  }
+  deriving stock (Generic, Show)
+
 -- | Options for @app list@: a namespace (default @personal@) and @--all@ to drop
 -- the Nagare-managed label filter (EP-30).
 data AppListOpts = AppListOpts
@@ -763,7 +773,7 @@ data Command
   | Deploy DeployOpts
   | SiteDeploy SiteDeployOpts
   | SiteReleases SiteCommonOpts
-  | SiteRollback SiteCommonOpts String
+  | SiteRollback SiteRollbackOpts String
   | SitePreviewDeploy SiteDeployOpts String
   | SitePreviewList SiteCommonOpts
   | SitePreviewDelete SiteCommonOpts String
@@ -1654,6 +1664,16 @@ siteCommonOptsParser :: FilePath -> Parser SiteCommonOpts
 siteCommonOptsParser defaultFile =
   SiteCommonOpts <$> fileOpt defaultFile <*> baseDomainOpt <*> ghcEnvOpt
 
+siteRollbackOptsParser :: FilePath -> Parser SiteRollbackOpts
+siteRollbackOptsParser defaultFile =
+  SiteRollbackOpts
+    <$> siteCommonOptsParser defaultFile
+    <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save reviewed site rollback"))
+    <*> optional (strOption (long "image-resource" <> metavar "RESOURCE-ID" <> help "Accepted OCI image for the selected release"))
+    <*> many (strOption (long "volume-recovery" <> metavar "VOLUME=BACKUP:KEY:VERSION" <> help "Retained server-site PVC recovery"))
+    <*> many (strOption (long "env-secret-resource" <> metavar "RESOURCE-ID" <> help "Accepted runtime Secret dependency"))
+    <*> many (strOption (long "tls-secret-resource" <> metavar "RESOURCE-ID" <> help "Accepted supplied-TLS Secret dependency"))
+
 -- App lifecycle option fragments (EP-30).
 
 -- | @-n/--namespace@ for the @app@ commands; 'Nothing' means @personal@.
@@ -2465,7 +2485,7 @@ opts =
     siteRollbackCmd =
       info
         ( SiteRollback
-            <$> siteCommonOptsParser defaultConfigFile
+            <$> siteRollbackOptsParser defaultConfigFile
             <*> strArgument (metavar "RELEASE_ID" <> help "Release id to roll back to")
               <**> helper
         )
@@ -7100,13 +7120,17 @@ deployServer mctx tp sopts site0 bd = do
 -- | Direct and reviewed server deploys render the same generated identity env.
 serverSiteWithGeneratedEnv :: SiteDeployOpts -> ServerSite -> Text -> Text -> ServerSite
 serverSiteWithGeneratedEnv options site bd tag =
+  serverSiteWithGeneratedEnvSource (T.pack <$> options ^. #source) site bd tag
+
+serverSiteWithGeneratedEnvSource :: Maybe Text -> ServerSite -> Text -> Text -> ServerSite
+serverSiteWithGeneratedEnvSource source site bd tag =
   let context = Gen.GeneratedContext
         { Gen.serviceName = siteNameText (site ^. #name)
         , Gen.namespace = namespaceText (site ^. #namespace)
         , Gen.serviceUrl = serverUrl site bd
         , Gen.baseDomain = bd
         , Gen.releaseId = tag
-        , Gen.source = T.pack <$> options ^. #source
+        , Gen.source = source
         }
   in site & #env %~ mergeGenerated (generatedEnv context)
 
@@ -7186,37 +7210,103 @@ runSiteReleases copts = do
     Left err -> dieT err
     Right logv -> TIO.putStr (formatReleasesTable logv)
 
--- | @site rollback RELEASE_ID@: re-point the production Service at a prior
--- release's image tag and mark it current. The image already exists in the
--- registry, so this re-applies the rendered Service (no rebuild). Kind-agnostic:
--- it renders the static or server Service to match the project.
-runSiteRollback :: Maybe String -> SiteCommonOpts -> Text -> IO ()
-runSiteRollback mctx copts rid = do
+-- | @site rollback RELEASE_ID@: select a prior release. Reviewed rollback
+-- rebinds the site scope and its release-history pointer to an accepted image.
+runSiteRollback :: Maybe String -> SiteRollbackOpts -> Text -> IO ()
+runSiteRollback mctx options rid = do
+  let copts = options ^. #common
   bd <- resolveBaseDomain mctx (copts ^. #baseDomain)
   tp <- activeProfile mctx
   provisionGhcEnv (copts ^. #ghcEnv)
   esite <- Load.loadSite (copts ^. #file)
   case esite of
     Left err -> dieT (Load.renderLoadError err)
-    Right sc -> do
-      let (name, ns) = siteConfigIdentity sc
-      let hosts = case sc of
-            Load.SiteStatic site -> siteHostnames (site ^. #domains)
-            Load.SiteServer site -> siteHostnames (site ^. #domains)
-      refuseDirectSiteMutationIfOwned mctx "site rollback" name ns hosts True
-      elog <- readReleaseLog name ns
-      logv <- case elog of
-        Left err -> dieT err
-        Right l -> pure l
-      case findRelease rid logv of
-        Nothing -> dieT ("no such release: " <> rid)
-        Just rel -> do
-          let (svc, dms) = rollbackManifests tp sc bd (rel ^. #imageTag)
-          ensureNamespace ApplicationNamespace ns >>= orDie
-          applyManifests (svc : dms)
-          waitForReady name ns >>= requireWait ("service '" <> name <> "'")
-          writeReleaseLog name ns (logv & #current .~ Just (rel ^. #releaseId))
-          TIO.putStrLn ("Rolled back to " <> (rel ^. #releaseId) <> ": " <> (rel ^. #url))
+    Right sc -> case options ^. #savePlan of
+      Just output -> runReviewedSiteRollbackPlan mctx tp options sc bd rid output
+      Nothing -> do
+        when (isJust (options ^. #imageResource)
+            || not (null (options ^. #siteVolumeRecovery))
+            || not (null (options ^. #siteEnvSecretResources))
+            || not (null (options ^. #siteTlsSecretResources)))
+          (dieT "site rollback inventory options require --save-plan")
+        runDirectSiteRollback mctx tp sc bd rid
+
+runDirectSiteRollback :: Maybe String -> TargetProfile -> Load.SiteConfig -> Text -> Text -> IO ()
+runDirectSiteRollback mctx tp sc bd rid = do
+  let (name, ns) = siteConfigIdentity sc
+      hosts = case sc of
+        Load.SiteStatic site -> siteHostnames (site ^. #domains)
+        Load.SiteServer site -> siteHostnames (site ^. #domains)
+  refuseDirectSiteMutationIfOwned mctx "site rollback" name ns hosts True
+  elog <- readReleaseLog name ns
+  logv <- case elog of
+    Left err -> dieT err
+    Right l -> pure l
+  case findRelease rid logv of
+    Nothing -> dieT ("no such release: " <> rid)
+    Just rel -> do
+      let (svc, dms) = rollbackManifests tp sc bd (rel ^. #imageTag)
+      ensureNamespace ApplicationNamespace ns >>= orDie
+      applyManifests (svc : dms)
+      waitForReady name ns >>= requireWait ("service '" <> name <> "'")
+      writeReleaseLog name ns (logv & #current .~ Just (rel ^. #releaseId))
+      TIO.putStrLn ("Rolled back to " <> (rel ^. #releaseId) <> ": " <> (rel ^. #url))
+
+runReviewedSiteRollbackPlan
+  :: Maybe String -> TargetProfile -> SiteRollbackOpts -> Load.SiteConfig
+  -> Text -> Text -> FilePath -> IO ()
+runReviewedSiteRollbackPlan mctx tp options config bd rid output = do
+  let (name, ns) = siteConfigIdentity config
+  imageId <- maybe (dieT "reviewed site rollback requires --image-resource")
+    (either dieT pure . Resource.mkResourceId . T.pack) (options ^. #imageResource)
+  active <- activeTarget mctx
+  (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+  snapshot <- Inventory.loadTargetSnapshot active
+  (cluster, namespaceId) <- either dieT pure (acceptedFoundationNamespace snapshot ns)
+  store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+  history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
+  acceptedInventory <- either (dieT . T.pack . show) pure
+    (ResourceInventory.composeSnapshot snapshot)
+  (acceptedNative, _) <- InventoryStatus.loadAcceptedNative store history acceptedInventory
+    >>= either dieT pure
+  prior <- either dieT pure
+    (acceptedSiteReleaseLog snapshot acceptedNative name ns cluster)
+  source <- either dieT pure (acceptedSiteSource snapshot name ns cluster)
+  release <- maybe (dieT ("no accepted site release: " <> rid)) pure (findRelease rid prior)
+  either dieT pure (acceptedApplicationImage snapshot imageId
+    (release ^. #image <> ":" <> release ^. #imageTag))
+  envIds <- traverse (either dieT pure . Resource.mkResourceId . T.pack)
+    (options ^. #siteEnvSecretResources)
+  envSecrets <- either dieT pure (acceptedSecretBindings snapshot envIds)
+  tlsIds <- traverse (either dieT pure . Resource.mkResourceId . T.pack)
+    (options ^. #siteTlsSecretResources)
+  tlsSecrets <- either dieT pure (acceptedSecretBindings snapshot tlsIds)
+  (scope, native) <- case config of
+    Load.SiteStatic original -> do
+      unless (null (options ^. #siteVolumeRecovery)
+          && null (options ^. #siteEnvSecretResources))
+        (dieT "static-site rollback has no volume or runtime Secret inputs")
+      qualifiedImage <- either dieT pure (qualifyImage tp (original ^. #image))
+      let qualified = original & #image .~ qualifiedImage
+          inputs = DeployInputs qualified (release ^. #imageTag) bd "." True tp
+      either (dieT . T.pack . show) pure
+        (compileStaticSiteRollbackScope inputs cluster namespaceId imageId
+          tlsSecrets prior release source)
+    Load.SiteServer original -> do
+      qualifiedImage <- either dieT pure (qualifyImage tp (original ^. #image))
+      let qualified = original & #image .~ qualifiedImage
+      recovery <- either dieT pure (siteVolumeRecoveryBindings qualified
+        (map T.pack (options ^. #siteVolumeRecovery)))
+      let site = serverSiteWithGeneratedEnvSource (release ^. #source)
+            qualified bd (release ^. #imageTag)
+          inputs = ServerDeployInputs site (release ^. #imageTag) bd "." True tp
+      either (dieT . T.pack . show) pure
+        (compileServerSiteRollbackScope inputs cluster namespaceId imageId
+          recovery envSecrets tlsSecrets prior release source)
+  candidate <- either (dieT . T.pack . show) pure
+    (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
+  Inventory.planInventoryCandidateWith
+    (inventoryPlanRegistryWithNative active workspace native) active candidate output
 
 -- | The (name, namespace) of either site kind.
 siteConfigIdentity :: Load.SiteConfig -> (Text, Text)
