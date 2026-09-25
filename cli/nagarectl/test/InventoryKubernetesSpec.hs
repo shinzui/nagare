@@ -850,6 +850,46 @@ inventoryKubernetesTests =
         assertBool "DomainMapping deletion dropped its physical preconditions"
           (BS.isInfixOf "domain-uid" (TE.encodeUtf8 body)
             && BS.isInfixOf "resource-version" (TE.encodeUtf8 body))
+    , testCase "retained unready access route can be conditionally collected" $ do
+        let value = object
+              [ "apiVersion" .= ("serving.knative.dev/v1beta1" :: Text)
+              , "kind" .= ("DomainMapping" :: Text)
+              , "metadata" .= object
+                  ["name" .= ("broken.example.test" :: Text), "namespace" .= ("nagare-system" :: Text)]
+              , "spec" .= object ["ref" .= object
+                  ["apiVersion" .= ("serving.knative.dev/v1" :: Text)
+                  ,"kind" .= ("Service" :: Text)
+                  ,"name" .= ("missing-origin" :: Text)
+                  ,"namespace" .= ("nagare-system" :: Text)]]]
+            bytes = ok (canonicalValue value)
+            native = ok (bindKubernetesObject
+              (input {inputObject = value, objectDigest = contentDigest bytes,
+                lifecyclePolicy = DeleteWhenUnreferenced}))
+            bound = Map.singleton resource native
+            before = KubernetesNotReady physical "4" (Just resource) (contentDigest bytes)
+            collectionOperation = operation RetireResource
+        state <- newIORef before
+        calls <- newIORef (0 :: Int)
+        let nativeOps = (ops state calls)
+              { kubernetesMutateConditional = \mutation -> do
+                  current <- readIORef state
+                  if current /= mutationBefore mutation
+                    then pure (AdapterEffectFailed (KnownNoEffect "conditional write conflict"))
+                    else do
+                      modifyIORef' calls (+ 1)
+                      writeIORef state (KubernetesAbsent absence)
+                      pure AdapterEffectCompleted
+              }
+            adapter = mkKubernetesAdapter bound nativeOps
+        prepared <- adapterPrepare adapter collectionOperation >>= expectRight
+        writeIORef state (KubernetesNotReady physical "5" (Just resource) (contentDigest bytes))
+        stale <- adapterPreflight adapter collectionOperation prepared
+        assertBool "changed unready route version was accepted" (isLeft stale)
+        writeIORef state before
+        adapterPreflight adapter collectionOperation prepared >>= expectRight
+        adapterExecute adapter collectionOperation prepared >>= (@?= AdapterEffectCompleted)
+        _ <- adapterVerify adapter collectionOperation prepared >>= expectRight
+        readIORef calls >>= (@?= 1)
     , testCase "one candidate selects distinct retained resources for collection" $ do
         let other = mintResourceId scope (ok (mkLogicalKey "other")) (ok (mkName "resource"))
             addressFor label = Kubernetes cluster "" (ok (mkName "configmap"))

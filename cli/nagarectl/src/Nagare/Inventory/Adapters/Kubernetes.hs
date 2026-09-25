@@ -171,6 +171,8 @@ validateBefore operation resource desiredDigest state =
       | owner == resource && not (T.null revision) && digest == desiredDigest -> Right ()
     (RetireResource, KubernetesPresent _ revision (Just owner) digest)
       | owner == resource && not (T.null revision) && digest == desiredDigest -> Right ()
+    (RetireResource, KubernetesNotReady _ revision (Just owner) digest)
+      | owner == resource && not (T.null revision) && digest == desiredDigest -> Right ()
     (RunDeclaredOperation, KubernetesPresent _ revision (Just owner) _) | owner == resource && not (T.null revision) -> Right ()
     (RunDeclaredOperation, KubernetesAbsent _) -> Right ()
     (_, KubernetesUnknown reason) -> Left ("Kubernetes observation unavailable: " <> reason)
@@ -347,6 +349,11 @@ completionProof mutation state
   | mutationAction mutation == RetireResource = case state of
       KubernetesAbsent absence -> case mutationBefore mutation of
         KubernetesPresent physical _ _ _ -> contentDigest <$> canonicalValue
+          (object ["operation" .= mutationOperation mutation,
+                   "resource" .= mutationResource mutation,
+                   "removedPhysical" .= physical,
+                   "absence" .= absence])
+        KubernetesNotReady physical _ _ _ -> contentDigest <$> canonicalValue
           (object ["operation" .= mutationOperation mutation,
                    "resource" .= mutationResource mutation,
                    "removedPhysical" .= physical,
