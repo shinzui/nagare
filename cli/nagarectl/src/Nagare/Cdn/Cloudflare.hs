@@ -29,27 +29,33 @@ module Nagare.Cdn.Cloudflare
     -- * Pure request-builders (unit-tested; no network)
   , buildUpsertRecordPayload
   , buildCacheRulesPayload
+  , buildComposedCacheRulesPayload
   , buildPurgePayload
   , sslModeToken
   , zoneNameFromHostname
   , parseEnvelopeUnit
   , parseDnsRecordId
   , parseZoneId
+  , parseExactARecordListing
   )
 where
 
 import Control.Exception (catch)
 import Data.Aeson (Value (..), decodeStrict, eitherDecodeStrict, encode, object, (.=))
+import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
+import Data.List (sortOn)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Vector qualified as V
 import Nagare.Dsl.Cdn.Types (Cdn (..), CdnCacheRule (..))
 import Nagare.Dsl.Prelude hiding ((.=))
+import Nagare.Resource.Inventory (CloudflareCacheIntent (..))
+import Nagare.Resource.Types (nameText)
 import Network.HTTP.Client
 import Network.HTTP.Client.TLS (newTlsManager)
 import System.Environment (lookupEnv)
@@ -109,20 +115,36 @@ buildUpsertRecordPayload hostname originIp =
     ]
 
 -- | Translate a typed 'Cdn' into the Cloudflare cache-settings ruleset body.
--- Rule precedence is by array order: explicit path rules first, then the
--- static-asset long-cache rule (when @cacheStaticAssets@), then a catch-all
--- default-TTL rule last. @edgeTtlSeconds = Nothing@ becomes a "bypass cache"
+-- Cloudflare applies the last matching setting. Put the broad default first,
+-- then static assets, then explicit paths in reverse declaration order so the
+-- first declared matching path has priority. @edgeTtlSeconds = Nothing@ becomes a "bypass cache"
 -- rule (@cache: false@); a present TTL becomes @cache: true@ with an
 -- @override_origin@ edge TTL.
 buildCacheRulesPayload :: Text -> Cdn -> Value
 buildCacheRulesPayload hostname cdn =
   object
     [ "rules"
-        .= ( map (pathRule hostname) (cdn ^. #cacheRules)
-               ++ staticAssetRules hostname (cdn ^. #cacheStaticAssets)
-               ++ defaultRules hostname (cdn ^. #defaultTtlSeconds)
-           )
+        .= rulesForHost hostname (cdn ^. #defaultTtlSeconds)
+          (cdn ^. #cacheStaticAssets) (cdn ^. #cacheRules)
     ]
+
+-- | Render the owner's complete ruleset from all accepted host contributions.
+-- Host sorting makes unrelated application source order irrelevant while each
+-- host keeps the first declared matching path at highest priority.
+buildComposedCacheRulesPayload :: [CloudflareCacheIntent] -> Value
+buildComposedCacheRulesPayload intents = object
+  ["rules" .= concatMap hostRules (sortOn (nameText . cacheHost) intents)]
+  where
+    hostRules intent =
+      let host = nameText (cacheHost intent)
+       in rulesForHost host (cacheDefaultTtl intent) (intent ^. #cacheStaticAssets)
+            (map (uncurry CdnCacheRule) (cachePaths intent))
+
+rulesForHost :: Text -> Maybe Int -> Bool -> [CdnCacheRule] -> [Value]
+rulesForHost hostname defaultTtl assets paths =
+  defaultRules hostname defaultTtl
+    <> staticAssetRules hostname assets
+    <> map (pathRule hostname) (reverse paths)
 
 -- | A per-path rule. @Just ttl@ caches for @ttl@ seconds; @Nothing@ bypasses.
 pathRule :: Text -> CdnCacheRule -> Value
@@ -147,7 +169,7 @@ staticAssetRules hostname True =
       (Just 31536000)
   ]
 
--- | The catch-all default-TTL rule, last so specific rules win. Omitted when no
+-- | The catch-all default-TTL rule, first so specific rules win. Omitted when no
 -- default TTL is configured (Cloudflare's own default caching then applies).
 defaultRules :: Text -> Maybe Int -> [Value]
 defaultRules _ Nothing = []
@@ -179,7 +201,11 @@ hostExpr hostname = "(http.host eq " <> quoteExpr hostname <> ")"
 
 -- | A double-quoted literal for a Cloudflare filter expression.
 quoteExpr :: Text -> Text
-quoteExpr t = "\"" <> t <> "\""
+quoteExpr t = "\"" <> T.concatMap escape t <> "\""
+  where
+    escape '"' = "\\\""
+    escape '\\' = "\\\\"
+    escape character = T.singleton character
 
 -- | The purge request body. @[]@ purges the whole zone
 -- (@{ "purge_everything": true }@); a non-empty path list purges those exact
@@ -216,10 +242,8 @@ envelopeErrors v =
             [fromMaybe "unknown error" (textAt ["message"] e) | e <- V.toList errs]
     _ -> "Cloudflare reported failure with no error detail"
 
--- | A record id from a Cloudflare response. Handles both a single-object
--- @result.id@ (the create/update response) and a list @result[0].id@ (the
--- @GET /dns_records?name=...@ find response), so the find-or-create path in
--- 'upsertProxiedRecord' actually detects an existing record.
+-- | A record id from a Cloudflare response. Kept for the original provider
+-- response contract; direct provisioning uses the strict exact-name parser.
 parseDnsRecordId :: ByteString -> Maybe Text
 parseDnsRecordId bs = do
   v <- decodeStrict bs
@@ -227,14 +251,45 @@ parseDnsRecordId bs = do
     Just (Array rs) -> rs V.!? 0 >>= textAt ["id"]
     _ -> textAt ["result", "id"] v
 
+-- | A failed, malformed, or non-exact list cannot authorize a create. The
+-- direct path only accepts an empty result or one exact A record; it never
+-- changes an existing record without a reviewed owner and old-value binding.
+parseExactARecordListing :: Text -> ByteString -> Either Text (Maybe (Text, Text, Bool, Int))
+parseExactARecordListing host bytes = do
+  value <- first T.pack (eitherDecodeStrict bytes)
+  unless (envelopeOk value) (Left (envelopeErrors value))
+  records <- case lookupPath ["result"] value of
+    Just (Array values) -> Right (V.toList values)
+    _ -> Left "Cloudflare DNS listing has no result array"
+  case lookupPath ["result_info", "count"] value of
+    Just (Number count) | count == fromIntegral (length records) -> pure ()
+    _ -> Left "Cloudflare DNS listing count differs from its result"
+  case lookupPath ["result_info", "page"] value of
+    Just (Number 1) -> pure ()
+    _ -> Left "Cloudflare DNS listing did not return the first page"
+  case records of
+    [] -> Right Nothing
+    [record] -> do
+      unless (textAt ["name"] record == Just host && textAt ["type"] record == Just "A")
+        (Left "Cloudflare DNS listing returned a different hostname or type")
+      recordId <- maybe (Left "Cloudflare DNS record has no ID") Right (textAt ["id"] record)
+      content <- maybe (Left "Cloudflare DNS record has no content") Right (textAt ["content"] record)
+      proxied <- maybe (Left "Cloudflare DNS record has no proxy state") Right (lookupBool ["proxied"] record)
+      ttl <- case lookupPath ["ttl"] record of
+        Just ttlValue | Aeson.Success seconds <- Aeson.fromJSON ttlValue -> Right (seconds :: Int)
+        _ -> Left "Cloudflare DNS record has no valid TTL"
+      unless (not (T.null recordId)) (Left "Cloudflare DNS record has an empty ID")
+      Right (Just (recordId, content, proxied, ttl))
+    _ -> Left "Cloudflare DNS listing returned multiple A records for one hostname"
+
 -- | The first matching zone id from a @GET /zones?name=...@ list response
 -- (@result[0].id@).
 parseZoneId :: ByteString -> Maybe Text
 parseZoneId bs = do
   v <- decodeStrict bs
   Array results <- lookupPath ["result"] v
-  first <- results V.!? 0
-  textAt ["id"] first
+  zone <- results V.!? 0
+  textAt ["id"] zone
 
 -- ---------------------------------------------------------------------------
 -- Three-line JSON walkers (local copies, mirroring Nagare.Ops.Domains)
@@ -326,20 +381,22 @@ sendUnit token method path body = do
   r <- cfRequest token method path body
   pure (r >>= parseEnvelopeUnit)
 
--- | Create or update the proxied A record @hostname -> originIp@. Find-or-create:
--- list the record by name, then PATCH the existing one or POST a new one, so a
--- repeated deploy leaves exactly one record.
+-- | Create or verify a proxied A record. An existing different record is
+-- unowned by this direct path and must enter a reviewed scope for update.
 upsertProxiedRecord :: CloudflareCreds -> Text -> Text -> IO (Either Text ())
 upsertProxiedRecord creds host originIp = withZone creds host $ \zone -> do
   let tok = creds ^. #apiToken
       body = buildUpsertRecordPayload host originIp
   listR <-
-    cfRequest tok "GET" ("/zones/" <> zone <> "/dns_records?type=A&name=" <> host) Nothing
+    cfRequest tok "GET" ("/zones/" <> zone <> "/dns_records?type=A&name.exact=" <> host) Nothing
   case listR of
     Left e -> pure (Left e)
-    Right bs -> case parseDnsRecordId bs of
-      Just rid -> sendUnit tok "PATCH" ("/zones/" <> zone <> "/dns_records/" <> rid) (Just body)
-      Nothing -> sendUnit tok "POST" ("/zones/" <> zone <> "/dns_records") (Just body)
+    Right bs -> case parseExactARecordListing host bs of
+      Left reason -> pure (Left ("cannot inspect Cloudflare DNS record: " <> reason))
+      Right (Just (_, current, True, 1)) | current == originIp -> pure (Right ())
+      Right (Just _) -> pure (Left (host
+        <> ": existing Cloudflare A record differs; direct deploy cannot replace it without reviewed ownership"))
+      Right Nothing -> sendUnit tok "POST" ("/zones/" <> zone <> "/dns_records") (Just body)
 
 -- | Apply the typed cache rules by replacing the @http_request_cache_settings@
 -- phase entrypoint wholesale, so the live rules are always a function of the

@@ -173,6 +173,9 @@ data ProviderAddress
   | BrokerTopic ResourceId Name
   | Helm ResourceId Name Name
   | DnsRecord Name Name Name
+  | CloudflareRuleset Name
+  | CloudflareTlsSetting Name
+  | CloudflareDnsRecord Name Name
   deriving stock (Eq, Ord, Show, Generic)
 
 newtype CanonicalClaim = CanonicalClaim [Text] deriving stock (Eq, Ord, Show)
@@ -213,6 +216,9 @@ canonicalClaim =
     BrokerTopic r n -> ["broker-topic", resourceIdText r, nameText n]
     Helm r namespace n -> ["helm", resourceIdText r, nameText namespace, nameText n]
     DnsRecord account zone host -> ["dns-record", nameText account, nameText zone, nameText host]
+    CloudflareRuleset zone -> ["cloudflare-ruleset", nameText zone, "http_request_cache_settings"]
+    CloudflareTlsSetting zone -> ["cloudflare-tls-setting", nameText zone, "ssl"]
+    CloudflareDnsRecord zone host -> ["cloudflare-dns-record", nameText zone, nameText host]
 
 claimParts :: CanonicalClaim -> [Text]
 claimParts (CanonicalClaim xs) = xs

@@ -65,7 +65,8 @@ dnsSpecsFromDeclarations declarations = do
   pure result
   where
     byId = Map.fromList [(declarationId declaration, declaration) | declaration <- declarations]
-    dnsResources = [resource | Managed resource <- declarations, resource ^. #executor == CdnExecutor]
+    dnsResources = [resource | Managed resource <- declarations,
+      DnsRecord {} <- [resource ^. #address]]
     bind resource = case (resource ^. #address, resource ^. #spec) of
       (DnsRecord _ _ host, DnsARecord _ _)
         | Hostname host `elem` resource ^. #aliases

@@ -6,21 +6,23 @@ import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString.Char8 qualified as BC
 import Control.Exception (finally)
 import Data.Either (isLeft)
-import Data.Foldable (toList)
+import Data.Foldable (forM_, toList)
 import Data.Generics.Labels ()
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Cdn
 import Nagare.Inventory.Adapters.CdnRuntime (DnsChangeStatus (..), DnsRuntimeConfig (..), dnsChangeBody, dnsRuntimeOps, parseDnsChangeStatus, parseExactDnsListing)
+import Nagare.Inventory.Adapters.Cloudflare
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (mkOperationId)
-import Nagare.Inventory.Plan (LifecycleDecisionKind (ApproveRetirement), LifecycleProposal (..), lifecycleObservationDigest, loadInventoryHistory, planChanges, validateLifecycleDecisions)
+import Nagare.Inventory.Plan (LifecycleDecisionKind (ApproveRetirement), LifecycleProposal (..), lifecycleObservationDigest, loadInventoryHistory, observationRequirements, planChanges, requiredResources, validateLifecycleDecisions)
 import Nagare.Inventory.Store (ScopeRevision (..), headAccepted, headConverged, headGeneration, initializeStore, newMemoryStore, publishIfAbsent, replaceHeadIfGenerationMatches, scopeKey)
-import Nagare.Resource.Cdn (compileGoogleDnsRecord)
+import Nagare.Resource.Cdn (compileCloudflareDnsRecord, compileGoogleDnsRecord)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
 import Nagare.Resource.Types
@@ -153,6 +155,163 @@ inventoryCdnTests = testGroup "reviewed CDN DNS"
       assertBool "a pending change without an exact provider ID must refuse"
         (isLeft (parseDnsChangeStatus "{\"status\":\"pending\",\"id\":\"../other\"}"))
   , testCase "disposable Cloud DNS adapter create, update, and stale-old refusal" liveDnsProof
+  , testCase "offline Cloudflare owner review binds complete rules and independent host records" $ do
+      let zone = ok (mkName "0123456789abcdef0123456789abcdef")
+          platformOwner = ok (mkScopeId Platform "cloudflare")
+          appA = ok (mkScopeId Application "site-a")
+          appB = ok (mkScopeId Application "site-b")
+          source = SourceLocation "fixture" "cloudflare"
+          cluster = mintResourceId platformOwner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+          rulesId = cloudflareRulesResourceId platformOwner zone
+          tlsId = cloudflareTlsResourceId platformOwner zone
+          platformScope = ok (mkScopeDeclaration platformOwner
+            [ResourceBundle [] [] [] [] [] [CloudflareZoneGrant zone CloudflareFlexible]])
+          hostScope owner hostname ttl =
+            let host = ok (mkName hostname)
+                routeId = mintResourceId owner (ok (mkLogicalKey hostname)) (ok (mkName "domain-mapping"))
+                route = ManagedResource routeId owner KubernetesExecutor
+                  (ok (kubernetesAddress cluster "serving.knative.dev/v1" "DomainMapping"
+                    (Just "personal") hostname))
+                  [Hostname host] (NativeObject (contentDigest "route")) Retain Stateless Private [] [] source
+                intent = CloudflareCacheIntent host (Just ttl) False [("/api/", Nothing)]
+                dns = ok (compileCloudflareDnsRecord owner (ok (mkLogicalKey hostname)) zone
+                  host "203.0.113.4" routeId rulesId source)
+             in ok (mkScopeDeclaration owner
+                  [ResourceBundle [Managed route] [] []
+                    [RegisterCloudflareCache platformOwner zone intent routeId] [] []
+                  ,dns])
+          firstScope = hostScope appA "a.example.test" 300
+          secondScope = hostScope appB "b.example.test" 600
+          binding = ContextBinding (ok (mkContextId "labs")) (ok (mkName "project"))
+          emptySnapshot = ok (mkScopeSnapshot binding Map.empty Map.empty)
+          oldInventory = candidateInventory (ok (composeInventory emptySnapshot
+            (ReplaceScope platformScope :| [ReplaceScope firstScope, ReplaceScope secondScope])))
+          oldDeclarations = inventoryDeclarations oldInventory
+          oldResources = Map.fromList [(member ^. #identity, member)
+            | Managed member <- oldDeclarations, member ^. #executor == CdnExecutor]
+          oldBindings = ok (cloudflareBindingsFromDeclarations oldDeclarations)
+          generation = ok (mkScopeGeneration 1)
+          acceptedSnapshot = ok (mkScopeSnapshot binding (Map.fromList
+            [(platformOwner, (generation, platformScope)), (appA, (generation, firstScope))
+            ,(appB, (generation, secondScope))]) Map.empty)
+          changedScope = hostScope appA "a.example.test" 900
+          newInventory = candidateInventory (ok (composeInventory acceptedSnapshot
+            (ReplaceScope changedScope :| [])))
+          newBindings = ok (cloudflareBindingsFromDeclarations (inventoryDeclarations newInventory))
+          operation name action resource = PlannedOperation (ok (mkOperationId name))
+            action CdnExecutor (resource :| []) (contentDigest "cloudflare-review") [] VerifyBeforeRetry
+          physical resource = ok (mkPhysicalIdentity ("cloudflare:" <> resourceIdText resource))
+      Map.size oldBindings @?= 4
+      historyStore <- newMemoryStore
+      initialHead <- initializeStore historyStore binding "cloudflare-isolation"
+        >>= either (fail . show) pure
+      let revision scope = ScopeRevision generation (contentDigest (encodeCanonicalScope scope))
+          acceptedScopes = [platformScope, firstScope, secondScope]
+      forM_ acceptedScopes $ \scope ->
+        publishIfAbsent historyStore (scopeKey (revisionDigest (revision scope)))
+          (encodeCanonicalScope scope) >>= either (fail . show) pure
+      _ <- replaceHeadIfGenerationMatches historyStore (Just (headGeneration initialHead))
+        (initialHead {headGeneration = headGeneration initialHead + 1
+          ,headAccepted = Map.fromList [(scopeId scope, revision scope) | scope <- acceptedScopes]
+          ,headConverged = Map.fromList [(scopeId scope, revision scope) | scope <- acceptedScopes]})
+        >>= either (fail . show) pure
+      history <- loadInventoryHistory historyStore >>= either (fail . show) pure
+      let changedCandidate = ok (composeInventory acceptedSnapshot (ReplaceScope changedScope :| []))
+          selected = requiredResources (observationRequirements changedCandidate history)
+          unrelated = [member ^. #identity | Managed member <- oldDeclarations,
+            member ^. #owner == appB]
+      assertBool "app A cache update did not select its shared ruleset" (Set.member rulesId selected)
+      assertBool "app A cache update selected app B or unchanged platform TLS"
+        (all (`Set.notMember` selected) (tlsId : unrelated))
+      assertBool "orphan DNS cannot enter the Cloudflare adapter" (isLeft
+        (cloudflareBindingsFromDeclarations [declaration | declaration@(Managed member) <- oldDeclarations,
+          CloudflareDnsRecord _ _ <- [member ^. #address]]))
+      state <- newIORef Map.empty
+      writes <- newIORef ([] :: [ResourceId])
+      let inspect resource = Map.findWithDefault CloudflareMissing resource <$> readIORef state
+          write plan = do
+            let resource = cloudflarePlanResource plan
+            modifyIORef' state (Map.insert resource
+              (CloudflarePresent (physical resource) (cloudflarePlanTarget plan)))
+            modifyIORef' writes (<> [resource])
+            pure AdapterEffectCompleted
+          ops = CloudflareAdapterOps inspect write write
+          initial = mkCloudflareAdapter Map.empty oldBindings ops
+      forM_ (zip [0 :: Int ..] (Map.keys oldBindings)) $ \(position, resource) -> do
+        let create = operation ("op-create-" <> T.pack (show position)) CreateResource resource
+        prepared <- adapterPrepare initial create >>= either (fail . show) pure
+        adapterPreflight initial create prepared >>= (@?= Right ())
+        adapterExecute initial create prepared >>= (@?= AdapterEffectCompleted)
+        result <- adapterVerify initial create prepared
+        assertBool "Cloudflare create did not verify" (either (const False) (const True) result)
+        adapterRecover initial create prepared >>= \case
+          RecoveryUnresolved _ -> pure ()
+          other -> assertFailure ("Cloudflare create was recovered without a provider receipt: " <> show other)
+      let adoptTls = operation "op-adopt-tls" AdoptResource tlsId
+      observed <- adapterObserve initial [tlsId] >>= either (fail . T.unpack) pure
+      Map.lookup tlsId (observationMap observed) @?= Just (ObservedUnowned (physical tlsId))
+      unownedVerify <- adapterPrepare initial (operation "op-verify-unowned" VerifyResource tlsId)
+      assertBool "verification must not adopt an unowned setting" (isLeft unownedVerify)
+      adoption <- adapterPrepare initial adoptTls >>= either (fail . show) pure
+      adapterPreflight initial adoptTls adoption >>= (@?= Right ())
+      adapterExecute initial adoptTls adoption >>= (@?= AdapterEffectCompleted)
+      adoptionProof <- adapterVerify initial adoptTls adoption
+      assertBool "matching TLS setting could not be adopted" (either (const False) (const True) adoptionProof)
+      adapterRecover initial adoptTls adoption >>= \case
+        RecoveryProvedComplete _ -> pure ()
+        other -> assertFailure ("read-only Cloudflare adoption did not recover: " <> show other)
+      firstDns <- case [resource | (resource, member) <- Map.toAscList oldResources,
+        CloudflareDnsRecord _ host <- [member ^. #address], host == ok (mkName "a.example.test")] of
+        [resource] -> pure resource
+        other -> assertFailure ("expected one Cloudflare A record: " <> show other)
+          >> fail "missing A record"
+      let adoptDns = operation "op-adopt-dns" AdoptResource firstDns
+      modifyIORef' state (Map.adjust (\case
+        CloudflarePresent physicalId (CloudflareDnsTarget host address _ ttl) ->
+          CloudflarePresent physicalId (CloudflareDnsTarget host address False ttl)
+        other -> other) firstDns)
+      rejected <- adapterPrepare initial adoptDns
+      assertBool "unproxied A record must not be adopted as a proxied record" (isLeft rejected)
+      modifyIORef' state (Map.adjust (\case
+        CloudflarePresent physicalId (CloudflareDnsTarget host address _ ttl) ->
+          CloudflarePresent physicalId (CloudflareDnsTarget host address True ttl)
+        other -> other) firstDns)
+      let changed = mkCloudflareAdapter oldResources newBindings ops
+          update = operation "op-update-rules" UpdateResource rulesId
+      prepared <- adapterPrepare changed update >>= either (fail . show) pure
+      modifyIORef' state (Map.adjust (\case
+        CloudflarePresent _ target -> CloudflarePresent (ok (mkPhysicalIdentity "cloudflare:foreign")) target
+        other -> other) rulesId)
+      assertBool "ruleset version or ID change must refuse" . isLeft
+        =<< adapterPreflight changed update prepared
+      modifyIORef' state (Map.adjust (\case
+        CloudflarePresent _ target -> CloudflarePresent (physical rulesId) target
+        other -> other) rulesId)
+      adapterPreflight changed update prepared >>= (@?= Right ())
+      adapterExecute changed update prepared >>= (@?= AdapterEffectCompleted)
+      result <- adapterVerify changed update prepared
+      assertBool "complete ruleset update did not verify" (either (const False) (const True) result)
+      let initialWrites = Map.keys oldBindings
+      actualWrites <- readIORef writes
+      actualWrites @?= initialWrites <> [rulesId]
+      adapterRecover changed update prepared >>= \case
+        RecoveryUnresolved _ -> pure ()
+        other -> assertFailure ("Cloudflare update was recovered without a provider receipt: " <> show other)
+      let strictPlatform = ok (mkScopeDeclaration platformOwner
+            [ResourceBundle [] [] [] [] [] [CloudflareZoneGrant zone CloudflareFullStrict]])
+          strictInventory = candidateInventory (ok (composeInventory acceptedSnapshot
+            (ReplaceScope strictPlatform :| [])))
+          strictBindings = ok (cloudflareBindingsFromDeclarations
+            (inventoryDeclarations strictInventory))
+          tlsAdapter = mkCloudflareAdapter oldResources strictBindings ops
+          tlsUpdate = operation "op-update-tls" UpdateResource tlsId
+      tlsPrepared <- adapterPrepare tlsAdapter tlsUpdate >>= either (fail . show) pure
+      adapterPreflight tlsAdapter tlsUpdate tlsPrepared >>= (@?= Right ())
+      adapterExecute tlsAdapter tlsUpdate tlsPrepared >>= (@?= AdapterEffectCompleted)
+      tlsResult <- adapterVerify tlsAdapter tlsUpdate tlsPrepared
+      assertBool "origin TLS update did not verify" (either (const False) (const True) tlsResult)
+      finalWrites <- readIORef writes
+      finalWrites @?= initialWrites <> [rulesId, tlsId]
   ]
 
 -- Run explicitly with NAGARE_EP148_DNS_ZONE set to a dedicated zone named

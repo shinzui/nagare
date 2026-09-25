@@ -1,6 +1,8 @@
 module Nagare.Resource.Inventory
   ( Executor (..)
   , DesiredSpec (..)
+  , CloudflareCacheIntent (..)
+  , CloudflareTlsMode (..)
   , validDnsIpv4
   , ManagedResource (..)
   , Declaration (..)
@@ -18,6 +20,8 @@ module Nagare.Resource.Inventory
   , contributionResourceId
   , backendMapResourceId
   , shomeiSettingsResourceId
+  , cloudflareRulesResourceId
+  , cloudflareTlsResourceId
   , ResourceBundle (..)
   , ScopeDeclaration
   , mkScopeDeclaration
@@ -86,6 +90,19 @@ data DesiredSpec
   | LogicalCache !ContentDigest
   | LogicalBrokerTopic !Int !Int !(Maybe Int)
   | DnsARecord !Text !Int
+  | CloudflareRulesSpec ![CloudflareCacheIntent]
+  | CloudflareZoneTlsSpec !CloudflareTlsMode
+  | CloudflareProxiedARecord !Text
+  deriving stock (Eq, Ord, Show, Generic)
+
+data CloudflareCacheIntent = CloudflareCacheIntent
+  { cacheHost :: !Name
+  , cacheDefaultTtl :: !(Maybe Int)
+  , cacheStaticAssets :: !Bool
+  , cachePaths :: ![(Text, Maybe Int)]
+  } deriving stock (Eq, Ord, Show, Generic)
+
+data CloudflareTlsMode = CloudflareFlexible | CloudflareFull | CloudflareFullStrict
   deriving stock (Eq, Ord, Show, Generic)
 
 validDnsIpv4 :: Text -> Bool
@@ -192,9 +209,12 @@ data Contribution
   | RegisterBackend
       {owner :: !ScopeId, cluster :: !ResourceId, host :: !Name, upstream :: !Text
       , role :: !BackendRole, key :: !LogicalKey}
+  | RegisterCloudflareCache
+      {owner :: !ScopeId, zone :: !Name, cacheIntent :: !CloudflareCacheIntent
+      , route :: !ResourceId}
   deriving stock (Eq, Ord, Show, Generic)
 
-data ContributionGrant = NamespaceGrant !ScopeId !ResourceId | BackendMapGrant !ResourceId | ShomeiSettingsGrant !ResourceId !Name
+data ContributionGrant = NamespaceGrant !ScopeId !ResourceId | BackendMapGrant !ResourceId | ShomeiSettingsGrant !ResourceId !Name | CloudflareZoneGrant !Name !CloudflareTlsMode
   deriving stock (Eq, Ord, Show, Generic)
 
 data ResourceBundle = ResourceBundle
@@ -241,6 +261,10 @@ mkScopeDeclaration s bs = checked errors (ScopeDeclaration s Nothing Map.empty (
         <> [err "wrong-owner" "managed declaration belongs to a different scope" d | d@(Managed r) <- ds, r ^. #owner /= s]
         <> [err "derived-auth-settings" "shared auth settings must be composed from owner grants and contributions" d
            | d@(Managed r) <- ds, case r ^. #spec of BackendMapSpec _ -> True; ShomeiSettingsSpec {} -> True; _ -> False]
+        <> [err "derived-cloudflare-rules" "Cloudflare rules must be composed from owner grants and host contributions" d
+           | d@(Managed r) <- ds, CloudflareRulesSpec {} <- [r ^. #spec]]
+        <> [err "derived-cloudflare-tls" "Cloudflare origin TLS must be composed from the platform zone grant" d
+           | d@(Managed r) <- ds, CloudflareZoneTlsSpec {} <- [r ^. #spec]]
     err c m d = inventoryError c m & #scopes .~ [s] & #resources .~ [declarationId d] & #sources .~ [declarationSource d]
 
 validateDeclaration :: Declaration -> [InventoryError]
@@ -277,6 +301,9 @@ validateDeclaration d@(Managed r) = [err m | m <- issues]
       BrokerTopic {} -> r ^. #executor == BrokerExecutor
       Helm {} -> r ^. #executor == HelmExecutor
       DnsRecord {} -> r ^. #executor == CdnExecutor
+      CloudflareRuleset {} -> r ^. #executor == CdnExecutor
+      CloudflareTlsSetting {} -> r ^. #executor == CdnExecutor
+      CloudflareDnsRecord {} -> r ^. #executor == CdnExecutor
       _ -> True
     specMatches = case (r ^. #address, r ^. #spec) of
       (Kubernetes _ "serving.knative.dev" k (Just _) _, KnativeService _) -> nameText k == "service"
@@ -297,10 +324,21 @@ validateDeclaration d@(Managed r) = [err m | m <- issues]
       (Helm {}, _) -> False
       (DnsRecord _ _ _, DnsARecord target ttl) -> validDnsIpv4 target && ttl > 0
       (DnsRecord {}, _) -> False
+      (CloudflareRuleset _, CloudflareRulesSpec intents) ->
+        all validCacheIntent intents && null (duplicates (map cacheHost intents))
+      (CloudflareRuleset {}, _) -> False
+      (CloudflareTlsSetting _, CloudflareZoneTlsSpec _) -> True
+      (CloudflareTlsSetting {}, _) -> False
+      (CloudflareDnsRecord _ _, CloudflareProxiedARecord target) -> validDnsIpv4 target
+      (CloudflareDnsRecord {}, _) -> False
       (_, NativeObject _) -> True
       (_, HelmRelease {}) -> False
       (Artifact _ _, ArtifactPublication {}) -> True
       _ -> False
+    validCacheIntent intent = maybe True (>= 0) (cacheDefaultTtl intent)
+      && all (\(prefix, ttl) -> "/" `Data.Text.isPrefixOf` prefix
+        && not (Data.Text.any (< ' ') prefix) && maybe True (>= 0) ttl)
+        (cachePaths intent)
 validateDeclaration d = [inventoryError "invalid-address" message & #resources .~ [declarationId d] & #sources .~ [declarationSource d] | address <- addresses, Left message <- [mkProviderAddress address]]
   where
     addresses = case d of External _ a _ _ -> [a]; ObservedChild _ _ a _ _ -> [a]; Managed _ -> []
@@ -422,15 +460,18 @@ composedDeclarations ss = do
   pure (sortOn declarationId (concatMap scopeDeclarations (Map.elems ss) <> contributed))
 
 composeContributions :: Map ScopeId ScopeDeclaration -> Either (NonEmpty InventoryError) [Declaration]
-composeContributions ss = checked errors (namespaces <> backendMaps <> shomeiSettings)
+composeContributions ss = checked errors (namespaces <> backendMaps <> shomeiSettings <> cloudflareTls <> cloudflareRulesets)
   where
     requests = [(s, c) | (s, d) <- Map.toList ss, b <- scopeBundles d, c <- b ^. #contributions]
-    namespaceRequests = [(s, c, namespaceName) | (s, c@(RegisterNamespace _ _ namespaceName _)) <- requests]
-    backendRequests = [(s, c, hostName, upstreamText, backendRole)
-      | (s, c@(RegisterBackend _ _ hostName upstreamText backendRole _)) <- requests]
+    namespaceRequests = [(s, c, clusterId, namespaceName)
+      | (s, c@(RegisterNamespace _ clusterId namespaceName _)) <- requests]
+    backendRequests = [(s, c, clusterId, hostName, upstreamText, backendRole)
+      | (s, c@(RegisterBackend _ clusterId hostName upstreamText backendRole _)) <- requests]
+    cloudflareRequests = [(s, c, zoneName, intent, routeId)
+      | (s, c@(RegisterCloudflareCache _ zoneName intent routeId)) <- requests]
     grouped = Map.fromListWith (<>)
-      [ ((c ^. #owner, c ^. #cluster, namespaceName), (s, c) :| []) | (s, c, namespaceName) <- namespaceRequests ]
-    authorized s c = maybe False (elem (NamespaceGrant s (c ^. #cluster)) . concatMap (^. #grants) . scopeBundles) (Map.lookup (c ^. #owner) ss)
+      [ ((c ^. #owner, clusterId, namespaceName), (s, c) :| []) | (s, c, clusterId, namespaceName) <- namespaceRequests ]
+    authorized s c clusterId = maybe False (elem (NamespaceGrant s clusterId) . concatMap (^. #grants) . scopeBundles) (Map.lookup (c ^. #owner) ss)
     backendOwners =
       [ (s, clusterId)
       | (s, d) <- Map.toList ss
@@ -441,19 +482,40 @@ composeContributions ss = checked errors (namespaces <> backendMaps <> shomeiSet
       | (s, d) <- Map.toList ss
       , b <- scopeBundles d
       , ShomeiSettingsGrant clusterId baseDomain <- b ^. #grants]
-    backendAuthorized s c = scopeKind s `elem` [Application, Standalone]
-      && (c ^. #owner, c ^. #cluster) `elem` backendOwners
+    cloudflareOwners =
+      [(s, zoneName, tlsMode) | (s, d) <- Map.toList ss, b <- scopeBundles d,
+        CloudflareZoneGrant zoneName tlsMode <- b ^. #grants]
+    cloudflareGroups = Map.fromListWith (<>)
+      [((c ^. #owner, zoneName), [(s, intent, routeId)])
+      | (s, c, zoneName, intent, routeId) <- cloudflareRequests]
+    ownsRoute s intent routeId = maybe False (any (\declaration -> case declaration of
+      Managed resource -> resource ^. #identity == routeId
+        && Hostname (cacheHost intent) `elem` resource ^. #aliases
+        && case resource ^. #address of
+          Kubernetes _ "serving.knative.dev" kind _ hostName ->
+            nameText kind == "domainmapping" && hostName == cacheHost intent
+          _ -> False
+      _ -> False) . scopeDeclarations) (Map.lookup s ss)
+    ownsCloudflareDns s c zoneName intent routeId = maybe False (any (\declaration -> case declaration of
+      Managed resource -> resource ^. #owner == s
+        && resource ^. #address == CloudflareDnsRecord zoneName (cacheHost intent)
+        && (case resource ^. #spec of CloudflareProxiedARecord _ -> True; _ -> False)
+        && all (`elem` resource ^. #dependencies)
+          [OrderedAfter routeId, OrderedAfter (cloudflareRulesResourceId (c ^. #owner) zoneName)]
+      _ -> False) . scopeDeclarations) (Map.lookup s ss)
+    backendAuthorized s c clusterId = scopeKind s `elem` [Application, Standalone]
+      && (c ^. #owner, clusterId) `elem` backendOwners
     backendGroups = Map.fromListWith (<>)
-      [ ((c ^. #owner, c ^. #cluster), [(s, c, hostName, upstreamText, backendRole)])
-      | (s, c, hostName, upstreamText, backendRole) <- backendRequests]
-    errors = [inventoryError "unauthorized-contribution" "namespace contribution lacks an owner grant" & #scopes .~ [s, c ^. #owner] | (s, c, _) <- namespaceRequests, not (authorized s c)]
+      [ ((c ^. #owner, clusterId), [(s, c, hostName, upstreamText, backendRole)])
+      | (s, c, clusterId, hostName, upstreamText, backendRole) <- backendRequests]
+    errors = [inventoryError "unauthorized-contribution" "namespace contribution lacks an owner grant" & #scopes .~ [s, c ^. #owner] | (s, c, clusterId, _) <- namespaceRequests, not (authorized s c clusterId)]
       <> [inventoryError "reserved-namespace-contribution" "shared platform and Kubernetes system namespaces cannot be requested by a contributor" & #scopes .~ [s, c ^. #owner]
-         | (s, c, namespaceName) <- namespaceRequests, nameText namespaceName `elem`
+         | (s, c, _, namespaceName) <- namespaceRequests, nameText namespaceName `elem`
            ["default", "kube-system", "kube-public", "kube-node-lease", "cert-manager", "knative-serving", "kourier-system", "nagare-system", "personal"]]
       <> [inventoryError "unauthorized-contribution" "backend contribution lacks a workload scope and owner grant" & #scopes .~ [s, c ^. #owner]
-         | (s, c, _, _, _) <- backendRequests, not (backendAuthorized s c)]
+         | (s, c, clusterId, _, _, _) <- backendRequests, not (backendAuthorized s c clusterId)]
       <> [inventoryError "invalid-backend-upstream" "backend upstream must be an HTTP(S) origin" & #scopes .~ [s, c ^. #owner]
-         | (s, c, _, upstreamText, _) <- backendRequests, not ("http://" `Data.Text.isPrefixOf` upstreamText
+         | (s, c, _, _, upstreamText, _) <- backendRequests, not ("http://" `Data.Text.isPrefixOf` upstreamText
            || "https://" `Data.Text.isPrefixOf` upstreamText)]
       <> [inventoryError "conflicting-backend" "public host has multiple backend contributions" & #scopes .~ [s | (s, _, _, _, _) <- entries]
          | (_, groupEntries) <- Map.toList backendGroups
@@ -472,13 +534,28 @@ composeContributions ss = checked errors (namespaces <> backendMaps <> shomeiSet
            || scopeIdText owner /= "platform:auth" || (owner, clusterId) `notElem` backendOwners]
       <> [inventoryError "duplicate-shomei-owner" "Shomei settings owner has duplicate grants" & #scopes .~ [owner]
          | (owner, _) <- duplicates [(owner, clusterId) | (owner, clusterId, _) <- shomeiOwners]]
+      <> [inventoryError "invalid-cloudflare-owner" "Cloudflare zone requires one platform owner" & #scopes .~ [owner]
+         | (owner, _, _) <- cloudflareOwners, scopeKind owner /= Platform]
+      <> [inventoryError "duplicate-cloudflare-owner" "Cloudflare zone has multiple owner grants" & #scopes .~ [owner | (owner, grantedZone, _) <- cloudflareOwners, grantedZone == zoneName]
+         | zoneName <- duplicates [zoneName | (_, zoneName, _) <- cloudflareOwners]]
+      <> [inventoryError "unauthorized-contribution" "Cloudflare cache request lacks its zone owner, route, or DNS record" & #scopes .~ [s, c ^. #owner]
+         | (s, c, zoneName, intent, routeId) <- cloudflareRequests,
+           scopeKind s `notElem` [Application, Standalone]
+             || (c ^. #owner, zoneName) `notElem` [(owner, zone) | (owner, zone, _) <- cloudflareOwners]
+             || not (ownsRoute s intent routeId)
+             || not (ownsCloudflareDns s c zoneName intent routeId)]
+      <> [inventoryError "conflicting-cloudflare-host" "Cloudflare zone has multiple cache requests for one host" & #scopes .~ map first3 entries
+         | (_, groupEntries) <- Map.toList cloudflareGroups,
+           entries <- Map.elems (Map.fromListWith (<>)
+             [(cacheHost intent, [(s, intent, routeId)]) | (s, intent, routeId) <- groupEntries]),
+           length entries > 1]
     namespaces =
       [ Managed
           ( ManagedResource
               (namespaceContributionId c)
               (c ^. #owner)
               KubernetesExecutor
-              (Kubernetes (c ^. #cluster) "" (known "namespace") Nothing namespaceName)
+              (Kubernetes clusterId "" (known "namespace") Nothing namespaceName)
               []
               (NamespaceSpec Nothing)
               Retain
@@ -488,7 +565,7 @@ composeContributions ss = checked errors (namespaces <> backendMaps <> shomeiSet
               []
               (SourceLocation "contribution" (scopeIdText (c ^. #owner)))
           )
-      | ((_, _, namespaceName), (_, c) :| _) <- Map.toAscList grouped
+      | ((_, clusterId, namespaceName), (_, c) :| _) <- Map.toAscList grouped
       ]
     backendMaps =
       [ Managed
@@ -518,7 +595,26 @@ composeContributions ss = checked errors (namespaces <> backendMaps <> shomeiSet
             (SourceLocation "contribution" (scopeIdText owner)))
       | (owner, clusterId, baseDomain) <- shomeiOwners
       ]
+    cloudflareTls =
+      [ Managed (ManagedResource
+          (cloudflareTlsResourceId owner zoneName) owner CdnExecutor
+          (CloudflareTlsSetting zoneName) [] (CloudflareZoneTlsSpec tlsMode)
+          Retain Stateless Private [] []
+          (SourceLocation "contribution" (scopeIdText owner)))
+      | (owner, zoneName, tlsMode) <- cloudflareOwners]
+    cloudflareRulesets =
+      [ Managed (ManagedResource
+          (cloudflareRulesResourceId owner zoneName) owner CdnExecutor
+          (CloudflareRuleset zoneName) []
+          (CloudflareRulesSpec (sortOn (nameText . cacheHost)
+            [intent | (_, intent, _) <- Map.findWithDefault [] (owner, zoneName) cloudflareGroups]))
+          Retain Stateless Private
+          (OrderedAfter (cloudflareTlsResourceId owner zoneName)
+            : map (OrderedAfter . third3) (Map.findWithDefault [] (owner, zoneName) cloudflareGroups))
+          [] (SourceLocation "contribution" (scopeIdText owner)))
+      | (owner, zoneName, _) <- cloudflareOwners]
     first3 (value, _, _) = value
+    third3 (_, _, value) = value
     authNamespaceDependency clusterId =
       [ OrderedAfter (resource ^. #identity)
       | scope <- Map.elems ss
@@ -533,6 +629,8 @@ namespaceContributionId (RegisterNamespace owner _ namespaceName _) =
     (either (error . Data.Text.unpack) id (mkLogicalKey (nameText namespaceName)))
     (known "namespace")
 namespaceContributionId (RegisterBackend owner _ _ _ _ _) = backendMapResourceId owner
+namespaceContributionId (RegisterCloudflareCache owner zoneName _ _) =
+  cloudflareRulesResourceId owner zoneName
 
 backendMapResourceId :: ScopeId -> ResourceId
 backendMapResourceId owner =
@@ -545,6 +643,18 @@ backendMapResourceId owner =
 contributionResourceId :: Contribution -> ResourceId
 contributionResourceId c@RegisterNamespace {} = namespaceContributionId c
 contributionResourceId c@RegisterBackend {} = backendMapResourceId (c ^. #owner)
+contributionResourceId (RegisterCloudflareCache owner zoneName _ _) =
+  cloudflareRulesResourceId owner zoneName
+
+cloudflareRulesResourceId :: ScopeId -> Name -> ResourceId
+cloudflareRulesResourceId owner zoneName = mintResourceId owner
+  (either (error . Data.Text.unpack) id (mkLogicalKey (nameText zoneName)))
+  (known "cloudflare-cache-rules")
+
+cloudflareTlsResourceId :: ScopeId -> Name -> ResourceId
+cloudflareTlsResourceId owner zoneName = mintResourceId owner
+  (either (error . Data.Text.unpack) id (mkLogicalKey (nameText zoneName)))
+  (known "cloudflare-origin-tls")
 
 shomeiSettingsResourceId :: ScopeId -> ResourceId
 shomeiSettingsResourceId owner = mintResourceId owner
@@ -559,6 +669,10 @@ validateGraph ss ds reservations =
     <> [issue "dangling-reference" "dependency producer is absent" [d] [] & #resources %~ (p :)
        | d <- ds, p <- map dependencyProducer (declarationDependencies d), Map.notMember p byId && Set.notMember p operationIds]
     <> [issue "reference-mismatch" "output capability, constraints, or sensitivity disagree with its export" [d] [] | d <- ds, ref <- dependencyRefs (declarationDependencies d), not (matches ref)]
+    <> [issue "cloudflare-dns-reference" "Cloudflare DNS lacks its same-owner route and matching zone ruleset" [Managed resource] []
+       | Managed resource <- ds,
+         CloudflareDnsRecord zoneName hostName <- [resource ^. #address],
+         not (cloudflareDnsBound resource zoneName hostName)]
     <> [issue "output-operation" "cache signing-key consumer has no logical-cache operation" [d] []
        | d <- ds, ref <- dependencyRefs (declarationDependencies d), cacheKeyRef ref
        , Set.notMember (dependencyRefProducer ref) cacheOutputProducers]
@@ -585,6 +699,22 @@ validateGraph ss ds reservations =
     exports = map exportSignature (concatMap (^. #exports) bundles)
     matches r = let (p, k, c, cs, s) = refSignature r in any (\(p', k', c', cs', s') -> (p, k, c, s) == (p', k', c', s') && all (`elem` cs') cs) exports
     cacheKeyRef ref = let (_, _, capability, _, _) = refSignature ref in capability == NixCachePublicKey
+    cloudflareDnsBound resource zoneName hostName =
+      Hostname hostName `elem` resource ^. #aliases
+        && any (\dependency -> case Map.lookup (dependencyProducer dependency) byId of
+          Just (Managed route) -> route ^. #owner == resource ^. #owner
+            && case route ^. #address of
+              Kubernetes _ "serving.knative.dev" kind _ name ->
+                nameText kind == "domainmapping" && name == hostName
+              _ -> False
+          _ -> False) (resource ^. #dependencies)
+        && any (\dependency -> case Map.lookup (dependencyProducer dependency) byId of
+          Just (Managed ruleset) -> ruleset ^. #address == CloudflareRuleset zoneName
+            && scopeKind (ruleset ^. #owner) == Platform
+            && case ruleset ^. #spec of
+              CloudflareRulesSpec intents -> hostName `elem` map cacheHost intents
+              _ -> False
+          _ -> False) (resource ^. #dependencies)
     dependencyRefProducer (SomeRef ref) = refProducer ref
     isCondition ref = let (_, _, c, _, _) = refSignature ref in c `elem` [ReadinessCondition, TlsReady]
     claims = Map.fromListWith (<>) [(c, [d]) | d <- ds, participates d, (_, c) <- NE.toList (claimsOf d)]
@@ -594,6 +724,11 @@ validateGraph ss ds reservations =
       _ -> False
     dnsAndRoute host dns route = case (dns ^. #address, route ^. #address) of
       (DnsRecord _ _ dnsHost, Kubernetes _ "serving.knative.dev" kind _ routeHost) ->
+        nameText dnsHost == host && nameText routeHost == host
+          && nameText kind == "domainmapping"
+          && dns ^. #owner == route ^. #owner
+          && OrderedAfter (route ^. #identity) `elem` dns ^. #dependencies
+      (CloudflareDnsRecord _ dnsHost, Kubernetes _ "serving.knative.dev" kind _ routeHost) ->
         nameText dnsHost == host && nameText routeHost == host
           && nameText kind == "domainmapping"
           && dns ^. #owner == route ^. #owner

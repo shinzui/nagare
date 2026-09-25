@@ -93,5 +93,28 @@ new one in one provider change. A record already present without accepted
 ownership is foreign even if its value matches. Because this contract has no
 stable per-record incarnation, an uncertain mutation requires explicit
 recovery even if a subsequent listing is empty; retirement retains the DNS
-claim. Cloudflare records and shared
-cache rules require their own provider ownership protocol.
+claim.
+
+## Amendment — 2026-09-25: Cloudflare zone and host claims
+
+Cloudflare proxied A records have separate zone-and-host claims owned by the
+application or production site that declares the matching DomainMapping.
+The DNS record and DomainMapping may share the hostname claim only for that
+same owner with an explicit route dependency. A platform scope owns one
+`http_request_cache_settings` ruleset and one origin-TLS setting claim per
+Cloudflare zone. Its zone grant fixes the TLS mode. Workload scopes submit
+host-specific cache intent through owner grants; the inventory
+composer produces the complete ruleset from every accepted host contribution.
+No workload owns a partial zone ruleset or can replace the complete set alone.
+Cloudflare applies the last matching cache setting, so broad defaults precede
+static rules and declared path rules are emitted in reverse priority order.
+Expression string literals are escaped and path prefixes are validated.
+
+The typed ownership, deterministic rules rendering, and a recording adapter
+contract are in place. Its prepared operations bind old content and physical
+identity; uncertain writes remain unresolved. Cloudflare HTTP transport,
+context and zone verification, provider serialization, and live proof are
+still required before reviewed Cloudflare writes can run. The direct
+provisioner remains a legacy path. Direct zone-wide provision and purge refuse
+while any Cloudflare zone is accepted or retained in the context or a review
+transaction is active.

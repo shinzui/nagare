@@ -133,7 +133,7 @@ import Nagare.Domain.Tls (preflightDomainTls, renderDomainTlsCheck, verifyDomain
 import Nagare.Dsl.Application (Application (..))
 import Nagare.Dsl.Broker (BrokerProvider (..), brokerNameText)
 import Nagare.Dsl.Build (BuildSpec, requiresBuild, resolveImageTag)
-import Nagare.Dsl.Cdn.Types (Cdn)
+import Nagare.Dsl.Cdn.Types (Cdn, CdnProvider (CloudflareCdn))
 import Nagare.Dsl.Database (Database (..), Engine (..), dbSecretName)
 import Nagare.Dsl.Load qualified as Load
 import Nagare.Dsl.Prelude
@@ -6639,6 +6639,7 @@ runCdnPurge mctx o = do
     then TIO.putStrLn ("Would purge Cloudflare edge cache for " <> host <> " (paths: " <> pathsDesc <> ")")
     else do
       refuseDirectCdnHostMutationIfOwned mctx "cdn purge" host
+      refuseDirectCloudflareZoneMutationIfOwned mctx "cdn purge"
       ecreds <- loadCloudflareCreds
       case ecreds of
         Left e -> dieT ("cdn purge needs Cloudflare credentials: " <> e)
@@ -6902,6 +6903,8 @@ runDirectDeploy mctx dopts = do
         (namespaceText (d ^. #namespace))
       forM_ (d ^. #domains) $ \domain ->
         refuseDirectCdnHostMutationIfOwned mctx "deploy" (domainText (domain ^. #domain))
+      when (hasCloudflareCdn (d ^. #cdn))
+        (refuseDirectCloudflareZoneMutationIfOwned mctx "deploy")
       refuseDirectAccessOwnerIfManaged mctx "deploy"
       forM_ (d ^. #tasks) $ \task ->
         refuseDirectTaskMutationIfOwned mctx "deploy" (serviceNameText (task ^. #name))
@@ -7085,6 +7088,8 @@ runSiteDeploy mctx sopts = do
               refuseDirectSiteMutationIfOwned mctx "site deploy"
                 (siteNameText (s ^. #name)) (namespaceText (s ^. #namespace))
                 (siteHostnames (s ^. #domains)) [] True
+              when (hasCloudflareCdn (s ^. #cdn))
+                (refuseDirectCloudflareZoneMutationIfOwned mctx "site deploy")
               deployStatic mctx tp sopts (s & #image %~ const qimg) bd
     Right (Load.SiteServer s) -> do
       case qualifyImage tp (s ^. #image) of
@@ -7107,6 +7112,8 @@ runSiteDeploy mctx sopts = do
                 (siteNameText (s ^. #name)) (namespaceText (s ^. #namespace))
                 (siteHostnames (s ^. #domains))
                 (map (volumeNameText . (^. #name)) (s ^. #volumes)) True
+              when (hasCloudflareCdn (s ^. #cdn))
+                (refuseDirectCloudflareZoneMutationIfOwned mctx "site deploy")
               deployServer mctx tp sopts (s & #image %~ const qimg) bd
 
 runStaticSiteDeployPlan
@@ -7358,6 +7365,8 @@ cdnDeployStep :: Maybe String -> Bool -> Maybe Cdn -> [Text] -> Text -> Text -> 
 cdnDeployStep _ _ Nothing _ _ _ = pure ()
 cdnDeployStep mctx dry (Just c) hostnames ns service = do
   unless dry $ forM_ hostnames (refuseDirectCdnHostMutationIfOwned mctx "CDN provision")
+  unless dry $ when (hasCloudflareCdn (Just c))
+    (refuseDirectCloudflareZoneMutationIfOwned mctx "CDN provision")
   (_, workspace) <- ensurePulumiForActiveContext mctx
   originIp <- fromMaybe "<publicIp>" <$> stackOutput (workspace ^. #pulumiDir) "publicIp"
   tp <- activeProfile mctx
@@ -8673,6 +8682,32 @@ refuseDirectCdnHostMutationIfOwned mctx operation host =
     when (hostnameClaimOwned host (historyHostnameDeclarations history))
       (dieT ("hostname " <> host <> " is claimed by accepted or retained inventory; direct "
         <> operation <> " is refused"))
+
+refuseDirectCloudflareZoneMutationIfOwned :: Maybe String -> Text -> IO ()
+refuseDirectCloudflareZoneMutationIfOwned mctx operation =
+  withAcceptedInventoryHistory mctx operation $ \history ->
+    when (cloudflareZoneOwned history)
+      (dieT ("direct " <> operation
+        <> " is refused while Cloudflare zone ownership is accepted or retained, or an inventory transaction is active"))
+
+hasCloudflareCdn :: Maybe Cdn -> Bool
+hasCloudflareCdn = maybe False ((== CloudflareCdn) . (^. #provider))
+
+cloudflareZoneOwned :: InventoryPlan.InventoryHistory -> Bool
+cloudflareZoneOwned history = accepted || retained || unresolved
+  where
+    accepted = or
+      [True | (_, (_, scope)) <- Map.toAscList (InventoryPlan.historyAccepted history)
+      , bundle <- ResourceInventory.scopeBundles scope
+      , ResourceInventory.CloudflareZoneGrant _ _ <- ResourceInventory.grants bundle]
+    retained = or
+      [True | (_, resource) <- Map.elems (InventoryPlan.historyRetained history)
+      , case resource ^. #address of
+          Resource.CloudflareRuleset _ -> True
+          Resource.CloudflareTlsSetting _ -> True
+          Resource.CloudflareDnsRecord _ _ -> True
+          _ -> False]
+    unresolved = isJust (InventoryStore.headActiveTransaction (InventoryPlan.historyHead history))
 
 refuseDirectServiceMutationIfOwned :: Maybe String -> Text -> Text -> Text -> IO ()
 refuseDirectServiceMutationIfOwned mctx operation name namespaceName =

@@ -259,6 +259,9 @@ parseClaim parts = fmap canonicalClaim $ case parts of
   ["broker-topic", r, n] -> BrokerTopic <$> resource r <*> name n
   ["helm", r, namespace, n] -> Helm <$> resource r <*> name namespace <*> name n
   ["dns-record", account, zone, host] -> DnsRecord <$> name account <*> name zone <*> name host
+  ["cloudflare-ruleset", zone, "http_request_cache_settings"] -> CloudflareRuleset <$> name zone
+  ["cloudflare-tls-setting", zone, "ssl"] -> CloudflareTlsSetting <$> name zone
+  ["cloudflare-dns-record", zone, host] -> CloudflareDnsRecord <$> name zone <*> name host
   _ -> fail "unsupported canonical claim"
   where
     name = check . mkName
@@ -351,10 +354,19 @@ instance ToJSON DesiredSpec where
       StatefulSet count templates digest -> StatefulSet count (sortOn nameText templates) digest
       HelmRelease objects digest -> HelmRelease (NE.sort objects) digest
       BackendMapSpec entries -> BackendMapSpec (sortOn (nameText . first3) entries)
+      CloudflareRulesSpec intents -> CloudflareRulesSpec (sortOn (nameText . cacheHost) intents)
       other -> other
     where first3 (name, _, _) = name
 
 instance FromJSON DesiredSpec where parseJSON = genericParseJSON options
+
+instance ToJSON CloudflareCacheIntent where toJSON = genericToJSON options
+
+instance FromJSON CloudflareCacheIntent where parseJSON = genericParseJSON options
+
+instance ToJSON CloudflareTlsMode where toJSON = genericToJSON options
+
+instance FromJSON CloudflareTlsMode where parseJSON = genericParseJSON options
 
 instance ToJSON ManagedResource where toJSON = genericToJSON options
 
@@ -393,6 +405,9 @@ instance ToJSON Contribution where
   toJSON (RegisterBackend owner cluster host upstream role key) = object
     ["tag" .= ("RegisterBackend" :: Text), "owner" .= owner, "cluster" .= cluster
     , "host" .= host, "upstream" .= upstream, "role" .= role, "key" .= key]
+  toJSON (RegisterCloudflareCache owner zone intent route) = object
+    ["tag" .= ("RegisterCloudflareCache" :: Text), "owner" .= owner
+    , "zone" .= zone, "intent" .= intent, "route" .= route]
 
 instance FromJSON Contribution where
   parseJSON = withObject "contribution" $ \value -> case KM.lookup "tag" value of
@@ -406,6 +421,11 @@ instance FromJSON Contribution where
         (fail "backend contribution has unknown field")
       RegisterBackend <$> value .: "owner" <*> value .: "cluster" <*> value .: "host"
         <*> value .: "upstream" <*> value .: "role" <*> value .: "key"
+    Just (String "RegisterCloudflareCache") -> do
+      unless (all (`elem` ["tag", "owner", "zone", "intent", "route"]) (KM.keys value))
+        (fail "Cloudflare cache contribution has unknown field")
+      RegisterCloudflareCache <$> value .: "owner" <*> value .: "zone"
+        <*> value .: "intent" <*> value .: "route"
     _ -> fail "unknown contribution kind"
 
 instance ToJSON ContributionGrant where
@@ -414,6 +434,8 @@ instance ToJSON ContributionGrant where
     ["tag" .= ("BackendMapGrant" :: Text), "cluster" .= cluster]
   toJSON (ShomeiSettingsGrant cluster baseDomain) = object
     ["tag" .= ("ShomeiSettingsGrant" :: Text), "cluster" .= cluster, "baseDomain" .= baseDomain]
+  toJSON (CloudflareZoneGrant zone mode) = object
+    ["tag" .= ("CloudflareZoneGrant" :: Text), "zone" .= zone, "originTls" .= mode]
 
 instance FromJSON ContributionGrant where
   parseJSON value@(Array _) = do
@@ -428,6 +450,9 @@ instance FromJSON ContributionGrant where
       "ShomeiSettingsGrant" -> do
         unless (all (`elem` ["tag", "cluster", "baseDomain"]) (KM.keys fields)) (fail "Shomei grant has unknown field")
         ShomeiSettingsGrant <$> fields .: "cluster" <*> fields .: "baseDomain"
+      "CloudflareZoneGrant" -> do
+        unless (all (`elem` ["tag", "zone", "originTls"]) (KM.keys fields)) (fail "Cloudflare zone grant has unknown field")
+        CloudflareZoneGrant <$> fields .: "zone" <*> fields .: "originTls"
       _ -> fail "unknown contribution grant") value
 
 instance ToJSON ResourceBundle where toJSON = genericToJSON options

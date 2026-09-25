@@ -4965,6 +4965,28 @@ cloudflareTests :: [TestTree]
 cloudflareTests =
   [ testCase "buildCacheRulesPayload: default + /assets/ + never-cache /api/ + static" $
       buildCacheRulesPayload "blog.example.com" cdnFixture @?= expectedCacheRules
+  , testCase "composed Cloudflare rules keep both hosts and stable precedence" $ do
+      let named = either (error . T.unpack) id . Resource.mkName
+          firstIntent = InventoryModel.CloudflareCacheIntent (named "a.example.com")
+            (Just 300) False [("/api/", Nothing)]
+          secondIntent = InventoryModel.CloudflareCacheIntent (named "b.example.com")
+            (Just 600) True []
+          expected = Aeson.object ["rules" Aeson..=
+            [ruleObj "(http.host eq \"a.example.com\")" (ttlParams 300)
+            ,ruleObj "(http.host eq \"a.example.com\") and starts_with(http.request.uri.path, \"/api/\")" bypassParams
+            ,ruleObj "(http.host eq \"b.example.com\")" (ttlParams 600)
+            ,ruleObj "(http.host eq \"b.example.com\") and (http.request.uri.path.extension in {\"js\" \"css\" \"woff2\" \"woff\" \"png\" \"jpg\" \"jpeg\" \"gif\" \"svg\" \"webp\" \"ico\"})" (ttlParams 31536000)]]
+      buildComposedCacheRulesPayload [secondIntent, firstIntent] @?= expected
+      buildComposedCacheRulesPayload [firstIntent, secondIntent] @?= expected
+  , testCase "Cloudflare paths keep declared priority and escape filter literals" $ do
+      let named = either (error . T.unpack) id . Resource.mkName
+          intent = InventoryModel.CloudflareCacheIntent (named "a.example.com")
+            (Just 300) False [("/api/\" or true", Nothing), ("/api/", Just 60)]
+          expression = "(http.host eq \"a.example.com\") and starts_with(http.request.uri.path, \"/api/\\\" or true\")"
+      buildComposedCacheRulesPayload [intent] @?= Aeson.object ["rules" Aeson..=
+        [ruleObj "(http.host eq \"a.example.com\")" (ttlParams 300)
+        ,ruleObj "(http.host eq \"a.example.com\") and starts_with(http.request.uri.path, \"/api/\")" (ttlParams 60)
+        ,ruleObj expression bypassParams]]
   , testCase "buildUpsertRecordPayload: proxied A record" $
       buildUpsertRecordPayload "blog.example.com" "34.105.10.20"
         @?= Aeson.object
@@ -5010,6 +5032,32 @@ cloudflareTests =
   , testCase "parseDnsRecordId: result.id from a single-object response (create)" $
       parseDnsRecordId "{\"success\":true,\"result\":{\"id\":\"rec2\"}}"
         @?= Just "rec2"
+  , testCase "Cloudflare exact A listing distinguishes absence from provider failure" $ do
+      parseExactARecordListing "blog.example.com"
+        "{\"success\":true,\"result\":[],\"result_info\":{\"count\":0,\"page\":1}}"
+        @?= Right Nothing
+      assertBool "provider failure cannot prove DNS absence" (isLeft
+        (parseExactARecordListing "blog.example.com"
+          "{\"success\":false,\"errors\":[{\"message\":\"denied\"}],\"result\":[]}"))
+      assertBool "missing result array cannot prove DNS absence" (isLeft
+        (parseExactARecordListing "blog.example.com" "{\"success\":true}"))
+      assertBool "missing pagination cannot prove DNS absence" (isLeft
+        (parseExactARecordListing "blog.example.com"
+          "{\"success\":true,\"result\":[]}"))
+  , testCase "Cloudflare exact A listing requires one matching record and physical ID" $ do
+      let record = "{\"id\":\"rec1\",\"name\":\"blog.example.com\",\"type\":\"A\",\"content\":\"203.0.113.4\",\"proxied\":true,\"ttl\":1}"
+      parseExactARecordListing "blog.example.com"
+        ("{\"success\":true,\"result\":[" <> record <> "],\"result_info\":{\"count\":1,\"page\":1}}")
+        @?= Right (Just ("rec1", "203.0.113.4", True, 1))
+      assertBool "multiple A records must refuse" (isLeft
+        (parseExactARecordListing "blog.example.com"
+          ("{\"success\":true,\"result\":[" <> record <> "," <> record <> "]}")))
+      assertBool "a different exact name must refuse" (isLeft
+        (parseExactARecordListing "other.example.com"
+          ("{\"success\":true,\"result\":[" <> record <> "]}")))
+      assertBool "inconsistent pagination count must refuse" (isLeft
+        (parseExactARecordListing "blog.example.com"
+          ("{\"success\":true,\"result\":[" <> record <> "],\"result_info\":{\"count\":0,\"page\":1}}")))
   ]
   where
     cdnFixture =
@@ -5044,17 +5092,17 @@ cloudflareTests =
       Aeson.object
         [ "rules"
             Aeson..= [ ruleObj
-                         "(http.host eq \"blog.example.com\") and starts_with(http.request.uri.path, \"/assets/\")"
+                         "(http.host eq \"blog.example.com\")"
+                         (ttlParams 3600)
+                     , ruleObj
+                         "(http.host eq \"blog.example.com\") and (http.request.uri.path.extension in {\"js\" \"css\" \"woff2\" \"woff\" \"png\" \"jpg\" \"jpeg\" \"gif\" \"svg\" \"webp\" \"ico\"})"
                          (ttlParams 31536000)
                      , ruleObj
                          "(http.host eq \"blog.example.com\") and starts_with(http.request.uri.path, \"/api/\")"
                          bypassParams
                      , ruleObj
-                         "(http.host eq \"blog.example.com\") and (http.request.uri.path.extension in {\"js\" \"css\" \"woff2\" \"woff\" \"png\" \"jpg\" \"jpeg\" \"gif\" \"svg\" \"webp\" \"ico\"})"
+                         "(http.host eq \"blog.example.com\") and starts_with(http.request.uri.path, \"/assets/\")"
                          (ttlParams 31536000)
-                     , ruleObj
-                         "(http.host eq \"blog.example.com\")"
-                         (ttlParams 3600)
                      ]
         ]
 

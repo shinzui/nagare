@@ -10,7 +10,9 @@ import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as Text
+import Nagare.Dsl.Cdn.Types (CdnCacheRule (..), cloudflareCdn, gcpCloudCdn)
 import Nagare.Dsl.Prelude hiding ((.=))
+import Nagare.Resource.Cdn (compileCloudflareCacheContribution, compileCloudflareDnsRecord)
 import Nagare.Resource.Inventory hiding (cluster)
 import Nagare.Resource.Cache (LogicalCacheInput (..), compileLogicalCache)
 import Nagare.Resource.CacheKubernetes
@@ -413,6 +415,124 @@ resourceInventoryTests =
         fmap encodeCanonicalScope (decodeScope (encodeCanonicalScope owner)) @?= Right (encodeCanonicalScope owner)
         rejects "invalid-shomei-owner" (compileScopes
           [ok (mkScopeDeclaration authOwner [bundle [] & #grants .~ [grant]])])
+    , testCase "Cloudflare cache contributions preserve two hosts under one zone owner" $ do
+        let owner = s Platform "cloudflare"
+            other = s Application "other"
+            zoneName = n "0123456789abcdef0123456789abcdef"
+            source = SourceLocation "fixture" "cloudflare"
+            route who hostname = (resource who hostname
+              (Kubernetes cluster "serving.knative.dev" (n "domainmapping")
+                (Just (n "personal")) (n hostname)) (NativeObject digest))
+                {aliases = [Hostname (n hostname)]}
+            firstRoute = route a "a.example.test"
+            secondRoute = route other "b.example.test"
+            firstIntent = CloudflareCacheIntent (n "a.example.test") (Just 300) True
+              [("/api/", Nothing)]
+            secondIntent = CloudflareCacheIntent (n "b.example.test") Nothing False []
+            ownerScope = ok (mkScopeDeclaration owner
+              [bundle [] & #grants .~ [CloudflareZoneGrant zoneName CloudflareFlexible]])
+            consumer who member intent =
+              let dns = ok (compileCloudflareDnsRecord who
+                    (ok (mkLogicalKey (nameText (cacheHost intent)))) zoneName
+                    (cacheHost intent) "203.0.113.4" (member ^. #identity)
+                    (cloudflareRulesResourceId owner zoneName) source)
+               in ok (mkScopeDeclaration who
+                    [bundle [Managed member] & #contributions .~
+                      [RegisterCloudflareCache owner zoneName intent (member ^. #identity)]
+                    ,dns])
+            firstScope = consumer a firstRoute firstIntent
+            secondScope = consumer other secondRoute secondIntent
+            composed scopes = inventoryDeclarations (candidateInventory (ok (compileScopes scopes)))
+            rules declarations = [member | Managed member <- declarations,
+              CloudflareRuleset _ <- [member ^. #address]]
+        let [shared] = rules (composed [ownerScope, firstScope, secondScope])
+        shared ^. #spec @?= CloudflareRulesSpec [firstIntent, secondIntent]
+        shared ^. #identity @?= cloudflareRulesResourceId owner zoneName
+        length [dns | Managed dns <- composed [ownerScope, firstScope, secondScope],
+          CloudflareDnsRecord _ _ <- [dns ^. #address]] @?= 2
+        Set.fromList (shared ^. #dependencies) @?=
+          Set.fromList [OrderedAfter (cloudflareTlsResourceId owner zoneName)
+            ,OrderedAfter (firstRoute ^. #identity), OrderedAfter (secondRoute ^. #identity)]
+        let [tls] = [member | Managed member <- composed [ownerScope, firstScope, secondScope],
+              CloudflareTlsSetting _ <- [member ^. #address]]
+        tls ^. #spec @?= CloudflareZoneTlsSpec CloudflareFlexible
+        contributionDependents (candidateInventory (ok (compileScopes
+          [ownerScope, firstScope, secondScope]))) @?=
+          Map.singleton (shared ^. #identity) (Set.fromList [a, other])
+        let generation = ok (mkScopeGeneration 4)
+            accepted = ok (mkScopeSnapshot binding (Map.fromList
+              [(owner, (generation, ownerScope)), (a, (generation, firstScope))
+              ,(other, (generation, secondScope))]) Map.empty)
+            changedIntent = firstIntent {cacheDefaultTtl = Just 900}
+            changed = consumer a firstRoute changedIntent
+            candidate = ok (composeInventory accepted (ReplaceScope changed :| []))
+            [changedRules] = rules (inventoryDeclarations (candidateInventory candidate))
+        Map.lookup owner (candidateGenerations candidate) @?= Just generation
+        Map.lookup other (candidateGenerations candidate) @?= Just generation
+        changedRules ^. #spec @?= CloudflareRulesSpec [changedIntent, secondIntent]
+        let strictOwner = ok (mkScopeDeclaration owner
+              [bundle [] & #grants .~ [CloudflareZoneGrant zoneName CloudflareFullStrict]])
+            strictCandidate = ok (composeInventory accepted (ReplaceScope strictOwner :| []))
+            strictDeclarations = inventoryDeclarations (candidateInventory strictCandidate)
+            [strictTls] = [member | Managed member <- strictDeclarations,
+              CloudflareTlsSetting _ <- [member ^. #address]]
+        strictTls ^. #spec @?= CloudflareZoneTlsSpec CloudflareFullStrict
+        rules strictDeclarations @?= rules (composed [ownerScope, firstScope, secondScope])
+        Map.lookup a (candidateGenerations strictCandidate) @?= Just generation
+        Map.lookup other (candidateGenerations strictCandidate) @?= Just generation
+        fmap encodeCanonicalScope (decodeScope (encodeCanonicalScope firstScope))
+          @?= Right (encodeCanonicalScope firstScope)
+        fmap encodeCanonicalScope (decodeScope (encodeCanonicalScope ownerScope))
+          @?= Right (encodeCanonicalScope ownerScope)
+        rejects "unauthorized-contribution" (compileScopes [scope owner [], firstScope])
+        let orphanRequest = RegisterCloudflareCache owner zoneName firstIntent
+              (firstRoute ^. #identity)
+            orphanScope = ok (mkScopeDeclaration a
+              [bundle [] & #contributions .~ [orphanRequest]])
+        rejects "unauthorized-contribution" (compileScopes [ownerScope, orphanScope])
+        let orphanDns = ok (compileCloudflareDnsRecord a
+              (ok (mkLogicalKey "a.example.test")) zoneName (n "a.example.test")
+              "203.0.113.4" (firstRoute ^. #identity)
+              (cloudflareRulesResourceId owner zoneName) source)
+            unregistered = ok (mkScopeDeclaration a
+              [bundle [Managed firstRoute], orphanDns])
+        rejects "cloudflare-dns-reference" (compileScopes [ownerScope, unregistered])
+        rejects "conflicting-cloudflare-host" (compileScopes [ownerScope, firstScope,
+          consumer other (route other "a.example.test") firstIntent])
+        rejects "duplicate-cloudflare-owner" (compileScopes [ownerScope,
+          ok (mkScopeDeclaration (s Platform "cloudflare-other")
+            [bundle [] & #grants .~ [CloudflareZoneGrant zoneName CloudflareFullStrict]])])
+        rejects "derived-cloudflare-rules" (mkScopeDeclaration owner [bundle
+          [Managed (ManagedResource (cloudflareRulesResourceId owner zoneName) owner
+            CdnExecutor (CloudflareRuleset zoneName) [] (CloudflareRulesSpec [])
+            Retain Stateless Private [] [] source)]])
+        rejects "derived-cloudflare-tls" (mkScopeDeclaration owner [bundle
+          [Managed (ManagedResource (cloudflareTlsResourceId owner zoneName) owner
+            CdnExecutor (CloudflareTlsSetting zoneName) [] (CloudflareZoneTlsSpec CloudflareFull)
+            Retain Stateless Private [] [] source)]])
+        rejects "invalid-cloudflare-dns" (compileCloudflareDnsRecord a
+          (ok (mkLogicalKey "a.example.test")) zoneName (n "a.example.test")
+          "256.0.0.1" (firstRoute ^. #identity)
+          (cloudflareRulesResourceId owner zoneName) source)
+        rejects "invalid-declaration" (compileScopes [ownerScope,
+          consumer a firstRoute (firstIntent {cachePaths = [("api", Nothing)]})])
+        rejects "invalid-declaration" (compileScopes [ownerScope,
+          consumer a firstRoute (firstIntent {cachePaths = [("/api\n", Nothing)]})])
+    , testCase "Cloudflare compiler emits only its scoped cache request" $ do
+        let owner = s Platform "cloudflare"
+            zoneName = n "0123456789abcdef0123456789abcdef"
+            routeId = rid a "domain"
+            cdn = cloudflareCdn & #defaultTtlSeconds .~ Just 300
+              & #cacheRules .~ [CdnCacheRule "/api/" Nothing]
+            source = SourceLocation "fixture" "cdn"
+            compiled = ok (compileCloudflareCacheContribution a owner zoneName
+              (n "a.example.test") cdn routeId source)
+        compiled ^. #declarations @?= []
+        compiled ^. #contributions @?= [RegisterCloudflareCache owner zoneName
+          (CloudflareCacheIntent (n "a.example.test") (Just 300) True
+            [("/api/", Nothing)]) routeId]
+        rejects "invalid-cloudflare-cache" (compileCloudflareCacheContribution
+          a owner zoneName (n "a.example.test") gcpCloudCdn routeId source)
     , testCase "canonical scope ignores declaration order and roundtrips" $ do
         let x = service a "x" "x"
             y = service a "y" "y"
