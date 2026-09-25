@@ -32,7 +32,8 @@ import Nagare.Dsl.Broker (BrokerBinding (..), mkTopicName)
 import Nagare.Dsl.Access (authPortal, requireLogin)
 import Nagare.Resource.Application (applicationScopeId, volumeResourceId)
 import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
-import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (..), ManagedResource (..), DesiredSpec (KnativeService), Contribution (RegisterBackend, RegisterNamespace), ContributionGrant (BackendMapGrant, NamespaceGrant, ShomeiSettingsGrant), ScopeChange (ReplaceScope), backendMapResourceId, candidateGenerations, candidateInventory, composeInventory, contributionResourceId, declarationId, inventoryDeclarations, inventoryScopes, mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeId, shomeiSettingsResourceId)
+import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (..), ManagedResource (..), DesiredSpec (KnativeService), Contribution (RegisterBackend, RegisterNamespace), ContributionGrant (BackendMapGrant, NamespaceGrant, ShomeiSettingsGrant), ScopeChange (ReplaceScope), backendMapResourceId, candidateGenerations, candidateInventory, composeInventory, contributionResourceId, declarationId, inventoryDeclarations, inventoryScopes, mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeConfigDigest, scopeId, shomeiSettingsResourceId)
+import Nagare.Resource.Wire (decodeScope, encodeCanonicalScope)
 import Nagare.Resource.Policy (RecoveryIntent (..), mkSecretRef)
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types qualified as Resource
@@ -438,6 +439,11 @@ renderTests =
             }
       (scope, native) <- either (fail . ("base: " <>) . show) pure
         (compileApplicationScope input)
+      case scopeConfigDigest scope of
+        Nothing -> assertFailure "reviewed application revision has no config digest"
+        Just _ -> pure ()
+      fmap scopeConfigDigest (decodeScope (encodeCanonicalScope scope))
+        @?= Right (scopeConfigDigest scope)
       assertBool "reviewed app deployment silently skipped a pre-deploy hook"
         (isLeft (compileApplicationScope (input {scopeApplication = appWithHooks})))
       let oldRelease = release {releaseId = "previous", imageTag = "previous"

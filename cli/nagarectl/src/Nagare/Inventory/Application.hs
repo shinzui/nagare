@@ -39,6 +39,7 @@ import Control.Monad (forM_)
 import Data.Aeson (Value (..), eitherDecodeStrict)
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
+import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
 import Data.List (find)
 import Data.List.NonEmpty (NonEmpty (..))
@@ -56,6 +57,7 @@ import Nagare.Access.Resolve (RouteTarget (..), backendConfigMapNamespace, isUnd
 import Nagare.Broker.Connection (BrokerConn (..), brokerConnectionEnv, mergeBrokerConnectionEnvs)
 import Nagare.Dsl.Application (Application (..), mkApplication)
 import Nagare.Dsl.Application qualified as DslApp
+import Nagare.Dsl.Config (encodeApplication, encodeDeployment, encodeWorker)
 import Nagare.Dsl.Access (AccessRole (..))
 import Nagare.Dsl.Broker (BrokerBinding (..), BrokerName, BrokerProvider (Redpanda), TopicName, brokerNameText, topicNameText)
 import Nagare.Database.Connection (ConnIdentity (..), connectionEnv, mergeConnectionEnvs)
@@ -85,6 +87,14 @@ import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Resource.Wire (canonicalValue)
+
+-- Hash the validated config value, rather than its source file bytes. Imported
+-- Haskell modules and formatting can then change without losing the exact
+-- effective input that produced this accepted scope.
+configDigestOf :: LBS.ByteString -> Either T.Text ContentDigest
+configDigestOf bytes = do
+  value <- first T.pack (eitherDecodeStrict (LBS.toStrict bytes) :: Either String Value)
+  contentDigest <$> canonicalValue value
 
 -- | Match every native object that the legacy aggregate deploy can write.
 -- The check uses provider addresses so a renamed logical key cannot bypass
@@ -980,7 +990,8 @@ compileApplicationScope input = do
       native = Map.union workloadNative (snd releaseResult)
       claims = [claim | bundle <- bundles, declaration <- declarations bundle
         , (_, claim) <- NE.toList (claimsOf declaration)]
-  scope <- mkScopeDeclaration owner bundles
+  configDigest <- first invalid (configDigestOf (encodeApplication app))
+  scope <- withScopeConfigDigest configDigest <$> mkScopeDeclaration owner bundles
   unless (Map.size native == sum (map Map.size nativeMaps))
     (Left (invalid "application native members share an identity"))
   unless (length claims == Set.size (Set.fromList claims))
@@ -1207,7 +1218,8 @@ compileStandaloneWorkerWithDependencies owner worker rollout cluster namespaceId
         declaration -> declaration
       updatedBundles = map (\bundle -> bundle & #declarations %~ map addDeclaration) bundles
       updatedNative = Map.map (\(resource, bytes) -> (addBrokerEdges resource, bytes)) native
-  scope <- mkScopeDeclaration owner updatedBundles
+  configDigest <- first invalid (configDigestOf (encodeWorker worker))
+  scope <- withScopeConfigDigest configDigest <$> mkScopeDeclaration owner updatedBundles
   pure (scope, updatedNative)
   where
     invalid message = inventoryError "invalid-standalone-worker" message
@@ -1428,7 +1440,8 @@ compileStandaloneServiceWithDependencies owner service rollout cluster namespace
       allNative = Map.union updatedNative taskNative
   unless (Map.size allNative == Map.size native + Map.size taskNative)
     (Left (invalid "standalone Service and tasks share a resource identity"))
-  scope <- mkScopeDeclaration owner [updatedBundle, taskBundle]
+  configDigest <- first invalid (configDigestOf (encodeDeployment service))
+  scope <- withScopeConfigDigest configDigest <$> mkScopeDeclaration owner [updatedBundle, taskBundle]
   pure (scope, allNative)
   where
     invalid message = inventoryError "invalid-standalone-service" message
@@ -1462,7 +1475,8 @@ compileStandaloneServiceWithRelease owner service rollout cluster namespaceId im
     (Left (invalid "standalone Service release shares a resource identity"))
   unless (length claims == Set.size (Set.fromList claims))
     (Left (invalid "standalone Service release claims another native address"))
-  scope <- mkScopeDeclaration owner bundles
+  configDigest <- first invalid (configDigestOf (encodeDeployment service))
+  scope <- withScopeConfigDigest configDigest <$> mkScopeDeclaration owner bundles
   pure (scope, native)
   where
     invalid message = inventoryError "invalid-standalone-service-release" message

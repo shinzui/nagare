@@ -118,7 +118,9 @@ witness TlsReady = SomeWitness TlsReadyW
 witness NixCachePublicKey = SomeWitness NixCachePublicKeyW
 
 scopeValue :: ScopeDeclaration -> Value
-scopeValue s = object ["version" .= (1 :: Integer), "scope" .= scopeId s, "bundles" .= normalizeBundles (scopeBundles s)]
+scopeValue s = object
+  (["version" .= (1 :: Integer), "scope" .= scopeId s, "bundles" .= normalizeBundles (scopeBundles s)]
+    <> ["configDigest" .= digest | Just digest <- [scopeConfigDigest s]])
 
 -- Bundles and all set-valued fields have no execution order. Canonicalize them.
 normalizeBundles :: [ResourceBundle] -> [ResourceBundle]
@@ -147,12 +149,14 @@ normalizeBundles =
     normalizeDeclaration d = d
 
 parseScope :: Value -> Parser ScopeDeclaration
-parseScope = strictObject "scope" ["version", "scope", "bundles"] $ \o -> do
+parseScope = strictObject "scope" ["version", "scope", "bundles", "configDigest"] $ \o -> do
   version <- o .: "version" :: Parser Integer
   unless (version == 1) (fail "unsupported inventory schema version")
   s <- o .: "scope"
   bs <- o .: "bundles"
-  parseChecked (mkScopeDeclaration s bs)
+  digest <- o .:? "configDigest"
+  declaration <- parseChecked (mkScopeDeclaration s bs)
+  pure (maybe declaration (`withScopeConfigDigest` declaration) digest)
 
 encodeCanonicalScope :: ScopeDeclaration -> ByteString
 encodeCanonicalScope = either (error . T.unpack) id . canonicalValue . scopeValue

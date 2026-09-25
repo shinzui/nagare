@@ -24,6 +24,10 @@ Its config still goes through
 the typed `Application` loader. Use the exact resource ID of the accepted OCI
 publication, and an explicit tag that resolves to that publication's destination:
 
+The saved scope revision includes a canonical digest of the loaded typed config.
+Apply and resume use the accepted scope and its private native evidence rather
+than loading that source file again.
+
 First, export the built image as a Docker archive and review its publication.
 Use a distinct `--key` for each immutable image publication. Planning records
 both the archive's file hash and OCI manifest digest. Keep the archive at the

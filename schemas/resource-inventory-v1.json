@@ -1233,6 +1233,9 @@
         "scope": {
           "$ref": "#/$defs/scopeId"
         },
+        "configDigest": {
+          "$ref": "#/$defs/digest"
+        },
         "bundles": {
           "type": "array",
           "items": {

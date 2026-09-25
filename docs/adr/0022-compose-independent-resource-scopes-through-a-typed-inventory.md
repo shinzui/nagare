@@ -412,3 +412,15 @@ StatefulSet and receives connection fields plus Secret key references, while
 the credential value stays out of compilation and review output. Missing or
 inconsistent private native evidence refuses planning. A live object name or
 label alone cannot supply this binding.
+
+## Amendment — 2026-09-24: canonical application config evidence
+
+An application, standalone Service, or standalone worker scope records an optional
+digest of its validated typed config in the immutable scope document. The digest
+is computed from canonical JSON of the loaded value, not from the bytes of one
+Haskell source file: imports and formatting cannot by themselves describe the
+effective config. It participates in the scope revision alongside declarations,
+while each native resource keeps its own independently derived spec digest.
+Earlier scope documents omit the optional field and remain valid. Reviewed apply
+and resume use the saved scope and private native evidence, so they do not need
+the source checkout that produced the accepted config.

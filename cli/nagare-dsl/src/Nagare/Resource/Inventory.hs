@@ -20,7 +20,9 @@ module Nagare.Resource.Inventory
   , ResourceBundle (..)
   , ScopeDeclaration
   , mkScopeDeclaration
+  , withScopeConfigDigest
   , scopeId
+  , scopeConfigDigest
   , scopeBundles
   , ClaimHolder (..)
   , ReservationReason (..)
@@ -186,16 +188,23 @@ data ResourceBundle = ResourceBundle
   }
   deriving stock (Eq, Ord, Show, Generic)
 
-data ScopeDeclaration = ScopeDeclaration ScopeId [ResourceBundle] deriving stock (Eq, Ord, Show)
+data ScopeDeclaration = ScopeDeclaration ScopeId (Maybe ContentDigest) [ResourceBundle]
+  deriving stock (Eq, Ord, Show)
 
 scopeId :: ScopeDeclaration -> ScopeId
-scopeId (ScopeDeclaration s _) = s
+scopeId (ScopeDeclaration s _ _) = s
+
+scopeConfigDigest :: ScopeDeclaration -> Maybe ContentDigest
+scopeConfigDigest (ScopeDeclaration _ digest _) = digest
+
+withScopeConfigDigest :: ContentDigest -> ScopeDeclaration -> ScopeDeclaration
+withScopeConfigDigest digest (ScopeDeclaration s _ bs) = ScopeDeclaration s (Just digest) bs
 
 scopeBundles :: ScopeDeclaration -> [ResourceBundle]
-scopeBundles (ScopeDeclaration _ bs) = bs
+scopeBundles (ScopeDeclaration _ _ bs) = bs
 
 mkScopeDeclaration :: ScopeId -> [ResourceBundle] -> Either (NonEmpty InventoryError) ScopeDeclaration
-mkScopeDeclaration s bs = checked errors (ScopeDeclaration s (sort bs))
+mkScopeDeclaration s bs = checked errors (ScopeDeclaration s Nothing (sort bs))
   where
     ds = concatMap (^. #declarations) bs
     ids = map declarationId ds <> map (^. #identity) (concatMap (^. #operations) bs)

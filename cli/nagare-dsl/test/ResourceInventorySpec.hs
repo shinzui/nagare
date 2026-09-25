@@ -223,6 +223,14 @@ resourceInventoryTests =
         rejects "output-operation" (compileScopes [missingOperation, consumer (SomeRef key)])
         rejects "reference-mismatch" (compileScopes [producer, consumer (SomeRef wrong)])
         decodeScope (encodeCanonicalScope producer) @?= Right producer
+    , testCase "optional config digest survives scope wire and changes revision bytes" $ do
+        let base = scope a [service a "app" "app"]
+            tagged = withScopeConfigDigest digest base
+        scopeConfigDigest base @?= Nothing
+        scopeConfigDigest tagged @?= Just digest
+        decodeScope (encodeCanonicalScope tagged) @?= Right tagged
+        assertBool "config digest did not change canonical scope bytes"
+          (encodeCanonicalScope tagged /= encodeCanonicalScope base)
     , testCase "logical Attic cache has its own executor and claim" $ do
         let Managed first = service p "logical-cache" "cache"
             Managed second = service a "other-cache" "cache"
