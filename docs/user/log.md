@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-25
+* **Update**: Document single-invocation reviewed Secret set, delete, and exact sync with opaque rotation versions.
 * **Update**: Document single-invocation reviewed manual task runs with stable run IDs and the saved-review inspection option.
 
 ## 2026-09-24

@@ -119,10 +119,10 @@ nagarectl env list   APP [-f|--config CONFIG] [--all]
 nagarectl env set    APP KEY VALUE [-f|--config CONFIG] [--runtime] [--build] [--preview] [--dry-run] [--save-plan DIR]
 nagarectl env delete APP KEY       [-f|--config CONFIG] [--runtime] [--build] [--preview] [--dry-run] [--save-plan DIR]
 nagarectl env sync   APP --file FILE [-f|--config CONFIG] [--runtime] [--build] [--preview] [--merge | --reconcile-exact] [--dry-run]
-nagarectl secret set    APP KEY    [-f|--config CONFIG] [--runtime] [--build] [--preview] [--dry-run] [--version TOKEN --save-plan DIR]   # value from stdin
+nagarectl secret set    APP KEY    [-f|--config CONFIG] [--runtime] [--build] [--preview] [--dry-run] [--version TOKEN] [--save-plan DIR]   # value from stdin
 nagarectl secret list   APP        [-f|--config CONFIG] [--all]
-nagarectl secret delete APP KEY    [-f|--config CONFIG] [--runtime] [--build] [--preview] [--dry-run] [--version TOKEN --save-plan DIR]
-nagarectl secret sync   APP --file FILE --version TOKEN --save-plan DIR [-f|--config CONFIG] [--runtime | --build | --preview]
+nagarectl secret delete APP KEY    [-f|--config CONFIG] [--runtime] [--build] [--preview] [--dry-run] [--version TOKEN] [--save-plan DIR]
+nagarectl secret sync   APP --file FILE --version TOKEN [--save-plan DIR] [-f|--config CONFIG] [--runtime | --build | --preview]
 ```
 
 Defaults and rules:
@@ -142,7 +142,7 @@ Defaults and rules:
   touches no cluster. A direct Secret dry-run shows only the Secret name,
   namespace, and key names. It is a summary, not an apply-able manifest; neither
   plaintext nor reversible base64 values are printed. Reviewed Secret changes
-  use `--save-plan` and keep native values in private review evidence.
+  keep native values in private review evidence.
 
 ### `env set` — set one managed variable
 
@@ -237,19 +237,24 @@ reviewed commands use the same private native evidence and revision binding as
 `env sync --save-plan`.
 
 Runtime, Build, and Preview Secret values also have separate reviewed
-input channels. `secret set` and `secret delete` can save a review for one key:
-supply both `--version TOKEN` and `--save-plan DIR`. Set reads the value from
-stdin; delete requires the key in accepted history. Both reconstruct the
+input channels. `secret set` and `secret delete` use `--version TOKEN` to
+publish and apply a reviewed single-key change in one invocation, or add
+`--save-plan DIR` to inspect the review before a separate apply. Set reads the
+value from stdin; delete requires the key in accepted history. Both reconstruct the
 complete next Secret from the accepted private review and bind it to the new
 rotation version. Pass `--build` or `--preview` to select one; Runtime is the
 default. `secret sync` takes an exact dotenv file, which must remain available
-while planning. The saved review binds private native Secret bytes and does
-not print them in the public review. A later application deployment preserves this
+while planning. Without `--save-plan`, it publishes and applies the reviewed
+replacement in one invocation. The review binds private native Secret bytes and
+does not print them in the public review. A later application deployment preserves this
 channel's revision. Reusing a version with different Secret content is refused.
 A preexisting unmanaged Secret requires reviewed adoption
 before its first managed write.
 
 ```bash
+nagarectl secret sync envdemo --file .env.secrets --version v2
+
+# Or inspect the review before applying it:
 nagarectl secret sync envdemo --file .env.secrets --version v2 \
   --save-plan secret-review
 nagarectl inventory apply secret-review --yes

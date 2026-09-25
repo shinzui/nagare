@@ -994,8 +994,8 @@ data SecretCommand
     SecretList StoreCommonOpts Bool
   | -- | dryRun, KEY, rotation version, reviewed plan directory
     SecretDelete StoreCommonOpts ScopeSelection Bool String (Maybe String) (Maybe FilePath)
-  | -- | exact Runtime or Build dotenv file, opaque rotation version, reviewed plan directory
-    SecretSync StoreCommonOpts ScopeSelection FilePath String FilePath
+  | -- | exact Runtime, Build, or Preview dotenv file, opaque rotation version, optional review directory
+    SecretSync StoreCommonOpts ScopeSelection FilePath String (Maybe FilePath)
   deriving stock (Generic, Show)
 
 -- | The @storage@ subcommands (EP-35). Both reuse 'StoreCommonOpts' (positional
@@ -2647,10 +2647,10 @@ opts =
                       <*> scopeSelectionParser
                       <*> strOption (long "file" <> metavar "FILE" <> help "dotenv file with exact Runtime, Build, or Preview Secret values")
                       <*> strOption (long "version" <> metavar "TOKEN" <> help "Opaque Secret rotation version")
-                      <*> strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed Runtime, Build, or Preview Secret replacement")
+                      <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed Runtime, Build, or Preview Secret replacement"))
                         <**> helper
                   )
-                  (progDesc "Review an exact Runtime, Build, or Preview Secret replacement")
+                  (progDesc "Apply an exact reviewed Runtime, Build, or Preview Secret replacement, or save its review")
               )
         )
     appCmd =
@@ -8861,8 +8861,14 @@ runSecret mctx = \case
         val <- readSecretValue
         saveReviewedSecretChange mctx name ns sel "secret set" version
           (Right . Map.insert (T.pack key) val) output
+      Nothing | isJust rawVersion -> do
+        when dry (dieT "reviewed Secret set cannot use --dry-run")
+        version <- maybe (dieT "reviewed Secret set requires --version")
+          (either dieT pure . Resource.mkName . T.pack) rawVersion
+        val <- readSecretValue
+        saveReviewedSecretChange mctx name ns sel "secret set" version
+          (Right . Map.insert (T.pack key) val) ""
       Nothing -> do
-        when (isJust rawVersion) (dieT "--version requires --save-plan")
         refuseDirectStoreMutationIfOwned mctx True name ns (selectedScopes sel)
         val <- readSecretValue
         forM_ (selectedScopes sel) $ \scope -> do
@@ -8888,8 +8894,15 @@ runSecret mctx = \case
           (\existing -> if Map.member (T.pack key) existing
             then Right (Map.delete (T.pack key) existing)
             else Left "Secret key is absent from the accepted channel") output
+      Nothing | isJust rawVersion -> do
+        when dry (dieT "reviewed Secret delete cannot use --dry-run")
+        version <- maybe (dieT "reviewed Secret delete requires --version")
+          (either dieT pure . Resource.mkName . T.pack) rawVersion
+        saveReviewedSecretChange mctx name ns sel "secret delete" version
+          (\existing -> if Map.member (T.pack key) existing
+            then Right (Map.delete (T.pack key) existing)
+            else Left "Secret key is absent from the accepted channel") ""
       Nothing -> do
-        when (isJust rawVersion) (dieT "--version requires --save-plan")
         refuseDirectStoreMutationIfOwned mctx True name ns (selectedScopes sel)
         forM_ (selectedScopes sel) $ \scope -> do
           existing <- orDie =<< readSecretStore name ns scope
@@ -8904,7 +8917,7 @@ runSecret mctx = \case
     raw <- TIO.readFile dotenvPath
     incoming <- either (const (dieT "invalid secret dotenv file")) pure (parseDotenv raw)
     saveReviewedSecretChange mctx name ns sel (T.pack dotenvPath) version
-      (const (Right incoming)) output
+      (const (Right incoming)) (fromMaybe "" output)
 
 saveReviewedSecretChange :: Maybe String -> Text -> Text -> ScopeSelection -> Text
   -> Resource.Name -> (Map Text Text -> Either Text (Map Text Text)) -> FilePath -> IO ()
@@ -8935,8 +8948,12 @@ saveReviewedSecretChange mctx name ns selection sourceName version change output
   either dieT pure (validateSecretRotation snapshot channel)
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope channel NE.:| []))
-  Inventory.planInventoryCandidateWith
-    (inventoryPlanRegistryWithNative active workspace native) active candidate output
+  if null output
+    then Inventory.convergeInventoryCandidateWith
+      (inventoryPlanRegistryWithNative active workspace native)
+      (inventoryExecutionRegistry mctx) active candidate
+    else Inventory.planInventoryCandidateWith
+      (inventoryPlanRegistryWithNative active workspace native) active candidate output
 
 -- | Print the rendered ConfigMap (dry-run) or write the store (otherwise).
 applyOrDryRunEnv :: Bool -> Text -> Text -> EnvScope -> Map Text Text -> IO ()
