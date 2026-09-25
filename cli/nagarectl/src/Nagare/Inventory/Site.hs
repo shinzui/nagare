@@ -7,6 +7,7 @@ module Nagare.Inventory.Site
   , compileServerSiteScope
   , compileServerSiteRollbackScope
   , compileStaticSitePreviewScope
+  , compileServerSitePreviewScope
   , acceptedSiteReleaseLog
   , acceptedSiteSource
   , acceptedSitePreviewDependencies
@@ -103,25 +104,66 @@ compileStaticSitePreviewScope inputs raw cluster namespaceId imageId stores sour
       ns = namespaceText (site ^. #namespace)
       invalid message = inventoryError "invalid-site-preview-scope" message
         & #sources .~ [source] & (:| [])
-  envIds <- first invalid (sitePreviewStoreIds cluster name ns stores)
   rendered <- first invalid (previewManifests inputs raw)
   host <- first invalid (previewDomain name raw (inputs ^. #baseDomain))
+  compileRenderedSitePreviewScope name ns (rendered ^. #serviceName) host
+    (rendered ^. #service) (rendered ^. #domainMappings)
+    cluster namespaceId imageId stores [] source
+
+compileServerSitePreviewScope
+  :: Server.ServerDeployInputs -> T.Text -> ResourceId -> ResourceId -> ResourceId
+  -> [Declaration] -> Map SecretName Declaration -> SourceLocation
+  -> Either (NonEmpty InventoryError)
+       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileServerSitePreviewScope inputs raw cluster namespaceId imageId stores envSecrets source = do
+  let site = inputs ^. #site
+      name = siteNameText (site ^. #name)
+      ns = namespaceText (site ^. #namespace)
+      invalid message = inventoryError "invalid-server-preview-scope" message
+        & #sources .~ [source] & (:| [])
+  unless (null (site ^. #volumes))
+    (Left (invalid "server preview volumes require independent recovery and claim inputs"))
+  let secretRefs = [(secret, entry ^. #scopes) | entry <- Map.elems (site ^. #env),
+        EnvSecretRef secret <- [entry ^. #value]]
+  unless (all ((== Set.singleton Runtime) . snd) secretRefs)
+    (Left (invalid "server preview Build or Preview Secret references need publication inputs"))
+  unless (Map.keysSet envSecrets == Set.fromList (map fst secretRefs))
+    (Left (invalid "server preview Runtime Secret references require exact dependencies"))
+  secretIds <- traverse (first invalid . siteSecretDependency cluster ns envSecrets)
+    (Set.toAscList (Set.fromList (map fst secretRefs)))
+  rendered <- first invalid (Server.serverPreviewManifests inputs raw)
+  host <- first invalid (previewDomain name raw (inputs ^. #baseDomain))
+  compileRenderedSitePreviewScope name ns (rendered ^. #serviceName) host
+    (rendered ^. #service) (rendered ^. #domainMappings)
+    cluster namespaceId imageId stores secretIds source
+
+compileRenderedSitePreviewScope
+  :: T.Text -> T.Text -> T.Text -> T.Text -> ByteString -> [ByteString]
+  -> ResourceId -> ResourceId -> ResourceId -> [Declaration] -> [ResourceId]
+  -> SourceLocation
+  -> Either (NonEmpty InventoryError)
+       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileRenderedSitePreviewScope name ns serviceName host serviceBytes domainManifests
+    cluster namespaceId imageId stores secretIds source = do
+  let invalid message = inventoryError "invalid-site-preview-scope" message
+        & #sources .~ [source] & (:| [])
+  envIds <- first invalid (sitePreviewStoreIds cluster name ns stores)
   domains <- first invalid (mkDomains [(host, True)])
   domain <- case domains of
     [one] -> Right one
     _ -> Left (invalid "preview renderer changed domain membership")
-  domainBytes <- case rendered ^. #domainMappings of
+  domainBytes <- case domainManifests of
     [bytes] -> Right bytes
     _ -> Left (invalid "preview renderer changed domain manifest membership")
-  owner <- first invalid (mkScopeId Standalone ("site-preview-" <> rendered ^. #serviceName))
-  serviceKey <- first invalid (mkLogicalKey (rendered ^. #serviceName))
+  owner <- first invalid (mkScopeId Standalone ("site-preview-" <> serviceName))
+  serviceKey <- first invalid (mkLogicalKey serviceName)
   serviceRole <- first invalid (mkName "service")
   let serviceId = mintResourceId owner serviceKey serviceRole
   serviceMember <- bindOne owner cluster serviceId DeleteWhenUnreferenced Stateless
-    (map OrderedAfter (namespaceId : imageId : envIds))
-    (source {path = path source <> "/service"}) (rendered ^. #service)
+    (map OrderedAfter ([namespaceId, imageId] <> envIds <> secretIds))
+    (source {path = path source <> "/service"}) serviceBytes
   checkAddress invalid cluster "serving.knative.dev/v1" "Service" ns
-    (rendered ^. #serviceName) serviceMember
+    serviceName serviceMember
   domainId <- first invalid (domainMappingResourceId owner domain)
   hostname <- first invalid (mkName host)
   domainMember <- bindOne owner cluster domainId DeleteWhenUnreferenced Stateless

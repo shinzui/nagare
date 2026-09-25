@@ -121,6 +121,11 @@ provenance:
       at: 2026-09-24T23:47:34Z
       mode: "implement"
       note: "Track retained access DomainMapping collection capability"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-25T02:22:40Z
+      mode: "implement"
+      note: "Track reviewed stateless server preview scopes"
 ---
 
 # Make managed resources first-class through typed scoped inventories
@@ -552,5 +557,7 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 2026-09-24: EP-148 routes reviewed preview deletion through exact scope retirement and a subsequent conditional collection review for its retained Knative Service and DomainMapping. The native collection transport supports `serving.knative.dev/v1` Services with UID and resourceVersion preconditions; a disposable cluster rejected stale and accepted exact deletion. End-to-end inventory collection and legacy preview adoption remain open.
 
 2026-09-24: EP-148 now accepts an exact-incarnation adoption proposal for existing direct static preview members, restricted to distinct unowned resources in the selected preview scope. Server previews, CDN, and other application operations remain open.
+
+2026-09-24: EP-148 added reviewed stateless server preview scopes with accepted overlay stores and Runtime Secret dependencies. Preview identity variables use the derived name and URL; server volumes, Build/Preview Secret publication, CDN, and other operational paths remain open.
 
 2026-09-24: EP-148 applied the same distinction to legacy env and Secret reads and now refuses malformed `data` entries instead of silently dropping keys. Direct store writes and reviewed preview/deploy integration remain open.

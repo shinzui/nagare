@@ -238,8 +238,8 @@ references require separate publication and overlay inputs and currently
 refuse. For each retained server volume, add
 `--volume-recovery VOLUME=BACKUP:KEY:VERSION` to the saved-plan command. The
 review declares the rendered PVC before the Service and keeps the backup/key
-recovery identity with that durable resource. Previews and site rollback still
-use their direct paths unless a rollback is saved for review.
+recovery identity with that durable resource. Supported previews and site
+rollback can also be saved for review as described below.
 
 For a site created by the direct deploy path, save the full legacy release
 ConfigMap JSON to a private file. Prepare a versioned adoption proposal using
@@ -337,6 +337,12 @@ and each present member's exact address, UID, and resourceVersion. Pass
 `--preview-adoption-input FILE` with the saved deploy command. The proposal
 can adopt only unowned members of that preview scope.
 
+The same saved-plan command supports stateless server sites. For each Runtime
+Secret reference in the server config, add `--env-secret-resource RESOURCE-ID`
+for its accepted Secret. Server preview volumes and Build/Preview Secret
+references are not yet supported. Direct preview deployment still supports
+static sites only.
+
 To remove a reviewed preview,
 retire its scope, then separately review exact collection of its retained
 Service and DomainMapping:
@@ -353,10 +359,8 @@ Use the two ResourceIds shown in inventory status after retirement. The
 collection review checks each object's UID and resourceVersion. Direct
 `site preview delete` refuses addresses owned by accepted or retained history.
 
-> Preview deploys currently target **static** sites. Server-site previews are a
-> planned follow-up (see
-> [`docs/plans/18`](../plans/18-full-stack-server-runtime-hosting-for-static-sites.md));
-> production deploy, releases, and rollback already work for server sites.
+> Direct preview deployment targets **static** sites. Stateless server previews
+> require `--save-plan`, a prepublished image, and the accepted overlay stores.
 
 ---
 

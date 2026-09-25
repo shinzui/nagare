@@ -201,7 +201,7 @@ import Nagare.Gcp.Adc
   , validateAdc
   )
 import Nagare.GhcEnv (findGhcEnvIn)
-import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteSource, compileServerSiteRollbackScope, compileServerSiteScope, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteScope, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteNativeOwned, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
+import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteSource, compileServerSitePreviewScope, compileServerSiteRollbackScope, compileServerSiteScope, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteScope, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteNativeOwned, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
 import Nagare.Inventory.Environment (compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel)
 import Nagare.Image (DockerAuth (..), dockerAuthPlan, dockerBuildArgs, nixpacksBuildArgs, qualifyImage)
 import Nagare.Infra.Plan
@@ -3981,7 +3981,7 @@ staticInventoryTests =
         (isLeft (legacyStaticSiteReleaseImport site "v1"
           (renderReleaseConfigMap "demo" "personal"
             (oldLog & #releases %~ reverse))))
-  , testCase "static preview review binds all four accepted environment stores" $ do
+  , testCase "site preview review binds accepted overlay and runtime stores" $ do
       let site = baseSite (NoBuild (unsafe (mkFilePathText "dist")))
           inputs = DeployInputs site "v1" "example.com" "." True initProfile
           foundation = unsafe (Resource.mkScopeId Resource.Platform "foundation")
@@ -4037,6 +4037,63 @@ staticInventoryTests =
       assertBool "preview retirement selected a different domain"
         (isLeft (sitePreviewRetirementScope previewSnapshot cluster svcName
           "personal" "other.example.com"))
+      let serverSite = ServerSite
+            { name = unsafe (mkSiteName "demo")
+            , namespace = unsafe (mkNamespace "personal")
+            , image = unsafe (mkImageRef "us-west1-docker.pkg.dev/tan-nb-exp/nagare/demo")
+            , build = tanstackStartBuild
+            , runtime = defaultServerRuntime
+            , port = defaultPort
+            , env = Map.empty
+            , resources = Nothing
+            , scale = Nothing
+            , domains = []
+            , volumes = []
+            , cdn = Nothing
+            }
+          serverInputs = ServerDeploy.ServerDeployInputs serverSite "v1"
+            "example.com" "." True initProfile
+      serverRendered <- either (fail . T.unpack) pure
+        (ServerDeploy.serverPreviewManifests serverInputs "branch")
+      serverRendered ^. #serviceName @?= svcName
+      assertBool "server preview omitted its Preview overlay"
+        (BC.isInfixOf "nagare-env-demo-preview" (serverRendered ^. #service)
+          && BC.isInfixOf "nagare-secret-demo-preview" (serverRendered ^. #service))
+      (serverScope, serverNative) <- either (fail . show) pure
+        (compileServerSitePreviewScope serverInputs "branch" cluster namespaceId imageId
+          deps Map.empty source)
+      scopeId serverScope @?= scopeId scope
+      Map.size serverNative @?= 2
+      let secretName = unsafe (mkSecretName "external")
+          secretId = Resource.mintResourceId foundation
+            (unsafe (Resource.mkLogicalKey "external")) (unsafe (Resource.mkName "secret"))
+          secretAddress = unsafe (Resource.kubernetesAddress cluster "v1" "Secret"
+            (Just "personal") "external")
+          secretSite = serverSite & #env .~ Map.singleton (unsafe (mkEnvName "API_KEY"))
+            (runtimeScoped (EnvSecretRef secretName))
+          secretBindings = Map.singleton secretName (External secretId secretAddress [] source)
+      (secretScope, _) <- either (fail . show) pure
+        (compileServerSitePreviewScope (serverInputs {ServerDeploy.site = secretSite})
+          "branch" cluster namespaceId imageId deps secretBindings source)
+      assertBool "server preview Service lacks Runtime Secret ordering"
+        (any (elem (OrderedAfter secretId) . (^. #dependencies))
+          [member | bundle <- scopeBundles secretScope, Managed member <- declarations bundle])
+      assertBool "server preview accepted an unbound Runtime Secret"
+        (isLeft (compileServerSitePreviewScope (serverInputs {ServerDeploy.site = secretSite})
+          "branch" cluster namespaceId imageId deps Map.empty source))
+      let volume = Volume
+            { name = unsafe (mkVolumeName "data")
+            , logicalKey = Nothing
+            , size = unsafe (mkQuantity "1Gi")
+            , mountPath = unsafe (mkMountPath "/data")
+            , accessMode = ReadWriteOnce
+            , readOnly = False
+            , retention = Retain
+            }
+      assertBool "server preview accepted a volume without a claim"
+        (isLeft (compileServerSitePreviewScope
+          (serverInputs {ServerDeploy.site = serverSite & #volumes .~ [volume]})
+          "branch" cluster namespaceId imageId deps Map.empty source))
   , testCase "server site review binds its release and refuses untyped Secrets" $ do
       let site = ServerSite
             { name = unsafe (mkSiteName "demo")

@@ -277,7 +277,7 @@ import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Application (ApplicationScopeInput (..), DatabaseBinding, acceptedAccessBinding, acceptedApplicationImage, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationScope, compileStandaloneServiceWithRelease, compileStandaloneWorkerWithDependencies, databaseRecoveryBindings, legacyApplicationReleaseImport, legacyStandaloneReleaseImport, nativeWorkloadOwned, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
-import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteReleaseLog, acceptedSiteSource, compileServerSiteRollbackScope, compileServerSiteScope, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteScope, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteNativeOwned, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
+import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteReleaseLog, acceptedSiteSource, compileServerSitePreviewScope, compileServerSiteRollbackScope, compileServerSiteScope, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteScope, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteNativeOwned, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
 import Nagare.Inventory.Lifecycle qualified as InventoryLifecycle
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, compileStandaloneDatabase, databaseNativeOwned, standaloneRetirementScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Environment (acceptedEnvChannelValues, acceptedSecretChannelValues, compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
@@ -7148,10 +7148,16 @@ serverSiteWithGeneratedEnv options site bd tag =
 
 serverSiteWithGeneratedEnvSource :: Maybe Text -> ServerSite -> Text -> Text -> ServerSite
 serverSiteWithGeneratedEnvSource source site bd tag =
+  serverSiteWithGeneratedEnvFor (siteNameText (site ^. #name))
+    (serverUrl site bd) source site bd tag
+
+serverSiteWithGeneratedEnvFor
+  :: Text -> Text -> Maybe Text -> ServerSite -> Text -> Text -> ServerSite
+serverSiteWithGeneratedEnvFor serviceName targetUrl source site bd tag =
   let context = Gen.GeneratedContext
-        { Gen.serviceName = siteNameText (site ^. #name)
+        { Gen.serviceName = serviceName
         , Gen.namespace = namespaceText (site ^. #namespace)
-        , Gen.serviceUrl = serverUrl site bd
+        , Gen.serviceUrl = targetUrl
         , Gen.baseDomain = bd
         , Gen.releaseId = tag
         , Gen.source = source
@@ -7363,7 +7369,6 @@ rollbackManifests tp (Load.SiteServer s) bd tag =
 runPreviewDeploy :: Maybe String -> SiteDeployOpts -> Text -> IO ()
 runPreviewDeploy mctx sopts pname = do
   when (not (null (sopts ^. #siteVolumeRecovery))
-      || not (null (sopts ^. #siteEnvSecretResources))
       || not (null (sopts ^. #siteTlsSecretResources))
       || isJust (sopts ^. #legacyReleaseImport)
       || isJust (sopts ^. #releaseAdoptionInput))
@@ -7371,31 +7376,43 @@ runPreviewDeploy mctx sopts pname = do
   bd <- resolveBaseDomain mctx (sopts ^. #baseDomain)
   tp <- activeProfile mctx
   provisionGhcEnv (sopts ^. #ghcEnv)
-  site <- loadSiteOrDie (sopts ^. #file)
-  case sopts ^. #savePlan of
-    Just output -> runReviewedStaticPreviewPlan mctx tp sopts site bd pname output
-    Nothing -> do
-      when (isJust (sopts ^. #imageResource)
-          || not (null (sopts ^. #sitePreviewEnvResources))
-          || isJust (sopts ^. #sitePreviewAdoptionInput))
-        (dieT "site preview inventory resources require --save-plan")
-      imageTag <- resolveTag (sopts ^. #tag)
-      let inputs = siteDeployInputs tp sopts site imageTag bd
-      m <- orDie (previewManifests inputs pname)
-      pdomText <- orDie (previewDomain (siteNameText (site ^. #name)) pname bd)
-      refuseDirectSiteMutationIfOwned mctx "site preview deploy"
-        (m ^. #serviceName) (namespaceText (site ^. #namespace))
-        [pdomText] False
-      if sopts ^. #dryRun
-        then do
-          printNamespaceAction (namespaceText (site ^. #namespace))
-          printStaticArtifacts (m ^. #nginxConf) (m ^. #service) (m ^. #domainMappings) (m ^. #url)
-          TIO.putStrLn ("Preview service: " <> (m ^. #serviceName))
-        else do
-          result <- deployStaticPreview inputs pname
-          case result of
-            Left err -> dieT err
-            Right u -> TIO.putStrLn ("Deployed preview: " <> u)
+  esite <- Load.loadSite (sopts ^. #file)
+  case esite of
+    Left err -> dieT (Load.renderLoadError err)
+    Right (Load.SiteStatic site) -> do
+      unless (null (sopts ^. #siteEnvSecretResources))
+        (dieT "static preview has no runtime Secret references")
+      case sopts ^. #savePlan of
+        Just output -> runReviewedStaticPreviewPlan mctx tp sopts site bd pname output
+        Nothing -> runDirectStaticPreview mctx tp sopts site bd pname
+    Right (Load.SiteServer site) -> case sopts ^. #savePlan of
+      Just output -> runReviewedServerPreviewPlan mctx tp sopts site bd pname output
+      Nothing -> dieT "server previews require --save-plan and a prepublished image"
+
+runDirectStaticPreview :: Maybe String -> TargetProfile -> SiteDeployOpts
+  -> StaticSite -> Text -> Text -> IO ()
+runDirectStaticPreview mctx tp sopts site bd pname = do
+  when (isJust (sopts ^. #imageResource)
+      || not (null (sopts ^. #sitePreviewEnvResources))
+      || isJust (sopts ^. #sitePreviewAdoptionInput))
+    (dieT "site preview inventory resources require --save-plan")
+  imageTag <- resolveTag (sopts ^. #tag)
+  let inputs = siteDeployInputs tp sopts site imageTag bd
+  m <- orDie (previewManifests inputs pname)
+  pdomText <- orDie (previewDomain (siteNameText (site ^. #name)) pname bd)
+  refuseDirectSiteMutationIfOwned mctx "site preview deploy"
+    (m ^. #serviceName) (namespaceText (site ^. #namespace))
+    [pdomText] False
+  if sopts ^. #dryRun
+    then do
+      printNamespaceAction (namespaceText (site ^. #namespace))
+      printStaticArtifacts (m ^. #nginxConf) (m ^. #service) (m ^. #domainMappings) (m ^. #url)
+      TIO.putStrLn ("Preview service: " <> (m ^. #serviceName))
+    else do
+      result <- deployStaticPreview inputs pname
+      case result of
+        Left err -> dieT err
+        Right u -> TIO.putStrLn ("Deployed preview: " <> u)
 
 runReviewedStaticPreviewPlan
   :: Maybe String -> TargetProfile -> SiteDeployOpts -> StaticSite
@@ -7442,13 +7459,63 @@ runReviewedStaticPreviewPlan mctx tp options original bd pname output = do
         (inventoryPlanRegistryWithNative active workspace native)
         active candidate proposal output
 
+runReviewedServerPreviewPlan
+  :: Maybe String -> TargetProfile -> SiteDeployOpts -> ServerSite
+  -> Text -> Text -> FilePath -> IO ()
+runReviewedServerPreviewPlan mctx tp options original bd pname output = do
+  tag <- reviewedSiteTag options
+  imageId <- maybe (dieT "reviewed server preview requires --image-resource")
+    (either dieT pure . Resource.mkResourceId . T.pack) (options ^. #imageResource)
+  qualifiedImage <- either dieT pure (qualifyImage tp (original ^. #image))
+  let qualified = original & #image .~ qualifiedImage
+      name = siteNameText (qualified ^. #name)
+      ns = namespaceText (qualified ^. #namespace)
+  previewName <- orDie (previewServiceName name pname)
+  host <- orDie (previewDomain name pname bd)
+  let sourceText = T.pack <$> options ^. #source
+      site = serverSiteWithGeneratedEnvFor previewName ("https://" <> host)
+        sourceText qualified bd tag
+      inputs = ServerDeployInputs site tag bd (options ^. #projectDir) True tp
+      source = Resource.SourceLocation
+        (maybe (T.pack (options ^. #file)) T.pack (options ^. #source))
+        ("preview/" <> previewName)
+  active <- activeTarget mctx
+  (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+  snapshot <- Inventory.loadTargetSnapshot active
+  (cluster, namespaceId) <- either dieT pure (acceptedFoundationNamespace snapshot ns)
+  either dieT pure (acceptedApplicationImage snapshot imageId
+    (imageRefText qualifiedImage <> ":" <> tag))
+  envIds <- traverse (either dieT pure . Resource.mkResourceId . T.pack)
+    (options ^. #sitePreviewEnvResources)
+  stores <- either dieT pure
+    (acceptedSitePreviewDependencies snapshot cluster name ns envIds)
+  secretIds <- traverse (either dieT pure . Resource.mkResourceId . T.pack)
+    (options ^. #siteEnvSecretResources)
+  runtimeSecrets <- either dieT pure (acceptedSecretBindings snapshot secretIds)
+  (scope, native) <- either (dieT . T.pack . show) pure
+    (compileServerSitePreviewScope inputs pname cluster namespaceId imageId
+      stores runtimeSecrets source)
+  candidate <- either (dieT . T.pack . show) pure
+    (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
+  case options ^. #sitePreviewAdoptionInput of
+    Nothing -> Inventory.planInventoryCandidateWith
+      (inventoryPlanRegistryWithNative active workspace native) active candidate output
+    Just proposalFile -> do
+      proposalBytes <- (try (BS.readFile proposalFile) :: IO (Either IOException ByteString))
+        >>= either (dieT . T.pack . show) pure
+      proposal <- either dieT pure (InventoryLifecycle.decodeAdoptionInput proposalBytes)
+      unless (InventoryLifecycle.adoptionCandidateDirectory proposal == ".")
+        (dieT "inline preview adoption requires candidate '.' in its proposal")
+      validateInlinePreviewAdoption scope proposal
+      Inventory.planInventoryCandidateAdoptionWith
+        (inventoryPlanRegistryWithNative active workspace native)
+        active candidate proposal output
+
 -- | @site preview list@: list the site's preview Service names.
 runPreviewList :: SiteCommonOpts -> IO ()
 runPreviewList copts = do
   provisionGhcEnv (copts ^. #ghcEnv)
-  site <- loadSiteOrDie (copts ^. #file)
-  let name = siteNameText (site ^. #name)
-      ns = namespaceText (site ^. #namespace)
+  (name, ns) <- siteIdentityOrDie (copts ^. #file)
   pnames <- listPreviews name ns
   if null pnames
     then TIO.putStrLn "(no previews)"
@@ -7460,9 +7527,7 @@ runPreviewDelete mctx options pname = do
   let copts = options ^. #common
   bd <- resolveBaseDomain mctx (copts ^. #baseDomain)
   provisionGhcEnv (copts ^. #ghcEnv)
-  site <- loadSiteOrDie (copts ^. #file)
-  let prodName = siteNameText (site ^. #name)
-      ns = namespaceText (site ^. #namespace)
+  (prodName, ns) <- siteIdentityOrDie (copts ^. #file)
   svcName <- orDie (previewServiceName prodName pname)
   pdomText <- orDie (previewDomain prodName pname bd)
   case options ^. #savePlan of
@@ -8790,13 +8855,6 @@ printStaticArtifacts nginxBytes svcBytes dmBytes url = do
     BC.putStrLn "--- DomainMapping manifest ---"
     BC.putStr dm
   TIO.putStrLn ("URL: " <> url)
-
-loadSiteOrDie :: FilePath -> IO StaticSite
-loadSiteOrDie file = do
-  esite <- Load.loadStaticSite file
-  case esite of
-    Left err -> dieT (Load.renderLoadError err)
-    Right s -> pure s
 
 -- | Exit with a one-line error from a pure @Either Text@ validation.
 orDie :: Either Text a -> IO a

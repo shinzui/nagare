@@ -10,6 +10,7 @@ module Nagare.Server.Deploy
   ( ServerDeployInputs (..)
   , ServerManifests (..)
   , serverManifests
+  , serverPreviewManifests
   , deployServerProduction
   , serverUrl
   )
@@ -31,10 +32,12 @@ import Nagare.Dsl.Server.Render
   )
 import Nagare.Dsl.Server.Types (ServerSite)
 import Nagare.Dsl.Static.Types (siteNameText)
-import Nagare.Dsl.Types (canonicalDomain, domainText, imageRefText, namespaceText)
+import Nagare.Dsl.Types (canonicalDomain, domainText, imageRefText, mkDomains, namespaceText)
+import Nagare.Env.PreviewOverlay (withPreviewEnvFrom)
 import Nagare.Image (buildImage, configureDockerAuthFor, pushImage, taggedImageRef)
 import Nagare.Server.Build (prepareServerOutput)
 import Nagare.Server.Image (withServerImageContext)
+import Nagare.Static.Preview (previewDomain, previewServiceName)
 import Nagare.Static.Release (recordReleaseFor)
 import Nagare.Target (TargetProfile)
 
@@ -72,6 +75,26 @@ serverManifests inputs =
   where
     s = inputs ^. #site
     ctx = ServerDeployContext {imageTag = inputs ^. #imageTag, previewName = Nothing}
+
+-- | Render a server preview under a derived Service and automatic-TLS domain.
+-- The same Runtime/Preview overlay references as static previews are included
+-- in the Service bytes for reviewed dependency binding.
+serverPreviewManifests :: ServerDeployInputs -> Text -> Either Text ServerManifests
+serverPreviewManifests inputs raw = do
+  let s = inputs ^. #site
+      prodName = siteNameText (s ^. #name)
+  svcName <- previewServiceName prodName raw
+  host <- previewDomain prodName raw (inputs ^. #baseDomain)
+  previewDomains <- mkDomains [(host, True)]
+  let previewSite = s & #domains .~ previewDomains
+      ctx = ServerDeployContext {imageTag = inputs ^. #imageTag, previewName = Just svcName}
+  pure ServerManifests
+    { dockerfile = renderServerDockerfile s
+    , service = withPreviewEnvFrom prodName (renderServerService previewSite ctx)
+    , domainMappings = renderServerDomainMappings previewSite ctx
+    , url = "https://" <> host
+    , serviceName = svcName
+    }
 
 -- | Production deploy: prepare the output, package and push the Node image,
 -- apply the Service + DomainMappings, wait for readiness, and record a release.

@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-24
+* **Update**: Document reviewed stateless server previews and their Runtime Secret dependencies.
 * **Update**: Document exact adoption of existing direct static previews into their reviewed scope.
 * **Update**: Document reviewed preview retirement followed by exact collection of its retained Service and DomainMapping.
 * **Update**: Document reviewed static preview deployment with four accepted Runtime/Preview environment stores.
