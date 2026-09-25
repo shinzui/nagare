@@ -201,7 +201,8 @@ import Nagare.Gcp.Adc
   , validateAdc
   )
 import Nagare.GhcEnv (findGhcEnvIn)
-import Nagare.Inventory.Site (acceptedSiteSource, compileServerSiteRollbackScope, compileServerSiteScope, compileStaticSiteRollbackScope, compileStaticSiteScope, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteNativeOwned, siteVolumeRecoveryBindings)
+import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteSource, compileServerSiteRollbackScope, compileServerSiteScope, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteScope, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteNativeOwned, siteVolumeRecoveryBindings)
+import Nagare.Inventory.Environment (compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel)
 import Nagare.Image (DockerAuth (..), dockerAuthPlan, dockerBuildArgs, nixpacksBuildArgs, qualifyImage)
 import Nagare.Infra.Plan
   ( CurrentInfraIdentity (..)
@@ -329,7 +330,7 @@ import Nagare.Static.Deploy (DeployInputs (..), staticUrl)
 import Nagare.Static.Preview
 import Nagare.Static.Release
 import Nagare.Static.Webhook
-import Nagare.Resource.Inventory (Declaration (External, Managed), ResourceBundle (..), mkScopeSnapshot, scopeBundles, scopeId)
+import Nagare.Resource.Inventory (Declaration (External, Managed), ResourceBundle (..), declarationId, mkScopeSnapshot, scopeBundles, scopeId)
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Storage.Discover
@@ -3980,6 +3981,51 @@ staticInventoryTests =
         (isLeft (legacyStaticSiteReleaseImport site "v1"
           (renderReleaseConfigMap "demo" "personal"
             (oldLog & #releases %~ reverse))))
+  , testCase "static preview review binds all four accepted environment stores" $ do
+      let site = baseSite (NoBuild (unsafe (mkFilePathText "dist")))
+          inputs = DeployInputs site "v1" "example.com" "." True initProfile
+          foundation = unsafe (Resource.mkScopeId Resource.Platform "foundation")
+          cluster = Resource.mintResourceId foundation
+            (unsafe (Resource.mkLogicalKey "cluster")) (unsafe (Resource.mkName "resource"))
+          namespaceId = Resource.mintResourceId foundation
+            (unsafe (Resource.mkLogicalKey "namespace")) (unsafe (Resource.mkName "resource"))
+          imageId = Resource.mintResourceId foundation
+            (unsafe (Resource.mkLogicalKey "image")) (unsafe (Resource.mkName "publication"))
+          source = Resource.SourceLocation "fixture" "preview"
+          version = unsafe (Resource.mkName "v1")
+      stores <- traverse (either (fail . show) pure)
+        [ compileRuntimeEnvChannel "demo" "personal" cluster namespaceId Map.empty source
+        , compileRuntimeSecretChannel "demo" "personal" cluster namespaceId version Map.empty source
+        , compilePreviewEnvChannel "demo" "personal" cluster namespaceId Map.empty source
+        , compilePreviewSecretChannel "demo" "personal" cluster namespaceId version Map.empty source
+        ]
+      let binding = Resource.ContextBinding (unsafe (Resource.mkContextId "test"))
+            (unsafe (Resource.mkName "project"))
+          accepted = Map.fromList [(scopeId scope,
+            (unsafe (Resource.mkScopeGeneration 1), scope)) | (scope, _) <- stores]
+          storeIds = concatMap (Map.keys . snd) stores
+      snapshot <- either (fail . show) pure
+        (mkScopeSnapshot binding accepted Map.empty)
+      deps <- either (fail . T.unpack) pure
+        (acceptedSitePreviewDependencies snapshot cluster "demo" "personal" storeIds)
+      length deps @?= 4
+      assertBool "preview accepted a missing store"
+        (isLeft (acceptedSitePreviewDependencies snapshot cluster "demo" "personal"
+          (take 3 storeIds)))
+      assertBool "preview accepted another site's stores"
+        (isLeft (acceptedSitePreviewDependencies snapshot cluster "other" "personal" storeIds))
+      (scope, native) <- either (fail . show) pure
+        (compileStaticSitePreviewScope inputs "branch" cluster namespaceId imageId deps source)
+      assertBool "preview compiler accepted incomplete stores"
+        (isLeft (compileStaticSitePreviewScope inputs "branch" cluster namespaceId imageId
+          (take 3 deps) source))
+      Resource.scopeKind (scopeId scope) @?= Resource.Standalone
+      Map.size native @?= 2
+      let members = [member | bundle <- scopeBundles scope,
+            Managed member <- declarations bundle]
+      assertBool "preview Service lacks accepted environment ordering"
+        (any (\member -> all (\resourceId -> OrderedAfter resourceId
+          `elem` member ^. #dependencies) (map declarationId deps)) members)
   , testCase "server site review binds its release and refuses untyped Secrets" $ do
       let site = ServerSite
             { name = unsafe (mkSiteName "demo")

@@ -6,8 +6,10 @@ module Nagare.Inventory.Site
   , compileStaticSiteRollbackScope
   , compileServerSiteScope
   , compileServerSiteRollbackScope
+  , compileStaticSitePreviewScope
   , acceptedSiteReleaseLog
   , acceptedSiteSource
+  , acceptedSitePreviewDependencies
   , legacyServerSiteReleaseImport
   , legacyStaticSiteReleaseImport
   , siteVolumeRecoveryBindings
@@ -28,9 +30,9 @@ import Data.Yaml qualified as Yaml
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Server.Types (ServerSite (..))
 import Nagare.Dsl.Static.Types (StaticSite (..), siteNameText)
-import Nagare.Dsl.Types (DomainSpec (..), DomainTls (..), EnvScope (Runtime), EnvVar (..), ScopedEnvVar (..), SecretName, Volume (..), VolumeName, domainText, imageRefText, namespaceText, secretNameText, volumeNameText)
+import Nagare.Dsl.Types (DomainSpec (..), DomainTls (..), EnvScope (Runtime, Preview), EnvVar (..), ScopedEnvVar (..), SecretName, Volume (..), VolumeName, domainText, imageRefText, mkDomains, namespaceText, secretNameText, volumeNameText)
 import Nagare.Dsl.Types qualified as Dsl
-import Nagare.Dsl.Render (pvcName)
+import Nagare.Dsl.Render (managedConfigMapName, managedSecretName, pvcName)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Resource.Application (domainMappingResourceId, volumeResourceId)
@@ -40,7 +42,8 @@ import Nagare.Resource.Policy (DataPolicy (..), LifecyclePolicy (..), RecoveryIn
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
-import Nagare.Static.Deploy (DeployInputs (..), StaticManifests (..), productionManifests)
+import Nagare.Static.Deploy (DeployInputs (..), StaticManifests (..), previewManifests, productionManifests)
+import Nagare.Static.Preview (previewDomain)
 import Nagare.Server.Deploy qualified as Server
 import Nagare.Dsl.Server.Render qualified as ServerRender
 import Nagare.Static.Release (StaticRelease (..), StaticReleaseLog (..), addRelease, emptyReleaseLog, extractReleaseLog, findRelease, renderReleaseConfigMap)
@@ -85,6 +88,86 @@ compileStaticSiteScopeWith action inputs cluster namespaceId imageId tlsSecrets 
   compileSiteRenderedScope name ns (site ^. #domains)
     (rendered ^. #service) (rendered ^. #domainMappings) [] Map.empty [] tlsSecrets
     cluster namespaceId imageId history source
+
+-- | A preview is an independent short-lived scope. The exact rendered
+-- envFrom references require all four accepted Runtime/Preview stores.
+compileStaticSitePreviewScope
+  :: DeployInputs -> T.Text -> ResourceId -> ResourceId -> ResourceId
+  -> [Declaration] -> SourceLocation
+  -> Either (NonEmpty InventoryError)
+       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileStaticSitePreviewScope inputs raw cluster namespaceId imageId stores source = do
+  let site = inputs ^. #site
+      name = siteNameText (site ^. #name)
+      ns = namespaceText (site ^. #namespace)
+      invalid message = inventoryError "invalid-site-preview-scope" message
+        & #sources .~ [source] & (:| [])
+  envIds <- first invalid (sitePreviewStoreIds cluster name ns stores)
+  rendered <- first invalid (previewManifests inputs raw)
+  host <- first invalid (previewDomain name raw (inputs ^. #baseDomain))
+  domains <- first invalid (mkDomains [(host, True)])
+  domain <- case domains of
+    [one] -> Right one
+    _ -> Left (invalid "preview renderer changed domain membership")
+  domainBytes <- case rendered ^. #domainMappings of
+    [bytes] -> Right bytes
+    _ -> Left (invalid "preview renderer changed domain manifest membership")
+  owner <- first invalid (mkScopeId Standalone ("site-preview-" <> rendered ^. #serviceName))
+  serviceKey <- first invalid (mkLogicalKey (rendered ^. #serviceName))
+  serviceRole <- first invalid (mkName "service")
+  let serviceId = mintResourceId owner serviceKey serviceRole
+  serviceMember <- bindOne owner cluster serviceId DeleteWhenUnreferenced Stateless
+    (map OrderedAfter (namespaceId : imageId : envIds))
+    (source {path = path source <> "/service"}) (rendered ^. #service)
+  checkAddress invalid cluster "serving.knative.dev/v1" "Service" ns
+    (rendered ^. #serviceName) serviceMember
+  domainId <- first invalid (domainMappingResourceId owner domain)
+  hostname <- first invalid (mkName host)
+  domainMember <- bindOne owner cluster domainId DeleteWhenUnreferenced Stateless
+    [OrderedAfter namespaceId, OrderedAfter serviceId]
+    (source {path = path source <> "/domain/" <> host}) domainBytes
+  checkAddress invalid cluster "serving.knative.dev/v1beta1" "DomainMapping" ns host domainMember
+  let members = [serviceMember, first (\resource -> resource {aliases = [Hostname hostname]}) domainMember]
+      native = Map.fromList [(resource ^. #identity, (resource, bytes))
+        | (resource, bytes) <- members]
+  scope <- mkScopeDeclaration owner
+    [ResourceBundle (map (Managed . fst) members) [] [] [] [] []]
+  pure (scope, native)
+
+-- | Resolve all four preview overlay stores from accepted Managed resources.
+-- Their names and addresses are fixed by the renderer, so an optional
+-- envFrom reference cannot later resolve to an unreviewed store.
+acceptedSitePreviewDependencies
+  :: ScopeSnapshot -> ResourceId -> T.Text -> T.Text -> [ResourceId]
+  -> Either T.Text [Declaration]
+acceptedSitePreviewDependencies snapshot cluster name ns ids = do
+  stores <- traverse resolve ids
+  _ <- sitePreviewStoreIds cluster name ns stores
+  pure (stores)
+  where
+    resources = [resource | (_, scope) <- Map.elems (snapshotScopes snapshot),
+      bundle <- scopeBundles scope, Managed resource <- declarations bundle]
+    resolve resourceId = case filter ((== resourceId) . (^. #identity)) resources of
+      [resource] -> Right (Managed resource)
+      _ -> Left "site preview environment resource is absent or ambiguous in accepted inventory"
+
+sitePreviewStoreIds :: ResourceId -> T.Text -> T.Text -> [Declaration]
+  -> Either T.Text [ResourceId]
+sitePreviewStoreIds cluster name ns stores = do
+  unless (length stores == 4 && Set.size (Set.fromList (map declarationId stores)) == 4)
+    (Left "site preview requires four distinct accepted environment resources")
+  addresses <- traverse (\case
+      Managed resource -> Right (resource ^. #address)
+      _ -> Left "site preview environment store must be Managed") stores
+  expected <- Set.fromList <$> traverse (\(kind, nativeName) ->
+      kubernetesAddress cluster "v1" kind (Just ns) nativeName)
+    [("ConfigMap", managedConfigMapName name Runtime),
+     ("Secret", managedSecretName name Runtime),
+     ("ConfigMap", managedConfigMapName name Preview),
+     ("Secret", managedSecretName name Preview)]
+  unless (Set.fromList addresses == expected)
+    (Left "site preview environment resources differ from its four rendered stores")
+  pure (Set.toAscList (Set.fromList (map declarationId stores)))
 
 siteVolumeRecoveryBindings
   :: ServerSite -> [T.Text] -> Either T.Text (Map VolumeName RecoveryIntent)

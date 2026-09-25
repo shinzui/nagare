@@ -314,6 +314,26 @@ A preview becomes a separate Knative Service named `<site>-pr-<name>` at
 DNS-safe form (`Feature/X-1` → `feature-x-1`). `delete` removes the preview's
 Service and DomainMapping and is safe to repeat.
 
+To review a static preview, publish its tagged image and accept the site's four
+environment stores first: Runtime ConfigMap, Runtime Secret, Preview ConfigMap,
+and Preview Secret. Then supply each store's ResourceId:
+
+```bash
+nagarectl site preview deploy --name feature-x --skip-build --tag TAG \
+  --image-resource IMAGE-ID \
+  --preview-env-resource RUNTIME-CONFIGMAP-ID \
+  --preview-env-resource RUNTIME-SECRET-ID \
+  --preview-env-resource PREVIEW-CONFIGMAP-ID \
+  --preview-env-resource PREVIEW-SECRET-ID \
+  --save-plan preview-review
+nagarectl inventory apply preview-review --yes
+```
+
+The review owns the preview Service and DomainMapping in a separate scope. It
+refuses missing or differently addressed stores, an unaccepted image, and a
+direct preview already present without adoption. Reviewed preview retirement
+is still pending; direct `site preview delete` refuses its owned addresses.
+
 > Preview deploys currently target **static** sites. Server-site previews are a
 > planned follow-up (see
 > [`docs/plans/18`](../plans/18-full-stack-server-runtime-hosting-for-static-sites.md));

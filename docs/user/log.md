@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-24
+* **Update**: Document reviewed static preview deployment with four accepted Runtime/Preview environment stores.
 * **Update**: Document reviewed site rollback from accepted release history and an accepted image publication.
 * **Update**: Document accepted supplied TLS Secret dependencies for reviewed static and server sites.
 * **Update**: Document accepted runtime Secret dependencies for reviewed server sites and the remaining Build/Preview limit.

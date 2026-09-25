@@ -547,4 +547,6 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 
 2026-09-24: EP-148 added reviewed static and server site rollback using accepted private history and an accepted publication for the selected tag. The review changes the Service and current pointer without inventing a release. Previews, CDN, and broader operational command cutover remain open.
 
+2026-09-24: EP-148 added reviewed static preview creation in an independent scope, with its rendered Service ordered after accepted image, Namespace, and all four Runtime/Preview environment stores. Existing-preview adoption, reviewed deletion, server previews, and CDN remain open.
+
 2026-09-24: EP-148 applied the same distinction to legacy env and Secret reads and now refuses malformed `data` entries instead of silently dropping keys. Direct store writes and reviewed preview/deploy integration remain open.
