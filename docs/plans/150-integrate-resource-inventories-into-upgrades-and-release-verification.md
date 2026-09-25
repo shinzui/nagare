@@ -96,6 +96,10 @@ resume without duplicate effects; the unchanged review is a no-op, and retiring
 one application retains its resource while other accepted revisions remain
 fixed. The provider-backed local and GCP scenarios remain open.
 
+2026-09-25: Distilled the durable provider-draft, physical-asset verification,
+and completion-observation rules into ADR 7. This records the publication
+boundary without treating the pending inventory release evidence as shipped.
+
 
 ## Surprises & Discoveries
 

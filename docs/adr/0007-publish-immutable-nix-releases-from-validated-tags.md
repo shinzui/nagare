@@ -7,6 +7,7 @@ related:
   - docs/plans/109-publish-versioned-releases-and-clone-free-onboarding.md
   - docs/plans/128-isolate-init-from-the-active-context-ship-pulumi-with-the-operator-package-and-release-nagare-0-2-2.md
   - docs/plans/140-make-clone-free-platform-upgrades-carry-release-pinned-operator-tools.md
+  - docs/plans/150-integrate-resource-inventories-into-upgrades-and-release-verification.md
   - docs/adr/0003-package-the-typed-config-runtime-with-nagarectl.md
   - docs/adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md
   - docs/adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md
@@ -102,3 +103,29 @@ recording doubles, then requires an upgrade transaction to finish its Nix evalua
 Pulumi preview, and Kubernetes diff with every apply phase still pending. The resulting native
 release artifact records the Pulumi version, planned state, and preview count so publication retains
 evidence of the full documentation-to-package boundary.
+
+## Amendment — 2026-09-25: publication recovers from provider state
+
+The tag-only publication job uses a checked operator command instead of an
+unconditional release action. Its review binds the repository, annotated tag
+object and commit, payload identity, exact notes, and the complete named asset
+set with byte digests. The first provider write creates a draft with this
+unchanging intent in its body. A retry finds that same draft or published
+release by its tag and intent, verifies each asset by physical ID and downloaded
+bytes, and uploads only missing reviewed assets. Query errors are unknown
+outcomes, not evidence of absence.
+
+Before publication, a digest-addressed receipt records the verified product
+asset IDs. The command then rechecks the complete asset set and publishes the
+same draft ID. A retry after publication reconstructs a local completion
+observation from the immutable provider record; it does not append to the
+published release. A failed upload placeholder requires a separate review of
+its exact draft release and asset IDs before deletion. Changed notes, tag
+identity, assets, or foreign provider state cause refusal. A private probe
+repository exercised lost-acknowledgement recovery and same-byte published
+retry; it did not publish a Nagare release.
+
+The release identity is global to the repository and tag. A deployment context
+may reference it but does not own or mutate its publication record. Complete
+inventory evidence in the release archive and native tagged release gates
+remain [ExecPlan 150](../plans/150-integrate-resource-inventories-into-upgrades-and-release-verification.md) acceptance work.
