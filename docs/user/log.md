@@ -1,6 +1,8 @@
 # Bundle Update Log
 
 ## 2026-09-25
+* **Update**: Document reviewed Google CDN host DNS for applications and production sites, the accepted platform BackendService input, atomic exact-old updates, and uncertain recovery.
+* **Update**: Document reviewed Google CDN site rollback with the same accepted backend binding and retained DNS declaration.
 * **Fix**: Make direct Google CDN host DNS create-only after a successful exact-name read; refuse existing mismatched records and failed reads.
 * **Fix**: Treat the Google CDN apex as a checked Pulumi-owned DNS reference, and refuse direct CDN or deploy writes to hostnames claimed by accepted or retained inventory.
 * **Update**: Explain that Google CDN application deploys inherit the Pulumi-owned backend cache policy and refuse per-application overrides.

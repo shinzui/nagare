@@ -28,28 +28,33 @@ import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime (..), fromGregorian)
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
+import Nagare.Cdn.Provision (GcpStackRefs (..))
 import Nagare.App.Deployments (appDeploymentsPrefix)
 import Nagare.App.Deploy
-import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedAccessBinding, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, standaloneWorkerVolumeRecoveryBindings, nativeWorkloadOwned, hostnameClaimOwned, compileApplicationDeployment, compileApplicationScope, compileApplicationService, compileStandaloneService, compileStandaloneServiceWithBrokers, compileStandaloneServiceWithDependencies, compileStandaloneServiceWithRelease, compileStandaloneWorker, compileStandaloneWorkerWithDependencies, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings, legacyApplicationReleaseImport, recordReviewedStandaloneOverrides, workerRetirementScope)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), GoogleCdnBinding (..), acceptedAccessBinding, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, standaloneWorkerVolumeRecoveryBindings, nativeWorkloadOwned, hostnameClaimOwned, compileApplicationDeployment, compileApplicationScope, compileApplicationService, compileStandaloneService, compileStandaloneServiceWithBrokers, compileStandaloneServiceWithDependencies, compileStandaloneServiceWithRelease, compileStandaloneWorker, compileStandaloneWorkerWithDependencies, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings, legacyApplicationReleaseImport, recordReviewedStandaloneOverrides, workerRetirementScope)
 import Nagare.Inventory.Adapter
+import Nagare.Inventory.Adapters.Cdn (DnsAdapterOps (..), DnsObservation (..), dnsSpecsFromDeclarations, mkDnsAdapter)
 import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps (..), KubernetesMutation (..), KubernetesState (..), mkKubernetesAdapter)
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), mkKubernetesRuntimeOps)
 import Nagare.Inventory.Command (convergeInventoryCandidateWith, loadTargetSnapshot, openTargetStore)
 import Nagare.Inventory.DataService (compileStandaloneBroker, compileStandaloneDatabase)
 import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.Environment (compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeSecretChannel)
 import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
+import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
 import Nagare.Dsl.Broker (BrokerBinding (..), mkTopicName)
+import Nagare.Dsl.Cdn.Types (gcpCloudCdn)
 import Nagare.Dsl.Access (authPortal, requireLogin)
 import Nagare.Resource.Application (applicationScopeId, taskResourceId, volumeResourceId)
 import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
-import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (..), ManagedResource (..), DesiredSpec (KnativeService, NativeObject), Executor (KubernetesExecutor, PulumiExecutor), OperationKind (PreDeployHook), Contribution (RegisterBackend, RegisterNamespace), ContributionGrant (BackendMapGrant, NamespaceGrant, ShomeiSettingsGrant), ScopeChange (ReplaceScope), backendMapResourceId, candidateGenerations, candidateInventory, composeInventory, contributionResourceId, declarationId, inventoryDeclarations, inventoryScopes, mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeConfigDigest, scopeId, scopeOverrides, shomeiSettingsResourceId, snapshotScopes)
+import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (..), ManagedResource (..), DesiredSpec (KnativeService, NativeObject, DnsARecord), Executor (KubernetesExecutor, PulumiExecutor, CdnExecutor), OperationKind (PreDeployHook), Contribution (RegisterBackend, RegisterNamespace), ContributionGrant (BackendMapGrant, NamespaceGrant, ShomeiSettingsGrant), ScopeChange (ReplaceScope), backendMapResourceId, candidateGenerations, candidateInventory, composeInventory, contributionResourceId, declarationId, inventoryDeclarations, inventoryScopes, mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeConfigDigest, scopeId, scopeOverrides, shomeiSettingsResourceId, snapshotScopes)
 import Nagare.Resource.Wire (canonicalValue, decodeScope, encodeCanonicalScope)
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
-import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (DeleteWhenUnreferenced), RecoveryIntent (..), Sensitivity (Private), mkSecretRef)
+import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (DeleteWhenUnreferenced), RecoveryClass (VerifyBeforeRetry), RecoveryIntent (..), Sensitivity (Private), mkSecretRef)
 import Nagare.Resource.Policy qualified as ResourcePolicy
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types qualified as Resource
@@ -314,6 +319,7 @@ nativeApplicationReview = do
             , scopeBrokerServices = Map.empty
             , scopeBrokerTopics = Map.empty
             , scopeAccessBinding = Nothing
+            , scopeCdnBinding = Nothing
             , scopeDatabaseRecovery = Map.empty
             , scopeServiceVolumeRecovery = Map.empty
             , scopeTlsSecrets = Map.empty
@@ -748,6 +754,7 @@ renderTests =
             , scopeBrokerServices = Map.empty
             , scopeBrokerTopics = Map.empty
             , scopeAccessBinding = Nothing
+            , scopeCdnBinding = Nothing
             , scopeDatabaseRecovery = Map.fromList
                 [(database ^. #name, recovery) | database <- app ^. #databases]
             , scopeServiceVolumeRecovery = Map.empty
@@ -773,6 +780,42 @@ renderTests =
       scopeOverrides scope @?= scopeInputOverrides input
       fmap scopeOverrides (decodeScope (encodeCanonicalScope scope))
         @?= Right (scopeInputOverrides input)
+      let cdnOwner = checked (Resource.mkScopeId Resource.Platform "cdn")
+          cdnBackendId = Resource.mintResourceId cdnOwner
+            (checked (Resource.mkLogicalKey "backend")) (checked (Resource.mkName "backend"))
+          cdnBackend = ManagedResource cdnBackendId cdnOwner PulumiExecutor
+            (Resource.PulumiUrn "urn:pulumi:stack::project::gcp:compute/backendService:BackendService::backend")
+            [] (NativeObject (contentDigest "backend")) ResourcePolicy.Retain Stateless Private [] []
+            (Resource.SourceLocation "test" "cdn/backend")
+          cdnRefs = GcpStackRefs "203.0.113.4" "backend" "urlmap" "zone" "tan-nb-exp"
+          cdnApp = app & #service .~ Just (serviceForRelease
+            & #domains .~ checked (mkDomains [("foo.apps.example.com", True)])
+            & #cdn .~ Just gcpCloudCdn)
+          cdnInput = input
+            { scopeApplication = cdnApp
+            , scopeCdnBinding = Just (GoogleCdnBinding cdnRefs (Managed cdnBackend))
+            , scopeRelease = (emptyReleaseLog, release
+                {url = serviceUrl (case cdnApp ^. #service of Just selected -> selected; Nothing -> error "missing service")
+                  (testEnv ^. #baseDomain)})
+            , scopeInputOverrides = Map.insert "cdnTarget" "203.0.113.4"
+                (Map.insert "cdnBackendResource" (Resource.resourceIdText cdnBackendId)
+                  (scopeInputOverrides input))
+            }
+      (cdnScope, cdnNative) <- either (fail . ("cdn: " <>) . show) pure
+        (compileApplicationScope cdnInput)
+      let dnsMembers = [resource | bundle <- scopeBundles cdnScope,
+            Managed resource <- declarations bundle, resource ^. #executor == CdnExecutor]
+      case dnsMembers of
+        [dns] -> do
+          dns ^. #spec @?= DnsARecord "203.0.113.4" 300
+          dns ^. #address @?= Resource.DnsRecord (checked (Resource.mkName "tan-nb-exp"))
+            (checked (Resource.mkName "zone")) (checked (Resource.mkName "foo.apps.example.com"))
+          assertBool "DNS operation must not impersonate a Kubernetes native member"
+            (Map.notMember (dns ^. #identity) cdnNative)
+        _ -> assertFailure "reviewed application did not bind one Google DNS record"
+      Map.size cdnNative @?= Map.size native + 1
+      assertBool "CDN cannot disappear without a typed backend"
+        (isLeft (compileApplicationScope (cdnInput {scopeCdnBinding = Nothing})))
       assertBool "reviewed app accepted a false command tag"
         (isLeft (compileApplicationScope (input {scopeInputOverrides =
           Map.insert "tag" "different" (scopeInputOverrides input)})))
@@ -1022,14 +1065,26 @@ renderTests =
       length (scopeBundles scope) @?= 7
       Map.size native @?= 10
       length [() | bundle <- scopeBundles scope, Managed _ <- declarations bundle] @?= 10
-      let customDomains = unsafe (mkDomains [("kizashi-serve.personal.apps.example.com", True)])
+      let customDomains = unsafe (mkDomains [("foo.apps.example.com", True)])
           expandedApp = app & #service %~ fmap (\service -> service
-            & #tasks .~ (appWithHooks ^. #tasks) & #domains .~ customDomains)
-          expandedInput = input {scopeApplication = expandedApp}
+            & #tasks .~ (appWithHooks ^. #tasks) & #domains .~ customDomains
+            & #cdn .~ Just gcpCloudCdn)
+          expandedService = case expandedApp ^. #service of
+            Just selected -> selected
+            Nothing -> error "expanded application has no Service"
+          expandedInput = input
+            { scopeApplication = expandedApp
+            , scopeCdnBinding = Just (GoogleCdnBinding cdnRefs (Managed cdnBackend))
+            , scopeRelease = (emptyReleaseLog, release
+                {url = serviceUrl expandedService (testEnv ^. #baseDomain)})
+            , scopeInputOverrides = Map.insert "cdnTarget" "203.0.113.4"
+                (Map.insert "cdnBackendResource" (Resource.resourceIdText cdnBackendId)
+                  (scopeInputOverrides input))
+            }
           (expandedScope, expandedNative) = checked (compileApplicationScope expandedInput)
       Map.size expandedNative @?= 12
       length [() | bundle <- scopeBundles expandedScope, Managed _ <- declarations bundle]
-        @?= 12
+        @?= 13
       let nativeKinds = Set.fromList
             [(group, Resource.nameText kind) | (member, _) <- Map.elems expandedNative
             , Resource.Kubernetes _ group kind _ _ <- [member ^. #address]]
@@ -1037,12 +1092,40 @@ renderTests =
         , ("apps", "deployment"), ("apps", "statefulset"), ("batch", "cronjob")
         , ("", "secret"), ("", "persistentvolumeclaim")] $ \kind ->
           assertBool ("expanded application omitted " <> show kind) (Set.member kind nativeKinds)
+      fullBrokerLoaded <- loadBroker "../nagare-dsl/test/fixtures/broker/redpanda/nagare/Config.hs"
+      fullBroker <- either (fail . show) pure fullBrokerLoaded
+      let fullBrokerOwner = unsafe (Resource.mkScopeId Resource.Standalone "broker-full-app")
+          fullBrokerRecovery = RecoveryIntent (unsafe (Resource.mkName "backup"))
+            (mkSecretRef (unsafe (Resource.mkName "broker-key"))
+              (unsafe (Resource.mkName "v1")) :| [])
+          fullBrokerBinding = BrokerBinding (fullBroker ^. #name)
+            [unsafe (mkTopicName "jobs")]
+      (fullBrokerScope, _) <- either (fail . show) pure (compileStandaloneBroker
+        fullBroker fullBrokerOwner cluster namespaceId fullBrokerRecovery
+        (Resource.SourceLocation "test" "full-broker"))
+      let runtimeSecretName = unsafe (mkSecretName "nagare-secret-kizashi-runtime")
+      (runtimeSecretScope, _) <- either (fail . show) pure
+        (compileRuntimeSecretChannel "kizashi" "personal" cluster namespaceId
+          (unsafe (Resource.mkName "v1")) (Map.singleton "API_TOKEN" "private-canary")
+          (Resource.SourceLocation "test" "runtime-secret"))
+      (previewEnvScope, _) <- either (fail . show) pure
+        (compilePreviewEnvChannel "kizashi" "personal" cluster namespaceId
+          (Map.singleton "PREVIEW_MODE" "true")
+          (Resource.SourceLocation "test" "preview-env"))
+      (previewSecretScope, _) <- either (fail . show) pure
+        (compilePreviewSecretChannel "kizashi" "personal" cluster namespaceId
+          (unsafe (Resource.mkName "v1")) (Map.singleton "PREVIEW_TOKEN" "preview-canary")
+          (Resource.SourceLocation "test" "preview-secret"))
+      runtimeSecret <- case [secret | bundle <- scopeBundles runtimeSecretScope,
+          secret@(Managed _) <- declarations bundle] of
+        [secret] -> pure secret
+        _ -> assertFailure "runtime Secret channel has unexpected membership" >> fail "missing Secret"
       let reviewContext = unsafe (Resource.mkContextId "ep148-complete-app")
-          reviewBinding = Resource.ContextBinding reviewContext (unsafe (Resource.mkName "project"))
+          reviewBinding = Resource.ContextBinding reviewContext (unsafe (Resource.mkName "tan-nb-exp"))
           foundationSource = Resource.SourceLocation "fixture" "foundation"
           reviewFoundationScope = checked (mkScopeDeclaration foundation [ResourceBundle
             [ External cluster (Resource.CloudInstance
-                (unsafe (Resource.mkName "project")) (unsafe (Resource.mkName "zone"))
+                (unsafe (Resource.mkName "tan-nb-exp")) (unsafe (Resource.mkName "zone"))
                 (unsafe (Resource.mkName "cluster"))) [] foundationSource
             , External namespaceId (Resource.Kubernetes cluster ""
                 (unsafe (Resource.mkName "namespace")) Nothing
@@ -1050,14 +1133,76 @@ renderTests =
             , External publication (Resource.Artifact (unsafe (Resource.mkName "image"))
                 (unsafe (Resource.mkContentDigest (T.replicate 64 "0")))) [] foundationSource
             ] [] [] [] [] []])
+          reviewCdnScope = checked (mkScopeDeclaration cdnOwner
+            [ResourceBundle [Managed cdnBackend] [] [] [] [] []])
           acceptedForReview = checked (mkScopeSnapshot reviewBinding
-            (Map.singleton foundation (unsafe (Resource.mkScopeGeneration 1), reviewFoundationScope))
+            (Map.fromList
+              [(foundation, (unsafe (Resource.mkScopeGeneration 1), reviewFoundationScope))
+              ,(cdnOwner, (unsafe (Resource.mkScopeGeneration 1), reviewCdnScope))
+              ,(fullBrokerOwner, (unsafe (Resource.mkScopeGeneration 1), fullBrokerScope))
+              ,(scopeId runtimeSecretScope,
+                  (unsafe (Resource.mkScopeGeneration 1), runtimeSecretScope))
+              ,(scopeId previewEnvScope,
+                  (unsafe (Resource.mkScopeGeneration 1), previewEnvScope))
+              ,(scopeId previewSecretScope,
+                  (unsafe (Resource.mkScopeGeneration 1), previewSecretScope))])
             Map.empty)
           candidateForReview = checked (composeInventory acceptedForReview
             (ReplaceScope expandedScope :| []))
+      (fullBrokerServices, fullBrokerTopics, fullBrokerEnv) <- either (fail . T.unpack) pure
+        (acceptedBrokerBindings acceptedForReview cluster "personal" [fullBrokerBinding])
+      let fullApp = expandedApp
+            & #brokers .~ [fullBrokerBinding]
+            & #service %~ fmap (\service -> service & #env %~ Map.insert
+                (unsafe (mkEnvName "API_TOKEN"))
+                (runtimeScoped (EnvSecretRef runtimeSecretName)))
+          fullInput = expandedInput
+            { scopeApplication = fullApp
+            , scopeRollout = scopeRollout expandedInput
+                & #appEnv .~ mergeGenerated fullBrokerEnv (fullApp ^. #env)
+            , scopeBrokerServices = fullBrokerServices
+            , scopeBrokerTopics = fullBrokerTopics
+            , scopeEnvSecrets = Map.singleton runtimeSecretName runtimeSecret
+            }
+      (fullScope, _) <- either (fail . show) pure (compileApplicationScope fullInput)
+      _ <- either (fail . show) pure (composeInventory acceptedForReview
+        (ReplaceScope fullScope :| []))
+      assertBool "full application scope leaked accepted private Secret bytes"
+        (not (BS.isInfixOf "private-canary" (encodeCanonicalScope fullScope)))
+      let fullMembers = [member | bundle <- scopeBundles fullScope,
+            Managed member <- declarations bundle]
+          fullService = [member | member <- fullMembers,
+            case member ^. #address of
+              Resource.Kubernetes _ "serving.knative.dev" kind _ _ ->
+                kind == unsafe (Resource.mkName "service")
+              _ -> False]
+          topicIds = map declarationId (concatMap Map.elems (Map.elems fullBrokerTopics))
+      assertBool "full application omitted accepted broker topic dependency"
+        (any (\member -> all (\topic -> OrderedAfter topic `elem` member ^. #dependencies)
+          topicIds) fullService)
+      assertBool "full application omitted accepted runtime Secret dependency"
+        (any (\member -> OrderedAfter (declarationId runtimeSecret)
+          `elem` member ^. #dependencies) fullService)
       observedStates <- newIORef Map.empty
+      dnsState <- newIORef DnsMissing
       executedIds <- newIORef []
-      let operations = KubernetesAdapterOps
+      let dnsSpecs = checked (dnsSpecsFromDeclarations
+            (inventoryDeclarations (candidateInventory candidateForReview)))
+          dnsMember = case [member | bundle <- scopeBundles expandedScope,
+              Managed member <- declarations bundle, member ^. #executor == CdnExecutor] of
+            [member] -> member
+            _ -> error "expanded application has no single DNS member"
+          dnsOps = DnsAdapterOps
+            { dnsInspect = \_ -> readIORef dnsState
+            , dnsCreate = \_ -> do
+                writeIORef dnsState (DnsPresent
+                  (unsafe (Resource.mkPhysicalIdentity "recorded:dns")) "203.0.113.4" 300)
+                modifyIORef' executedIds (dnsMember ^. #identity :)
+                pure AdapterEffectCompleted
+            , dnsReplace = \_ -> pure (AdapterEffectFailed
+                (KnownNoEffect "unexpected DNS replacement"))
+            }
+          operations = KubernetesAdapterOps
             { kubernetesContext = reviewContext
             , kubernetesObserve = \resource -> do
                 states <- readIORef observedStates
@@ -1073,7 +1218,8 @@ renderTests =
                 modifyIORef' executedIds (resource :)
                 pure AdapterEffectCompleted
             }
-          registryFor specs = checked (mkAdapterRegistry [mkKubernetesAdapter specs operations])
+          registryFor specs = checked (mkAdapterRegistry
+            [mkKubernetesAdapter specs operations, mkDnsAdapter Map.empty dnsSpecs dnsOps])
       reviewStore <- newMemoryStore
       _ <- initializeStore reviewStore reviewBinding "ep148-full-fixture"
         >>= either (fail . show) pure
@@ -1086,6 +1232,12 @@ renderTests =
         >>= either (fail . show) pure
       let proposal = checked (planChanges candidateForReview noLifecycleDecisions
             reviewHistory observations)
+      case [operation | operation <- proposalOperations proposal,
+          plannedExecutor operation == CdnExecutor] of
+        [operation] -> do
+          plannedAction operation @?= CreateResource
+          plannedRecovery operation @?= VerifyBeforeRetry
+        _ -> assertFailure "reviewed application omitted its guarded DNS create"
       reviewSnapshot <- readStoreSnapshot reviewStore >>= either (fail . show) pure
       savedReview <- prepareReview reviewRegistry reviewSnapshot proposal
         >>= either (fail . show) pure
@@ -1103,9 +1255,14 @@ renderTests =
       case result of
         Converged _ -> pure ()
         other -> assertFailure ("complete application review did not converge: " <> show other)
+      afterReview <- loadInventoryHistory reviewStore >>= either (fail . show) pure
+      forM_ [foundation, cdnOwner, fullBrokerOwner, scopeId runtimeSecretScope,
+          scopeId previewEnvScope, scopeId previewSecretScope] $ \owner ->
+        Map.lookup owner (historyAccepted afterReview)
+          @?= Map.lookup owner (historyAccepted reviewHistory)
       writes <- readIORef executedIds
-      length writes @?= Map.size expandedNative
-      Set.fromList writes @?= Map.keysSet expandedNative
+      length writes @?= Map.size expandedNative + 1
+      Set.fromList writes @?= Set.insert (dnsMember ^. #identity) (Map.keysSet expandedNative)
       let executionOrder = Map.fromList (zip (reverse writes) [0 :: Int ..])
       forM_ (Map.elems expandedNative) $ \(member, _) ->
         forM_ [dependency | OrderedAfter dependency <- member ^. #dependencies

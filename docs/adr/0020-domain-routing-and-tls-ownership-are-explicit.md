@@ -5,6 +5,7 @@ date: 2026-09-14
 authors: [shinzui]
 related:
   - docs/plans/131-make-apex-and-multi-domain-routing-production-ready.md
+  - docs/plans/148-route-application-and-data-lifecycles-through-independent-resource-scopes.md
   - docs/adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md
   - docs/adr/0010-the-active-context-owns-the-acme-identity.md
   - docs/adr/0014-the-active-context-owns-the-vm-shape.md
@@ -75,3 +76,22 @@ per-host edge-certificate changes for every supported first-level hostname.
 
 The stronger model intentionally does not add canonical redirects, multiple
 platform base domains, or credentials for arbitrary external DNS providers.
+
+## Amendment — 2026-09-25: reviewed Google host DNS ownership
+
+The platform continues to own the apex A record, wildcard DNS, and standing
+Google CDN backend. An application or production site with Google CDN owns each
+of its explicit host A records through a separate DNS declaration scoped to
+that workload. The declaration claims the exact project, zone, and hostname,
+and depends on its DomainMapping and an accepted platform BackendService.
+The DomainMapping and DNS record may share the hostname claim only when they
+have the same scope owner and the DNS record waits for that route. A different
+workload or third declaration still conflicts.
+
+Reviewed Cloud DNS updates delete the exact accepted old record set and add the
+new one in one provider change. A record already present without accepted
+ownership is foreign even if its value matches. Because this contract has no
+stable per-record incarnation, an uncertain mutation requires explicit
+recovery even if a subsequent listing is empty; retirement retains the DNS
+claim. Cloudflare records and shared
+cache rules require their own provider ownership protocol.

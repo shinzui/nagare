@@ -46,6 +46,7 @@ import InventoryAuthSpec (inventoryAuthTests)
 import InventoryObservabilitySpec (inventoryObservabilityTests)
 import InventoryObjectOpsSpec (inventoryObjectOpsTests)
 import InventoryCloudSpec (inventoryCloudTests)
+import InventoryCdnSpec (inventoryCdnTests)
 import InventoryHostSpec (inventoryHostTests)
 import InventoryKubernetesSpec (inventoryKubernetesTests)
 import InventoryApplicationSpec (inventoryApplicationTests)
@@ -205,6 +206,8 @@ import Nagare.Gcp.Adc
 import Nagare.GhcEnv (findGhcEnvIn)
 import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteSource, compileServerSitePreviewScope, compileServerSiteRollbackScope, compileServerSiteScope, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteScope, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteNativeOwned, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
 import Nagare.Inventory.Environment (compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel)
+import Nagare.Inventory.Site (compileServerSiteScopeWithCdn, compileStaticSiteRollbackScopeWithCdn, compileStaticSiteScopeWithCdn)
+import Nagare.Inventory.Application (GoogleCdnBinding (..))
 import Nagare.Image (DockerAuth (..), dockerAuthPlan, dockerBuildArgs, nixpacksBuildArgs, qualifyImage)
 import Nagare.Infra.Plan
   ( CurrentInfraIdentity (..)
@@ -334,6 +337,8 @@ import Nagare.Static.Release
 import Nagare.Static.Webhook
 import Nagare.Resource.Inventory (Declaration (External, Managed), ResourceBundle (..), declarationId, mkScopeSnapshot, scopeBundles, scopeId)
 import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (DeleteWhenUnreferenced))
+import Nagare.Resource.Inventory qualified as InventoryModel
+import Nagare.Resource.Policy qualified as InventoryPolicy
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Storage.Discover
@@ -455,6 +460,7 @@ main = do
             , inventoryHostTests
             , inventoryKubernetesTests
             , inventoryApplicationTests
+            , inventoryCdnTests
             , inventoryLifecycleTests
             , inventoryMigrationTests
             , inventoryStatusTests
@@ -3920,6 +3926,30 @@ staticInventoryTests =
       acceptedSiteSource snapshot "demo" "personal" cluster @?= Right source
       Resource.scopeKind (scopeId scope) @?= Resource.Standalone
       Map.size native @?= 3
+      let cdnOwner = unsafe (Resource.mkScopeId Resource.Platform "cdn")
+          cdnBackendId = Resource.mintResourceId cdnOwner
+            (unsafe (Resource.mkLogicalKey "backend")) (unsafe (Resource.mkName "backend"))
+          cdnBackend = InventoryModel.ManagedResource cdnBackendId cdnOwner
+            InventoryModel.PulumiExecutor
+            (Resource.PulumiUrn "urn:pulumi:stack::project::gcp:compute/backendService:BackendService::backend")
+            [] (InventoryModel.NativeObject (unsafe (Resource.mkContentDigest (T.replicate 64 "a"))))
+            InventoryPolicy.Retain Stateless InventoryPolicy.Private [] [] source
+          cdnSite = site & #cdn .~ Just gcpCloudCdn
+          cdnInputs = inputs & #site .~ cdnSite
+          cdnBinding = GoogleCdnBinding
+            (GcpStackRefs "203.0.113.4" "backend" "urlmap" "zone" "tan-nb-exp")
+            (Managed cdnBackend)
+      (cdnScope, cdnNative) <- either (fail . show) pure
+        (compileStaticSiteScopeWithCdn cdnBinding cdnInputs cluster namespaceId imageId
+          Map.empty emptyReleaseLog release source)
+      let dnsMembers = [member | bundle <- scopeBundles cdnScope,
+            Managed member <- declarations bundle,
+            member ^. #executor == InventoryModel.CdnExecutor]
+      length dnsMembers @?= 1
+      Map.size cdnNative @?= Map.size native
+      assertBool "site CDN without a typed owner must refuse"
+        (isLeft (compileStaticSiteScope cdnInputs cluster namespaceId imageId
+          Map.empty emptyReleaseLog release source))
       let members = [member | bundle <- scopeBundles scope,
             Managed member <- declarations bundle]
       length members @?= 3
@@ -3980,6 +4010,15 @@ staticInventoryTests =
       (_, rollbackHistoryBytes) <- maybe (fail "missing rollback history") pure
         (Map.lookup releaseId rollbackNative)
       extractReleaseLog rollbackHistoryBytes @?= Right (oldLog & #current .~ Just "v0")
+      (cdnRollbackScope, cdnRollbackNative) <- either (fail . show) pure
+        (compileStaticSiteRollbackScopeWithCdn cdnBinding
+          (cdnInputs & #imageTag .~ "v0") cluster namespaceId imageId
+          Map.empty oldLog older source)
+      Map.keysSet cdnRollbackNative @?= Map.keysSet cdnNative
+      assertBool "CDN rollback lost its DNS declaration"
+        (any (\bundle -> any (\case
+          Managed member -> member ^. #executor == InventoryModel.CdnExecutor
+          _ -> False) (declarations bundle)) (scopeBundles cdnRollbackScope))
       assertBool "rollback invented a release outside accepted history"
         (isLeft (compileStaticSiteRollbackScope (inputs & #imageTag .~ "v2")
           cluster namespaceId imageId Map.empty oldLog

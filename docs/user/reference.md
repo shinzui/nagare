@@ -387,7 +387,7 @@ operation.
 | Command | Does |
 | --- | --- |
 | `nagarectl deploy [-f FILE] [--dry-run]` | With an accepted `--image-resource` and explicit tag, deploy publishes and applies a standard reviewed Service change, `--save-plan` saves its review, and `--dry-run` prints the public scope. The legacy path builds/pushes as required; image-free dry-run renders offline manifests. |
-| `nagarectl app deploy [-f FILE] [--dry-run] [--json]` | With an accepted `--image-resource` and explicit tag, deploy publishes and applies a standard reviewed app change, `--save-plan` saves its review, and `--dry-run` prints the public scope. Aggregate hooks require `--hook-affects TASK=database:NAME` or `TASK=RESOURCE-ID` for each affected resource, or `--hook-no-data-effects TASK`. The legacy image-free live path remains separate. |
+| `nagarectl app deploy [-f FILE] [--dry-run] [--json]` | With an accepted `--image-resource` and explicit tag, deploy publishes and applies a standard reviewed app change, `--save-plan` saves its review, and `--dry-run` prints the public scope. Google CDN requires `--cdn-backend-resource RESOURCE-ID` naming the accepted platform BackendService. Aggregate hooks require `--hook-affects TASK=database:NAME` or `TASK=RESOURCE-ID` for each affected resource, or `--hook-no-data-effects TASK`. The legacy image-free live path remains separate. |
 | `nagarectl app list [-n NS] [--all]` | List Nagare-managed Knative apps; `--all` includes unmanaged Services. |
 | `nagarectl app get NAME [-n NS]` | Show image, revision, URL, readiness, and config-enriched limits/domains when available. |
 | `nagarectl app logs NAME [--follow] [--tail N]` | Show or stream current app logs. |
@@ -428,10 +428,10 @@ in-cluster default. See [Identity-aware access](access.md).
 
 | Command | Does |
 | --- | --- |
-| `nagarectl site deploy` | With `--skip-build`, an accepted `--image-resource`, and a tag, publish and apply a reviewed static or server site; `--save-plan` saves its review. Without an image resource, use the legacy build/package/deploy path. |
+| `nagarectl site deploy` | With `--skip-build`, an accepted `--image-resource`, and a tag, publish and apply a reviewed static or server site; `--save-plan` saves its review. Google CDN requires `--cdn-backend-resource RESOURCE-ID` naming the accepted platform BackendService. Without an image resource, use the legacy build/package/deploy path. |
 | `nagarectl site deploy --dry-run` | Print the generated Nginx config / Dockerfile and Knative manifests; no side effects. |
 | `nagarectl site releases` | List recorded releases (per-site ConfigMap; `*` = live). |
-| `nagarectl site rollback RELEASE_ID` | Re-point production at a prior release's image tag. |
+| `nagarectl site rollback RELEASE_ID` | Re-point production at a prior release's image tag. Reviewed Google CDN rollback also requires `--cdn-backend-resource RESOURCE-ID` with `--image-resource` and `--save-plan`. |
 | `nagarectl site preview deploy --name NAME` | With an accepted `--image-resource` and overlay stores, publish and apply a reviewed static or server preview; `--save-plan` saves its review. The legacy direct path handles static previews. |
 | `nagarectl site preview list` / `delete NAME` | List / remove previews. |
 

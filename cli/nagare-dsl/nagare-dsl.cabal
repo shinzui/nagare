@@ -63,6 +63,7 @@ library
     Nagare.Resource.Database
     Nagare.Resource.Application
     Nagare.Resource.Broker
+    Nagare.Resource.Cdn
     Nagare.Resource.Cache
     Nagare.Resource.CacheKubernetes
     Nagare.Resource.CacheClient

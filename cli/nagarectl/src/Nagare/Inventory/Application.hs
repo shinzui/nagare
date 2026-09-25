@@ -25,6 +25,7 @@ module Nagare.Inventory.Application
   , acceptedSecretBindings
   , acceptedBrokerBindings
   , AccessBinding (..)
+  , GoogleCdnBinding (..)
   , acceptedAccessBinding
   , acceptedApplicationReleaseLog
   , acceptedStandaloneReleaseLog
@@ -54,6 +55,7 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend)
+import Nagare.Cdn.Provision (CdnTarget (..), GcpStackRefs (..), planCdn, googleCdnHostname)
 import Nagare.App.Deployments (appConfigMapName, appDeploymentsPrefix)
 import Nagare.App.Deploy (RolloutEnv, renderServiceObjects, renderTaskObjects, renderWorkerObjects)
 import Nagare.Access.Resolve (RouteTarget (..), backendConfigMapNamespace, isUnderBaseDomain, mkBaseDomain, mkPublicHost, renderAccessDomainMapping, upstreamFor)
@@ -61,6 +63,7 @@ import Nagare.Broker.Connection (BrokerConn (..), brokerConnectionEnv, mergeBrok
 import Nagare.Dsl.Application (Application (..), mkApplication)
 import Nagare.Dsl.Application qualified as DslApp
 import Nagare.Dsl.Config (encodeApplication, encodeDeployment, encodeWorker)
+import Nagare.Dsl.Cdn.Types (Cdn (..), CdnProvider (GcpCloudCdn))
 import Nagare.Dsl.Access (AccessRole (..))
 import Nagare.Dsl.Broker (BrokerBinding (..), BrokerName, BrokerProvider (Redpanda), TopicName, brokerNameText, topicNameText)
 import Nagare.Database.Connection (ConnIdentity (..), connectionEnv, mergeConnectionEnvs)
@@ -83,6 +86,7 @@ import Nagare.Inventory.Adapters.KubernetesRuntime (databaseCredentialKind)
 import Nagare.Static.Release (StaticRelease (..), StaticReleaseLog (..), addRelease, emptyReleaseLog, extractReleaseLog, findRelease, renderReleaseConfigMapWith)
 import Nagare.Resource.Application (applicationScopeId, deploymentResourceId, domainMappingResourceId, taskResourceId, volumeResourceId, workerResourceId)
 import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
+import Nagare.Resource.Cdn (compileGoogleDnsRecord)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
 import Nagare.Resource.Policy (DataPolicy (..), LifecyclePolicy (..), RecoveryClass (VerifyBeforeRetry), Sensitivity (Private))
@@ -605,6 +609,11 @@ standaloneWorkerVolumeRecoveryBindings owner worker raw = do
 -- | The reviewed dependencies and recovery decisions supplied by the command
 -- service. A caller must bind the namespace and image publication to accepted
 -- identities before producing an application scope.
+data GoogleCdnBinding = GoogleCdnBinding
+  { googleCdnRefs :: !GcpStackRefs
+  , googleCdnBackend :: !Declaration
+  } deriving stock (Eq, Show)
+
 data ApplicationScopeInput = ApplicationScopeInput
   { scopeApplication :: !Application
   , scopeRollout :: !RolloutEnv
@@ -618,6 +627,7 @@ data ApplicationScopeInput = ApplicationScopeInput
   , scopeBrokerServices :: !(Map BrokerName Declaration)
   , scopeBrokerTopics :: !(Map BrokerName (Map TopicName Declaration))
   , scopeAccessBinding :: !(Maybe AccessBinding)
+  , scopeCdnBinding :: !(Maybe GoogleCdnBinding)
   , scopeDatabaseRecovery :: !(Map DatabaseName RecoveryIntent)
   , scopeServiceVolumeRecovery :: !(Map VolumeName RecoveryIntent)
   , scopeTlsSecrets :: !(Map SecretName Declaration)
@@ -871,12 +881,17 @@ compileApplicationScope input = do
   let overrides = scopeInputOverrides input
       rollout = scopeRollout input
   unless (Map.keysSet overrides `Set.isSubsetOf`
-      Set.fromList ["tag", "baseDomain", "imageResource", "requestNamespace"]
+      Set.fromList ["tag", "baseDomain", "imageResource", "requestNamespace", "cdnBackendResource", "cdnTarget"]
       && Map.lookup "tag" overrides == Just (rollout ^. #imageTag)
       && Map.lookup "imageResource" overrides == Just (resourceIdText (scopeImage input))
       && maybe True (== rollout ^. #baseDomain) (Map.lookup "baseDomain" overrides)
       && Map.lookup "requestNamespace" overrides
-        == (if isJust (scopeNamespaceContributionOwner input) then Just "true" else Nothing))
+        == (if isJust (scopeNamespaceContributionOwner input) then Just "true" else Nothing)
+      && Map.lookup "cdnBackendResource" overrides
+        == (resourceIdText . (^. #identity) <$> (scopeCdnBinding input >>= \binding ->
+          case googleCdnBackend binding of Managed resource -> Just resource; _ -> Nothing))
+      && Map.lookup "cdnTarget" overrides
+        == (globalIp . googleCdnRefs <$> scopeCdnBinding input))
     (Left (invalid "application command overrides differ from reviewed rollout inputs"))
   let brokerEnvFor bindings = do
         envs <- traverse (\binding -> do
@@ -926,10 +941,28 @@ compileApplicationScope input = do
         <> concatMap (Map.elems . (^. #env)) (app ^. #tasks)
         <> maybe [] (concatMap (Map.elems . (^. #env)) . (^. #tasks)) (app ^. #service)
   requiredEnvSecrets <- first invalid (runtimeSecretNames envValues)
-  case app ^. #service of
-    Nothing -> pure ()
-    Just service -> unless (service ^. #cdn == Nothing)
-      (Left (invalid "service CDN needs a typed owner"))
+  case (app ^. #service >>= (^. #cdn), scopeCdnBinding input) of
+    (Nothing, Nothing) -> pure ()
+    (Just cdn, Just binding) -> do
+      unless (cdn ^. #provider == GcpCloudCdn)
+        (Left (invalid "reviewed Cloudflare CDN requires its own DNS and shared-rules owner"))
+      let refs = googleCdnRefs binding
+          hosts = maybe [] (map (domainText . (^. #domain)) . (^. #domains)) (app ^. #service)
+          target = CdnTarget hosts "" (namespaceText (app ^. #namespace))
+            (serviceNameText (app ^. #name)) (scopeRollout input ^. #baseDomain)
+      _ <- first invalid (planCdn cdn target refs)
+      unless (all ((/= scopeRollout input ^. #baseDomain) . domainText . (^. #domain))
+          (maybe [] (^. #domains) (app ^. #service)))
+        (Left (invalid "platform-owned apex CDN DNS must remain a reference"))
+      case googleCdnBackend binding of
+        Managed backend -> unless (backend ^. #executor == PulumiExecutor
+            && scopeKind (backend ^. #owner) == Platform
+            && (case backend ^. #spec of NativeObject {} -> True; _ -> False)
+            && any (T.isInfixOf "gcp:compute/backendService:BackendService")
+              [urn | PulumiUrn urn <- backend ^. #address : backend ^. #aliases])
+          (Left (invalid "CDN backend is not an accepted platform Pulumi BackendService"))
+        _ -> Left (invalid "CDN backend is not an accepted managed platform resource")
+    _ -> Left (invalid "service CDN requires exactly one typed Google backend binding")
   owner <- first invalid (applicationScopeId app)
   namespaceContribution <- case scopeNamespaceContributionOwner input of
     Nothing -> Right Nothing
@@ -968,7 +1001,7 @@ compileApplicationScope input = do
     localBrokerEnv <- first invalid (brokerEnvFor (service ^. #brokers))
     _ <- first invalid (mergeBrokerConnectionEnvs [brokerEnv, localBrokerEnv])
     pure (service & #env %~ mergeGenerated (mergeGenerated localBrokerEnv generated)
-      & #brokers .~ [] & #access .~ effectiveAccess)) (app ^. #service)
+      & #brokers .~ [] & #access .~ effectiveAccess & #cdn .~ Nothing)) (app ^. #service)
   workersWithConnection <- traverse (\worker -> do
     generated <- first invalid (declaredConnectionEnv app (worker ^. #databases))
     localBrokerEnv <- first invalid (brokerEnvFor (worker ^. #brokers))
@@ -983,6 +1016,22 @@ compileApplicationScope input = do
       scopedApp (scopeRollout input)
       (scopeCluster input) (scopeNamespace input) (scopeImage input)
       (scopeServiceVolumeRecovery input) (scopeTlsSecrets input) envSecrets source
+  cdnBundles <- case (app ^. #service >>= (^. #cdn), scopeCdnBinding input) of
+    (Nothing, Nothing) -> Right []
+    (Just _, Just binding) -> do
+      let refs = googleCdnRefs binding
+          backendId = declarationId (googleCdnBackend binding)
+          domains = maybe [] (^. #domains) (app ^. #service)
+      traverse (\domain -> do
+        domainId <- first invalid (domainMappingResourceId owner domain)
+        key <- first invalid (maybe (mkLogicalKey (domainText (domain ^. #domain))) Right
+          (domain ^. #logicalKey))
+        project <- first invalid (mkName (refs ^. #project))
+        zone <- first invalid (mkName (refs ^. #dnsZone))
+        host <- first invalid (mkName (domainText (domain ^. #domain)))
+        compileGoogleDnsRecord owner key project zone host (refs ^. #globalIp)
+          domainId backendId source) domains
+    _ -> Left (invalid "CDN input is incomplete")
   (workerBundles, workerNative) <- compileApplicationWorkers scopedApp (scopeRollout input)
     (scopeCluster input) (scopeNamespace input) (scopeImage input)
     (scopeWorkerVolumeRecovery input) envSecrets source
@@ -1018,7 +1067,7 @@ compileApplicationScope input = do
         Kubernetes _ "apps" kind _ _ -> nameText kind == "deployment"
         Kubernetes _ "batch" kind _ _ -> nameText kind == "cronjob"
         _ -> False
-      workloadBundles = namespaceBundles <> databaseBundles
+      workloadBundles = namespaceBundles <> databaseBundles <> cdnBundles
         <> map addBrokerEdges (maybe [] (pure . fst) serviceResult <> workerBundles <> [taskBundle])
       workloadNativeMaps = [databaseNative] <> maybe [] (pure . snd) serviceResult
         <> [workerNative, taskNative]
@@ -1033,7 +1082,11 @@ compileApplicationScope input = do
       nativeMaps = workloadNativeMaps <> [snd releaseResult]
       native = Map.union workloadNative (snd releaseResult)
       claims = [claim | bundle <- bundles, declaration <- declarations bundle
-        , (_, claim) <- NE.toList (claimsOf declaration)]
+        , (_, claim) <- NE.toList (claimsOf declaration)
+        , not (case declaration of
+            Managed resource | DnsRecord _ _ host <- resource ^. #address ->
+              claim == canonicalClaim (Hostname host)
+            _ -> False)]
   configDigest <- first invalid (configDigestOf (encodeApplication app))
   scope <- withScopeOverrides (scopeInputOverrides input)
     . withScopeConfigDigest configDigest <$> mkScopeDeclaration owner bundles

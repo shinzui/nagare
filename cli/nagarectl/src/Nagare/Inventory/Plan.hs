@@ -515,9 +515,9 @@ validateLifecycleDecisions candidate history observations proposals =
             ApproveRetirement -> case (Map.lookup resource desired, Map.lookup resource historical, retirementIntent resource) of
               (Nothing, Just (Managed old), Just RetainResources)
                 | Just (ObservedPresent _) <- fact
-                , old ^. #executor `elem` [KubernetesExecutor, HelmExecutor, BrokerExecutor]
+                , old ^. #executor `elem` [KubernetesExecutor, HelmExecutor, BrokerExecutor, CdnExecutor]
                 , Map.notMember resource (headRetained (historyHead history)) -> []
-              _ -> issue "invalid-retirement" "retention needs a retired Kubernetes, Helm, or broker topic declaration, present owned incarnation, and RetainResources intent"
+              _ -> issue "invalid-retirement" "retention needs a retired Kubernetes, Helm, broker topic, or CDN declaration, present owned incarnation, and RetainResources intent"
             ApproveCollection -> case (Map.lookup resource desired, Map.lookup resource (historyRetained history), fact) of
               (Nothing, Just (incarnation, old), Just (ObservedPresent physical))
                 | CollectRetained resource `elem` NE.toList (candidateChanges candidate)
@@ -946,7 +946,10 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
     decisionIs kind resource = maybe False ((== kind) . lifecycleDecision) (Map.lookup resource decisions)
     resourceOperation action resource =
       let digest = contentDigest (canonicalBytes (toJSON (Managed resource)))
-          recovery = case resource ^. #dataPolicy of Stateless -> Idempotent; Durable _ -> VerifyBeforeRetry
+          recovery = case (resource ^. #executor, resource ^. #dataPolicy) of
+            (CdnExecutor, _) -> VerifyBeforeRetry
+            (_, Stateless) -> Idempotent
+            (_, Durable _) -> VerifyBeforeRetry
        in mkPlanned action (resource ^. #executor) (resource ^. #identity :| []) digest recovery
     migrationOperations (resourceId, (migration, _)) =
       zipWith addPrevious stages (Nothing : map (Just . plannedOperationId) stages)

@@ -23,6 +23,7 @@ module Nagare.Cdn.Provision
   , classifyGcpDnsRecord
   , gcloudDnsListArgs
   , gcloudDnsCreateArgs
+  , verifyGcpDnsReference
 
     -- * Provisioning (IO; total via Either)
   , provisionCdn

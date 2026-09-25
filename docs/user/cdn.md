@@ -21,9 +21,21 @@ generated:
 > placeholder, exactly as the static-hosting and database guides flag their live
 > legs.
 
-The reviewed inventory deploy path currently refuses `cdn` until DNS and edge
-ownership are represented in its saved review. The direct deploy path remains
-available. Google CDN uses the standing cache policy owned by Pulumi; a
+Reviewed application and production static/server-site deployment now support
+Google CDN host A records when the platform BackendService is already accepted
+in inventory. Pass its exact resource ID with `--cdn-backend-resource` alongside
+the accepted `--image-resource`, tag, and usual recovery inputs. The saved review
+contains the hostname, project, DNS zone, target IP, and an ordering dependency
+on its DomainMapping and platform BackendService. The DNS adapter checks the
+active project and Pulumi outputs, verifies the Pulumi-owned apex A record, and
+uses an atomic Cloud DNS change with an exact old record for updates. An existing
+unowned host record refuses before mutation, even if its value matches. A lost
+write acknowledgement remains unresolved for operator recovery, including when
+an immediate listing is empty. A successful change waits for the provider's
+pending status and the exact target record before completion. Cloudflare CDN
+still needs a reviewed owner for its DNS record and shared zone settings; its
+reviewed deploy route refuses it. The direct deploy path remains available.
+Google CDN uses the standing cache policy owned by Pulumi; a
 per-application TTL, cache-mode change, or path rule refuses during planning.
 For the base-domain apex, direct deploy reads and checks the Pulumi-owned A
 record before changing any application host record; it never writes that apex
@@ -31,8 +43,7 @@ record. Direct deploy, purge, and disable refuse a hostname already claimed by
 accepted or retained inventory history, including claims from another namespace.
 For a more specific Google CDN hostname, direct deploy creates the A record
 only after a successful exact-name listing confirms it is absent. An existing
-record with a different IP or TTL refuses; change it through a reviewed owner
-workflow when that adapter is available. A failed DNS read never starts a create.
+record with a different IP or TTL refuses. A failed DNS read never starts a create.
 
 A **Content Delivery Network (CDN)** is a globally distributed cache that sits in
 front of your origin. Instead of every request travelling to Nagare's one VM in

@@ -90,6 +90,8 @@ library
     Nagare.Inventory.Adapters.Artifact
     Nagare.Inventory.Adapters.ArtifactRuntime
     Nagare.Inventory.Adapters.Broker
+    Nagare.Inventory.Adapters.Cdn
+    Nagare.Inventory.Adapters.CdnRuntime
     Nagare.Inventory.Adapters.BrokerRuntime
     Nagare.Inventory.Adapters.Cache
     Nagare.Inventory.Adapters.CacheRuntime
@@ -264,6 +266,7 @@ test-suite nagarectl-test
     InventoryAuthSpec
     InventoryCacheSpec
     InventoryCloudSpec
+    InventoryCdnSpec
     InventoryFoundationSpec
     InventoryHostSpec
     InventoryKubernetesSpec

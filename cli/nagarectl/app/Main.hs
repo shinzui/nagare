@@ -90,6 +90,7 @@ import Nagare.Cdn.Provision
   , planCdn
   , provisionCdn
   , renderCdnPlan
+  , verifyGcpDnsReference
   )
 import Nagare.Cdn.Status
   ( CdnDnsTarget (..)
@@ -251,6 +252,8 @@ import Nagare.Inventory.Adapters.Artifact (mkArtifactAdapter)
 import Nagare.Inventory.Adapters.ArtifactRuntime
 import Nagare.Inventory.Adapters.Broker (TopicBinding, mkTopicAdapter, topicSpecsFromDeclarations)
 import Nagare.Inventory.Adapters.BrokerRuntime qualified as BrokerRuntime
+import Nagare.Inventory.Adapters.Cdn (DnsBinding (..), dnsSpecsFromDeclarations, mkDnsAdapter)
+import Nagare.Inventory.Adapters.CdnRuntime qualified as CdnRuntime
 import Nagare.Inventory.Adapters.Cache (cacheSpecsFromDeclarations, mkCacheAdapter)
 import Nagare.Inventory.Adapters.CacheRuntime qualified as CacheRuntime
 import Nagare.Inventory.Adapters.Host (mkHostAdapter)
@@ -277,8 +280,8 @@ import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.Application (ApplicationScopeInput (..), DatabaseBinding, acceptedAccessBinding, acceptedApplicationImage, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationDeployment, compileStandaloneServiceWithRelease, compileStandaloneWorkerWithDependencies, databaseRecoveryBindings, hostnameClaimOwned, legacyApplicationReleaseImport, legacyStandaloneReleaseImport, nativeWorkloadOwned, recordReviewedStandaloneOverrides, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
-import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteReleaseLog, acceptedSiteSource, compileServerSitePreviewScope, compileServerSiteRollbackScope, compileServerSiteScope, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteScope, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteNativeOwned, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), GoogleCdnBinding (..), DatabaseBinding, acceptedAccessBinding, acceptedApplicationImage, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationDeployment, compileStandaloneServiceWithRelease, compileStandaloneWorkerWithDependencies, databaseRecoveryBindings, hostnameClaimOwned, legacyApplicationReleaseImport, legacyStandaloneReleaseImport, nativeWorkloadOwned, recordReviewedStandaloneOverrides, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
+import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteReleaseLog, acceptedSiteSource, compileServerSitePreviewScope, compileServerSiteRollbackScope, compileServerSiteRollbackScopeWithCdn, compileServerSiteScope, compileServerSiteScopeWithCdn, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteRollbackScopeWithCdn, compileStaticSiteScope, compileStaticSiteScopeWithCdn, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteNativeOwned, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
 import Nagare.Inventory.TaskRun (compileTaskRunScope)
 import Nagare.Inventory.Lifecycle qualified as InventoryLifecycle
 import Nagare.Inventory.DataService (NativeDataKind (..), acceptedFoundationNamespace, brokerNativeOwned, brokerTopicChangeRequiresReview, compileStandaloneBroker, compileStandaloneDatabase, dataCommandNativeOwned, databaseNativeOwned, standaloneRetirementScope)
@@ -611,6 +614,7 @@ data AppDeployOpts = AppDeployOpts
   , source :: !(Maybe String)
   , savePlan :: !(Maybe FilePath)
   , imageResource :: !(Maybe String)
+  , cdnBackendResource :: !(Maybe String)
   , databaseRecovery :: ![String]
   , tlsSecretResources :: ![String]
   , envSecretResources :: ![String]
@@ -677,6 +681,7 @@ data SiteDeployOpts = SiteDeployOpts
   -- ^ Free-form provenance recorded with the release (e.g. a git SHA or branch).
   , savePlan :: !(Maybe FilePath)
   , imageResource :: !(Maybe String)
+  , cdnBackendResource :: !(Maybe String)
   , siteVolumeRecovery :: ![String]
   , siteEnvSecretResources :: ![String]
   , siteTlsSecretResources :: ![String]
@@ -701,6 +706,7 @@ data SiteRollbackOpts = SiteRollbackOpts
   { common :: !SiteCommonOpts
   , savePlan :: !(Maybe FilePath)
   , imageResource :: !(Maybe String)
+  , cdnBackendResource :: !(Maybe String)
   , siteVolumeRecovery :: ![String]
   , siteEnvSecretResources :: ![String]
   , siteTlsSecretResources :: ![String]
@@ -1583,6 +1589,8 @@ appDeployOptsParser defaultFile =
       (strOption (long "save-plan" <> metavar "FILE" <> help "Save a reviewed inventory plan for a prepublished-image application"))
     <*> optional
       (strOption (long "image-resource" <> metavar "RESOURCE-ID" <> help "Accepted OCI image resource for reviewed preview, saved plan, or live deploy"))
+    <*> optional
+      (strOption (long "cdn-backend-resource" <> metavar "RESOURCE-ID" <> help "Accepted platform Pulumi BackendService for reviewed Google CDN DNS"))
     <*> many
       (strOption (long "database-recovery" <> metavar "NAME=BACKUP:KEY_VERSION" <> help "Recovery binding for each reviewed application database"))
     <*> many
@@ -1703,6 +1711,7 @@ siteDeployOptsParser defaultFile =
       )
     <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save reviewed site deployment"))
     <*> optional (strOption (long "image-resource" <> metavar "RESOURCE-ID" <> help "Accepted prepublished OCI image for reviewed site deploy or preview"))
+    <*> optional (strOption (long "cdn-backend-resource" <> metavar "RESOURCE-ID" <> help "Accepted platform Pulumi BackendService for reviewed Google CDN DNS"))
     <*> many (strOption (long "volume-recovery" <> metavar "VOLUME=BACKUP:KEY:VERSION" <> help "Retained server-site PVC recovery for reviewed deploy or preview"))
     <*> many (strOption (long "env-secret-resource" <> metavar "RESOURCE-ID" <> help "Accepted runtime Secret dependency for reviewed server sites"))
     <*> many (strOption (long "tls-secret-resource" <> metavar "RESOURCE-ID" <> help "Accepted supplied-TLS Secret dependency for reviewed site domains"))
@@ -1721,6 +1730,7 @@ siteRollbackOptsParser defaultFile =
     <$> siteCommonOptsParser defaultFile
     <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save reviewed site rollback"))
     <*> optional (strOption (long "image-resource" <> metavar "RESOURCE-ID" <> help "Accepted OCI image for the selected release"))
+    <*> optional (strOption (long "cdn-backend-resource" <> metavar "RESOURCE-ID" <> help "Accepted platform Pulumi BackendService for reviewed Google CDN DNS"))
     <*> many (strOption (long "volume-recovery" <> metavar "VOLUME=BACKUP:KEY:VERSION" <> help "Retained server-site PVC recovery"))
     <*> many (strOption (long "env-secret-resource" <> metavar "RESOURCE-ID" <> help "Accepted runtime Secret dependency"))
     <*> many (strOption (long "tls-secret-resource" <> metavar "RESOURCE-ID" <> help "Accepted supplied-TLS Secret dependency"))
@@ -5113,6 +5123,7 @@ inventoryExecutionRegistry mctx bundle = do
   artifactSpecs <- either dieT pure (InventoryArtifact.artifactExecutionSpecsFromDeclarations declarations)
   cacheSpecs <- either dieT pure (cacheSpecsFromDeclarations declarations)
   topicSpecs <- either dieT pure (topicSpecsFromDeclarations declarations)
+  dnsSpecs <- either dieT pure (dnsSpecsFromDeclarations declarations)
   hostInputs <- either dieT pure (InventoryHost.hostExecutionInputsFromScopes scopes)
   reviewedKubernetesSpecs <- either dieT pure (kubernetesSpecsFromReview bundle)
   helmSpecs <- either dieT pure (helmSpecsFromReview bundle)
@@ -5140,8 +5151,8 @@ inventoryExecutionRegistry mctx bundle = do
     pure (selectedKubernetes, selectedHelm)
   let kubernetesSpecs = Map.union reviewedKubernetesSpecs retiringKubernetesSpecs
       allHelmSpecs = Map.union helmSpecs retiringHelmSpecs
-  if null registrations && Map.null artifactSpecs && isNothing hostInputs && Map.null kubernetesSpecs && Map.null cacheSpecs && Map.null topicSpecs && Map.null allHelmSpecs
-    then either dieT pure (InventoryAdapter.mkAdapterRegistry (map Inventory.executionBlockedAdapterFor [ResourceInventory.KubernetesExecutor, ResourceInventory.PulumiExecutor, ResourceInventory.HostExecutor, ResourceInventory.ArtifactExecutor, ResourceInventory.CacheExecutor, ResourceInventory.BrokerExecutor, ResourceInventory.HelmExecutor]))
+  if null registrations && Map.null artifactSpecs && isNothing hostInputs && Map.null kubernetesSpecs && Map.null cacheSpecs && Map.null topicSpecs && Map.null dnsSpecs && Map.null allHelmSpecs
+    then either dieT pure (InventoryAdapter.mkAdapterRegistry (map Inventory.executionBlockedAdapterFor [ResourceInventory.KubernetesExecutor, ResourceInventory.PulumiExecutor, ResourceInventory.HostExecutor, ResourceInventory.ArtifactExecutor, ResourceInventory.CacheExecutor, ResourceInventory.BrokerExecutor, ResourceInventory.HelmExecutor, ResourceInventory.CdnExecutor]))
     else do
       (active, workspace) <-
         if null registrations && Map.null artifactSpecs && isNothing hostInputs
@@ -5165,9 +5176,13 @@ inventoryExecutionRegistry mctx bundle = do
         history <- InventoryPlan.loadInventoryHistory historyStore >>= either (dieT . T.pack . show) pure
         pure (acceptedTopicResources history)
       broker <- inventoryBrokerAdapter active binding topicSpecs acceptedTopics
+      acceptedDns <- if Map.null dnsSpecs then pure Map.empty else do
+        historyStore <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+        reviewBaseDnsResources historyStore bundle
+      dns <- inventoryDnsAdapter active workspace binding dnsSpecs acceptedDns
       kubernetes <- inventoryKubernetesAdapter active binding cacheKey kubernetesSpecs
       helm <- inventoryHelmAdapter active workspace binding allHelmSpecs
-      let adapters = [pulumi, artifact, host, kubernetes, cache, broker, helm]
+      let adapters = [pulumi, artifact, host, kubernetes, cache, broker, helm, dns]
       either dieT pure (InventoryAdapter.mkAdapterRegistry adapters)
 
 inventoryPlanRegistry :: ActiveTarget -> PlatformWorkspace -> ResourceInventory.CompositionCandidate -> InventoryPlan.InventoryHistory -> IO InventoryAdapter.AdapterRegistry
@@ -5187,6 +5202,9 @@ inventoryPlanRegistryWithNative active workspace suppliedNative candidate histor
   artifactSpecs <- either dieT pure (InventoryArtifact.artifactExecutionSpecsFromDeclarations declarations)
   cacheSpecs <- either dieT pure (cacheSpecsFromDeclarations declarations)
   topicSpecs <- either dieT pure (topicSpecsFromDeclarations (historical <> declarations))
+  desiredDnsSpecs <- either dieT pure (dnsSpecsFromDeclarations declarations)
+  historicalDnsSpecs <- either dieT pure (dnsSpecsFromDeclarations historical)
+  let dnsSpecs = Map.union desiredDnsSpecs historicalDnsSpecs
   hostInputs <- either dieT pure (InventoryHost.hostExecutionInputsFromScopes scopes)
   let kubernetesResources = [resource | ResourceInventory.Managed resource <- declarations, resource ^. #executor == ResourceInventory.KubernetesExecutor]
       helmResources = [resource | ResourceInventory.Managed resource <- declarations, resource ^. #executor == ResourceInventory.HelmExecutor]
@@ -5256,13 +5274,15 @@ inventoryPlanRegistryWithNative active workspace suppliedNative candidate histor
     else inventoryCacheAdapter active workspace (ResourceInventory.inventoryBinding inventory) cacheSpecs
   broker <- inventoryBrokerAdapter active (ResourceInventory.inventoryBinding inventory)
     topicSpecs (acceptedTopicResources history)
+  dns <- inventoryDnsAdapter active workspace (ResourceInventory.inventoryBinding inventory)
+    dnsSpecs (acceptedDnsResources history)
   kubernetes <- if Map.null kubernetesSpecs
     then pure (Inventory.manifestAdapterFor history ResourceInventory.KubernetesExecutor)
     else inventoryKubernetesAdapter active (ResourceInventory.inventoryBinding inventory) cacheKey kubernetesSpecs
   helm <- if Map.null helmSpecs
     then pure (Inventory.manifestAdapterFor history ResourceInventory.HelmExecutor)
     else inventoryHelmAdapter active workspace (ResourceInventory.inventoryBinding inventory) helmSpecs
-  let adapters = [pulumi, artifact, host, kubernetes, cache, broker, helm]
+  let adapters = [pulumi, artifact, host, kubernetes, cache, broker, helm, dns]
   either dieT pure (InventoryAdapter.mkAdapterRegistry adapters)
 
 inventoryKubernetesAdapter :: ActiveTarget -> Resource.ContextBinding -> (Resource.ResourceId -> IO (Either Text Text)) -> Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString) -> IO InventoryAdapter.Adapter
@@ -5314,6 +5334,74 @@ acceptedTopicResources history = Map.fromList
   , ResourceInventory.Managed resource <- ResourceInventory.declarations bundle
   , resource ^. #executor == ResourceInventory.BrokerExecutor
   ]
+
+acceptedDnsResources :: InventoryPlan.InventoryHistory -> Map.Map Resource.ResourceId ResourceInventory.ManagedResource
+acceptedDnsResources history = Map.fromList
+  [ (resource ^. #identity, resource)
+  | (_, (_, scope)) <- Map.toAscList (InventoryPlan.historyAccepted history)
+  , bundle <- ResourceInventory.scopeBundles scope
+  , ResourceInventory.Managed resource <- ResourceInventory.declarations bundle
+  , resource ^. #executor == ResourceInventory.CdnExecutor
+  ]
+
+reviewBaseDnsResources :: InventoryStore.InventoryStore -> InventoryPlan.ReviewBundle
+  -> IO (Map.Map Resource.ResourceId ResourceInventory.ManagedResource)
+reviewBaseDnsResources store bundle = do
+  scopes <- forM (Map.toAscList (InventoryPlan.reviewBaseRevisions document)) $ \(owner, revision) -> do
+    loaded <- InventoryStore.readObject store (InventoryStore.scopeKey (InventoryStore.revisionDigest revision))
+      >>= either (dieT . T.pack . show) pure
+    bytes <- maybe (dieT "reviewed DNS base scope is missing from immutable history") pure loaded
+    unless (InventoryDigest.contentDigest bytes == InventoryStore.revisionDigest revision)
+      (dieT "reviewed DNS base scope digest differs from immutable history")
+    scope <- either (dieT . T.pack . show) pure (ResourceWire.decodeScope bytes)
+    unless (ResourceInventory.scopeId scope == owner)
+      (dieT "reviewed DNS base scope owner differs from immutable history")
+    pure scope
+  pure (Map.fromList
+    [ (resource ^. #identity, resource)
+    | scope <- scopes
+    , resourceBundle <- ResourceInventory.scopeBundles scope
+    , ResourceInventory.Managed resource <- ResourceInventory.declarations resourceBundle
+    , resource ^. #executor == ResourceInventory.CdnExecutor
+    ])
+  where
+    document = InventoryPlan.reviewBundleDocument bundle
+
+inventoryDnsAdapter :: ActiveTarget -> PlatformWorkspace -> Resource.ContextBinding
+  -> Map.Map Resource.ResourceId DnsBinding
+  -> Map.Map Resource.ResourceId ResourceInventory.ManagedResource
+  -> IO InventoryAdapter.Adapter
+inventoryDnsAdapter active workspace binding specs accepted
+  | Map.null specs = pure (Inventory.executionBlockedAdapterFor ResourceInventory.CdnExecutor)
+  | otherwise = do
+      context <- either dieT pure (Resource.mkContextId (contextNameText (active ^. #contextName)))
+      unless (context == binding ^. #identity)
+        (dieT "DNS inventory review belongs to a different context")
+      project <- either dieT pure (Resource.mkName (active ^. #profile . #project))
+      let config = CdnRuntime.DnsRuntimeConfig
+            { CdnRuntime.dnsRuntimeProject = project
+            , CdnRuntime.dnsRuntimeGuard = \resource -> do
+                inputs <- projectGuardInputsFor (active ^. #contextName) (active ^. #profile) workspace
+                case projectGuardVerdict inputs of
+                  Left reason -> pure (Left reason)
+                  Right () -> case Map.lookup resource specs of
+                    Nothing -> pure (Left "DNS resource is absent from the active context binding")
+                    Just dnsBinding -> do
+                      refs <- gatherGcpStackRefs (workspace ^. #pulumiDir) (active ^. #profile)
+                      let expected = case (dnsDeclaration dnsBinding ^. #address,
+                            dnsDeclaration dnsBinding ^. #spec) of
+                            (Resource.DnsRecord account zone _, ResourceInventory.DnsARecord target _)
+                              | Resource.nameText account == refs ^. #project
+                              , Resource.nameText zone == refs ^. #dnsZone
+                              , target == refs ^. #globalIp -> Right ()
+                            _ -> Left "reviewed DNS account, zone, or target differs from the platform outputs"
+                      case expected of
+                        Left reason -> pure (Left reason)
+                        Right () -> verifyGcpDnsReference refs
+                          (active ^. #profile . #baseDomain) (refs ^. #globalIp)
+            , CdnRuntime.dnsRuntimeSpecs = specs
+            }
+      pure (mkDnsAdapter accepted specs (CdnRuntime.dnsRuntimeOps config))
 
 inventoryBrokerAdapter :: ActiveTarget -> Resource.ContextBinding
   -> Map.Map Resource.ResourceId TopicBinding
@@ -6986,6 +7074,7 @@ runSiteDeploy mctx sopts = do
               (s & #image %~ const qimg) bd (sopts ^. #savePlan)
             else do
               when (not (null (sopts ^. #siteVolumeRecovery))
+                  || isJust (sopts ^. #cdnBackendResource)
                   || not (null (sopts ^. #siteEnvSecretResources))
                   || not (null (sopts ^. #siteTlsSecretResources))
                   || not (null (sopts ^. #sitePreviewEnvResources))
@@ -7006,6 +7095,7 @@ runSiteDeploy mctx sopts = do
               (s & #image %~ const qimg) bd (sopts ^. #savePlan)
             else do
               when (not (null (sopts ^. #siteVolumeRecovery))
+                  || isJust (sopts ^. #cdnBackendResource)
                   || not (null (sopts ^. #siteEnvSecretResources))
                   || not (null (sopts ^. #siteTlsSecretResources))
                   || not (null (sopts ^. #sitePreviewEnvResources))
@@ -7031,9 +7121,11 @@ runStaticSiteDeployPlan mctx tp options site bd output = do
       rendered = productionManifests inputs
   runReviewedSiteDeployPlan mctx options
     (siteNameText (site ^. #name)) (namespaceText (site ^. #namespace))
-    (imageRefText (site ^. #image)) (rendered ^. #url) tag
-    (\_ tls cluster namespaceId imageId ->
-      compileStaticSiteScope inputs cluster namespaceId imageId tls)
+    (imageRefText (site ^. #image)) (rendered ^. #url) tag (site ^. #cdn)
+    (\cdn _ tls cluster namespaceId imageId ->
+      case cdn of
+        Nothing -> compileStaticSiteScope inputs cluster namespaceId imageId tls
+        Just binding -> compileStaticSiteScopeWithCdn binding inputs cluster namespaceId imageId tls)
     (legacyStaticSiteReleaseImport site) output
 
 runServerSiteDeployPlan
@@ -7054,9 +7146,11 @@ runServerSiteDeployPlan mctx tp options original bd output = do
       rendered = serverManifests inputs
   runReviewedSiteDeployPlan mctx options
     (siteNameText (site ^. #name)) (namespaceText (site ^. #namespace))
-    (imageRefText (site ^. #image)) (rendered ^. #url) tag
-    (\bindings tls cluster namespaceId imageId ->
-      compileServerSiteScope inputs cluster namespaceId imageId recovery bindings tls)
+    (imageRefText (site ^. #image)) (rendered ^. #url) tag (site ^. #cdn)
+    (\cdn bindings tls cluster namespaceId imageId ->
+      case cdn of
+        Nothing -> compileServerSiteScope inputs cluster namespaceId imageId recovery bindings tls
+        Just binding -> compileServerSiteScopeWithCdn binding inputs cluster namespaceId imageId recovery bindings tls)
     (legacyServerSiteReleaseImport site) output
 
 reviewedSiteTag :: SiteDeployOpts -> IO Text
@@ -7067,8 +7161,9 @@ reviewedSiteTag options = do
     (pure . T.pack) (options ^. #tag)
 
 runReviewedSiteDeployPlan
-  :: Maybe String -> SiteDeployOpts -> Text -> Text -> Text -> Text -> Text
-  -> (Map.Map SecretName ResourceInventory.Declaration
+  :: Maybe String -> SiteDeployOpts -> Text -> Text -> Text -> Text -> Text -> Maybe Cdn
+  -> (Maybe GoogleCdnBinding
+      -> Map.Map SecretName ResourceInventory.Declaration
       -> Map.Map SecretName ResourceInventory.Declaration
       -> Resource.ResourceId -> Resource.ResourceId -> Resource.ResourceId
       -> StaticReleaseLog -> StaticRelease -> Resource.SourceLocation
@@ -7077,7 +7172,7 @@ runReviewedSiteDeployPlan
             Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString)))
   -> (Text -> ByteString -> Either Text (StaticReleaseLog, StaticRelease))
   -> Maybe FilePath -> IO ()
-runReviewedSiteDeployPlan mctx options siteName ns imageName url tag compile importLegacy output = do
+runReviewedSiteDeployPlan mctx options siteName ns imageName url tag cdnIntent compile importLegacy output = do
   unless (null (options ^. #sitePreviewEnvResources))
     (dieT "production site review has no preview environment resources")
   when (isJust (options ^. #sitePreviewAdoptionInput))
@@ -7093,6 +7188,8 @@ runReviewedSiteDeployPlan mctx options siteName ns imageName url tag compile imp
   active <- activeTarget mctx
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   snapshot <- Inventory.loadTargetSnapshot active
+  cdnBinding <- reviewedGoogleCdnBinding active workspace snapshot cdnIntent
+    (options ^. #cdnBackendResource)
   secretIds <- traverse (either dieT pure . Resource.mkResourceId . T.pack)
     (options ^. #siteEnvSecretResources)
   envSecrets <- either dieT pure (acceptedSecretBindings snapshot secretIds)
@@ -7139,7 +7236,7 @@ runReviewedSiteDeployPlan mctx options siteName ns imageName url tag compile imp
       pure (oldLog, oldRelease, Just proposal)
     _ -> dieT "site import options are incomplete"
   (scope, native) <- either (dieT . T.pack . show) pure
-    (compile envSecrets tlsSecrets cluster namespaceId imageId prior release source)
+    (compile cdnBinding envSecrets tlsSecrets cluster namespaceId imageId prior release source)
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
   case (adoption, output) of
@@ -7293,6 +7390,31 @@ gatherGcpStackRefs pulumiDir tp = do
     <*> so "dnsZoneName"
     <*> pure (tp ^. #project)
 
+reviewedGoogleCdnBinding
+  :: ActiveTarget -> PlatformWorkspace -> ResourceInventory.ScopeSnapshot
+  -> Maybe Cdn -> Maybe String -> IO (Maybe GoogleCdnBinding)
+reviewedGoogleCdnBinding active workspace snapshot intent rawBackend =
+  case (intent, rawBackend) of
+    (Nothing, Nothing) -> pure Nothing
+    (Just _, Just rawBackendId) -> do
+      guardInputs <- projectGuardInputsFor (active ^. #contextName) (active ^. #profile) workspace
+      either dieT pure (projectGuardVerdict guardInputs)
+      refs <- gatherGcpStackRefs (workspace ^. #pulumiDir) (active ^. #profile)
+      unless (all (not . T.isPrefixOf "<")
+          [refs ^. #globalIp, refs ^. #backendService, refs ^. #dnsZone])
+        (dieT "reviewed CDN requires the accepted platform CDN and DNS zone stack outputs")
+      backendId <- either dieT pure (Resource.mkResourceId (T.pack rawBackendId))
+      let matches = [ResourceInventory.Managed resource
+            | (_, scope) <- Map.elems (ResourceInventory.snapshotScopes snapshot)
+            , bundle <- ResourceInventory.scopeBundles scope
+            , ResourceInventory.Managed resource <- ResourceInventory.declarations bundle
+            , resource ^. #identity == backendId]
+      backend <- case matches of
+        [single] -> pure single
+        _ -> dieT "CDN BackendService resource is absent or ambiguous in accepted inventory"
+      pure (Just (GoogleCdnBinding refs backend))
+    _ -> dieT "reviewed CDN intent and --cdn-backend-resource must be supplied together"
+
 -- | The custom-domain hostnames of a site (in declaration order) — the hostnames
 -- a CDN fronts.
 siteHostnames :: [DomainSpec] -> [Text]
@@ -7342,6 +7464,7 @@ runSiteRollback mctx options rid = do
       Just output -> runReviewedSiteRollbackPlan mctx tp options sc bd rid output
       Nothing -> do
         when (isJust (options ^. #imageResource)
+            || isJust (options ^. #cdnBackendResource)
             || not (null (options ^. #siteVolumeRecovery))
             || not (null (options ^. #siteEnvSecretResources))
             || not (null (options ^. #siteTlsSecretResources)))
@@ -7379,6 +7502,11 @@ runReviewedSiteRollbackPlan mctx tp options config bd rid output = do
   active <- activeTarget mctx
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   snapshot <- Inventory.loadTargetSnapshot active
+  let cdnIntent = case config of
+        Load.SiteStatic site -> site ^. #cdn
+        Load.SiteServer site -> site ^. #cdn
+  cdnBinding <- reviewedGoogleCdnBinding active workspace snapshot cdnIntent
+    (options ^. #cdnBackendResource)
   (cluster, namespaceId) <- either dieT pure (acceptedFoundationNamespace snapshot ns)
   store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
   history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
@@ -7406,9 +7534,11 @@ runReviewedSiteRollbackPlan mctx tp options config bd rid output = do
       qualifiedImage <- either dieT pure (qualifyImage tp (original ^. #image))
       let qualified = original & #image .~ qualifiedImage
           inputs = DeployInputs qualified (release ^. #imageTag) bd "." True tp
-      either (dieT . T.pack . show) pure
-        (compileStaticSiteRollbackScope inputs cluster namespaceId imageId
-          tlsSecrets prior release source)
+      either (dieT . T.pack . show) pure $ case cdnBinding of
+        Nothing -> compileStaticSiteRollbackScope inputs cluster namespaceId imageId
+          tlsSecrets prior release source
+        Just binding -> compileStaticSiteRollbackScopeWithCdn binding inputs
+          cluster namespaceId imageId tlsSecrets prior release source
     Load.SiteServer original -> do
       qualifiedImage <- either dieT pure (qualifyImage tp (original ^. #image))
       let qualified = original & #image .~ qualifiedImage
@@ -7417,9 +7547,11 @@ runReviewedSiteRollbackPlan mctx tp options config bd rid output = do
       let site = serverSiteWithGeneratedEnvSource (release ^. #source)
             qualified bd (release ^. #imageTag)
           inputs = ServerDeployInputs site (release ^. #imageTag) bd "." True tp
-      either (dieT . T.pack . show) pure
-        (compileServerSiteRollbackScope inputs cluster namespaceId imageId
-          recovery envSecrets tlsSecrets prior release source)
+      either (dieT . T.pack . show) pure $ case cdnBinding of
+        Nothing -> compileServerSiteRollbackScope inputs cluster namespaceId imageId
+          recovery envSecrets tlsSecrets prior release source
+        Just binding -> compileServerSiteRollbackScopeWithCdn binding inputs
+          cluster namespaceId imageId recovery envSecrets tlsSecrets prior release source
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
   Inventory.planInventoryCandidateWith
@@ -7456,6 +7588,7 @@ rollbackManifests tp (Load.SiteServer s) bd tag =
 runPreviewDeploy :: Maybe String -> SiteDeployOpts -> Text -> IO ()
 runPreviewDeploy mctx sopts pname = do
   when (not (null (sopts ^. #siteTlsSecretResources))
+      || isJust (sopts ^. #cdnBackendResource)
       || isJust (sopts ^. #legacyReleaseImport)
       || isJust (sopts ^. #releaseAdoptionInput))
     (dieT "site preview deploy does not support production inventory options")
@@ -7757,6 +7890,8 @@ runAppDeployPlan mctx params appOptions output = do
   active <- activeTarget mctx
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   snapshot <- Inventory.loadTargetSnapshot active
+  cdnBinding <- reviewedGoogleCdnBinding active workspace snapshot
+    (app ^. #service >>= (^. #cdn)) (appOptions ^. #cdnBackendResource)
   let appNamespaceName = namespaceText (app ^. #namespace)
   (cluster, namespaceId, namespaceOwner) <-
     if appOptions ^. #requestNamespace
@@ -7855,6 +7990,7 @@ runAppDeployPlan mctx params appOptions output = do
         , scopeBrokerServices = brokerServices
         , scopeBrokerTopics = brokerTopics
         , scopeAccessBinding = accessBinding
+        , scopeCdnBinding = cdnBinding
         , scopeDatabaseRecovery = databaseRecovery
         , scopeServiceVolumeRecovery = serviceVolumeRecovery
         , scopeTlsSecrets = tlsSecrets
@@ -7867,6 +8003,10 @@ runAppDeployPlan mctx params appOptions output = do
             ([("tag", T.pack selected) | selected <- maybe [] pure (appOptions ^. #tag)]
               <> [("baseDomain", T.pack selected) | selected <- maybe [] pure (appOptions ^. #baseDomain)]
               <> [("imageResource", T.pack selected) | selected <- maybe [] pure (appOptions ^. #imageResource)]
+              <> [("cdnBackendResource", Resource.resourceIdText (ResourceInventory.declarationId (googleCdnBackend selected)))
+                 | selected <- maybe [] pure cdnBinding]
+              <> [("cdnTarget", globalIp (googleCdnRefs selected))
+                 | selected <- maybe [] pure cdnBinding]
               <> [("requestNamespace", "true") | appOptions ^. #requestNamespace]
               <> [("hook/" <> name, T.intercalate "," (map Resource.resourceIdText affected))
                  | (name, affected) <- Map.toList hookEffects])

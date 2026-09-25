@@ -1,6 +1,7 @@
 module Nagare.Resource.Inventory
   ( Executor (..)
   , DesiredSpec (..)
+  , validDnsIpv4
   , ManagedResource (..)
   , Declaration (..)
   , ClaimKind (..)
@@ -51,6 +52,7 @@ module Nagare.Resource.Inventory
   )
 where
 
+import Data.Char (isDigit)
 import Data.Generics.Labels ()
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List (group, sort, sortOn)
@@ -66,7 +68,7 @@ import Nagare.Resource.Policy
 import Nagare.Resource.Reference
 import Nagare.Resource.Types
 
-data Executor = KubernetesExecutor | PulumiExecutor | HostExecutor | ArtifactExecutor | CacheExecutor | BrokerExecutor | HelmExecutor
+data Executor = KubernetesExecutor | PulumiExecutor | HostExecutor | ArtifactExecutor | CacheExecutor | BrokerExecutor | HelmExecutor | CdnExecutor
   deriving stock (Eq, Ord, Show, Generic)
 
 -- | Closed, versioned alternatives. Native bytes are referenced by content identity.
@@ -83,7 +85,22 @@ data DesiredSpec
   | ShomeiSettingsSpec !Name !(Maybe Name)
   | LogicalCache !ContentDigest
   | LogicalBrokerTopic !Int !Int !(Maybe Int)
+  | DnsARecord !Text !Int
   deriving stock (Eq, Ord, Show, Generic)
+
+validDnsIpv4 :: Text -> Bool
+validDnsIpv4 address = case Data.Text.splitOn "." address of
+  [firstOctet, secondOctet, thirdOctet, fourthOctet] ->
+    all validOctet [firstOctet, secondOctet, thirdOctet, fourthOctet]
+  _ -> False
+  where
+    validOctet value = not (Data.Text.null value)
+      && Data.Text.length value <= 3
+      && (Data.Text.length value == 1 || Data.Text.head value /= '0')
+      && Data.Text.all isDigit value
+      && case (reads (Data.Text.unpack value) :: [(Int, String)]) of
+        [(number, "")] -> number <= 255
+        _ -> False
 
 data ManagedResource = ManagedResource
   { identity :: !ResourceId
@@ -259,6 +276,7 @@ validateDeclaration d@(Managed r) = [err m | m <- issues]
       AtticCache {} -> r ^. #executor == CacheExecutor
       BrokerTopic {} -> r ^. #executor == BrokerExecutor
       Helm {} -> r ^. #executor == HelmExecutor
+      DnsRecord {} -> r ^. #executor == CdnExecutor
       _ -> True
     specMatches = case (r ^. #address, r ^. #spec) of
       (Kubernetes _ "serving.knative.dev" k (Just _) _, KnativeService _) -> nameText k == "service"
@@ -277,6 +295,8 @@ validateDeclaration d@(Managed r) = [err m | m <- issues]
       (BrokerTopic {}, _) -> False
       (Helm {}, HelmRelease {}) -> True
       (Helm {}, _) -> False
+      (DnsRecord _ _ _, DnsARecord target ttl) -> validDnsIpv4 target && ttl > 0
+      (DnsRecord {}, _) -> False
       (_, NativeObject _) -> True
       (_, HelmRelease {}) -> False
       (Artifact _ _, ArtifactPublication {}) -> True
@@ -533,7 +553,7 @@ shomeiSettingsResourceId owner = mintResourceId owner
 validateGraph :: Map ScopeId ScopeDeclaration -> [Declaration] -> Map CanonicalClaim ClaimHolder -> [InventoryError]
 validateGraph ss ds reservations =
   [issue "duplicate-id" "duplicate logical identity" [d | d <- ds, declarationId d == r] [] | r <- duplicates (map declarationId ds <> map (^. #identity) ops)]
-    <> [issue "claim-conflict" "canonical address claimed by multiple resources" holders [c] | (c, holders) <- Map.toList claims, length holders > 1]
+    <> [issue "claim-conflict" "canonical address claimed by multiple resources" holders [c] | (c, holders) <- Map.toList claims, length holders > 1, not (pairedDnsRouteClaim c holders)]
     <> [issue "reserved-claim" "address held by retained, candidate, or unresolved history" [d] [c] & #scopes %~ (s :) & #resources %~ (r :) | (c, ClaimHolder s r _ _) <- Map.toList reservations, d <- Map.findWithDefault [] c claims, declarationId d /= r]
     <> concatMap validateDeclaration ds
     <> [issue "dangling-reference" "dependency producer is absent" [d] [] & #resources %~ (p :)
@@ -568,6 +588,17 @@ validateGraph ss ds reservations =
     dependencyRefProducer (SomeRef ref) = refProducer ref
     isCondition ref = let (_, _, c, _, _) = refSignature ref in c `elem` [ReadinessCondition, TlsReady]
     claims = Map.fromListWith (<>) [(c, [d]) | d <- ds, participates d, (_, c) <- NE.toList (claimsOf d)]
+    pairedDnsRouteClaim claim holders = case (claimParts claim, holders) of
+      (["hostname", host], [Managed firstResource, Managed secondResource]) ->
+        dnsAndRoute host firstResource secondResource || dnsAndRoute host secondResource firstResource
+      _ -> False
+    dnsAndRoute host dns route = case (dns ^. #address, route ^. #address) of
+      (DnsRecord _ _ dnsHost, Kubernetes _ "serving.knative.dev" kind _ routeHost) ->
+        nameText dnsHost == host && nameText routeHost == host
+          && nameText kind == "domainmapping"
+          && dns ^. #owner == route ^. #owner
+          && OrderedAfter (route ^. #identity) `elem` dns ^. #dependencies
+      _ -> False
     -- An External declaration reserves its address just like a managed one:
     -- another scope cannot acquire that provider object by compiling a native
     -- member. Observed children intentionally share a parent's derived claim.

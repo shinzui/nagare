@@ -20,7 +20,10 @@ accepted standalone brokers and topics, and protected routes through an accepted
 platform auth owner. It records the release in the application's history
 ConfigMap after its workloads. Pre-deploy hooks are reviewed when each declares
 its affected resources, or explicitly asserts that it has no data effects.
-CDN changes and build inputs do not yet have reviewed operations.
+Google CDN host DNS joins the review when each host has a DomainMapping and
+`--cdn-backend-resource RESOURCE-ID` names the accepted platform Pulumi
+BackendService. The platform retains its shared cache policy and apex record;
+Cloudflare and build inputs still refuse in this reviewed route.
 Its config still goes through
 the typed `Application` loader. Use the exact resource ID of the accepted OCI
 publication, and an explicit tag that resolves to that publication's destination:

@@ -172,6 +172,7 @@ data ProviderAddress
   | AtticCache ResourceId Name
   | BrokerTopic ResourceId Name
   | Helm ResourceId Name Name
+  | DnsRecord Name Name Name
   deriving stock (Eq, Ord, Show, Generic)
 
 newtype CanonicalClaim = CanonicalClaim [Text] deriving stock (Eq, Ord, Show)
@@ -211,6 +212,7 @@ canonicalClaim =
     AtticCache r n -> ["attic-cache", resourceIdText r, nameText n]
     BrokerTopic r n -> ["broker-topic", resourceIdText r, nameText n]
     Helm r namespace n -> ["helm", resourceIdText r, nameText namespace, nameText n]
+    DnsRecord account zone host -> ["dns-record", nameText account, nameText zone, nameText host]
 
 claimParts :: CanonicalClaim -> [Text]
 claimParts (CanonicalClaim xs) = xs

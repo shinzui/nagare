@@ -240,7 +240,12 @@ context registry; `nagarectl app image plan` can review publication from a
 Docker archive. The Namespace must already be accepted. Static and server site
 reviews use the same renderers as direct deployment, check the image and release
 tag, and keep earlier history from accepted private evidence. They currently
-support automatic or supplied TLS without CDN. For each supplied TLS domain,
+support automatic or supplied TLS. Google CDN production hosts join the review
+when `--cdn-backend-resource RESOURCE-ID` names the accepted platform Pulumi
+BackendService; the host must be one label below the context base domain and
+cannot be the Pulumi-owned apex. A preexisting unowned A record requires a
+separate ownership resolution. Cloudflare CDN remains on the guarded direct
+path. For each supplied TLS domain,
 add `--tls-secret-resource RESOURCE-ID` for its accepted Secret in the same
 cluster and namespace. For each runtime Secret reference in a
 server site's environment, add `--env-secret-resource RESOURCE-ID` for the
@@ -302,6 +307,10 @@ nagarectl site rollback RELEASE_ID --image-resource RESOURCE-ID \
   --save-plan site-rollback-review
 nagarectl inventory apply site-rollback-review --yes
 ```
+
+For a reviewed Google CDN site, also pass its accepted platform BackendService
+with `--cdn-backend-resource RESOURCE-ID`. The rollback preserves the site's
+claimed DNS record and selects only the accepted release image.
 
 Supply `--tls-secret-resource`, `--env-secret-resource`, and
 `--volume-recovery` as needed for the same site resources described above. The
