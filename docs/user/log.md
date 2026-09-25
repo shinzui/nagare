@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-25
+* **Fix**: Explain that direct portal sync refuses accepted or retained shared auth settings and uses reviewed application contributions for managed portals.
 * **Update**: Document single-invocation reviewed application image publication and exact remote tag refusal.
 * **Update**: Explain reviewed application and standalone Service stop/restart, the persisted cluster-local override, and explicit reviewed recovery.
 * **Update**: Document reviewed Google CDN host DNS for applications and production sites, the accepted platform BackendService input, atomic exact-old updates, and uncertain recovery.

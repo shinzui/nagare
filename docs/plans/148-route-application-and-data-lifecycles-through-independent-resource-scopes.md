@@ -155,6 +155,8 @@ Accepted application and standalone Knative Services now route `app stop` and `a
 
 Application OCI archive publication now uses the same one-invocation review service as deployment when `app image-plan` has no `--save-plan`; supplying it still writes a separate review. The artifact adapter refuses a remote tag whose digest differs from the reviewed archive, and execution reloads the immutable publication review. The executable builds; a live registry publication and integration of build inputs with this path remain M2 work.
 
+Legacy `access portal sync` now refuses a direct Shomei write when either shared auth settings resource is accepted or retained. The same ownership guard protects direct Service/app deploy and delete. A context with no registered portal remains a read-only successful no-op. The reviewed application contribution path remains the managed way to change portal settings; direct access grant/revoke operations still need M3 routing.
+
 M1 completed for the reviewed Kubernetes lifecycle: application and standalone scope compilers bind the supported native members, accepted dependencies, explicit recovery and input choices, release history, scheduled tasks, and independent per-tag hook Jobs. The accepted-image dry-run, saved review, and one-invocation live route share those compiled declarations. At M1 closure, unsupported CDN and build publication inputs refused before mutation. The full CLI suite and a disposable native two-worker review/resume passed. Google DNS and the selected offline Cloudflare ownership proof have since advanced in M2; build/input integration and full native provider membership, reviewed operational/data actions in M3, and removal of direct render/apply paths in M4 remain required for final acceptance.
 
 - [x] M1: Compile and execute reviewed application and standalone Kubernetes lifecycles for supported intent, with unsupported provider effects refusing before mutation.
@@ -171,6 +173,8 @@ Critical path from completed M1 to final acceptance, in execution order:
 - [ ] M4: Cut over remaining direct app render/apply entry points to the reviewed compiler and publication path.
 
 ## Surprises & Discoveries
+
+2026-09-25: The direct `access portal sync` path read the live backend map and rewrote Shomei settings without checking inventory ownership. The existing guard considered only the backend grant and retained backend map, so a retained or separately granted Shomei settings map could still be overwritten. The guard now covers both shared settings kinds and runs immediately before the sync write.
 
 2026-09-25: The direct stop command patched only a Knative metadata label. Replaying an accepted deployment from its original native bytes would remove that label, so a reviewed stop must change the accepted Service declaration itself and record the operational visibility override. A restart must remove the label in the new native bytes and stamp the template to force a fresh revision. The reviewed action compiler carries forward sibling DomainMappings and private native members; a pure regression shows a second stop is identical and a restart changes only the Service member. Live Knative provider behavior still needs a dedicated probe.
 
@@ -461,6 +465,8 @@ DependencyExports contains typed capability witnesses and selected revision/phys
 ## Revision Notes
 
 2026-09-25: Routed accepted Service stop/restart through reviewed application or standalone scope updates, preserving stopped visibility across ordinary convergence and documenting the guarded legacy fallback. Added a one-invocation OCI archive publication route while retaining saved review. M3 still needs live provider proof and the remaining data and operational commands; M2 still needs build-input integration and full application provider membership.
+
+2026-09-25: Guarded legacy portal sync against accepted or retained shared auth settings, including the Shomei settings owner that the prior backend-only guard missed. Reviewed portal contributions remain the managed route.
 
 2026-09-25: Bound typed application and production static/server-site Cloudflare deploy and rollback to exactly one accepted platform zone grant selected by `CF_ZONE_ID` and the platform `publicIp` output. The compilers emit per-host proxied DNS and cache contributions; no live Cloudflare zone was used. M2 remains open for publication/input integration and provider proof.
 

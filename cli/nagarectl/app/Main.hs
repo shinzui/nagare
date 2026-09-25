@@ -8805,29 +8805,43 @@ historyHostnameDeclarations history =
   ] <> [ResourceInventory.Managed resource
        | (_, resource) <- Map.elems (InventoryPlan.historyRetained history)]
 
--- The accepted auth owner composes the entire backend map from contributor
--- scopes. The legacy resolver can rewrite that ConfigMap even when the Service
--- it deploys is otherwise unowned, so it cannot run beside this owner.
-authBackendOwned :: InventoryPlan.InventoryHistory -> Bool
-authBackendOwned history = accepted || retained
+-- The accepted auth owner composes backend and portal settings from contributor
+-- scopes. Legacy resolver and portal-sync paths can rewrite those shared maps
+-- even when their selected Service is otherwise unowned.
+authSharedSettingsOwned :: InventoryPlan.InventoryHistory -> Bool
+authSharedSettingsOwned history = acceptedGrant || acceptedResource || retained
   where
-    accepted = or
+    acceptedGrant = or
       [ True
       | (_, scope) <- Map.elems (InventoryPlan.historyAccepted history)
       , bundle <- ResourceInventory.scopeBundles scope
-      , ResourceInventory.BackendMapGrant _ <- ResourceInventory.grants bundle
+      , grant <- ResourceInventory.grants bundle
+      , case grant of
+          ResourceInventory.BackendMapGrant _ -> True
+          ResourceInventory.ShomeiSettingsGrant _ _ -> True
+          _ -> False
+      ]
+    acceptedResource = or
+      [ shared resource
+      | (_, scope) <- Map.elems (InventoryPlan.historyAccepted history)
+      , bundle <- ResourceInventory.scopeBundles scope
+      , ResourceInventory.Managed resource <- ResourceInventory.declarations bundle
       ]
     retained = or
       [ True
       | (_, resource) <- Map.elems (InventoryPlan.historyRetained history)
-      , ResourceInventory.BackendMapSpec _ <- [resource ^. #spec]
+      , shared resource
       ]
+    shared resource = case resource ^. #spec of
+      ResourceInventory.BackendMapSpec _ -> True
+      ResourceInventory.ShomeiSettingsSpec {} -> True
+      _ -> False
 
 refuseDirectAccessOwnerIfManaged :: Maybe String -> Text -> IO ()
 refuseDirectAccessOwnerIfManaged mctx operation =
   withAcceptedInventoryHistory mctx operation $ \history ->
-    when (authBackendOwned history)
-      (dieT "the shared auth backend map is owned by accepted or retained inventory; direct access routing is refused")
+    when (authSharedSettingsOwned history)
+      (dieT "shared auth settings are owned by accepted or retained inventory; direct access routing is refused")
 
 -- | The direct aggregate rollout does not produce a reviewed inventory receipt.
 -- Refuse it when either its stable scope or one of its native workloads is
@@ -8836,7 +8850,7 @@ refuseDirectApplicationDeployIfOwned :: Maybe String -> Application -> IO ()
 refuseDirectApplicationDeployIfOwned mctx app =
   withAcceptedInventoryHistory mctx "app deploy" $ \history -> do
     owner <- either dieT pure (ResourceApplication.applicationScopeId app)
-    when (isJust (app ^. #service) && authBackendOwned history)
+    when (isJust (app ^. #service) && authSharedSettingsOwned history)
       (dieT "the shared auth backend map is owned by accepted or retained inventory; direct app deploy is refused")
     let resources = ownedHistoryResources history
         claimedHostnames =
@@ -9096,6 +9110,7 @@ runAccess mctx = \case
     case portalRegistration backends of
       Nothing -> TIO.putStrLn "no portal registered"
       Just (portalHost, _) -> do
+        refuseDirectAccessOwnerIfManaged mctx "access portal sync"
         rawBase <- resolveBaseDomain mctx Nothing
         base <- either dieT pure (mkBaseDomain rawBase)
         (kubectlAccessOps ^. #applyShomeiPortal) (EnablePortal portalHost base)

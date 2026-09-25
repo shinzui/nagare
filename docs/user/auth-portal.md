@@ -89,13 +89,17 @@ at `nagare-access`, and configures Shomei with:
 These changes roll Shomei only when a value differs. Redeploying the same portal is
 safe. The managed cloud and local auth-plane installers preserve both the backend map
 and Shomei's portal environment. If either is replaced by an older installer or a
-manual manifest application, restore the Shomei values with:
+manual manifest application in a legacy context, restore the Shomei values with:
 
 ```bash
 nagarectl access portal sync
 ```
 
 `sync` exits successfully with `no portal registered` when the backend map has none.
+When an accepted or retained inventory owner claims the backend or Shomei
+settings, `sync` refuses a direct rewrite. Submit the portal through its reviewed
+application scope so the platform auth owner composes both settings from the
+accepted contributions.
 
 ## Finish local passkey validation later on macOS
 
