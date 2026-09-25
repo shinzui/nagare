@@ -96,6 +96,18 @@ nagarectl deploy --file nagare/Config.hs --tag v1 \
 nagarectl inventory apply service-review --yes
 ```
 
+For a standard create or update, omit `--save-plan` to publish and apply the
+same reviewed Service scope in one invocation:
+
+```bash
+nagarectl deploy --file nagare/Config.hs --tag v1 \
+  --image-resource RESOURCE-ID
+```
+
+The command prints the published review digest and public operations before
+applying them. An existing direct release history still needs the separate
+exact adoption review described below.
+
 Use the same accepted image and inputs with `--dry-run` to print the public
 canonical Service scope before saving a review:
 

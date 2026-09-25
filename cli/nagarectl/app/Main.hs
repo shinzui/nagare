@@ -1496,7 +1496,7 @@ deployOptsParser defaultFile =
           )
       )
     <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed single-Service inventory plan"))
-    <*> optional (strOption (long "image-resource" <> metavar "RESOURCE-ID" <> help "Accepted OCI image for reviewed --save-plan or --dry-run"))
+    <*> optional (strOption (long "image-resource" <> metavar "RESOURCE-ID" <> help "Accepted OCI image for reviewed preview, saved plan, or live deploy"))
     <*> many (strOption (long "service-volume-recovery" <> metavar "VOLUME=BACKUP:KEY:VERSION" <> help "Retained Service PVC recovery for reviewed deploy"))
     <*> many (strOption (long "tls-secret-resource" <> metavar "RESOURCE-ID" <> help "Accepted supplied-TLS Secret for reviewed deploy"))
     <*> many (strOption (long "env-secret-resource" <> metavar "RESOURCE-ID" <> help "Accepted runtime Secret for reviewed deploy"))
@@ -1589,7 +1589,7 @@ workerDeployOptsParser defaultFile =
     <*> ghcEnvOpt
     <*> dryRunOpt
     <*> optional (strOption (long "save-plan" <> metavar "FILE" <> help "Save reviewed standalone worker inventory plan"))
-    <*> optional (strOption (long "image-resource" <> metavar "RESOURCE-ID" <> help "Accepted OCI image publication for reviewed --save-plan or --dry-run"))
+    <*> optional (strOption (long "image-resource" <> metavar "RESOURCE-ID" <> help "Accepted OCI image publication for reviewed preview, saved plan, or live deploy"))
     <*> many (strOption (long "volume-recovery" <> metavar "VOLUME=BACKUP:KEY:VERSION" <> help "Recovery for a retained worker PVC; repeat for reviewed deploy"))
     <*> many (strOption (long "env-secret-resource" <> metavar "RESOURCE-ID" <> help "Accepted runtime Secret; repeat for reviewed deploy"))
 
@@ -6577,7 +6577,7 @@ printNamespaceAction namespace = do
 runDeploy :: Maybe String -> DeployOpts -> IO ()
 runDeploy mctx dopts = case dopts ^. #savePlan of
   Just output -> runDeployPlan mctx dopts output
-  Nothing | dopts ^. #dryRun && isJust (dopts ^. #imageResource) ->
+  Nothing | isJust (dopts ^. #imageResource) ->
     runDeployPlan mctx dopts ""
   Nothing -> do
     unless (isNothing (dopts ^. #imageResource)
@@ -6586,7 +6586,7 @@ runDeploy mctx dopts = case dopts ^. #savePlan of
         && null (dopts ^. #envSecretResources)
         && isNothing (dopts ^. #legacyReleaseImport)
         && isNothing (dopts ^. #releaseAdoptionInput))
-      (dieT "inventory resource and recovery options require --save-plan")
+      (dieT "inventory resource and recovery options require --image-resource or --save-plan")
     runDirectDeploy mctx dopts
 
 -- | Database engine and credential authority come from the accepted private
@@ -6612,6 +6612,10 @@ runDeployPlan mctx options output = do
     _ -> dieT "legacy release import requires both --legacy-release-import and --release-adoption-input"
   when (options ^. #dryRun && isJust (options ^. #savePlan))
     (dieT "reviewed deploy cannot combine --dry-run with --save-plan")
+  when (isNothing (options ^. #savePlan)
+      && (isJust (options ^. #legacyReleaseImport)
+          || isJust (options ^. #releaseAdoptionInput)))
+    (dieT "legacy release adoption requires --save-plan and a separate reviewed apply")
   when (isJust (options ^. #contextOverride)
       || isJust (options ^. #dockerfileOverride))
     (dieT "reviewed deploy requires a prepublished image and no build overrides")
@@ -6735,12 +6739,16 @@ runDeployPlan mctx options output = do
     (appConfigMapName (serviceNameText (service ^. #name))))
   if options ^. #dryRun
     then BC.putStrLn (ResourceWire.encodeCanonicalScope scope)
-    else case adoption of
-      Nothing -> Inventory.planInventoryCandidateWith
+    else case (adoption, options ^. #savePlan) of
+      (Nothing, Nothing) -> Inventory.convergeInventoryCandidateWith
+        (inventoryPlanRegistryWithNative active workspace native)
+        (inventoryExecutionRegistry mctx) active candidate
+      (Nothing, Just _) -> Inventory.planInventoryCandidateWith
         (inventoryPlanRegistryWithNative active workspace native) active candidate output
-      Just proposal -> Inventory.planInventoryCandidateAdoptionWith
+      (Just proposal, Just _) -> Inventory.planInventoryCandidateAdoptionWith
           (inventoryPlanRegistryWithNative active workspace native)
           active candidate proposal output
+      (Just _, Nothing) -> dieT "legacy release adoption requires --save-plan"
 
 runDirectDeploy :: Maybe String -> DeployOpts -> IO ()
 runDirectDeploy mctx dopts = do
@@ -8473,12 +8481,12 @@ runWorker mctx = \case
   WorkerDeploy o -> do
     case o ^. #savePlan of
       Just output -> runWorkerPlan mctx o output
-      Nothing | o ^. #dryRun && isJust (o ^. #imageResource) ->
+      Nothing | isJust (o ^. #imageResource) ->
         runWorkerPlan mctx o ""
       Nothing -> do
         unless (isNothing (o ^. #imageResource) && null (o ^. #volumeRecovery)
             && null (o ^. #envSecretResources))
-          (dieT "inventory resource and recovery options require --save-plan")
+          (dieT "inventory resource and recovery options require --image-resource or --save-plan")
         provisionGhcEnv (o ^. #ghcEnv)
         tp <- activeProfile mctx
         runWorkerDeployWithGuard (\worker -> refuseDirectWorkerDeployIfOwned mctx
@@ -8576,8 +8584,12 @@ runWorkerPlan mctx options output = do
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
   if options ^. #dryRun
     then BC.putStrLn (ResourceWire.encodeCanonicalScope scope)
-    else Inventory.planInventoryCandidateWith
-      (inventoryPlanRegistryWithNative active workspace native) active candidate output
+    else case options ^. #savePlan of
+      Nothing -> Inventory.convergeInventoryCandidateWith
+        (inventoryPlanRegistryWithNative active workspace native)
+        (inventoryExecutionRegistry mctx) active candidate
+      Just _ -> Inventory.planInventoryCandidateWith
+        (inventoryPlanRegistryWithNative active workspace native) active candidate output
 
 runAccess :: Maybe String -> AccessCommand -> IO ()
 runAccess mctx = \case

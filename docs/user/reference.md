@@ -386,7 +386,7 @@ operation.
 
 | Command | Does |
 | --- | --- |
-| `nagarectl deploy [-f FILE] [--dry-run]` | Direct deploy builds/pushes as required. With an accepted `--image-resource`, `--dry-run` prints the public reviewed Service scope; without it, dry-run renders offline manifests. |
+| `nagarectl deploy [-f FILE] [--dry-run]` | With an accepted `--image-resource` and explicit tag, deploy publishes and applies a standard reviewed Service change, `--save-plan` saves its review, and `--dry-run` prints the public scope. The legacy path builds/pushes as required; image-free dry-run renders offline manifests. |
 | `nagarectl app deploy [-f FILE] [--dry-run] [--json]` | With an accepted `--image-resource` and explicit tag, deploy publishes and applies a standard reviewed app change, `--save-plan` saves its review, and `--dry-run` prints the public scope. The legacy live path still handles hooks outside inventory. |
 | `nagarectl app list [-n NS] [--all]` | List Nagare-managed Knative apps; `--all` includes unmanaged Services. |
 | `nagarectl app get NAME [-n NS]` | Show image, revision, URL, readiness, and config-enriched limits/domains when available. |
@@ -407,7 +407,7 @@ See [Deploying apps](deploying-apps.md) and [App lifecycle](app-lifecycle.md).
 | `nagarectl task run APP TASK [--dry-run]` | Create a one-off Job from the deployed CronJob and wait for completion. |
 | `nagarectl task logs APP TASK [--follow] [--tail N]` | Show the latest task-run Pod logs. |
 | `nagarectl task delete APP TASK --yes [--dry-run]` | Delete the task CronJob and its run-history ConfigMap. |
-| `nagarectl worker deploy [-f FILE] [--dry-run]` | Build/push as required and apply one continuous `apps/v1` Worker Deployment. |
+| `nagarectl worker deploy [-f FILE] [--dry-run]` | With an accepted `--image-resource` and explicit tag, deploy publishes and applies a standard reviewed worker change, `--save-plan` saves its review, and `--dry-run` prints the public scope. The legacy path builds/pushes as required; image-free dry-run renders offline manifests. |
 
 These are separate from the finite `Nagare.Dsl.Job` library contract, which has
 no `nagarectl job` command. See [Scheduled tasks](scheduled-tasks.md),

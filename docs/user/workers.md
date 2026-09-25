@@ -91,6 +91,17 @@ nagarectl worker deploy --tag release-1 \
 nagarectl inventory apply worker-review --yes
 ```
 
+For a standard create or update, omit `--save-plan` to publish and apply that
+reviewed worker scope in one invocation:
+
+```bash
+nagarectl worker deploy --tag release-1 \
+  --image-resource RESOURCE-ID
+```
+
+The command prints the published review digest and public operations before
+applying them. Retiring a worker still uses a separate review.
+
 To inspect that same public worker scope before saving a review, supply the
 accepted image with `--dry-run` instead of `--save-plan`:
 
