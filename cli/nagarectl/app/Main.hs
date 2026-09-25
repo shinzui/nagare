@@ -1496,10 +1496,10 @@ deployOptsParser defaultFile =
           )
       )
     <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed single-Service inventory plan"))
-    <*> optional (strOption (long "image-resource" <> metavar "RESOURCE-ID" <> help "Accepted OCI image for --save-plan"))
-    <*> many (strOption (long "service-volume-recovery" <> metavar "VOLUME=BACKUP:KEY:VERSION" <> help "Retained Service PVC recovery for --save-plan"))
-    <*> many (strOption (long "tls-secret-resource" <> metavar "RESOURCE-ID" <> help "Accepted supplied-TLS Secret for --save-plan"))
-    <*> many (strOption (long "env-secret-resource" <> metavar "RESOURCE-ID" <> help "Accepted runtime Secret for --save-plan"))
+    <*> optional (strOption (long "image-resource" <> metavar "RESOURCE-ID" <> help "Accepted OCI image for reviewed --save-plan or --dry-run"))
+    <*> many (strOption (long "service-volume-recovery" <> metavar "VOLUME=BACKUP:KEY:VERSION" <> help "Retained Service PVC recovery for reviewed deploy"))
+    <*> many (strOption (long "tls-secret-resource" <> metavar "RESOURCE-ID" <> help "Accepted supplied-TLS Secret for reviewed deploy"))
+    <*> many (strOption (long "env-secret-resource" <> metavar "RESOURCE-ID" <> help "Accepted runtime Secret for reviewed deploy"))
     <*> optional (strOption (long "legacy-release-import" <> metavar "FILE" <> help "Legacy release ConfigMap JSON to preserve during exact reviewed adoption"))
     <*> optional (strOption (long "release-adoption-input" <> metavar "FILE" <> help "Versioned exact-incarnation adoption proposal for --legacy-release-import"))
 
@@ -6575,6 +6575,8 @@ printNamespaceAction namespace = do
 runDeploy :: Maybe String -> DeployOpts -> IO ()
 runDeploy mctx dopts = case dopts ^. #savePlan of
   Just output -> runDeployPlan mctx dopts output
+  Nothing | dopts ^. #dryRun && isJust (dopts ^. #imageResource) ->
+    runDeployPlan mctx dopts ""
   Nothing -> do
     unless (isNothing (dopts ^. #imageResource)
         && null (dopts ^. #serviceVolumeRecovery)
@@ -6606,12 +6608,14 @@ runDeployPlan mctx options output = do
     (Nothing, Nothing) -> pure ()
     (Just _, Just _) -> pure ()
     _ -> dieT "legacy release import requires both --legacy-release-import and --release-adoption-input"
-  when (options ^. #dryRun || isJust (options ^. #contextOverride)
+  when (options ^. #dryRun && isJust (options ^. #savePlan))
+    (dieT "reviewed deploy cannot combine --dry-run with --save-plan")
+  when (isJust (options ^. #contextOverride)
       || isJust (options ^. #dockerfileOverride))
-    (dieT "reviewed deploy requires a prepublished image and no build overrides or --dry-run")
+    (dieT "reviewed deploy requires a prepublished image and no build overrides")
   when (isNothing (options ^. #tag))
     (dieT "reviewed deploy requires an explicit --tag")
-  imageText <- maybe (dieT "--save-plan requires --image-resource") (pure . T.pack)
+  imageText <- maybe (dieT "reviewed deploy requires --image-resource") (pure . T.pack)
     (options ^. #imageResource)
   imageId <- either dieT pure (Resource.mkResourceId imageText)
   provisionGhcEnv (options ^. #ghcEnv)
@@ -6725,15 +6729,16 @@ runDeployPlan mctx options output = do
           <> [("imageResource", imageText)])) compiledScope)
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
-  case adoption of
-    Nothing -> Inventory.planInventoryCandidateWith
-      (inventoryPlanRegistryWithNative active workspace native) active candidate output
-    Just proposal -> do
-      validateInlineReleaseAdoption scope
-        (appConfigMapName (serviceNameText (service ^. #name))) proposal
-      Inventory.planInventoryCandidateAdoptionWith
-        (inventoryPlanRegistryWithNative active workspace native)
-        active candidate proposal output
+  forM_ adoption (validateInlineReleaseAdoption scope
+    (appConfigMapName (serviceNameText (service ^. #name))))
+  if options ^. #dryRun
+    then BC.putStrLn (ResourceWire.encodeCanonicalScope scope)
+    else case adoption of
+      Nothing -> Inventory.planInventoryCandidateWith
+        (inventoryPlanRegistryWithNative active workspace native) active candidate output
+      Just proposal -> Inventory.planInventoryCandidateAdoptionWith
+          (inventoryPlanRegistryWithNative active workspace native)
+          active candidate proposal output
 
 runDirectDeploy :: Maybe String -> DeployOpts -> IO ()
 runDirectDeploy mctx dopts = do

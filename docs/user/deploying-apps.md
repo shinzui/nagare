@@ -81,6 +81,19 @@ nagarectl deploy --file nagare/Config.hs --tag v1 \
 nagarectl inventory apply service-review --yes
 ```
 
+Use the same accepted image and inputs with `--dry-run` to print the public
+canonical Service scope before saving a review:
+
+```bash
+nagarectl deploy --file nagare/Config.hs --tag v1 \
+  --image-resource RESOURCE-ID --dry-run
+```
+
+This preview reads the selected context's accepted inventory and checks scope
+claims, but does not save or apply a review. Without `--image-resource`,
+`deploy --dry-run` keeps its offline config and manifest validation behavior.
+The two review options cannot be combined in one invocation.
+
 The reviewed Service scope also records a release-history ConfigMap after its
 Service and scheduled tasks. It carries forward entries from accepted private
 history. An existing direct ConfigMap needs the exact legacy import below before
