@@ -125,6 +125,8 @@ The direct Google CDN path now marks the Pulumi-owned apex A record as a read-on
 
 The inventory planner now observes only resources selected by a scope change, effective shared-owner members changed by its contributions, required broker topics, and explicit bootstrap dependencies. An app A update no longer asks the unrelated app B or platform cloud adapter for observations; the operation builder uses the same selection so it does not repair or rerun unrelated members. Retained collection still observes its exact target. This advances the M4 isolation requirement but does not finish the command cutover or provider proof.
 
+A recording transaction now takes that app A candidate through observation, review publication, admission, and apply with only a Kubernetes adapter registered. Its single effect is app A's resource ID; app B and the unrelated Pulumi scope retain their exact accepted revisions. Fourteen focused tests passed. This is an adapter-level isolation proof; live CLI credential and provider checks remain open.
+
 M1 completed for the reviewed Kubernetes lifecycle: application and standalone scope compilers bind the supported native members, accepted dependencies, explicit recovery and input choices, release history, scheduled tasks, and independent per-tag hook Jobs. The accepted-image dry-run, saved review, and one-invocation live route share those compiled declarations. Unsupported CDN and build publication inputs refuse before mutation. The full CLI suite and a disposable native two-worker review/resume passed. CDN/DNS owner composition and publication belong to M2, reviewed operational and data actions to M3, and removal of direct render/apply paths to M4; the final plan acceptance still requires all of them.
 
 - [x] M1: Compile and execute reviewed application and standalone Kubernetes lifecycles for supported intent, with unsupported provider effects refusing before mutation.
@@ -141,6 +143,8 @@ Critical path from completed M1 to final acceptance, in execution order:
 - [ ] M4: Cut over remaining direct app render/apply entry points to the reviewed compiler and publication path.
 
 ## Surprises & Discoveries
+
+2026-09-25: The existing app A isolation fixture stopped at pure operation selection. Extending it through the immutable review and transaction executor with no Pulumi adapter proved that unrelated cloud credentials are not required by those layers. It does not exercise CLI context setup, so a live command check is still needed before M4 completion.
 
 2026-09-25: The direct Google CDN planner accepted the base-domain apex as certificate-covered and then included it in the same `gcloud` upsert list as application hostnames, despite the apex being Pulumi-owned. It now emits an explicit reference, checks the live apex target before other DNS effects, and leaves the apex unchanged. The existing native hostname alias can protect direct commands across namespaces; its accepted and retained claims are now checked before direct CDN effects.
 

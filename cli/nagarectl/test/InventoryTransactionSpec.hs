@@ -857,6 +857,36 @@ inventoryTransactionTests =
             plannedAction operation @?= UpdateResource
             NE.toList (plannedResources operation) @?= [selectedId]
           other -> assertFailure ("unrelated scopes joined application update: " <> show other)
+        effects <- newIORef ([] :: [ResourceId])
+        let registry = ok (mkAdapterRegistry [Adapter
+              { adapterExecutor = KubernetesExecutor
+              , adapterIdentity = "selected-cluster-only"
+              , adapterVersion = "1"
+              , adapterObserve = \resources -> pure (observationSet
+                  [(resource, ObservedPresent (ok (mkPhysicalIdentity "selected-uid")))
+                  | resource <- resources])
+              , adapterPrepare = \operation -> pure (Right (PreparedNative
+                  (ok (canonicalValue (toJSON operation))) "selected application update"))
+              , adapterPreflight = \_ _ -> pure (Right ())
+              , adapterExecute = \operation _ -> do
+                  modifyIORef' effects (<> NE.toList (plannedResources operation))
+                  pure AdapterEffectCompleted
+              , adapterVerify = \operation _ -> pure (Right (proof operation))
+              , adapterRecover = \operation _ -> pure (RecoveryProvedComplete (proof operation))
+              }])
+        observed <- observeWithRegistry registry (requirementsByExecutor
+          (observationRequirements candidate history)) >>= expectRight
+        proposal <- expectRight (planChanges candidate noLifecycleDecisions history observed)
+        before <- readStoreSnapshot store >>= expectRight
+        review <- prepareReview registry before proposal >>= expectRight
+        _ <- publishReview store review >>= expectRight
+        published <- readStoreSnapshot store >>= expectRight
+        verified <- expectRight (verifyReview published review)
+        _ <- applyReviewed store registry verified >>= expectRight
+        readIORef effects >>= (@?= [selectedId])
+        after <- loadInventoryHistory store >>= expectRight
+        forM_ [platformOwner, otherOwner] $ \owner ->
+          Map.lookup owner (historyAccepted after) @?= Map.lookup owner (historyAccepted history)
     , testCase "missing accepted durable resource refuses automatic recreation" $ do
         let owner = ok (mkScopeId Platform "durable")
             cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
