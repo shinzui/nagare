@@ -543,4 +543,6 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 
 2026-09-24: EP-148 binds supplied TLS domains in reviewed static and server sites to exact accepted Secrets and orders each DomainMapping after its certificate Secret. CDN, Build/Preview Secret publication, preview, and rollback work remains.
 
+2026-09-24: EP-148 expanded direct site mutation guards to include retained release-history ConfigMaps and owned DomainMappings as well as Services, closing a bypass after Service collection or a site name change. Reviewed preview and rollback remain open.
+
 2026-09-24: EP-148 applied the same distinction to legacy env and Secret reads and now refuses malformed `data` entries instead of silently dropping keys. Direct store writes and reviewed preview/deploy integration remain open.

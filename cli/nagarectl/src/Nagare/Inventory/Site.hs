@@ -8,6 +8,7 @@ module Nagare.Inventory.Site
   , legacyServerSiteReleaseImport
   , legacyStaticSiteReleaseImport
   , siteVolumeRecoveryBindings
+  , siteNativeOwned
   ) where
 
 import Data.Aeson (Value (..), eitherDecodeStrict)
@@ -316,6 +317,21 @@ siteSecretDependency cluster ns bindings secretName = do
   unless (address == expected)
     (Left "site Secret has a different cluster, namespace, or name")
   pure (declarationId declaration)
+
+-- | Direct site commands must check every native address they may write,
+-- including release history retained after the Service has been collected.
+siteNativeOwned :: T.Text -> T.Text -> [T.Text] -> Bool -> [ManagedResource] -> Bool
+siteNativeOwned name ns domains writesHistory = any matches
+  where
+    targets = Set.fromList
+      ([ ("serving.knative.dev", "service", name) ]
+        <> [("serving.knative.dev", "domainmapping", domain) | domain <- domains]
+        <> [("", "configmap", "nagare-static-releases-" <> name) | writesHistory])
+    matches resource = case resource ^. #address of
+      Kubernetes _ group kind (Just namespaceName) nativeName ->
+        nameText namespaceName == ns
+          && Set.member (group, nameText kind, nameText nativeName) targets
+      _ -> False
 
 bindOne
   :: ScopeId -> ResourceId -> ResourceId -> LifecyclePolicy -> DataPolicy -> [Dependency]

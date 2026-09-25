@@ -277,7 +277,7 @@ import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Application (ApplicationScopeInput (..), DatabaseBinding, acceptedAccessBinding, acceptedApplicationImage, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationScope, compileStandaloneServiceWithRelease, compileStandaloneWorkerWithDependencies, databaseRecoveryBindings, legacyApplicationReleaseImport, legacyStandaloneReleaseImport, nativeWorkloadOwned, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
-import Nagare.Inventory.Site (acceptedSiteReleaseLog, compileServerSiteScope, compileStaticSiteScope, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteVolumeRecoveryBindings)
+import Nagare.Inventory.Site (acceptedSiteReleaseLog, compileServerSiteScope, compileStaticSiteScope, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteNativeOwned, siteVolumeRecoveryBindings)
 import Nagare.Inventory.Lifecycle qualified as InventoryLifecycle
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, compileStandaloneDatabase, databaseNativeOwned, standaloneRetirementScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Environment (acceptedEnvChannelValues, acceptedSecretChannelValues, compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
@@ -6874,8 +6874,9 @@ runSiteDeploy mctx sopts = do
                 || isJust (sopts ^. #legacyReleaseImport)
                 || isJust (sopts ^. #releaseAdoptionInput))
               (dieT "static-site inventory options require --save-plan")
-            refuseDirectServiceMutationIfOwned mctx "site deploy"
+            refuseDirectSiteMutationIfOwned mctx "site deploy"
               (siteNameText (s ^. #name)) (namespaceText (s ^. #namespace))
+              (siteHostnames (s ^. #domains)) True
             deployStatic mctx tp sopts (s & #image %~ const qimg) bd
           Just output -> runStaticSiteDeployPlan mctx tp sopts
             (s & #image %~ const qimg) bd output
@@ -6891,8 +6892,9 @@ runSiteDeploy mctx sopts = do
                 || isJust (sopts ^. #legacyReleaseImport)
                 || isJust (sopts ^. #releaseAdoptionInput))
               (dieT "server-site inventory options require --save-plan")
-            refuseDirectServiceMutationIfOwned mctx "site deploy"
+            refuseDirectSiteMutationIfOwned mctx "site deploy"
               (siteNameText (s ^. #name)) (namespaceText (s ^. #namespace))
+              (siteHostnames (s ^. #domains)) True
             deployServer mctx tp sopts (s & #image %~ const qimg) bd
           Just output -> runServerSiteDeployPlan mctx tp sopts
             (s & #image %~ const qimg) bd output
@@ -7198,7 +7200,10 @@ runSiteRollback mctx copts rid = do
     Left err -> dieT (Load.renderLoadError err)
     Right sc -> do
       let (name, ns) = siteConfigIdentity sc
-      refuseDirectServiceMutationIfOwned mctx "site rollback" name ns
+      let hosts = case sc of
+            Load.SiteStatic site -> siteHostnames (site ^. #domains)
+            Load.SiteServer site -> siteHostnames (site ^. #domains)
+      refuseDirectSiteMutationIfOwned mctx "site rollback" name ns hosts True
       elog <- readReleaseLog name ns
       logv <- case elog of
         Left err -> dieT err
@@ -7257,8 +7262,10 @@ runPreviewDeploy mctx sopts pname = do
   imageTag <- resolveTag (sopts ^. #tag)
   let inputs = siteDeployInputs tp sopts site imageTag bd
   m <- orDie (previewManifests inputs pname)
-  refuseDirectServiceMutationIfOwned mctx "site preview deploy"
+  pdomText <- orDie (previewDomain (siteNameText (site ^. #name)) pname bd)
+  refuseDirectSiteMutationIfOwned mctx "site preview deploy"
     (m ^. #serviceName) (namespaceText (site ^. #namespace))
+    [pdomText] False
 
   if sopts ^. #dryRun
     then do
@@ -7293,7 +7300,7 @@ runPreviewDelete mctx copts pname = do
       ns = namespaceText (site ^. #namespace)
   svcName <- orDie (previewServiceName prodName pname)
   pdomText <- orDie (previewDomain prodName pname bd)
-  refuseDirectServiceMutationIfOwned mctx "site preview delete" svcName ns
+  refuseDirectSiteMutationIfOwned mctx "site preview delete" svcName ns [pdomText] False
   deletePreview ns svcName pdomText
   TIO.putStrLn ("Deleted preview: " <> svcName)
 
@@ -8086,6 +8093,14 @@ refuseDirectServiceMutationIfOwned mctx operation name namespaceName =
       || nativeWorkloadOwned "" "configmap" (appConfigMapName name) namespaceName
         (ownedHistoryResources history))
       (dieT ("Service " <> name <> " is owned by accepted or retained inventory history; direct " <> operation <> " is refused"))
+
+refuseDirectSiteMutationIfOwned :: Maybe String -> Text -> Text -> Text -> [Text] -> Bool -> IO ()
+refuseDirectSiteMutationIfOwned mctx operation name namespaceName domains writesHistory =
+  withAcceptedInventoryHistory mctx operation $ \history ->
+    when (siteNativeOwned name namespaceName domains writesHistory
+        (ownedHistoryResources history))
+      (dieT ("site " <> name <> " has an accepted or retained native address; direct "
+        <> operation <> " is refused"))
 
 refuseDirectWorkerDeployIfOwned :: Maybe String -> Text -> Text -> IO ()
 refuseDirectWorkerDeployIfOwned mctx name namespaceName =

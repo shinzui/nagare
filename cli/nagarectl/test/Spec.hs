@@ -201,7 +201,7 @@ import Nagare.Gcp.Adc
   , validateAdc
   )
 import Nagare.GhcEnv (findGhcEnvIn)
-import Nagare.Inventory.Site (compileServerSiteScope, compileStaticSiteScope, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteVolumeRecoveryBindings)
+import Nagare.Inventory.Site (compileServerSiteScope, compileStaticSiteScope, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteNativeOwned, siteVolumeRecoveryBindings)
 import Nagare.Image (DockerAuth (..), dockerAuthPlan, dockerBuildArgs, nixpacksBuildArgs, qualifyImage)
 import Nagare.Infra.Plan
   ( CurrentInfraIdentity (..)
@@ -3914,6 +3914,18 @@ staticInventoryTests =
             Managed member <- declarations bundle]
       length members @?= 3
       assertBool "domain has no hostname claim" (any (not . null . (^. #aliases)) members)
+      let releaseId = Resource.mintResourceId (scopeId scope)
+            (unsafe (Resource.mkLogicalKey "release-history"))
+            (unsafe (Resource.mkName "configmap"))
+      releaseMember <- maybe (fail "missing release member") (pure . fst)
+        (Map.lookup releaseId native)
+      assertBool "direct site write missed retained release history"
+        (siteNativeOwned "demo" "personal" [] True [releaseMember])
+      assertBool "preview falsely writes production release history"
+        (not (siteNativeOwned "demo" "personal" [] False [releaseMember]))
+      let domainMembers = filter (not . null . (^. #aliases)) members
+      assertBool "direct site write missed owned domain"
+        (siteNativeOwned "other" "personal" ["demo.example.com"] False domainMembers)
       assertBool "static release accepted a different image tag"
         (isLeft (compileStaticSiteScope inputs cluster namespaceId imageId Map.empty
           emptyReleaseLog (release {imageTag = "other"}) source))

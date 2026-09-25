@@ -158,6 +158,8 @@ Reviewed application deploy also declares the per-Service release-history Config
 
 2026-09-24: Static and server site production scopes now accept supplied TLS only with an exact accepted Secret declaration for each referenced name. The shared binder checks cluster, namespace, and Secret identity, rejects missing or extra bindings, and orders each DomainMapping after its certificate Secret. The site review command resolves `--tls-secret-resource` through accepted history; CDN, previews, and rollback remain open.
 
+2026-09-24: Direct site deploy, rollback, and preview commands previously checked only the Knative Service address. A collected Service could leave a retained release ConfigMap, and a changed site name could still target another scope's DomainMapping. Direct site guards now check every Service, domain, and release-history address they write against accepted and retained history before provider mutation. Reviewed preview and rollback operations remain open.
+
 2026-09-24: The legacy env and Secret store reader had the same failed-read-to-empty behavior. Its JSON extractor also silently dropped any `data` entry whose value was not a string, contrary to its strictness comment. Both stores now accept only a successful empty `--ignore-not-found` response as absence; failed reads, non-object `data`, and non-string values refuse before a merge or exact replacement. Disposable-context reads of absent ConfigMap and Secret names both exited successfully with empty output, and 785 CLI tests pass. The reviewed channels still need complete preview/deploy integration.
 
 ## Decision Log
