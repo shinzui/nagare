@@ -37,6 +37,7 @@ module Nagare.Cdn.Cloudflare
   , parseDnsRecordId
   , parseZoneId
   , parseExactARecordListing
+  , cfRequestWithStatus
   )
 where
 
@@ -58,6 +59,7 @@ import Nagare.Resource.Inventory (CloudflareCacheIntent (..))
 import Nagare.Resource.Types (nameText)
 import Network.HTTP.Client
 import Network.HTTP.Client.TLS (newTlsManager)
+import Network.HTTP.Types.Status (statusCode)
 import System.Environment (lookupEnv)
 
 -- ---------------------------------------------------------------------------
@@ -332,7 +334,12 @@ loadCloudflareCreds = do
 -- from the envelope. Catches a connection-level 'HttpException' into a 'Left' so
 -- the function is total. The bearer token is set on the request and never logged.
 cfRequest :: Text -> Text -> Text -> Maybe Value -> IO (Either Text ByteString)
-cfRequest token method path mbody =
+cfRequest token method path mbody = fmap (fmap snd) (cfRequestWithStatus token method path mbody)
+
+-- | Reviewed callers also need the HTTP status to distinguish an absent phase
+-- entrypoint from an unreadable response. Never put the token in an error.
+cfRequestWithStatus :: Text -> Text -> Text -> Maybe Value -> IO (Either Text (Int, ByteString))
+cfRequestWithStatus token method path mbody =
   ( do
       manager <- newTlsManager
       initReq <- parseRequest (T.unpack (method <> " " <> cfBaseUrl <> path))
@@ -345,10 +352,10 @@ cfRequest token method path mbody =
               , requestBody = maybe (RequestBodyLBS "") (RequestBodyLBS . encode) mbody
               }
       resp <- httpLbs req manager
-      pure (Right (LBS.toStrict (responseBody resp)))
+      pure (Right (statusCode (responseStatus resp), LBS.toStrict (responseBody resp)))
   )
-    `catch` \(e :: HttpException) ->
-      pure (Left ("Cloudflare request failed: " <> T.pack (show e)))
+    `catch` \(_ :: HttpException) ->
+      pure (Left "Cloudflare request failed before a verifiable response")
 
 -- | Resolve the zone id: use @zoneId@ if present, else discover it from the
 -- hostname's registrable domain via @GET /zones?name=<root>@.

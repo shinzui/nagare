@@ -81,7 +81,7 @@ import Nagare.Broker.Get (runBrokerGet)
 import Nagare.Broker.List (runBrokerList)
 import Nagare.Broker.Restart (runBrokerRestart)
 import Nagare.Build (addBuildArgs, applyBuildOverrides, describeBuild, performBuild)
-import Nagare.Cdn.Cloudflare (loadCloudflareCreds, purgeHostname)
+import Nagare.Cdn.Cloudflare (cfRequestWithStatus, loadCloudflareCreds, purgeHostname)
 import Nagare.Cdn.Provision
   ( CdnResult (..)
   , CdnTarget (..)
@@ -253,7 +253,10 @@ import Nagare.Inventory.Adapters.ArtifactRuntime
 import Nagare.Inventory.Adapters.Broker (TopicBinding, mkTopicAdapter, topicSpecsFromDeclarations)
 import Nagare.Inventory.Adapters.BrokerRuntime qualified as BrokerRuntime
 import Nagare.Inventory.Adapters.Cdn (DnsBinding (..), dnsSpecsFromDeclarations, mkDnsAdapter)
+import Nagare.Inventory.Adapters.CdnCombined (combineCdnAdapters)
 import Nagare.Inventory.Adapters.CdnRuntime qualified as CdnRuntime
+import Nagare.Inventory.Adapters.Cloudflare (CloudflareBinding (..), cloudflareBindingsFromDeclarations, mkCloudflareAdapter)
+import Nagare.Inventory.Adapters.CloudflareRuntime qualified as CloudflareRuntime
 import Nagare.Inventory.Adapters.Cache (cacheSpecsFromDeclarations, mkCacheAdapter)
 import Nagare.Inventory.Adapters.CacheRuntime qualified as CacheRuntime
 import Nagare.Inventory.Adapters.Host (mkHostAdapter)
@@ -4712,6 +4715,8 @@ runInventoryStatus mctx requested json gcOutput = do
   cacheSpecs <- either dieT pure (cacheSpecsFromDeclarations declarations)
   topicSpecs <- either dieT pure (topicSpecsFromDeclarations (declarations <>
     [ResourceInventory.Managed resource | (_, resource) <- Map.elems (InventoryPlan.historyRetained history)]))
+  dnsSpecs <- either dieT pure (dnsSpecsFromDeclarations declarations)
+  cloudflareSpecs <- either dieT pure (cloudflareBindingsFromDeclarations declarations)
   hostInputs <- either dieT pure (InventoryHost.hostExecutionInputsFromScopes scopes)
   observationStartedAt <- currentTimestamp
   pulumi <- if null registrations
@@ -4728,6 +4733,8 @@ runInventoryStatus mctx requested json gcOutput = do
       (Map.fromList [(resource, declaration)
         | (resource, (_, declaration)) <- Map.toAscList (InventoryPlan.historyRetained history)
         , declaration ^. #executor == ResourceInventory.BrokerExecutor]))
+  acceptedCdn <- either dieT pure (acceptedDnsResources history)
+  cdn <- inventoryCdnAdapter active workspace binding dnsSpecs cloudflareSpecs acceptedCdn
   kubernetes <- inventoryKubernetesAdapter active binding
     cacheKey kubernetesNative
   helm <- inventoryHelmAdapter active workspace binding helmNative
@@ -4750,6 +4757,7 @@ runInventoryStatus mctx requested json gcOutput = do
   hostFacts <- inspect host ResourceInventory.HostExecutor
   cacheFacts <- inspect cache ResourceInventory.CacheExecutor
   brokerFacts <- inspect broker ResourceInventory.BrokerExecutor
+  cdnFacts <- inspect cdn ResourceInventory.CdnExecutor
   let inspectRetained adapter executor = do
         let requestedIds = retainedIds executor
         if null requestedIds then pure [] else do
@@ -4811,7 +4819,7 @@ runInventoryStatus mctx requested json gcOutput = do
   finalHead <- InventoryStore.readHead store >>= either (dieT . T.pack . show) pure
   unless (finalHead == Just (InventoryPlan.historyHead history))
     (dieT "accepted inventory changed during status; retry against the new head")
-  let allFacts = kubeFacts <> helmFacts <> pulumiFacts <> artifactFacts <> hostFacts <> cacheFacts <> brokerFacts
+  let allFacts = kubeFacts <> helmFacts <> pulumiFacts <> artifactFacts <> hostFacts <> cacheFacts <> brokerFacts <> cdnFacts
       knownFacts = Map.fromList allFacts
       remaining =
         [(resource ^. #identity, InventoryAdapter.ObservationUnavailable
@@ -5124,6 +5132,9 @@ inventoryExecutionRegistry mctx bundle = do
   cacheSpecs <- either dieT pure (cacheSpecsFromDeclarations declarations)
   topicSpecs <- either dieT pure (topicSpecsFromDeclarations declarations)
   dnsSpecs <- either dieT pure (dnsSpecsFromDeclarations declarations)
+  cdnDeclarations <- either (dieT . T.pack . show) pure (ResourceInventory.composedDeclarations
+    (Map.fromList [(ResourceInventory.scopeId scope, scope) | scope <- scopes]))
+  cloudflareSpecs <- either dieT pure (cloudflareBindingsFromDeclarations cdnDeclarations)
   hostInputs <- either dieT pure (InventoryHost.hostExecutionInputsFromScopes scopes)
   reviewedKubernetesSpecs <- either dieT pure (kubernetesSpecsFromReview bundle)
   helmSpecs <- either dieT pure (helmSpecsFromReview bundle)
@@ -5151,7 +5162,7 @@ inventoryExecutionRegistry mctx bundle = do
     pure (selectedKubernetes, selectedHelm)
   let kubernetesSpecs = Map.union reviewedKubernetesSpecs retiringKubernetesSpecs
       allHelmSpecs = Map.union helmSpecs retiringHelmSpecs
-  if null registrations && Map.null artifactSpecs && isNothing hostInputs && Map.null kubernetesSpecs && Map.null cacheSpecs && Map.null topicSpecs && Map.null dnsSpecs && Map.null allHelmSpecs
+  if null registrations && Map.null artifactSpecs && isNothing hostInputs && Map.null kubernetesSpecs && Map.null cacheSpecs && Map.null topicSpecs && Map.null dnsSpecs && Map.null cloudflareSpecs && Map.null allHelmSpecs
     then either dieT pure (InventoryAdapter.mkAdapterRegistry (map Inventory.executionBlockedAdapterFor [ResourceInventory.KubernetesExecutor, ResourceInventory.PulumiExecutor, ResourceInventory.HostExecutor, ResourceInventory.ArtifactExecutor, ResourceInventory.CacheExecutor, ResourceInventory.BrokerExecutor, ResourceInventory.HelmExecutor, ResourceInventory.CdnExecutor]))
     else do
       (active, workspace) <-
@@ -5176,10 +5187,10 @@ inventoryExecutionRegistry mctx bundle = do
         history <- InventoryPlan.loadInventoryHistory historyStore >>= either (dieT . T.pack . show) pure
         pure (acceptedTopicResources history)
       broker <- inventoryBrokerAdapter active binding topicSpecs acceptedTopics
-      acceptedDns <- if Map.null dnsSpecs then pure Map.empty else do
+      acceptedDns <- if Map.null dnsSpecs && Map.null cloudflareSpecs then pure Map.empty else do
         historyStore <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
         reviewBaseDnsResources historyStore bundle
-      dns <- inventoryDnsAdapter active workspace binding dnsSpecs acceptedDns
+      dns <- inventoryCdnAdapter active workspace binding dnsSpecs cloudflareSpecs acceptedDns
       kubernetes <- inventoryKubernetesAdapter active binding cacheKey kubernetesSpecs
       helm <- inventoryHelmAdapter active workspace binding allHelmSpecs
       let adapters = [pulumi, artifact, host, kubernetes, cache, broker, helm, dns]
@@ -5205,6 +5216,11 @@ inventoryPlanRegistryWithNative active workspace suppliedNative candidate histor
   desiredDnsSpecs <- either dieT pure (dnsSpecsFromDeclarations declarations)
   historicalDnsSpecs <- either dieT pure (dnsSpecsFromDeclarations historical)
   let dnsSpecs = Map.union desiredDnsSpecs historicalDnsSpecs
+  desiredCloudflareSpecs <- either dieT pure (cloudflareBindingsFromDeclarations declarations)
+  historicalComposed <- either (dieT . T.pack . show) pure (ResourceInventory.composedDeclarations
+    (Map.map snd (InventoryPlan.historyAccepted history)))
+  historicalCloudflareSpecs <- either dieT pure (cloudflareBindingsFromDeclarations historicalComposed)
+  let cloudflareSpecs = Map.union desiredCloudflareSpecs historicalCloudflareSpecs
   hostInputs <- either dieT pure (InventoryHost.hostExecutionInputsFromScopes scopes)
   let kubernetesResources = [resource | ResourceInventory.Managed resource <- declarations, resource ^. #executor == ResourceInventory.KubernetesExecutor]
       helmResources = [resource | ResourceInventory.Managed resource <- declarations, resource ^. #executor == ResourceInventory.HelmExecutor]
@@ -5274,8 +5290,9 @@ inventoryPlanRegistryWithNative active workspace suppliedNative candidate histor
     else inventoryCacheAdapter active workspace (ResourceInventory.inventoryBinding inventory) cacheSpecs
   broker <- inventoryBrokerAdapter active (ResourceInventory.inventoryBinding inventory)
     topicSpecs (acceptedTopicResources history)
-  dns <- inventoryDnsAdapter active workspace (ResourceInventory.inventoryBinding inventory)
-    dnsSpecs (acceptedDnsResources history)
+  acceptedCdn <- either dieT pure (acceptedDnsResources history)
+  dns <- inventoryCdnAdapter active workspace (ResourceInventory.inventoryBinding inventory)
+    dnsSpecs cloudflareSpecs acceptedCdn
   kubernetes <- if Map.null kubernetesSpecs
     then pure (Inventory.manifestAdapterFor history ResourceInventory.KubernetesExecutor)
     else inventoryKubernetesAdapter active (ResourceInventory.inventoryBinding inventory) cacheKey kubernetesSpecs
@@ -5335,14 +5352,18 @@ acceptedTopicResources history = Map.fromList
   , resource ^. #executor == ResourceInventory.BrokerExecutor
   ]
 
-acceptedDnsResources :: InventoryPlan.InventoryHistory -> Map.Map Resource.ResourceId ResourceInventory.ManagedResource
-acceptedDnsResources history = Map.fromList
-  [ (resource ^. #identity, resource)
-  | (_, (_, scope)) <- Map.toAscList (InventoryPlan.historyAccepted history)
-  , bundle <- ResourceInventory.scopeBundles scope
-  , ResourceInventory.Managed resource <- ResourceInventory.declarations bundle
-  , resource ^. #executor == ResourceInventory.CdnExecutor
-  ]
+acceptedDnsResources :: InventoryPlan.InventoryHistory
+  -> Either Text (Map.Map Resource.ResourceId ResourceInventory.ManagedResource)
+acceptedDnsResources history = do
+  declarations <- first (T.pack . show) (ResourceInventory.composedDeclarations
+    (Map.map snd (InventoryPlan.historyAccepted history)))
+  pure (cdnResourceMap declarations)
+
+cdnResourceMap :: [ResourceInventory.Declaration]
+  -> Map.Map Resource.ResourceId ResourceInventory.ManagedResource
+cdnResourceMap declarations = Map.fromList
+  [(resource ^. #identity, resource) | ResourceInventory.Managed resource <- declarations
+    , resource ^. #executor == ResourceInventory.CdnExecutor]
 
 reviewBaseDnsResources :: InventoryStore.InventoryStore -> InventoryPlan.ReviewBundle
   -> IO (Map.Map Resource.ResourceId ResourceInventory.ManagedResource)
@@ -5357,13 +5378,9 @@ reviewBaseDnsResources store bundle = do
     unless (ResourceInventory.scopeId scope == owner)
       (dieT "reviewed DNS base scope owner differs from immutable history")
     pure scope
-  pure (Map.fromList
-    [ (resource ^. #identity, resource)
-    | scope <- scopes
-    , resourceBundle <- ResourceInventory.scopeBundles scope
-    , ResourceInventory.Managed resource <- ResourceInventory.declarations resourceBundle
-    , resource ^. #executor == ResourceInventory.CdnExecutor
-    ])
+  declarations <- either (dieT . T.pack . show) pure (ResourceInventory.composedDeclarations
+    (Map.fromList [(ResourceInventory.scopeId scope, scope) | scope <- scopes]))
+  pure (cdnResourceMap declarations)
   where
     document = InventoryPlan.reviewBundleDocument bundle
 
@@ -5402,6 +5419,59 @@ inventoryDnsAdapter active workspace binding specs accepted
             , CdnRuntime.dnsRuntimeSpecs = specs
             }
       pure (mkDnsAdapter accepted specs (CdnRuntime.dnsRuntimeOps config))
+
+inventoryCdnAdapter :: ActiveTarget -> PlatformWorkspace -> Resource.ContextBinding
+  -> Map.Map Resource.ResourceId DnsBinding
+  -> Map.Map Resource.ResourceId CloudflareBinding
+  -> Map.Map Resource.ResourceId ResourceInventory.ManagedResource
+  -> IO InventoryAdapter.Adapter
+inventoryCdnAdapter active workspace binding googleSpecs cloudflareSpecs accepted
+  | Map.null googleSpecs && Map.null cloudflareSpecs =
+      pure (Inventory.executionBlockedAdapterFor ResourceInventory.CdnExecutor)
+  | otherwise = do
+      google <- inventoryDnsAdapter active workspace binding googleSpecs accepted
+      cloudflare <- inventoryCloudflareAdapter active binding cloudflareSpecs accepted
+      pure (combineCdnAdapters googleSpecs google cloudflareSpecs cloudflare)
+
+inventoryCloudflareAdapter :: ActiveTarget -> Resource.ContextBinding
+  -> Map.Map Resource.ResourceId CloudflareBinding
+  -> Map.Map Resource.ResourceId ResourceInventory.ManagedResource
+  -> IO InventoryAdapter.Adapter
+inventoryCloudflareAdapter active binding specs accepted
+  | Map.null specs = pure (Inventory.executionBlockedAdapterFor ResourceInventory.CdnExecutor)
+  | otherwise = do
+      context <- either dieT pure (Resource.mkContextId (contextNameText (active ^. #contextName)))
+      unless (context == binding ^. #identity)
+        (dieT "Cloudflare inventory review belongs to a different context")
+      let zones = Set.fromList [zone | CloudflareBinding declaration <- Map.elems specs,
+            zone <- case declaration ^. #address of
+              Resource.CloudflareDnsRecord selected _ -> [selected]
+              Resource.CloudflareRuleset selected -> [selected]
+              Resource.CloudflareTlsSetting selected -> [selected]
+              _ -> []]
+      case Set.toList zones of
+        [zone] -> do
+          account <- fmap (maybe "" T.pack) (lookupEnv "CF_ACCOUNT_ID")
+          let config = CloudflareRuntime.CloudflareRuntimeConfig
+                { CloudflareRuntime.cloudflareRuntimeZone = zone
+                , CloudflareRuntime.cloudflareRuntimeAccount = account
+                , CloudflareRuntime.cloudflareRuntimeGuard = \resource -> do
+                    currentZone <- lookupEnv "CF_ZONE_ID"
+                    currentAccount <- lookupEnv "CF_ACCOUNT_ID"
+                    pure $ if currentZone == Just (T.unpack (Resource.nameText zone))
+                      && currentAccount == Just (T.unpack account) && not (T.null account)
+                      && Map.member resource specs
+                      then Right ()
+                      else Left "Cloudflare zone/account credentials differ from this reviewed context binding"
+                , CloudflareRuntime.cloudflareRuntimeSpecs = specs
+                , CloudflareRuntime.cloudflareRuntimeRequest = \method path body -> do
+                    token <- lookupEnv "CF_API_TOKEN"
+                    case token of
+                      Just apiToken | not (null apiToken) -> cfRequestWithStatus (T.pack apiToken) method path body
+                      _ -> pure (Left "CF_API_TOKEN is not set")
+                }
+          pure (mkCloudflareAdapter accepted specs (CloudflareRuntime.cloudflareRuntimeOps config))
+        _ -> pure (Inventory.executionBlockedAdapterFor ResourceInventory.CdnExecutor)
 
 inventoryBrokerAdapter :: ActiveTarget -> Resource.ContextBinding
   -> Map.Map Resource.ResourceId TopicBinding

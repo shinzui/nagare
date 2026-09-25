@@ -42,7 +42,7 @@ data CloudflareTarget
 
 data CloudflareObservation
   = CloudflareMissing
-  | CloudflarePresent !PhysicalIdentity !CloudflareTarget
+  | CloudflarePresent !PhysicalIdentity !(Maybe Text) !CloudflareTarget
   | CloudflareUnavailable !Text
   deriving stock (Eq, Show)
 
@@ -55,6 +55,7 @@ data CloudflareMutationPlan = CloudflareMutationPlan
   , cloudflarePlanTarget :: !CloudflareTarget
   , cloudflarePlanPrevious :: !(Maybe CloudflareTarget)
   , cloudflarePlanPhysical :: !(Maybe PhysicalIdentity)
+  , cloudflarePlanVersion :: !(Maybe Text)
   } deriving stock (Eq, Show, Generic)
 
 data CloudflareAdapterOps = CloudflareAdapterOps
@@ -132,8 +133,8 @@ mkCloudflareAdapter accepted specs ops = Adapter
         Right initial -> do
           fact <- cloudflareInspect ops (cloudflarePlanResource initial)
           let prepared = do
-                physical <- preparePhysical initial fact
-                let plan = initial {cloudflarePlanPhysical = physical}
+                (physical, version) <- preparePhysical initial fact
+                let plan = initial {cloudflarePlanPhysical = physical, cloudflarePlanVersion = version}
                 bytes <- canonicalValue (toJSON plan)
                 pure (PreparedNative bytes (summary plan))
           pure (first (PrepareRefused (plannedOperationId operation)) prepared)
@@ -157,9 +158,11 @@ mkCloudflareAdapter accepted specs ops = Adapter
       Right plan -> do
         fact <- cloudflareInspect ops (cloudflarePlanResource plan)
         pure (case fact of
-          CloudflarePresent physical target
+          CloudflarePresent physical version target
             | target == cloudflarePlanTarget plan
-            , maybe True (== physical) (cloudflarePlanPhysical plan) -> Right (proof plan physical)
+            , maybe True (== physical) (cloudflarePlanPhysical plan)
+            , plannedAction operation `elem` [CreateResource, UpdateResource]
+                || version == cloudflarePlanVersion plan -> Right (proof plan physical)
           CloudflareUnavailable reason -> Left reason
           _ -> Left "Cloudflare resource does not match the reviewed target and physical identity")
   , adapterRecover = \operation prepared -> case decodePlan accepted specs operation (preparedNativeBytes prepared) of
@@ -168,9 +171,10 @@ mkCloudflareAdapter accepted specs ops = Adapter
         action | action `elem` [VerifyResource, AdoptResource] -> do
           fact <- cloudflareInspect ops (cloudflarePlanResource plan)
           pure (case fact of
-            CloudflarePresent physical target
+            CloudflarePresent physical version target
               | target == cloudflarePlanTarget plan
-              , Just physical == cloudflarePlanPhysical plan ->
+              , Just physical == cloudflarePlanPhysical plan
+              , version == cloudflarePlanVersion plan ->
                   RecoveryProvedComplete (proof plan physical)
             CloudflareUnavailable reason -> RecoveryUnresolved reason
             _ -> RecoveryUnresolved "Cloudflare verification no longer matches its reviewed resource")
@@ -185,7 +189,7 @@ mkCloudflareAdapter accepted specs ops = Adapter
         pure $ case fact of
           CloudflareMissing -> Right (resource, ConfirmedAbsent
             (contentDigest (TE.encodeUtf8 (resourceIdText resource <> ":absent"))))
-          CloudflarePresent physical target
+          CloudflarePresent physical _ target
             | Map.notMember resource accepted -> Right (resource, ObservedUnowned physical)
             | Right (_, desired) <- targetFor (cloudflareDeclaration binding)
             , target == desired -> Right (resource, ObservedPresent physical)
@@ -217,7 +221,7 @@ planFor accepted specs operation = do
       _ -> Left "reviewed Cloudflare update lacks an accepted previous declaration at the same address"
     _ -> Left "Cloudflare retirement and replacement require separate reviewed capabilities"
   pure (CloudflareMutationPlan (plannedOperationId operation) (plannedAction operation)
-    (plannedInputDigest operation) resource zone target previous Nothing)
+    (plannedInputDigest operation) resource zone target previous Nothing Nothing)
 
 targetFor :: ManagedResource -> Either Text (Name, CloudflareTarget)
 targetFor resource = case (resource ^. #address, resource ^. #spec) of
@@ -229,31 +233,32 @@ targetFor resource = case (resource ^. #address, resource ^. #spec) of
     Right (zone, CloudflareTlsTarget mode)
   _ -> Left "Cloudflare address or desired specification is invalid"
 
-preparePhysical :: CloudflareMutationPlan -> CloudflareObservation -> Either Text (Maybe PhysicalIdentity)
+preparePhysical :: CloudflareMutationPlan -> CloudflareObservation
+  -> Either Text (Maybe PhysicalIdentity, Maybe Text)
 preparePhysical plan fact = case (cloudflarePlanAction plan, fact) of
-  (CreateResource, CloudflareMissing) -> Right Nothing
-  (UpdateResource, CloudflarePresent physical target)
-    | Just target == cloudflarePlanPrevious plan -> Right (Just physical)
-  (VerifyResource, CloudflarePresent physical target)
-    | target == cloudflarePlanTarget plan -> Right (Just physical)
-  (AdoptResource, CloudflarePresent physical target)
-    | target == cloudflarePlanTarget plan -> Right (Just physical)
+  (CreateResource, CloudflareMissing) -> Right (Nothing, Nothing)
+  (UpdateResource, CloudflarePresent physical version target)
+    | Just target == cloudflarePlanPrevious plan -> Right (Just physical, version)
+  (VerifyResource, CloudflarePresent physical version target)
+    | target == cloudflarePlanTarget plan -> Right (Just physical, version)
+  (AdoptResource, CloudflarePresent physical version target)
+    | target == cloudflarePlanTarget plan -> Right (Just physical, version)
   (_, CloudflareUnavailable reason) -> Left reason
   (CreateResource, CloudflarePresent {}) -> Left "Cloudflare resource already exists without reviewed ownership"
   _ -> Left "Cloudflare provider state differs from the reviewed action"
 
 checkBefore :: CloudflareMutationPlan -> CloudflareObservation -> Either Text ()
 checkBefore plan fact = do
-  physical <- preparePhysical plan fact
-  unless (physical == cloudflarePlanPhysical plan)
-    (Left "Cloudflare physical identity changed after review")
+  (physical, version) <- preparePhysical plan fact
+  unless (physical == cloudflarePlanPhysical plan && version == cloudflarePlanVersion plan)
+    (Left "Cloudflare physical identity or version changed after review")
 
 decodePlan :: Map ResourceId ManagedResource -> Map ResourceId CloudflareBinding
   -> PlannedOperation -> ByteString -> Either Text CloudflareMutationPlan
 decodePlan accepted specs operation bytes = do
   plan <- first T.pack (eitherDecodeStrict bytes)
   expected <- planFor accepted specs operation
-  unless (plan {cloudflarePlanPhysical = Nothing} == expected)
+  unless (plan {cloudflarePlanPhysical = Nothing, cloudflarePlanVersion = Nothing} == expected)
     (Left "private Cloudflare mutation differs from reviewed declarations")
   pure plan
 
@@ -277,7 +282,7 @@ instance ToJSON CloudflareMutationPlan where
     , "action" .= cloudflarePlanAction plan, "inputDigest" .= cloudflarePlanInputDigest plan
     , "resource" .= cloudflarePlanResource plan, "zone" .= cloudflarePlanZone plan
     , "target" .= cloudflarePlanTarget plan, "previous" .= cloudflarePlanPrevious plan
-    , "physical" .= cloudflarePlanPhysical plan]
+    , "physical" .= cloudflarePlanPhysical plan, "providerVersion" .= cloudflarePlanVersion plan]
 
 instance FromJSON CloudflareMutationPlan where
   parseJSON = withObject "Cloudflare mutation plan" $ \o -> do
@@ -285,4 +290,4 @@ instance FromJSON CloudflareMutationPlan where
     unless (version == 1) (fail "unsupported Cloudflare mutation plan version")
     CloudflareMutationPlan <$> o .: "operation" <*> o .: "action" <*> o .: "inputDigest"
       <*> o .: "resource" <*> o .: "zone" <*> o .: "target" <*> o .: "previous"
-      <*> o .: "physical"
+      <*> o .: "physical" <*> o .: "providerVersion"

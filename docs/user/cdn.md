@@ -32,9 +32,17 @@ uses an atomic Cloud DNS change with an exact old record for updates. An existin
 unowned host record refuses before mutation, even if its value matches. A lost
 write acknowledgement remains unresolved for operator recovery, including when
 an immediate listing is empty. A successful change waits for the provider's
-pending status and the exact target record before completion. Cloudflare CDN
-still needs a reviewed owner for its DNS record and shared zone settings; its
-reviewed deploy route refuses it. The direct deploy path remains available.
+pending status and the exact target record before completion. Generic inventory
+reviews can now route an explicitly declared Cloudflare zone owner, complete
+cache ruleset, origin-TLS setting, and per-host proxied A records through the
+reviewed CDN executor. The transport checks the exact zone ID and account on
+each read, records provider IDs and versions in the private review, and refuses
+an update when the observed old state changes. A lost write acknowledgement
+requires operator recovery. Set `CF_ZONE_ID`, `CF_ACCOUNT_ID`, and
+`CF_API_TOKEN` for that reviewed route. The typed application and site deploy
+compilers still refuse Cloudflare intent because they do not yet submit its
+zone grant and host contributions. Direct Cloudflare deploy remains available
+only in contexts with no accepted or retained Cloudflare zone owner.
 Google CDN uses the standing cache policy owned by Pulumi; a
 per-application TTL, cache-mode change, or path rule refuses during planning.
 For the base-domain apex, direct deploy reads and checks the Pulumi-owned A
@@ -248,7 +256,9 @@ ways before moving to `Full`/`Full (strict)`:
   `CF_API_TOKEN` environment variable, with the minimal scopes on exactly one
   zone: **Zone › DNS › Edit**, **Zone › Cache Rules › Edit**, the cache-purge
   capability, and **Zone › Zone Settings › Edit**. Optionally set `CF_ZONE_ID`;
-  otherwise the zone is discovered from the hostname's registrable domain.
+  otherwise the direct route discovers the zone from the hostname's registrable
+  domain. Reviewed inventory requires an exact `CF_ZONE_ID` and `CF_ACCOUNT_ID`
+  plus read permissions for the zone, DNS records, ruleset, and TLS setting.
 - **Google Cloud CDN.** Provision the standing load balancer once with `pulumi -C
   infra/pulumi config set nagare:enableCdn true` (it is billable, so it is
   opt-in). Certificate migration is deliberately staged:

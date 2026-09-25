@@ -91,8 +91,10 @@ library
     Nagare.Inventory.Adapters.ArtifactRuntime
     Nagare.Inventory.Adapters.Broker
     Nagare.Inventory.Adapters.Cdn
+    Nagare.Inventory.Adapters.CdnCombined
     Nagare.Inventory.Adapters.CdnRuntime
     Nagare.Inventory.Adapters.Cloudflare
+    Nagare.Inventory.Adapters.CloudflareRuntime
     Nagare.Inventory.Adapters.BrokerRuntime
     Nagare.Inventory.Adapters.Cache
     Nagare.Inventory.Adapters.CacheRuntime

@@ -1,9 +1,10 @@
 module InventoryCdnSpec (inventoryCdnTests) where
 
-import Data.Aeson (Value (..))
+import Data.Aeson (Value (..), object, (.=))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString.Char8 qualified as BC
+import Data.ByteString.Lazy qualified as LBS
 import Control.Exception (finally)
 import Data.Either (isLeft)
 import Data.Foldable (forM_, toList)
@@ -14,19 +15,23 @@ import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
-import Nagare.Dsl.Prelude
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Cdn
 import Nagare.Inventory.Adapters.CdnRuntime (DnsChangeStatus (..), DnsRuntimeConfig (..), dnsChangeBody, dnsRuntimeOps, parseDnsChangeStatus, parseExactDnsListing)
+import Nagare.Inventory.Adapters.CdnCombined (combineCdnAdapters)
 import Nagare.Inventory.Adapters.Cloudflare
+import Nagare.Inventory.Adapters.CloudflareRuntime
 import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.Environment (compilePreviewEnvChannel, compileRuntimeSecretChannel)
 import Nagare.Inventory.Execute (applyReviewed)
-import Nagare.Inventory.Journal (mkOperationId)
+import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), mkOperationId)
 import Nagare.Inventory.Plan (LifecycleDecisionKind (ApproveRetirement), LifecycleProposal (..), historyAccepted, lifecycleObservationDigest, loadInventoryHistory, noLifecycleDecisions, observationRequirements, planChanges, prepareReview, proposalOperations, publishReview, requiredResources, validateLifecycleDecisions, verifyReview)
 import Nagare.Inventory.Store (ScopeRevision (..), headAccepted, headConverged, headGeneration, initializeStore, newMemoryStore, publishIfAbsent, readStoreSnapshot, replaceHeadIfGenerationMatches, scopeKey)
 import Nagare.Resource.Cdn (compileCloudflareDnsRecord, compileGoogleDnsRecord)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
+import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (encodeCanonicalScope)
 import System.Environment (lookupEnv)
@@ -157,6 +162,269 @@ inventoryCdnTests = testGroup "reviewed CDN DNS"
       assertBool "a pending change without an exact provider ID must refuse"
         (isLeft (parseDnsChangeStatus "{\"status\":\"pending\",\"id\":\"../other\"}"))
   , testCase "disposable Cloud DNS adapter create, update, and stale-old refusal" liveDnsProof
+  , testCase "Cloudflare HTTP binding, exact record write, and stale version refusal stay offline" $ do
+      let zone = ok (mkName "0123456789abcdef0123456789abcdef")
+          host = ok (mkName "a.example.test")
+          owner = ok (mkScopeId Application "cloudflare-runtime")
+          resource =
+            ManagedResource
+              (mintResourceId owner (ok (mkLogicalKey "dns")) (ok (mkName "record")))
+              owner
+              CdnExecutor
+              (CloudflareDnsRecord zone host)
+              [Hostname host]
+              (CloudflareProxiedARecord "203.0.113.4")
+              Retain
+              Stateless
+              Private
+              []
+              []
+              (SourceLocation "fixture" "cloudflare-http")
+          resourceId = resource ^. #identity
+          zonePath = "/zones/" <> nameText zone
+          physical = ok (mkPhysicalIdentity ("cloudflare:zone/" <> nameText zone <> "/dns/record1"))
+          target address = CloudflareDnsTarget host address True 1
+          mutation action address previous boundPhysical version =
+            CloudflareMutationPlan
+              (ok (mkOperationId "op-cf-http"))
+              action
+              (contentDigest "cf-http-review")
+              resourceId
+              zone
+              (target address)
+              previous
+              boundPhysical
+              version
+          envelope result = LBS.toStrict (Aeson.encode (object ["success" .= True, "result" .= result]))
+      recordState <- newIORef (Nothing :: Maybe (Text, Text))
+      writes <- newIORef ([] :: [(Text, Text)])
+      let request method path body
+            | method == "GET" && path == zonePath =
+                pure
+                  ( Right
+                      ( 200
+                      , envelope
+                          (object ["id" .= nameText zone, "account" .= object ["id" .= ("account-1" :: Text)]])
+                      )
+                  )
+            | method == "GET" && path == zonePath <> "/dns_records?type=A&name.exact=a.example.test&per_page=2" = do
+                current <- readIORef recordState
+                let records = case current of
+                      Nothing -> [] :: [Value]
+                      Just (address, version) ->
+                        [ object
+                            [ "id" .= ("record1" :: Text)
+                            , "type" .= ("A" :: Text)
+                            , "name" .= ("a.example.test" :: Text)
+                            , "content" .= address
+                            , "proxied" .= True
+                            , "ttl" .= (1 :: Int)
+                            , "modified_on" .= version
+                            ]
+                        ]
+                pure
+                  ( Right
+                      ( 200
+                      , LBS.toStrict
+                          ( Aeson.encode
+                              ( object
+                                  [ "success" .= True
+                                  , "result" .= records
+                                  , "result_info" .= object ["count" .= length records, "page" .= (1 :: Int)]
+                                  ]
+                              )
+                          )
+                      )
+                  )
+            | method == "POST"
+                && path == zonePath <> "/dns_records"
+                && body
+                  == Just
+                    ( object
+                        [ "type" .= ("A" :: Text)
+                        , "name" .= nameText host
+                        , "content" .= ("203.0.113.4" :: Text)
+                        , "proxied" .= True
+                        , "ttl" .= (1 :: Int)
+                        ]
+                    ) = do
+                writeIORef recordState (Just ("203.0.113.4", "v1"))
+                modifyIORef' writes (<> [(method, path)])
+                pure (Right (200, envelope (object ["id" .= ("record1" :: Text)])))
+            | method == "PUT"
+                && path == zonePath <> "/dns_records/record1"
+                && body
+                  == Just
+                    ( object
+                        [ "type" .= ("A" :: Text)
+                        , "name" .= nameText host
+                        , "content" .= ("203.0.113.5" :: Text)
+                        , "proxied" .= True
+                        , "ttl" .= (1 :: Int)
+                        ]
+                    ) = do
+                writeIORef recordState (Just ("203.0.113.5", "v2"))
+                modifyIORef' writes (<> [(method, path)])
+                pure (Right (200, envelope (object ["id" .= ("record1" :: Text)])))
+            | otherwise = pure (Left "unexpected Cloudflare request")
+          config =
+            CloudflareRuntimeConfig
+              zone
+              "account-1"
+              (\_ -> pure (Right ()))
+              (Map.singleton resourceId (CloudflareBinding resource))
+              request
+          ops = cloudflareRuntimeOps config
+      cloudflareInspect ops resourceId >>= (@?= CloudflareMissing)
+      cloudflareCreate ops (mutation CreateResource "203.0.113.4" Nothing Nothing Nothing)
+        >>= (@?= AdapterEffectCompleted)
+      cloudflareInspect ops resourceId >>= (@?= CloudflarePresent physical (Just "v1") (target "203.0.113.4"))
+      let update =
+            mutation
+              UpdateResource
+              "203.0.113.5"
+              (Just (target "203.0.113.4"))
+              (Just physical)
+              (Just "v1")
+      cloudflareReplace ops update >>= (@?= AdapterEffectCompleted)
+      cloudflareInspect ops resourceId >>= (@?= CloudflarePresent physical (Just "v2") (target "203.0.113.5"))
+      cloudflareReplace ops update >>= \case
+        AdapterEffectFailed _ -> pure ()
+        other -> assertFailure ("stale Cloudflare version caused a write: " <> show other)
+      readIORef writes
+        >>= ( @?=
+                [ ("POST", zonePath <> "/dns_records")
+                , ("PUT", zonePath <> "/dns_records/record1")
+                ]
+            )
+      let wrongAccount = cloudflareRuntimeOps (config {cloudflareRuntimeAccount = "account-2"})
+      cloudflareInspect wrongAccount resourceId >>= \case
+        CloudflareUnavailable _ -> pure ()
+        other -> assertFailure ("foreign Cloudflare account was accepted: " <> show other)
+      assertBool
+        "zone binding accepted another account"
+        ( isLeft
+            ( parseCloudflareZone
+                zone
+                "account-2"
+                ( 200
+                , envelope
+                    (object ["id" .= nameText zone, "account" .= object ["id" .= ("account-1" :: Text)]])
+                )
+            )
+        )
+  , testCase "Cloudflare ruleset observation preserves full behavior and rejects unknown rules" $ do
+      let zone = ok (mkName "0123456789abcdef0123456789abcdef")
+          owner = ok (mkScopeId Platform "cloudflare")
+          resource =
+            ManagedResource
+              (cloudflareRulesResourceId owner zone)
+              owner
+              CdnExecutor
+              (CloudflareRuleset zone)
+              []
+              (CloudflareRulesSpec [])
+              Retain
+              Stateless
+              Private
+              []
+              []
+              (SourceLocation "fixture" "rules")
+          rule =
+            object
+              [ "action" .= ("set_cache_settings" :: Text)
+              , "expression" .= ("(http.host eq \"a.example.test\")" :: Text)
+              , "action_parameters" .= object ["cache" .= False]
+              ]
+          wrapped rules =
+            ( 200
+            , LBS.toStrict
+                ( Aeson.encode
+                    ( object
+                        [ "success" .= True
+                        , "result"
+                            .= object
+                              [ "id" .= ("ruleset-1" :: Text)
+                              , "kind" .= ("zone" :: Text)
+                              , "phase" .= ("http_request_cache_settings" :: Text)
+                              , "version" .= ("7" :: Text)
+                              , "rules" .= rules
+                              ]
+                        ]
+                    )
+                )
+            )
+          providerRule =
+            object
+              [ "id" .= ("rule-1" :: Text)
+              , "version" .= ("2" :: Text)
+              , "enabled" .= True
+              , "action" .= ("set_cache_settings" :: Text)
+              , "expression" .= ("(http.host eq \"a.example.test\")" :: Text)
+              , "action_parameters" .= object ["cache" .= False]
+              ]
+      case parseCloudflareResource resource (wrapped [providerRule]) of
+        Right (CloudflarePresent _ (Just "7") (CloudflareRulesTarget normalized)) ->
+          normalized @?= object ["rules" .= [rule]]
+        other -> assertFailure ("ruleset did not normalize exactly: " <> show other)
+      assertBool
+        "unknown rule behavior was discarded"
+        ( isLeft
+            ( parseCloudflareResource
+                resource
+                ( wrapped
+                    [ case providerRule of
+                        Object fields -> Object (KM.insert "logging" (Bool True) fields)
+                        other -> other
+                    ]
+                )
+            )
+        )
+  , testCase "one CDN executor dispatches each provider without observing the other" $ do
+      let owner = ok (mkScopeId Application "cdn-dispatch")
+          google = mintResourceId owner (ok (mkLogicalKey "google")) (ok (mkName "record"))
+          cloudflare = mintResourceId owner (ok (mkLogicalKey "cloudflare")) (ok (mkName "record"))
+          physical resource = ok (mkPhysicalIdentity (resourceIdText resource))
+          operation resources =
+            PlannedOperation
+              (ok (mkOperationId "op-cdn-dispatch"))
+              VerifyResource
+              CdnExecutor
+              resources
+              (contentDigest "dispatch")
+              []
+              VerifyBeforeRetry
+      googleSeen <- newIORef ([] :: [ResourceId])
+      cloudflareSeen <- newIORef ([] :: [ResourceId])
+      let recording seen label =
+            Adapter
+              { adapterExecutor = CdnExecutor
+              , adapterIdentity = label
+              , adapterVersion = "1"
+              , adapterObserve = \resources -> do
+                  modifyIORef' seen (<> resources)
+                  pure (observationSet [(resource, ObservedPresent (physical resource)) | resource <- resources])
+              , adapterPrepare = \_ -> pure (Right (PreparedNative "dispatch" label))
+              , adapterPreflight = \_ _ -> pure (Right ())
+              , adapterExecute = \_ _ -> pure AdapterEffectCompleted
+              , adapterVerify = \_ _ -> pure (Right (contentDigest "dispatch"))
+              , adapterRecover = \_ _ -> pure (RecoveryProvedComplete (contentDigest "dispatch"))
+              }
+          combined =
+            combineCdnAdapters
+              (Map.singleton google ())
+              (recording googleSeen "google")
+              (Map.singleton cloudflare ())
+              (recording cloudflareSeen "cloudflare")
+      observed <- adapterObserve combined [cloudflare] >>= either (fail . T.unpack) pure
+      Map.keys (observationMap observed) @?= [cloudflare]
+      readIORef googleSeen >>= (@?= [])
+      readIORef cloudflareSeen >>= (@?= [cloudflare])
+      prepared <- adapterPrepare combined (operation (google :| [])) >>= either (fail . show) pure
+      preparedPublicSummary prepared @?= "google"
+      assertBool "a mixed provider operation was accepted" . isLeft
+        =<< adapterPrepare combined (operation (google :| [cloudflare]))
+  , testCase "disposable provider context reviews app, preview, CDN, broker, and Secret together" combinedApplicationProof
   , testCase "offline Cloudflare owner review binds complete rules and independent host records" $ do
       let zone = ok (mkName "0123456789abcdef0123456789abcdef")
           platformOwner = ok (mkScopeId Platform "cloudflare")
@@ -234,7 +502,7 @@ inventoryCdnTests = testGroup "reviewed CDN DNS"
           write plan = do
             let resource = cloudflarePlanResource plan
             modifyIORef' state (Map.insert resource
-              (CloudflarePresent (physical resource) (cloudflarePlanTarget plan)))
+              (CloudflarePresent (physical resource) (Just "1") (cloudflarePlanTarget plan)))
             modifyIORef' writes (<> [resource])
             pure AdapterEffectCompleted
           ops = CloudflareAdapterOps inspect write write
@@ -269,14 +537,14 @@ inventoryCdnTests = testGroup "reviewed CDN DNS"
           >> fail "missing A record"
       let adoptDns = operation "op-adopt-dns" AdoptResource firstDns
       modifyIORef' state (Map.adjust (\case
-        CloudflarePresent physicalId (CloudflareDnsTarget host address _ ttl) ->
-          CloudflarePresent physicalId (CloudflareDnsTarget host address False ttl)
+        CloudflarePresent physicalId version (CloudflareDnsTarget host address _ ttl) ->
+          CloudflarePresent physicalId version (CloudflareDnsTarget host address False ttl)
         other -> other) firstDns)
       rejected <- adapterPrepare initial adoptDns
       assertBool "unproxied A record must not be adopted as a proxied record" (isLeft rejected)
       modifyIORef' state (Map.adjust (\case
-        CloudflarePresent physicalId (CloudflareDnsTarget host address _ ttl) ->
-          CloudflarePresent physicalId (CloudflareDnsTarget host address True ttl)
+        CloudflarePresent physicalId version (CloudflareDnsTarget host address _ ttl) ->
+          CloudflarePresent physicalId version (CloudflareDnsTarget host address True ttl)
         other -> other) firstDns)
       let changed = mkCloudflareAdapter oldResources newBindings ops
           update = operation "op-update-rules" UpdateResource rulesId
@@ -300,12 +568,12 @@ inventoryCdnTests = testGroup "reviewed CDN DNS"
           (proposalOperations proposal))
       prepared <- adapterPrepare changed update >>= either (fail . show) pure
       modifyIORef' state (Map.adjust (\case
-        CloudflarePresent _ target -> CloudflarePresent (ok (mkPhysicalIdentity "cloudflare:foreign")) target
+        CloudflarePresent _ version target -> CloudflarePresent (ok (mkPhysicalIdentity "cloudflare:foreign")) version target
         other -> other) rulesId)
       assertBool "ruleset version or ID change must refuse" . isLeft
         =<< adapterPreflight changed update prepared
       modifyIORef' state (Map.adjust (\case
-        CloudflarePresent _ target -> CloudflarePresent (physical rulesId) target
+        CloudflarePresent _ version target -> CloudflarePresent (physical rulesId) version target
         other -> other) rulesId)
       adapterPreflight changed update prepared >>= (@?= Right ())
       let kubeAdapter = Adapter
@@ -358,6 +626,353 @@ inventoryCdnTests = testGroup "reviewed CDN DNS"
       finalWrites <- readIORef writes
       finalWrites @?= initialWrites <> [rulesId, tlsId]
   ]
+
+-- All provider effects are recorded in a fresh in-memory context. The Google
+-- DNS transport itself has a separate disposable-zone proof above.
+combinedApplicationProof :: IO ()
+combinedApplicationProof = do
+  let platformOwner = ok (mkScopeId Platform "ep148-combined")
+      appOwner = ok (mkScopeId Application "ep148-combined")
+      brokerOwner = ok (mkScopeId Standalone "ep148-combined-broker")
+      cluster = mintResourceId platformOwner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+      namespaceId = mintResourceId platformOwner (ok (mkLogicalKey "namespace")) (ok (mkName "personal"))
+      backendId = mintResourceId platformOwner (ok (mkLogicalKey "backend")) (ok (mkName "backend"))
+      brokerId = mintResourceId brokerOwner (ok (mkLogicalKey "events")) (ok (mkName "topic"))
+      serviceId = mintResourceId appOwner (ok (mkLogicalKey "web")) (ok (mkName "service"))
+      domainId = mintResourceId appOwner (ok (mkLogicalKey "web.example.test")) (ok (mkName "domain-mapping"))
+      host = ok (mkName "web.example.test")
+      source = SourceLocation "fixture" "combined"
+      binding = ContextBinding (ok (mkContextId "ep148-disposable")) (ok (mkName "project"))
+      namespace =
+        ManagedResource
+          namespaceId
+          platformOwner
+          KubernetesExecutor
+          (ok (kubernetesAddress cluster "v1" "Namespace" Nothing "personal"))
+          []
+          (NamespaceSpec Nothing)
+          Retain
+          Stateless
+          Private
+          []
+          []
+          source
+      backend =
+        ManagedResource
+          backendId
+          platformOwner
+          PulumiExecutor
+          (PulumiUrn "urn:pulumi:stack::project::gcp:compute/backendService:BackendService::backend")
+          []
+          (NativeObject (contentDigest "backend"))
+          Retain
+          Stateless
+          Private
+          []
+          []
+          source
+      topic =
+        ManagedResource
+          brokerId
+          brokerOwner
+          BrokerExecutor
+          (BrokerTopic cluster (ok (mkName "events")))
+          []
+          (LogicalBrokerTopic 1 1 (Just 86400000))
+          Retain
+          Stateless
+          Private
+          []
+          []
+          source
+      platformScope =
+        ok
+          ( mkScopeDeclaration
+              platformOwner
+              [ResourceBundle [Managed namespace, Managed backend] [] [] [] [] []]
+          )
+      brokerScope =
+        ok
+          ( mkScopeDeclaration
+              brokerOwner
+              [ResourceBundle [Managed topic] [] [] [] [] []]
+          )
+  (previewScope, _) <-
+    either
+      (fail . show)
+      pure
+      ( compilePreviewEnvChannel
+          "ep148-combined"
+          "personal"
+          cluster
+          namespaceId
+          (Map.singleton "MODE" "preview")
+          source
+      )
+  (secretScope, secretNative) <-
+    either
+      (fail . show)
+      pure
+      ( compileRuntimeSecretChannel
+          "ep148-combined"
+          "personal"
+          cluster
+          namespaceId
+          (ok (mkName "v1"))
+          (Map.singleton "TOKEN" "private-canary")
+          source
+      )
+  let onlyMember scope = case [member | bundle <- scopeBundles scope, Managed member <- declarations bundle] of
+        [member] -> member
+        _ -> error "input scope does not have one member"
+      previewId = onlyMember previewScope ^. #identity
+      secretId = onlyMember secretScope ^. #identity
+      service =
+        ManagedResource
+          serviceId
+          appOwner
+          KubernetesExecutor
+          ( ok
+              ( kubernetesAddress
+                  cluster
+                  "serving.knative.dev/v1"
+                  "Service"
+                  (Just "personal")
+                  "ep148-combined"
+              )
+          )
+          []
+          (KnativeService (contentDigest "service-v1"))
+          Retain
+          Stateless
+          Private
+          (map OrderedAfter [namespaceId, previewId, secretId, brokerId])
+          []
+          source
+      domain =
+        ManagedResource
+          domainId
+          appOwner
+          KubernetesExecutor
+          ( ok
+              ( kubernetesAddress
+                  cluster
+                  "serving.knative.dev/v1"
+                  "DomainMapping"
+                  (Just "personal")
+                  "web.example.test"
+              )
+          )
+          [Hostname host]
+          (NativeObject (contentDigest "route"))
+          Retain
+          Stateless
+          Private
+          [OrderedAfter serviceId]
+          []
+          source
+      dnsBundle =
+        ok
+          ( compileGoogleDnsRecord
+              appOwner
+              (ok (mkLogicalKey "web.example.test"))
+              (ok (mkName "project"))
+              (ok (mkName "zone"))
+              host
+              "203.0.113.4"
+              domainId
+              backendId
+              source
+          )
+      appScope =
+        ok
+          ( mkScopeDeclaration
+              appOwner
+              [ResourceBundle [Managed service, Managed domain] [] [] [] [] [], dnsBundle]
+          )
+      scopes = [platformScope, brokerScope, previewScope, secretScope, appScope]
+      emptySnapshot = ok (mkScopeSnapshot binding Map.empty Map.empty)
+      candidate =
+        ok
+          ( composeInventory
+              emptySnapshot
+              (ReplaceScope platformScope :| map ReplaceScope (drop 1 scopes))
+          )
+      resourceById =
+        Map.fromList
+          [ (member ^. #identity, member)
+          | Managed member <- inventoryDeclarations (candidateInventory candidate)
+          ]
+      dnsSpecs = ok (dnsSpecsFromDeclarations (inventoryDeclarations (candidateInventory candidate)))
+      dnsId = case Map.keys dnsSpecs of
+        [single] -> single
+        _ -> error "combined fixture has no unique DNS record"
+      physical resource = ok (mkPhysicalIdentity ("recorded:" <> resourceIdText resource))
+  assertBool
+    "private Secret bytes entered the public declaration"
+    ( all
+        (not . BC.isInfixOf "private-canary" . BC.pack . show)
+        (Map.elems resourceById)
+    )
+  assertBool "private native Secret was not captured" (Map.member secretId secretNative)
+  store <- newMemoryStore
+  _ <- initializeStore store binding "ep148-combined" >>= either (fail . show) pure
+  nativeState <- newIORef Set.empty
+  dnsState <- newIORef DnsMissing
+  effects <- newIORef ([] :: [ResourceId])
+  let recorded executor =
+        Adapter
+          { adapterExecutor = executor
+          , adapterIdentity = "ep148-recorded-" <> T.pack (show executor)
+          , adapterVersion = "1"
+          , adapterObserve = \resources -> do
+              current <- readIORef nativeState
+              pure
+                ( observationSet
+                    [ ( resource
+                      , if Set.member resource current
+                          then ObservedPresent (physical resource)
+                          else ConfirmedAbsent (contentDigest (BC.pack (show resource)))
+                      )
+                    | resource <- resources
+                    ]
+                )
+          , adapterPrepare = \_ -> pure (Right (PreparedNative "recorded-native" "recorded provider effect"))
+          , adapterPreflight = \_ _ -> pure (Right ())
+          , adapterExecute = \operation _ -> do
+              let resources = NE.toList (plannedResources operation)
+              when (plannedAction operation `elem` [CreateResource, UpdateResource]) $ do
+                modifyIORef' nativeState (<> Set.fromList resources)
+                modifyIORef' effects (<> resources)
+              pure AdapterEffectCompleted
+          , adapterVerify = \operation _ -> do
+              current <- readIORef nativeState
+              pure $
+                if all (`Set.member` current) (NE.toList (plannedResources operation))
+                  then Right (contentDigest "recorded-native")
+                  else Left "recording provider did not observe its resource"
+          , adapterRecover = \_ _ -> pure (RecoveryUnresolved "recorded provider has no recovery receipt")
+          }
+      dnsOps =
+        DnsAdapterOps
+          { dnsInspect = \_ -> readIORef dnsState
+          , dnsCreate = \plan -> do
+              writeIORef dnsState (DnsPresent (physical dnsId) (dnsPlanTarget plan) (dnsPlanTtl plan))
+              modifyIORef' effects (<> [dnsId])
+              pure AdapterEffectCompleted
+          , dnsReplace = \_ -> pure (AdapterEffectFailed (KnownNoEffect "unexpected DNS update"))
+          }
+      dnsAdapter = mkDnsAdapter Map.empty dnsSpecs dnsOps
+      registry =
+        ok
+          ( mkAdapterRegistry
+              [recorded KubernetesExecutor, recorded PulumiExecutor, recorded BrokerExecutor, dnsAdapter]
+          )
+      observationsFor selectedRegistry target history = do
+        let selected = requiredResources (observationRequirements target history)
+            byExecutor =
+              Map.fromListWith
+                (<>)
+                [ (member ^. #executor, [resource])
+                | resource <- Set.toList selected
+                , Just member <- [Map.lookup resource resourceById]
+                ]
+        assertBool
+          "combined candidate selected an unknown resource"
+          (Set.fromList (concat (Map.elems byExecutor)) == selected)
+        observeWithRegistry selectedRegistry byExecutor >>= either (fail . T.unpack) pure
+  history <- loadInventoryHistory store >>= either (fail . show) pure
+  facts <- observationsFor registry candidate history
+  proposal <- either (fail . show) pure (planChanges candidate noLifecycleDecisions history facts)
+  let planned = Set.fromList (concatMap (NE.toList . plannedResources) (proposalOperations proposal))
+      expected =
+        Set.fromList
+          [ namespaceId
+          , backendId
+          , brokerId
+          , previewId
+          , secretId
+          , serviceId
+          , domainId
+          , dnsId
+          ]
+  planned @?= expected
+  snapshot <- readStoreSnapshot store >>= either (fail . show) pure
+  review <- prepareReview registry snapshot proposal >>= either (fail . show) pure
+  _ <- publishReview store review >>= either (fail . show) pure
+  published <- readStoreSnapshot store >>= either (fail . show) pure
+  admitted <- either (fail . show) pure (verifyReview published review)
+  _ <- applyReviewed store registry admitted >>= either (fail . show) pure
+  written <- readIORef effects
+  Set.fromList written @?= expected
+  length written @?= Set.size expected
+  accepted <- loadInventoryHistory store >>= either (fail . show) pure
+  let generation = ok (mkScopeGeneration 1)
+      revision scope =
+        fmap
+          (revisionGeneration . fst)
+          (Map.lookup (scopeId scope) (historyAccepted accepted))
+  mapM_ (\scope -> revision scope @?= Just generation) scopes
+  let updatedService = service & #spec .~ KnativeService (contentDigest "service-v2")
+      updatedApp =
+        ok
+          ( mkScopeDeclaration
+              appOwner
+              [ResourceBundle [Managed updatedService, Managed domain] [] [] [] [] [], dnsBundle]
+          )
+      acceptedSnapshot =
+        ok
+          ( mkScopeSnapshot
+              binding
+              (Map.fromList [(scopeId scope, (generation, scope)) | scope <- scopes])
+              Map.empty
+          )
+      changedCandidate = ok (composeInventory acceptedSnapshot (ReplaceScope updatedApp :| []))
+      acceptedDnsAdapter =
+        mkDnsAdapter
+          (Map.singleton dnsId (dnsDeclaration (dnsSpecs Map.! dnsId)))
+          dnsSpecs
+          dnsOps
+      acceptedRegistry =
+        ok
+          ( mkAdapterRegistry
+              [recorded KubernetesExecutor, recorded PulumiExecutor, recorded BrokerExecutor, acceptedDnsAdapter]
+          )
+  changedFacts <- observationsFor acceptedRegistry changedCandidate accepted
+  changedProposal <-
+    either
+      (fail . show)
+      pure
+      (planChanges changedCandidate noLifecycleDecisions accepted changedFacts)
+  Set.fromList (concatMap (NE.toList . plannedResources) (proposalOperations changedProposal))
+    @?= Set.fromList [serviceId, brokerId]
+  assertBool
+    "unchanged broker dependency was scheduled for mutation"
+    ( all
+        ( \operation ->
+            brokerId `notElem` NE.toList (plannedResources operation)
+              || plannedAction operation == VerifyResource
+        )
+        (proposalOperations changedProposal)
+    )
+  changedBase <- readStoreSnapshot store >>= either (fail . show) pure
+  changedReview <- prepareReview acceptedRegistry changedBase changedProposal >>= either (fail . show) pure
+  _ <- publishReview store changedReview >>= either (fail . show) pure
+  changedPublished <- readStoreSnapshot store >>= either (fail . show) pure
+  changedAdmitted <- either (fail . show) pure (verifyReview changedPublished changedReview)
+  _ <- applyReviewed store acceptedRegistry changedAdmitted >>= either (fail . show) pure
+  finalHistory <- loadInventoryHistory store >>= either (fail . show) pure
+  fmap (revisionGeneration . fst) (Map.lookup appOwner (historyAccepted finalHistory))
+    @?= Just (ok (mkScopeGeneration 2))
+  mapM_
+    ( \scope ->
+        fmap
+          (revisionGeneration . fst)
+          (Map.lookup (scopeId scope) (historyAccepted finalHistory))
+          @?= Just generation
+    )
+    [platformScope, brokerScope, previewScope, secretScope]
+  readIORef effects >>= (\actual -> length actual @?= Set.size expected + 1)
 
 -- Run explicitly with NAGARE_EP148_DNS_ZONE set to a dedicated zone named
 -- nagare-ep148-... in tan-ng-labs. The proof owns only its derived A record.

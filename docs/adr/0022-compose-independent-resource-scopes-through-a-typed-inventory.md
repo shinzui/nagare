@@ -430,3 +430,25 @@ overrides alongside that digest. Reviewed application deployment records its
 tag, optional base domain, accepted image resource, and optional namespace
 request. These are input evidence; provider credentials and secret values do not
 belong in this map. Older scope documents decode with an empty override map.
+
+## Amendment — 2026-09-25: shared CDN owners and provider dispatch
+
+Google Cloud DNS records and Cloudflare resources share the inventory's CDN
+executor, but each resource ID has exactly one provider binding. A single
+registry adapter dispatches observation and mutation to the bound provider;
+an operation spanning providers refuses. Google application DNS owns an exact
+hostname RRset and uses Cloud DNS's atomic change with the accepted old value.
+Cloudflare host DNS records have separate workload owners, while one platform
+zone owner composes the complete cache ruleset and origin-TLS setting from
+granted host contributions. Applications cannot write partial whole-zone rules.
+
+The Cloudflare review records the provider object ID and observed version in
+private evidence and checks the old complete content immediately before an
+HTTP mutation. Every read checks the zone ID and account against the active
+context's explicit binding. Nagare's context journal serializes its own writes;
+the documented Cloudflare DNS overwrite and zone ruleset update requests do
+not expose an atomic old-value precondition, so an external writer may still
+race that final read. An uncertain response stays unresolved for operator
+recovery. Live Cloudflare validation remains separate from this offline
+contract, and typed application/site compilation must submit the zone grant
+before it can use the reviewed provider route.
