@@ -1664,8 +1664,8 @@ siteDeployOptsParser defaultFile =
           )
       )
     <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save reviewed site deployment"))
-    <*> optional (strOption (long "image-resource" <> metavar "RESOURCE-ID" <> help "Accepted prepublished OCI image with --save-plan"))
-    <*> many (strOption (long "volume-recovery" <> metavar "VOLUME=BACKUP:KEY:VERSION" <> help "Retained server-site PVC recovery with --save-plan"))
+    <*> optional (strOption (long "image-resource" <> metavar "RESOURCE-ID" <> help "Accepted prepublished OCI image for reviewed site deploy or preview"))
+    <*> many (strOption (long "volume-recovery" <> metavar "VOLUME=BACKUP:KEY:VERSION" <> help "Retained server-site PVC recovery for reviewed deploy or preview"))
     <*> many (strOption (long "env-secret-resource" <> metavar "RESOURCE-ID" <> help "Accepted runtime Secret dependency for reviewed server sites"))
     <*> many (strOption (long "tls-secret-resource" <> metavar "RESOURCE-ID" <> help "Accepted supplied-TLS Secret dependency for reviewed site domains"))
     <*> many (strOption (long "preview-env-resource" <> metavar "RESOURCE-ID" <> help "Accepted Runtime/Preview environment store for reviewed static preview"))
@@ -6930,47 +6930,47 @@ runSiteDeploy mctx sopts = do
     Right (Load.SiteStatic s) -> do
       case qualifyImage tp (s ^. #image) of
         Left e -> dieT ("nagarectl deploy: " <> e)
-        Right qimg -> case sopts ^. #savePlan of
-          Nothing -> do
-            when (isJust (sopts ^. #imageResource)
-                || not (null (sopts ^. #siteVolumeRecovery))
-                || not (null (sopts ^. #siteEnvSecretResources))
-                || not (null (sopts ^. #siteTlsSecretResources))
-                || not (null (sopts ^. #sitePreviewEnvResources))
-                || isJust (sopts ^. #sitePreviewAdoptionInput)
-                || isJust (sopts ^. #legacyReleaseImport)
-                || isJust (sopts ^. #releaseAdoptionInput))
-              (dieT "static-site inventory options require --save-plan")
-            refuseDirectSiteMutationIfOwned mctx "site deploy"
-              (siteNameText (s ^. #name)) (namespaceText (s ^. #namespace))
-              (siteHostnames (s ^. #domains)) [] True
-            deployStatic mctx tp sopts (s & #image %~ const qimg) bd
-          Just output -> runStaticSiteDeployPlan mctx tp sopts
-            (s & #image %~ const qimg) bd output
+        Right qimg ->
+          if isJust (sopts ^. #savePlan) || isJust (sopts ^. #imageResource)
+            then runStaticSiteDeployPlan mctx tp sopts
+              (s & #image %~ const qimg) bd (sopts ^. #savePlan)
+            else do
+              when (not (null (sopts ^. #siteVolumeRecovery))
+                  || not (null (sopts ^. #siteEnvSecretResources))
+                  || not (null (sopts ^. #siteTlsSecretResources))
+                  || not (null (sopts ^. #sitePreviewEnvResources))
+                  || isJust (sopts ^. #sitePreviewAdoptionInput)
+                  || isJust (sopts ^. #legacyReleaseImport)
+                  || isJust (sopts ^. #releaseAdoptionInput))
+                (dieT "static-site inventory options require --image-resource or --save-plan")
+              refuseDirectSiteMutationIfOwned mctx "site deploy"
+                (siteNameText (s ^. #name)) (namespaceText (s ^. #namespace))
+                (siteHostnames (s ^. #domains)) [] True
+              deployStatic mctx tp sopts (s & #image %~ const qimg) bd
     Right (Load.SiteServer s) -> do
       case qualifyImage tp (s ^. #image) of
         Left e -> dieT ("nagarectl deploy: " <> e)
-        Right qimg -> case sopts ^. #savePlan of
-          Nothing -> do
-            when (isJust (sopts ^. #imageResource)
-                || not (null (sopts ^. #siteVolumeRecovery))
-                || not (null (sopts ^. #siteEnvSecretResources))
-                || not (null (sopts ^. #siteTlsSecretResources))
-                || not (null (sopts ^. #sitePreviewEnvResources))
-                || isJust (sopts ^. #sitePreviewAdoptionInput)
-                || isJust (sopts ^. #legacyReleaseImport)
-                || isJust (sopts ^. #releaseAdoptionInput))
-              (dieT "server-site inventory options require --save-plan")
-            refuseDirectSiteMutationIfOwned mctx "site deploy"
-              (siteNameText (s ^. #name)) (namespaceText (s ^. #namespace))
-              (siteHostnames (s ^. #domains))
-              (map (volumeNameText . (^. #name)) (s ^. #volumes)) True
-            deployServer mctx tp sopts (s & #image %~ const qimg) bd
-          Just output -> runServerSiteDeployPlan mctx tp sopts
-            (s & #image %~ const qimg) bd output
+        Right qimg ->
+          if isJust (sopts ^. #savePlan) || isJust (sopts ^. #imageResource)
+            then runServerSiteDeployPlan mctx tp sopts
+              (s & #image %~ const qimg) bd (sopts ^. #savePlan)
+            else do
+              when (not (null (sopts ^. #siteVolumeRecovery))
+                  || not (null (sopts ^. #siteEnvSecretResources))
+                  || not (null (sopts ^. #siteTlsSecretResources))
+                  || not (null (sopts ^. #sitePreviewEnvResources))
+                  || isJust (sopts ^. #sitePreviewAdoptionInput)
+                  || isJust (sopts ^. #legacyReleaseImport)
+                  || isJust (sopts ^. #releaseAdoptionInput))
+                (dieT "server-site inventory options require --image-resource or --save-plan")
+              refuseDirectSiteMutationIfOwned mctx "site deploy"
+                (siteNameText (s ^. #name)) (namespaceText (s ^. #namespace))
+                (siteHostnames (s ^. #domains))
+                (map (volumeNameText . (^. #name)) (s ^. #volumes)) True
+              deployServer mctx tp sopts (s & #image %~ const qimg) bd
 
 runStaticSiteDeployPlan
-  :: Maybe String -> TargetProfile -> SiteDeployOpts -> StaticSite -> Text -> FilePath -> IO ()
+  :: Maybe String -> TargetProfile -> SiteDeployOpts -> StaticSite -> Text -> Maybe FilePath -> IO ()
 runStaticSiteDeployPlan mctx tp options site bd output = do
   unless (null (options ^. #siteVolumeRecovery))
     (dieT "static sites have no volume recovery inputs")
@@ -6987,7 +6987,7 @@ runStaticSiteDeployPlan mctx tp options site bd output = do
     (legacyStaticSiteReleaseImport site) output
 
 runServerSiteDeployPlan
-  :: Maybe String -> TargetProfile -> SiteDeployOpts -> ServerSite -> Text -> FilePath -> IO ()
+  :: Maybe String -> TargetProfile -> SiteDeployOpts -> ServerSite -> Text -> Maybe FilePath -> IO ()
 runServerSiteDeployPlan mctx tp options original bd output = do
   tag <- reviewedSiteTag options
   recovery <- either dieT pure (siteVolumeRecoveryBindings original
@@ -7026,7 +7026,7 @@ runReviewedSiteDeployPlan
            (ResourceInventory.ScopeDeclaration,
             Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString)))
   -> (Text -> ByteString -> Either Text (StaticReleaseLog, StaticRelease))
-  -> FilePath -> IO ()
+  -> Maybe FilePath -> IO ()
 runReviewedSiteDeployPlan mctx options siteName ns imageName url tag compile importLegacy output = do
   unless (null (options ^. #sitePreviewEnvResources))
     (dieT "production site review has no preview environment resources")
@@ -7036,6 +7036,8 @@ runReviewedSiteDeployPlan mctx options siteName ns imageName url tag compile imp
     (Nothing, Nothing) -> pure ()
     (Just _, Just _) -> pure ()
     _ -> dieT "site import requires both --legacy-release-import and --release-adoption-input"
+  when (isNothing output && isJust (options ^. #legacyReleaseImport))
+    (dieT "site adoption requires --save-plan and a separate reviewed apply")
   imageId <- maybe (dieT "reviewed site deployment requires --image-resource")
     (either dieT pure . Resource.mkResourceId . T.pack) (options ^. #imageResource)
   active <- activeTarget mctx
@@ -7090,14 +7092,18 @@ runReviewedSiteDeployPlan mctx options siteName ns imageName url tag compile imp
     (compile envSecrets tlsSecrets cluster namespaceId imageId prior release source)
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
-  case adoption of
-    Nothing -> Inventory.planInventoryCandidateWith
-      (inventoryPlanRegistryWithNative active workspace native) active candidate output
-    Just proposal -> do
+  case (adoption, output) of
+    (Nothing, Nothing) -> Inventory.convergeInventoryCandidateWith
+      (inventoryPlanRegistryWithNative active workspace native)
+      (inventoryExecutionRegistry mctx) active candidate
+    (Nothing, Just directory) -> Inventory.planInventoryCandidateWith
+      (inventoryPlanRegistryWithNative active workspace native) active candidate directory
+    (Just proposal, Just directory) -> do
       validateInlineReleaseAdoption scope ("nagare-static-releases-" <> siteName) proposal
       Inventory.planInventoryCandidateAdoptionWith
         (inventoryPlanRegistryWithNative active workspace native)
-        active candidate proposal output
+        active candidate proposal directory
+    (Just _, Nothing) -> dieT "site adoption requires --save-plan"
 
 -- | The static (Nginx) deploy path.
 --
@@ -7413,20 +7419,20 @@ runPreviewDeploy mctx sopts pname = do
         (dieT "static preview has no volume recovery inputs")
       unless (null (sopts ^. #siteEnvSecretResources))
         (dieT "static preview has no runtime Secret references")
-      case sopts ^. #savePlan of
-        Just output -> runReviewedStaticPreviewPlan mctx tp sopts site bd pname output
-        Nothing -> runDirectStaticPreview mctx tp sopts site bd pname
-    Right (Load.SiteServer site) -> case sopts ^. #savePlan of
-      Just output -> runReviewedServerPreviewPlan mctx tp sopts site bd pname output
-      Nothing -> dieT "server previews require --save-plan and a prepublished image"
+      if isJust (sopts ^. #savePlan) || isJust (sopts ^. #imageResource)
+        then runReviewedStaticPreviewPlan mctx tp sopts site bd pname (sopts ^. #savePlan)
+        else runDirectStaticPreview mctx tp sopts site bd pname
+    Right (Load.SiteServer site) ->
+      if isJust (sopts ^. #savePlan) || isJust (sopts ^. #imageResource)
+        then runReviewedServerPreviewPlan mctx tp sopts site bd pname (sopts ^. #savePlan)
+        else dieT "server previews require a prepublished --image-resource"
 
 runDirectStaticPreview :: Maybe String -> TargetProfile -> SiteDeployOpts
   -> StaticSite -> Text -> Text -> IO ()
 runDirectStaticPreview mctx tp sopts site bd pname = do
-  when (isJust (sopts ^. #imageResource)
-      || not (null (sopts ^. #sitePreviewEnvResources))
+  when (not (null (sopts ^. #sitePreviewEnvResources))
       || isJust (sopts ^. #sitePreviewAdoptionInput))
-    (dieT "site preview inventory resources require --save-plan")
+    (dieT "site preview inventory resources require --image-resource or --save-plan")
   imageTag <- resolveTag (sopts ^. #tag)
   let inputs = siteDeployInputs tp sopts site imageTag bd
   m <- orDie (previewManifests inputs pname)
@@ -7447,8 +7453,10 @@ runDirectStaticPreview mctx tp sopts site bd pname = do
 
 runReviewedStaticPreviewPlan
   :: Maybe String -> TargetProfile -> SiteDeployOpts -> StaticSite
-  -> Text -> Text -> FilePath -> IO ()
+  -> Text -> Text -> Maybe FilePath -> IO ()
 runReviewedStaticPreviewPlan mctx tp options original bd pname output = do
+  when (isNothing output && isJust (options ^. #sitePreviewAdoptionInput))
+    (dieT "preview adoption requires --save-plan and a separate reviewed apply")
   tag <- reviewedSiteTag options
   imageId <- maybe (dieT "reviewed site preview requires --image-resource")
     (either dieT pure . Resource.mkResourceId . T.pack) (options ^. #imageResource)
@@ -7476,10 +7484,13 @@ runReviewedStaticPreviewPlan mctx tp options original bd pname output = do
       dependencies source)
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
-  case options ^. #sitePreviewAdoptionInput of
-    Nothing -> Inventory.planInventoryCandidateWith
-      (inventoryPlanRegistryWithNative active workspace native) active candidate output
-    Just proposalFile -> do
+  case (options ^. #sitePreviewAdoptionInput, output) of
+    (Nothing, Nothing) -> Inventory.convergeInventoryCandidateWith
+      (inventoryPlanRegistryWithNative active workspace native)
+      (inventoryExecutionRegistry mctx) active candidate
+    (Nothing, Just directory) -> Inventory.planInventoryCandidateWith
+      (inventoryPlanRegistryWithNative active workspace native) active candidate directory
+    (Just proposalFile, Just directory) -> do
       proposalBytes <- (try (BS.readFile proposalFile) :: IO (Either IOException ByteString))
         >>= either (dieT . T.pack . show) pure
       proposal <- either dieT pure (InventoryLifecycle.decodeAdoptionInput proposalBytes)
@@ -7488,12 +7499,15 @@ runReviewedStaticPreviewPlan mctx tp options original bd pname output = do
       validateInlinePreviewAdoption scope proposal
       Inventory.planInventoryCandidateAdoptionWith
         (inventoryPlanRegistryWithNative active workspace native)
-        active candidate proposal output
+        active candidate proposal directory
+    (Just _, Nothing) -> dieT "preview adoption requires --save-plan"
 
 runReviewedServerPreviewPlan
   :: Maybe String -> TargetProfile -> SiteDeployOpts -> ServerSite
-  -> Text -> Text -> FilePath -> IO ()
+  -> Text -> Text -> Maybe FilePath -> IO ()
 runReviewedServerPreviewPlan mctx tp options original bd pname output = do
+  when (isNothing output && isJust (options ^. #sitePreviewAdoptionInput))
+    (dieT "preview adoption requires --save-plan and a separate reviewed apply")
   tag <- reviewedSiteTag options
   imageId <- maybe (dieT "reviewed server preview requires --image-resource")
     (either dieT pure . Resource.mkResourceId . T.pack) (options ^. #imageResource)
@@ -7530,10 +7544,13 @@ runReviewedServerPreviewPlan mctx tp options original bd pname output = do
       stores recovery runtimeSecrets source)
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
-  case options ^. #sitePreviewAdoptionInput of
-    Nothing -> Inventory.planInventoryCandidateWith
-      (inventoryPlanRegistryWithNative active workspace native) active candidate output
-    Just proposalFile -> do
+  case (options ^. #sitePreviewAdoptionInput, output) of
+    (Nothing, Nothing) -> Inventory.convergeInventoryCandidateWith
+      (inventoryPlanRegistryWithNative active workspace native)
+      (inventoryExecutionRegistry mctx) active candidate
+    (Nothing, Just directory) -> Inventory.planInventoryCandidateWith
+      (inventoryPlanRegistryWithNative active workspace native) active candidate directory
+    (Just proposalFile, Just directory) -> do
       proposalBytes <- (try (BS.readFile proposalFile) :: IO (Either IOException ByteString))
         >>= either (dieT . T.pack . show) pure
       proposal <- either dieT pure (InventoryLifecycle.decodeAdoptionInput proposalBytes)
@@ -7542,7 +7559,8 @@ runReviewedServerPreviewPlan mctx tp options original bd pname output = do
       validateInlinePreviewAdoption scope proposal
       Inventory.planInventoryCandidateAdoptionWith
         (inventoryPlanRegistryWithNative active workspace native)
-        active candidate proposal output
+        active candidate proposal directory
+    (Just _, Nothing) -> dieT "preview adoption requires --save-plan"
 
 -- | @site preview list@: list the site's preview Service names.
 runPreviewList :: SiteCommonOpts -> IO ()

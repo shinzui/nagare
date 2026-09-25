@@ -428,11 +428,11 @@ in-cluster default. See [Identity-aware access](access.md).
 
 | Command | Does |
 | --- | --- |
-| `nagarectl site deploy` | Build, package, and deploy the site in the current dir (static → Nginx image; full-stack → Node image, auto-detected from the config `kind`). |
+| `nagarectl site deploy` | With `--skip-build`, an accepted `--image-resource`, and a tag, publish and apply a reviewed static or server site; `--save-plan` saves its review. Without an image resource, use the legacy build/package/deploy path. |
 | `nagarectl site deploy --dry-run` | Print the generated Nginx config / Dockerfile and Knative manifests; no side effects. |
 | `nagarectl site releases` | List recorded releases (per-site ConfigMap; `*` = live). |
 | `nagarectl site rollback RELEASE_ID` | Re-point production at a prior release's image tag. |
-| `nagarectl site preview deploy --name NAME` | Deploy an isolated preview Service + domain (static sites). |
+| `nagarectl site preview deploy --name NAME` | With an accepted `--image-resource` and overlay stores, publish and apply a reviewed static or server preview; `--save-plan` saves its review. The legacy direct path handles static previews. |
 | `nagarectl site preview list` / `delete NAME` | List / remove previews. |
 
 See the [Static & full-stack site hosting](static-hosting.md) guide. The webhook

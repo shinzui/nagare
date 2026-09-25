@@ -623,3 +623,5 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 2026-09-24: EP-148 extended that accepted-image reviewed live route to standalone Service and worker deploys through the same command service and their existing scope compilers. Direct no-image deploys, image publication, complete effects, and native end-to-end command proof remain open. M1 and EP-150 status are unchanged.
 
 2026-09-24: EP-148 extended single-invocation publish/reload/apply to explicit-recovery standalone database and broker creation. Those commands reuse their saved-plan compilers; recovery-free legacy create, topic changes, deletion, and data operations remain open. M3 and EP-150 status are unchanged.
+
+2026-09-24: EP-148 extended accepted-image single-invocation reviewed execution to supported static/server production sites and previews. Existing direct objects still need separate exact adoption. CDN, Build/Preview Secret bindings, image build publication, and other site mutations keep EP-148 and EP-150 open.

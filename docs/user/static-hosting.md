@@ -224,6 +224,17 @@ nagarectl site deploy --skip-build --tag TAG \
 nagarectl inventory apply site-review --yes
 ```
 
+For a standard production create or update, omit `--save-plan` to publish and
+apply that same reviewed scope in one invocation:
+
+```bash
+nagarectl site deploy --skip-build --tag TAG --image-resource RESOURCE-ID
+```
+
+This works for supported static and server sites. The command prints the
+published review digest and public operations before applying them. Existing
+direct site objects still require the separate exact adoption review below.
+
 The publication must have the exact tagged image reference in the active
 context registry; `nagarectl app image plan` can review publication from a
 Docker archive. The Namespace must already be accepted. Static and server site
@@ -236,7 +247,7 @@ server site's environment, add `--env-secret-resource RESOURCE-ID` for the
 accepted Secret in the same cluster and namespace. Build and Preview Secret
 references require separate publication and overlay inputs and currently
 refuse. For each retained server volume, add
-`--volume-recovery VOLUME=BACKUP:KEY:VERSION` to the saved-plan command. The
+`--volume-recovery VOLUME=BACKUP:KEY:VERSION` to the reviewed command. The
 review declares the rendered PVC before the Service and keeps the backup/key
 recovery identity with that durable resource. Supported previews and site
 rollback can also be saved for review as described below. Direct server deploy
@@ -331,6 +342,11 @@ nagarectl site preview deploy --name feature-x --skip-build --tag TAG \
 nagarectl inventory apply preview-review --yes
 ```
 
+For a standard preview create or update, omit `--save-plan` with the same
+accepted image and environment-store inputs. The command publishes and applies
+the reviewed preview scope in one invocation. Adoption still requires a saved
+review.
+
 The review owns the preview Service and DomainMapping in a separate scope. It
 refuses missing or differently addressed stores, an unaccepted image, and a
 direct preview already present without adoption. For an existing direct
@@ -369,8 +385,8 @@ with their recovery intent and cannot be collected through this path.
 Direct `site preview delete` supports static sites only and refuses addresses
 owned by accepted or retained history.
 
-> Direct preview deployment targets **static** sites. Server previews require
-> `--save-plan`, a prepublished image, and the accepted overlay stores.
+> Direct preview deployment targets **static** sites. Reviewed server previews
+> require a prepublished image and the accepted overlay stores.
 
 ---
 
