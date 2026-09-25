@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-25
+* **Update**: Explain that Google CDN application deploys inherit the Pulumi-owned backend cache policy and refuse per-application overrides.
 * **Update**: Document reviewed explicit Redpanda topic retention changes and conservative recovery after an uncertain update.
 * **Update**: Document reviewed aggregate pre-deploy hooks, explicit affected resources, stable per-tag Jobs, and completion ordering before workloads.
 * **Update**: Document opt-in single-invocation reviewed env set, delete, and merged or exact sync.

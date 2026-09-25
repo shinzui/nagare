@@ -21,6 +21,11 @@ generated:
 > placeholder, exactly as the static-hosting and database guides flag their live
 > legs.
 
+The reviewed inventory deploy path currently refuses `cdn` until DNS and edge
+ownership are represented in its saved review. The direct deploy path remains
+available. Google CDN uses the standing cache policy owned by Pulumi; a
+per-application TTL, cache-mode change, or path rule refuses during planning.
+
 A **Content Delivery Network (CDN)** is a globally distributed cache that sits in
 front of your origin. Instead of every request travelling to Nagare's one VM in
 `us-west1`, a visitor near London or Tokyo is served a cached copy from a nearby
@@ -66,7 +71,7 @@ data CdnCacheRule = CdnCacheRule
 
 data Cdn = Cdn
   { provider          :: !CdnProvider
-  , defaultTtlSeconds :: !(Maybe Int)   -- Nothing = no default edge TTL (origin Cache-Control wins)
+  , defaultTtlSeconds :: !(Maybe Int)   -- Cloudflare: Nothing keeps origin policy; Google: inherit Pulumi policy
   , cacheStaticAssets :: !Bool          -- True = long-cache fingerprinted js/css/fonts/images
   , cacheRules        :: ![CdnCacheRule]
   }
@@ -110,13 +115,16 @@ cdn' <-
 
 ## The cache model
 
-- **`defaultTtlSeconds`** — the edge TTL for cacheable responses with no matching
-  rule. `Nothing` lets the origin's own `Cache-Control` decide.
-- **`cacheStaticAssets`** — when `True`, fingerprinted static assets
-  (js/css/fonts/images) get an aggressive one-year edge cache.
-- **`cacheRules`** — per-path overrides, applied in order; a more-specific prefix
+- **`defaultTtlSeconds`** — for Cloudflare, the edge TTL for cacheable responses
+  with no matching rule. `Nothing` keeps the origin policy. Google CDN requires
+  `Nothing` and inherits the shared Pulumi policy.
+- **`cacheStaticAssets`** — for Cloudflare, `True` requests an aggressive edge
+  cache for fingerprinted assets (js/css/fonts/images). Google CDN requires
+  the preset's `True` value and uses the shared platform policy.
+- **`cacheRules`** — Cloudflare per-path overrides, applied in order; a more-specific prefix
   wins. An `edgeTtlSeconds` of `Nothing` means the edge **never** caches that path
-  (e.g. `/api/`), passing every request through to the origin.
+  (e.g. `/api/`), passing every request through to the origin. Google CDN
+  requires an empty list.
 
 The CDN layers on top of the origin: MasterPlan 3's origin Nginx `Cache-Control`
 still applies; the edge cache is in front of it.
@@ -141,13 +149,12 @@ Cache: (static assets) -> 31536000s
 Cache: (default) -> 3600s
 ```
 
-For the Google Cloud CDN TanStack example, the plan is the exact `gcloud`
-commands the deploy would run (each pinned to the active context's project; the default example `tan-nb-exp` is shown):
+For Google Cloud CDN, the direct dry-run shows the DNS effect. The shared
+backend cache policy remains in the platform Pulumi scope:
 
 ```text
 --- CDN plan (GcpCloudCdn) ---
-gcloud dns record-sets create app.apps.example.com. --type=A --ttl=300 --rrdatas=<cdnGlobalIp> --zone=<dnsZoneName> --project=tan-nb-exp
-gcloud compute backend-services update <cdnBackendService> --cache-mode=CACHE_ALL_STATIC --default-ttl=600 --project=tan-nb-exp
+DNS: app.apps.example.com -> <cdnGlobalIp> (Cloud DNS A-record)
 ```
 
 A config with **no** `cdn` field prints no CDN block — its deploy output is

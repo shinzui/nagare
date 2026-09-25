@@ -1,8 +1,9 @@
 -- | The deploy-time CDN provisioning seam (MasterPlan 11, EP-58). One
 -- provider-dispatching function, 'provisionCdn', turns a typed 'Cdn' plus a
 -- resolved 'CdnTarget' into edge configuration, dispatching on the provider to
--- EP-57's Cloudflare API module or to @gcloud@ against EP-56's standing Google
--- load balancer. A pure intermediate 'CdnPlan' (built by 'planCdn', printed by
+-- EP-57's Cloudflare API module or to Cloud DNS for the standing Google load
+-- balancer. Its shared backend cache policy belongs to Pulumi. A pure
+-- intermediate 'CdnPlan' (built by 'planCdn', printed by
 -- 'renderCdnPlan') makes the @--dry-run@ output and the live run derive from the
 -- same ordered action list, and holds NO secrets (the Cloudflare token never
 -- appears here) so it is safe to print.
@@ -22,7 +23,6 @@ module Nagare.Cdn.Provision
   , gcloudDnsCreateArgs
   , gcloudDnsUpdateArgs
   , gcloudDnsUpsertArgs
-  , gcloudBackendCacheArgs
 
     -- * Provisioning (IO; total via Either)
   , provisionCdn
@@ -47,7 +47,6 @@ import Nagare.Cdn.Cloudflare
   )
 import Nagare.Dsl.Cdn.Types (Cdn (..), CdnCacheRule (..), CdnProvider (..))
 import Nagare.Dsl.Prelude
-import Nagare.Ops.Probe (captureTool)
 import System.Exit (ExitCode (..))
 import System.Process (readProcessWithExitCode)
 
@@ -102,8 +101,6 @@ data CdnAction
     CacheRule !Text !Text
   | -- | origin-TLS mode description, e.g. "Flexible"
     OriginTls !Text
-  | -- | a gcloud argv we would run (already includes --project)
-    GcloudCmd ![Text]
   deriving stock (Generic, Eq, Show)
 
 -- ---------------------------------------------------------------------------
@@ -113,15 +110,17 @@ data CdnAction
 -- proxied record at the origin IP (its edge sits transparently in front), sets
 -- the origin-TLS mode, and applies the cache rules. Google writes a more-specific
 -- Cloud DNS A record at the anycast IP (so the hostname wins over the wildcard)
--- and updates the backend service's cache behaviour — both as @gcloud@ argv that
--- already carry @--project=\<target-project>@ (EP-62: from 'project').
+-- without changing the Pulumi-owned backend cache behaviour.
 planCdn :: Cdn -> CdnTarget -> GcpStackRefs -> Either Text CdnPlan
 planCdn cdn target refs =
   case cdn ^. #provider of
     CloudflareCdn -> Right (CdnPlan CloudflareCdn (cloudflareActions cdn target))
     GcpCloudCdn -> do
       mapM_ (googleCdnHostname (target ^. #baseDomain)) (target ^. #hostnames)
-      Right (CdnPlan GcpCloudCdn (gcpActions cdn target refs))
+      unless (cdn ^. #cacheStaticAssets && isNothing (cdn ^. #defaultTtlSeconds)
+          && null (cdn ^. #cacheRules))
+        (Left "Google CDN cache policy belongs to the Pulumi platform owner; per-application cache overrides are unsupported")
+      Right (CdnPlan GcpCloudCdn (gcpActions target refs))
 
 -- | The standing Google certificate covers the exact base apex and one label
 -- below it. Cloudflare has no such restriction because it owns edge TLS in the
@@ -149,12 +148,11 @@ cloudflareActions cdn target =
     ++ [CacheRule "(static assets)" "31536000s" | cdn ^. #cacheStaticAssets]
     ++ maybe [] (\t -> [CacheRule "(default)" (tshow t <> "s")]) (cdn ^. #defaultTtlSeconds)
 
-gcpActions :: Cdn -> CdnTarget -> GcpStackRefs -> [CdnAction]
-gcpActions cdn target refs =
+gcpActions :: CdnTarget -> GcpStackRefs -> [CdnAction]
+gcpActions target refs =
   [ DnsUpsert h (refs ^. #globalIp) "Cloud DNS A-record"
   | h <- target ^. #hostnames
   ]
-    ++ [GcloudCmd (gcloudBackendCacheArgs (refs ^. #project) (refs ^. #backendService) cdn)]
 
 -- | The description of an edge TTL for a plan line: @Just n@ -> @"<n>s"@,
 -- @Nothing@ -> @"never"@ (a never-cache / bypass rule).
@@ -205,25 +203,6 @@ gcloudDnsUpdateArgs project zone hostname ip =
   , "--project=" <> project
   ]
 
--- | The exact @gcloud compute backend-services update@ argv applying this site's
--- cache behaviour on top of EP-56's standing backend service. @cacheStaticAssets@
--- selects @CACHE_ALL_STATIC@ (else @USE_ORIGIN_HEADERS@); a default TTL adds
--- @--default-ttl@. Carries @--project=\<project>@ (EP-62).
-gcloudBackendCacheArgs :: Text -> Text -> Cdn -> [Text]
-gcloudBackendCacheArgs project backendService cdn =
-  [ "compute"
-  , "backend-services"
-  , "update"
-  , backendService
-  , "--cache-mode=" <> cacheMode
-  ]
-    ++ maybe [] (\t -> ["--default-ttl=" <> tshow t]) (cdn ^. #defaultTtlSeconds)
-    ++ ["--project=" <> project]
-  where
-    cacheMode
-      | cdn ^. #cacheStaticAssets = "CACHE_ALL_STATIC"
-      | otherwise = "USE_ORIGIN_HEADERS"
-
 -- | Render a plan as a stable, human-readable block for @--dry-run@.
 renderCdnPlan :: CdnPlan -> Text
 renderCdnPlan plan =
@@ -236,13 +215,12 @@ renderCdnPlan plan =
       "DNS: " <> host <> " -> " <> ip <> " (" <> kind <> ")"
     renderAction (CacheRule prefix ttl) = "Cache: " <> prefix <> " -> " <> ttl
     renderAction (OriginTls mode) = "Origin TLS: " <> mode
-    renderAction (GcloudCmd args) = "gcloud " <> T.unwords args
 
 -- ---------------------------------------------------------------------------
 -- IO provisioning (dispatch on provider)
 
 -- | Provision the chosen CDN for a live origin. Cloudflare goes through EP-57's
--- API module; Google runs the planned @gcloud@ commands. Total: any
+-- API module; Google runs only the planned Cloud DNS commands. Total: any
 -- credential/zone/API/@gcloud@ failure is a 'Left'. Called AFTER the origin is
 -- Ready, so a 'Left' never takes the origin down — the caller reports it and
 -- keeps the origin URL.
@@ -296,11 +274,6 @@ provisionGcp refs plan target = go (plan ^. #actions)
       case result of
         Left err -> pure (Left err)
         Right () -> go rest
-    go (GcloudCmd args : rest) = do
-      m <- captureTool "gcloud" (map T.unpack args)
-      case m of
-        Nothing -> pure (Left ("gcloud failed: gcloud " <> T.unwords args))
-        Just _ -> go rest
     go (_ : rest) = go rest
 
 upsertGcpDns :: GcpStackRefs -> Text -> Text -> IO (Either Text ())

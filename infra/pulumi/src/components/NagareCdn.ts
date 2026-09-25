@@ -11,10 +11,8 @@ import {
  * MasterPlan 11 (CDN) / EP-56 — the STANDING Google Cloud CDN capability: a
  * Google global external Application Load Balancer (a worldwide anycast HTTP/
  * HTTPS front door) in front of the single VM `nagare-01`, with Cloud CDN
- * enabled. This component creates only the long-lived singleton infrastructure;
- * PER-SITE and PER-PATH cache rules are applied at deploy time by EP-58 via
- * `gcloud compute backend-services update` and URL-map path matchers — never by
- * `pulumi up` (MasterPlan Integration Point 2).
+ * enabled. This component owns the long-lived singleton infrastructure and
+ * its shared cache policy. Application deployment does not update the backend.
  *
  * The topology is the one EP-54 (the substrate spike) validated by hand:
  *   anycast IP -> forwarding rules (:80 redirect, :443) -> target proxies ->
@@ -87,8 +85,7 @@ export class NagareCdn extends pulumi.ComponentResource {
         //    HTTP today; HTTPS is a one-flip change once origin TLS is enabled —
         //    EP-54 origin-TLS decision). loadBalancingScheme EXTERNAL_MANAGED is
         //    the global external Application Load Balancer. The default cache
-        //    policy is the STANDING one; EP-58 layers per-site/per-path rules on
-        //    top with `gcloud compute backend-services update`.
+        //    policy is the STANDING one for every hostname on this backend.
         const backend = new gcp.compute.BackendService(`${name}-backend`, {
             protocol: "HTTP",
             portName: "http",
@@ -116,8 +113,7 @@ export class NagareCdn extends pulumi.ComponentResource {
             }],
         }, { parent: this });
 
-        // 5. URL map — minimal default route only, so EP-58 can add per-host path
-        //    matchers at deploy time. The Google external ALB forwards the
+        // 5. URL map — a shared default route. The Google external ALB forwards the
         //    original Host header to the backend by default, so no Host rewrite
         //    is configured and Knative routing survives the LB.
         const urlMap = new gcp.compute.URLMap(`${name}-urlmap`, {

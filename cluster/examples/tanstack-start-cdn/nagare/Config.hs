@@ -7,15 +7,16 @@
 -- deploy builds the Node image and applies the Service/DomainMapping as before,
 -- and then provisions Google Cloud CDN: a more-specific Cloud DNS A record for
 -- @app.apps.example.com@ pointing at the load balancer's anycast IP (which wins
--- over the @*.apps.example.com@ wildcard that points at the VM), plus the
--- per-path cache behaviour on the backend service. The standing Google load
+-- over the @*.apps.example.com@ wildcard that points at the VM). The standing
+-- backend cache policy belongs to Pulumi and is shared by all applications.
+-- The standing Google load
 -- balancer is provisioned once with @pulumi config set nagare:enableCdn true &&
 -- pulumi up@ (see the README).
 module Main (main) where
 
 import Data.Bifunctor (first)
 import Data.Map.Strict qualified as Map
-import Nagare.Dsl.Cdn.Types (gcpCloudCdn, withCacheRule, withDefaultTtl)
+import Nagare.Dsl.Cdn.Types (gcpCloudCdn)
 import Nagare.Dsl.Config (emitServerSite)
 import Nagare.Dsl.Server.Types
 import Nagare.Dsl.Static.Types (mkSiteName)
@@ -28,14 +29,7 @@ serverSite = do
   img' <- first show (mkImageRef "tanstack-start-cdn")
   host <- first show (mkEnvName "HOSTNAME")
   domains' <- first show (mkDomains [("app.apps.example.com", True)])
-  -- Google Cloud CDN: a 10-minute default edge TTL, a 1-year cache for
-  -- fingerprinted assets, never cache /api/.
-  cdn' <-
-    first
-      show
-      ( withCacheRule "/api/" Nothing
-          =<< withCacheRule "/assets/" (Just 31536000) (withDefaultTtl 600 gcpCloudCdn)
-      )
+  -- The shared backend uses the standing Pulumi cache policy.
   Right
     ServerSite
       { name = name'
@@ -49,7 +43,7 @@ serverSite = do
       , scale = Nothing
       , domains = domains'
       , volumes = []
-      , cdn = Just cdn'
+      , cdn = Just gcpCloudCdn
       }
 
 main :: IO ()

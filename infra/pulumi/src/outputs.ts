@@ -23,7 +23,8 @@ export interface StackOutputs {
     nixCacheHmacSecret: pulumi.Output<string>;
     // MasterPlan 11 Integration Point 2 (EP-56) — the standing Google Cloud CDN
     // load balancer's anycast IP, CDN-enabled backend service name, and URL map
-    // name. Read by EP-58 to write per-hostname DNS and per-path cache rules.
+    // name. The direct CDN path still reads the IP for per-hostname DNS;
+    // Pulumi alone owns the shared backend cache policy.
     // Carry the sentinel "(cdn disabled)" when `nagare:enableCdn` is off.
     cdnGlobalIp: pulumi.Output<string>;
     cdnBackendService: pulumi.Output<string>;

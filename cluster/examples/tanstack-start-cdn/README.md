@@ -10,18 +10,13 @@ This is the `tanstack-start` example plus **one new field** — `cdn = Just …`
 applies the Service/DomainMapping as before, and then provisions Google Cloud CDN:
 a **more-specific** Cloud DNS `A` record for `app.apps.example.com` pointing at the
 load balancer's global **anycast** IP (which beats the broad `*.apps.example.com`
-wildcard that points at the VM), plus the per-path cache behaviour on the backend
-service.
+wildcard that points at the VM). The backend cache policy is shared and owned
+by Pulumi; application deploys cannot change it.
 
 The CDN declaration (see `nagare/Config.hs`):
 
 ```haskell
-cdn' <-
-  first show
-    ( withCacheRule "/api/" Nothing
-        =<< withCacheRule "/assets/" (Just 31536000) (withDefaultTtl 600 gcpCloudCdn)
-    )
--- ... cdn = Just cdn'
+cdn = Just gcpCloudCdn
 ```
 
 ## One-time: stand up the Google Cloud CDN load balancer
@@ -45,17 +40,15 @@ cabal run nagarectl -- site deploy --dry-run \
 ```
 
 After the generated Dockerfile, the Knative Service, and the `app.apps.example.com`
-DomainMapping, it prints the planned CDN changes — the exact `gcloud` commands the
-deploy would run, each pinned to the project (no cloud side effects):
+DomainMapping, it prints the planned DNS change (no cloud side effects):
 
 ```text
 --- CDN plan (GcpCloudCdn) ---
-gcloud dns record-sets create app.apps.example.com. --type=A --ttl=300 --rrdatas=<cdnGlobalIp> --zone=<dnsZoneName> --project=tan-nb-exp
-gcloud compute backend-services update <cdnBackendService> --cache-mode=CACHE_ALL_STATIC --default-ttl=600 --project=tan-nb-exp
+DNS: app.apps.example.com -> <cdnGlobalIp> (Cloud DNS A-record)
 ```
 
-(`<cdnGlobalIp>`, `<dnsZoneName>`, `<cdnBackendService>` are the EP-56 stack
-outputs — the real values are substituted when the stack is available.)
+(`<cdnGlobalIp>` is the standing Pulumi stack output; the real value is
+substituted when the stack is available.)
 
 ## End-to-end validation (live legs DEFERRED until `nagare-01` is up)
 

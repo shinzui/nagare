@@ -5025,18 +5025,20 @@ cloudflareTests =
 
 cdnProvisionTests :: [TestTree]
 cdnProvisionTests =
-  [ testCase "planCdn Cloudflare: DNS/OriginTls/Cache actions, no GcloudCmd" $ do
+  [ testCase "planCdn Cloudflare: DNS/OriginTls/Cache actions" $ do
       let p = unsafe (planCdn cfCdn cfTarget noRefs)
       p ^. #provider @?= CloudflareCdn
-      assertBool "no gcloud action" (not (any isGcloud (p ^. #actions)))
       assertBool "one DnsUpsert per host" (length [() | DnsUpsert {} <- p ^. #actions] == 1)
-  , testCase "planCdn Gcp: DNS upsert plus project-pinned backend command" $ do
+  , testCase "planCdn Gcp: DNS only; the Pulumi owner keeps backend policy" $ do
       let p = unsafe (planCdn gcpCdn gcpTarget gcpRefs)
       p ^. #provider @?= GcpCloudCdn
-      assertBool "one convergent DNS upsert" (length [() | DnsUpsert {} <- p ^. #actions] == 1)
-      assertBool
-        "every gcloud argv has --project=tan-nb-exp"
-        (all (\a -> "--project=tan-nb-exp" `elem` a) [args | GcloudCmd args <- p ^. #actions])
+      p ^. #actions @?= [DnsUpsert "app.apps.example.com" "203.0.113.20" "Cloud DNS A-record"]
+      assertBool "per-site TTL refuses" (isLeft (planCdn
+        (gcpCdn & #defaultTtlSeconds .~ Just 3600) gcpTarget gcpRefs))
+      assertBool "per-site cache mode refuses" (isLeft (planCdn
+        (gcpCdn & #cacheStaticAssets .~ False) gcpTarget gcpRefs))
+      assertBool "per-site path rule refuses" (isLeft (planCdn
+        (gcpCdn & #cacheRules .~ [CdnCacheRule "/assets/" (Just 300)]) gcpTarget gcpRefs))
   , testCase "Google CDN accepts only apex and one-label base-domain hosts" $ do
       googleCdnHostname "apps.example.com" "apps.example.com" @?= Right ()
       googleCdnHostname "apps.example.com" "www.apps.example.com" @?= Right ()
@@ -5068,16 +5070,6 @@ cdnProvisionTests =
         , gcloudDnsUpdateArgs "acme-prod" "z" "h" "ip"
         ]
         (assertBool "--project follows the supplied project" . elem "--project=acme-prod")
-  , testCase "gcloudBackendCacheArgs: exact argv (cache mode + default ttl + project)" $
-      gcloudBackendCacheArgs "tan-nb-exp" "nagare-cdn-backend" gcpCdn
-        @?= [ "compute"
-            , "backend-services"
-            , "update"
-            , "nagare-cdn-backend"
-            , "--cache-mode=USE_ORIGIN_HEADERS"
-            , "--default-ttl=3600"
-            , "--project=tan-nb-exp"
-            ]
   , testCase "renderCdnPlan: Cloudflare dry-run block" $
       renderCdnPlan (unsafe (planCdn cfCdn cfTarget noRefs))
         @?= T.unlines
@@ -5088,17 +5080,14 @@ cdnProvisionTests =
           , "Cache: /api/ -> never"
           , "Cache: (default) -> 3600s"
           ]
-  , testCase "renderCdnPlan: Google dry-run block (gcloud lines pinned to the project)" $
+  , testCase "renderCdnPlan: Google dry-run contains only the DNS effect" $
       renderCdnPlan (unsafe (planCdn gcpCdn gcpTarget gcpRefs))
         @?= T.unlines
           [ "--- CDN plan (GcpCloudCdn) ---"
           , "DNS: app.apps.example.com -> 203.0.113.20 (Cloud DNS A-record)"
-          , "gcloud compute backend-services update nagare-cdn-backend --cache-mode=USE_ORIGIN_HEADERS --default-ttl=3600 --project=tan-nb-exp"
           ]
   ]
   where
-    isGcloud (GcloudCmd _) = True
-    isGcloud _ = False
     cfCdn =
       Cdn
         { provider = CloudflareCdn
@@ -5110,8 +5099,8 @@ cdnProvisionTests =
     gcpCdn =
       Cdn
         { provider = GcpCloudCdn
-        , defaultTtlSeconds = Just 3600
-        , cacheStaticAssets = False
+        , defaultTtlSeconds = Nothing
+        , cacheStaticAssets = True
         , cacheRules = []
         }
     gcpTarget = CdnTarget ["app.apps.example.com"] "203.0.113.20" "personal" "app" "apps.example.com"
