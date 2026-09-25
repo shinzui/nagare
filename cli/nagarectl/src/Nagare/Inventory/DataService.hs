@@ -47,11 +47,11 @@ import Nagare.Resource.Wire (canonicalValue)
 -- The scope's other declarations and private bytes remain those of the
 -- accepted revision, including credentials, backup policy, and retained PVCs.
 compileStatefulSetRestartScope
-  :: T.Text -> T.Text -> T.Text -> ScopeDeclaration
+  :: NativeDataKind -> T.Text -> T.Text -> T.Text -> ScopeDeclaration
   -> Map ResourceId (ManagedResource, ByteString)
   -> Either (NonEmpty InventoryError)
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileStatefulSetRestartScope name namespaceName stamp accepted native = do
+compileStatefulSetRestartScope dataKind name namespaceName stamp accepted native = do
   let invalid message = inventoryError "invalid-data-restart" message
         & #scopes .~ [scopeId accepted] & (:| [])
       matches resource = case resource ^. #address of
@@ -61,11 +61,23 @@ compileStatefulSetRestartScope name namespaceName stamp accepted native = do
         _ -> False
       selected = [resource | bundle <- scopeBundles accepted,
         Managed resource <- declarations bundle, matches resource]
+      companionMatches resource = case (dataKind, resource ^. #address) of
+        (DatabaseObjects, Kubernetes _ "" kind (Just ns) nativeName) ->
+          nameText kind == "secret" && nameText ns == namespaceName
+            && nameText nativeName == dbSecretName name
+        (BrokerObjects, Kubernetes _ "" kind (Just ns) nativeName) ->
+          nameText kind == "persistentvolumeclaim" && nameText ns == namespaceName
+            && nameText nativeName == brokerPvcName name
+        _ -> False
+      companions = [resource | bundle <- scopeBundles accepted,
+        Managed resource <- declarations bundle, companionMatches resource]
   resource <- case selected of
     [single] -> Right single
     _ -> Left (invalid "accepted scope has no unique StatefulSet at the selected address")
   unless (scopeKind (scopeId accepted) `elem` [Application, Standalone])
     (Left (invalid "data restart requires an application or standalone scope"))
+  unless (length companions == 1)
+    (Left (invalid "accepted StatefulSet lacks its database or broker companion"))
   unless (not (T.null stamp) && T.all (>= ' ') stamp)
     (Left (invalid "restart stamp is invalid"))
   (bound, bytes) <- maybe (Left (invalid "accepted StatefulSet lacks private native evidence")) Right

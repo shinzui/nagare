@@ -37,7 +37,7 @@ import Nagare.Inventory.Adapters.Cdn (DnsAdapterOps (..), DnsObservation (..), d
 import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps (..), KubernetesMutation (..), KubernetesState (..), mkKubernetesAdapter)
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), mkKubernetesRuntimeOps)
 import Nagare.Inventory.Command (convergeInventoryCandidateWith, loadTargetSnapshot, openTargetStore)
-import Nagare.Inventory.DataService (compileStandaloneBroker, compileStandaloneDatabase, compileStatefulSetRestartScope)
+import Nagare.Inventory.DataService (NativeDataKind (..), compileStandaloneBroker, compileStandaloneDatabase, compileStatefulSetRestartScope)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Environment (compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeSecretChannel)
 import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
@@ -115,7 +115,7 @@ reviewedDataRestart = do
     [single] -> pure single
     _ -> assertFailure "expected one accepted broker StatefulSet" >> fail "missing StatefulSet"
   (revised, changed) <- either (fail . show) pure
-    (compileStatefulSetRestartScope "events" "personal" "2026-09-25T00:00:00Z" accepted native)
+    (compileStatefulSetRestartScope BrokerObjects "events" "personal" "2026-09-25T00:00:00Z" accepted native)
   Map.delete statefulId changed @?= Map.delete statefulId native
   scopeConfigDigest revised @?= scopeConfigDigest accepted
   Map.lookup "operational.restart.events" (scopeOverrides revised)
@@ -124,9 +124,11 @@ reviewedDataRestart = do
     (maybe False (BS.isInfixOf "nagare.dev/restartedAt" . snd)
       (Map.lookup statefulId changed))
   assertBool "wrong StatefulSet name was accepted"
-    (isLeft (compileStatefulSetRestartScope "other" "personal" "stamp" accepted native))
+    (isLeft (compileStatefulSetRestartScope BrokerObjects "other" "personal" "stamp" accepted native))
+  assertBool "broker StatefulSet was accepted as a database"
+    (isLeft (compileStatefulSetRestartScope DatabaseObjects "events" "personal" "stamp" accepted native))
   assertBool "changed private evidence was accepted"
-    (isLeft (compileStatefulSetRestartScope "events" "personal" "stamp" accepted
+    (isLeft (compileStatefulSetRestartScope BrokerObjects "events" "personal" "stamp" accepted
       (Map.adjust (\(member, _) -> (member, "{}")) statefulId native)))
 
 -- | A deterministic rollout context (fixed tag, unqualified shared image) so the

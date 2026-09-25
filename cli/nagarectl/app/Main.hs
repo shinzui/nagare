@@ -8741,7 +8741,7 @@ runDataRestart mctx kind name namespaceName dryRun output legacy = do
         >>= either dieT pure
       stamp <- currentTimestamp
       (revised, native) <- either (dieT . T.pack . show) pure
-        (compileStatefulSetRestartScope name namespaceName stamp scope acceptedNative)
+        (compileStatefulSetRestartScope kind name namespaceName stamp scope acceptedNative)
       candidate <- either (dieT . T.pack . show) pure
         (ResourceInventory.composeInventory snapshot
           (ResourceInventory.ReplaceScope revised NE.:| []))
