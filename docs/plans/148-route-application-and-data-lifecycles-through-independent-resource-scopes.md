@@ -109,6 +109,7 @@ Reviewed application deploy also declares the per-Service release-history Config
 
 Stable-ID `task run` now publishes, reloads, and applies its reviewed Job in one invocation; `--save-plan` remains available for separate inspection and apply. The direct timestamped route remains for tasks outside accepted inventory.
 Versioned `secret set`, `secret delete`, and exact `secret sync` now use the same one-invocation review service when no saved review directory is supplied; private native Secret bytes remain in the immutable evidence store. Unversioned direct writes remain guarded legacy routes.
+`env set`, `env delete`, and merged or exact `env sync` can opt into the same one-invocation reviewed path with `--reviewed`; the existing `--save-plan` route shares its compiler. Unreviewed direct env writes remain guarded legacy routes.
 
 M1 exit gates still open: reviewed application scopes record their explicit tag, base-domain, image-resource, and namespace-request inputs with the accepted config digest, but other application-side override channels still need complete review evidence; reviewed app, standalone Service, and standalone worker dry-runs derive from their saved-plan compilers, and accepted-image live deploys for all three can now publish and apply their immutable reviews in one invocation, while legacy direct live paths and their renderers still need removal; and complete application input must either bind or explicitly sequence CDN and pre-deploy hook effects before the scope can be called complete. Supported subsets already refuse those omitted effects. A disposable native review/replay proves exact membership and source-independent recovery for a two-worker application with release metadata; a recording adapter replays the saved review for a Service, route, three workers, database, backup, scheduled task, and release metadata, including dependency order. Live provider proof of that broader set and broker topic, preview, and CDN integration remain open. These gates overlap M2, M3, and M4 by the plan's current wording, so the M1 checkbox remains open despite the finished component slices.
 
@@ -118,6 +119,8 @@ M1 exit gates still open: reviewed application scopes record their explicit tag,
 - [ ] M4: Remove duplicate render/apply paths and prove scope isolation.
 
 ## Surprises & Discoveries
+
+2026-09-25: A blank review directory is a valid parsed option value, so using an empty string as the one-invocation marker could have turned `--save-plan ''` into an apply. Manual Job, env, and Secret command helpers now carry an explicit optional directory and only apply when it is absent.
 
 2026-09-24: The existing database builder already binds all five retained-database members, including the credential template and backup CronJob, to canonical native bytes. Standalone and application database compilation now consume it without reconstructing database flags. The application preview used the old four-object render path; it now displays the data-free credential template and backup. The Knative Service, PVCs, and automatic-TLS domains bind to their rendered native bytes. Remaining workload declarations and command routing are open. Existing config literals must initialize the new optional keys explicitly because their records have strict fields.
 

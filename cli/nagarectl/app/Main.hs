@@ -978,12 +978,12 @@ data ScopeSelection = ScopeSelection
 data EnvCommand
   = -- | Bool = --all (show all three scopes)
     EnvList StoreCommonOpts Bool
-  | -- | dryRun, KEY, VALUE, reviewed plan directory
-    EnvSet StoreCommonOpts ScopeSelection Bool String String (Maybe FilePath)
-  | -- | dryRun, KEY, reviewed plan directory
-    EnvDelete StoreCommonOpts ScopeSelection Bool String (Maybe FilePath)
-  | -- | dryRun, reconcileExact, dotenv file, reviewed plan directory
-    EnvSync StoreCommonOpts ScopeSelection Bool Bool FilePath (Maybe FilePath)
+  | -- | dryRun, KEY, VALUE, reviewed execution, optional review directory
+    EnvSet StoreCommonOpts ScopeSelection Bool String String Bool (Maybe FilePath)
+  | -- | dryRun, KEY, reviewed execution, optional review directory
+    EnvDelete StoreCommonOpts ScopeSelection Bool String Bool (Maybe FilePath)
+  | -- | dryRun, reconcileExact, dotenv file, reviewed execution, optional review directory
+    EnvSync StoreCommonOpts ScopeSelection Bool Bool FilePath Bool (Maybe FilePath)
   deriving stock (Generic, Show)
 
 -- | The @secret@ subcommands. @SecretSet@'s value is read from stdin, never argv.
@@ -2562,6 +2562,7 @@ opts =
                       <*> dryRunOpt
                       <*> strArgument (metavar "KEY")
                       <*> strArgument (metavar "VALUE")
+                      <*> switch (long "reviewed" <> help "Publish and apply a reviewed single-key change")
                       <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Review one env key update from accepted history"))
                         <**> helper
                   )
@@ -2575,6 +2576,7 @@ opts =
                       <*> scopeSelectionParser
                       <*> dryRunOpt
                       <*> strArgument (metavar "KEY")
+                      <*> switch (long "reviewed" <> help "Publish and apply a reviewed single-key deletion")
                       <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Review one env key deletion from accepted history"))
                         <**> helper
                   )
@@ -2589,6 +2591,7 @@ opts =
                       <*> dryRunOpt
                       <*> reconcileExactParser
                       <*> strOption (long "file" <> metavar "FILE" <> help "dotenv file to import")
+                      <*> switch (long "reviewed" <> help "Publish and apply a reviewed merged or exact channel")
                       <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Review a merged or exact Runtime, Build, or Preview env channel"))
                         <**> helper
                   )
@@ -8663,8 +8666,8 @@ runTask mctx = \case
   TaskList o -> runTaskList (nsOf (o ^. #namespace)) (scopeOfMaybe (o ^. #app))
   TaskRun o -> do
     case o ^. #savePlan of
-      Just output -> runReviewedTaskRunPlan mctx o output
-      Nothing | isJust (o ^. #runId) -> runReviewedTaskRunPlan mctx o ""
+      Just output -> runReviewedTaskRunPlan mctx o (Just output)
+      Nothing | isJust (o ^. #runId) -> runReviewedTaskRunPlan mctx o Nothing
       Nothing -> do
         refuseDirectTaskMutationIfOwned mctx "run" (T.pack (o ^. #task)) (nsOf (o ^. #namespace))
         runTaskRun
@@ -8703,7 +8706,7 @@ runTask mctx = \case
     scopeOfMaybe Nothing = AnyApp
     scopeOfMaybe (Just a) = scopeOf a
 
-runReviewedTaskRunPlan :: Maybe String -> TaskRunOpts -> FilePath -> IO ()
+runReviewedTaskRunPlan :: Maybe String -> TaskRunOpts -> Maybe FilePath -> IO ()
 runReviewedTaskRunPlan mctx options output = do
   when (options ^. #dryRun)
     (dieT "--dry-run cannot be combined with a reviewed task run; use --save-plan to inspect its review")
@@ -8742,12 +8745,12 @@ runReviewedTaskRunPlan mctx options output = do
     (compileTaskRunScope appLabel cronJob cronBytes runId source)
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
-  if null output
-    then Inventory.convergeInventoryCandidateWith
+  case output of
+    Nothing -> Inventory.convergeInventoryCandidateWith
       (inventoryPlanRegistryWithNative active workspace native)
       (inventoryExecutionRegistry mctx) active candidate
-    else Inventory.planInventoryCandidateWith
-      (inventoryPlanRegistryWithNative active workspace native) active candidate output
+    Just directory -> Inventory.planInventoryCandidateWith
+      (inventoryPlanRegistryWithNative active workspace native) active candidate directory
 
 -- | Resolve the GCS backup bucket: an explicit @--bucket@ flag wins; otherwise
 -- the resolved target profile's backup bucket (EP-62; honors
@@ -8773,42 +8776,41 @@ runEnv mctx = \case
     (name, ns) <- resolveAppOrDie copts
     let scopes = if allScopes then [minBound .. maxBound] else [Runtime]
     runEnvListBody name ns scopes
-  EnvSet copts sel dry key val savePlan -> do
+  EnvSet copts sel dry key val reviewed savePlan -> do
     (name, ns) <- resolveAppOrDie copts
-    case savePlan of
-      Just output -> saveReviewedEnvChange mctx name ns sel dry "env set"
-        (Right . Map.insert (T.pack key) (T.pack val)) output
-      Nothing -> do
+    if reviewed || isJust savePlan
+      then saveReviewedEnvChange mctx name ns sel dry "env set"
+        (Right . Map.insert (T.pack key) (T.pack val)) savePlan
+      else do
         refuseDirectStoreMutationIfOwned mctx False name ns (selectedScopes sel)
         forM_ (selectedScopes sel) $ \scope -> do
           existing <- orDie =<< readEnvStore name ns scope
           let desired = reconcile Merge existing (Map.singleton (T.pack key) (T.pack val))
           applyOrDryRunEnv dry name ns scope desired
         unless dry $ TIO.putStrLn ("Set " <> T.pack key <> " in env for " <> name <> ".")
-  EnvDelete copts sel dry key savePlan -> do
+  EnvDelete copts sel dry key reviewed savePlan -> do
     (name, ns) <- resolveAppOrDie copts
-    case savePlan of
-      Just output -> saveReviewedEnvChange mctx name ns sel dry "env delete"
+    if reviewed || isJust savePlan
+      then saveReviewedEnvChange mctx name ns sel dry "env delete"
         (\existing -> if Map.member (T.pack key) existing
           then Right (Map.delete (T.pack key) existing)
-          else Left "env key is absent from the accepted channel") output
-      Nothing -> do
+          else Left "env key is absent from the accepted channel") savePlan
+      else do
         refuseDirectStoreMutationIfOwned mctx False name ns (selectedScopes sel)
         forM_ (selectedScopes sel) $ \scope -> do
           existing <- orDie =<< readEnvStore name ns scope
           let desired = reconcile ReconcileExact mempty (Map.delete (T.pack key) existing)
           applyOrDryRunEnv dry name ns scope desired
         unless dry $ TIO.putStrLn ("Deleted " <> T.pack key <> " from env for " <> name <> ".")
-  EnvSync copts sel dry exact dotenvPath savePlan -> do
+  EnvSync copts sel dry exact dotenvPath reviewed savePlan -> do
     (name, ns) <- resolveAppOrDie copts
     raw <- TIO.readFile dotenvPath
     incoming <- orDie (parseDotenv raw)
-    case savePlan of
-      Just output -> do
-        saveReviewedEnvChange mctx name ns sel dry (T.pack dotenvPath)
+    if reviewed || isJust savePlan
+      then saveReviewedEnvChange mctx name ns sel dry (T.pack dotenvPath)
           (\existing -> Right (reconcile (if exact then ReconcileExact else Merge)
-            existing incoming)) output
-      Nothing -> do
+            existing incoming)) savePlan
+      else do
         refuseDirectStoreMutationIfOwned mctx False name ns (selectedScopes sel)
         let mode = reconcileModeFrom exact
         forM_ (selectedScopes sel) $ \scope -> do
@@ -8819,7 +8821,7 @@ runEnv mctx = \case
           TIO.putStrLn ("Synced " <> tShow (Map.size incoming) <> " key(s) into env for " <> name <> ".")
 
 saveReviewedEnvChange :: Maybe String -> Text -> Text -> ScopeSelection -> Bool
-  -> Text -> (Map Text Text -> Either Text (Map Text Text)) -> FilePath -> IO ()
+  -> Text -> (Map Text Text -> Either Text (Map Text Text)) -> Maybe FilePath -> IO ()
 saveReviewedEnvChange mctx name ns selection dry sourceName change output = do
   unless (not dry && selectedScopes selection `elem` [[Runtime], [Build], [Preview]])
     (dieT "reviewed env changes require one scope and no --dry-run")
@@ -8846,8 +8848,12 @@ saveReviewedEnvChange mctx name ns selection dry sourceName change output = do
     (compile name ns cluster namespaceId desired source)
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope channel NE.:| []))
-  Inventory.planInventoryCandidateWith
-    (inventoryPlanRegistryWithNative active workspace native) active candidate output
+  case output of
+    Nothing -> Inventory.convergeInventoryCandidateWith
+      (inventoryPlanRegistryWithNative active workspace native)
+      (inventoryExecutionRegistry mctx) active candidate
+    Just directory -> Inventory.planInventoryCandidateWith
+      (inventoryPlanRegistryWithNative active workspace native) active candidate directory
 
 runSecret :: Maybe String -> SecretCommand -> IO ()
 runSecret mctx = \case
@@ -8860,14 +8866,14 @@ runSecret mctx = \case
           (either dieT pure . Resource.mkName . T.pack) rawVersion
         val <- readSecretValue
         saveReviewedSecretChange mctx name ns sel "secret set" version
-          (Right . Map.insert (T.pack key) val) output
+          (Right . Map.insert (T.pack key) val) (Just output)
       Nothing | isJust rawVersion -> do
         when dry (dieT "reviewed Secret set cannot use --dry-run")
         version <- maybe (dieT "reviewed Secret set requires --version")
           (either dieT pure . Resource.mkName . T.pack) rawVersion
         val <- readSecretValue
         saveReviewedSecretChange mctx name ns sel "secret set" version
-          (Right . Map.insert (T.pack key) val) ""
+          (Right . Map.insert (T.pack key) val) Nothing
       Nothing -> do
         refuseDirectStoreMutationIfOwned mctx True name ns (selectedScopes sel)
         val <- readSecretValue
@@ -8893,7 +8899,7 @@ runSecret mctx = \case
         saveReviewedSecretChange mctx name ns sel "secret delete" version
           (\existing -> if Map.member (T.pack key) existing
             then Right (Map.delete (T.pack key) existing)
-            else Left "Secret key is absent from the accepted channel") output
+            else Left "Secret key is absent from the accepted channel") (Just output)
       Nothing | isJust rawVersion -> do
         when dry (dieT "reviewed Secret delete cannot use --dry-run")
         version <- maybe (dieT "reviewed Secret delete requires --version")
@@ -8901,7 +8907,7 @@ runSecret mctx = \case
         saveReviewedSecretChange mctx name ns sel "secret delete" version
           (\existing -> if Map.member (T.pack key) existing
             then Right (Map.delete (T.pack key) existing)
-            else Left "Secret key is absent from the accepted channel") ""
+            else Left "Secret key is absent from the accepted channel") Nothing
       Nothing -> do
         refuseDirectStoreMutationIfOwned mctx True name ns (selectedScopes sel)
         forM_ (selectedScopes sel) $ \scope -> do
@@ -8917,10 +8923,10 @@ runSecret mctx = \case
     raw <- TIO.readFile dotenvPath
     incoming <- either (const (dieT "invalid secret dotenv file")) pure (parseDotenv raw)
     saveReviewedSecretChange mctx name ns sel (T.pack dotenvPath) version
-      (const (Right incoming)) (fromMaybe "" output)
+      (const (Right incoming)) output
 
 saveReviewedSecretChange :: Maybe String -> Text -> Text -> ScopeSelection -> Text
-  -> Resource.Name -> (Map Text Text -> Either Text (Map Text Text)) -> FilePath -> IO ()
+  -> Resource.Name -> (Map Text Text -> Either Text (Map Text Text)) -> Maybe FilePath -> IO ()
 saveReviewedSecretChange mctx name ns selection sourceName version change output = do
   unless (selectedScopes selection `elem` [[Runtime], [Build], [Preview]])
     (dieT "reviewed Secret changes require exactly one scope")
@@ -8948,12 +8954,12 @@ saveReviewedSecretChange mctx name ns selection sourceName version change output
   either dieT pure (validateSecretRotation snapshot channel)
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope channel NE.:| []))
-  if null output
-    then Inventory.convergeInventoryCandidateWith
+  case output of
+    Nothing -> Inventory.convergeInventoryCandidateWith
       (inventoryPlanRegistryWithNative active workspace native)
       (inventoryExecutionRegistry mctx) active candidate
-    else Inventory.planInventoryCandidateWith
-      (inventoryPlanRegistryWithNative active workspace native) active candidate output
+    Just directory -> Inventory.planInventoryCandidateWith
+      (inventoryPlanRegistryWithNative active workspace native) active candidate directory
 
 -- | Print the rendered ConfigMap (dry-run) or write the store (otherwise).
 applyOrDryRunEnv :: Bool -> Text -> Text -> EnvScope -> Map Text Text -> IO ()

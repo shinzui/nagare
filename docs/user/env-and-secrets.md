@@ -116,9 +116,9 @@ reads. The grammar:
 
 ```text
 nagarectl env list   APP [-f|--config CONFIG] [--all]
-nagarectl env set    APP KEY VALUE [-f|--config CONFIG] [--runtime] [--build] [--preview] [--dry-run] [--save-plan DIR]
-nagarectl env delete APP KEY       [-f|--config CONFIG] [--runtime] [--build] [--preview] [--dry-run] [--save-plan DIR]
-nagarectl env sync   APP --file FILE [-f|--config CONFIG] [--runtime] [--build] [--preview] [--merge | --reconcile-exact] [--dry-run]
+nagarectl env set    APP KEY VALUE [-f|--config CONFIG] [--runtime] [--build] [--preview] [--dry-run] [--reviewed] [--save-plan DIR]
+nagarectl env delete APP KEY       [-f|--config CONFIG] [--runtime] [--build] [--preview] [--dry-run] [--reviewed] [--save-plan DIR]
+nagarectl env sync   APP --file FILE [-f|--config CONFIG] [--runtime] [--build] [--preview] [--merge | --reconcile-exact] [--dry-run] [--reviewed] [--save-plan DIR]
 nagarectl secret set    APP KEY    [-f|--config CONFIG] [--runtime] [--build] [--preview] [--dry-run] [--version TOKEN] [--save-plan DIR]   # value from stdin
 nagarectl secret list   APP        [-f|--config CONFIG] [--all]
 nagarectl secret delete APP KEY    [-f|--config CONFIG] [--runtime] [--build] [--preview] [--dry-run] [--version TOKEN] [--save-plan DIR]
@@ -212,8 +212,10 @@ interpolation (`${X}`) is **not** supported.
 - **`--reconcile-exact`**: make the store *exactly* the file's contents, dropping any key
   not present.
 
-For a Runtime, Build, or Preview ConfigMap owned by inventory history, save a
-review and apply it with the shared inventory command. Each channel has its
+For a Runtime, Build, or Preview ConfigMap owned by inventory history, use
+`--reviewed` to publish and apply the reviewed change in one invocation, or save
+a review and apply it separately with the shared inventory command. When both
+are supplied, `--save-plan` saves the review without applying it. Each channel has its
 own revision, so a later application scope deployment preserves its keys.
 The default reviewed merge reads the accepted channel revision, keeps keys
 absent from the file, and binds the complete result to that revision. Pass
@@ -222,6 +224,9 @@ accepted platform Namespace. A preexisting unmanaged ConfigMap requires
 reviewed adoption before its first managed write.
 
 ```bash
+nagarectl env sync envdemo --file .env.production --reviewed
+
+# Or inspect the review before applying it:
 nagarectl env sync envdemo --file .env.production --save-plan env-review
 nagarectl inventory apply env-review --yes
 ```
@@ -231,10 +236,10 @@ Runtime channel. The Build ConfigMap feeds the existing image-build argument
 reader; its keys do not enter the running container. Preview overlays read
 their separate ConfigMap after Runtime, so Preview keys win there. One review
 selects exactly one channel. `env set` and `env delete` also accept
-`--save-plan DIR` for a reviewed single-key change. Set merges the new value
+`--reviewed` or `--save-plan DIR` for a reviewed single-key change. Set merges the new value
 with accepted channel history; delete requires the key to exist there. These
 reviewed commands use the same private native evidence and revision binding as
-`env sync --save-plan`.
+`env sync --reviewed` and `env sync --save-plan`.
 
 Runtime, Build, and Preview Secret values also have separate reviewed
 input channels. `secret set` and `secret delete` use `--version TOKEN` to
