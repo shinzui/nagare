@@ -239,7 +239,9 @@ refuse. For each retained server volume, add
 `--volume-recovery VOLUME=BACKUP:KEY:VERSION` to the saved-plan command. The
 review declares the rendered PVC before the Service and keeps the backup/key
 recovery identity with that durable resource. Supported previews and site
-rollback can also be saved for review as described below.
+rollback can also be saved for review as described below. Direct server deploy
+refuses a PVC address held in accepted or retained inventory history, even if
+its Service has already been collected.
 
 For a site created by the direct deploy path, save the full legacy release
 ConfigMap JSON to a private file. Prepare a versioned adoption proposal using

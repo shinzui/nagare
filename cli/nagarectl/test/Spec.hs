@@ -3928,12 +3928,19 @@ staticInventoryTests =
       releaseMember <- maybe (fail "missing release member") (pure . fst)
         (Map.lookup releaseId native)
       assertBool "direct site write missed retained release history"
-        (siteNativeOwned "demo" "personal" [] True [releaseMember])
+        (siteNativeOwned "demo" "personal" [] [] True [releaseMember])
       assertBool "preview falsely writes production release history"
-        (not (siteNativeOwned "demo" "personal" [] False [releaseMember]))
+        (not (siteNativeOwned "demo" "personal" [] [] False [releaseMember]))
       let domainMembers = filter (not . null . (^. #aliases)) members
       assertBool "direct site write missed owned domain"
-        (siteNativeOwned "other" "personal" ["demo.example.com"] False domainMembers)
+        (siteNativeOwned "other" "personal" ["demo.example.com"] [] False domainMembers)
+      let retainedClaim = releaseMember & #address .~ unsafe
+            (Resource.kubernetesAddress cluster "v1" "PersistentVolumeClaim"
+              (Just "personal") (pvcName "demo" "data"))
+      assertBool "direct server deploy missed retained PVC after Service collection"
+        (siteNativeOwned "demo" "personal" [] ["data"] False [retainedClaim])
+      assertBool "direct server deploy matched an unrelated retained PVC"
+        (not (siteNativeOwned "demo" "personal" [] ["other"] False [retainedClaim]))
       assertBool "static release accepted a different image tag"
         (isLeft (compileStaticSiteScope inputs cluster namespaceId imageId Map.empty
           emptyReleaseLog (release {imageTag = "other"}) source))

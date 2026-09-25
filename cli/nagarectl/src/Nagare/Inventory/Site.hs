@@ -579,12 +579,14 @@ siteSecretDependency cluster ns bindings secretName = do
 
 -- | Direct site commands must check every native address they may write,
 -- including release history retained after the Service has been collected.
-siteNativeOwned :: T.Text -> T.Text -> [T.Text] -> Bool -> [ManagedResource] -> Bool
-siteNativeOwned name ns domains writesHistory = any matches
+siteNativeOwned :: T.Text -> T.Text -> [T.Text] -> [T.Text] -> Bool
+  -> [ManagedResource] -> Bool
+siteNativeOwned name ns domains volumes writesHistory = any matches
   where
     targets = Set.fromList
       ([ ("serving.knative.dev", "service", name) ]
         <> [("serving.knative.dev", "domainmapping", domain) | domain <- domains]
+        <> [("", "persistentvolumeclaim", pvcName name volume) | volume <- volumes]
         <> [("", "configmap", "nagare-static-releases-" <> name) | writesHistory])
     matches resource = case resource ^. #address of
       Kubernetes _ group kind (Just namespaceName) nativeName ->

@@ -6914,7 +6914,7 @@ runSiteDeploy mctx sopts = do
               (dieT "static-site inventory options require --save-plan")
             refuseDirectSiteMutationIfOwned mctx "site deploy"
               (siteNameText (s ^. #name)) (namespaceText (s ^. #namespace))
-              (siteHostnames (s ^. #domains)) True
+              (siteHostnames (s ^. #domains)) [] True
             deployStatic mctx tp sopts (s & #image %~ const qimg) bd
           Just output -> runStaticSiteDeployPlan mctx tp sopts
             (s & #image %~ const qimg) bd output
@@ -6934,7 +6934,8 @@ runSiteDeploy mctx sopts = do
               (dieT "server-site inventory options require --save-plan")
             refuseDirectSiteMutationIfOwned mctx "site deploy"
               (siteNameText (s ^. #name)) (namespaceText (s ^. #namespace))
-              (siteHostnames (s ^. #domains)) True
+              (siteHostnames (s ^. #domains))
+              (map (volumeNameText . (^. #name)) (s ^. #volumes)) True
             deployServer mctx tp sopts (s & #image %~ const qimg) bd
           Just output -> runServerSiteDeployPlan mctx tp sopts
             (s & #image %~ const qimg) bd output
@@ -7267,7 +7268,7 @@ runDirectSiteRollback mctx tp sc bd rid = do
       hosts = case sc of
         Load.SiteStatic site -> siteHostnames (site ^. #domains)
         Load.SiteServer site -> siteHostnames (site ^. #domains)
-  refuseDirectSiteMutationIfOwned mctx "site rollback" name ns hosts True
+  refuseDirectSiteMutationIfOwned mctx "site rollback" name ns hosts [] True
   elog <- readReleaseLog name ns
   logv <- case elog of
     Left err -> dieT err
@@ -7403,7 +7404,7 @@ runDirectStaticPreview mctx tp sopts site bd pname = do
   pdomText <- orDie (previewDomain (siteNameText (site ^. #name)) pname bd)
   refuseDirectSiteMutationIfOwned mctx "site preview deploy"
     (m ^. #serviceName) (namespaceText (site ^. #namespace))
-    [pdomText] False
+    [pdomText] [] False
   if sopts ^. #dryRun
     then do
       printNamespaceAction (namespaceText (site ^. #namespace))
@@ -7544,7 +7545,7 @@ runPreviewDelete mctx options pname = do
       case site of
         Load.SiteServer _ -> dieT "server preview deletion requires --save-plan"
         Load.SiteStatic _ -> pure ()
-      refuseDirectSiteMutationIfOwned mctx "site preview delete" svcName ns [pdomText] False
+      refuseDirectSiteMutationIfOwned mctx "site preview delete" svcName ns [pdomText] [] False
       deletePreview ns svcName pdomText
       TIO.putStrLn ("Deleted preview: " <> svcName)
     Just output -> do
@@ -8360,10 +8361,11 @@ refuseDirectServiceMutationIfOwned mctx operation name namespaceName =
         (ownedHistoryResources history))
       (dieT ("Service " <> name <> " is owned by accepted or retained inventory history; direct " <> operation <> " is refused"))
 
-refuseDirectSiteMutationIfOwned :: Maybe String -> Text -> Text -> Text -> [Text] -> Bool -> IO ()
-refuseDirectSiteMutationIfOwned mctx operation name namespaceName domains writesHistory =
+refuseDirectSiteMutationIfOwned
+  :: Maybe String -> Text -> Text -> Text -> [Text] -> [Text] -> Bool -> IO ()
+refuseDirectSiteMutationIfOwned mctx operation name namespaceName domains volumes writesHistory =
   withAcceptedInventoryHistory mctx operation $ \history ->
-    when (siteNativeOwned name namespaceName domains writesHistory
+    when (siteNativeOwned name namespaceName domains volumes writesHistory
         (ownedHistoryResources history))
       (dieT ("site " <> name <> " has an accepted or retained native address; direct "
         <> operation <> " is refused"))
