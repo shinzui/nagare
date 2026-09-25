@@ -606,4 +606,6 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 
 2026-09-24: EP-148 added an optional canonical typed-config digest to the immutable scope document and now records it for reviewed applications, standalone Services, workers, and manual Jobs derived from accepted CronJobs. Old scopes remain readable. Reviewed app deploy also retains its public tag, base-domain, image-resource, and namespace-request overrides. Remaining input evidence, full render parity, and complete application effects still gate M1.
 
-2026-09-24: EP-148 routes application `--dry-run` through the same supported scope compiler as saved review. Its public output includes declared identities or canonical scope JSON without private native manifests. The direct live renderer, CDN and hook effects, and end-to-end replay still gate M1.
+2026-09-24: EP-148 routes application `--dry-run` through the same supported scope compiler as saved review. Its public output includes declared identities or canonical scope JSON without private native manifests. The direct live renderer, CDN and hook effects, and full application replay still gate M1.
+
+2026-09-24: EP-148 verified native review and interrupted replay of a two-worker application plus release ConfigMap in a minimal disposable k3d context. Exact live membership matched the saved native review, and resume used that review after a simulated lost acknowledgement without a source checkout or duplicate write. Broader application membership and remaining M1 effects are still open.

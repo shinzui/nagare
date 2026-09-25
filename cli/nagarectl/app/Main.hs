@@ -1536,7 +1536,7 @@ appDeployOptsParser defaultFile =
     <*> dryRunOpt
     <*> switch
       ( long "json"
-          <> help "With --dry-run, emit the reviewed scope as one public JSON document"
+          <> help "With --dry-run, emit the compiled scope as one public JSON document"
       )
     <*> optional
       ( strOption
@@ -7782,7 +7782,7 @@ runAppDeployPlan mctx params appOptions output = do
       if appOptions ^. #json
         then BC.putStrLn (ResourceWire.encodeCanonicalScope scope)
         else do
-          TIO.putStrLn ("Reviewed application scope " <> T.pack (show (ResourceInventory.scopeId scope)))
+          TIO.putStrLn ("Application scope preview " <> T.pack (show (ResourceInventory.scopeId scope)))
           forM_ (ResourceInventory.scopeBundles scope) $ \bundle ->
             forM_ (ResourceInventory.declarations bundle) $ \declaration ->
               let address = case declaration of

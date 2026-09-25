@@ -620,7 +620,7 @@ guarantee, not a runbook step. Because the migration is re-run on every deploy,
 it must be idempotent at the SQL level (the standard "migrations tracked in a
 table" discipline) — an already-applied migration must be a no-op.
 
-The reviewed `--dry-run --json` path requires an accepted image, an explicit
+The inventory-backed `--dry-run --json` path requires an accepted image, an explicit
 tag, and any required recovery bindings. It refuses this example while its
 aggregate migration hook lacks a reviewed Job operation. For a supported
 application, it emits the canonical public scope document, including its

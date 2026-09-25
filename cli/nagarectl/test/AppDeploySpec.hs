@@ -8,13 +8,17 @@
 module AppDeploySpec (appDeployTests) where
 
 import Control.Monad (forM_)
+import Control.Exception (finally)
 import Data.Aeson qualified as Aeson
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BC
 import Data.ByteString.Lazy qualified as LBS
 import Data.Either (isLeft)
+import Data.Foldable (toList)
 import Data.Generics.Labels ()
-import Data.IORef (modifyIORef', newIORef, readIORef)
+import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
+import Data.List (sort)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map qualified as Map
 import Data.Set qualified as Set
@@ -27,7 +31,14 @@ import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.App.Deployments (appDeploymentsPrefix)
 import Nagare.App.Deploy
 import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedAccessBinding, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, standaloneWorkerVolumeRecoveryBindings, nativeWorkloadOwned, compileApplicationScope, compileApplicationService, compileStandaloneService, compileStandaloneServiceWithBrokers, compileStandaloneServiceWithDependencies, compileStandaloneServiceWithRelease, compileStandaloneWorker, compileStandaloneWorkerWithDependencies, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings, legacyApplicationReleaseImport, workerRetirementScope)
+import Nagare.Inventory.Adapter
+import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps (..), KubernetesMutation (..), mkKubernetesAdapter)
+import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), mkKubernetesRuntimeOps)
 import Nagare.Inventory.DataService (compileStandaloneBroker, compileStandaloneDatabase)
+import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
+import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
+import Nagare.Inventory.Plan
+import Nagare.Inventory.Store
 import Nagare.Dsl.Broker (BrokerBinding (..), mkTopicName)
 import Nagare.Dsl.Access (authPortal, requireLogin)
 import Nagare.Resource.Application (applicationScopeId, volumeResourceId)
@@ -41,13 +52,16 @@ import Nagare.Dsl.Load (loadApplication, loadBroker)
 import Nagare.Dsl.Database (dbSecretName)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (AccessMode (ReadWriteOnce), DomainTls (SuppliedTlsSecret), EnvScope (Build), EnvVar (EnvSecretRef), RetentionPolicy (Retain), Volume (..), databaseNameText, imageRefText, mkDomains, mkEnvName, mkImageRef, mkMountPath, mkNamespace, mkQuantity, mkSecretName, mkServiceName, mkVolumeName, runtimeScoped, scopedEnv, serviceNameText)
-import Nagare.Dsl.Worker (Worker (..))
+import Nagare.Dsl.Worker (Worker (..), mkReplicas)
 import Nagare.Deploy (serviceUrl)
 import Nagare.Static.Release (StaticRelease (..), StaticReleaseLog (..), addRelease, emptyReleaseLog, renderReleaseConfigMapWith)
 import Nagare.Dsl.Presets (attachVolume)
 import Nagare.Env.Generated (mergeGenerated)
 import Nagare.Target (InventoryStoreKind (..), Mode (..), PulumiBackendKind (..), TargetProfile (..))
 import System.Exit (ExitCode (..))
+import System.Directory (doesFileExist)
+import System.Environment (lookupEnv)
+import System.Process (readProcessWithExitCode)
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -56,6 +70,7 @@ appDeployTests =
   testGroup
     "Nagare.App.Deploy (EP-2)"
     [ testGroup "render + shared label (M1)" renderTests
+    , testCase "disposable application review resumes from saved native members" nativeApplicationReview
     , testGroup "rollout phases (M2)" phaseTests
     , testGroup "machine-readable plan (M3)" planTests
     , testGroup "remediation guardrails (EP-6)" remediationTests
@@ -110,6 +125,158 @@ testProfile =
     , acmeDirectory = "production"
     , platformVersion = Nothing
     }
+
+nativeApplicationReview :: IO ()
+nativeApplicationReview = do
+  selected <- lookupEnv "NAGARE_EP148_TEST_CONTEXT"
+  case selected of
+    Nothing -> pure ()
+    Just selectedContext -> do
+      assertBool "refusing a non-disposable Kubernetes context"
+        ("k3d-nagare-inventory-" `T.isPrefixOf` T.pack selectedContext)
+      loaded <- loadApplication fixturePath
+      original <- either (fail . show) pure loaded
+      let checked :: Show e => Either e a -> a
+          checked = either (error . show) id
+          defaultNs = checked (mkNamespace "default")
+          workers = take 2
+            [worker & #namespace .~ defaultNs & #databases .~ []
+                & #replicas .~ checked (mkReplicas 0)
+            | worker <- original ^. #workers]
+          app = original & #namespace .~ defaultNs & #service .~ Nothing
+            & #databases .~ [] & #tasks .~ [] & #workers .~ workers
+          rollout = testEnv & #namespace .~ "default" & #appEnv .~ app ^. #env
+          foundation = checked (Resource.mkScopeId Resource.Platform "foundation")
+          cluster = Resource.mintResourceId foundation
+            (checked (Resource.mkLogicalKey "cluster")) (checked (Resource.mkName "resource"))
+          namespaceId = Resource.mintResourceId foundation
+            (checked (Resource.mkLogicalKey "foundation")) (checked (Resource.mkName "namespace-default"))
+          publication = Resource.mintResourceId foundation
+            (checked (Resource.mkLogicalKey "image")) (checked (Resource.mkName "publication"))
+          foundationSource = Resource.SourceLocation "fixture" "foundation"
+          foundationScope = checked (mkScopeDeclaration foundation [ResourceBundle
+            [ External cluster (Resource.CloudInstance
+                (checked (Resource.mkName "project")) (checked (Resource.mkName "zone"))
+                (checked (Resource.mkName "cluster"))) [] foundationSource
+            , External namespaceId (Resource.Kubernetes cluster ""
+                (checked (Resource.mkName "namespace")) Nothing
+                (checked (Resource.mkName "default"))) [] foundationSource
+            , External publication (Resource.Artifact (checked (Resource.mkName "image"))
+                (checked (Resource.mkContentDigest (T.replicate 64 "0")))) [] foundationSource
+            ] [] [] [] [] []])
+          tag = rollout ^. #effectiveTag
+          release = StaticRelease tag "kizashi" "default"
+            (imageRefText (rollout ^. #qualifiedImage)) tag ""
+            (Just "fixture") (UTCTime (fromGregorian 2026 6 19) 0)
+          input = ApplicationScopeInput
+            { scopeApplication = app
+            , scopeRollout = rollout
+            , scopeCluster = cluster
+            , scopeNamespace = namespaceId
+            , scopeNamespaceContributionOwner = Nothing
+            , scopeImage = publication
+            , scopeBrokerServices = Map.empty
+            , scopeBrokerTopics = Map.empty
+            , scopeAccessBinding = Nothing
+            , scopeDatabaseRecovery = Map.empty
+            , scopeServiceVolumeRecovery = Map.empty
+            , scopeTlsSecrets = Map.empty
+            , scopeEnvSecrets = Map.empty
+            , scopeWorkerVolumeRecovery = Map.empty
+            , scopeBackupBackend = GcsBackend "project" "bucket"
+            , scopeRelease = (emptyReleaseLog, release)
+            , scopeInputOverrides = Map.fromList
+                [("tag", rollout ^. #imageTag)
+                , ("imageResource", Resource.resourceIdText publication)]
+            , scopeSource = Resource.SourceLocation "absent-source/Config.hs" "application"
+            }
+          (scope, native) = checked (compileApplicationScope input)
+          binding = Resource.ContextBinding
+            (checked (Resource.mkContextId "ep148-native")) (checked (Resource.mkName "project"))
+          accepted = checked (mkScopeSnapshot binding
+            (Map.singleton foundation (checked (Resource.mkScopeGeneration 1), foundationScope))
+            Map.empty)
+          candidate = checked (composeInventory accepted (ReplaceScope scope :| []))
+          config = KubernetesRuntimeConfig (checked (Resource.mkContextId "ep148-native"))
+            (T.pack selectedContext) (pure (Right ()))
+          cleanup = forM_ [(Resource.nameText kind, Resource.nameText name)
+              | (member, _) <- Map.elems native
+              , Resource.Kubernetes _ _ kind _ name <- [member ^. #address]] $ \(kind, name) -> do
+                _ <- readProcessWithExitCode "kubectl"
+                  ["--context", selectedContext, "--namespace", "default", "delete", T.unpack kind,
+                    T.unpack name, "--ignore-not-found", "--wait=false"] ""
+                pure ()
+      Map.size native @?= 3
+      cleanup
+      (do
+        calls <- newIORef Map.empty
+        interrupted <- newIORef False
+        firstResource <- newIORef Nothing
+        let makeRegistry retained =
+              let nativeOps = mkKubernetesRuntimeOps config retained
+                  guardedOps = nativeOps
+                    { kubernetesMutateConditional = \mutation -> do
+                        modifyIORef' calls (Map.insertWith (+) (mutationResource mutation) (1 :: Int))
+                        effect <- kubernetesMutateConditional nativeOps mutation
+                        alreadyInterrupted <- readIORef interrupted
+                        if effect == AdapterEffectCompleted && not alreadyInterrupted
+                          then do
+                            writeIORef interrupted True
+                            writeIORef firstResource (Just (mutationResource mutation))
+                            pure (AdapterEffectAmbiguous "simulated lost acknowledgement")
+                          else pure effect
+                    }
+               in checked (mkAdapterRegistry [mkKubernetesAdapter retained guardedOps])
+        store <- newMemoryStore
+        _ <- initializeStore store binding "ep148-test" >>= either (fail . show) pure
+        _ <- seedInventoryHistory store candidate >>= either (fail . show) pure
+        history <- loadInventoryHistory store >>= either (fail . show) pure
+        let registry = makeRegistry native
+            requirements = observationRequirements candidate history
+        observed <- observeWithRegistry registry (requirementsByExecutor requirements)
+          >>= either (fail . show) pure
+        let proposal = checked (planChanges candidate noLifecycleDecisions history observed)
+        snapshotBefore <- readStoreSnapshot store >>= either (fail . show) pure
+        reviewBundle <- prepareReview registry snapshotBefore proposal >>= either (fail . show) pure
+        kubernetesSpecsFromReview reviewBundle @?= Right native
+        doesFileExist "absent-source/Config.hs" >>= (@?= False)
+        _ <- publishReview store reviewBundle >>= either (fail . show) pure
+        snapshotAfter <- readStoreSnapshot store >>= either (fail . show) pure
+        reviewed <- either (fail . show) pure (verifyReview snapshotAfter reviewBundle)
+        let registryFromReview = makeRegistry (checked (kubernetesSpecsFromReview reviewBundle))
+        result <- applyReviewed store registryFromReview reviewed >>= either (fail . show) pure
+        transaction <- case result of
+          StoppedAmbiguous token _ -> pure token
+          other -> assertFailure ("application did not pause after lost acknowledgement: " <> show other)
+            >> fail "expected interrupted application"
+        resumed <- resumeTransaction store registryFromReview transaction >>= either (fail . show) pure
+        resumed @?= Converged transaction
+        (listingExit, listingBytes, _) <- readProcessWithExitCode "kubectl"
+          ["--context", selectedContext, "--namespace", "default", "get",
+            "deployment,configmap", "-o", "json"] ""
+        listingExit @?= ExitSuccess
+        let listed = case Aeson.eitherDecodeStrict (BC.pack listingBytes) of
+              Right (Aeson.Object root) -> case KeyMap.lookup "items" root of
+                Just (Aeson.Array items) ->
+                  sort [(T.toLower kind, name)
+                    | Aeson.Object item <- toList items
+                    , Just (Aeson.String kind) <- [KeyMap.lookup "kind" item]
+                    , Just (Aeson.Object metadata) <- [KeyMap.lookup "metadata" item]
+                    , Just (Aeson.String name) <- [KeyMap.lookup "name" metadata]
+                    , "kizashi" `T.isPrefixOf` name
+                        || name == "nagare-app-deployments-kizashi"]
+                _ -> []
+              _ -> []
+            expected = sort [(Resource.nameText kind, Resource.nameText name)
+              | (member, _) <- Map.elems native
+              , Resource.Kubernetes _ _ kind _ name <- [member ^. #address]]
+        listed @?= expected
+        firstMutated <- readIORef firstResource
+        counts <- readIORef calls
+        case firstMutated of
+          Nothing -> assertFailure "application did not issue a native mutation"
+          Just resource -> Map.lookup resource counts @?= Just 1
+        ) `finally` cleanup
 
 renderTests :: [TestTree]
 renderTests =

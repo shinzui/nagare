@@ -387,7 +387,7 @@ operation.
 | Command | Does |
 | --- | --- |
 | `nagarectl deploy [-f FILE] [--dry-run]` | Build/push as required, render one typed `Deployment`, apply its PVCs/Service/domains/tasks, and wait for readiness. |
-| `nagarectl app deploy [-f FILE] [--dry-run] [--json]` | Direct live rollout supports hooks; reviewed `--dry-run` requires an explicit tag and accepted image resource, and prints public scope identities or JSON without native Secret values. |
+| `nagarectl app deploy [-f FILE] [--dry-run] [--json]` | Direct live rollout supports hooks; inventory-backed `--dry-run` requires an explicit tag and accepted image resource, and prints public scope identities or JSON without native Secret values. |
 | `nagarectl app list [-n NS] [--all]` | List Nagare-managed Knative apps; `--all` includes unmanaged Services. |
 | `nagarectl app get NAME [-n NS]` | Show image, revision, URL, readiness, and config-enriched limits/domains when available. |
 | `nagarectl app logs NAME [--follow] [--tail N]` | Show or stream current app logs. |
