@@ -13,6 +13,7 @@ module Nagare.Inventory.Application
   , compileApplicationWorkers
   , compileStandaloneWorker
   , compileStandaloneWorkerWithDependencies
+  , recordReviewedStandaloneOverrides
   , compileApplicationTasks
   , applicationNativeOwned
   , nativeWorkloadOwned
@@ -95,6 +96,22 @@ configDigestOf :: LBS.ByteString -> Either T.Text ContentDigest
 configDigestOf bytes = do
   value <- first T.pack (eitherDecodeStrict (LBS.toStrict bytes) :: Either String Value)
   contentDigest <$> canonicalValue value
+
+-- | Bind public command inputs to the standalone scope only after checking
+-- that they agree with the rollout and accepted image used by its compiler.
+recordReviewedStandaloneOverrides
+  :: RolloutEnv -> ResourceId -> Map T.Text T.Text -> ScopeDeclaration
+  -> Either (NonEmpty InventoryError) ScopeDeclaration
+recordReviewedStandaloneOverrides rollout imageId overrides scope = do
+  unless (scopeKind (scopeId scope) == Standalone && isJust (scopeConfigDigest scope)
+      && Map.keysSet overrides `Set.isSubsetOf`
+        Set.fromList ["tag", "baseDomain", "imageResource"]
+      && Map.lookup "tag" overrides == Just (rollout ^. #imageTag)
+      && Map.lookup "imageResource" overrides == Just (resourceIdText imageId)
+      && maybe True (== rollout ^. #baseDomain) (Map.lookup "baseDomain" overrides))
+    (Left (inventoryError "invalid-standalone-overrides"
+      "standalone command overrides differ from reviewed rollout inputs" :| []))
+  pure (withScopeOverrides overrides scope)
 
 -- | Match every native object that the legacy aggregate deploy can write.
 -- The check uses provider addresses so a renamed logical key cannot bypass

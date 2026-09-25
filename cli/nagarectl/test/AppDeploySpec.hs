@@ -30,7 +30,7 @@ import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.App.Deployments (appDeploymentsPrefix)
 import Nagare.App.Deploy
-import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedAccessBinding, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, standaloneWorkerVolumeRecoveryBindings, nativeWorkloadOwned, compileApplicationScope, compileApplicationService, compileStandaloneService, compileStandaloneServiceWithBrokers, compileStandaloneServiceWithDependencies, compileStandaloneServiceWithRelease, compileStandaloneWorker, compileStandaloneWorkerWithDependencies, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings, legacyApplicationReleaseImport, workerRetirementScope)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedAccessBinding, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, standaloneWorkerVolumeRecoveryBindings, nativeWorkloadOwned, compileApplicationScope, compileApplicationService, compileStandaloneService, compileStandaloneServiceWithBrokers, compileStandaloneServiceWithDependencies, compileStandaloneServiceWithRelease, compileStandaloneWorker, compileStandaloneWorkerWithDependencies, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings, legacyApplicationReleaseImport, recordReviewedStandaloneOverrides, workerRetirementScope)
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps (..), KubernetesMutation (..), mkKubernetesAdapter)
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), mkKubernetesRuntimeOps)
@@ -765,6 +765,16 @@ renderTests =
       (standaloneBrokerScope, standaloneBrokerNative) <- either (fail . show) pure
         (compileStandaloneWorker standaloneOwner standaloneWorker workerRollout cluster
           namespaceId publication Map.empty Map.empty brokerServices (scopeSource input))
+      let workerOverrides = Map.fromList
+            [("tag", workerRollout ^. #imageTag)
+            , ("imageResource", Resource.resourceIdText publication)]
+      reviewedWorker <- either (fail . show) pure
+        (recordReviewedStandaloneOverrides workerRollout publication workerOverrides standaloneBrokerScope)
+      fmap scopeOverrides (decodeScope (encodeCanonicalScope reviewedWorker))
+        @?= Right workerOverrides
+      assertBool "standalone worker accepted a false image override"
+        (isLeft (recordReviewedStandaloneOverrides workerRollout publication
+          (Map.insert "imageResource" "other" workerOverrides) standaloneBrokerScope))
       let standaloneMembers =
             [member | bundle <- scopeBundles standaloneBrokerScope
             , Managed member <- declarations bundle]
@@ -792,6 +802,17 @@ renderTests =
         (compileStandaloneServiceWithRelease serviceOwner independentService serviceRollout
           cluster namespaceId publication Map.empty Map.empty Map.empty brokerServices Map.empty
           Map.empty Nothing emptyReleaseLog release (scopeSource input))
+      let serviceOverrides = Map.fromList
+            [("tag", serviceRollout ^. #imageTag)
+            , ("baseDomain", serviceRollout ^. #baseDomain)
+            , ("imageResource", Resource.resourceIdText publication)]
+      reviewedService <- either (fail . show) pure
+        (recordReviewedStandaloneOverrides serviceRollout publication serviceOverrides standaloneReleasedScope)
+      fmap scopeOverrides (decodeScope (encodeCanonicalScope reviewedService))
+        @?= Right serviceOverrides
+      assertBool "standalone Service accepted a false domain override"
+        (isLeft (recordReviewedStandaloneOverrides serviceRollout publication
+          (Map.insert "baseDomain" "other.example" serviceOverrides) standaloneReleasedScope))
       let standaloneReleaseMembers = [member | bundle <- scopeBundles standaloneReleasedScope,
             Managed member <- declarations bundle,
             case member ^. #address of

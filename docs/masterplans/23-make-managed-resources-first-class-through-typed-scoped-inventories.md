@@ -609,3 +609,5 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 2026-09-24: EP-148 routes application `--dry-run` through the same supported scope compiler as saved review. Its public output includes declared identities or canonical scope JSON without private native manifests. The direct live renderer, CDN and hook effects, and full application replay still gate M1.
 
 2026-09-24: EP-148 verified native review and interrupted replay of a two-worker application plus release ConfigMap in a minimal disposable k3d context. Exact live membership matched the saved native review, and resume used that review after a simulated lost acknowledgement without a source checkout or duplicate write. Broader application membership and remaining M1 effects are still open.
+
+2026-09-24: EP-148 now records and verifies explicit tag and image-resource overrides for reviewed standalone Service and worker scopes, plus the Service base-domain override. The canonical scope preserves these inputs with the accepted config digest; remaining M1 gates and the EP-150 hard dependency are unchanged.

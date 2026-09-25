@@ -276,7 +276,7 @@ import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.Application (ApplicationScopeInput (..), DatabaseBinding, acceptedAccessBinding, acceptedApplicationImage, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationScope, compileStandaloneServiceWithRelease, compileStandaloneWorkerWithDependencies, databaseRecoveryBindings, legacyApplicationReleaseImport, legacyStandaloneReleaseImport, nativeWorkloadOwned, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), DatabaseBinding, acceptedAccessBinding, acceptedApplicationImage, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationScope, compileStandaloneServiceWithRelease, compileStandaloneWorkerWithDependencies, databaseRecoveryBindings, legacyApplicationReleaseImport, legacyStandaloneReleaseImport, nativeWorkloadOwned, recordReviewedStandaloneOverrides, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
 import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteReleaseLog, acceptedSiteSource, compileServerSitePreviewScope, compileServerSiteRollbackScope, compileServerSiteScope, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteScope, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteNativeOwned, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
 import Nagare.Inventory.TaskRun (compileTaskRunScope)
 import Nagare.Inventory.Lifecycle qualified as InventoryLifecycle
@@ -6713,10 +6713,16 @@ runDeployPlan mctx options output = do
         (dieT "inline Service import requires candidate '.' in its adoption proposal")
       pure (prior, currentRelease, Just proposal)
     _ -> dieT "legacy release import options are incomplete"
-  (scope, native) <- either (dieT . T.pack . show) pure
+  (compiledScope, native) <- either (dieT . T.pack . show) pure
     (compileStandaloneServiceWithRelease owner service rollout cluster namespaceId imageId
       volumeRecovery tlsSecrets envSecrets brokerServices brokerTopics databaseBindings accessBinding
       priorReleases release source)
+  scope <- either (dieT . T.pack . show) pure
+    (recordReviewedStandaloneOverrides rollout imageId
+      (Map.fromList
+        ([("tag", T.pack selected) | selected <- maybe [] pure (options ^. #tag)]
+          <> [("baseDomain", T.pack selected) | selected <- maybe [] pure (options ^. #baseDomain)]
+          <> [("imageResource", imageText)])) compiledScope)
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
   case adoption of
@@ -8539,9 +8545,14 @@ runWorkerPlan mctx options output = do
   envSecrets <- either dieT pure (acceptedSecretBindings snapshot envIds)
   let source = Resource.SourceLocation (T.pack (options ^. #file))
         (serviceNameText (worker ^. #name))
-  (scope, native) <- either (dieT . T.pack . show) pure
+  (compiledScope, native) <- either (dieT . T.pack . show) pure
     (compileStandaloneWorkerWithDependencies owner worker rollout cluster namespaceId imageId
       recovery envSecrets brokerServices brokerTopics databaseBindings source)
+  scope <- either (dieT . T.pack . show) pure
+    (recordReviewedStandaloneOverrides rollout imageId
+      (Map.fromList
+        ([("tag", T.pack selected) | selected <- maybe [] pure (options ^. #tag)]
+          <> [("imageResource", imageText)])) compiledScope)
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
   Inventory.planInventoryCandidateWith
