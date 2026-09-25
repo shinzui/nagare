@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-24
+* **Update**: Explain dependency-ordered preview collection and conditional deletion of delete-policy PVCs after their Service.
 * **Update**: Document reviewed server preview PVC ownership, retained-volume recovery, and current PVC collection limit.
 * **Update**: Document reviewed stateless server previews and their Runtime Secret dependencies.
 * **Update**: Document exact adoption of existing direct static previews into their reviewed scope.

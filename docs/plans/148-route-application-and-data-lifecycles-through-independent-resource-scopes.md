@@ -57,6 +57,11 @@ provenance:
       at: 2026-09-25T02:28:16Z
       mode: "implement"
       note: "Bind preview PVCs and retained-volume recovery"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-25T02:34:18Z
+      mode: "implement"
+      note: "Conditionally collect preview PVCs after consumers"
 ---
 
 # Route application and data lifecycles through independent resource scopes
@@ -75,7 +80,7 @@ Every supported application-side mutation is either a desired-scope update, a re
 
 Implementation evidence is recorded in the commits linked to this plan and in Surprises & Discoveries. Reviewed application, standalone web Service, and standalone worker scopes, standalone brokers with create-only logical topics, accepted topic-bearing workload bindings, accepted auth backend contributions and central routes, database members, OCI publication, and reviewed set/delete/merge/exact Runtime/Build/app-wide Preview environment and versioned Secret channels are working slices. The four acceptance milestones below remain open: topic updates, complete publication and shared-owner behavior, reviewed operational/data commands, and removal of direct mutation paths still require work. Application, standalone web Service, and standalone worker retirement select accepted native identities and preserve retained resources. Partial slices do not count as completed milestones.
 
-Reviewed application deploy also declares the per-Service release-history ConfigMap, carries forward accepted entries, and offers exact adoption of existing direct-deploy history. Supported static and server production site scopes now declare their Service, domains, release history, server PVCs, accepted runtime Secret dependencies, and supplied TLS Secret dependencies, with exact import of existing direct objects. Site rollback now selects a release from accepted private history and reviews the prior image publication without adding a history entry. Static and server preview deployment has a separate reviewed scope with four accepted overlay stores, exact adoption of existing direct static previews, and reviewed retirement followed by collection. Server previews bind distinct PVCs with explicit recovery for retained volumes; PVC collection, CDN, and server Build/Preview Secret references remain open.
+Reviewed application deploy also declares the per-Service release-history ConfigMap, carries forward accepted entries, and offers exact adoption of existing direct-deploy history. Supported static and server production site scopes now declare their Service, domains, release history, server PVCs, accepted runtime Secret dependencies, and supplied TLS Secret dependencies, with exact import of existing direct objects. Site rollback now selects a release from accepted private history and reviews the prior image publication without adding a history entry. Static and server preview deployment has a separate reviewed scope with four accepted overlay stores, exact adoption of existing direct static previews, and reviewed retirement followed by collection. Server previews bind distinct PVCs with explicit recovery for retained volumes. Delete-policy preview PVCs can be conditionally collected after their Service, while durable PVCs remain retained; CDN and server Build/Preview Secret references remain open.
 
 - [ ] M1: Compile applications and standalone services into complete scopes.
 - [ ] M2: Integrate shared-owner contributions, environment intent, and publication.
@@ -181,6 +186,8 @@ Reviewed application deploy also declares the per-Service release-history Config
 2026-09-24: The server renderer already understands a preview Service name but the CLI had no server-preview route. Reviewed stateless server previews now render that name and automatic-TLS domain with the same Runtime/Preview overlay stores as static previews. Generated identity environment uses the preview name and URL. The compiler binds any Runtime Secret references to exact accepted Secrets and refuses volumes and Build/Preview Secret references until they have distinct claim/publication inputs. Preview list and delete now accept either site kind; direct preview deploy stays static-only.
 
 2026-09-24: Server preview volumes now render PVCs under the derived preview Service name in the same scope as its Service and domain. Retained volumes require explicit recovery intent; delete-policy volumes use the existing stateless claim policy. Reviewed preview retirement checks the exact PVC addresses as well as Service and domain before retiring the scope. The native adapter cannot collect PVCs yet, so retired claims remain visible pending that capability. Direct server preview deletion refuses rather than leaving unreviewed claims behind.
+
+2026-09-24: The guarded Kubernetes collection transport now admits only delete-policy stateless PVCs, using the same exact UID and resourceVersion DeleteOptions as other collected kinds. A disposable PVC passed create, conditional collection, and absence verification. Durable PVCs remain uncollectable. Collection screening counts retained consumers, including members selected in the same review; preview removal therefore collects DomainMapping, then Service, then an eligible PVC in separate reviews.
 
 2026-09-24: The legacy env and Secret store reader had the same failed-read-to-empty behavior. Its JSON extractor also silently dropped any `data` entry whose value was not a string, contrary to its strictness comment. Both stores now accept only a successful empty `--ignore-not-found` response as absence; failed reads, non-object `data`, and non-string values refuse before a merge or exact replacement. Disposable-context reads of absent ConfigMap and Secret names both exited successfully with empty output, and 785 CLI tests pass. The reviewed channels still need complete preview/deploy integration.
 

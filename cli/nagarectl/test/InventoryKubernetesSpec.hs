@@ -872,6 +872,32 @@ inventoryKubernetesTests =
         assertBool "Knative Service deletion dropped its physical preconditions"
           (BS.isInfixOf "preview-service-uid" (TE.encodeUtf8 body)
             && BS.isInfixOf "resource-version" (TE.encodeUtf8 body))
+    , testCase "delete-policy preview PVC collection carries exact UID and revision" $ do
+        let value = object
+              [ "apiVersion" .= ("v1" :: Text)
+              , "kind" .= ("PersistentVolumeClaim" :: Text)
+              , "metadata" .= object
+                  ["name" .= ("nagare-vol-demo-pr-branch-data" :: Text),
+                   "namespace" .= ("personal" :: Text)]
+              , "spec" .= object
+                  ["accessModes" .= (["ReadWriteOnce"] :: [Text]),
+                   "storageClassName" .= ("" :: Text),
+                   "resources" .= object ["requests" .= object ["storage" .= ("1Mi" :: Text)]]]
+              ]
+            bytes = ok (canonicalValue value)
+            (declaration, _) = ok (bindKubernetesObject
+              (input {inputObject = value, objectDigest = contentDigest bytes,
+                lifecyclePolicy = DeleteWhenUnreferenced}))
+            uid = ok (mkPhysicalIdentity "preview-pvc-uid")
+        supportsRetainedCollection declaration @?= True
+        supportsRetainedCollection (declaration & #lifecycle .~ Retain) @?= False
+        (arguments, body) <- expectRight (collectionDeleteRequest
+          (declaration ^. #address) uid "resource-version")
+        arguments @?=
+          ["delete", "--raw", "/api/v1/namespaces/personal/persistentvolumeclaims/nagare-vol-demo-pr-branch-data", "-f", "-"]
+        assertBool "PVC deletion dropped its physical preconditions"
+          (BS.isInfixOf "preview-pvc-uid" (TE.encodeUtf8 body)
+            && BS.isInfixOf "resource-version" (TE.encodeUtf8 body))
     , testCase "retained unready access route can be conditionally collected" $ do
         let value = object
               [ "apiVersion" .= ("serving.knative.dev/v1beta1" :: Text)
@@ -963,7 +989,7 @@ inventoryKubernetesTests =
               observed <- adapterObserve adapter [resource] >>= expectRight
               Map.lookup resource (observationMap observed) @?= Just (ConfirmedAbsent (contentDigest (TE.encodeUtf8 (resourceIdText resource <> ":absent")))))
               `finally` cleanup
-    , testCase "disposable cluster conditionally collects owned Service and CronJob" $ do
+    , testCase "disposable cluster conditionally collects owned Service, CronJob, and PVC" $ do
         selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
         case selected of
           Nothing -> pure ()
@@ -982,7 +1008,19 @@ inventoryKubernetesTests =
                 cronJob = named "CronJob" (object
                   ["schedule" .= ("0 0 1 1 *" :: Text)
                   ,"jobTemplate" .= object ["spec" .= object ["template" .= object ["spec" .= pod]]]])
-            mapM_ (collectOne selectedContext) [("service", service), ("cronjob", cronJob)]
+                pvc = object
+                  ["apiVersion" .= ("v1" :: Text)
+                  ,"kind" .= ("PersistentVolumeClaim" :: Text)
+                  ,"metadata" .= object
+                    ["name" .= ("nagare-ep149-collect-persistentvolumeclaim" :: Text),
+                     "namespace" .= ("default" :: Text)]
+                  ,"spec" .= object
+                    ["accessModes" .= (["ReadWriteOnce"] :: [Text]),
+                     "storageClassName" .= ("" :: Text),
+                     "resources" .= object ["requests" .= object ["storage" .= ("1Mi" :: Text)]]]
+                  ]
+            mapM_ (collectOne selectedContext)
+              [("service", service), ("cronjob", cronJob), ("persistentvolumeclaim", pvc)]
     , testCase "private review reconstructs contributed Namespace members" $ do
         state <- newIORef (KubernetesAbsent absence)
         calls <- newIORef (0 :: Int)

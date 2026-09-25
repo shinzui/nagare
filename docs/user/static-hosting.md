@@ -345,22 +345,25 @@ retained preview volume; a volume marked for deletion needs no recovery input.
 Build and Preview Secret references are not yet supported. Direct preview
 deployment still supports static sites only.
 
-To remove a reviewed preview,
-retire its scope, then separately review exact collection of its retained
-Service and DomainMapping:
+To remove a reviewed preview, retire its scope, then review exact collection
+in dependency order. Collect the DomainMapping first, then the Service:
 
 ```bash
 nagarectl site preview delete feature-x --save-plan preview-retire-review
 nagarectl inventory apply preview-retire-review --yes
-nagarectl inventory collect --resource SERVICE-ID --resource DOMAIN-ID \
-  --out preview-collect-review
-nagarectl inventory apply preview-collect-review --yes
+nagarectl inventory collect --resource DOMAIN-ID --out preview-domain-review
+nagarectl inventory apply preview-domain-review --yes
+nagarectl inventory collect --resource SERVICE-ID --out preview-service-review
+nagarectl inventory apply preview-service-review --yes
 ```
 
-Use the two ResourceIds shown in inventory status after retirement. The
-collection review checks each object's UID and resourceVersion. A server
-preview with volumes also retires its exact PVC members. PVC collection is
-not yet supported, so those claims remain visible as retained resources.
+Use the ResourceIds shown in inventory status after retirement. Each
+collection review checks the object's UID and resourceVersion and refuses
+known consumers. A server preview also retires its exact PVC members.
+After collecting its Service, a preview PVC declared with deletion policy
+can be collected with `inventory collect --resource PVC-ID --out pvc-review`
+and `inventory apply pvc-review --yes`. Retained durable PVCs stay visible
+with their recovery intent and cannot be collected through this path.
 Direct `site preview delete` supports static sites only and refuses addresses
 owned by accepted or retained history.
 

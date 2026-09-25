@@ -190,7 +190,8 @@ collectionDeleteRequest address uid revision = case address of
   _ -> Left "conditional collection does not support this Kubernetes kind"
 
 collectionPathPrefix :: Text -> Text -> Maybe String
-collectionPathPrefix "" kind | kind `elem` ["configmap", "service"] = Just "/api/v1"
+collectionPathPrefix "" kind
+  | kind `elem` ["configmap", "service", "persistentvolumeclaim"] = Just "/api/v1"
 collectionPathPrefix "batch" "cronjob" = Just "/apis/batch/v1"
 collectionPathPrefix "serving.knative.dev" "domainmapping" = Just "/apis/serving.knative.dev/v1beta1"
 collectionPathPrefix "serving.knative.dev" "service" = Just "/apis/serving.knative.dev/v1"
