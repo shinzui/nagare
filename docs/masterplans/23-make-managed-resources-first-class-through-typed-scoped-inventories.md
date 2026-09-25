@@ -613,3 +613,5 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 2026-09-24: EP-148 now records and verifies explicit tag and image-resource overrides for reviewed standalone Service and worker scopes, plus the Service base-domain override. The canonical scope preserves these inputs with the accepted config digest; remaining M1 gates and the EP-150 hard dependency are unchanged.
 
 2026-09-24: EP-148's standalone Service dry-run uses the same supported scope compiler as saved review when an accepted image resource is provided. Existing offline `deploy --dry-run` validation remains available without that input. Direct live rendering and the other M1 gates remain open.
+
+2026-09-24: EP-148's standalone worker dry-run now uses its saved-plan scope compiler with an accepted image resource while retaining image-free offline manifest validation. All three supported app and workload dry-run routes now share their respective reviewed compilers; direct live paths and the other M1 gates remain open.

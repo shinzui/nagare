@@ -91,6 +91,19 @@ nagarectl worker deploy --tag release-1 \
 nagarectl inventory apply worker-review --yes
 ```
 
+To inspect that same public worker scope before saving a review, supply the
+accepted image with `--dry-run` instead of `--save-plan`:
+
+```bash
+nagarectl worker deploy --tag release-1 \
+  --image-resource RESOURCE-ID --dry-run
+```
+
+This reads the accepted inventory and checks scope claims without saving or
+applying a review. Without `--image-resource`, `worker deploy --dry-run` keeps
+its offline manifest rendering behavior. The two review options cannot be
+combined.
+
 The image resource must name the exact image and tag resolved by the worker
 config. A retained PVC also needs one `--volume-recovery
 VOLUME=BACKUP:KEY:VERSION` per retained volume. Runtime Secret references need
@@ -100,7 +113,8 @@ database references bind to accepted standalone databases in the same cluster
 and namespace. Planning reads the saved credential template to identify the
 engine, adds a dependency on its StatefulSet, and places only Secret references
 in the reviewed workload. Missing accepted objects or private evidence refuse.
-Broker topic references still refuse; this path does not build or publish images.
+Accepted standalone broker topics become explicit workload dependencies and
+provide the topic environment. This path does not build or publish images.
 
 Retire the accepted standalone worker through a separate review. Retained PVCs
 remain recorded for recovery:

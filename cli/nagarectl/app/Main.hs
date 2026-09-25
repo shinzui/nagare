@@ -1589,9 +1589,9 @@ workerDeployOptsParser defaultFile =
     <*> ghcEnvOpt
     <*> dryRunOpt
     <*> optional (strOption (long "save-plan" <> metavar "FILE" <> help "Save reviewed standalone worker inventory plan"))
-    <*> optional (strOption (long "image-resource" <> metavar "RESOURCE-ID" <> help "Accepted OCI image publication with --save-plan"))
-    <*> many (strOption (long "volume-recovery" <> metavar "VOLUME=BACKUP:KEY:VERSION" <> help "Recovery for a retained worker PVC; repeat with --save-plan"))
-    <*> many (strOption (long "env-secret-resource" <> metavar "RESOURCE-ID" <> help "Accepted runtime Secret; repeat with --save-plan"))
+    <*> optional (strOption (long "image-resource" <> metavar "RESOURCE-ID" <> help "Accepted OCI image publication for reviewed --save-plan or --dry-run"))
+    <*> many (strOption (long "volume-recovery" <> metavar "VOLUME=BACKUP:KEY:VERSION" <> help "Recovery for a retained worker PVC; repeat for reviewed deploy"))
+    <*> many (strOption (long "env-secret-resource" <> metavar "RESOURCE-ID" <> help "Accepted runtime Secret; repeat for reviewed deploy"))
 
 workerDeleteOptsParser :: Parser WorkerDeleteOpts
 workerDeleteOptsParser =
@@ -8463,6 +8463,8 @@ runWorker mctx = \case
   WorkerDeploy o -> do
     case o ^. #savePlan of
       Just output -> runWorkerPlan mctx o output
+      Nothing | o ^. #dryRun && isJust (o ^. #imageResource) ->
+        runWorkerPlan mctx o ""
       Nothing -> do
         unless (isNothing (o ^. #imageResource) && null (o ^. #volumeRecovery)
             && null (o ^. #envSecretResources))
@@ -8490,12 +8492,14 @@ runWorker mctx = \case
 
 runWorkerPlan :: Maybe String -> WorkerDeployOpts -> FilePath -> IO ()
 runWorkerPlan mctx options output = do
-  when (options ^. #dryRun || isJust (options ^. #contextOverride)
+  when (options ^. #dryRun && isJust (options ^. #savePlan))
+    (dieT "reviewed worker deploy cannot combine --dry-run with --save-plan")
+  when (isJust (options ^. #contextOverride)
       || isJust (options ^. #dockerfileOverride))
-    (dieT "reviewed worker deploy requires a prepublished image and no build overrides or --dry-run")
+    (dieT "reviewed worker deploy requires a prepublished image and no build overrides")
   when (isNothing (options ^. #tag))
     (dieT "reviewed worker deploy requires an explicit --tag")
-  imageText <- maybe (dieT "--save-plan requires --image-resource") (pure . T.pack)
+  imageText <- maybe (dieT "reviewed worker deploy requires --image-resource") (pure . T.pack)
     (options ^. #imageResource)
   imageId <- either dieT pure (Resource.mkResourceId imageText)
   provisionGhcEnv (options ^. #ghcEnv)
@@ -8560,8 +8564,10 @@ runWorkerPlan mctx options output = do
           <> [("imageResource", imageText)])) compiledScope)
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
-  Inventory.planInventoryCandidateWith
-    (inventoryPlanRegistryWithNative active workspace native) active candidate output
+  if options ^. #dryRun
+    then BC.putStrLn (ResourceWire.encodeCanonicalScope scope)
+    else Inventory.planInventoryCandidateWith
+      (inventoryPlanRegistryWithNative active workspace native) active candidate output
 
 runAccess :: Maybe String -> AccessCommand -> IO ()
 runAccess mctx = \case
