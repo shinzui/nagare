@@ -387,7 +387,7 @@ operation.
 | Command | Does |
 | --- | --- |
 | `nagarectl deploy [-f FILE] [--dry-run]` | With an accepted `--image-resource` and explicit tag, deploy publishes and applies a standard reviewed Service change, `--save-plan` saves its review, and `--dry-run` prints the public scope. The legacy path builds/pushes as required; image-free dry-run renders offline manifests. |
-| `nagarectl app deploy [-f FILE] [--dry-run] [--json]` | With an accepted `--image-resource` and explicit tag, deploy publishes and applies a standard reviewed app change, `--save-plan` saves its review, and `--dry-run` prints the public scope. The legacy live path still handles hooks outside inventory. |
+| `nagarectl app deploy [-f FILE] [--dry-run] [--json]` | With an accepted `--image-resource` and explicit tag, deploy publishes and applies a standard reviewed app change, `--save-plan` saves its review, and `--dry-run` prints the public scope. Aggregate hooks require `--hook-affects TASK=database:NAME` or `TASK=RESOURCE-ID` for each affected resource, or `--hook-no-data-effects TASK`. The legacy image-free live path remains separate. |
 | `nagarectl app list [-n NS] [--all]` | List Nagare-managed Knative apps; `--all` includes unmanaged Services. |
 | `nagarectl app get NAME [-n NS]` | Show image, revision, URL, readiness, and config-enriched limits/domains when available. |
 | `nagarectl app logs NAME [--follow] [--tail N]` | Show or stream current app logs. |

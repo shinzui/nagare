@@ -148,8 +148,16 @@ singleSpec :: Map ResourceId (ManagedResource, ByteString) -> PlannedOperation -
 singleSpec specs operation = do
   unless (plannedExecutor operation == KubernetesExecutor) (Left "operation has a different executor")
   unless (plannedAction operation `elem` [CreateResource, UpdateResource, VerifyResource, AdoptResource, RetireResource, RunDeclaredOperation]) (Left "Kubernetes adapter does not support this action")
-  resource <- case NE.toList (plannedResources operation) of
-    [single] -> Right single
+  resource <- case (plannedAction operation, NE.toList (plannedResources operation)) of
+    (RunDeclaredOperation, affected) -> case
+      [resourceId | resourceId <- affected,
+        Just (bound, _) <- [Map.lookup resourceId specs],
+        case bound ^. #address of
+          Kubernetes _ "batch" kind _ _ -> nameText kind == "job"
+          _ -> False] of
+        [job] -> Right job
+        _ -> Left "Kubernetes declared operation must name exactly one bound Job"
+    (_, [single]) -> Right single
     _ -> Left "Kubernetes object operation must name exactly one resource"
   (declaration, native) <- maybe (Left "Kubernetes resource has no bound native object") Right (Map.lookup resource specs)
   unless (declaration ^. #identity == resource && declaration ^. #executor == KubernetesExecutor) (Left "bound declaration identity or executor differs")

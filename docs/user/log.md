@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-25
+* **Update**: Document reviewed aggregate pre-deploy hooks, explicit affected resources, stable per-tag Jobs, and completion ordering before workloads.
 * **Update**: Document opt-in single-invocation reviewed env set, delete, and merged or exact sync.
 * **Update**: Document single-invocation reviewed Secret set, delete, and exact sync with opaque rotation versions.
 * **Update**: Document single-invocation reviewed manual task runs with stable run IDs and the saved-review inspection option.

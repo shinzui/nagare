@@ -659,8 +659,13 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
     isBootstrapMarker (Managed resource) = resource ^. #source . #file == "generated:bootstrap"
     isBootstrapMarker _ = False
     oldDeclarations = Map.fromList [(declarationId declaration, declaration) | declaration <- historyDeclarations history]
+    oldOperations = Map.fromList
+      [(operation ^. #identity, operation)
+      | (_, scope) <- Map.elems (historyAccepted history)
+      , bundle <- scopeBundles scope
+      , operation <- bundle ^. #operations]
     -- Converged scope revisions retain proof of unchanged forward-only
-    -- migrations after Kubernetes TTL removes their Job objects.
+    -- migrations and hooks after Kubernetes TTL removes their Job objects.
     provenMigrations =
       Map.fromList
         [ (operation ^. #identity, operation)
@@ -668,10 +673,10 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
         , Map.lookup scope (historyConverged history) == Just revision
         , bundle <- scopeBundles declaration
         , operation <- bundle ^. #operations
-        , operation ^. #operationKind == SchemaMigration
+        , operation ^. #operationKind `elem` [SchemaMigration, PreDeployHook]
         ]
     migrationIsProven operation =
-      operation ^. #operationKind == SchemaMigration
+      operation ^. #operationKind `elem` [SchemaMigration, PreDeployHook]
         && Map.lookup (operation ^. #identity) provenMigrations == Just operation
     provenMigrationJobs =
       Set.fromList
@@ -681,6 +686,8 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
         , operation <- bundle ^. #operations
         , migrationIsProven operation
         , resource <- NE.toList (operation ^. #affects)
+        , Just (Managed affected) <- [Map.lookup resource desiredDeclarations]
+        , isMigrationJob (affected ^. #address)
         ]
     observed = observationMap observations
     desiredManaged = [(resource ^. #identity, resource, Map.lookup (resource ^. #identity) oldDeclarations, Map.lookup (resource ^. #identity) observed) | Managed resource <- Map.elems desiredDeclarations]
@@ -701,6 +708,13 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
       , Just (_, resource) <- [Map.lookup resourceId (historyRetained history)]]
     classified = map classifyDesired desiredManaged
     errors = concatMap fst classified <> concatMap retireError retired
+      <> [PlanError "operation-revision-required"
+            "a declared operation changed under the same identity; use a new release or operation key"
+            [operation ^. #identity]
+         | (operation, _) <- declaredSeeds
+         , operation ^. #operationKind == PreDeployHook
+         , Just previous <- [Map.lookup (operation ^. #identity) oldOperations]
+         , previous /= operation]
       <> [PlanError "collection-decision" "retained collection lacks a validated lifecycle decision" [resourceId]
          | (resourceId, _) <- selectedCollections, not (decisionIs ApproveCollection resourceId)]
     preliminary = mapMaybe snd classified <> mapMaybe retireOperation retired
@@ -748,6 +762,12 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
         , migrated `elem` map dependencyResource (declarationDependencies declaration)]
       _ -> []
     declaredSeeds = concatMap scopeDeclared (Map.elems (inventoryScopes (candidateInventory candidate)))
+    hookJobIds = Set.fromList
+      [resource | (operation, _) <- declaredSeeds
+      , operation ^. #operationKind == PreDeployHook
+      , resource <- NE.toList (operation ^. #affects)
+      , Just (Managed affected) <- [Map.lookup resource desiredDeclarations]
+      , isMigrationJob (affected ^. #address)]
     cacheOutputOperations =
       Map.fromList
         [ (resource, plannedOperationId planned)
@@ -796,6 +816,11 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
               == canonicalBytes (toJSON (Managed (canonicalDependencies resource)))
       _ -> False
     classifyDesired (resourceId, resource, Just (Managed old), _)
+      | Set.member resourceId hookJobIds
+      , old ^. #spec /= resource ^. #spec =
+          ([PlanError "job-revision-required"
+            "a reviewed Job changed under the same identity; use a new release or run ID"
+            [resourceId]], Nothing)
       | old ^. #address /= resource ^. #address
         || old ^. #executor /= resource ^. #executor
       , decisionIs ApproveMigration resourceId = ([], Nothing)

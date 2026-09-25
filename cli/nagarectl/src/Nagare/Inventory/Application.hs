@@ -4,6 +4,7 @@
 module Nagare.Inventory.Application
   ( ApplicationScopeInput (..)
   , compileApplicationScope
+  , compileApplicationDeployment
   , compileApplicationDatabases
   , compileApplicationService
   , compileStandaloneService
@@ -76,13 +77,14 @@ import Nagare.Inventory.Database (compileDatabaseForBackend)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Env.Generated (mergeGenerated)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
+import Nagare.Inventory.TaskRun (jobFromCronJob)
 import Nagare.Inventory.Adapters.KubernetesRuntime (databaseCredentialKind)
 import Nagare.Static.Release (StaticRelease (..), StaticReleaseLog (..), addRelease, emptyReleaseLog, extractReleaseLog, findRelease, renderReleaseConfigMapWith)
 import Nagare.Resource.Application (applicationScopeId, deploymentResourceId, domainMappingResourceId, taskResourceId, volumeResourceId, workerResourceId)
 import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
-import Nagare.Resource.Policy (DataPolicy (..), LifecyclePolicy (..), Sensitivity (Private))
+import Nagare.Resource.Policy (DataPolicy (..), LifecyclePolicy (..), RecoveryClass (VerifyBeforeRetry), Sensitivity (Private))
 import Nagare.Resource.Policy (RecoveryIntent (..), mkSecretRef)
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
@@ -615,6 +617,9 @@ data ApplicationScopeInput = ApplicationScopeInput
   , scopeRelease :: !(StaticReleaseLog, StaticRelease)
   -- ^ Accepted prior log and the release this rollout records. The command
   -- service must source the prior log from immutable accepted native evidence.
+  , scopeHookEffects :: !(Map T.Text [ResourceId])
+  -- ^ An entry is required for every pre-deploy hook. An empty list is an
+  -- explicit assertion that the hook has no data effects.
   , scopeInputOverrides :: !(Map T.Text T.Text)
   -- ^ Explicit public command choices retained with the config digest.
   , scopeSource :: !SourceLocation
@@ -848,8 +853,8 @@ compileApplicationScope input = do
         & #sources .~ [source]
         & (:| [])
   _ <- first invalid (mkApplication app)
-  unless (null (app ^. #tasks))
-    (Left (invalid "application pre-deploy hooks need reviewed Job operations before workloads can advance"))
+  unless (null (app ^. #tasks) && Map.null (scopeHookEffects input))
+    (Left (invalid "application hooks need independent reviewed per-release Job scopes"))
   unless (scopeRollout input ^. #appName == serviceNameText (app ^. #name)
       && scopeRollout input ^. #namespace == namespaceText (app ^. #namespace))
     (Left (invalid "rollout identity differs from the application name or namespace"))
@@ -1028,6 +1033,112 @@ compileApplicationScope input = do
     (Left (invalid "application members claim the same provider address"))
   pure (scope, native)
 
+-- | Compose the application and its per-release hook scopes together. Keeping
+-- Jobs outside the application scope lets a later tag add new executions
+-- without retiring the completed Jobs from previous releases.
+compileApplicationDeployment
+  :: ApplicationScopeInput
+  -> Either (NonEmpty InventoryError)
+       ([ScopeDeclaration], Map ResourceId (ManagedResource, ByteString))
+compileApplicationDeployment input = do
+  let app = scopeApplication input
+      hooks = app ^. #tasks
+      effects = scopeHookEffects input
+      overrides = scopeInputOverrides input
+      invalid message = inventoryError "invalid-application-hook" message
+        & #sources .~ [scopeSource input] & (:| [])
+      hookKeys = Set.fromList ["hook/" <> name | name <- Map.keys effects]
+      suppliedHookKeys = Set.fromList
+        [key | key <- Map.keys overrides, "hook/" `T.isPrefixOf` key]
+  unless (Map.keysSet effects
+      == Set.fromList (map (serviceNameText . (^. #name)) hooks)
+      && suppliedHookKeys == hookKeys
+      && all (\(name, affected) -> Map.lookup ("hook/" <> name) overrides
+        == Just (T.intercalate "," (map resourceIdText affected)))
+        (Map.toList effects))
+    (Left (invalid "every hook needs an exact reviewed affected-resource set or no-data-effects assertion"))
+  let baseApp = app & #tasks .~ []
+      baseEnvValues = Map.elems (baseApp ^. #env)
+        <> maybe [] (Map.elems . (^. #env)) (baseApp ^. #service)
+        <> concatMap (Map.elems . (^. #env)) (baseApp ^. #workers)
+        <> maybe [] (concatMap (Map.elems . (^. #env)) . (^. #tasks))
+          (baseApp ^. #service)
+  baseSecretNames <- first invalid (runtimeSecretNames baseEnvValues)
+  allSecretNames <- first invalid (runtimeSecretNames
+    (baseEnvValues <> concatMap (Map.elems . (^. #env)) hooks))
+  let baseSecrets = Map.restrictKeys (scopeEnvSecrets input)
+        (Set.fromList baseSecretNames)
+      baseInput = input
+        { scopeApplication = baseApp
+        , scopeHookEffects = Map.empty
+        , scopeEnvSecrets = baseSecrets
+        , scopeInputOverrides = Map.filterWithKey
+            (\key _ -> not ("hook/" `T.isPrefixOf` key)) overrides
+        }
+  (baseScope, baseNative) <- compileApplicationScope baseInput
+  if null hooks then pure ([baseScope], baseNative) else do
+    let owner = scopeId baseScope
+        source = scopeSource input
+        cluster = scopeCluster input
+        namespaceName = namespaceText (app ^. #namespace)
+        ownedSecrets = [Managed resource | bundle <- scopeBundles baseScope,
+          Managed resource <- declarations bundle,
+          case resource ^. #address of
+            Kubernetes _ "" kind _ _ -> nameText kind == "secret"
+            _ -> False]
+    ownSecretPairs <- traverse (\declaration -> case declaration of
+      Managed resource -> case resource ^. #address of
+        Kubernetes _ "" _ _ name -> do
+          secret <- first invalid (mkSecretName (nameText name))
+          pure (secret, declaration)
+        _ -> Left (invalid "owned credential is not a Kubernetes Secret")
+      _ -> Left (invalid "owned credential is not managed")) ownedSecrets
+    let ownSecretMap = Map.fromList ownSecretPairs
+        envSecrets = Map.union ownSecretMap (scopeEnvSecrets input)
+    unless (Map.keysSet (scopeEnvSecrets input)
+        == Set.fromList allSecretNames `Set.difference` Map.keysSet ownSecretMap)
+      (Left (invalid "runtime Secret environment requires exactly its application and hook dependencies"))
+    (hookTaskBundle, hookTaskNative) <- compileTaskMembers owner hooks
+      (scopeRollout input) cluster (scopeNamespace input) (scopeImage input)
+      envSecrets source
+    brokerDependencies <- concat <$> traverse (\binding -> first invalid
+      (brokerEvidenceIds cluster namespaceName binding
+        (scopeBrokerServices input) (scopeBrokerTopics input))) (app ^. #brokers)
+    let hookCronIds = Set.fromList (Map.keys hookTaskNative)
+        withBrokers resource = resource & #dependencies %~
+          (<> map OrderedAfter (Set.toAscList (Set.fromList brokerDependencies)))
+        boundTaskBundle = hookTaskBundle & #declarations %~ map (\case
+          Managed resource -> Managed (withBrokers resource)
+          declaration -> declaration)
+        boundTaskNative = Map.map (\(resource, bytes) -> (withBrokers resource, bytes))
+          hookTaskNative
+    (hookScopes, hookNative, hookProofs) <- compileApplicationHooks
+      app owner (scopeRollout input) cluster boundTaskNative effects source
+    releaseId <- first invalid (releaseResourceId owner app)
+    let addHookEdges resource
+          | hookConsumer resource || resource ^. #identity == releaseId =
+              resource & #dependencies %~ (<> map OrderedAfter hookProofs)
+          | otherwise = resource
+        hookConsumer resource = case resource ^. #address of
+          Kubernetes _ "serving.knative.dev" kind _ _ -> nameText kind == "service"
+          Kubernetes _ "apps" kind _ _ -> nameText kind == "deployment"
+          Kubernetes _ "batch" kind _ _ -> nameText kind == "cronjob"
+            && Set.notMember (resource ^. #identity) hookCronIds
+          _ -> False
+        appBundles = map (\bundle -> bundle & #declarations %~ map (\case
+          Managed resource -> Managed (addHookEdges resource)
+          declaration -> declaration)) (scopeBundles baseScope)
+          <> [boundTaskBundle]
+        appNative = Map.union boundTaskNative
+          (Map.map (\(resource, bytes) -> (addHookEdges resource, bytes)) baseNative)
+    configDigest <- first invalid (configDigestOf (encodeApplication app))
+    appScope <- withScopeOverrides overrides . withScopeConfigDigest configDigest
+      <$> mkScopeDeclaration owner appBundles
+    let native = Map.union hookNative appNative
+    unless (Map.size native == Map.size hookNative + Map.size appNative)
+      (Left (invalid "hook and application scopes share a native identity"))
+    pure (appScope : hookScopes, native)
+
 compileApplicationRelease
   :: Application -> RolloutEnv -> ScopeId -> ResourceId -> ResourceId -> ResourceId
   -> [ResourceBundle] -> StaticReleaseLog -> StaticRelease -> SourceLocation
@@ -1110,6 +1221,75 @@ compileApplicationTasks app rollout cluster namespaceId imageId envSecrets sourc
     invalid message = inventoryError "invalid-application-task" message
       & #sources .~ [source]
       & (:| [])
+
+-- | Bind each pre-deploy hook to a stable, independent per-tag scope. A new
+-- tag leaves prior Jobs and completion proofs in accepted history.
+compileApplicationHooks
+  :: Application -> ScopeId -> RolloutEnv -> ResourceId
+  -> Map ResourceId (ManagedResource, ByteString)
+  -> Map T.Text [ResourceId] -> SourceLocation
+  -> Either (NonEmpty InventoryError)
+       ([ScopeDeclaration], Map ResourceId (ManagedResource, ByteString), [ResourceId])
+compileApplicationHooks app appOwner rollout cluster taskNative effects source =
+  go Nothing (app ^. #tasks)
+  where
+    invalid message = inventoryError "invalid-application-hook" message
+      & #scopes .~ [appOwner] & #sources .~ [source] & (:| [])
+    tagSuffix = T.take 12 (digestText (contentDigest
+      (TE.encodeUtf8 (rollout ^. #effectiveTag))))
+    go _ [] = Right ([], Map.empty, [])
+    go previous (task : rest) = do
+      cronRole <- first invalid (mkName "cronjob")
+      cronId <- first invalid (taskResourceId appOwner cronRole task)
+      (_, cronBytes) <- maybe (Left (invalid "pre-deploy hook has no reviewed CronJob")) Right
+        (Map.lookup cronId taskNative)
+      cronValue <- first (invalid . T.pack . show)
+        (Yaml.decodeEither' cronBytes :: Either Yaml.ParseException Value)
+      let taskName = serviceNameText (task ^. #name)
+          cronName = taskResourceName taskName
+          jobName = T.dropWhileEnd (== '-') (T.take 45 cronName)
+            <> "-hook-" <> tagSuffix
+          scopeSuffix = T.take 40 (digestText (contentDigest
+            (TE.encodeUtf8 (resourceIdText cronId <> ":" <> rollout ^. #effectiveTag))))
+      owner <- first invalid (mkScopeId Standalone ("app-hook-" <> scopeSuffix))
+      key <- first invalid (mkLogicalKey "run")
+      jobValue <- first invalid (jobFromCronJob (Just (rollout ^. #appName))
+        cronName (rollout ^. #namespace) jobName cronValue)
+      canonical <- first invalid (canonicalValue jobValue)
+      jobRole <- first invalid (mkName "job")
+      proofRole <- first invalid (mkName "completion")
+      let jobId = mintResourceId owner key jobRole
+          proofId = mintResourceId owner key proofRole
+      let hookSource = source {path = path source <> "/hook/" <> taskName}
+      (bound, native) <- first (:| []) (bindKubernetesObject KubernetesInput
+        { resourceId = jobId, ownerScope = owner, clusterId = cluster
+        , inputObject = jobValue, objectDigest = contentDigest canonical
+        , lifecyclePolicy = DeleteWhenUnreferenced, inputDataPolicy = Stateless
+        , inputSensitivity = Private, sourceLocation = hookSource })
+      expected <- first invalid (kubernetesAddress cluster "batch/v1" "Job"
+        (Just (rollout ^. #namespace)) jobName)
+      unless (bound ^. #address == expected)
+        (Left (invalid "pre-deploy Job has an unexpected native address"))
+      affected <- maybe (Left (invalid "pre-deploy hook lacks effect declaration")) Right
+        (Map.lookup taskName effects)
+      unless (length affected == Set.size (Set.fromList affected)
+          && jobId `notElem` affected)
+        (Left (invalid "pre-deploy hook repeats an affected resource"))
+      let member = bound {dependencies = map OrderedAfter
+            (cronId : affected <> maybe [] pure previous)}
+          proof = DeclaredOperation proofId (jobId :| affected)
+            [ContentInput (contentDigest native)] VerifyBeforeRetry PreDeployHook
+          bundle = ResourceBundle [Managed member] [] [] [] [proof] []
+      scope <- withScopeOverrides (Map.fromList
+        [("tag", rollout ^. #effectiveTag), ("task", taskName),
+          ("affects", T.intercalate "," (map resourceIdText affected))])
+        . withScopeConfigDigest (contentDigest canonical)
+        <$> mkScopeDeclaration owner [bundle]
+      (laterScopes, laterNative, laterProofs) <- go (Just proofId) rest
+      unless (Map.notMember jobId laterNative)
+        (Left (invalid "pre-deploy hooks share a Job identity"))
+      pure (scope : laterScopes, Map.insert jobId (member, native) laterNative,
+        proofId : laterProofs)
 
 compileTaskMembers
   :: ScopeId -> [Task] -> RolloutEnv -> ResourceId -> ResourceId -> ResourceId

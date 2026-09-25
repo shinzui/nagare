@@ -207,7 +207,10 @@ inventoryKubernetesTests =
             jobBytes = ok (canonicalValue value)
             native = ok (bindKubernetesObject (input {inputObject = value, objectDigest = contentDigest jobBytes}))
             bound = Map.singleton resource native
-            declaredOperation = (operation RunDeclaredOperation) {plannedResources = resource :| []}
+            dataId = mintResourceId (ok (mkScopeId Application "affected"))
+              (ok (mkLogicalKey "database")) (ok (mkName "statefulset"))
+            declaredOperation = (operation RunDeclaredOperation)
+              {plannedResources = resource :| [dataId]}
         state <- newIORef (KubernetesAbsent (contentDigest "absent"))
         calls <- newIORef 0
         let adapter = mkKubernetesAdapter bound (ops state calls)

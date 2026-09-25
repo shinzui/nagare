@@ -18,8 +18,9 @@ image is already an accepted OCI publication. The current reviewed path supports
 a web Service, workers, application databases with explicit recovery bindings,
 accepted standalone brokers and topics, and protected routes through an accepted
 platform auth owner. It records the release in the application's history
-ConfigMap after its workloads. Pre-deploy hooks, CDN changes, and build inputs
-do not yet have reviewed operations.
+ConfigMap after its workloads. Pre-deploy hooks are reviewed when each declares
+its affected resources, or explicitly asserts that it has no data effects.
+CDN changes and build inputs do not yet have reviewed operations.
 Its config still goes through
 the typed `Application` loader. Use the exact resource ID of the accepted OCI
 publication, and an explicit tag that resolves to that publication's destination:
@@ -82,10 +83,30 @@ nagarectl app deploy --file nagare/Config.hs --tag v1 \
 
 Scheduled tasks attached to the application's web Service join this review as
 CronJobs. They must resolve to the same accepted image as the application; an
-explicit task image pointing elsewhere refuses. Tasks in the aggregate
-application's `tasks` list run as pre-deploy hooks in the direct path. Reviewed
-app planning refuses them until their Job execution has a reviewed operation.
-One-off `task run` is a separate operational action.
+explicit task image pointing elsewhere refuses. For each task in the aggregate
+application's `tasks` list, pass `--hook-affects TASK=database:NAME` for each
+database declared in the application that its command can change, or
+`--hook-affects TASK=RESOURCE-ID` for another managed resource. Use
+`--hook-no-data-effects TASK` only when it changes no managed data resource.
+Every hook needs one of these declarations; the review refuses missing and
+duplicate effects. For example:
+
+```bash
+nagarectl app deploy --file nagare/Config.hs --tag v1 \
+  --image-resource RESOURCE-ID \
+  --hook-affects migrate=database:app-db \
+  --save-plan app-review
+```
+
+The review includes an independent scope for each hook and tag. Each scope
+declares a stable Job and a completion operation listing its affected resources.
+Jobs run in declared order, after
+their CronJob and affected resource updates; the Service, workers, and scheduled
+tasks wait for completion. Retrying the same accepted tag verifies the completed
+Job rather than rerunning it. A later tag leaves the old hook scope in accepted
+history. Changing the hook or its effects under the same tag refuses; choose a
+new tag. One-off `task run` is a separate operational action. With hooks,
+`--dry-run --json` prints an object containing `application` and `hooks` scopes.
 
 For a single Service config, the reviewed route uses an independent Service
 scope:
@@ -661,15 +682,15 @@ it must be idempotent at the SQL level (the standard "migrations tracked in a
 table" discipline) — an already-applied migration must be a no-op.
 
 The inventory-backed `--dry-run --json` path requires an accepted image, an explicit
-tag, and any required recovery bindings. It refuses this example while its
-aggregate migration hook lacks a reviewed Job operation. For a supported
-application, it emits the canonical public scope document, including its
+tag, any required recovery bindings, and a declared effect set for each aggregate
+hook. For a supported application, it emits the canonical public scope document, including its
 config digest, explicit overrides, and typed resource declarations:
 
 ```bash
 nagarectl app deploy --dry-run --json --tag v1 \
+  --hook-affects kizashi-migrate=database:kizashi-db \
   --image-resource RESOURCE-ID -f nagare/Config.hs \
-  | jq '{scope, configDigest, overrides}'
+  | jq '{application: (.application | {scope, configDigest, overrides}), hooks: [.hooks[].scope]}'
 ```
 
 ## Verify (against a running cluster)

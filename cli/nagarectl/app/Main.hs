@@ -154,6 +154,7 @@ import Nagare.Dsl.Types
   , namespaceText
   , domainText
   , imageRefText
+  , mkServiceName
   , namespaceText
   , quantityText
   , serviceNameText
@@ -276,7 +277,7 @@ import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.Application (ApplicationScopeInput (..), DatabaseBinding, acceptedAccessBinding, acceptedApplicationImage, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationScope, compileStandaloneServiceWithRelease, compileStandaloneWorkerWithDependencies, databaseRecoveryBindings, legacyApplicationReleaseImport, legacyStandaloneReleaseImport, nativeWorkloadOwned, recordReviewedStandaloneOverrides, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), DatabaseBinding, acceptedAccessBinding, acceptedApplicationImage, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationDeployment, compileStandaloneServiceWithRelease, compileStandaloneWorkerWithDependencies, databaseRecoveryBindings, legacyApplicationReleaseImport, legacyStandaloneReleaseImport, nativeWorkloadOwned, recordReviewedStandaloneOverrides, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
 import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteReleaseLog, acceptedSiteSource, compileServerSitePreviewScope, compileServerSiteRollbackScope, compileServerSiteScope, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteScope, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteNativeOwned, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
 import Nagare.Inventory.TaskRun (compileTaskRunScope)
 import Nagare.Inventory.Lifecycle qualified as InventoryLifecycle
@@ -397,6 +398,7 @@ import Nagare.Platform.Workspace
   )
 import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Database (DatabaseDirectInput (..))
+import Nagare.Resource.Database qualified as ResourceDatabase
 import Nagare.Resource.Policy (RecoveryIntent (..), mkSecretRef)
 import Nagare.Resource.Policy qualified as ResourcePolicy
 import Nagare.Resource.Reference qualified as ResourceReference
@@ -563,6 +565,36 @@ data WorkerDeployOpts = WorkerDeployOpts
   }
   deriving stock (Generic, Show)
 
+-- Resolve hook effects against the loaded application before composing the
+-- review. Application-owned databases can be named without guessing their IDs.
+parseHookEffects :: Application -> [String] -> [String] -> Either Text (Map Text [Resource.ResourceId])
+parseHookEffects app affected stateless = do
+  rows <- traverse parseAffected affected
+  bare <- traverse (mkServiceName . T.pack) stateless
+  let bareNames = map serviceNameText bare
+      affectedNames = map fst rows
+  unless (length bareNames == Set.size (Set.fromList bareNames)
+      && Set.null (Set.intersection (Set.fromList bareNames)
+        (Set.fromList affectedNames)))
+    (Left "hook effect declarations repeat a task or conflict with --hook-no-data-effects")
+  pure (Map.union (Map.fromList [(name, []) | name <- bareNames])
+    (Map.map sort (Map.fromListWith (<>)
+      [(name, [resource]) | (name, resource) <- rows])))
+  where
+    parseAffected value = case T.breakOn "=" (T.pack value) of
+      (task, rest) | not (T.null task) && not (T.null rest) -> do
+        name <- mkServiceName task
+        resource <- case T.stripPrefix "database:" (T.drop 1 rest) of
+          Nothing -> Resource.mkResourceId (T.drop 1 rest)
+          Just databaseName -> do
+            database <- maybe (Left "--hook-affects names an undeclared application database") Right
+              (find ((== databaseName) . databaseNameText . (^. #name)) (app ^. #databases))
+            owner <- ResourceApplication.applicationScopeId app
+            role <- Resource.mkName "statefulset"
+            ResourceDatabase.databaseResourceId owner role database
+        pure (serviceNameText name, resource)
+      _ -> Left "--hook-affects needs TASK=database:NAME or TASK=RESOURCE-ID"
+
 -- | Options for @app deploy@ (MasterPlan 14, EP-2): deploy a whole multi-workload
 -- 'Nagare.Dsl.Application.Application' in one command. Mirrors 'DeployOpts' plus a
 -- @--json@ switch that selects the machine-readable @--dry-run@ plan (the kotei
@@ -584,6 +616,8 @@ data AppDeployOpts = AppDeployOpts
   , envSecretResources :: ![String]
   , serviceVolumeRecovery :: ![String]
   , workerVolumeRecovery :: ![String]
+  , hookAffects :: ![String]
+  , hookNoDataEffects :: ![String]
   , requestNamespace :: !Bool
   , legacyReleaseImport :: !(Maybe FilePath)
   , releaseAdoptionInput :: !(Maybe FilePath)
@@ -1559,6 +1593,10 @@ appDeployOptsParser defaultFile =
       (strOption (long "service-volume-recovery" <> metavar "VOLUME=BACKUP:KEY:VERSION" <> help "Recovery binding for a reviewed retained Service PVC"))
     <*> many
       (strOption (long "worker-volume-recovery" <> metavar "WORKER/VOLUME=BACKUP:KEY:VERSION" <> help "Recovery binding for a reviewed retained worker PVC"))
+    <*> many
+      (strOption (long "hook-affects" <> metavar "TASK=database:NAME|RESOURCE-ID" <> help "Data resource changed by a pre-deploy hook; repeat for multiple effects"))
+    <*> many
+      (strOption (long "hook-no-data-effects" <> metavar "TASK" <> help "Assert that a pre-deploy hook changes no managed data resource"))
     <*> switch
       (long "request-namespace" <> help "Request a new namespace through the platform foundation's explicit grant in review")
     <*> optional
@@ -3007,6 +3045,7 @@ main = do
               when (not (null (o ^. #databaseRecovery))
                   || not (null (o ^. #tlsSecretResources)) || not (null (o ^. #envSecretResources))
                   || not (null (o ^. #serviceVolumeRecovery)) || not (null (o ^. #workerVolumeRecovery))
+                  || not (null (o ^. #hookAffects)) || not (null (o ^. #hookNoDataEffects))
                   || o ^. #requestNamespace || isJust (o ^. #legacyReleaseImport)
                   || isJust (o ^. #releaseAdoptionInput))
                 (dieT "inventory resource and recovery options require --image-resource, --save-plan, or --dry-run")
@@ -7694,6 +7733,8 @@ runAppDeployPlan mctx params appOptions output = do
   imageId <- either dieT pure (Resource.mkResourceId imageText)
   app <- Load.loadApplication (params ^. #configPath)
     >>= either (dieT . Load.renderLoadError) pure
+  hookEffects <- either dieT pure (parseHookEffects app
+    (appOptions ^. #hookAffects) (appOptions ^. #hookNoDataEffects))
   let builds = maybe [] (pure . (^. #build)) (app ^. #service)
         <> map (^. #build) (app ^. #workers)
   when (any requiresBuild builds)
@@ -7812,32 +7853,50 @@ runAppDeployPlan mctx params appOptions output = do
         , scopeWorkerVolumeRecovery = workerVolumeRecovery
         , scopeBackupBackend = backend
         , scopeRelease = (priorReleases, release)
+        , scopeHookEffects = hookEffects
         , scopeInputOverrides = Map.fromList
             ([("tag", T.pack selected) | selected <- maybe [] pure (appOptions ^. #tag)]
               <> [("baseDomain", T.pack selected) | selected <- maybe [] pure (appOptions ^. #baseDomain)]
               <> [("imageResource", T.pack selected) | selected <- maybe [] pure (appOptions ^. #imageResource)]
-              <> [("requestNamespace", "true") | appOptions ^. #requestNamespace])
+              <> [("requestNamespace", "true") | appOptions ^. #requestNamespace]
+              <> [("hook/" <> name, T.intercalate "," (map Resource.resourceIdText affected))
+                 | (name, affected) <- Map.toList hookEffects])
         , scopeSource = source
         }
-  (scope, native) <- either (dieT . T.pack . show) pure (compileApplicationScope input)
+  (scopes, native) <- either (dieT . T.pack . show) pure
+    (compileApplicationDeployment input)
+  (scope, hookScopes) <- case scopes of
+    appScope : hooks -> pure (appScope, hooks)
+    [] -> dieT "reviewed application compiler produced no scope"
   candidate <- either (dieT . T.pack . show) pure
-    (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
+    (ResourceInventory.composeInventory snapshot
+      (ResourceInventory.ReplaceScope scope NE.:|
+        map ResourceInventory.ReplaceScope hookScopes))
   forM_ adoption (validateInlineReleaseAdoption scope (appConfigMapName releaseSubject))
   if appOptions ^. #dryRun
     then
       if appOptions ^. #json
-        then BC.putStrLn (ResourceWire.encodeCanonicalScope scope)
+        then if null hookScopes
+          then BC.putStrLn (ResourceWire.encodeCanonicalScope scope)
+          else either dieT BC.putStrLn (ResourceWire.canonicalValue (Aeson.object
+            ["application" Aeson..= ResourceWire.scopeValue scope,
+              "hooks" Aeson..= map ResourceWire.scopeValue hookScopes]))
         else do
-          TIO.putStrLn ("Application scope preview " <> T.pack (show (ResourceInventory.scopeId scope)))
-          forM_ (ResourceInventory.scopeBundles scope) $ \bundle ->
-            forM_ (ResourceInventory.declarations bundle) $ \declaration ->
-              let address = case declaration of
-                    ResourceInventory.Managed member -> member ^. #address
-                    ResourceInventory.External _ location _ _ -> location
-                    ResourceInventory.ObservedChild _ _ location _ _ -> location
-              in TIO.putStrLn ("  " <> Resource.resourceIdText
-                  (ResourceInventory.declarationId declaration)
-                  <> "  " <> T.pack (show address))
+          forM_ scopes $ \compiled -> do
+            TIO.putStrLn ("Application review scope " <>
+              T.pack (show (ResourceInventory.scopeId compiled)))
+            forM_ (ResourceInventory.scopeBundles compiled) $ \bundle -> do
+              forM_ (ResourceInventory.declarations bundle) $ \declaration ->
+                let address = case declaration of
+                      ResourceInventory.Managed member -> member ^. #address
+                      ResourceInventory.External _ location _ _ -> location
+                      ResourceInventory.ObservedChild _ _ location _ _ -> location
+                in TIO.putStrLn ("  " <> Resource.resourceIdText
+                    (ResourceInventory.declarationId declaration)
+                    <> "  " <> T.pack (show address))
+              forM_ (ResourceInventory.operations bundle) $ \operation ->
+                TIO.putStrLn ("  operation " <>
+                  Resource.resourceIdText (operation ^. #identity))
     else case (adoption, appOptions ^. #savePlan) of
       (Nothing, Nothing) -> Inventory.convergeInventoryCandidateWith
         (inventoryPlanRegistryWithNative active workspace native)

@@ -974,6 +974,54 @@ inventoryTransactionTests =
               [clientCreate] -> plannedDependencies clientCreate @?= [plannedOperationId operation]
               other -> assertFailure ("expected one client creation, got " <> show other)
           other -> assertFailure ("expected one declared cache operation, got " <> show other)
+    , testCase "pre-deploy hook Job waits for affected data and gates its workload" $ do
+        let owner = ok (mkScopeId Application "hook-order")
+            cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+            database = member owner cluster "database"
+            databaseId = declarationId database
+            job = case member owner cluster "migration" of
+              Managed resource -> Managed (resource
+                { address = Kubernetes cluster "batch" (ok (mkName "job"))
+                    (Just (ok (mkName "system"))) (ok (mkName "migration"))
+                , dependencies = [OrderedAfter databaseId] })
+              _ -> error "hook fixture is not managed"
+            jobId = declarationId job
+            proofId = mintResourceId owner (ok (mkLogicalKey "migration"))
+              (ok (mkName "hook-proof"))
+            proof = DeclaredOperation proofId (jobId :| [databaseId])
+              [ContentInput (contentDigest "job")] VerifyBeforeRetry PreDeployHook
+            workload = case member owner cluster "workload" of
+              Managed resource -> Managed (resource {dependencies = [OrderedAfter proofId]})
+              _ -> error "workload fixture is not managed"
+            scope = ok (mkScopeDeclaration owner
+              [ResourceBundle [database, job, workload] [] [] [] [proof] []])
+            binding = ContextBinding (ok (mkContextId "hook-order")) (ok (mkName "project"))
+            candidate = ok (composeInventory
+              (ok (mkScopeSnapshot binding Map.empty Map.empty)) (ReplaceScope scope :| []))
+        store <- newMemoryStore
+        _ <- initializeStore store binding "hook-order-test" >>= expectRight
+        history <- loadInventoryHistory store >>= expectRight
+        let requirements = observationRequirements candidate history
+            observations = ok (observationSet
+              [(resource, ConfirmedAbsent (contentDigest "absent"))
+              | resource <- Set.toAscList (requiredResources requirements)])
+            allOperations = proposalOperations
+              (ok (planChanges candidate noLifecycleDecisions history observations))
+            operationFor resource action =
+              [operation | operation <- allOperations
+              , plannedAction operation == action
+              , resource `elem` NE.toList (plannedResources operation)]
+        case (operationFor databaseId CreateResource, operationFor jobId CreateResource,
+            operationFor jobId RunDeclaredOperation,
+            operationFor (declarationId workload) CreateResource) of
+          ([databaseCreate], [jobCreate], [hookProof], [workloadCreate]) -> do
+            assertBool "Job starts before its database"
+              (plannedOperationId databaseCreate `elem` plannedDependencies jobCreate)
+            assertBool "proof does not wait for Job completion"
+              (plannedOperationId jobCreate `elem` plannedDependencies hookProof)
+            assertBool "workload starts before hook proof"
+              (plannedOperationId hookProof `elem` plannedDependencies workloadCreate)
+          other -> assertFailure ("unexpected hook operation graph: " <> show other)
     , testCase "workload creation waits for its declared migration operation" $ do
         let owner = ok (mkScopeId Platform "migration")
             cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))

@@ -30,7 +30,7 @@ import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.App.Deployments (appDeploymentsPrefix)
 import Nagare.App.Deploy
-import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedAccessBinding, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, standaloneWorkerVolumeRecoveryBindings, nativeWorkloadOwned, compileApplicationScope, compileApplicationService, compileStandaloneService, compileStandaloneServiceWithBrokers, compileStandaloneServiceWithDependencies, compileStandaloneServiceWithRelease, compileStandaloneWorker, compileStandaloneWorkerWithDependencies, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings, legacyApplicationReleaseImport, recordReviewedStandaloneOverrides, workerRetirementScope)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedAccessBinding, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, standaloneWorkerVolumeRecoveryBindings, nativeWorkloadOwned, compileApplicationDeployment, compileApplicationScope, compileApplicationService, compileStandaloneService, compileStandaloneServiceWithBrokers, compileStandaloneServiceWithDependencies, compileStandaloneServiceWithRelease, compileStandaloneWorker, compileStandaloneWorkerWithDependencies, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings, legacyApplicationReleaseImport, recordReviewedStandaloneOverrides, workerRetirementScope)
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps (..), KubernetesMutation (..), KubernetesState (..), mkKubernetesAdapter)
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), mkKubernetesRuntimeOps)
@@ -44,9 +44,9 @@ import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
 import Nagare.Dsl.Broker (BrokerBinding (..), mkTopicName)
 import Nagare.Dsl.Access (authPortal, requireLogin)
-import Nagare.Resource.Application (applicationScopeId, volumeResourceId)
+import Nagare.Resource.Application (applicationScopeId, taskResourceId, volumeResourceId)
 import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
-import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (..), ManagedResource (..), DesiredSpec (KnativeService), Contribution (RegisterBackend, RegisterNamespace), ContributionGrant (BackendMapGrant, NamespaceGrant, ShomeiSettingsGrant), ScopeChange (ReplaceScope), backendMapResourceId, candidateGenerations, candidateInventory, composeInventory, contributionResourceId, declarationId, inventoryDeclarations, inventoryScopes, mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeConfigDigest, scopeId, scopeOverrides, shomeiSettingsResourceId, snapshotScopes)
+import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (..), ManagedResource (..), DesiredSpec (KnativeService), OperationKind (PreDeployHook), Contribution (RegisterBackend, RegisterNamespace), ContributionGrant (BackendMapGrant, NamespaceGrant, ShomeiSettingsGrant), ScopeChange (ReplaceScope), backendMapResourceId, candidateGenerations, candidateInventory, composeInventory, contributionResourceId, declarationId, inventoryDeclarations, inventoryScopes, mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeConfigDigest, scopeId, scopeOverrides, shomeiSettingsResourceId, snapshotScopes)
 import Nagare.Resource.Wire (canonicalValue, decodeScope, encodeCanonicalScope)
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
 import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (DeleteWhenUnreferenced), RecoveryIntent (..), Sensitivity (Private), mkSecretRef)
@@ -263,6 +263,7 @@ nativeApplicationReview = do
             , scopeWorkerVolumeRecovery = Map.empty
             , scopeBackupBackend = GcsBackend "project" "bucket"
             , scopeRelease = (emptyReleaseLog, release)
+            , scopeHookEffects = Map.empty
             , scopeInputOverrides = Map.fromList
                 [("tag", rollout ^. #imageTag)
                 , ("imageResource", Resource.resourceIdText publication)]
@@ -682,6 +683,7 @@ renderTests =
             , scopeWorkerVolumeRecovery = Map.empty
             , scopeBackupBackend = GcsBackend "project" "bucket"
             , scopeRelease = (emptyReleaseLog, release)
+            , scopeHookEffects = Map.empty
             , scopeInputOverrides = Map.fromList
                 [("tag", testEnv ^. #imageTag)
                 , ("baseDomain", testEnv ^. #baseDomain)
@@ -706,6 +708,145 @@ renderTests =
           Map.insert "unreviewed" "value" (scopeInputOverrides input)})))
       assertBool "reviewed app deployment silently skipped a pre-deploy hook"
         (isLeft (compileApplicationScope (input {scopeApplication = appWithHooks})))
+      case (appWithHooks ^. #tasks, appWithHooks ^. #databases) of
+        ([hook], database : _) -> do
+          appOwner <- either (fail . T.unpack) pure (applicationScopeId appWithHooks)
+          statefulRole <- either (fail . T.unpack) pure (Resource.mkName "statefulset")
+          cronRole <- either (fail . T.unpack) pure (Resource.mkName "cronjob")
+          databaseId <- either (fail . T.unpack) pure
+            (databaseResourceId appOwner statefulRole database)
+          cronId <- either (fail . T.unpack) pure
+            (taskResourceId appOwner cronRole hook)
+          let hookName = serviceNameText (hook ^. #name)
+              hookInput = input
+                { scopeApplication = appWithHooks
+                , scopeHookEffects = Map.singleton hookName [databaseId]
+                , scopeInputOverrides = Map.insert ("hook/" <> hookName)
+                    (Resource.resourceIdText databaseId) (scopeInputOverrides input)
+                }
+          (hookScopes, hookNative) <- either (fail . show) pure
+            (compileApplicationDeployment hookInput)
+          length hookScopes @?= 2
+          let noDataInput = hookInput
+                { scopeHookEffects = Map.singleton hookName []
+                , scopeInputOverrides = Map.insert ("hook/" <> hookName) ""
+                    (scopeInputOverrides input)
+                }
+          (noDataScopes, _) <- either (fail . show) pure
+            (compileApplicationDeployment noDataInput)
+          case [operation | compiled <- noDataScopes,
+              bundle <- scopeBundles compiled, operation <- operations bundle] of
+            [operation] -> length (toList (operation ^. #affects)) @?= 1
+            _ -> assertFailure "explicit no-data hook lacks a completion proof"
+          let nextTag = "20260620-120000"
+              nextRollout = scopeRollout hookInput
+                & #imageTag .~ nextTag
+                & #effectiveTag .~ nextTag
+                & #taggedAppImage .~
+                    (imageRefText (testEnv ^. #qualifiedImage) <> ":" <> nextTag)
+              nextRelease = release {releaseId = nextTag, imageTag = nextTag}
+              nextInput = hookInput
+                { scopeRollout = nextRollout
+                , scopeRelease = (addRelease release emptyReleaseLog, nextRelease)
+                , scopeInputOverrides = Map.insert "tag" nextTag
+                    (scopeInputOverrides hookInput)
+                }
+          (nextScopes, _) <- either (fail . show) pure
+            (compileApplicationDeployment nextInput)
+          case (hookScopes, nextScopes) of
+            ([oldApp, oldHook], [newApp, newHook]) -> do
+              scopeId oldApp @?= scopeId newApp
+              assertBool "next tag would replace the old hook scope"
+                (scopeId oldHook /= scopeId newHook)
+              let foundationOwner = unsafe (Resource.mkScopeId Resource.Platform "foundation")
+                  foundationSource = Resource.SourceLocation "test" "foundation"
+                  foundationScope = checked (mkScopeDeclaration foundationOwner
+                    [ResourceBundle
+                      [ External cluster (Resource.CloudInstance
+                          (unsafe (Resource.mkName "project"))
+                          (unsafe (Resource.mkName "zone"))
+                          (unsafe (Resource.mkName "cluster"))) [] foundationSource
+                      , External namespaceId (Resource.Kubernetes cluster ""
+                          (unsafe (Resource.mkName "namespace")) Nothing
+                          (unsafe (Resource.mkName "personal"))) [] foundationSource
+                      , External publication (Resource.Artifact
+                          (unsafe (Resource.mkName "image"))
+                          (unsafe (Resource.mkContentDigest (T.replicate 64 "0"))))
+                          [] foundationSource
+                      ] [] [] [] [] []])
+                  generation = unsafe (Resource.mkScopeGeneration 1)
+                  binding = Resource.ContextBinding
+                    (unsafe (Resource.mkContextId "hook-rollover"))
+                    (unsafe (Resource.mkName "project"))
+              accepted <- either (fail . show) pure (mkScopeSnapshot binding
+                (Map.fromList
+                  [(scopeId foundationScope, (generation, foundationScope))
+                  , (scopeId oldApp, (generation, oldApp))
+                  , (scopeId oldHook, (generation, oldHook))]) Map.empty)
+              nextCandidate <- either (fail . show) pure
+                (composeInventory accepted
+                  (ReplaceScope newApp :| [ReplaceScope newHook]))
+              assertBool "new tag discarded accepted old hook scope"
+                (Map.member (scopeId oldHook)
+                  (inventoryScopes (candidateInventory nextCandidate)))
+            _ -> assertFailure "each release needs one independent hook scope"
+          let jobs = [member | compiled <- hookScopes,
+                bundle <- scopeBundles compiled,
+                Managed member <- declarations bundle,
+                case member ^. #address of
+                  Resource.Kubernetes _ "batch" kind _ _ -> kind == unsafe (Resource.mkName "job")
+                  _ -> False]
+              proofs = [operation | compiled <- hookScopes,
+                bundle <- scopeBundles compiled,
+                operation <- operations bundle]
+              services = [member | compiled <- hookScopes,
+                bundle <- scopeBundles compiled,
+                Managed member <- declarations bundle,
+                case member ^. #address of
+                  Resource.Kubernetes _ "serving.knative.dev" kind _ _ ->
+                    kind == unsafe (Resource.mkName "service")
+                  _ -> False]
+          case (jobs, proofs, services) of
+            ([job], [proof], [service]) -> do
+              assertBool "hook Job still belongs to the application scope"
+                (job ^. #owner /= appOwner)
+              proof ^. #operationKind @?= PreDeployHook
+              toList (proof ^. #affects) @?= [job ^. #identity, databaseId]
+              assertBool "hook Job does not wait for its CronJob"
+                (OrderedAfter cronId `elem` job ^. #dependencies)
+              assertBool "hook Job can start before its affected database is ready"
+                (OrderedAfter databaseId `elem` job ^. #dependencies)
+              assertBool "Service may start before hook completion"
+                (OrderedAfter (proof ^. #identity) `elem` service ^. #dependencies)
+              assertBool "hook Job lacks reviewed native bytes"
+                (Map.member (job ^. #identity) hookNative)
+            _ -> assertFailure "reviewed hook needs one Job, proof, and Service"
+          let hookSecret = unsafe (mkSecretName "hook-token")
+              hookSecretId = Resource.mintResourceId foundation
+                (unsafe (Resource.mkLogicalKey "hook-token"))
+                (unsafe (Resource.mkName "secret"))
+              hookSecretBinding = External hookSecretId
+                (Resource.Kubernetes cluster "" (unsafe (Resource.mkName "secret"))
+                  (Just (unsafe (Resource.mkName "personal")))
+                  (unsafe (Resource.mkName "hook-token"))) [] (scopeSource input)
+              secretHook = hook & #env .~ Map.singleton
+                (unsafe (mkEnvName "HOOK_TOKEN"))
+                (runtimeScoped (EnvSecretRef hookSecret))
+              secretHookInput = hookInput
+                { scopeApplication = appWithHooks & #tasks .~ [secretHook]
+                , scopeEnvSecrets = Map.singleton hookSecret hookSecretBinding
+                }
+          (secretHookScopes, _) <- either (fail . show) pure
+            (compileApplicationDeployment secretHookInput)
+          assertBool "hook-only Secret was dropped from the CronJob dependency"
+            (any (\member -> OrderedAfter hookSecretId `elem` member ^. #dependencies)
+              [member | compiled <- secretHookScopes,
+                bundle <- scopeBundles compiled, Managed member <- declarations bundle,
+                case member ^. #address of
+                  Resource.Kubernetes _ "batch" kind _ _ ->
+                    kind == unsafe (Resource.mkName "cronjob")
+                  _ -> False])
+        _ -> assertFailure "fixture needs one hook and an application database"
       let oldRelease = release {releaseId = "previous", imageTag = "previous"
             , createdAt = UTCTime (fromGregorian 2026 6 18) 0}
           releaseInput = input {scopeRelease = (addRelease oldRelease emptyReleaseLog, release)}

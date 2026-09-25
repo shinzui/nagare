@@ -3,6 +3,7 @@
 -- saved review can be retried without submitting a second Job.
 module Nagare.Inventory.TaskRun
   ( compileTaskRunScope
+  , jobFromCronJob
   )
 where
 
@@ -61,44 +62,8 @@ compileTaskRunScope appName cronJob cronBytes runId source = do
   unless
     (cronJob ^. #spec == NativeObject (contentDigest cronCanonical))
     (Left (invalid "accepted task template bytes differ from its declaration"))
-  (labels, jobSpec) <- case value of
-    Object top -> do
-      unless
-        ( KM.lookup "apiVersion" top == Just (String "batch/v1")
-            && KM.lookup "kind" top == Just (String "CronJob")
-        )
-        (Left (invalid "accepted task template is not a batch/v1 CronJob"))
-      metadata <- objectField invalid "metadata" top
-      unless
-        ( KM.lookup "name" metadata == Just (String cronName)
-            && KM.lookup "namespace" metadata == Just (String ns)
-        )
-        (Left (invalid "accepted task template differs from its native address"))
-      labels <- case KM.lookup "labels" metadata of
-        Just (Object values)
-          | KM.lookup "nagare.dev/app" values == (String <$> appName) ->
-              Right (Object values)
-        _ -> Left (invalid "accepted task template app label differs from requested APP")
-      spec <- objectField invalid "spec" top
-      jobTemplate <- objectField invalid "jobTemplate" spec
-      unless
-        (KM.lookup "metadata" jobTemplate == Nothing)
-        (Left (invalid "task Job template metadata needs an explicit binding"))
-      jobSpec <- case KM.lookup "spec" jobTemplate of
-        Just jobSpec@(Object _) -> Right jobSpec
-        _ -> Left (invalid "accepted task template has no Job spec")
-      pure (labels, jobSpec)
-    _ -> Left (invalid "accepted task template is not a YAML object")
+  job <- first invalid (jobFromCronJob appName cronName ns (serviceNameText jobName) value)
   let resourceId = mintResourceId owner key role
-      job =
-        object
-          [ "apiVersion" .= ("batch/v1" :: T.Text)
-          , "kind" .= ("Job" :: T.Text)
-          , "metadata"
-              .= object
-                ["name" .= serviceNameText jobName, "namespace" .= ns, "labels" .= labels]
-          , "spec" .= jobSpec
-          ]
   canonical <- first invalid (canonicalValue job)
   (bound, native) <-
     first
@@ -137,14 +102,49 @@ compileTaskRunScope appName cronJob cronBytes runId source = do
         [ResourceBundle [Managed member] [] [] [] [] []]
   pure (scope, Map.singleton resourceId (member, native))
 
-objectField ::
-  (T.Text -> NonEmpty InventoryError) ->
-  T.Text ->
-  KM.KeyMap Value ->
-  Either (NonEmpty InventoryError) (KM.KeyMap Value)
-objectField invalid key fields = case KM.lookup (K.fromText key) fields of
+-- | Derive a Job from the exact CronJob object used by a reviewed task. Both
+-- manual runs and application hooks share this native conversion.
+jobFromCronJob :: Maybe T.Text -> T.Text -> T.Text -> T.Text -> Value -> Either T.Text Value
+jobFromCronJob appName cronName ns jobName value = do
+  (labels, jobSpec) <- case value of
+    Object top -> do
+      unless
+        ( KM.lookup "apiVersion" top == Just (String "batch/v1")
+            && KM.lookup "kind" top == Just (String "CronJob")
+        )
+        (Left "task template is not a batch/v1 CronJob")
+      metadata <- objectField "metadata" top
+      unless
+        ( KM.lookup "name" metadata == Just (String cronName)
+            && KM.lookup "namespace" metadata == Just (String ns)
+        )
+        (Left "task template differs from its native address")
+      labels <- case KM.lookup "labels" metadata of
+        Just (Object values)
+          | KM.lookup "nagare.dev/app" values == (String <$> appName) ->
+              Right (Object values)
+        _ -> Left "task template app label differs from requested APP"
+      spec <- objectField "spec" top
+      jobTemplate <- objectField "jobTemplate" spec
+      unless
+        (KM.lookup "metadata" jobTemplate == Nothing)
+        (Left "task Job template metadata needs an explicit binding")
+      jobSpec <- case KM.lookup "spec" jobTemplate of
+        Just jobSpec@(Object _) -> Right jobSpec
+        _ -> Left "task template has no Job spec"
+      pure (labels, jobSpec)
+    _ -> Left "task template is not a YAML object"
+  pure $ object
+    [ "apiVersion" .= ("batch/v1" :: T.Text)
+    , "kind" .= ("Job" :: T.Text)
+    , "metadata" .= object ["name" .= jobName, "namespace" .= ns, "labels" .= labels]
+    , "spec" .= jobSpec
+    ]
+
+objectField :: T.Text -> KM.KeyMap Value -> Either T.Text (KM.KeyMap Value)
+objectField key fields = case KM.lookup (K.fromText key) fields of
   Just (Object value) -> Right value
-  _ -> Left (invalid ("accepted task template has no object " <> key))
+  _ -> Left ("task template has no object " <> key)
 
 -- Keep the run suffix when it fits. Long, otherwise valid CronJob names use a
 -- digest of the full task/run pair so truncation cannot discard the run ID.
