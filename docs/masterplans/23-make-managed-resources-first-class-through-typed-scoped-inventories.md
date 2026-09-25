@@ -523,4 +523,8 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 
 2026-09-24: EP-148 now includes the per-Service application release-history ConfigMap in reviewed application scope compilation. Accepted prior entries are loaded only from private accepted native evidence, and the next entry is bound to the exact rollout and ordered after workloads. Existing direct logs still require explicit adoption; static-site release metadata and full command migration remain open.
 
+2026-09-24: EP-148 also binds that per-Service release history to the reviewed standalone Service scope. Both public reviewed deploy routes now refuse unowned legacy history rather than replacing it, while exact import remains unfinished.
+
+2026-09-24: EP-148 now refuses application-level pre-deploy Tasks in reviewed app scope compilation. The direct rollout executes them before workloads, but declaring only their CronJobs cannot prove those migration effects. Service-attached scheduled CronJobs remain supported; reviewed one-shot Job operations are still required.
+
 2026-09-24: EP-148 applied the same distinction to legacy env and Secret reads and now refuses malformed `data` entries instead of silently dropping keys. Direct store writes and reviewed preview/deploy integration remain open.

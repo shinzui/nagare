@@ -1,6 +1,8 @@
 # Bundle Update Log
 
 ## 2026-09-24
+* **Update**: Clarify that reviewed app deploy refuses aggregate pre-deploy hooks while Service scheduled tasks join its review.
+* **Update**: Document reviewed single-Service release history and its legacy import boundary.
 * **Update**: Document reviewed application release history, accepted prior entries, and the legacy ConfigMap adoption requirement.
 * **Update**: Document reviewed collection of retained central access DomainMappings with native preconditions.
 * **Update**: Document reviewed protected Service and application routes through accepted auth owner contributions and central DomainMappings.

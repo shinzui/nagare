@@ -25,7 +25,7 @@ import Data.Time (UTCTime (..), fromGregorian)
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.App.Deploy
-import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedAccessBinding, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, standaloneWorkerVolumeRecoveryBindings, nativeWorkloadOwned, compileApplicationScope, compileApplicationService, compileStandaloneService, compileStandaloneServiceWithBrokers, compileStandaloneServiceWithDependencies, compileStandaloneWorker, compileStandaloneWorkerWithDependencies, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings, workerRetirementScope)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedAccessBinding, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, standaloneWorkerVolumeRecoveryBindings, nativeWorkloadOwned, compileApplicationScope, compileApplicationService, compileStandaloneService, compileStandaloneServiceWithBrokers, compileStandaloneServiceWithDependencies, compileStandaloneServiceWithRelease, compileStandaloneWorker, compileStandaloneWorkerWithDependencies, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings, workerRetirementScope)
 import Nagare.Inventory.DataService (compileStandaloneBroker, compileStandaloneDatabase)
 import Nagare.Dsl.Broker (BrokerBinding (..), mkTopicName)
 import Nagare.Dsl.Access (authPortal, requireLogin)
@@ -396,7 +396,8 @@ renderTests =
         _ -> assertFailure "fixture lacks a Service and one scheduled task"
   , testCase "composed application scope contains every supported member" $ do
       loaded <- loadApplication fixturePath
-      app <- either (fail . show) pure loaded
+      appWithHooks <- either (fail . show) pure loaded
+      let app = appWithHooks & #tasks .~ []
       serviceForRelease <- maybe (assertFailure "fixture has no web Service" >> fail "missing Service")
         pure (app ^. #service)
       let foundation = unsafe (Resource.mkScopeId Resource.Platform "foundation")
@@ -436,6 +437,8 @@ renderTests =
             }
       (scope, native) <- either (fail . ("base: " <>) . show) pure
         (compileApplicationScope input)
+      assertBool "reviewed app deployment silently skipped a pre-deploy hook"
+        (isLeft (compileApplicationScope (input {scopeApplication = appWithHooks})))
       let oldRelease = release {releaseId = "previous", imageTag = "previous"
             , createdAt = UTCTime (fromGregorian 2026 6 18) 0}
           releaseInput = input {scopeRelease = (addRelease oldRelease emptyReleaseLog, release)}
@@ -515,8 +518,8 @@ renderTests =
       assertBool "unknown database recovery was accepted"
         (isLeft (databaseRecoveryBindings app ["other=backup:v1"]))
       length (scopeBundles scope) @?= 7
-      Map.size native @?= 11
-      length [() | bundle <- scopeBundles scope, Managed _ <- declarations bundle] @?= 11
+      Map.size native @?= 10
+      length [() | bundle <- scopeBundles scope, Managed _ <- declarations bundle] @?= 10
       let workloadBytes =
             [bytes | (member, bytes) <- Map.elems native
             , case member ^. #address of
@@ -577,6 +580,36 @@ renderTests =
       (standaloneServiceScope, standaloneServiceNative) <- either (fail . show) pure
         (compileStandaloneServiceWithBrokers serviceOwner independentService serviceRollout
           cluster namespaceId publication Map.empty Map.empty Map.empty brokerServices (scopeSource input))
+      (standaloneReleasedScope, standaloneReleasedNative) <- either (fail . show) pure
+        (compileStandaloneServiceWithRelease serviceOwner independentService serviceRollout
+          cluster namespaceId publication Map.empty Map.empty Map.empty brokerServices Map.empty
+          Map.empty Nothing emptyReleaseLog release (scopeSource input))
+      let standaloneReleaseMembers = [member | bundle <- scopeBundles standaloneReleasedScope,
+            Managed member <- declarations bundle,
+            case member ^. #address of
+              Resource.Kubernetes _ "" kind _ name ->
+                kind == unsafe (Resource.mkName "configmap")
+                  && name == unsafe (Resource.mkName "nagare-app-deployments-kizashi-serve")
+              _ -> False]
+      standaloneReleaseMember <- case standaloneReleaseMembers of
+        [member] -> pure member
+        _ -> assertFailure "reviewed standalone Service omitted its release history" >> fail "missing release"
+      assertBool "standalone release history can precede its Service"
+        (any (\member -> OrderedAfter (member ^. #identity)
+          `elem` standaloneReleaseMember ^. #dependencies)
+          [member | bundle <- scopeBundles standaloneServiceScope,
+            Managed member <- declarations bundle,
+            case member ^. #address of
+              Resource.Kubernetes _ "serving.knative.dev" kind _ _ ->
+                kind == unsafe (Resource.mkName "service")
+              _ -> False])
+      standaloneReleaseSnapshot <- either (fail . show) pure (mkScopeSnapshot
+        historyBinding (Map.singleton serviceOwner
+          (unsafe (Resource.mkScopeGeneration 1), standaloneReleasedScope)) Map.empty)
+      standaloneHistory <- either (fail . T.unpack) pure
+        (acceptedStandaloneReleaseLog standaloneReleaseSnapshot standaloneReleasedNative
+          serviceOwner independentService cluster)
+      standaloneHistory ^. #current @?= Just tag
       let serviceMembers =
             [member | bundle <- scopeBundles standaloneServiceScope
             , Managed member <- declarations bundle
@@ -1057,7 +1090,7 @@ renderTests =
       (secretScope, _) <- either (fail . ("secret: " <>) . show) pure
         (compileApplicationScope secretInput)
       length [() | bundle <- scopeBundles secretScope, Managed member <- declarations bundle,
-        OrderedAfter secretId `elem` member ^. #dependencies] @?= 5
+        OrderedAfter secretId `elem` member ^. #dependencies] @?= 4
       let wrongSecret = External secretId
             (Resource.Kubernetes cluster "" (unsafe (Resource.mkName "secret"))
               (Just (unsafe (Resource.mkName "other"))) (unsafe (Resource.mkName "external-token")))
@@ -1088,7 +1121,7 @@ renderTests =
                     && not ("nagare-dbbackup-" `T.isPrefixOf` Resource.nameText name))]
           case credentials of
             [credentialId] -> do
-              length workloads @?= 5
+              length workloads @?= 4
               assertBool "application workloads lack their own credential dependency"
                 (all (elem (OrderedAfter credentialId) . (^. #dependencies)) workloads)
             _ -> assertFailure "application database has no unique credential Secret"

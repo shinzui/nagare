@@ -49,10 +49,12 @@ nagarectl app deploy --file nagare/Config.hs --tag v1 \
 nagarectl inventory apply app-review --yes
 ```
 
-Scheduled tasks in the application's `tasks` list join this review as CronJobs.
-They must resolve to the same accepted image as the application; an explicit
-task image pointing elsewhere refuses. One-off `task run` is a separate
-operational action.
+Scheduled tasks attached to the application's web Service join this review as
+CronJobs. They must resolve to the same accepted image as the application; an
+explicit task image pointing elsewhere refuses. Tasks in the aggregate
+application's `tasks` list run as pre-deploy hooks in the direct path. Reviewed
+app planning refuses them until their Job execution has a reviewed operation.
+One-off `task run` is a separate operational action.
 
 For a single Service config, the reviewed route uses an independent Service
 scope:
@@ -63,7 +65,12 @@ nagarectl deploy --file nagare/Config.hs --tag v1 \
 nagarectl inventory apply service-review --yes
 ```
 
-It requires the accepted namespace and image. Add
+The reviewed Service scope also records a release-history ConfigMap after its
+Service and scheduled tasks. It carries forward entries from accepted private
+history. An existing direct ConfigMap remains unowned until the pending legacy
+history import is available, so its reviewed plan refuses before mutation.
+
+The Service requires the accepted namespace and image. Add
 `--service-volume-recovery VOLUME=BACKUP:KEY:VERSION` for each retained PVC,
 `--tls-secret-resource RESOURCE-ID` for supplied TLS, and
 `--env-secret-resource RESOURCE-ID` for runtime Secret references. Scheduled

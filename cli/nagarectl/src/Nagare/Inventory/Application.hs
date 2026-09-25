@@ -9,6 +9,7 @@ module Nagare.Inventory.Application
   , compileStandaloneService
   , compileStandaloneServiceWithBrokers
   , compileStandaloneServiceWithDependencies
+  , compileStandaloneServiceWithRelease
   , compileApplicationWorkers
   , compileStandaloneWorker
   , compileStandaloneWorkerWithDependencies
@@ -23,6 +24,7 @@ module Nagare.Inventory.Application
   , AccessBinding (..)
   , acceptedAccessBinding
   , acceptedApplicationReleaseLog
+  , acceptedStandaloneReleaseLog
   , DatabaseBinding
   , acceptedDatabaseBindings
   , applicationVolumeRecoveryBindings
@@ -606,6 +608,18 @@ acceptedApplicationReleaseLog
   -> Application -> ResourceId -> Either T.Text StaticReleaseLog
 acceptedApplicationReleaseLog snapshot native app cluster = do
   owner <- applicationScopeId app
+  acceptedReleaseLog snapshot native owner app cluster
+
+acceptedStandaloneReleaseLog
+  :: ScopeSnapshot -> Map ResourceId (ManagedResource, ByteString)
+  -> ScopeId -> Deployment -> ResourceId -> Either T.Text StaticReleaseLog
+acceptedStandaloneReleaseLog snapshot native owner service cluster =
+  acceptedReleaseLog snapshot native owner (standaloneReleaseApplication service) cluster
+
+acceptedReleaseLog
+  :: ScopeSnapshot -> Map ResourceId (ManagedResource, ByteString)
+  -> ScopeId -> Application -> ResourceId -> Either T.Text StaticReleaseLog
+acceptedReleaseLog snapshot native owner app cluster = do
   releaseId <- releaseResourceId owner app
   expected <- kubernetesAddress cluster "v1" "ConfigMap"
     (Just (namespaceText (app ^. #namespace)))
@@ -628,6 +642,21 @@ acceptedApplicationReleaseLog snapshot native app cluster = do
         validateReleaseLog app logv
         pure logv
       _ -> Left "accepted application has duplicate release metadata"
+
+standaloneReleaseApplication :: Deployment -> Application
+standaloneReleaseApplication service = DslApp.Application
+  { name = service ^. #name
+  , logicalKey = service ^. #logicalKey
+  , namespace = service ^. #namespace
+  , image = service ^. #image
+  , env = Map.empty
+  , databases = []
+  , brokers = []
+  , access = Nothing
+  , service = Just service
+  , workers = []
+  , tasks = []
+  }
 
 validateReleaseLog :: Application -> StaticReleaseLog -> Either T.Text ()
 validateReleaseLog app logv = do
@@ -747,6 +776,8 @@ compileApplicationScope input = do
         & #sources .~ [source]
         & (:| [])
   _ <- first invalid (mkApplication app)
+  unless (null (app ^. #tasks))
+    (Left (invalid "application pre-deploy hooks need reviewed Job operations before workloads can advance"))
   unless (scopeRollout input ^. #appName == serviceNameText (app ^. #name)
       && scopeRollout input ^. #namespace == namespaceText (app ^. #namespace))
     (Left (invalid "rollout identity differs from the application name or namespace"))
@@ -1358,6 +1389,40 @@ compileStandaloneServiceWithDependencies owner service rollout cluster namespace
   pure (scope, allNative)
   where
     invalid message = inventoryError "invalid-standalone-service" message
+      & #scopes .~ [owner]
+      & #sources .~ [source]
+      & (:| [])
+
+-- | The public reviewed Service route also owns the legacy per-Service
+-- release-history object. The lower-level member compiler remains available
+-- for component tests and callers that compose a larger scope themselves.
+compileStandaloneServiceWithRelease
+  :: ScopeId -> Deployment -> RolloutEnv -> ResourceId -> ResourceId -> ResourceId
+  -> Map VolumeName RecoveryIntent -> Map SecretName Declaration -> Map SecretName Declaration
+  -> Map BrokerName Declaration -> Map BrokerName (Map TopicName Declaration)
+  -> Map DatabaseName DatabaseBinding -> Maybe AccessBinding
+  -> StaticReleaseLog -> StaticRelease -> SourceLocation
+  -> Either (NonEmpty InventoryError)
+       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileStandaloneServiceWithRelease owner service rollout cluster namespaceId imageId recovery tlsSecrets envSecrets brokerServices brokerTopics databaseBindings accessBinding prior release source = do
+  (workloads, workloadNative) <- compileStandaloneServiceWithDependencies owner service rollout
+    cluster namespaceId imageId recovery tlsSecrets envSecrets brokerServices brokerTopics
+    databaseBindings accessBinding source
+  (releaseBundle, releaseNative) <- compileApplicationRelease
+    (standaloneReleaseApplication service) rollout owner cluster namespaceId imageId
+    (scopeBundles workloads) prior release source
+  let bundles = scopeBundles workloads <> [releaseBundle]
+      claims = [claim | bundle <- bundles, declaration <- declarations bundle
+        , (_, claim) <- NE.toList (claimsOf declaration)]
+      native = Map.union workloadNative releaseNative
+  unless (Map.size native == Map.size workloadNative + Map.size releaseNative)
+    (Left (invalid "standalone Service release shares a resource identity"))
+  unless (length claims == Set.size (Set.fromList claims))
+    (Left (invalid "standalone Service release claims another native address"))
+  scope <- mkScopeDeclaration owner bundles
+  pure (scope, native)
+  where
+    invalid message = inventoryError "invalid-standalone-service-release" message
       & #scopes .~ [owner]
       & #sources .~ [source]
       & (:| [])

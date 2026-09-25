@@ -274,7 +274,7 @@ import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.Application (ApplicationScopeInput (..), DatabaseBinding, acceptedAccessBinding, acceptedApplicationImage, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationScope, compileStandaloneServiceWithDependencies, compileStandaloneWorkerWithDependencies, databaseRecoveryBindings, nativeWorkloadOwned, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), DatabaseBinding, acceptedAccessBinding, acceptedApplicationImage, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationScope, compileStandaloneServiceWithRelease, compileStandaloneWorkerWithDependencies, databaseRecoveryBindings, nativeWorkloadOwned, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, compileStandaloneDatabase, databaseNativeOwned, standaloneRetirementScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Environment (acceptedEnvChannelValues, acceptedSecretChannelValues, compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
 import Nagare.Inventory.Host qualified as InventoryHost
@@ -6595,12 +6595,33 @@ runDeployPlan mctx options output = do
     (service ^. #logicalKey)
   owner <- either dieT pure (Resource.mkScopeId Resource.Standalone
     ("service-" <> Resource.logicalKeyText key))
+  store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+  history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
+  acceptedInventory <- either (dieT . T.pack . show) pure
+    (ResourceInventory.composeSnapshot snapshot)
+  (acceptedNative, _) <- InventoryStatus.loadAcceptedNative store history acceptedInventory
+    >>= either dieT pure
+  priorReleases <- either dieT pure
+    (acceptedStandaloneReleaseLog snapshot acceptedNative owner service cluster)
+  releasedAt <- getCurrentTime
   let source = Resource.SourceLocation
         (maybe (T.pack (options ^. #file)) T.pack (options ^. #source))
         (serviceNameText (service ^. #name))
+      releaseTag = rollout ^. #effectiveTag
+      release = StaticRelease
+        { releaseId = releaseTag
+        , siteName = serviceNameText (service ^. #name)
+        , namespace = namespaceName
+        , image = imageRefText (rollout ^. #qualifiedImage)
+        , imageTag = releaseTag
+        , url = serviceUrl service (rollout ^. #baseDomain)
+        , source = T.pack <$> options ^. #source
+        , createdAt = releasedAt
+        }
   (scope, native) <- either (dieT . T.pack . show) pure
-    (compileStandaloneServiceWithDependencies owner service rollout cluster namespaceId imageId
-      volumeRecovery tlsSecrets envSecrets brokerServices brokerTopics databaseBindings accessBinding source)
+    (compileStandaloneServiceWithRelease owner service rollout cluster namespaceId imageId
+      volumeRecovery tlsSecrets envSecrets brokerServices brokerTopics databaseBindings accessBinding
+      priorReleases release source)
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
   Inventory.planInventoryCandidateWith
