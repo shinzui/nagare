@@ -802,6 +802,61 @@ inventoryTransactionTests =
         case proposalOperations (ok (planChanges changed noLifecycleDecisions history (observed changed))) of
           [operation] -> plannedAction operation @?= UpdateResource
           other -> assertFailure ("backend content change did not update the owner map: " <> show other)
+    , testCase "application update observes only its changed scope" $ do
+        let platformOwner = ok (mkScopeId Platform "unrelated-cloud")
+            appOwner = ok (mkScopeId Application "selected-app")
+            otherOwner = ok (mkScopeId Application "other-app")
+            seedOwner = ok (mkScopeId Platform "seed")
+            cluster = mintResourceId platformOwner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+            cloud = case member platformOwner cluster "cloud" of
+              Managed resource -> Managed (resource
+                { executor = PulumiExecutor
+                , address = GlobalBucket (ok (mkName "unrelated-bucket"))
+                })
+              _ -> error "cloud fixture is not managed"
+            appResource = member appOwner cluster "selected"
+            otherResource = member otherOwner cluster "other"
+            changedApp = case appResource of
+              Managed resource -> Managed (resource {spec = NativeObject (contentDigest "changed")})
+              _ -> error "app fixture is not managed"
+            oldAppScope = ok (mkScopeDeclaration appOwner
+              [ResourceBundle [appResource] [] [] [] [] []])
+            newAppScope = ok (mkScopeDeclaration appOwner
+              [ResourceBundle [changedApp] [] [] [] [] []])
+            platformScope = ok (mkScopeDeclaration platformOwner
+              [ResourceBundle [cloud] [] [] [] [] []])
+            unrelatedOperation = DeclaredOperation
+              { identity = mintResourceId otherOwner (ok (mkLogicalKey "other-op")) (ok (mkName "operation"))
+              , affects = declarationId otherResource :| []
+              , inputs = []
+              , recovery = Idempotent
+              , operationKind = PublishRelease
+              }
+            otherScope = ok (mkScopeDeclaration otherOwner
+              [ResourceBundle [otherResource] [] [] [] [unrelatedOperation] []])
+            original = ok (mkScopeSnapshot fixtureBinding (Map.fromList
+              [(platformOwner, (ok (mkScopeGeneration 1), platformScope))
+              , (appOwner, (ok (mkScopeGeneration 1), oldAppScope))
+              , (otherOwner, (ok (mkScopeGeneration 1), otherScope))]) Map.empty)
+            seed = ok (composeInventory original
+              (ReplaceScope (ok (mkScopeDeclaration seedOwner [])) :| []))
+        store <- newMemoryStore
+        _ <- initializeStore store fixtureBinding "scope-isolation-test" >>= expectRight
+        _ <- seedInventoryHistory store seed >>= expectRight
+        history <- loadInventoryHistory store >>= expectRight
+        let candidate = ok (composeInventory original (ReplaceScope newAppScope :| []))
+            selectedId = declarationId appResource
+            required = requiredResources (observationRequirements candidate history)
+        required @?= Set.singleton selectedId
+        let observations = ok (observationSet
+              [(selectedId, ObservedPresent (ok (mkPhysicalIdentity "selected-uid")))])
+            operations = proposalOperations
+              (ok (planChanges candidate noLifecycleDecisions history observations))
+        case operations of
+          [operation] -> do
+            plannedAction operation @?= UpdateResource
+            NE.toList (plannedResources operation) @?= [selectedId]
+          other -> assertFailure ("unrelated scopes joined application update: " <> show other)
     , testCase "missing accepted durable resource refuses automatic recreation" $ do
         let owner = ok (mkScopeId Platform "durable")
             cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
