@@ -123,6 +123,7 @@ library
     Nagare.Inventory.Environment
     Nagare.Inventory.Application
     Nagare.Inventory.Site
+    Nagare.Inventory.TaskRun
     Nagare.Inventory.Digest
     Nagare.Inventory.Execute
     Nagare.Inventory.HelmReview

@@ -278,6 +278,7 @@ import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManager
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Application (ApplicationScopeInput (..), DatabaseBinding, acceptedAccessBinding, acceptedApplicationImage, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationScope, compileStandaloneServiceWithRelease, compileStandaloneWorkerWithDependencies, databaseRecoveryBindings, legacyApplicationReleaseImport, legacyStandaloneReleaseImport, nativeWorkloadOwned, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
 import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteReleaseLog, acceptedSiteSource, compileServerSitePreviewScope, compileServerSiteRollbackScope, compileServerSiteScope, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteScope, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteNativeOwned, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
+import Nagare.Inventory.TaskRun (compileTaskRunScope)
 import Nagare.Inventory.Lifecycle qualified as InventoryLifecycle
 import Nagare.Inventory.DataService (NativeDataKind (..), acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, compileStandaloneDatabase, dataCommandNativeOwned, databaseNativeOwned, standaloneRetirementScope)
 import Nagare.Inventory.Environment (acceptedEnvChannelValues, acceptedSecretChannelValues, compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
@@ -1080,6 +1081,8 @@ data TaskRunOpts = TaskRunOpts
   , task :: !String
   , namespace :: !(Maybe String)
   , dryRun :: !Bool
+  , runId :: !(Maybe String)
+  , savePlan :: !(Maybe FilePath)
   }
   deriving stock (Generic, Show)
 
@@ -1846,6 +1849,8 @@ taskListOptsParser =
 taskRunOptsParser :: Parser TaskRunOpts
 taskRunOptsParser =
   TaskRunOpts <$> taskAppArg <*> taskNameArg <*> namespaceOpt <*> dryRunOpt
+    <*> optional (strOption (long "run-id" <> metavar "ID" <> help "Stable manual Job identity for --save-plan"))
+    <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed one-off Job plan"))
 
 taskLogsOptsParser :: Parser TaskLogsOpts
 taskLogsOptsParser =
@@ -2911,7 +2916,7 @@ opts =
               "run"
               ( info
                   (Task . TaskRun <$> taskRunOptsParser <**> helper)
-                  (progDesc "Run a task once, now: create a Job from its CronJob and wait; --dry-run prints the command")
+                  (progDesc "Run a task once from its CronJob, or save a reviewed Job plan with --run-id and --save-plan")
               )
             <> command
               "logs"
@@ -8567,15 +8572,20 @@ runTask :: Maybe String -> TaskCommand -> IO ()
 runTask mctx = \case
   TaskList o -> runTaskList (nsOf (o ^. #namespace)) (scopeOfMaybe (o ^. #app))
   TaskRun o -> do
-    refuseDirectTaskMutationIfOwned mctx "run" (T.pack (o ^. #task)) (nsOf (o ^. #namespace))
-    runTaskRun
-      TaskRunParams
-        { app = T.pack (o ^. #app)
-        , task = T.pack (o ^. #task)
-        , namespace = nsOf (o ^. #namespace)
-        , scope = scopeOf (o ^. #app)
-        , dryRun = o ^. #dryRun
-        }
+    case o ^. #savePlan of
+      Just output -> runReviewedTaskRunPlan mctx o output
+      Nothing -> do
+        when (isJust (o ^. #runId))
+          (dieT "--run-id requires --save-plan")
+        refuseDirectTaskMutationIfOwned mctx "run" (T.pack (o ^. #task)) (nsOf (o ^. #namespace))
+        runTaskRun
+          TaskRunParams
+            { app = T.pack (o ^. #app)
+            , task = T.pack (o ^. #task)
+            , namespace = nsOf (o ^. #namespace)
+            , scope = scopeOf (o ^. #app)
+            , dryRun = o ^. #dryRun
+            }
   TaskLogs o ->
     runTaskLogs
       TaskLogTarget
@@ -8603,6 +8613,49 @@ runTask mctx = \case
     -- An optional APP positional (task list): absent means "any app".
     scopeOfMaybe Nothing = AnyApp
     scopeOfMaybe (Just a) = scopeOf a
+
+runReviewedTaskRunPlan :: Maybe String -> TaskRunOpts -> FilePath -> IO ()
+runReviewedTaskRunPlan mctx options output = do
+  when (options ^. #dryRun)
+    (dieT "--dry-run and --save-plan cannot be combined")
+  let appName = T.pack (options ^. #app)
+      taskName = T.pack (options ^. #task)
+      ns = maybe "personal" T.pack (options ^. #namespace)
+  when (appName == "-")
+    (dieT "reviewed task run requires an accepted application task")
+  runId <- maybe (dieT "reviewed task run requires --run-id")
+    (pure . T.pack) (options ^. #runId)
+  active <- activeTarget mctx
+  (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+  snapshot <- Inventory.loadTargetSnapshot active
+  (cluster, _) <- either dieT pure (acceptedFoundationNamespace snapshot ns)
+  cronAddress <- either dieT pure (Resource.kubernetesAddress cluster "batch/v1"
+    "CronJob" (Just ns) (taskResourceName taskName))
+  let accepted = [resource | (_, scope) <- Map.elems (ResourceInventory.snapshotScopes snapshot),
+        bundle <- ResourceInventory.scopeBundles scope,
+        ResourceInventory.Managed resource <- ResourceInventory.declarations bundle,
+        resource ^. #address == cronAddress]
+  cronJob <- case accepted of
+    [resource] -> pure resource
+    _ -> dieT "reviewed task run requires one accepted CronJob at the selected address"
+  store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+  history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
+  acceptedInventory <- either (dieT . T.pack . show) pure
+    (ResourceInventory.composeSnapshot snapshot)
+  (acceptedNative, _) <- InventoryStatus.loadAcceptedNative store history acceptedInventory
+    >>= either dieT pure
+  (bound, cronBytes) <- maybe (dieT "accepted CronJob lacks private native evidence") pure
+    (Map.lookup (cronJob ^. #identity) acceptedNative)
+  unless (bound == cronJob)
+    (dieT "accepted CronJob differs from its private native evidence")
+  let source = Resource.SourceLocation
+        ("task/" <> appName <> "/" <> taskName) ("manual-run/" <> runId)
+  (scope, native) <- either (dieT . T.pack . show) pure
+    (compileTaskRunScope appName cronJob cronBytes runId source)
+  candidate <- either (dieT . T.pack . show) pure
+    (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
+  Inventory.planInventoryCandidateWith
+    (inventoryPlanRegistryWithNative active workspace native) active candidate output
 
 -- | Resolve the GCS backup bucket: an explicit @--bucket@ flag wins; otherwise
 -- the resolved target profile's backup bucket (EP-62; honors

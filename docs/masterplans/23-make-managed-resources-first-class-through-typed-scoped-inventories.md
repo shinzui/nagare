@@ -151,6 +151,11 @@ provenance:
       at: 2026-09-25T02:45:56Z
       mode: "implement"
       note: "Unify direct data create address guards"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-25T03:02:59Z
+      mode: "implement"
+      note: "Track EP-148 reviewed one-off Job scope and conditional collection"
 ---
 
 # Make managed resources first-class through typed scoped inventories
@@ -596,3 +601,5 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 2026-09-24: EP-148 made direct database and broker create use the same full address guard, including companions omitted by a changed incoming database configuration.
 
 2026-09-24: EP-148 applied the same distinction to legacy env and Secret reads and now refuses malformed `data` entries instead of silently dropping keys. Direct store writes and reviewed preview/deploy integration remain open.
+
+2026-09-24: EP-148 added reviewed manual Jobs for accepted app-associated CronJobs. The run ID fixes an independent scope and Job address, saved native evidence fixes the template, and conditional Job collection uses exact identity with a background child-Pod cleanup request. A disposable cluster created and conditionally deleted a Job. This advances one-shot declaration coverage while M1 and the operational command milestone remain open.

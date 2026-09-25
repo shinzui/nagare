@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-24
+* **Update**: Document reviewed one-off Task Job planning from accepted CronJob evidence, stable run IDs, and guarded Job collection.
 * **Update**: Clarify that a changed direct database config still checks older retained backup and configuration addresses.
 * **Update**: Document direct database and broker operation guards across retained companion addresses.
 * **Update**: Document the direct server deploy guard for retained site PVC addresses.

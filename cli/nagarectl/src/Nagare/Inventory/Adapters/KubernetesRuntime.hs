@@ -183,7 +183,8 @@ collectionDeleteRequest address uid revision = case address of
       ,"kind" .= ("DeleteOptions" :: Text)
       ,"preconditions" .= object
         ["uid" .= physicalIdentityText uid, "resourceVersion" .= revision]
-      ,"propagationPolicy" .= ("Orphan" :: Text)])
+      ,"propagationPolicy" .= (if group == "batch" && nameText kind == "job"
+          then "Background" else "Orphan" :: Text)])
     let path = prefix <> "/namespaces/" <> T.unpack (nameText namespace)
           <> "/" <> T.unpack (nameText kind) <> "s/" <> T.unpack (nameText name)
     pure (["delete", "--raw", path, "-f", "-"], TE.decodeUtf8 bytes)
@@ -193,6 +194,7 @@ collectionPathPrefix :: Text -> Text -> Maybe String
 collectionPathPrefix "" kind
   | kind `elem` ["configmap", "service", "persistentvolumeclaim"] = Just "/api/v1"
 collectionPathPrefix "batch" "cronjob" = Just "/apis/batch/v1"
+collectionPathPrefix "batch" "job" = Just "/apis/batch/v1"
 collectionPathPrefix "serving.knative.dev" "domainmapping" = Just "/apis/serving.knative.dev/v1beta1"
 collectionPathPrefix "serving.knative.dev" "service" = Just "/apis/serving.knative.dev/v1"
 collectionPathPrefix _ _ = Nothing

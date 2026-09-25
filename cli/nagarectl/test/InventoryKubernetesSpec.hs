@@ -898,6 +898,31 @@ inventoryKubernetesTests =
         assertBool "PVC deletion dropped its physical preconditions"
           (BS.isInfixOf "preview-pvc-uid" (TE.encodeUtf8 body)
             && BS.isInfixOf "resource-version" (TE.encodeUtf8 body))
+    , testCase "manual Job collection retains exact identity and requests pod cleanup" $ do
+        let value = object
+              [ "apiVersion" .= ("batch/v1" :: Text)
+              , "kind" .= ("Job" :: Text)
+              , "metadata" .= object
+                  ["name" .= ("nagare-task-cleanup-manual-r1" :: Text),
+                   "namespace" .= ("personal" :: Text)]
+              , "spec" .= object ["template" .= object ["spec" .= object
+                  ["restartPolicy" .= ("Never" :: Text),
+                   "containers" .= [object
+                     ["name" .= ("run" :: Text), "image" .= ("busybox:1.36" :: Text)]]]]]
+              ]
+            bytes = ok (canonicalValue value)
+            (declaration, _) = ok (bindKubernetesObject
+              (input {inputObject = value, objectDigest = contentDigest bytes,
+                lifecyclePolicy = DeleteWhenUnreferenced}))
+            uid = ok (mkPhysicalIdentity "manual-job-uid")
+        supportsRetainedCollection declaration @?= True
+        (arguments, body) <- expectRight (collectionDeleteRequest
+          (declaration ^. #address) uid "resource-version")
+        arguments @?=
+          ["delete", "--raw", "/apis/batch/v1/namespaces/personal/jobs/nagare-task-cleanup-manual-r1", "-f", "-"]
+        assertBool "Job deletion dropped preconditions or background pod cleanup"
+          (all (\part -> BS.isInfixOf part (TE.encodeUtf8 body))
+            ["manual-job-uid", "resource-version", "Background"])
     , testCase "retained unready access route can be conditionally collected" $ do
         let value = object
               [ "apiVersion" .= ("serving.knative.dev/v1beta1" :: Text)
@@ -989,7 +1014,7 @@ inventoryKubernetesTests =
               observed <- adapterObserve adapter [resource] >>= expectRight
               Map.lookup resource (observationMap observed) @?= Just (ConfirmedAbsent (contentDigest (TE.encodeUtf8 (resourceIdText resource <> ":absent")))))
               `finally` cleanup
-    , testCase "disposable cluster conditionally collects owned Service, CronJob, and PVC" $ do
+    , testCase "disposable cluster conditionally collects owned Service, CronJob, Job, and PVC" $ do
         selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
         case selected of
           Nothing -> pure ()
@@ -1008,6 +1033,7 @@ inventoryKubernetesTests =
                 cronJob = named "CronJob" (object
                   ["schedule" .= ("0 0 1 1 *" :: Text)
                   ,"jobTemplate" .= object ["spec" .= object ["template" .= object ["spec" .= pod]]]])
+                job = named "Job" (object ["template" .= object ["spec" .= pod]])
                 pvc = object
                   ["apiVersion" .= ("v1" :: Text)
                   ,"kind" .= ("PersistentVolumeClaim" :: Text)
@@ -1020,7 +1046,8 @@ inventoryKubernetesTests =
                      "resources" .= object ["requests" .= object ["storage" .= ("1Mi" :: Text)]]]
                   ]
             mapM_ (collectOne selectedContext)
-              [("service", service), ("cronjob", cronJob), ("persistentvolumeclaim", pvc)]
+              [("service", service), ("cronjob", cronJob), ("job", job),
+               ("persistentvolumeclaim", pvc)]
     , testCase "private review reconstructs contributed Namespace members" $ do
         state <- newIORef (KubernetesAbsent absence)
         calls <- newIORef (0 :: Int)

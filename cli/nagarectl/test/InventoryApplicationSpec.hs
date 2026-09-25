@@ -1,15 +1,18 @@
 module InventoryApplicationSpec (inventoryApplicationTests) where
 
 import Data.Generics.Labels ()
+import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
+import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.Dsl.Database (mkDatabaseName)
 import Nagare.Dsl.Load (loadApplication, loadBroker)
 import Nagare.Dsl.Task (Task (..), scheduledTask)
+import Nagare.Dsl.Task.Render (renderTask)
 import Nagare.Dsl.Types (RetentionPolicy (Delete), databaseNameText, mkServiceName, namespaceText)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Application (compileApplicationDatabases, reviewedTaskImages)
@@ -21,17 +24,66 @@ import Nagare.Inventory.DataService (NativeDataKind (..), acceptedFoundationName
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (mkOperationId)
 import Nagare.Inventory.Environment (acceptedEnvChannelValues, acceptedSecretChannelValues, compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
+import Nagare.Inventory.Kubernetes (bindKubernetesObject)
+import Nagare.Inventory.TaskRun (compileTaskRunScope)
 import Nagare.Env.Store (ReconcileMode (..), reconcile)
 import Nagare.Resource.Application (applicationScopeId)
-import Nagare.Resource.Inventory (Declaration (Managed), Executor (BrokerExecutor), ManagedResource (..), ResourceBundle (..), mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeId)
-import Nagare.Resource.Policy (RecoveryClass (VerifyBeforeRetry), RecoveryIntent (..), Sensitivity (Secret), mkSecretRef)
+import Nagare.Resource.Inventory (Declaration (Managed), DesiredSpec (NativeObject), Executor (BrokerExecutor), ManagedResource (..), ResourceBundle (..), mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeId)
+import Nagare.Resource.Kubernetes (KubernetesInput (..))
+import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (DeleteWhenUnreferenced), RecoveryClass (VerifyBeforeRetry), RecoveryIntent (..), Sensitivity (Private, Secret), mkSecretRef)
+import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
+import Nagare.Resource.Wire (canonicalValue)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertFailure, testCase, (@?=))
 
 inventoryApplicationTests :: TestTree
 inventoryApplicationTests = testGroup "application inventory compilation"
-  [ testCase "reviewed scheduled tasks use the accepted application image" $ do
+  [ testCase "manual task Job compiles from an exact accepted CronJob template" $ do
+      let checked :: Show e => Either e a -> a
+          checked = either (error . show) id
+          task = checked (scheduledTask "cleanup" "0 2 * * *" "example.test/demo" "cleanup")
+            & #app .~ Just (checked (mkServiceName "demo"))
+          cronBytes = renderTask task
+          cronValue = checked (Yaml.decodeEither' cronBytes)
+          cronCanonical = checked (canonicalValue cronValue)
+          foundation = checked (mkScopeId Platform "foundation")
+          cluster = mintResourceId foundation (checked (mkLogicalKey "cluster"))
+            (checked (mkName "cluster"))
+          owner = checked (mkScopeId Application "demo")
+          cronId = mintResourceId owner (checked (mkLogicalKey "cleanup"))
+            (checked (mkName "cronjob"))
+          source = SourceLocation "fixture" "task-run/r1"
+          input = KubernetesInput cronId owner cluster cronValue
+            (contentDigest cronCanonical) DeleteWhenUnreferenced Stateless Private source
+          (cronJob, _) = checked (bindKubernetesObject input)
+      (scope, native) <- either (fail . show) pure
+        (compileTaskRunScope "demo" cronJob cronBytes "r1" source)
+      scopeId scope @?= checked (mkScopeId Standalone "task-run-personal-r1-nagare-task-cleanup")
+      Map.size native @?= 1
+      let jobs = [resource | bundle <- scopeBundles scope,
+            Managed resource <- declarations bundle]
+      case jobs of
+        [job] -> do
+          job ^. #address @?= checked (kubernetesAddress cluster "batch/v1" "Job"
+            (Just "personal") "nagare-task-cleanup-manual-r1")
+          job ^. #dependencies @?= [OrderedAfter cronId]
+          let jobBytes = snd (native Map.! (job ^. #identity))
+          BS.isInfixOf "backoffLimit" jobBytes @?= True
+          BS.isInfixOf "example.test/demo" jobBytes @?= True
+        _ -> assertFailure "manual task review lacks exactly one Job"
+      compileTaskRunScope "demo" cronJob cronBytes "r1" source @?= Right (scope, native)
+      case compileTaskRunScope "demo" (cronJob & #spec .~ NativeObject (contentDigest "other"))
+          cronBytes "r2" source of
+        Left _ -> pure ()
+        Right _ -> assertFailure "manual task accepted a different CronJob template digest"
+      case compileTaskRunScope "other" cronJob cronBytes "r2" source of
+        Left _ -> pure ()
+        Right _ -> assertFailure "manual task accepted another app's CronJob"
+      case compileTaskRunScope "demo" cronJob cronBytes "bad.id" source of
+        Left _ -> pure ()
+        Right _ -> assertFailure "manual task accepted an invalid Kubernetes run ID"
+  , testCase "reviewed scheduled tasks use the accepted application image" $ do
       let checked = either (error . show) id
           sameImage = checked (scheduledTask "cleanup" "0 2 * * *" "registry/app" "cleanup")
           otherImage = checked (scheduledTask "cleanup" "0 2 * * *" "registry/other" "cleanup")

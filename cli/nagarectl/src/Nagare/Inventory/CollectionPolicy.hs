@@ -2,7 +2,8 @@
 -- native executor. Planning, read-only screening, and preparation must agree.
 module Nagare.Inventory.CollectionPolicy
   ( supportsRetainedCollection
-  ) where
+  )
+where
 
 import Data.Generics.Labels ()
 import Nagare.Dsl.Prelude
@@ -18,7 +19,8 @@ supportsRetainedCollection declaration =
     && case declaration ^. #address of
       Kubernetes _ "" kind (Just _) _ ->
         nameText kind `elem` ["configmap", "service", "persistentvolumeclaim"]
-      Kubernetes _ "batch" kind (Just _) _ -> nameText kind == "cronjob"
+      Kubernetes _ "batch" kind (Just _) _ ->
+        nameText kind `elem` ["cronjob", "job"]
       Kubernetes _ "serving.knative.dev" kind (Just _) _ ->
         nameText kind `elem` ["domainmapping", "service"]
       _ -> False
