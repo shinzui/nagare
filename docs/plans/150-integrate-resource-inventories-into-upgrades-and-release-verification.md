@@ -53,6 +53,49 @@ complete M1: a component-backed upgrade path and legacy recovery compatibility
 are still required. The 818-test `nagarectl` suite, Haskell style check,
 strict user-documentation validation, and diff check passed.
 
+2026-09-25: M4 provider protocol probe used the separately authorized private
+repository `shinzui/nagare-release-recovery-probe-01a0da30`, annotated tag
+`v0.0.0-ep150-probe` (tag object `9dcaf1e32e079c1f36026e38b65c8745c12aaf13`),
+release ID `396903067`, and one 12-byte product asset. The draft listed its
+tag, machine-readable body, asset ID `589172376`, `uploaded` state, and
+SHA-256; downloading that exact asset ID reproduced the candidate digest.
+A digest-addressed pre-publication receipt was uploaded as asset ID
+`589176676`, then the same release ID published with `immutable: true`.
+An attempted unreviewed upload received HTTP 422. This establishes provider
+primitives and limits for the adapter; no Nagare release was published. The
+test repository remains private as provider recovery evidence; no cleanup has
+been run.
+
+2026-09-25: The new `GitHubRelease` adapter and `release publish` command
+replace direct workflow publication. The review binds the annotated tag
+object, commit, repository, pre-generated notes, seven EP-146 artifact
+declarations, and exact bytes. The draft body establishes an immutable intent;
+verified product IDs are recorded in a digest-addressed receipt before
+publication. The CLI recovered release ID `396912196` for private tag
+`v0.0.1` after an initially invisible draft and a failed first upload,
+verified all eight physical assets, then published it. A fresh clone with
+only the candidate files repeated the command without writes and returned
+the same release and asset IDs. Changed same-tag notes/bytes and a tampered
+local checksum set refused. A separate `release cleanup-starter` command
+requires the exact draft release and failed placeholder asset IDs; its fake
+provider test passed, and the live command refused an attempted cleanup of a
+published asset without deleting anything. The six focused fault-injection
+tests, full 825-test CLI suite, 458-test DSL suite, Pulumi build/tests,
+release consistency tests, Haskell style, strict user docs, and workflow YAML
+parse passed. M4 remains open for inventory evidence and full release gates.
+The publisher also reconstructs a canonical local completion observation from
+the verified provider release and physical asset IDs; the workflow archives
+that observation outside the immutable release attachments.
+The fresh checkout retried the already published private probe and wrote this
+observation with the same release ID `396912196`, eight asset IDs, and review
+digest `bae8ae74986811c2ce8bc4297e073d5c2cf9bc29fc433ca49417afdf73f4a6b0`.
+
+2026-09-25: M3 deterministic multi-scope recovery now has a focused test for
+platform, two applications, and cache. All four lost-acknowledgement positions
+resume without duplicate effects; the unchanged review is a no-op, and retiring
+one application retains its resource while other accepted revisions remain
+fixed. The provider-backed local and GCP scenarios remain open.
+
 
 ## Surprises & Discoveries
 
@@ -70,7 +113,118 @@ coverage completion, not evidence that EP-150 can exclude those commands.
 a read-only GCP check found a running `nagare-01` VM there and the saved `labs`
 context targets that name. Do not use that existing context or VM as a
 disposable fixture. A live scenario needs a separate, uniquely named context
-and exact resource identities before any write.
+and exact resource identities before any write. The operator clarified that
+`tan-ng-labs` is intended for Nagare once stable, so the project itself and
+its standing resources must be preserved. No GCP write has been made in this
+implementation session.
+
+2026-09-25: Read-only review of the cloud Pulumi topology found that a second
+context would still default to the project-wide `nagare-node` service account,
+`nagare` Artifact Registry repository, and context-independent backup bucket
+name. The current program does not expose a service-account ID override. A
+GCP rehearsal cannot safely use those defaults in `tan-ng-labs`; it needs
+explicit unique identities, a preview proving no existing resource is
+targeted, and a reviewed cleanup set before any apply. An optional
+`nagare:serviceAccountId` Pulumi setting now allows the rehearsal stack to
+use a separate node account while preserving the original default. Bucket,
+registry, VM, and domain overrides are already available; this does not yet
+constitute a reviewed, executable GCP rehearsal.
+
+2026-09-25: M2 documentation audit confirmed ADR 13 already has EP-151's
+GCS-inventory amendment and records the isolated two-state-root rehearsal.
+The disaster-recovery guide still called that rehearsal pending and described
+local export without a restore command. Added `inventory restore --from`
+with a read-only binding review, explicit `--yes`, empty-local-store refusal,
+and a digest-checked restore that rechecks the context/project binding from
+the verified backup immediately before writing. Context, reference, and
+backup guides now explain export/restore and the GCS evidence accurately.
+This does not establish the full M2 mutation-path coverage.
+
+2026-09-25: Read-only `gcloud` listings confirmed the standing physical names
+in `tan-ng-labs`: `nagare-01` (running in `us-west1-a`), `nagare-node`, the
+`nagare` Artifact Registry repository, `tan-ng-labs-nagare-{backups,images,
+nix-cache,pulumi-state}` buckets, and the `labs.topagentnetwork.net.` DNS
+zone. The operator offered to delegate `ep150.labs.topagentnetwork.net` for
+the separate rehearsal. The fixture still needs distinct resource IDs, a
+read-only Pulumi preview, and a reviewed creation/cleanup set. No GCP mutation
+or cleanup has occurred.
+The Pulumi perimeter creates a new Cloud DNS managed zone for its configured
+base domain. A production-shaped test under `labs.topagentnetwork.net` therefore
+also needs an exact NS delegation record in the standing parent zone; that
+parent-zone change belongs in the reviewed creation and cleanup set.
+
+2026-09-25: Prepared a local-backend, read-only Pulumi preview for stack
+`ep150-preview` in `tan-ng-labs`, with domain
+`ep150.labs.topagentnetwork.net`, VM and service account `nagare-ep150`,
+registry `nagare-ep150`, and buckets
+`tan-ng-labs-ep150-pmkjjpp-{backups,images}`. Read-only provider checks found
+none of those exact names. The initial preview included seven project API
+resources already enabled in the standing project, so a new optional
+`nagare:manageProjectApis` config setting now excludes those shared ownership
+claims when set to `false` on the second stack; its default remains `true`.
+The revised saved preview proposes 27 creates and no update/delete/import,
+with SHA-256 plan digest
+`2aeb41e0d665f6b558a719fb703dac0af903de475595a0942c3acfaa966f2971`.
+It still adds two project IAM members for the new account and requires an
+exact parent-zone NS delegation after creation. The saved native plan is
+private under `/tmp/nagare-ep150-preview`; no cloud apply or cleanup occurred.
+An isolated local `ep150-preview` context names a separate, currently absent
+`tan-ng-labs-ep150-pmkjjpp-state` bucket for its future Pulumi and inventory
+GCS prefixes. That bootstrap bucket is not part of the 27-create perimeter
+preview and needs its own bounded review before any live run. The disabled
+Nix cache still has a distinct reserved bucket name in both the context and
+Pulumi fixture, avoiding a fallback to the standing cache bucket.
+
+2026-09-25: In the private GitHub draft probe, PATCHing only the body changed
+`tag_name` from the reviewed tag to an internal `untagged-*` name while
+preserving the release ID and uploaded asset. PATCHing `tag_name` restored the
+binding; the final publish PATCH supplied the exact tag, body, target commit,
+and title together. Treat any body/tag mismatch as an unknown or foreign
+provider state and refuse rather than trying to reconstruct the intent. A
+32,775-character draft body round-tripped, so a bounded envelope below 32 KiB
+is feasible. GitHub documents at most 1,000 assets per release and less than
+2 GiB per asset; actual release assets will be much smaller. GitHub may
+normalize unsafe filenames, so the adapter must constrain names before
+review. A repeated same-name upload refused, and publication under an enabled
+immutable-release policy refused a new asset with HTTP 422.
+
+2026-09-25: The Darwin `nix flake check` first failed a baseline ACME URL
+guard because it scanned vendored cert-manager YAML and a test fixture.
+Exempted only the guard itself, that fixture, and the upstream vendor directory.
+The next run exposed a missing `jq` build input in the inventory transport
+guard check; added it to that check's Nix inputs. Full flake validation must
+be repeated after these check repairs.
+
+2026-09-25: The repaired flake check then reached `nagare-dsl` and found that
+the pinned Nixpkgs GHC 9.12.4 set has
+`mori://kazu-yamamoto/crypton/packages/crypton` at 1.0.6 while the package's
+original bound was `>=1.1.5 && <1.2`. Mori located the dependency source;
+Hackage source manifests and upstream tags for 1.0.6 and 1.1.5 were checked.
+The DSL imports only `Crypto.Hash`'s `Digest`, `SHA256`, and `hash`, all present
+in 1.0.6, so its minimum bound now admits the pinned version while local Cabal
+continues to test 1.1.5. A package-set-wide 1.1.5 override conflicted with
+the older `crypton-x509` bound (`<1.1`), and a scoped override caused Cabal's
+multiple-version configure refusal through TLS; both overrides were removed.
+The isolated DSL check also found a test fixture reading a repository-relative
+cache manifest; its Nix `postPatch` now points to the packaged directory.
+The Nix CLI check then exposed repository-relative cluster and DSL test fixture
+paths, so its checked package now binds those tests to packaged source paths.
+The targeted Darwin `nagarectl-build-test` now passes all 825 tests inside Nix
+after adding the required Helm and OpenSSL test tools and placing Helm's cache
+under the build directory. The full flake check then found four shipped example
+configs missing the DSL's required `logicalKey` field; the repaired
+`examples-compile` check passes. The next full check reached the Fourmolu gate,
+which reports differences in many untouched Haskell files. The local AST style
+check, strict user docs, and release consistency checks pass; full flake
+validation remains incomplete.
+
+2026-09-25: Added `InventoryIntegrationSpec` with a compiled platform scope,
+two application scopes, and a cache scope. A recording adapter injects a lost
+acknowledgement after every possible operation position in fresh stores, then
+checks exact once recovery, a no-op rerun, and retained removal of one app
+without changing the other three scope revisions. The focused test passes.
+This is deterministic M3 evidence, not the local/live provider rehearsal or
+the remaining upgrade and mutation-path integration.
 
 
 ## Decision Log
@@ -86,6 +240,13 @@ legacy upgrade command for a context with substantive inventory history. A
 guarded refusal preserves the old context pin and prevents the coarse replay
 from bypassing accepted scope ownership; it does not migrate an existing
 transaction or claim M1 completion.
+
+2026-09-25: The release publication adapter must create the draft with its
+complete immutable body, avoid later body edits, and include the reviewed tag
+explicitly in the final publish request. This follows the draft PATCH probe,
+which showed that an omitted tag can detach the draft from the intended tag.
+The pre-publication receipt stays an additional asset rather than a
+self-hashing product member.
 
 
 ## Outcomes & Retrospective

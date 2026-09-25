@@ -33,7 +33,7 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString.Lazy.Char8 qualified as LBC
 import Data.Char (isAlphaNum)
 import Data.Generics.Labels ()
-import Data.List (find, sort)
+import Data.List (find, sort, sortOn)
 import Data.List.NonEmpty qualified as NE
 import Data.Map (Map)
 import Data.Map qualified as Map
@@ -257,6 +257,8 @@ import Nagare.Inventory.Adapters.CdnCombined (combineCdnAdapters)
 import Nagare.Inventory.Adapters.CdnRuntime qualified as CdnRuntime
 import Nagare.Inventory.Adapters.Cloudflare (CloudflareBinding (..), cloudflareBindingsFromDeclarations, mkCloudflareAdapter)
 import Nagare.Inventory.Adapters.CloudflareRuntime qualified as CloudflareRuntime
+import Nagare.Inventory.Adapters.GitHubRelease qualified as GitHubRelease
+import Nagare.Inventory.Adapters.GitHubReleaseRuntime (githubReleaseOps)
 import Nagare.Inventory.Adapters.Cache (cacheSpecsFromDeclarations, mkCacheAdapter)
 import Nagare.Inventory.Adapters.CacheRuntime qualified as CacheRuntime
 import Nagare.Inventory.Adapters.Host (mkHostAdapter)
@@ -268,7 +270,7 @@ import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..)
 import Nagare.Inventory.Adapters.Pulumi (mkPulumiAdapter)
 import Nagare.Inventory.Adapters.PulumiRuntime
 import Nagare.Inventory.Artifact qualified as InventoryArtifact
-import Nagare.Inventory.Artifact (ArtifactDeclarationBundle (..), ArtifactResourceSpec (..))
+import Nagare.Inventory.Artifact (ArtifactDeclarationBundle (..), ArtifactExecutionSpec (..), ArtifactKind (..), ArtifactResourceSpec (..))
 import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapStamp, compileBootstrapWithAuthAndScopes)
 import Nagare.Inventory.Cloud qualified as InventoryCloud
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), compileContributedNamespaces)
@@ -506,12 +508,12 @@ import Nagare.Version
   )
 import Nagare.Worker.Deploy (WorkerDeployParams (..), runWorkerDeployWithGuard)
 import Options.Applicative
-import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, doesPathExist, findExecutable, listDirectory, makeAbsolute, pathIsSymbolicLink, removeDirectoryRecursive, renameDirectory)
+import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, doesPathExist, findExecutable, listDirectory, makeAbsolute, pathIsSymbolicLink, removeDirectoryRecursive, renameDirectory, renameFile)
 import System.Environment (getEnvironment, lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (ExitFailure, ExitSuccess), exitFailure, exitWith)
 import System.FilePath (dropExtension, takeBaseName, takeDirectory, takeExtension, (</>))
 import System.IO (hFlush, hIsTerminalDevice, hSetEcho, hSetEncoding, stderr, stdin, stdout, utf8)
-import System.IO.Temp (createTempDirectory, withSystemTempDirectory)
+import System.IO.Temp (createTempDirectory, withSystemTempDirectory, withTempDirectory)
 import System.Posix.Files (fileMode, getFileStatus, isDirectory, isRegularFile, setFileMode)
 import System.Process
   ( CreateProcess (cwd, env)
@@ -792,6 +794,8 @@ data DepLogsOpts = DepLogsOpts
 -- | Everything @nagarectl@ can be asked to do.
 data Command
   = Version VersionOpts
+  | ReleasePublish String String FilePath Bool
+  | ReleaseCleanupStarter String String FilePath Integer Integer String Bool
   | InventoryCompile FilePath FilePath Bool
   | InventoryPlan FilePath FilePath
   | InventoryAdopt FilePath FilePath
@@ -803,6 +807,7 @@ data Command
   | InventoryResume String Bool Bool
   | InventoryRecover String String FilePath Bool
   | InventoryExport FilePath
+  | InventoryRestore FilePath Bool
   | InventoryStatus Bool
   | InventoryExplain String Bool
   | InventoryStoreStatus Bool
@@ -2072,6 +2077,7 @@ opts =
     commandParser =
       subparser
         ( command "version" versionCmd
+            <> command "release" releaseCmd
             <> command "inventory" inventoryCmd
             <> command "platform" platformCmd
             <> command "host" hostCmd
@@ -2108,6 +2114,37 @@ opts =
               <**> helper
         )
         (progDesc "Print the nagarectl version")
+    releaseCmd =
+      info
+        ( subparser
+            ( command "publish"
+                ( info
+                    ( ReleasePublish
+                        <$> strOption (long "repo" <> metavar "OWNER/REPO")
+                        <*> strOption (long "version" <> metavar "VERSION")
+                        <*> strOption (long "assets" <> metavar "DIRECTORY")
+                        <*> switch (long "yes" <> help "Publish the exact reviewed release candidate")
+                        <**> helper
+                    )
+                    (progDesc "Review and recover publication of exact release attachments")
+                )
+                <> command "cleanup-starter"
+                  ( info
+                      ( ReleaseCleanupStarter
+                          <$> strOption (long "repo" <> metavar "OWNER/REPO")
+                          <*> strOption (long "version" <> metavar "VERSION")
+                          <*> strOption (long "assets" <> metavar "DIRECTORY")
+                          <*> option auto (long "release-id" <> metavar "ID")
+                          <*> option auto (long "asset-id" <> metavar "ID")
+                          <*> strOption (long "asset-name" <> metavar "NAME")
+                          <*> switch (long "yes" <> help "Delete only the reviewed failed draft asset ID")
+                          <**> helper
+                      )
+                      (progDesc "Review exact cleanup of a failed upload placeholder")
+                  )
+            )
+        )
+        (progDesc "Global immutable release publication")
     inventoryCmd =
       info
         ( subparser
@@ -2149,6 +2186,11 @@ opts =
                 <> command
                   "export"
                   (info (InventoryExport <$> strOption (long "out" <> metavar "DIRECTORY") <**> helper) (progDesc "Export the complete private inventory store under lock"))
+                <> command
+                  "restore"
+                  (info (InventoryRestore <$> strOption (long "from" <> metavar "DIRECTORY")
+                    <*> switch (long "yes") <**> helper)
+                    (progDesc "Restore a verified private export into an empty local context store"))
                 <> command
                   "status"
                   (info (InventoryStatus <$> switch (long "json") <**> helper) (progDesc "Report accepted resource ownership and observed drift without mutation"))
@@ -3017,6 +3059,10 @@ main = do
   hSetEncoding stderr utf8
   execParser opts >>= \(mctx, cmd0) -> case cmd0 of
     Version versionOpts -> runVersion versionOpts
+    ReleasePublish repository version assets yes -> runReleasePublish (T.pack repository) (T.pack version) assets yes Nothing
+    ReleaseCleanupStarter repository version assets releaseId assetId assetName yes ->
+      runReleasePublish (T.pack repository) (T.pack version) assets yes
+        (Just (releaseId, assetId, T.pack assetName))
     PlatformRoot asJson -> runPlatformRoot mctx asJson
     PlatformStatusCmd asJson -> runPlatformStatus mctx asJson
     PlatformGuard -> runPlatformGuard mctx
@@ -3099,10 +3145,147 @@ main = do
     InventoryRecover transaction operation decisionFile takeOver ->
       runInventoryRecover mctx (T.pack transaction) (T.pack operation) decisionFile takeOver
     InventoryExport output -> activeTarget mctx >>= \target -> Inventory.exportInventory target output
+    InventoryRestore backup yes -> activeTarget mctx >>= \target -> Inventory.restoreInventory target backup yes
     InventoryStatus json -> runInventoryStatus mctx Nothing json Nothing
     InventoryExplain resource json -> runInventoryStatus mctx (Just resource) json Nothing
     InventoryStoreStatus json -> runInventoryStoreStatus mctx json
     InventoryStoreMigrate destination dryRun yes -> runInventoryStoreMigrate mctx destination dryRun yes
+
+runReleasePublish :: Text -> Text -> FilePath -> Bool -> Maybe (Integer, Integer, Text) -> IO ()
+runReleasePublish repository version directory yes cleanup = do
+  _ <- either (dieT . renderVersionError) pure (parsePlatformVersion version)
+  let tag = "v" <> version
+      manifestName = "nagare-release-" <> T.unpack version <> ".json"
+      notesName = "nagare-" <> T.unpack tag <> ".md"
+      productNames =
+        [ manifestName
+        , notesName
+        , "nix-output-x86_64-linux.json"
+        , "nix-output-aarch64-darwin.json"
+        , "clone-free-x86_64-linux.json"
+        , "clone-free-aarch64-darwin.json"
+        , "SHA256SUMS"
+        ]
+  tagType <- exactGitObjectType ("refs/tags/" <> T.unpack tag)
+  unless (tagType == "tag") (dieT "release requires an annotated Git tag")
+  tagObject <- exactGitRevision ("refs/tags/" <> T.unpack tag)
+  commit <- exactGitRevision ("refs/tags/" <> T.unpack tag <> "^{commit}")
+  headCommit <- exactGitRevision "HEAD"
+  unless (headCommit == commit) (dieT "release tag does not identify the checked-out commit")
+  assets <- forM productNames $ \name -> do
+    attempted <- try (BS.readFile (directory </> name))
+    bytes <- either (dieT . ("could not read assembled release asset: " <>) . T.pack . show) pure
+      (attempted :: Either IOException ByteString)
+    let digest = InventoryDigest.contentDigest bytes
+        spec = ArtifactExecutionSpec ReleasePayloadArtifact
+          ("github-release://" <> repository <> "/" <> tag <> "/" <> T.pack name)
+          digest digest False Nothing
+    pure (GitHubRelease.ProductAsset (T.pack name) spec bytes)
+  let byName = Map.fromList [(T.unpack (GitHubRelease.productName item), GitHubRelease.productBytes item) | item <- assets]
+      manifestBytes = fromMaybe BS.empty (Map.lookup manifestName byName)
+      notesBytes = fromMaybe BS.empty (Map.lookup notesName byName)
+      sumsBytes = fromMaybe BS.empty (Map.lookup "SHA256SUMS" byName)
+  manifest <- either (dieT . T.pack) pure
+    (Aeson.eitherDecodeStrict' manifestBytes :: Either String Aeson.Value)
+  case manifest of
+    Aeson.Object fields -> do
+      unless
+        (AesonMap.lookup "version" fields == Just (Aeson.String version)
+          && AesonMap.lookup "tag" fields == Just (Aeson.String tag)
+          && AesonMap.lookup "revision" fields == Just (Aeson.String commit)
+          && AesonMap.lookup "consistent" fields == Just (Aeson.Bool True))
+        (dieT "assembled release manifest does not bind this version, tag, and commit")
+    _ -> dieT "assembled release manifest is not an object"
+  sumsText <- either (dieT . T.pack . show) pure (TE.decodeUtf8' sumsBytes)
+  listed <- forM (T.lines sumsText) $ \line -> do
+    let (digest, suffix) = T.breakOn "  " line
+        name = T.drop 2 suffix
+    unless (T.length digest == 64 && not (T.null name))
+      (dieT "SHA256SUMS contains an invalid entry")
+    pure (T.unpack name, digest)
+  let expectedSums = Map.fromList
+        [(name, Resource.digestText (InventoryDigest.contentDigest bytes))
+        | (name, bytes) <- Map.toList byName, name /= "SHA256SUMS"]
+  unless (length listed == Map.size expectedSums && Map.fromList listed == expectedSums)
+    (dieT "SHA256SUMS does not exactly cover the assembled product bytes")
+  notes <- either (dieT . T.pack . show) pure (TE.decodeUtf8' notesBytes)
+  let payload = Resource.digestText (InventoryDigest.contentDigest manifestBytes)
+  review <- either dieT pure
+    (GitHubRelease.compilePublicationReview repository tag tagObject commit payload notes assets)
+  TIO.putStrLn ("Release candidate: " <> repository <> "/" <> tag)
+  TIO.putStrLn ("Tag object: " <> tagObject <> "; commit: " <> commit)
+  TIO.putStrLn ("Publication review: " <> GitHubRelease.publicationDigest review)
+  forM_ assets $ \item ->
+    TIO.putStrLn
+      ("  " <> GitHubRelease.productName item <> "  "
+        <> Resource.digestText (InventoryDigest.contentDigest (GitHubRelease.productBytes item)))
+  case cleanup of
+    Nothing ->
+      if not yes
+        then TIO.putStrLn "Review only; pass --yes to publish these exact bytes."
+        else do
+          published <- GitHubRelease.publishReviewedRelease (githubReleaseOps review) review
+            >>= either dieT pure
+          let observation = Aeson.object
+                [ "schemaVersion" Aeson..= (1 :: Int)
+                , "repository" Aeson..= repository
+                , "tag" Aeson..= tag
+                , "tagObject" Aeson..= tagObject
+                , "commit" Aeson..= commit
+                , "payloadId" Aeson..= payload
+                , "reviewDigest" Aeson..= GitHubRelease.publicationDigest review
+                , "releaseId" Aeson..= GitHubRelease.providerReleaseId published
+                , "published" Aeson..= True
+                , "assets" Aeson..=
+                    [ Aeson.object
+                        [ "id" Aeson..= GitHubRelease.providerAssetId asset
+                        , "name" Aeson..= GitHubRelease.providerAssetName asset
+                        , "size" Aeson..= GitHubRelease.providerAssetSize asset
+                        , "digest" Aeson..= GitHubRelease.providerAssetDigest asset
+                        ]
+                    | asset <- sortOn GitHubRelease.providerAssetName (GitHubRelease.providerReleaseAssets published)
+                    ]
+                ]
+              observationPath = directory </> "nagare-publication-observation-v" <> T.unpack version <> ".json"
+          observationBytes <- either dieT pure (ResourceWire.canonicalValue observation)
+          existing <- doesPathExist observationPath
+          if existing
+            then do
+              recorded <- BS.readFile observationPath
+              unless (recorded == observationBytes)
+                (dieT "local release completion observation has different bytes")
+            else withTempDirectory directory ".nagare-publication-observation-" $ \staging -> do
+              let temporary = staging </> "observation.json"
+              BS.writeFile temporary observationBytes
+              renameFile temporary observationPath
+          TIO.putStrLn
+            ("Release " <> tag <> " verified at GitHub release ID "
+              <> T.pack (show (GitHubRelease.providerReleaseId published))
+              <> "; completion observation: " <> T.pack observationPath)
+    Just (releaseId, assetId, assetName) -> do
+      TIO.putStrLn
+        ("Failed-upload cleanup review: release " <> T.pack (show releaseId)
+          <> ", asset " <> T.pack (show assetId) <> " (" <> assetName <> ")")
+      if not yes
+        then TIO.putStrLn "Review only; pass --yes to delete this exact draft placeholder."
+        else do
+          GitHubRelease.cleanupReviewedStarter (githubReleaseOps review)
+            review releaseId assetId assetName >>= either dieT pure
+          TIO.putStrLn ("Deleted failed draft asset ID " <> T.pack (show assetId))
+
+exactGitRevision :: String -> IO Text
+exactGitRevision revision = do
+  (code, output, err) <- readProcessWithExitCode "git" ["rev-parse", "--verify", revision] ""
+  case code of
+    ExitSuccess -> pure (T.strip (T.pack output))
+    _ -> dieT ("could not resolve exact Git revision " <> T.pack revision <> ": " <> T.pack err)
+
+exactGitObjectType :: String -> IO Text
+exactGitObjectType revision = do
+  (code, output, err) <- readProcessWithExitCode "git" ["cat-file", "-t", revision] ""
+  case code of
+    ExitSuccess -> pure (T.strip (T.pack output))
+    _ -> dieT ("could not inspect Git object " <> T.pack revision <> ": " <> T.pack err)
 
 runVersion :: VersionOpts -> IO ()
 runVersion options = do

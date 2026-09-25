@@ -32,6 +32,7 @@ module Nagare.Inventory.Store
   , lockedStore
   , exportStore
   , restoreStore
+  , restoreStoreFor
   , migrateStore
   , objectKeyFor
   , reviewKey
@@ -557,7 +558,15 @@ exportStore locked output = do
     writeMember staging (key, bytes) = atomicWrite (staging </> key) bytes
 
 restoreStore :: InventoryStore -> FilePath -> IO (Either StoreError ())
-restoreStore store backup = withBackendGuard store $ do
+restoreStore store backup = restoreStoreChecked store backup Nothing
+
+-- | Recheck the destination binding against the verified backup member
+-- immediately before writing. A changed backup cannot bypass command review.
+restoreStoreFor :: InventoryStore -> FilePath -> ContextBinding -> IO (Either StoreError ())
+restoreStoreFor store backup binding = restoreStoreChecked store backup (Just binding)
+
+restoreStoreChecked :: InventoryStore -> FilePath -> Maybe ContextBinding -> IO (Either StoreError ())
+restoreStoreChecked store backup expectedBinding = withBackendGuard store $ do
   currentResult <- listObjectKeysUnlocked store
   case currentResult of
     Left err -> pure (Left err)
@@ -570,9 +579,22 @@ restoreStore store backup = withBackendGuard store $ do
           loaded <- traverse (loadMember backup) members
           case sequence loaded of
             Left err -> pure (Left err)
-            Right values -> do
-              writes <- traverse (uncurry (writeObjectUnlocked store False)) values
-              pure (void (sequence writes))
+            Right values -> case expectedBinding of
+              Nothing -> writeValues values
+              Just binding -> case lookup "head.json" values of
+                Nothing -> pure (Left (StoreConditionFailed "backup has no inventory head"))
+                Just bytes -> case decodeHead bytes of
+                  Left err -> pure (Left err)
+                  Right headValue
+                    | headBinding headValue /= binding ->
+                        pure (Left (StoreConditionFailed "backup belongs to a different context or provider project"))
+                    | isJust (headMigration headValue) ->
+                        pure (Left (StoreConditionFailed "backup is a migrated source"))
+                    | otherwise -> writeValues values
+  where
+    writeValues values = do
+      writes <- traverse (uncurry (writeObjectUnlocked store False)) values
+      pure (void (sequence writes))
 
 -- | Copy a quiescent catalogue with an inactive destination head. Disable the
 -- source before activating the destination, so interruption cannot leave two
@@ -747,7 +769,13 @@ decodeBackupManifest bytes = do
   value <- first (StoreInvalidObject "backup.json" . T.pack) (eitherDecodeStrict' bytes)
   canonical <- first (StoreInvalidObject "backup.json") (canonicalValue value)
   unless (canonical == bytes) (Left (StoreInvalidObject "backup.json" "backup manifest is not canonical"))
-  first (StoreInvalidObject "backup.json" . T.pack) (parseEither parser value)
+  members <- first (StoreInvalidObject "backup.json" . T.pack) (parseEither parser value)
+  let keys = map fst members
+  unless (length keys == Set.size (Set.fromList keys))
+    (Left (StoreInvalidObject "backup.json" "duplicate backup members"))
+  unless ("head.json" `elem` keys)
+    (Left (StoreInvalidObject "backup.json" "missing inventory head"))
+  pure members
   where
     parser = withObject "backup manifest" $ \o -> do
       version <- o .: "version"

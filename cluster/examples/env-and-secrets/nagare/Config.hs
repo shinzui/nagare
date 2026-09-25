@@ -45,6 +45,7 @@ deployment = do
   Right
     Deployment
       { name = name'
+      , logicalKey = Nothing
       , namespace = ns'
       , image = img'
       , build = bld

@@ -1,6 +1,9 @@
 # Bundle Update Log
 
 ## 2026-09-25
+* **Update**: Document private inventory export and exact empty-store restore, and reconcile the completed GCS migration rehearsal with ADR 13.
+* **Update**: Allow a separately named Pulumi node service account and opt out of shared project API ownership for an isolated second stack while preserving existing defaults.
+* **Update**: Document checked global GitHub release publication, exact asset verification, draft recovery, immutable retry inputs, and the local completion observation.
 * **Fix**: State that coarse platform upgrades refuse contexts with reviewed inventory history until component-backed upgrade and recovery are integrated.
 * **Update**: Allow reviewed application, Service, and worker deployment of a separately published image when the typed config describes a Dockerfile or Nixpacks build.
 * **Update**: Route accepted database and broker restarts through reviewed StatefulSet scope updates with optional saved plans while preserving data companions.

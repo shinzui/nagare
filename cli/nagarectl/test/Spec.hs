@@ -44,10 +44,12 @@ import InventoryFoundationSpec (inventoryFoundationTests)
 import InventoryUpstreamSpec (inventoryUpstreamTests)
 import InventoryAuthSpec (inventoryAuthTests)
 import InventoryObservabilitySpec (inventoryObservabilityTests)
+import InventoryPublicationSpec (inventoryPublicationTests)
 import InventoryObjectOpsSpec (inventoryObjectOpsTests)
 import InventoryCloudSpec (inventoryCloudTests)
 import InventoryCdnSpec (inventoryCdnTests)
 import InventoryHostSpec (inventoryHostTests)
+import InventoryIntegrationSpec (inventoryIntegrationTests)
 import InventoryKubernetesSpec (inventoryKubernetesTests)
 import InventoryApplicationSpec (inventoryApplicationTests)
 import InventoryLifecycleSpec (inventoryLifecycleTests)
@@ -456,6 +458,7 @@ main = do
             , inventoryUpstreamTests
             , inventoryAuthTests
             , inventoryObservabilityTests
+            , inventoryPublicationTests
             , inventoryCloudTests
             , inventoryHostTests
             , inventoryKubernetesTests
@@ -467,6 +470,7 @@ main = do
             , inventoryObjectOpsTests
             , inventoryTests
             , inventoryTransactionTests
+            , inventoryIntegrationTests
             , platformTests
             , platformCutoverTests
             , testGroup "Nagare.Static.Build" prepareTests

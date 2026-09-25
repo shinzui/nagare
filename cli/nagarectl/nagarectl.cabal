@@ -95,6 +95,8 @@ library
     Nagare.Inventory.Adapters.CdnRuntime
     Nagare.Inventory.Adapters.Cloudflare
     Nagare.Inventory.Adapters.CloudflareRuntime
+    Nagare.Inventory.Adapters.GitHubRelease
+    Nagare.Inventory.Adapters.GitHubReleaseRuntime
     Nagare.Inventory.Adapters.BrokerRuntime
     Nagare.Inventory.Adapters.Cache
     Nagare.Inventory.Adapters.CacheRuntime
@@ -272,11 +274,13 @@ test-suite nagarectl-test
     InventoryCdnSpec
     InventoryFoundationSpec
     InventoryHostSpec
+    InventoryIntegrationSpec
     InventoryKubernetesSpec
     InventoryApplicationSpec
     InventoryLifecycleSpec
     InventoryMigrationSpec
     InventoryObservabilitySpec
+    InventoryPublicationSpec
     InventoryObjectOpsSpec
     InventorySpec
     InventoryStatusSpec

@@ -55,6 +55,8 @@ let
       postPatch = ''
         substituteInPlace test/ApplicationSpec.hs test/WorkerSpec.hs test/Spec.hs \
           --replace-fail "../../cluster/examples" "${../cluster/examples}"
+        substituteInPlace test/ResourceInventorySpec.hs \
+          --replace-fail "../../cluster/bootstrap/nix-cache" "${../cluster/bootstrap/nix-cache}"
       '';
       preCheck = ''
         export GHC_ENVIRONMENT=-
@@ -65,9 +67,24 @@ let
 
   checkedNagarectl = hl.doCheck (
     hl.overrideCabal haskellPackages.nagarectl (_old: {
+      postPatch = (_old.postPatch or "") + ''
+        substituteInPlace \
+          test/InventoryUpstreamSpec.hs test/InventoryApplicationSpec.hs \
+          test/InventoryFoundationSpec.hs test/InventoryAuthSpec.hs \
+          test/InventoryObservabilitySpec.hs test/InventoryCacheSpec.hs \
+          --replace-fail "../../cluster/" "${../cluster}/"
+        substituteInPlace test/AppDeploySpec.hs test/InventoryApplicationSpec.hs \
+          --replace-fail "../nagare-dsl/test/fixtures/" "${../cli/nagare-dsl/test/fixtures}/"
+        substituteInPlace \
+          test/InventoryUpstreamSpec.hs test/InventoryObservabilitySpec.hs \
+          test/InventoryCacheSpec.hs test/InventoryAuthSpec.hs \
+          --replace-fail '"../.."' '"${../.}"'
+      '';
       preCheck = ''
         export GHC_ENVIRONMENT=-
-        export PATH=${lib.makeBinPath [ typedConfigRuntime ]}:$PATH
+        export PATH=${lib.makeBinPath [ typedConfigRuntime pkgs.kubernetes-helm pkgs.openssl ]}:$PATH
+        export HELM_CACHE_HOME="$TMPDIR/nagare-helm-cache"
+        mkdir -p "$HELM_CACHE_HOME"
       '';
     })
   );

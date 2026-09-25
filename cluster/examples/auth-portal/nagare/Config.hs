@@ -30,6 +30,7 @@ mkDeployment baseDomain = do
   Right
     Deployment
       { name = name'
+      , logicalKey = Nothing
       , namespace = ns'
       , image = image'
       , build = DockerfileBuild {dockerfile = dockerfile', context = context', buildArgs = Map.empty}

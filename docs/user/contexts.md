@@ -471,6 +471,16 @@ tombstone. No bucket objects are deleted by migration. Any inventory mutation
 using GCS needs bucket access. Principals who can read that prefix can also
 read private native review bundles, including sensitive provider inputs.
 
+For a local-store context, back up the full private history with
+`nagarectl --context NAME inventory export --out DIRECTORY`. On a second
+state root with the same context and project configuration, inspect the
+backup with `nagarectl --context NAME inventory restore --from DIRECTORY`,
+then repeat with `--yes` to restore it into an **empty** local inventory store.
+The restore verifies the export's member digests and refuses a different
+context/project or any occupied destination. Check `inventory store status`
+before planning another mutation. Keep the export private because it contains
+native reviews and may contain sensitive provider inputs.
+
 ## Cluster and host rendering
 
 The active context also feeds bootstrap rendering:

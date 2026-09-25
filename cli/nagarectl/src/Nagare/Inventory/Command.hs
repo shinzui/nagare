@@ -25,6 +25,7 @@ module Nagare.Inventory.Command
   , resumeInventoryWithFactoryTakeover
   , recoverInventoryWithFactory
   , exportInventory
+  , restoreInventory
   , manifestAdapterFor
   , executionBlockedAdapterFor
   )
@@ -463,6 +464,38 @@ exportInventory target output = do
     Left err -> dieText (showText err)
     Right (Left err) -> dieText (showText err)
     Right (Right ()) -> TIO.putStrLn (T.pack output)
+
+-- | Restore a verified private export into an empty local context store.
+-- The binding is checked before any target write, and the store's conditional
+-- restore refuses an occupied destination even if it has no head yet.
+restoreInventory :: ActiveTarget -> FilePath -> Bool -> IO ()
+restoreInventory target backup yes = do
+  rejectReentry
+  unless (effectiveInventoryStore (target ^. #profile) == InventoryStoreLocal)
+    (dieText "inventory restore requires a local store; migrate a restored local history to GCS afterward")
+  source <- openFilesystemStoreReadOnly backup >>= either (dieText . showText) pure
+  sourceHead <- readHead source >>= either (dieText . showText) (maybe (dieText "backup has no inventory head") pure)
+  context <- either dieText pure (mkContextId (contextNameText (target ^. #contextName)))
+  project <- either dieText pure (mkName (target ^. #profile . #project))
+  unless (headBinding sourceHead == ContextBinding context project)
+    (dieText "backup belongs to a different context or provider project")
+  when (isJust (headMigration sourceHead))
+    (dieText "backup is a migrated source; restore an export of the active history")
+  TIO.putStrLn
+    ("Inventory restore review: " <> contextNameText (target ^. #contextName)
+      <> " in " <> target ^. #profile . #project
+      <> ", generation " <> T.pack (show (headGeneration sourceHead))
+      <> ", sequence " <> T.pack (show (headSequence sourceHead))
+      <> ", from " <> T.pack backup)
+  if not yes
+    then TIO.putStrLn "Review only; pass --yes to restore into an empty local inventory store."
+    else do
+      store <- openTargetStore target
+      result <- withProcessLock store (\_ -> restoreStoreFor store backup (ContextBinding context project))
+      case result of
+        Left err -> dieText (showText err)
+        Right (Left err) -> dieText (showText err)
+        Right (Right ()) -> TIO.putStrLn "Private inventory history restored; inspect inventory store status before mutation."
 
 openTargetStore :: ActiveTarget -> IO InventoryStore
 openTargetStore target = do

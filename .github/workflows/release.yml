@@ -200,48 +200,37 @@ jobs:
           name: nagare-release-assembled
           path: dist
 
-      - name: Refuse to replace a different existing release
-        id: existing
+      - name: Install Nix for the exact tagged publisher
+        uses: cachix/install-nix-action@v31
+        with:
+          github_access_token: ${{ github.token }}
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+
+      - name: Use the Nagare binary cache
+        uses: cachix/cachix-action@v17
+        with:
+          name: shinzui
+          useDaemon: false
+
+      - name: Recover or publish the reviewed release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ needs.prepare.outputs.tag }}
+          REPOSITORY: ${{ github.repository }}
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
-            printf 'publish=true\n' >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          mkdir existing-release
-          for asset in \
-            "nagare-release-$VERSION.json" \
-            "nagare-v$VERSION.md" \
-            "nix-output-x86_64-linux.json" \
-            "nix-output-aarch64-darwin.json" \
-            "clone-free-x86_64-linux.json" \
-            "clone-free-aarch64-darwin.json" \
-            SHA256SUMS; do
-            gh release download "$TAG" --dir existing-release --pattern "$asset"
-            cmp "dist/$asset" "existing-release/$asset"
-          done
-          printf 'publish=false\n' >> "$GITHUB_OUTPUT"
-          printf 'Release %s already exists with identical immutable assets.\n' "$TAG"
+          nix run .#nagarectl -- release publish \
+            --repo "$REPOSITORY" \
+            --version "$VERSION" \
+            --assets dist \
+            --yes
 
-      - name: Create the release
-        if: steps.existing.outputs.publish == 'true'
-        uses: softprops/action-gh-release@v3
+      - name: Archive reconstructed publication observation
+        uses: actions/upload-artifact@v7
         with:
-          tag_name: ${{ needs.prepare.outputs.tag }}
-          name: Nagare ${{ needs.prepare.outputs.version }}
-          body_path: dist/nagare-v${{ needs.prepare.outputs.version }}.md
-          generate_release_notes: true
-          overwrite_files: false
-          fail_on_unmatched_files: true
-          files: |
-            dist/nagare-release-${{ needs.prepare.outputs.version }}.json
-            dist/nagare-v${{ needs.prepare.outputs.version }}.md
-            dist/nix-output-x86_64-linux.json
-            dist/nix-output-aarch64-darwin.json
-            dist/clone-free-x86_64-linux.json
-            dist/clone-free-aarch64-darwin.json
-            dist/SHA256SUMS
+          name: nagare-publication-observation
+          path: dist/nagare-publication-observation-v${{ needs.prepare.outputs.version }}.json
+          if-no-files-found: error
+          retention-days: 14

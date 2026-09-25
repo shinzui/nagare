@@ -37,6 +37,35 @@ cluster phase from the candidate payload's pinned image. Review Attic schema com
 the apply: a rollback that crosses an incompatible migration also requires the matching PostgreSQL
 backup, not merely the previous server image.
 
+## Release publication and retry
+
+The release workflow assembles its native outputs into seven exact attachments,
+then invokes the tagged `nagarectl release publish` command. The command
+checks the annotated tag object and commit, manifest identity, `SHA256SUMS`,
+and every candidate byte before creating a draft. The draft body holds the
+complete publication intent; an append-only, digest-addressed receipt records
+the verified provider asset IDs before that draft is published. A retry reads
+the draft or published release and downloads each declared asset by its
+provider ID. Different bytes, an unexpected asset, or an altered tag/body
+refuse publication. The release is a repository-level artifact: contexts refer
+to it but do not own it. A successful run writes
+`nagare-publication-observation-vVERSION.json` beside the candidate files,
+recording the verified release and asset IDs; the workflow archives this local
+observation separately from the immutable release attachments.
+
+The candidate files are still required when an upload is missing. If the
+temporary Actions artifacts have expired, reconstruct the exact candidate
+from the immutable tag and native checks or a retained archive. Do not accept
+new bytes under the same tag. Public attachments must contain only release
+checks and redacted summaries; private plans, credentials, and recovery
+archives belong outside the release.
+
+If GitHub leaves an asset in `starter` state after a failed upload, inspect
+the draft and asset IDs, then use `nagarectl release cleanup-starter` with the
+same candidate directory and those exact IDs. Review the printed identity
+before passing `--yes`. The command only removes a matching placeholder from
+the reviewed draft; rerun `release publish` to resume.
+
 ## Inspect release identity
 
 Select both the Nagare context and its matching kubeconfig, then inspect the

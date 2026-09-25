@@ -29,7 +29,7 @@ fi
 
 # The two ACME directory URLs live in exactly two places: the shell
 # resolver and the Haskell resolver. Anywhere else is drift waiting
-# to happen, except for the two test files that assert on them.
+# to happen, except for tests that assert on them and upstream vendor assets.
 for url in \
   https://acme-v02.api.letsencrypt.org/directory \
   https://acme-staging-v02.api.letsencrypt.org/directory; do
@@ -46,8 +46,11 @@ for url in \
     . \
     | grep -v -e '^\./scripts/lib/target\.sh$' \
               -e '^\./cli/nagarectl/src/Nagare/Target\.hs$' \
+              -e '^\./nix/checks/scripts/cluster-bootstrap-defaults\.sh$' \
               -e '^\./scripts/test-render-context-template\.sh$' \
-              -e '^\./cli/nagarectl/test/Spec\.hs$' || true)"
+              -e '^\./cli/nagarectl/test/Spec\.hs$' \
+              -e '^\./cli/nagarectl/test/InventoryUpstreamSpec\.hs$' \
+              -e '^\./cluster/bootstrap/vendor/' || true)"
   if [ -n "$stray" ]; then
     echo "$url is duplicated outside the two resolvers:" >&2
     echo "$stray" >&2

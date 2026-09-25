@@ -80,7 +80,7 @@
   # before context resolution or any provider process can run.
   inventory-transport-guards = pkgs.runCommand "nagare-inventory-transport-guards-test"
     {
-      nativeBuildInputs = [ pkgs.bash pkgs.coreutils pkgs.gnugrep ];
+      nativeBuildInputs = [ pkgs.bash pkgs.coreutils pkgs.gnugrep pkgs.jq ];
       inherit src;
     }
     ''

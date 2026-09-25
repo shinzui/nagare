@@ -103,6 +103,8 @@ private mode-`0700` directory and mode-`0600` files.
 | `nagarectl platform upgrade status [ID] [--json]` | Inspect a selected or latest context-owned transaction. |
 | `nagarectl platform upgrade recover-pulumi ID --outcome applied\|retry --yes` | Record an audited decision for an ambiguous or pre-receipt Pulumi outcome. |
 | `nagarectl platform upgrade rollback ID --yes` | Reverse the release selection only when target metadata permits it. |
+| `nagarectl release publish --repo OWNER/REPO --version VERSION --assets DIR [--yes]` | Review exact tag, commit, release manifest, checksums, and attachment bytes; with `--yes`, recover or publish a GitHub release through its provider-bound draft and verification receipt, then write a local completion observation beside the candidate files. This is a repository-level command and does not select a context. |
+| `nagarectl release cleanup-starter --repo OWNER/REPO --version VERSION --assets DIR --release-id ID --asset-id ID --asset-name NAME [--yes]` | Review and, with `--yes`, remove one exact failed upload placeholder from the bound draft. Published or uploaded assets are refused. |
 
 When invoking these platform commands from an immutable release without installing it, use
 `nix shell "${TARGET_NAGARE}#nagare" -c nagarectl ...`. The `#nagare` package carries the
@@ -110,6 +112,10 @@ release-pinned operator tools; the smaller `#nagarectl` output is for applicatio
 
 See [Upgrades](upgrades.md) for compatibility states, recovery, and rollback
 boundaries.
+
+`nagarectl inventory export --out DIRECTORY` writes a private, digest-checked
+history backup. `nagarectl inventory restore --from DIRECTORY` reviews its
+context/project binding; `--yes` restores only into an empty local store.
 
 ## Cloud context variables (also `nagare.target.env`)
 
@@ -269,6 +275,7 @@ with `scripts/migrate-pulumi-backend.sh`. See
 | `nagare:bootDiskType` | no | `pd-balanced` | Changing a live VM's disk type forces instance replacement; pin the current type until a deliberate rebuild. |
 | `nagare:vmDeletionProtection` | no | `true` | GCE refuses instance deletion/replacement while true. Disable only for the deliberate rebuild window, then re-enable. |
 | `nagare:artifactRegistryId` | no | `nagare` | |
+| `nagare:serviceAccountId` | no | `nagare-node` | Set a unique ID for an isolated second stack in the same project before preview. This optional Pulumi setting is not seeded from the context profile. |
 | `nagare:backupBucket` | no | `tan-nb-exp-nagare-backups` | |
 | `nagare:enableNixCache` | no | `false` | Opt in to the cloud-only Attic provider. |
 | `nagare:nixCacheBucket` | no | `<project>-nagare-nix-cache` | Dedicated unversioned cache-chunk bucket. |

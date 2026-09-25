@@ -26,10 +26,14 @@ const machineTypeCfg = vmShape.machineType;
 const dataDiskSizeGbCfg = vmShape.dataDiskSizeGb;
 const baseDomainCfg = cfg.get("baseDomain") ?? "apps.example.com";
 const artifactRegistryIdCfg = cfg.get("artifactRegistryId") ?? "nagare";
+const serviceAccountIdCfg = cfg.get("serviceAccountId") ?? "nagare-node";
 const backupBucketNameCfg = cfg.get("backupBucket") ?? `${gcpProject}-nagare-backups`;
 const imageBucketNameCfg = cfg.require("imageBucket"); // set in Pulumi.<context>.yaml
 const enableNixCacheCfg = cfg.getBoolean("enableNixCache") ?? false;
 const nixCacheBucketCfg = cfg.get("nixCacheBucket") ?? `${gcpProject}-nagare-nix-cache`;
+// A second stack in an already provisioned project must not acquire another
+// Pulumi ownership claim over the shared project API enablement resources.
+const manageProjectApisCfg = cfg.getBoolean("manageProjectApis") ?? true;
 
 // IP-10: EP-3 writes this after building+registering the NixOS image.
 // `get` (not `require`) so the VM is simply omitted until it is set.
@@ -72,7 +76,7 @@ const requiredApis = [
     "iam.googleapis.com",
     "servicenetworking.googleapis.com",
 ];
-const apiServices = requiredApis.map(
+const apiServices = (manageProjectApisCfg ? requiredApis : []).map(
     (api) =>
         new gcp.projects.Service(`api-${api.split(".")[0]}`, {
             project: gcpProject,
@@ -93,6 +97,7 @@ const perimeter = new NagarePerimeter(
         dataDiskSizeGb: dataDiskSizeGbCfg,
         baseDomain: baseDomainCfg,
         artifactRegistryId: artifactRegistryIdCfg,
+        serviceAccountId: serviceAccountIdCfg,
         backupBucketName: backupBucketNameCfg,
         imageBucketName: imageBucketNameCfg,
         imageSelfLink,

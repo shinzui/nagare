@@ -39,6 +39,7 @@ mkDeployment baseDomain = do
     Right
         Deployment
             { name = name'
+            , logicalKey = Nothing
             , namespace = ns'
             , image = img'
             , build = PrebuiltImage tag'

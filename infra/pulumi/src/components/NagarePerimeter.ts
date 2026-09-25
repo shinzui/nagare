@@ -15,6 +15,7 @@ export interface NagarePerimeterArgs {
     dataDiskSizeGb: number;     // 100
     baseDomain: string;         // "apps.example.com"
     artifactRegistryId: string; // "nagare"
+    serviceAccountId: string;    // "nagare-node"
     backupBucketName: string;
     imageBucketName: string;
     /** Present only after EP-3 sets Pulumi config `nagareImageSelfLink`.
@@ -103,7 +104,7 @@ export class NagarePerimeter extends pulumi.ComponentResource {
         // Dedicated service account (IP-2). Lowercase `serviceaccount`
         // module per the spec correction.
         const sa = new gcp.serviceaccount.Account(`${name}-sa`, {
-            accountId: "nagare-node",
+            accountId: args.serviceAccountId,
             displayName: "Nagare node/workload service account",
         }, { parent: this });
 

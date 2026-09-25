@@ -45,7 +45,7 @@ One Pulumi component, `NagarePerimeter`, declares the whole perimeter:
 | **Firewall** | `80`/`443` from anywhere (Kourier ingress); `22` from the IAP range `35.235.240.0/20` only; `udp/41641` for Tailscale. |
 | **Static external IP** | Regional, reserved — the VM keeps it across rebuilds so wildcard DNS stays valid. |
 | **Data disk** | `pd-balanced`, 100 GB by default, attached as `nagare-data` and mounted at `/var/lib/nagare`. A blank disk is formatted before fsck, mounted, and brought through layout to a `Ready` k3s node during the first boot, without a reboot. Pulumi protects it from deletion and attaches a daily 08:00 UTC snapshot schedule with seven-day retention; automatic snapshots survive source-disk deletion. |
-| **Service account** | `nagare-node`, with `roles/dns.admin` on Nagare's managed zone, project-level `roles/dns.reader` for zone discovery, project-level `roles/artifactregistry.writer`, and `roles/storage.objectAdmin` on the backup bucket only. |
+| **Service account** | `nagare-node` by default, or the explicit `nagare:serviceAccountId` for an isolated second stack, with `roles/dns.admin` on Nagare's managed zone, project-level `roles/dns.reader` for zone discovery, project-level `roles/artifactregistry.writer`, and `roles/storage.objectAdmin` on the backup bucket only. |
 | **Cloud DNS zone** | Managed zone for `<baseDomain>` with two `A` records at TTL 300: `*.<baseDomain>` always points to the VM's static `publicIp`; exact `<baseDomain>` points to exported `apexIp`, which is the standing CDN's global IP when the CDN exists and otherwise equals `publicIp`. |
 | **Artifact Registry** | Docker repo `nagare` in `us-west1` → `us-west1-docker.pkg.dev/tan-nb-exp/nagare`. |
 | **Backup bucket** | `tan-nb-exp-nagare-backups`, protected in Pulumi, uniform-access, non-public, `forceDestroy: false`, with object versioning and 30-day cleanup of noncurrent versions. |
@@ -85,6 +85,8 @@ profile files.
 | `nagare:bootDiskType` | no | `pd-balanced` | Changing a live VM's type forces instance replacement; pin its existing type until a deliberate rebuild. |
 | `nagare:vmDeletionProtection` | no | `true` | GCE blocks deletion and replacement while true. Temporarily disable only during an intentional VM rebuild. |
 | `nagare:artifactRegistryId` | no | `nagare` | |
+| `nagare:serviceAccountId` | no | `nagare-node` | Override before previewing another stack in the same project. This setting is not seeded from the context profile. |
+| `nagare:manageProjectApis` | no | `true` | Set `false` for a second stack in a project whose required APIs are already enabled, so the new stack does not claim the shared API resources. |
 | `nagare:backupBucket` | no | `tan-nb-exp-nagare-backups` | |
 | `nagare:enableCdn` | no | `false` | Opt in to the standing, billable Google Cloud CDN resources. |
 | `nagare:cdnCertificateMode` | no | `legacy` | Staged Google edge TLS: `legacy`, `prepare`, then `certificate-map` after `nagarectl cdn status` reports `ACTIVE`. |
@@ -95,6 +97,12 @@ Set a value with, e.g.:
 cd infra/pulumi
 pulumi config set nagare:baseDomain apps.yourdomain.com --stack "$(nagarectl context current)"
 ```
+
+For a second stack in one project, set distinct `instanceName`, image and
+backup buckets, `artifactRegistryId`, `baseDomain`, and `serviceAccountId`.
+Verify the project APIs are already enabled, then set `manageProjectApis` to
+`false` for that stack.
+Review the complete preview for any existing physical resource before apply.
 
 > **`baseDomain` is a real decision.** The default `apps.example.com` is a
 > placeholder. Whatever you set becomes the Cloud DNS zone and the wildcard

@@ -1409,7 +1409,11 @@ inventoryTransactionTests =
           _ <- expectRight exported
           restored <- newMemoryStore
           readHead restored >>= (@?= Right Nothing)
-          _ <- restoreStore restored backup >>= expectRight
+          let wrongBinding = ContextBinding (ok (mkContextId "different")) (ok (mkName "project"))
+          refusedBinding <- restoreStoreFor restored backup wrongBinding
+          assertBool "restore wrote a different context" (isLeft refusedBinding)
+          readHead restored >>= (@?= Right Nothing)
+          _ <- restoreStoreFor restored backup fixtureBinding >>= expectRight
           readHead restored >>= expectRight >>= (@?= Just (HeadManifest 1 0 0 fixtureBinding "client-test" Map.empty Map.empty Map.empty Map.empty Nothing Nothing Nothing))
           removeFile (backup </> "head.json")
           incomplete <- newMemoryStore

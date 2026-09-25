@@ -33,6 +33,7 @@ async function main(): Promise<void> {
         dataDiskSizeGb: 100,
         baseDomain: "apps.example.test",
         artifactRegistryId: "nagare",
+        serviceAccountId: "ep150-node",
         backupBucketName: "example-project-nagare-backups",
         imageBucketName: "example-project-nagare-images",
         enableCdn: false,
@@ -45,6 +46,10 @@ async function main(): Promise<void> {
     const apexIp = await (perimeter.apexIp as unknown as { promise(): Promise<string> }).promise();
     await pulumi.runtime.disconnect();
     const records = resources.filter((resource) => resource.type === "gcp:dns/recordSet:RecordSet");
+    const serviceAccount = resources.find((resource) => resource.type === "gcp:serviceaccount/account:Account");
+    if (serviceAccount?.inputs.accountId !== "ep150-node") {
+        throw new Error(`service account override was not used: ${JSON.stringify(serviceAccount)}`);
+    }
     if (records.length !== 2) {
         throw new Error(`expected two DNS records, got ${records.length}`);
     }

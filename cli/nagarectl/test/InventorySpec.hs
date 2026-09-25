@@ -1,6 +1,6 @@
 module InventorySpec (inventoryTests) where
 
-import Control.Exception (try)
+import Control.Exception (bracket, try)
 import Control.Monad (forM_)
 import Data.Aeson
 import Data.Aeson.KeyMap qualified as KM
@@ -15,12 +15,15 @@ import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Command
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
+import Nagare.Inventory.Store
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
 import Nagare.Resource.Policy
 import Nagare.Resource.Types
 import Nagare.Resource.Wire
+import Nagare.Target (ActiveTarget (..), mkContextName, profileFromContextMap)
 import System.Directory
+import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode)
 import System.FilePath ((</>))
 import System.IO.Temp
@@ -112,6 +115,32 @@ inventoryTests =
         renameFile (output </> "scopes" </> head members) (dir </> "removed-member")
         result <- loadCandidate output
         assertBool "missing refuses" (isLeft result)
+    , testCase "restore command checks binding and refuses an occupied local store" $
+        withSystemTempDirectory "inventory-restore-command" $ \root ->
+          bracket
+            (lookupEnv "XDG_STATE_HOME" <* setEnv "XDG_STATE_HOME" (root </> "state"))
+            (maybe (unsetEnv "XDG_STATE_HOME") (setEnv "XDG_STATE_HOME"))
+            $ \_ -> do
+              let binding = ContextBinding (ok (mkContextId "restored")) (ok (mkName "project"))
+                  target = ActiveTarget (ok (mkContextName "restored"))
+                    (profileFromContextMap (Map.singleton "CLOUDSDK_CORE_PROJECT" "project"))
+                  foreignTarget = ActiveTarget (ok (mkContextName "restored"))
+                    (profileFromContextMap (Map.singleton "CLOUDSDK_CORE_PROJECT" "other-project"))
+                  backup = root </> "backup"
+              source <- openFilesystemStore (root </> "source") >>= either (assertFailure . show) pure
+              _ <- initializeStore source binding "restore-test" >>= either (assertFailure . show) pure
+              exported <- withProcessLock source (\locked -> exportStore locked backup)
+                >>= either (assertFailure . show) pure
+              _ <- either (assertFailure . show) pure exported
+              mismatch <- try (restoreInventory foreignTarget backup True) :: IO (Either ExitCode ())
+              assertBool "foreign project accepted" (isLeft mismatch)
+              restoreInventory target backup False
+              destination <- openTargetStore target
+              readHead destination >>= (@?= Right Nothing)
+              restoreInventory target backup True
+              readHead destination >>= (@?= Right (Just (HeadManifest 1 0 0 binding "restore-test" Map.empty Map.empty Map.empty Map.empty Nothing Nothing Nothing)))
+              duplicate <- try (restoreInventory target backup True) :: IO (Either ExitCode ())
+              assertBool "occupied destination accepted" (isLeft duplicate)
     ]
   where
     replaceGeneration (Object o) = Object (KM.mapWithKey (\k v -> if k == "generation" then Number 8 else replaceGeneration v) o)
