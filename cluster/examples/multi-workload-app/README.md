@@ -39,9 +39,13 @@ runs to completion and must succeed), **then** the managed databases are ensured
 **then** the Service and Workers are applied and waited on:
 
 ```bash
-# Dry-run (no cluster needed): see every rendered object with its nagare.dev/app label.
-nagarectl app deploy -f cluster/examples/multi-workload-app/nagare/Config.hs --dry-run
+# Direct live rollout against the selected context.
+nagarectl app deploy -f cluster/examples/multi-workload-app/nagare/Config.hs
 ```
+
+The inventory-backed `--dry-run` path requires a prepublished image and an
+accepted inventory. It currently refuses this example's aggregate migration
+hook until that Job and its data effects have a reviewed operation.
 
 A failed pre-deploy hook aborts the release before any Service or Worker is
 touched — so "run migrations before the new code boots" is a first-class,
