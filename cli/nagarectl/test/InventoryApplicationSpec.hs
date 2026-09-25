@@ -29,7 +29,7 @@ import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.TaskRun (compileTaskRunScope)
 import Nagare.Env.Store (ReconcileMode (..), reconcile)
 import Nagare.Resource.Application (applicationScopeId)
-import Nagare.Resource.Inventory (Declaration (Managed), DesiredSpec (NativeObject), Executor (BrokerExecutor), ManagedResource (..), ResourceBundle (..), mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeId)
+import Nagare.Resource.Inventory (Declaration (Managed), DesiredSpec (NativeObject), Executor (BrokerExecutor), ManagedResource (..), ResourceBundle (..), mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeConfigDigest, scopeId)
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
 import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (DeleteWhenUnreferenced), RecoveryClass (VerifyBeforeRetry), RecoveryIntent (..), Sensitivity (Private, Secret), mkSecretRef)
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
@@ -61,6 +61,7 @@ inventoryApplicationTests = testGroup "application inventory compilation"
       (scope, native) <- either (fail . show) pure
         (compileTaskRunScope (Just "demo") cronJob cronBytes "r1" source)
       scopeId scope @?= checked (mkScopeId Standalone "task-run-personal-r1-nagare-task-cleanup")
+      scopeConfigDigest scope @?= Just (contentDigest cronCanonical)
       Map.size native @?= 1
       let jobs = [resource | bundle <- scopeBundles scope,
             Managed resource <- declarations bundle]

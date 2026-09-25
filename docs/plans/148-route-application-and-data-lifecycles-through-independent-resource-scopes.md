@@ -368,3 +368,5 @@ DependencyExports contains typed capability witnesses and selected revision/phys
 2026-09-24: A valid accepted CronJob name plus a valid run ID can exceed the native 63-character Job limit. Reviewed manual runs now retain the readable suffix when it fits and derive a bounded digest suffix otherwise; the independent scope retains the full task and run identity.
 
 2026-09-24: The immutable scope wire now carries an optional digest of canonical JSON for validated application, standalone Service, and standalone worker config. Existing scope documents remain valid without the field. This distinguishes effective config revisions from native spec digests and lets accepted history identify the loaded config without requiring its source checkout. Explicit command overrides and full render parity remain M1 gates.
+
+2026-09-24: Manual Job scopes now carry the digest of their exact accepted CronJob template as config evidence. A retry can identify the original task intent even if a later application revision changes the scheduled template.

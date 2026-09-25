@@ -131,9 +131,10 @@ compileTaskRunScope appName cronJob cronBytes runId source = do
     (Left (invalid "task run Job has a different native address"))
   let member = bound {dependencies = [OrderedAfter (cronJob ^. #identity)]}
   scope <-
-    mkScopeDeclaration
-      owner
-      [ResourceBundle [Managed member] [] [] [] [] []]
+    withScopeConfigDigest (contentDigest cronCanonical)
+      <$> mkScopeDeclaration
+        owner
+        [ResourceBundle [Managed member] [] [] [] [] []]
   pure (scope, Map.singleton resourceId (member, native))
 
 objectField ::
