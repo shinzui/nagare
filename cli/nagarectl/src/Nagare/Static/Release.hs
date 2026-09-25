@@ -43,7 +43,6 @@ import Data.Aeson
   , encode
   , object
   , withObject
-  , (.!=)
   , (.:)
   , (.:?)
   , (.=)
@@ -118,7 +117,7 @@ instance ToJSON StaticReleaseLog where
 
 instance FromJSON StaticReleaseLog where
   parseJSON = withObject "StaticReleaseLog" $ \o ->
-    StaticReleaseLog <$> o .:? "current" <*> o .:? "releases" .!= []
+    StaticReleaseLog <$> o .: "current" <*> o .: "releases"
 
 -- | The empty history (used when no ConfigMap exists yet).
 emptyReleaseLog :: StaticReleaseLog
@@ -193,26 +192,25 @@ renderReleaseConfigMap :: Text -> Text -> StaticReleaseLog -> ByteString
 renderReleaseConfigMap = renderReleaseConfigMapWith "nagare-static-releases-"
 
 -- | Extract the release log from the JSON @kubectl get configmap -o json@ prints.
--- A ConfigMap with no @data@ or no @releases.json@ key yields an empty log;
--- malformed inner JSON is a 'Left' error (never silent data loss).
+-- Only a confirmed absent ConfigMap yields an empty log. An existing object
+-- without its history key is malformed and must not erase prior entries.
 extractReleaseLog :: ByteString -> Either Text StaticReleaseLog
 extractReleaseLog bs =
   case eitherDecodeStrict bs of
     Left e -> Left ("could not decode ConfigMap JSON: " <> T.pack e)
     Right cm -> case lookupData cm of
-      Nothing -> Right emptyReleaseLog
-      Just inner -> case eitherDecodeStrict (TE.encodeUtf8 inner) of
+      Left err -> Left err
+      Right inner -> case eitherDecodeStrict (TE.encodeUtf8 inner) of
         Left e -> Left ("could not decode release log JSON: " <> T.pack e)
         Right logv -> Right logv
   where
-    lookupData :: Aeson.Value -> Maybe Text
-    lookupData v = do
-      Aeson.Object o <- Just v
-      Aeson.Object d <- keyLookup "data" o
-      inner <- keyLookup releaseDataKey d
-      case inner of
-        Aeson.String s -> Just s
-        _ -> Nothing
+    lookupData :: Aeson.Value -> Either Text Text
+    lookupData (Aeson.Object o) = case keyLookup "data" o of
+      Just (Aeson.Object d) -> case keyLookup releaseDataKey d of
+        Just (Aeson.String value) -> Right value
+        _ -> Left "release ConfigMap lacks a string releases.json value"
+      _ -> Left "release ConfigMap lacks a data object"
+    lookupData _ = Left "release ConfigMap is not a JSON object"
 
 keyLookup :: Text -> Aeson.Object -> Maybe Aeson.Value
 keyLookup k = KeyMap.lookup (Key.fromText k)

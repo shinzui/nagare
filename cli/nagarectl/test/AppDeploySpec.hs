@@ -21,10 +21,11 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import Data.Time (UTCTime (..), fromGregorian)
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.App.Deploy
-import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedAccessBinding, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, standaloneWorkerVolumeRecoveryBindings, nativeWorkloadOwned, compileApplicationScope, compileApplicationService, compileStandaloneService, compileStandaloneServiceWithBrokers, compileStandaloneServiceWithDependencies, compileStandaloneWorker, compileStandaloneWorkerWithDependencies, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings, workerRetirementScope)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedAccessBinding, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, standaloneWorkerVolumeRecoveryBindings, nativeWorkloadOwned, compileApplicationScope, compileApplicationService, compileStandaloneService, compileStandaloneServiceWithBrokers, compileStandaloneServiceWithDependencies, compileStandaloneWorker, compileStandaloneWorkerWithDependencies, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings, workerRetirementScope)
 import Nagare.Inventory.DataService (compileStandaloneBroker, compileStandaloneDatabase)
 import Nagare.Dsl.Broker (BrokerBinding (..), mkTopicName)
 import Nagare.Dsl.Access (authPortal, requireLogin)
@@ -37,8 +38,10 @@ import Nagare.Resource.Types qualified as Resource
 import Nagare.Dsl.Load (loadApplication, loadBroker)
 import Nagare.Dsl.Database (dbSecretName)
 import Nagare.Dsl.Prelude
-import Nagare.Dsl.Types (AccessMode (ReadWriteOnce), DomainTls (SuppliedTlsSecret), EnvScope (Build), EnvVar (EnvSecretRef), RetentionPolicy (Retain), Volume (..), databaseNameText, mkDomains, mkEnvName, mkImageRef, mkMountPath, mkNamespace, mkQuantity, mkSecretName, mkServiceName, mkVolumeName, runtimeScoped, scopedEnv, serviceNameText)
+import Nagare.Dsl.Types (AccessMode (ReadWriteOnce), DomainTls (SuppliedTlsSecret), EnvScope (Build), EnvVar (EnvSecretRef), RetentionPolicy (Retain), Volume (..), databaseNameText, imageRefText, mkDomains, mkEnvName, mkImageRef, mkMountPath, mkNamespace, mkQuantity, mkSecretName, mkServiceName, mkVolumeName, runtimeScoped, scopedEnv, serviceNameText)
 import Nagare.Dsl.Worker (Worker (..))
+import Nagare.Deploy (serviceUrl)
+import Nagare.Static.Release (StaticRelease (..), StaticReleaseLog (..), addRelease, emptyReleaseLog)
 import Nagare.Dsl.Presets (attachVolume)
 import Nagare.Env.Generated (mergeGenerated)
 import Nagare.Target (InventoryStoreKind (..), Mode (..), PulumiBackendKind (..), TargetProfile (..))
@@ -394,6 +397,8 @@ renderTests =
   , testCase "composed application scope contains every supported member" $ do
       loaded <- loadApplication fixturePath
       app <- either (fail . show) pure loaded
+      serviceForRelease <- maybe (assertFailure "fixture has no web Service" >> fail "missing Service")
+        pure (app ^. #service)
       let foundation = unsafe (Resource.mkScopeId Resource.Platform "foundation")
           cluster = Resource.mintResourceId foundation
             (unsafe (Resource.mkLogicalKey "cluster")) (unsafe (Resource.mkName "resource"))
@@ -404,6 +409,11 @@ renderTests =
           recovery = RecoveryIntent (unsafe (Resource.mkName "backup"))
             (mkSecretRef (unsafe (Resource.mkName "database-key"))
               (unsafe (Resource.mkName "v1")) :| [])
+          tag = testEnv ^. #effectiveTag
+          release = StaticRelease tag (serviceNameText (serviceForRelease ^. #name)) "personal"
+            (imageRefText (testEnv ^. #qualifiedImage)) tag
+            (serviceUrl serviceForRelease (testEnv ^. #baseDomain))
+            (Just "fixture") (UTCTime (fromGregorian 2026 6 19) 0)
           input = ApplicationScopeInput
             { scopeApplication = app
             , scopeRollout = testEnv & #appEnv .~ app ^. #env
@@ -421,9 +431,50 @@ renderTests =
             , scopeEnvSecrets = Map.empty
             , scopeWorkerVolumeRecovery = Map.empty
             , scopeBackupBackend = GcsBackend "project" "bucket"
+            , scopeRelease = (emptyReleaseLog, release)
             , scopeSource = Resource.SourceLocation "test" "application"
             }
-      (scope, native) <- either (fail . show) pure (compileApplicationScope input)
+      (scope, native) <- either (fail . ("base: " <>) . show) pure
+        (compileApplicationScope input)
+      let oldRelease = release {releaseId = "previous", imageTag = "previous"
+            , createdAt = UTCTime (fromGregorian 2026 6 18) 0}
+          releaseInput = input {scopeRelease = (addRelease oldRelease emptyReleaseLog, release)}
+      (releasedScope, releasedNative) <- either (fail . ("prior history: " <>) . show) pure
+        (compileApplicationScope releaseInput)
+      let releaseMembers = [member | bundle <- scopeBundles releasedScope,
+            Managed member <- declarations bundle,
+            case member ^. #address of
+              Resource.Kubernetes _ "" kind _ name ->
+                kind == unsafe (Resource.mkName "configmap")
+                  && name == unsafe (Resource.mkName "nagare-app-deployments-kizashi-serve")
+              _ -> False]
+      releaseMember <- case releaseMembers of
+        [member] -> pure member
+        _ -> assertFailure "reviewed application has no unique release metadata" >> fail "missing release"
+      let workloadIds = [member ^. #identity | bundle <- scopeBundles scope,
+            Managed member <- declarations bundle,
+            member ^. #identity /= releaseMember ^. #identity]
+      assertBool "direct app deploy can overwrite accepted release history"
+        (applicationNativeOwned app [releaseMember])
+      assertBool "release metadata can precede a reviewed workload"
+        (all (\resourceId -> OrderedAfter resourceId `elem` releaseMember ^. #dependencies) workloadIds)
+      releaseSnapshot <- either (fail . show) pure (mkScopeSnapshot
+        (Resource.ContextBinding (unsafe (Resource.mkContextId "release-fixture"))
+          (unsafe (Resource.mkName "project")))
+        (Map.singleton (scopeId releasedScope)
+          (unsafe (Resource.mkScopeGeneration 1), releasedScope)) Map.empty)
+      history <- either (fail . T.unpack) pure
+        (acceptedApplicationReleaseLog releaseSnapshot releasedNative app cluster)
+      history ^. #current @?= Just tag
+      length (history ^. #releases) @?= 2
+      assertBool "missing private release bytes were treated as an empty log"
+        (isLeft (acceptedApplicationReleaseLog releaseSnapshot Map.empty app cluster))
+      assertBool "malformed accepted release bytes were treated as an empty log"
+        (isLeft (acceptedApplicationReleaseLog releaseSnapshot
+          (Map.map (\(member, _) -> (member, "{\"data\":{}}")) releasedNative) app cluster))
+      assertBool "release metadata accepted a forged route"
+        (isLeft (compileApplicationScope
+          (input {scopeRelease = (emptyReleaseLog, release {url = "https://wrong.example.test"})})))
       assertBool "standalone application Service compiler silently omitted app access"
         (isLeft (compileApplicationService (app & #access .~ Just requireLogin)
           testEnv cluster namespaceId publication Map.empty Map.empty Map.empty (scopeSource input)))
@@ -463,9 +514,9 @@ renderTests =
           ["kizashi-db=backup:v1", "kizashi-db=backup:v1"]))
       assertBool "unknown database recovery was accepted"
         (isLeft (databaseRecoveryBindings app ["other=backup:v1"]))
-      length (scopeBundles scope) @?= 6
-      Map.size native @?= 10
-      length [() | bundle <- scopeBundles scope, Managed _ <- declarations bundle] @?= 10
+      length (scopeBundles scope) @?= 7
+      Map.size native @?= 11
+      length [() | bundle <- scopeBundles scope, Managed _ <- declarations bundle] @?= 11
       let workloadBytes =
             [bytes | (member, bytes) <- Map.elems native
             , case member ^. #address of
@@ -647,7 +698,7 @@ renderTests =
             { scopeApplication = accessApp
             , scopeAccessBinding = Just accessBinding
             }
-      (accessScope, accessNative) <- either (fail . show) pure
+      (accessScope, accessNative) <- either (fail . ("access: " <>) . show) pure
         (compileApplicationScope accessInput)
       let accessRoutes = [member | bundle <- scopeBundles accessScope,
             Managed member <- declarations bundle,
@@ -669,7 +720,7 @@ renderTests =
       accessCandidate <- either (fail . show) pure (composeInventory authSnapshot
         (ReplaceScope accessScope :| []))
       Map.lookup authOwner (candidateGenerations accessCandidate) @?= Just databaseGeneration
-      (portalScope, _) <- either (fail . show) pure (compileApplicationScope
+      (portalScope, _) <- either (fail . ("portal: " <>) . show) pure (compileApplicationScope
         (accessInput {scopeApplication = app & #access .~ Just authPortal}))
       let portalRoutes = [member | bundle <- scopeBundles portalScope,
             Managed member <- declarations bundle,
@@ -721,7 +772,7 @@ renderTests =
             , scopeBrokerServices = brokerServices
             , scopeBrokerTopics = brokerTopics
             }
-      (brokerAppScope, brokerNative) <- either (fail . show) pure
+      (brokerAppScope, brokerNative) <- either (fail . ("broker: " <>) . show) pure
         (compileApplicationScope brokerInput)
       let brokerServiceIds = map declarationId (Map.elems brokerServices)
           brokerWorkloads =
@@ -748,7 +799,8 @@ renderTests =
             , scopeBrokerServices = brokerServices
             , scopeBrokerTopics = brokerTopics
             }
-      (_, localNative) <- either (fail . show) pure (compileApplicationScope localInput)
+      (_, localNative) <- either (fail . ("local broker: " <>) . show) pure
+        (compileApplicationScope localInput)
       brokerId <- case brokerServiceIds of
         [resource] -> pure resource
         _ -> assertFailure "expected one accepted broker Service"
@@ -814,7 +866,8 @@ renderTests =
       assertBool "reviewed Service lost accepted topic ordering or generated env"
         (all (elem (OrderedAfter topicId) . (^. #dependencies)) topicServiceMembers
           && any (BS.isInfixOf "NAGARE_TOPIC_JOBS" . snd) (Map.elems topicServiceNative))
-      (topicAppScope, topicAppNative) <- either (fail . show) pure (compileApplicationScope topicInput)
+      (topicAppScope, topicAppNative) <- either (fail . ("topic: " <>) . show) pure
+        (compileApplicationScope topicInput)
       let topicAppWorkloads = [member | bundle <- scopeBundles topicAppScope,
             Managed member <- declarations bundle,
             case member ^. #address of
@@ -852,8 +905,13 @@ renderTests =
             , scopeRollout = scopeRollout input & #namespace .~ "sandbox"
             , scopeNamespace = sandboxId
             , scopeNamespaceContributionOwner = Just foundation
+            , scopeRelease = (emptyReleaseLog, release
+                & #namespace .~ "sandbox"
+                & #url .~ maybe "" (\service -> serviceUrl service
+                    (testEnv ^. #baseDomain)) (sandboxApp ^. #service))
             }
-      (sandboxScope, _) <- either (fail . show) pure (compileApplicationScope sandboxInput)
+      (sandboxScope, _) <- either (fail . ("sandbox: " <>) . show) pure
+        (compileApplicationScope sandboxInput)
       case [request | bundle <- scopeBundles sandboxScope, request <- contributions bundle] of
         [request@RegisterNamespace {}] -> contributionResourceId request @?= sandboxId
         other -> assertFailure ("expected one typed namespace contribution: " <> show other)
@@ -904,6 +962,11 @@ renderTests =
             { scopeApplication = namedApplication name
             , scopeRollout = scopeRollout input & #appName .~ name
             , scopeDatabaseRecovery = Map.empty
+            , scopeRelease = (emptyReleaseLog, release
+                { siteName = name
+                , url = maybe "" (\service -> serviceUrl service
+                    (testEnv ^. #baseDomain)) (namedApplication name ^. #service)
+                })
             }
           foundationWithNamespace = foundationBundle
             { declarations = declarations foundationBundle
@@ -914,9 +977,9 @@ renderTests =
             }
       platformScope <- either (fail . show) pure
         (mkScopeDeclaration foundation [foundationWithNamespace])
-      (alphaScope, _) <- either (fail . show) pure
+      (alphaScope, _) <- either (fail . ("alpha: " <>) . show) pure
         (compileApplicationScope (namedInput "alpha"))
-      (betaScope, _) <- either (fail . show) pure
+      (betaScope, _) <- either (fail . ("beta: " <>) . show) pure
         (compileApplicationScope (namedInput "beta"))
       isolationSnapshot <- either (fail . show) pure
         (mkScopeSnapshot binding (Map.fromList
@@ -931,8 +994,15 @@ renderTests =
       Map.lookup (scopeId betaScope) (candidateGenerations isolated) @?= Just (unsafe (Resource.mkScopeGeneration 1))
       let conflicting = (namedApplication "alpha")
             & #service %~ fmap (#name .~ unsafe (mkServiceName "beta"))
-      (conflictingScope, _) <- either (fail . show) pure
-        (compileApplicationScope ((namedInput "alpha") {scopeApplication = conflicting}))
+      (conflictingScope, _) <- either (fail . ("conflicting: " <>) . show) pure
+        (compileApplicationScope ((namedInput "alpha")
+          { scopeApplication = conflicting
+          , scopeRelease = (emptyReleaseLog, release
+              { siteName = "beta"
+              , url = maybe "" (\service -> serviceUrl service
+                  (testEnv ^. #baseDomain)) (conflicting ^. #service)
+              })
+          }))
       case composeInventory isolationSnapshot (ReplaceScope conflictingScope :| []) of
         Left _ -> pure ()
         Right _ -> assertFailure "two application scopes claimed the same Knative Service"
@@ -984,7 +1054,8 @@ renderTests =
             , scopeRollout = scopeRollout input & #appEnv .~ secretApp ^. #env
             , scopeEnvSecrets = Map.singleton secretName secretBinding
             }
-      (secretScope, _) <- either (fail . show) pure (compileApplicationScope secretInput)
+      (secretScope, _) <- either (fail . ("secret: " <>) . show) pure
+        (compileApplicationScope secretInput)
       length [() | bundle <- scopeBundles secretScope, Managed member <- declarations bundle,
         OrderedAfter secretId `elem` member ^. #dependencies] @?= 5
       let wrongSecret = External secretId
@@ -1003,7 +1074,8 @@ renderTests =
                 { scopeApplication = ownSecretApp
                 , scopeRollout = scopeRollout input & #appEnv .~ ownSecretApp ^. #env
                 }
-          (ownScope, _) <- either (fail . show) pure (compileApplicationScope ownSecretInput)
+          (ownScope, _) <- either (fail . ("own secret: " <>) . show) pure
+            (compileApplicationScope ownSecretInput)
           let credentials = [member ^. #identity | bundle <- scopeBundles ownScope,
                 Managed member <- declarations bundle,
                 Resource.Kubernetes _ "" kind _ name <- [member ^. #address],

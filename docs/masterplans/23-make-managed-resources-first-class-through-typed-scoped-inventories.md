@@ -521,4 +521,6 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 
 2026-09-24: EP-148 changed the legacy release-history read to distinguish a confirmed missing ConfigMap from any failed Kubernetes read. This closes a history-loss path during application/static deployment while reviewed release metadata and migration remain open.
 
+2026-09-24: EP-148 now includes the per-Service application release-history ConfigMap in reviewed application scope compilation. Accepted prior entries are loaded only from private accepted native evidence, and the next entry is bound to the exact rollout and ordered after workloads. Existing direct logs still require explicit adoption; static-site release metadata and full command migration remain open.
+
 2026-09-24: EP-148 applied the same distinction to legacy env and Secret reads and now refuses malformed `data` entries instead of silently dropping keys. Direct store writes and reviewed preview/deploy integration remain open.

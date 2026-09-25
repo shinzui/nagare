@@ -69,7 +69,8 @@ import Nagare.App
   )
 import Nagare.App.Deploy (AppDeployParams (..), RolloutEnv (..), resolveAppRolloutWithBrokerEnv, runAppDeployWithGuard)
 import Nagare.App.Deployments
-  ( formatDeploymentsTable
+  ( appConfigMapName
+  , formatDeploymentsTable
   , readDeployments
   , recordDeploymentFor
   , resolveRevisionForTag
@@ -273,7 +274,7 @@ import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.Application (ApplicationScopeInput (..), DatabaseBinding, acceptedAccessBinding, acceptedApplicationImage, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationScope, compileStandaloneServiceWithDependencies, compileStandaloneWorkerWithDependencies, databaseRecoveryBindings, nativeWorkloadOwned, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), DatabaseBinding, acceptedAccessBinding, acceptedApplicationImage, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationScope, compileStandaloneServiceWithDependencies, compileStandaloneWorkerWithDependencies, databaseRecoveryBindings, nativeWorkloadOwned, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, compileStandaloneDatabase, databaseNativeOwned, standaloneRetirementScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Environment (acceptedEnvChannelValues, acceptedSecretChannelValues, compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
 import Nagare.Inventory.Host qualified as InventoryHost
@@ -414,7 +415,8 @@ import Nagare.Static.Deploy
   )
 import Nagare.Static.Preview (deletePreview, listPreviews, previewDomain, previewServiceName)
 import Nagare.Static.Release
-  ( StaticReleaseLog (..)
+  ( StaticRelease (..)
+  , StaticReleaseLog (..)
   , findRelease
   , formatReleasesTable
   , readReleaseLog
@@ -7195,9 +7197,32 @@ runAppDeployPlan mctx params appOptions output = do
   envSecrets <- either dieT pure (acceptedSecretBindings snapshot envIds)
   backend <- either dieT pure (storeBackendFor (active ^. #profile)
     (active ^. #profile . #backupBucket))
+  store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+  history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
+  acceptedInventory <- either (dieT . T.pack . show) pure
+    (ResourceInventory.composeSnapshot snapshot)
+  (acceptedNative, _) <- InventoryStatus.loadAcceptedNative store history acceptedInventory
+    >>= either dieT pure
+  priorReleases <- either dieT pure
+    (acceptedApplicationReleaseLog snapshot acceptedNative app cluster)
+  releasedAt <- getCurrentTime
   let source = Resource.SourceLocation
         (maybe (T.pack (params ^. #configPath)) T.pack (appOptions ^. #source))
         (serviceNameText (app ^. #name))
+      releaseTag = rollout ^. #effectiveTag
+      releaseSubject = maybe (serviceNameText (app ^. #name))
+        (serviceNameText . (^. #name)) (app ^. #service)
+      release = StaticRelease
+        { releaseId = releaseTag
+        , siteName = releaseSubject
+        , namespace = appNamespaceName
+        , image = imageRefText (rollout ^. #qualifiedImage)
+        , imageTag = releaseTag
+        , url = maybe "" (\service -> serviceUrl service (rollout ^. #baseDomain))
+            (app ^. #service)
+        , source = T.pack <$> appOptions ^. #source
+        , createdAt = releasedAt
+        }
       input = ApplicationScopeInput
         { scopeApplication = app
         , scopeRollout = rollout
@@ -7214,6 +7239,7 @@ runAppDeployPlan mctx params appOptions output = do
         , scopeEnvSecrets = envSecrets
         , scopeWorkerVolumeRecovery = workerVolumeRecovery
         , scopeBackupBackend = backend
+        , scopeRelease = (priorReleases, release)
         , scopeSource = source
         }
   (scope, native) <- either (dieT . T.pack . show) pure (compileApplicationScope input)
@@ -7770,6 +7796,8 @@ refuseDirectServiceMutationIfOwned :: Maybe String -> Text -> Text -> Text -> IO
 refuseDirectServiceMutationIfOwned mctx operation name namespaceName =
   withAcceptedInventoryHistory mctx operation $ \history ->
     when (nativeWorkloadOwned "serving.knative.dev" "service" name namespaceName
+        (ownedHistoryResources history)
+      || nativeWorkloadOwned "" "configmap" (appConfigMapName name) namespaceName
         (ownedHistoryResources history))
       (dieT ("Service " <> name <> " is owned by accepted or retained inventory history; direct " <> operation <> " is refused"))
 

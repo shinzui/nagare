@@ -3509,10 +3509,14 @@ releaseTests =
       case extractReleaseLog cm of
         Right back -> back @?= logv
         Left e -> assertFailure ("extract failed: " <> T.unpack e)
-  , testCase "extractReleaseLog of a ConfigMap with no data is empty" $
+  , testCase "extractReleaseLog refuses an existing ConfigMap with no data" $
       case extractReleaseLog "{\"apiVersion\":\"v1\",\"kind\":\"ConfigMap\",\"metadata\":{}}" of
-        Right back -> back @?= emptyReleaseLog
-        Left e -> assertFailure ("expected empty log, got error: " <> T.unpack e)
+        Right _ -> assertFailure "malformed ConfigMap replaced the history with an empty log"
+        Left _ -> pure ()
+  , testCase "extractReleaseLog refuses an incomplete existing history" $
+      case extractReleaseLog "{\"data\":{\"releases.json\":\"{}\"}}" of
+        Right _ -> assertFailure "missing history fields were treated as an empty log"
+        Left _ -> pure ()
   , testCase "release history read distinguishes absence from provider failure" $ do
       decodeReleaseLogRead ExitSuccess "" @?= Right emptyReleaseLog
       let existing = renderReleaseConfigMap "notes" "personal"

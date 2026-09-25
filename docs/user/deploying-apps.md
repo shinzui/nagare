@@ -16,8 +16,10 @@ generated:
 `nagarectl app deploy` can save an inventory review for an application whose
 image is already an accepted OCI publication. The current reviewed path supports
 a web Service, workers, application databases with explicit recovery bindings,
-and topic-free references to accepted standalone brokers. It does not yet
-support hooks, broker topics, access changes, or build inputs.
+accepted standalone brokers and topics, and protected routes through an accepted
+platform auth owner. It records the release in the application's history
+ConfigMap after its workloads. Pre-deploy hooks, CDN changes, and build inputs
+do not yet have reviewed operations.
 Its config still goes through
 the typed `Application` loader. Use the exact resource ID of the accepted OCI
 publication, and an explicit tag that resolves to that publication's destination:
@@ -71,8 +73,11 @@ references bind to an accepted standalone database in the same cluster and
 namespace. Planning checks its Service, StatefulSet, and saved credential
 template in one scope, then records the StatefulSet dependency and Secret
 references in the workload. Missing private evidence or an unknown engine
-refuses before review. Broker topics, access, and CDN settings currently
-refuse this single-Service route.
+refuses before review. Accepted standalone broker topics can also supply the
+workload's Kafka environment and become explicit dependencies. Protected access
+requires an accepted platform auth owner with a grant for this scope; the review
+includes its backend contribution and central route. CDN settings still refuse
+this single-Service route.
 
 For each declared application database, add
 `--database-recovery NAME=BACKUP:KEY_VERSION` to the planning command. The
@@ -85,11 +90,12 @@ contains the references and no password value. Two referenced databases using
 the same engine and environment variable names refuse instead of silently
 selecting one.
 
-An application-level broker binding with no topics uses the accepted standalone
-broker Service in the same cluster and namespace. Planning requires its
-StatefulSet in the same accepted scope, records the Service as a dependency for
-each workload, and derives Kafka connection variables without live discovery.
-A topic reference refuses until logical topic creation has a reviewed operation.
+An application-level broker binding uses the accepted standalone broker Service
+in the same cluster and namespace. Planning requires its StatefulSet in the
+same accepted scope, records the Service as a dependency for each workload, and
+derives Kafka connection variables without live discovery. Topic references
+require accepted logical topic resources and add dependencies on those exact
+resources. Missing or unaccepted topics refuse before review.
 
 When the application references an already accepted Secret, supply its resource
 ID with `--tls-secret-resource RESOURCE-ID` for a supplied-TLS domain or
@@ -118,7 +124,14 @@ request and the image's
 tagged destination before saving the review. The review is bound to the current
 inventory head; apply uses the native bytes saved in that review. Other
 application inputs are refused until their inventory operation and recovery
-contracts are available.
+contracts are available. The reviewed release-history member uses the web
+Service name, matching the legacy ConfigMap. If a direct deploy already created
+that ConfigMap, planning refuses its unowned live object. The explicit legacy
+history import is still pending, so keep using the direct path for that app until
+its history can be adopted without losing entries. A later reviewed deploy reads
+only the accepted private history, keeps earlier entries, and writes the next
+entry after the workload resources. Release history and accepted reviews live in
+the selected context's inventory store.
 
 > **Status:** 🟡 Built and tested through CLI/render coverage. The live deploy path
 > supports both cloud mode and local mode: short image names are qualified through

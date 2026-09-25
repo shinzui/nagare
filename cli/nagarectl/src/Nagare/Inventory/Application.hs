@@ -22,6 +22,7 @@ module Nagare.Inventory.Application
   , acceptedBrokerBindings
   , AccessBinding (..)
   , acceptedAccessBinding
+  , acceptedApplicationReleaseLog
   , DatabaseBinding
   , acceptedDatabaseBindings
   , applicationVolumeRecoveryBindings
@@ -31,7 +32,7 @@ module Nagare.Inventory.Application
   ) where
 
 import Control.Monad (forM_)
-import Data.Aeson (Value (..))
+import Data.Aeson (Value (..), eitherDecodeStrict)
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
@@ -42,8 +43,10 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend)
+import Nagare.App.Deployments (appConfigMapName, appDeploymentsPrefix)
 import Nagare.App.Deploy (RolloutEnv, renderServiceObjects, renderTaskObjects, renderWorkerObjects)
 import Nagare.Access.Resolve (RouteTarget (..), backendConfigMapNamespace, isUnderBaseDomain, mkBaseDomain, mkPublicHost, renderAccessDomainMapping, upstreamFor)
 import Nagare.Broker.Connection (BrokerConn (..), brokerConnectionEnv, mergeBrokerConnectionEnvs)
@@ -52,11 +55,12 @@ import Nagare.Dsl.Application qualified as DslApp
 import Nagare.Dsl.Access (AccessRole (..))
 import Nagare.Dsl.Broker (BrokerBinding (..), BrokerName, BrokerProvider (Redpanda), TopicName, brokerNameText, topicNameText)
 import Nagare.Database.Connection (ConnIdentity (..), connectionEnv, mergeConnectionEnvs)
+import Nagare.Deploy (serviceUrl)
 import Nagare.Dsl.Database (Database (..), Engine (..), dbSecretName, engineToken)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Render (pvcName)
 import Nagare.Dsl.Database.Render (dbConfigMapName, dbPvcName)
-import Nagare.Dsl.Types (DatabaseName, Deployment (..), DomainSpec (..), DomainTls (..), EnvScope (Runtime), EnvVar (..), Namespace, ScopedEnvVar (..), SecretName, Volume (..), VolumeName, databaseNameText, domainText, mkDomain, mkEnvName, mkSecretName, namespaceText, runtimeScoped, secretNameText, serviceNameText, volumeNameText)
+import Nagare.Dsl.Types (DatabaseName, Deployment (..), DomainSpec (..), DomainTls (..), EnvScope (Runtime), EnvVar (..), Namespace, ScopedEnvVar (..), SecretName, Volume (..), VolumeName, databaseNameText, domainText, imageRefText, mkDomain, mkEnvName, mkSecretName, namespaceText, runtimeScoped, secretNameText, serviceNameText, volumeNameText)
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Dsl.Worker (Worker (..))
 import Nagare.Dsl.Task (Task (..), mkTask, taskResourceName)
@@ -66,6 +70,7 @@ import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Env.Generated (mergeGenerated)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.Adapters.KubernetesRuntime (databaseCredentialKind)
+import Nagare.Static.Release (StaticRelease (..), StaticReleaseLog (..), addRelease, emptyReleaseLog, extractReleaseLog, renderReleaseConfigMapWith)
 import Nagare.Resource.Application (applicationScopeId, deploymentResourceId, domainMappingResourceId, taskResourceId, volumeResourceId, workerResourceId)
 import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
 import Nagare.Resource.Inventory
@@ -87,6 +92,7 @@ applicationNativeOwned app = any matches
     objects =
       [("serving.knative.dev", "service", serviceNameText (service ^. #name))
       | service <- maybe [] pure (app ^. #service)]
+        <> [("", "configmap", appConfigMapName (releaseSubject app))]
         <> [("", "persistentvolumeclaim", pvcName (serviceNameText (service ^. #name))
               (volumeNameText (volume ^. #name)))
            | service <- maybe [] pure (app ^. #service), volume <- service ^. #volumes]
@@ -575,8 +581,65 @@ data ApplicationScopeInput = ApplicationScopeInput
   , scopeEnvSecrets :: !(Map SecretName Declaration)
   , scopeWorkerVolumeRecovery :: !(Map ResourceId RecoveryIntent)
   , scopeBackupBackend :: !StoreBackend
+  , scopeRelease :: !(StaticReleaseLog, StaticRelease)
+  -- ^ Accepted prior log and the release this rollout records. The command
+  -- service must source the prior log from immutable accepted native evidence.
   , scopeSource :: !SourceLocation
   }
+
+releaseResourceId :: ScopeId -> Application -> Either T.Text ResourceId
+releaseResourceId owner app = do
+  key <- maybe (mkLogicalKey (serviceNameText (app ^. #name))) Right
+    (app ^. #logicalKey)
+  role <- mkName "release-history"
+  pure (mintResourceId owner key role)
+
+releaseSubject :: Application -> T.Text
+releaseSubject app = maybe (serviceNameText (app ^. #name))
+  (serviceNameText . (^. #name)) (app ^. #service)
+
+-- | Read only the accepted application's immutable private release member.
+-- A live ConfigMap is never an input channel: an old direct log must be
+-- explicitly adopted before a reviewed rollout can take ownership of it.
+acceptedApplicationReleaseLog
+  :: ScopeSnapshot -> Map ResourceId (ManagedResource, ByteString)
+  -> Application -> ResourceId -> Either T.Text StaticReleaseLog
+acceptedApplicationReleaseLog snapshot native app cluster = do
+  owner <- applicationScopeId app
+  releaseId <- releaseResourceId owner app
+  expected <- kubernetesAddress cluster "v1" "ConfigMap"
+    (Just (namespaceText (app ^. #namespace)))
+    (appConfigMapName (releaseSubject app))
+  case Map.lookup owner (snapshotScopes snapshot) of
+    Nothing -> Right emptyReleaseLog
+    Just (_, accepted) -> case
+      [resource | bundle <- scopeBundles accepted,
+        Managed resource <- declarations bundle,
+        resource ^. #identity == releaseId] of
+      [] -> Right emptyReleaseLog
+      [resource] -> do
+        unless (resource ^. #address == expected)
+          (Left "accepted release metadata has a different native address")
+        (bound, bytes) <- maybe (Left "accepted release metadata lacks private native evidence") Right
+          (Map.lookup releaseId native)
+        unless (bound == resource)
+          (Left "accepted release metadata differs from its private native binding")
+        logv <- extractReleaseLog bytes
+        validateReleaseLog app logv
+        pure logv
+      _ -> Left "accepted application has duplicate release metadata"
+
+validateReleaseLog :: Application -> StaticReleaseLog -> Either T.Text ()
+validateReleaseLog app logv = do
+  let records = logv ^. #releases
+      ids = map (^. #releaseId) records
+      appName = releaseSubject app
+      namespaceName = namespaceText (app ^. #namespace)
+  unless (length ids == Set.size (Set.fromList ids)
+      && all (\entry -> entry ^. #siteName == appName
+        && entry ^. #namespace == namespaceName) records
+      && maybe (null records) (`elem` ids) (logv ^. #current))
+    (Left "accepted release metadata has inconsistent application history")
 
 secretDependency :: ResourceId -> T.Text -> Map SecretName Declaration -> SecretName -> Either T.Text ResourceId
 secretDependency cluster namespaceName bindings secretName = do
@@ -827,13 +890,20 @@ compileApplicationScope input = do
         Kubernetes _ "apps" kind _ _ -> nameText kind == "deployment"
         Kubernetes _ "batch" kind _ _ -> nameText kind == "cronjob"
         _ -> False
-      bundles = namespaceBundles <> databaseBundles
+      workloadBundles = namespaceBundles <> databaseBundles
         <> map addBrokerEdges (maybe [] (pure . fst) serviceResult <> workerBundles <> [taskBundle])
-      nativeMaps = [databaseNative] <> maybe [] (pure . snd) serviceResult
+      workloadNativeMaps = [databaseNative] <> maybe [] (pure . snd) serviceResult
         <> [workerNative, taskNative]
-      native = Map.union databaseNative
+      workloadNative = Map.union databaseNative
         (Map.map (\(resource, bytes) -> (addBrokerResource resource, bytes))
           (Map.unions (maybe [] (pure . snd) serviceResult <> [workerNative, taskNative])))
+  let (prior, release) = scopeRelease input
+  releaseResult <- compileApplicationRelease app (scopeRollout input) owner
+    (scopeCluster input) (scopeNamespace input)
+    (scopeImage input) workloadBundles prior release source
+  let bundles = workloadBundles <> [fst releaseResult]
+      nativeMaps = workloadNativeMaps <> [snd releaseResult]
+      native = Map.union workloadNative (snd releaseResult)
       claims = [claim | bundle <- bundles, declaration <- declarations bundle
         , (_, claim) <- NE.toList (claimsOf declaration)]
   scope <- mkScopeDeclaration owner bundles
@@ -842,6 +912,57 @@ compileApplicationScope input = do
   unless (length claims == Set.size (Set.fromList claims))
     (Left (invalid "application members claim the same provider address"))
   pure (scope, native)
+
+compileApplicationRelease
+  :: Application -> RolloutEnv -> ScopeId -> ResourceId -> ResourceId -> ResourceId
+  -> [ResourceBundle] -> StaticReleaseLog -> StaticRelease -> SourceLocation
+  -> Either (NonEmpty InventoryError)
+       (ResourceBundle, Map ResourceId (ManagedResource, ByteString))
+compileApplicationRelease app rollout owner cluster namespaceId imageId priorBundles prior release source = do
+  first invalid (validateReleaseLog app prior)
+  let appName = releaseSubject app
+      ns = namespaceText (app ^. #namespace)
+      tag = rollout ^. #effectiveTag
+  unless (release ^. #siteName == appName
+      && release ^. #namespace == ns
+      && release ^. #releaseId == tag
+      && release ^. #imageTag == tag
+      && release ^. #image == imageRefText (rollout ^. #qualifiedImage)
+      && release ^. #url == maybe "" (\service -> serviceUrl service
+        (rollout ^. #baseDomain)) (app ^. #service))
+    (Left (invalid "release metadata differs from the reviewed application or image"))
+  releaseId <- first invalid (releaseResourceId owner app)
+  let bytes = renderReleaseConfigMapWith appDeploymentsPrefix appName ns
+        (addRelease release prior)
+  value <- first (invalid . T.pack) (eitherDecodeStrict bytes)
+  canonical <- first invalid (canonicalValue value)
+  (resource, native) <- first (:| []) (bindKubernetesObject KubernetesInput
+    { resourceId = releaseId
+    , ownerScope = owner
+    , clusterId = cluster
+    , inputObject = value
+    , objectDigest = contentDigest canonical
+    , lifecyclePolicy = Retain
+    , inputDataPolicy = Stateless
+    , inputSensitivity = Private
+    , sourceLocation = source {path = path source <> "/release-history"}
+    })
+  expected <- first invalid (kubernetesAddress cluster "v1" "ConfigMap"
+    (Just ns) (appConfigMapName appName))
+  unless (resource ^. #address == expected)
+    (Left (invalid "release metadata render has an unexpected native address"))
+  let workloadIds = [member ^. #identity | bundle <- priorBundles,
+        Managed member <- declarations bundle]
+      dependencies = map OrderedAfter (Set.toAscList (Set.fromList
+        (namespaceId : imageId : workloadIds)))
+      bound = resource {dependencies = dependencies}
+  pure (ResourceBundle [Managed bound] [] [] [] [] [],
+    Map.singleton releaseId (bound, native))
+  where
+    invalid message = inventoryError "invalid-application-release" message
+      & #scopes .~ [owner]
+      & #sources .~ [source]
+      & (:| [])
 
 -- | A workload may refer only to databases declared in this application.
 -- Ordering it after the StatefulSet records the typed lifecycle edge, while
