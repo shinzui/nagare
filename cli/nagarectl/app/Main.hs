@@ -551,7 +551,7 @@ data AppImagePlanOpts = AppImagePlanOpts
   { archive :: !FilePath
   , destination :: !String
   , key :: !String
-  , savePlan :: !FilePath
+  , savePlan :: !(Maybe FilePath)
   }
   deriving stock (Generic, Show)
 
@@ -1552,7 +1552,7 @@ appImagePlanOptsParser =
     <$> strOption (long "archive" <> metavar "FILE" <> help "Docker archive to bind by SHA-256")
     <*> strOption (long "destination" <> metavar "IMAGE:TAG" <> help "Exact registry tag to publish")
     <*> strOption (long "key" <> metavar "KEY" <> help "Stable publication key")
-    <*> strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed image publication")
+    <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed image publication for separate apply"))
 
 appDeployOptsParser :: FilePath -> Parser AppDeployOpts
 appDeployOptsParser defaultFile =
@@ -2759,7 +2759,7 @@ opts =
               "image-plan"
               ( info
                   (AppImagePlan <$> appImagePlanOptsParser <**> helper)
-                  (progDesc "Save a reviewed OCI archive publication for an application image")
+                  (progDesc "Publish an application OCI archive through review, or save the review for separate apply")
               )
         )
     storageCmd =
@@ -7953,8 +7953,12 @@ runAppImagePlan mctx options = do
   snapshot <- Inventory.loadTargetSnapshot active
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
-  Inventory.planInventoryCandidateWith
-    (inventoryPlanRegistryWithNative active workspace Map.empty) active candidate (options ^. #savePlan)
+  case options ^. #savePlan of
+    Nothing -> Inventory.convergeInventoryCandidateWith
+      (inventoryPlanRegistryWithNative active workspace Map.empty)
+      (inventoryExecutionRegistry mctx) active candidate
+    Just directory -> Inventory.planInventoryCandidateWith
+      (inventoryPlanRegistryWithNative active workspace Map.empty) active candidate directory
   TIO.putStrLn ("Image resource: " <> Resource.resourceIdText imageId)
 
 -- | Resolve the namespace for an @app@ command: the @-n@ value, or @personal@.

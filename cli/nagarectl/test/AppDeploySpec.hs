@@ -584,6 +584,109 @@ renderTests =
       case compileServiceActionScope "other" "personal" StopService stopped stoppedNative of
         Left _ -> pure ()
         Right _ -> assertFailure "service action selected a different Service"
+  , testCase "interrupted reviewed stop resumes once and ordinary convergence preserves it" $ do
+      let checked :: Show e => Either e a -> a
+          checked = either (error . show) id
+          owner = checked (Resource.mkScopeId Resource.Standalone "service-action")
+          cluster = Resource.mintResourceId owner
+            (checked (Resource.mkLogicalKey "cluster")) (checked (Resource.mkName "cluster"))
+          serviceId = Resource.mintResourceId owner
+            (checked (Resource.mkLogicalKey "demo")) (checked (Resource.mkName "service"))
+          source = Resource.SourceLocation "fixture" "service-action"
+          value = Aeson.object
+            ["apiVersion" Aeson..= ("serving.knative.dev/v1" :: Text)
+            , "kind" Aeson..= ("Service" :: Text)
+            , "metadata" Aeson..= Aeson.object
+                ["name" Aeson..= ("demo" :: Text), "namespace" Aeson..= ("default" :: Text)
+                , "labels" Aeson..= Aeson.object
+                    ["nagare.dev/managed-by" Aeson..= ("nagarectl" :: Text)]]
+            , "spec" Aeson..= Aeson.object ["template" Aeson..= Aeson.object
+                ["metadata" Aeson..= Aeson.object ["annotations" Aeson..= Aeson.object []]
+                , "spec" Aeson..= Aeson.object ["containers" Aeson..=
+                    [Aeson.object ["image" Aeson..= ("example.test/demo:v1" :: Text)]]]]]]
+          bytes = checked (canonicalValue value)
+          (service, nativeBytes) = checked (bindKubernetesObject
+            (KubernetesInput serviceId owner cluster value (contentDigest bytes)
+              DeleteWhenUnreferenced Stateless Private source))
+          base = checked (mkScopeDeclaration owner
+            [ResourceBundle [Managed service] [] [] [] [] []])
+          binding = Resource.ContextBinding
+            (checked (Resource.mkContextId "ep148-stop")) (checked (Resource.mkName "project"))
+          snapshot accepted = checked (mkScopeSnapshot binding
+            (Map.map (\(revision, scope) -> (revisionGeneration revision, scope)) accepted)
+            Map.empty)
+      observed <- newIORef Map.empty
+      writes <- newIORef (0 :: Int)
+      interruptNext <- newIORef False
+      let operations = KubernetesAdapterOps
+            { kubernetesContext = checked (Resource.mkContextId "ep148-stop")
+            , kubernetesObserve = \identity -> do
+                states <- readIORef observed
+                pure (Map.findWithDefault (KubernetesAbsent (contentDigest "absent"))
+                  identity states)
+            , kubernetesMutateConditional = \mutation -> do
+                modifyIORef' writes (+ 1)
+                count <- readIORef writes
+                let physical = checked (Resource.mkPhysicalIdentity "uid-ep148-stop")
+                modifyIORef' observed (Map.insert (mutationResource mutation)
+                  (KubernetesPresent physical (T.pack (show count))
+                    (Just (mutationResource mutation)) (mutationNativeDigest mutation)))
+                interrupted <- readIORef interruptNext
+                if interrupted
+                  then writeIORef interruptNext False
+                    >> pure (AdapterEffectAmbiguous "lost stop acknowledgement")
+                  else pure AdapterEffectCompleted
+            }
+          registry native = checked (mkAdapterRegistry [mkKubernetesAdapter native operations])
+          reviewCandidate store candidate native = do
+            history <- loadInventoryHistory store >>= either (fail . show) pure
+            let selected = registry native
+            facts <- observeWithRegistry selected
+              (requirementsByExecutor (observationRequirements candidate history))
+              >>= either (fail . show) pure
+            proposal <- either (fail . show) pure
+              (planChanges candidate noLifecycleDecisions history facts)
+            state <- readStoreSnapshot store >>= either (fail . show) pure
+            bundle <- prepareReview selected state proposal >>= either (fail . show) pure
+            _ <- publishReview store bundle >>= either (fail . show) pure
+            published <- readStoreSnapshot store >>= either (fail . show) pure
+            reviewed <- either (fail . show) pure (verifyReview published bundle)
+            pure (bundle, reviewed)
+      store <- newMemoryStore
+      _ <- initializeStore store binding "ep148-stop" >>= either (fail . show) pure
+      let initial = checked (composeInventory (snapshot Map.empty) (ReplaceScope base :| []))
+          initialNative = Map.singleton serviceId (service, nativeBytes)
+      _ <- seedInventoryHistory store initial >>= either (fail . show) pure
+      (_, created) <- reviewCandidate store initial initialNative
+      _ <- applyReviewed store (registry initialNative) created >>= either (fail . show) pure
+      history <- loadInventoryHistory store >>= either (fail . show) pure
+      (stopped, stoppedNative) <- either (fail . show) pure
+        (compileServiceActionScope "demo" "default" StopService base initialNative)
+      let stopCandidate = checked (composeInventory (snapshot (historyAccepted history))
+            (ReplaceScope stopped :| []))
+      (savedStop, reviewedStop) <- reviewCandidate store stopCandidate stoppedNative
+      length (reviewOperations (reviewBundleDocument savedStop)) @?= 1
+      writeIORef interruptNext True
+      paused <- applyReviewed store (registry (checked (kubernetesSpecsFromReview savedStop)))
+        reviewedStop >>= either (fail . show) pure
+      transaction <- case paused of
+        StoppedAmbiguous token _ -> pure token
+        other -> assertFailure ("stop did not pause after lost acknowledgement: " <> show other)
+          >> fail "expected interrupted stop"
+      resumed <- resumeTransaction store
+        (registry (checked (kubernetesSpecsFromReview savedStop))) transaction
+        >>= either (fail . show) pure
+      resumed @?= Converged transaction
+      readIORef writes >>= (@?= 2)
+      accepted <- loadInventoryHistory store >>= either (fail . show) pure
+      let repeatedCandidate = checked (composeInventory (snapshot (historyAccepted accepted))
+            (ReplaceScope stopped :| []))
+      (sameStop, _) <- reviewCandidate store repeatedCandidate stoppedNative
+      reviewOperations (reviewBundleDocument sameStop) @?= []
+      let explicitDeploy = checked (composeInventory (snapshot (historyAccepted accepted))
+            (ReplaceScope base :| []))
+      (deployReview, _) <- reviewCandidate store explicitDeploy initialNative
+      length (reviewOperations (reviewBundleDocument deployReview)) @?= 1
   , testCase "standalone Service binds the same rendered object under its own scope" $ do
       loaded <- loadApplication fixturePath
       app <- either (fail . show) pure loaded

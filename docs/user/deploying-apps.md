@@ -35,8 +35,8 @@ The saved scope revision includes a canonical digest of the loaded typed config.
 Apply and resume use the accepted scope and its private native evidence rather
 than loading that source file again.
 
-First, export the built image as a Docker archive and review its publication.
-Use a distinct `--key` for each immutable image publication. Planning records
+First, export the built image as a Docker archive and publish it through a
+review. Use a distinct `--key` for each immutable image publication. Planning records
 both the archive's file hash and OCI manifest digest. Keep the archive at the
 same absolute path until apply or resume completes; the publisher rechecks its
 bytes before copying to the selected context's registry.
@@ -49,7 +49,10 @@ nagarectl app image-plan --archive /absolute/path/app-v1.tar \
 nagarectl inventory apply image-review --yes
 ```
 
-`image-plan` prints the resulting image resource ID. Use that ID in the app
+Omit `--save-plan` to print and apply the publication review in the same
+invocation. A remote tag with different content refuses; the command never
+overwrites it through this standard path. `image-plan` prints the resulting
+image resource ID. Use that ID in the app
 review below after the image review is accepted. The destination must match
 the tag resolved from the application's typed config.
 
