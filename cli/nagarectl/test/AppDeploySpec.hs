@@ -46,10 +46,11 @@ import Nagare.Dsl.Broker (BrokerBinding (..), mkTopicName)
 import Nagare.Dsl.Access (authPortal, requireLogin)
 import Nagare.Resource.Application (applicationScopeId, taskResourceId, volumeResourceId)
 import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
-import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (..), ManagedResource (..), DesiredSpec (KnativeService), Executor (PulumiExecutor), OperationKind (PreDeployHook), Contribution (RegisterBackend, RegisterNamespace), ContributionGrant (BackendMapGrant, NamespaceGrant, ShomeiSettingsGrant), ScopeChange (ReplaceScope), backendMapResourceId, candidateGenerations, candidateInventory, composeInventory, contributionResourceId, declarationId, inventoryDeclarations, inventoryScopes, mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeConfigDigest, scopeId, scopeOverrides, shomeiSettingsResourceId, snapshotScopes)
+import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (..), ManagedResource (..), DesiredSpec (KnativeService, NativeObject), Executor (KubernetesExecutor, PulumiExecutor), OperationKind (PreDeployHook), Contribution (RegisterBackend, RegisterNamespace), ContributionGrant (BackendMapGrant, NamespaceGrant, ShomeiSettingsGrant), ScopeChange (ReplaceScope), backendMapResourceId, candidateGenerations, candidateInventory, composeInventory, contributionResourceId, declarationId, inventoryDeclarations, inventoryScopes, mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeConfigDigest, scopeId, scopeOverrides, shomeiSettingsResourceId, snapshotScopes)
 import Nagare.Resource.Wire (canonicalValue, decodeScope, encodeCanonicalScope)
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
 import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (DeleteWhenUnreferenced), RecoveryIntent (..), Sensitivity (Private), mkSecretRef)
+import Nagare.Resource.Policy qualified as ResourcePolicy
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Dsl.Load (loadApplication, loadBroker)
@@ -272,6 +273,33 @@ nativeApplicationReview = do
             , External publication (Resource.Artifact (checked (Resource.mkName "image"))
                 (checked (Resource.mkContentDigest (T.replicate 64 "0")))) [] foundationSource
             ] [] [] [] [] []])
+          cloudOwner = checked (Resource.mkScopeId Resource.Platform "unrelated-cloud")
+          otherOwner = checked (Resource.mkScopeId Resource.Application "other-native-app")
+          foreignMember ownerKey key executor address = ManagedResource
+            { identity = Resource.mintResourceId ownerKey (checked (Resource.mkLogicalKey key))
+                (checked (Resource.mkName "resource"))
+            , owner = ownerKey
+            , executor = executor
+            , address = address
+            , aliases = []
+            , spec = NativeObject (contentDigest (TE.encodeUtf8 key))
+            , lifecycle = ResourcePolicy.Retain
+            , dataPolicy = Stateless
+            , sensitivity = Private
+            , dependencies = []
+            , delegations = []
+            , source = foundationSource
+            }
+          cloudScope = checked (mkScopeDeclaration cloudOwner [ResourceBundle
+            [Managed (foreignMember cloudOwner "bucket" PulumiExecutor
+              (Resource.GlobalBucket (checked (Resource.mkName "unrelated-bucket"))))]
+            [] [] [] [] []])
+          otherScope = checked (mkScopeDeclaration otherOwner [ResourceBundle
+            [Managed (foreignMember otherOwner "configmap" KubernetesExecutor
+              (Resource.Kubernetes cluster "" (checked (Resource.mkName "configmap"))
+                (Just (checked (Resource.mkName "default")))
+                (checked (Resource.mkName "other-native-app"))))]
+            [] [] [] [] []])
           tag = rollout ^. #effectiveTag
           release = StaticRelease tag "kizashi" "default"
             (imageRefText (rollout ^. #qualifiedImage)) tag ""
@@ -303,7 +331,10 @@ nativeApplicationReview = do
           binding = Resource.ContextBinding
             (checked (Resource.mkContextId "ep148-native")) (checked (Resource.mkName "project"))
           accepted = checked (mkScopeSnapshot binding
-            (Map.singleton foundation (checked (Resource.mkScopeGeneration 1), foundationScope))
+            (Map.fromList
+              [(foundation, (checked (Resource.mkScopeGeneration 1), foundationScope))
+              , (cloudOwner, (checked (Resource.mkScopeGeneration 1), cloudScope))
+              , (otherOwner, (checked (Resource.mkScopeGeneration 1), otherScope))])
             Map.empty)
           candidate = checked (composeInventory accepted (ReplaceScope scope :| []))
           config = KubernetesRuntimeConfig (checked (Resource.mkContextId "ep148-native"))
@@ -360,6 +391,10 @@ nativeApplicationReview = do
             >> fail "expected interrupted application"
         resumed <- resumeTransaction store registryFromReview transaction >>= either (fail . show) pure
         resumed @?= Converged transaction
+        historyAfter <- loadInventoryHistory store >>= either (fail . show) pure
+        forM_ [cloudOwner, otherOwner] $ \unchanged ->
+          Map.lookup unchanged (historyAccepted historyAfter)
+            @?= Map.lookup unchanged (historyAccepted history)
         (listingExit, listingBytes, _) <- readProcessWithExitCode "kubectl"
           ["--context", selectedContext, "--namespace", "default", "get",
             "deployment,configmap", "-o", "json"] ""
