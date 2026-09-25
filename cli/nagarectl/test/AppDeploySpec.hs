@@ -435,7 +435,10 @@ renderTests =
             , scopeWorkerVolumeRecovery = Map.empty
             , scopeBackupBackend = GcsBackend "project" "bucket"
             , scopeRelease = (emptyReleaseLog, release)
-            , scopeInputOverrides = Map.fromList [("tag", "v1"), ("baseDomain", "example.test")]
+            , scopeInputOverrides = Map.fromList
+                [("tag", testEnv ^. #imageTag)
+                , ("baseDomain", testEnv ^. #baseDomain)
+                , ("imageResource", Resource.resourceIdText publication)]
             , scopeSource = Resource.SourceLocation "test" "application"
             }
       (scope, native) <- either (fail . ("base: " <>) . show) pure
@@ -448,6 +451,12 @@ renderTests =
       scopeOverrides scope @?= scopeInputOverrides input
       fmap scopeOverrides (decodeScope (encodeCanonicalScope scope))
         @?= Right (scopeInputOverrides input)
+      assertBool "reviewed app accepted a false command tag"
+        (isLeft (compileApplicationScope (input {scopeInputOverrides =
+          Map.insert "tag" "different" (scopeInputOverrides input)})))
+      assertBool "reviewed app accepted an undeclared command override"
+        (isLeft (compileApplicationScope (input {scopeInputOverrides =
+          Map.insert "unreviewed" "value" (scopeInputOverrides input)})))
       assertBool "reviewed app deployment silently skipped a pre-deploy hook"
         (isLeft (compileApplicationScope (input {scopeApplication = appWithHooks})))
       let oldRelease = release {releaseId = "previous", imageTag = "previous"
@@ -970,6 +979,7 @@ renderTests =
             , scopeRollout = scopeRollout input & #namespace .~ "sandbox"
             , scopeNamespace = sandboxId
             , scopeNamespaceContributionOwner = Just foundation
+            , scopeInputOverrides = Map.insert "requestNamespace" "true" (scopeInputOverrides input)
             , scopeRelease = (emptyReleaseLog, release
                 & #namespace .~ "sandbox"
                 & #url .~ maybe "" (\service -> serviceUrl service

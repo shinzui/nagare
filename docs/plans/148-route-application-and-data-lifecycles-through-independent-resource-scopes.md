@@ -372,3 +372,5 @@ DependencyExports contains typed capability witnesses and selected revision/phys
 2026-09-24: Manual Job scopes now carry the digest of their exact accepted CronJob template as config evidence. A retry can identify the original task intent even if a later application revision changes the scheduled template.
 
 2026-09-24: Scope documents now carry an optional canonical map of public explicit command overrides. Reviewed app deploy records its tag, optional base domain, accepted image-resource ID, and optional namespace request with the validated config digest. The saved scope therefore preserves these choices after the source checkout is gone; other command input channels and full public render parity still gate M1.
+
+2026-09-24: The pure application compiler now checks those recorded overrides against the rollout tag, effective base domain, accepted image identity, and namespace-contribution decision. It rejects unknown keys or inconsistent metadata before a review can save misleading source evidence.

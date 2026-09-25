@@ -836,6 +836,16 @@ compileApplicationScope input = do
   unless (scopeRollout input ^. #appName == serviceNameText (app ^. #name)
       && scopeRollout input ^. #namespace == namespaceText (app ^. #namespace))
     (Left (invalid "rollout identity differs from the application name or namespace"))
+  let overrides = scopeInputOverrides input
+      rollout = scopeRollout input
+  unless (Map.keysSet overrides `Set.isSubsetOf`
+      Set.fromList ["tag", "baseDomain", "imageResource", "requestNamespace"]
+      && Map.lookup "tag" overrides == Just (rollout ^. #imageTag)
+      && Map.lookup "imageResource" overrides == Just (resourceIdText (scopeImage input))
+      && maybe True (== rollout ^. #baseDomain) (Map.lookup "baseDomain" overrides)
+      && Map.lookup "requestNamespace" overrides
+        == (if isJust (scopeNamespaceContributionOwner input) then Just "true" else Nothing))
+    (Left (invalid "application command overrides differ from reviewed rollout inputs"))
   let brokerEnvFor bindings = do
         envs <- traverse (\binding -> do
           _ <- brokerEvidenceIds (scopeCluster input) (namespaceText (app ^. #namespace))
