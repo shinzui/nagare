@@ -1849,7 +1849,7 @@ taskListOptsParser =
 taskRunOptsParser :: Parser TaskRunOpts
 taskRunOptsParser =
   TaskRunOpts <$> taskAppArg <*> taskNameArg <*> namespaceOpt <*> dryRunOpt
-    <*> optional (strOption (long "run-id" <> metavar "ID" <> help "Stable manual Job identity for --save-plan"))
+    <*> optional (strOption (long "run-id" <> metavar "ID" <> help "Stable identity for a reviewed manual Job run"))
     <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed one-off Job plan"))
 
 taskLogsOptsParser :: Parser TaskLogsOpts
@@ -2916,7 +2916,7 @@ opts =
               "run"
               ( info
                   (Task . TaskRun <$> taskRunOptsParser <**> helper)
-                  (progDesc "Run a task once from its CronJob, or save a reviewed Job plan with --run-id and --save-plan")
+                  (progDesc "Run a task once from its CronJob; --run-id reviews an accepted task's Job, and --save-plan saves that review")
               )
             <> command
               "logs"
@@ -8664,9 +8664,8 @@ runTask mctx = \case
   TaskRun o -> do
     case o ^. #savePlan of
       Just output -> runReviewedTaskRunPlan mctx o output
+      Nothing | isJust (o ^. #runId) -> runReviewedTaskRunPlan mctx o ""
       Nothing -> do
-        when (isJust (o ^. #runId))
-          (dieT "--run-id requires --save-plan")
         refuseDirectTaskMutationIfOwned mctx "run" (T.pack (o ^. #task)) (nsOf (o ^. #namespace))
         runTaskRun
           TaskRunParams
@@ -8707,7 +8706,7 @@ runTask mctx = \case
 runReviewedTaskRunPlan :: Maybe String -> TaskRunOpts -> FilePath -> IO ()
 runReviewedTaskRunPlan mctx options output = do
   when (options ^. #dryRun)
-    (dieT "--dry-run and --save-plan cannot be combined")
+    (dieT "--dry-run cannot be combined with a reviewed task run; use --save-plan to inspect its review")
   let appName = T.pack (options ^. #app)
       taskName = T.pack (options ^. #task)
       ns = maybe "personal" T.pack (options ^. #namespace)
@@ -8743,8 +8742,12 @@ runReviewedTaskRunPlan mctx options output = do
     (compileTaskRunScope appLabel cronJob cronBytes runId source)
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
-  Inventory.planInventoryCandidateWith
-    (inventoryPlanRegistryWithNative active workspace native) active candidate output
+  if null output
+    then Inventory.convergeInventoryCandidateWith
+      (inventoryPlanRegistryWithNative active workspace native)
+      (inventoryExecutionRegistry mctx) active candidate
+    else Inventory.planInventoryCandidateWith
+      (inventoryPlanRegistryWithNative active workspace native) active candidate output
 
 -- | Resolve the GCS backup bucket: an explicit @--bucket@ flag wins; otherwise
 -- the resolved target profile's backup bucket (EP-62; honors

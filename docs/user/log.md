@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-09-25
+* **Update**: Document single-invocation reviewed manual task runs with stable run IDs and the saved-review inspection option.
+
 ## 2026-09-24
 * **Update**: Route reviewed application dry-run through the same typed scope compilation as saved planning; document its accepted inputs and redacted public output.
 * **Update**: Explain canonical typed-config digests in reviewed application, Service, and worker scope revisions.

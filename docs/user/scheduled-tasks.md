@@ -14,7 +14,7 @@ generated:
 > 🟡 **In progress.** Built and offline-verified — the typed `Task` model, the
 > CronJob renderer, the `nagarectl task` command group, and app↔task image/env
 > inheritance all ship and are covered by unit and golden tests. A reviewed
-> one-off Job plan is available for accepted CronJobs. An app config
+> one-off Job run is available for accepted CronJobs. An app config
 > that co-locates a task emits valid JSON and renders a `nagare-task-<name>`
 > CronJob via `nagarectl deploy --dry-run`. The full **live** end-to-end run
 > (apply the CronJob, run a Job, stream logs) is pending because
@@ -196,6 +196,7 @@ public fixed-tag image is not a fit (use the app's built image).
 ```text
 nagarectl task list [APP]        # table of tasks (omit APP for all; "-" for app-less)
 nagarectl task run APP TASK      # run once, now; --dry-run prints the kubectl command
+nagarectl task run APP TASK --run-id ID  # review and apply an accepted task's Job
 nagarectl task run APP TASK --run-id ID --save-plan DIR  # review an accepted task's one-off Job
 nagarectl task logs APP TASK     # most recent pod logs (--follow to tail; --tail N)
 nagarectl task delete APP TASK   # delete the CronJob (guarded by --yes)
@@ -218,8 +219,15 @@ $ nagarectl task list -n personal
 the deployed CronJob, waits for it to finish, and reports. `--dry-run` prints the
 exact command and contacts no cluster:
 
-For a CronJob already accepted in the resource inventory, plan
-the run with a stable ID and apply its saved review:
+For a CronJob already accepted in the resource inventory, run it with a stable ID.
+The command saves an immutable review in the context's inventory store, displays
+the proposed operation, and applies that same review:
+
+```bash
+nagarectl task run notes cleanup --run-id cleanup-20260924
+```
+
+To inspect the review before a separate apply, save it to a directory:
 
 ```bash
 nagarectl task run notes cleanup --run-id cleanup-20260924 --save-plan ./task-run-review
@@ -235,8 +243,9 @@ accepted CronJob template from private inventory evidence and refuses an
 unaccepted or differently labeled task. Pass `-` as `APP` only when the accepted
 CronJob has no app label. The review binds creation and waits for
 Job completion; an uncertain effect needs inventory recovery before retry.
-`--dry-run` cannot be combined with `--save-plan`. Pre-deploy migration hooks are
-not supported yet.
+`--dry-run` cannot be combined with `--run-id` or `--save-plan`; use
+`--save-plan` to inspect a reviewed run. Pre-deploy migration hooks are not
+supported yet.
 
 The direct route below remains for tasks outside accepted inventory:
 
