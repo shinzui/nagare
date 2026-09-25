@@ -230,8 +230,11 @@ Docker archive. The Namespace must already be accepted. Static and server site
 reviews use the same renderers as direct deployment, check the image and release
 tag, and keep earlier history from accepted private evidence. They currently
 support automatic TLS without CDN. A reviewed server site must also be
-stateless and have no typed Secret environment references until volume recovery
-and credential dependencies are available. Previews and site rollback still
+free of Secret environment references until credential dependencies are
+available. For each retained server volume, add
+`--volume-recovery VOLUME=BACKUP:KEY:VERSION` to the saved-plan command. The
+review declares the rendered PVC before the Service and keeps the backup/key
+recovery identity with that durable resource. Previews and site rollback still
 use their direct paths and cannot use these production review flags.
 
 For a site created by the direct deploy path, save the full legacy release

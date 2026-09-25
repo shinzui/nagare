@@ -201,7 +201,7 @@ import Nagare.Gcp.Adc
   , validateAdc
   )
 import Nagare.GhcEnv (findGhcEnvIn)
-import Nagare.Inventory.Site (compileServerSiteScope, compileStaticSiteScope, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport)
+import Nagare.Inventory.Site (compileServerSiteScope, compileStaticSiteScope, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteVolumeRecoveryBindings)
 import Nagare.Image (DockerAuth (..), dockerAuthPlan, dockerBuildArgs, nixpacksBuildArgs, qualifyImage)
 import Nagare.Infra.Plan
   ( CurrentInfraIdentity (..)
@@ -3956,7 +3956,7 @@ staticInventoryTests =
             (UTCTime (fromGregorian 2026 9 24) 0)
           source = Resource.SourceLocation "fixture" "server-site"
       (scope, native) <- either (fail . show) pure
-        (compileServerSiteScope inputs cluster namespaceId imageId emptyReleaseLog release source)
+        (compileServerSiteScope inputs cluster namespaceId imageId Map.empty emptyReleaseLog release source)
       Map.size native @?= 3
       length [member | bundle <- scopeBundles scope, Managed member <- declarations bundle]
         @?= 3
@@ -3967,7 +3967,26 @@ staticInventoryTests =
             (runtimeScoped (EnvSecretRef (unsafe (mkSecretName "external"))))
       assertBool "server-site Secret bypassed typed dependency check"
         (isLeft (compileServerSiteScope (inputs {ServerDeploy.site = secretSite})
-          cluster namespaceId imageId emptyReleaseLog release source))
+          cluster namespaceId imageId Map.empty emptyReleaseLog release source))
+      let volume = Volume
+            { name = unsafe (mkVolumeName "data")
+            , logicalKey = Nothing
+            , size = unsafe (mkQuantity "1Gi")
+            , mountPath = unsafe (mkMountPath "/data")
+            , accessMode = ReadWriteOnce
+            , readOnly = False
+            , retention = Retain
+            }
+          volumeSite = site & #volumes .~ [volume]
+      assertBool "retained server volume accepted without recovery"
+        (isLeft (compileServerSiteScope (inputs {ServerDeploy.site = volumeSite})
+          cluster namespaceId imageId Map.empty emptyReleaseLog release source))
+      recovery <- either (fail . T.unpack) pure
+        (siteVolumeRecoveryBindings volumeSite ["data=backup:key:v1"])
+      (_, volumeNative) <- either (fail . show) pure
+        (compileServerSiteScope (inputs {ServerDeploy.site = volumeSite})
+          cluster namespaceId imageId recovery emptyReleaseLog release source)
+      Map.size volumeNative @?= 4
   ]
 
 noBuildSite :: Text -> StaticSite

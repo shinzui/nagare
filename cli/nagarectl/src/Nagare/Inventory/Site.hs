@@ -7,12 +7,14 @@ module Nagare.Inventory.Site
   , acceptedSiteReleaseLog
   , legacyServerSiteReleaseImport
   , legacyStaticSiteReleaseImport
+  , siteVolumeRecoveryBindings
   ) where
 
 import Data.Aeson (Value (..), eitherDecodeStrict)
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
+import Data.List (find)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -22,18 +24,21 @@ import Data.Yaml qualified as Yaml
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Server.Types (ServerSite (..))
 import Nagare.Dsl.Static.Types (StaticSite (..), siteNameText)
-import Nagare.Dsl.Types (DomainSpec (..), DomainTls (..), EnvVar (..), ScopedEnvVar (..), domainText, imageRefText, namespaceText)
+import Nagare.Dsl.Types (DomainSpec (..), DomainTls (..), EnvVar (..), ScopedEnvVar (..), Volume (..), VolumeName, domainText, imageRefText, namespaceText, volumeNameText)
+import Nagare.Dsl.Types qualified as Dsl
+import Nagare.Dsl.Render (pvcName)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
-import Nagare.Resource.Application (domainMappingResourceId)
+import Nagare.Resource.Application (domainMappingResourceId, volumeResourceId)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
-import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (..), Sensitivity (Private))
+import Nagare.Resource.Policy (DataPolicy (..), LifecyclePolicy (..), RecoveryIntent (..), Sensitivity (Private), mkSecretRef)
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
 import Nagare.Static.Deploy (DeployInputs (..), StaticManifests (..), productionManifests)
 import Nagare.Server.Deploy qualified as Server
+import Nagare.Dsl.Server.Render qualified as ServerRender
 import Nagare.Static.Release (StaticRelease (..), StaticReleaseLog (..), addRelease, emptyReleaseLog, extractReleaseLog, findRelease, renderReleaseConfigMap)
 
 compileStaticSiteScope
@@ -61,18 +66,43 @@ compileStaticSiteScope inputs cluster namespaceId imageId prior release source =
   unless (validLog name ns prior)
     (Left (invalid "static-site prior release history is inconsistent"))
   compileSiteRenderedScope name ns (site ^. #domains)
-    (rendered ^. #service) (rendered ^. #domainMappings)
+    (rendered ^. #service) (rendered ^. #domainMappings) [] Map.empty
     cluster namespaceId imageId prior release source
 
+siteVolumeRecoveryBindings
+  :: ServerSite -> [T.Text] -> Either T.Text (Map VolumeName RecoveryIntent)
+siteVolumeRecoveryBindings site raw = do
+  pairs <- traverse parseOne raw
+  let bindings = Map.fromList pairs
+      expected = Set.fromList [volume ^. #name | volume <- site ^. #volumes,
+        volume ^. #retention == Dsl.Retain]
+  unless (length pairs == Map.size bindings && Map.keysSet bindings == expected)
+    (Left "server-site recovery must cover exactly its retained volumes")
+  pure bindings
+  where
+    parseOne value = case T.splitOn "=" value of
+      [volumeText, recoveryText] -> do
+        volume <- maybe (Left "server-site recovery names an undeclared volume") Right
+          (find ((== volumeText) . volumeNameText . (^. #name)) (site ^. #volumes))
+        case T.splitOn ":" recoveryText of
+          [backupText, keyText, versionText] -> do
+            backup <- mkName backupText
+            key <- mkName keyText
+            version <- mkName versionText
+            pure (volume ^. #name,
+              RecoveryIntent backup (mkSecretRef key version :| []))
+          _ -> Left "server-site recovery must be VOLUME=BACKUP:KEY:VERSION"
+      _ -> Left "server-site recovery must be VOLUME=BACKUP:KEY:VERSION"
+
 -- | Server sites share the site ownership and release protocol. The initial
--- supported subset excludes durable volumes and Secret references until their
--- typed recovery and credential dependencies join this scope.
+-- supported subset excludes Secret references until their typed credential
+-- dependencies join this scope.
 compileServerSiteScope
   :: Server.ServerDeployInputs -> ResourceId -> ResourceId -> ResourceId
-  -> StaticReleaseLog -> StaticRelease -> SourceLocation
+  -> Map VolumeName RecoveryIntent -> StaticReleaseLog -> StaticRelease -> SourceLocation
   -> Either (NonEmpty InventoryError)
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileServerSiteScope inputs cluster namespaceId imageId prior release source = do
+compileServerSiteScope inputs cluster namespaceId imageId recovery prior release source = do
   let site = inputs ^. #site
       name = siteNameText (site ^. #name)
       ns = namespaceText (site ^. #namespace)
@@ -80,8 +110,10 @@ compileServerSiteScope inputs cluster namespaceId imageId prior release source =
       rendered = Server.serverManifests inputs
       invalid message = inventoryError "invalid-server-site-scope" message
         & #sources .~ [source] & (:| [])
-  unless (null (site ^. #volumes))
-    (Left (invalid "server-site volumes require typed recovery bindings"))
+  unless (Map.keysSet recovery == Set.fromList
+      [volume ^. #name | volume <- site ^. #volumes,
+        volume ^. #retention == Dsl.Retain])
+    (Left (invalid "server-site recovery does not cover exactly its retained volumes"))
   unless (site ^. #cdn == Nothing)
     (Left (invalid "server-site CDN requires a typed owner"))
   unless (all ((== AutomaticTls) . (^. #tls)) (site ^. #domains))
@@ -97,17 +129,23 @@ compileServerSiteScope inputs cluster namespaceId imageId prior release source =
     (Left (invalid "server-site release differs from its selected image or render"))
   unless (validLog name ns prior)
     (Left (invalid "server-site prior release history is inconsistent"))
+  let volumeBytes = ServerRender.renderServerVolumeClaims site
+        (ServerRender.ServerDeployContext tag Nothing)
+  unless (length volumeBytes == length (site ^. #volumes))
+    (Left (invalid "server-site volume renderer changed membership"))
   compileSiteRenderedScope name ns (site ^. #domains)
     (rendered ^. #service) (rendered ^. #domainMappings)
+    (zip (site ^. #volumes) volumeBytes) recovery
     cluster namespaceId imageId prior release source
 
 compileSiteRenderedScope
   :: T.Text -> T.Text -> [DomainSpec] -> ByteString -> [ByteString]
+  -> [(Volume, ByteString)] -> Map VolumeName RecoveryIntent
   -> ResourceId -> ResourceId -> ResourceId
   -> StaticReleaseLog -> StaticRelease -> SourceLocation
   -> Either (NonEmpty InventoryError)
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileSiteRenderedScope name ns domains serviceBytes domainBytes
+compileSiteRenderedScope name ns domains serviceBytes domainBytes volumeInputs recovery
     cluster namespaceId imageId prior release source = do
   let invalid message = inventoryError "invalid-site-scope" message
         & #sources .~ [source] & (:| [])
@@ -116,11 +154,28 @@ compileSiteRenderedScope name ns domains serviceBytes domainBytes
   serviceRole <- first invalid (mkName "service")
   releaseKey <- first invalid (mkLogicalKey "release-history")
   releaseRole <- first invalid (mkName "configmap")
+  volumeRole <- first invalid (mkName "site-pvc")
   let serviceId = mintResourceId owner serviceKey serviceRole
       historyId = mintResourceId owner releaseKey releaseRole
       serviceSource = source {path = path source <> "/service"}
-  serviceMember <- bindOne owner cluster serviceId DeleteWhenUnreferenced
-    [OrderedAfter namespaceId, OrderedAfter imageId] serviceSource
+  volumeMembers <- traverse (\(volume, bytes) -> do
+      volumeId <- first invalid (volumeResourceId owner volumeRole volume)
+      (lifecycle, policy) <- case volume ^. #retention of
+        Dsl.Retain -> do
+          intent <- maybe (Left (invalid "retained site volume lacks recovery")) Right
+            (Map.lookup (volume ^. #name) recovery)
+          pure (Retain, Durable intent)
+        Dsl.Delete -> pure (DeleteWhenUnreferenced, Stateless)
+      let volumeSource = source
+            {path = path source <> "/volume/" <> volumeNameText (volume ^. #name)}
+      member <- bindOne owner cluster volumeId lifecycle policy
+        [OrderedAfter namespaceId] volumeSource bytes
+      checkAddress invalid cluster "v1" "PersistentVolumeClaim" ns
+        (pvcName name (volumeNameText (volume ^. #name))) member
+      pure member) volumeInputs
+  let volumeIds = map ((^. #identity) . fst) volumeMembers
+  serviceMember <- bindOne owner cluster serviceId DeleteWhenUnreferenced Stateless
+    (map OrderedAfter (namespaceId : imageId : volumeIds)) serviceSource
     serviceBytes
   checkAddress invalid cluster "serving.knative.dev/v1" "Service" ns name serviceMember
   unless (length domains == length domainBytes)
@@ -129,7 +184,7 @@ compileSiteRenderedScope name ns domains serviceBytes domainBytes
       domainId <- first invalid (domainMappingResourceId owner domain)
       host <- first invalid (mkName (domainText (domain ^. #domain)))
       let domainSource = source {path = path source <> "/domain/" <> domainText (domain ^. #domain)}
-      member <- bindOne owner cluster domainId DeleteWhenUnreferenced
+      member <- bindOne owner cluster domainId DeleteWhenUnreferenced Stateless
         [OrderedAfter namespaceId, OrderedAfter serviceId] domainSource bytes
       checkAddress invalid cluster "serving.knative.dev/v1beta1" "DomainMapping"
         ns (domainText (domain ^. #domain)) member
@@ -137,13 +192,13 @@ compileSiteRenderedScope name ns domains serviceBytes domainBytes
     (zip domains domainBytes)
   let historyBytes = renderReleaseConfigMap name ns (addRelease release prior)
       historySource = source {path = path source <> "/release-history"}
-      workloadIds = serviceId : map ((^. #identity) . fst) domainMembers
-  historyMember <- bindOne owner cluster historyId Retain
+      workloadIds = volumeIds <> [serviceId] <> map ((^. #identity) . fst) domainMembers
+  historyMember <- bindOne owner cluster historyId Retain Stateless
     (map OrderedAfter (namespaceId : imageId : workloadIds))
     historySource historyBytes
   checkAddress invalid cluster "v1" "ConfigMap" ns
     ("nagare-static-releases-" <> name) historyMember
-  let members = serviceMember : domainMembers <> [historyMember]
+  let members = volumeMembers <> [serviceMember] <> domainMembers <> [historyMember]
       ids = map ((^. #identity) . fst) members
       native = Map.fromList [(resource ^. #identity, (resource, bytes))
         | (resource, bytes) <- members]
@@ -236,10 +291,10 @@ validLog name ns logv =
       && maybe (null entries) (`elem` ids) (logv ^. #current)
 
 bindOne
-  :: ScopeId -> ResourceId -> ResourceId -> LifecyclePolicy -> [Dependency]
+  :: ScopeId -> ResourceId -> ResourceId -> LifecyclePolicy -> DataPolicy -> [Dependency]
   -> SourceLocation -> ByteString
   -> Either (NonEmpty InventoryError) (ManagedResource, ByteString)
-bindOne owner cluster resourceId lifecycle prerequisites source bytes = do
+bindOne owner cluster resourceId lifecycle policy prerequisites source bytes = do
   let invalid message = inventoryError "invalid-site-member" message
         & #sources .~ [source] & (:| [])
   value <- first (invalid . T.pack . show)
@@ -252,7 +307,7 @@ bindOne owner cluster resourceId lifecycle prerequisites source bytes = do
     , inputObject = value
     , objectDigest = contentDigest canonical
     , lifecyclePolicy = lifecycle
-    , inputDataPolicy = Stateless
+    , inputDataPolicy = policy
     , inputSensitivity = Private
     , sourceLocation = source
     })

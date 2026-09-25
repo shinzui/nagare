@@ -276,7 +276,7 @@ import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Application (ApplicationScopeInput (..), DatabaseBinding, acceptedAccessBinding, acceptedApplicationImage, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationScope, compileStandaloneServiceWithRelease, compileStandaloneWorkerWithDependencies, databaseRecoveryBindings, legacyApplicationReleaseImport, legacyStandaloneReleaseImport, nativeWorkloadOwned, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
-import Nagare.Inventory.Site (acceptedSiteReleaseLog, compileServerSiteScope, compileStaticSiteScope, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport)
+import Nagare.Inventory.Site (acceptedSiteReleaseLog, compileServerSiteScope, compileStaticSiteScope, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteVolumeRecoveryBindings)
 import Nagare.Inventory.Lifecycle qualified as InventoryLifecycle
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, compileStandaloneDatabase, databaseNativeOwned, standaloneRetirementScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Environment (acceptedEnvChannelValues, acceptedSecretChannelValues, compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
@@ -641,6 +641,7 @@ data SiteDeployOpts = SiteDeployOpts
   -- ^ Free-form provenance recorded with the release (e.g. a git SHA or branch).
   , savePlan :: !(Maybe FilePath)
   , imageResource :: !(Maybe String)
+  , siteVolumeRecovery :: ![String]
   , legacyReleaseImport :: !(Maybe FilePath)
   , releaseAdoptionInput :: !(Maybe FilePath)
   }
@@ -1638,9 +1639,10 @@ siteDeployOptsParser defaultFile =
               <> help "Provenance to record with the release (e.g. a git SHA or branch)"
           )
       )
-    <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save reviewed static-site deployment"))
+    <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save reviewed site deployment"))
     <*> optional (strOption (long "image-resource" <> metavar "RESOURCE-ID" <> help "Accepted prepublished OCI image with --save-plan"))
-    <*> optional (strOption (long "legacy-release-import" <> metavar "FILE" <> help "Legacy static-site release ConfigMap JSON for exact adoption"))
+    <*> many (strOption (long "volume-recovery" <> metavar "VOLUME=BACKUP:KEY:VERSION" <> help "Retained server-site PVC recovery with --save-plan"))
+    <*> optional (strOption (long "legacy-release-import" <> metavar "FILE" <> help "Legacy site release ConfigMap JSON for exact adoption"))
     <*> optional (strOption (long "release-adoption-input" <> metavar "FILE" <> help "Versioned exact-incarnation adoption proposal"))
 
 siteCommonOptsParser :: FilePath -> Parser SiteCommonOpts
@@ -2450,7 +2452,7 @@ opts =
     siteDeployCmd =
       info
         (SiteDeploy <$> siteDeployOptsParser defaultConfigFile <**> helper)
-        (fullDesc <> progDesc "Build, package, and deploy the static site in the current directory")
+        (fullDesc <> progDesc "Deploy a static or server site directly, or save a reviewed production plan")
     siteReleasesCmd =
       info
         (SiteReleases <$> siteCommonOptsParser defaultConfigFile <**> helper)
@@ -6861,6 +6863,7 @@ runSiteDeploy mctx sopts = do
         Right qimg -> case sopts ^. #savePlan of
           Nothing -> do
             when (isJust (sopts ^. #imageResource)
+                || not (null (sopts ^. #siteVolumeRecovery))
                 || isJust (sopts ^. #legacyReleaseImport)
                 || isJust (sopts ^. #releaseAdoptionInput))
               (dieT "static-site inventory options require --save-plan")
@@ -6875,6 +6878,7 @@ runSiteDeploy mctx sopts = do
         Right qimg -> case sopts ^. #savePlan of
           Nothing -> do
             when (isJust (sopts ^. #imageResource)
+                || not (null (sopts ^. #siteVolumeRecovery))
                 || isJust (sopts ^. #legacyReleaseImport)
                 || isJust (sopts ^. #releaseAdoptionInput))
               (dieT "server-site inventory options require --save-plan")
@@ -6887,6 +6891,8 @@ runSiteDeploy mctx sopts = do
 runStaticSiteDeployPlan
   :: Maybe String -> TargetProfile -> SiteDeployOpts -> StaticSite -> Text -> FilePath -> IO ()
 runStaticSiteDeployPlan mctx tp options site bd output = do
+  unless (null (options ^. #siteVolumeRecovery))
+    (dieT "static sites have no volume recovery inputs")
   tag <- reviewedSiteTag options
   let inputs = siteDeployInputs tp options site tag bd
       rendered = productionManifests inputs
@@ -6899,6 +6905,8 @@ runServerSiteDeployPlan
   :: Maybe String -> TargetProfile -> SiteDeployOpts -> ServerSite -> Text -> FilePath -> IO ()
 runServerSiteDeployPlan mctx tp options original bd output = do
   tag <- reviewedSiteTag options
+  recovery <- either dieT pure (siteVolumeRecoveryBindings original
+    (map T.pack (options ^. #siteVolumeRecovery)))
   let site = serverSiteWithGeneratedEnv options original bd tag
       inputs = ServerDeployInputs
         { site = site
@@ -6912,7 +6920,9 @@ runServerSiteDeployPlan mctx tp options original bd output = do
   runReviewedSiteDeployPlan mctx options
     (siteNameText (site ^. #name)) (namespaceText (site ^. #namespace))
     (imageRefText (site ^. #image)) (rendered ^. #url) tag
-    (compileServerSiteScope inputs) (legacyServerSiteReleaseImport site) output
+    (\cluster namespaceId imageId ->
+      compileServerSiteScope inputs cluster namespaceId imageId recovery)
+    (legacyServerSiteReleaseImport site) output
 
 reviewedSiteTag :: SiteDeployOpts -> IO Text
 reviewedSiteTag options = do
@@ -7213,6 +7223,7 @@ rollbackManifests tp (Load.SiteServer s) bd tag =
 runPreviewDeploy :: Maybe String -> SiteDeployOpts -> Text -> IO ()
 runPreviewDeploy mctx sopts pname = do
   when (isJust (sopts ^. #savePlan) || isJust (sopts ^. #imageResource)
+      || not (null (sopts ^. #siteVolumeRecovery))
       || isJust (sopts ^. #legacyReleaseImport)
       || isJust (sopts ^. #releaseAdoptionInput))
     (dieT "site preview deploy does not support production inventory options")

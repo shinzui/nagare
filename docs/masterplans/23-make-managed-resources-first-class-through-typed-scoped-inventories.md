@@ -537,4 +537,6 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 
 2026-09-24: EP-148 now shares the site binder and review command across static and stateless server sites. Both preserve/import release history; server volumes and Secrets, CDN, supplied TLS, preview, and rollback paths remain open.
 
+2026-09-24: EP-148 added every rendered server-site PVC to its reviewed scope with explicit retention and recovery binding. The direct server deploy's omission of PVC manifests remains for the command cutover; Secret dependencies, CDN, supplied TLS, preview, and rollback paths remain open.
+
 2026-09-24: EP-148 applied the same distinction to legacy env and Secret reads and now refuses malformed `data` entries instead of silently dropping keys. Direct store writes and reviewed preview/deploy integration remain open.

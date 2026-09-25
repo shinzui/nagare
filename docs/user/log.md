@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-24
+* **Update**: Document reviewed server-site PVC membership and required retained-volume recovery bindings.
 * **Update**: Document supported reviewed server-site deployment and legacy import beside static sites, including stateless and Secret dependency limits.
 * **Update**: Document exact reviewed import of existing static-site releases and live Service/domain ownership.
 * **Update**: Document the supported reviewed static-site deployment path, accepted image and Namespace prerequisites, and remaining site variants.
