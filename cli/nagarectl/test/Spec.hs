@@ -201,6 +201,7 @@ import Nagare.Gcp.Adc
   , validateAdc
   )
 import Nagare.GhcEnv (findGhcEnvIn)
+import Nagare.Inventory.Site (compileStaticSiteScope)
 import Nagare.Image (DockerAuth (..), dockerAuthPlan, dockerBuildArgs, nixpacksBuildArgs, qualifyImage)
 import Nagare.Infra.Plan
   ( CurrentInfraIdentity (..)
@@ -323,9 +324,12 @@ import Nagare.Platform.Paths (PlatformRootSource (InstalledRoot, SourceRoot))
 import Nagare.Server.Build
 import Nagare.Static.Build
 import Nagare.Static.Image (staticDockerfile)
+import Nagare.Static.Deploy (DeployInputs (..), staticUrl)
 import Nagare.Static.Preview
 import Nagare.Static.Release
 import Nagare.Static.Webhook
+import Nagare.Resource.Inventory (Declaration (Managed), ResourceBundle (..), scopeBundles)
+import Nagare.Resource.Types qualified as Resource
 import Nagare.Storage.Discover
   ( PVCRow (..)
   , appPVCLabelSelector
@@ -455,6 +459,7 @@ main = do
             , platformCutoverTests
             , testGroup "Nagare.Static.Build" prepareTests
             , testGroup "Nagare.Static.Release" releaseTests
+            , testGroup "Nagare.Inventory.Site" staticInventoryTests
             , testGroup "Nagare.Static.Preview" previewTests
             , testGroup "Nagare.Static.Webhook" webhookTests
             , testGroup "Nagare.Server.Build" serverBuildTests
@@ -3881,6 +3886,35 @@ buildModeTests =
 
 -- ---------------------------------------------------------------------------
 -- Fixtures
+
+staticInventoryTests :: [TestTree]
+staticInventoryTests =
+  [ testCase "static site review binds rendered service, domain, and release" $ do
+      let site = baseSite (NoBuild (unsafe (mkFilePathText "dist")))
+            & #domains .~ unsafe (mkDomains [("demo.example.com", True)])
+          inputs = DeployInputs site "v1" "example.com" "." True initProfile
+          foundation = unsafe (Resource.mkScopeId Resource.Platform "foundation")
+          cluster = Resource.mintResourceId foundation
+            (unsafe (Resource.mkLogicalKey "cluster")) (unsafe (Resource.mkName "resource"))
+          namespaceId = Resource.mintResourceId foundation
+            (unsafe (Resource.mkLogicalKey "namespace")) (unsafe (Resource.mkName "resource"))
+          imageId = Resource.mintResourceId foundation
+            (unsafe (Resource.mkLogicalKey "image")) (unsafe (Resource.mkName "publication"))
+          release = StaticRelease "v1" "demo" "personal"
+            "us-west1-docker.pkg.dev/tan-nb-exp/nagare/demo" "v1"
+            (staticUrl site "example.com") Nothing (UTCTime (fromGregorian 2026 9 24) 0)
+          source = Resource.SourceLocation "fixture" "static-site"
+      (scope, native) <- either (fail . show) pure
+        (compileStaticSiteScope inputs cluster namespaceId imageId emptyReleaseLog release source)
+      Map.size native @?= 3
+      let members = [member | bundle <- scopeBundles scope,
+            Managed member <- declarations bundle]
+      length members @?= 3
+      assertBool "domain has no hostname claim" (any (not . null . (^. #aliases)) members)
+      assertBool "static release accepted a different image tag"
+        (isLeft (compileStaticSiteScope inputs cluster namespaceId imageId
+          emptyReleaseLog (release {imageTag = "other"}) source))
+  ]
 
 noBuildSite :: Text -> StaticSite
 noBuildSite dir = baseSite (NoBuild (unsafe (mkFilePathText dir)))

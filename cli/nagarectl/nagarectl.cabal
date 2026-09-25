@@ -122,6 +122,7 @@ library
     Nagare.Inventory.DataService
     Nagare.Inventory.Environment
     Nagare.Inventory.Application
+    Nagare.Inventory.Site
     Nagare.Inventory.Digest
     Nagare.Inventory.Execute
     Nagare.Inventory.HelmReview

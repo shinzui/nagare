@@ -212,6 +212,28 @@ The image contract (you never write it): an `nginx:1.27-alpine` image listening
 on container port 8080, serving `/usr/share/nginx/html`, with the generated
 config copied over Nginx's `default.conf`.
 
+### Reviewed static-site deployment
+
+For a `StaticSite` with an already accepted OCI image publication, save a
+resource review for the production Service, its DomainMappings, and the
+release-history ConfigMap:
+
+```bash
+nagarectl site deploy --skip-build --tag TAG \
+  --image-resource RESOURCE-ID --save-plan site-review
+nagarectl inventory apply site-review --yes
+```
+
+The publication must have the exact tagged image reference in the active
+context registry; `nagarectl app image plan` can review publication from a
+Docker archive. The Namespace must already be accepted. The static-site review
+uses the same renderer as direct deployment, checks the image and release tag,
+and keeps earlier history from accepted private evidence. It currently supports
+automatic TLS without CDN. An existing direct-deploy Service or release
+ConfigMap remains unowned and needs an exact adoption review before this route
+can manage it. Server sites, previews, and site rollback still use their direct
+paths and cannot use these production review flags.
+
 ---
 
 ## Releases and rollback
