@@ -229,7 +229,9 @@ context registry; `nagarectl app image plan` can review publication from a
 Docker archive. The Namespace must already be accepted. Static and server site
 reviews use the same renderers as direct deployment, check the image and release
 tag, and keep earlier history from accepted private evidence. They currently
-support automatic TLS without CDN. For each runtime Secret reference in a
+support automatic or supplied TLS without CDN. For each supplied TLS domain,
+add `--tls-secret-resource RESOURCE-ID` for its accepted Secret in the same
+cluster and namespace. For each runtime Secret reference in a
 server site's environment, add `--env-secret-resource RESOURCE-ID` for the
 accepted Secret in the same cluster and namespace. Build and Preview Secret
 references require separate publication and overlay inputs and currently

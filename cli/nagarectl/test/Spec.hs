@@ -3907,7 +3907,7 @@ staticInventoryTests =
             (staticUrl site "example.com") Nothing (UTCTime (fromGregorian 2026 9 24) 0)
           source = Resource.SourceLocation "fixture" "static-site"
       (scope, native) <- either (fail . show) pure
-        (compileStaticSiteScope inputs cluster namespaceId imageId emptyReleaseLog release source)
+        (compileStaticSiteScope inputs cluster namespaceId imageId Map.empty emptyReleaseLog release source)
       Resource.scopeKind (scopeId scope) @?= Resource.Standalone
       Map.size native @?= 3
       let members = [member | bundle <- scopeBundles scope,
@@ -3915,8 +3915,31 @@ staticInventoryTests =
       length members @?= 3
       assertBool "domain has no hostname claim" (any (not . null . (^. #aliases)) members)
       assertBool "static release accepted a different image tag"
-        (isLeft (compileStaticSiteScope inputs cluster namespaceId imageId
+        (isLeft (compileStaticSiteScope inputs cluster namespaceId imageId Map.empty
           emptyReleaseLog (release {imageTag = "other"}) source))
+      let tlsName = unsafe (mkSecretName "site-tls")
+          tlsSite = site & #domains %~ map (withTlsSecret tlsName)
+          tlsInputs = inputs & #site .~ tlsSite
+          tlsId = Resource.mintResourceId foundation
+            (unsafe (Resource.mkLogicalKey "site-tls")) (unsafe (Resource.mkName "secret"))
+          tlsAddress = unsafe (Resource.kubernetesAddress cluster "v1" "Secret"
+            (Just "personal") "site-tls")
+          tlsBindings = Map.singleton tlsName (External tlsId tlsAddress [] source)
+      assertBool "supplied TLS accepted without an owned Secret"
+        (isLeft (compileStaticSiteScope tlsInputs cluster namespaceId imageId Map.empty
+          emptyReleaseLog release source))
+      (tlsScope, _) <- either (fail . show) pure
+        (compileStaticSiteScope tlsInputs cluster namespaceId imageId tlsBindings
+          emptyReleaseLog release source)
+      assertBool "site DomainMapping lacks supplied TLS Secret ordering"
+        (any (elem (OrderedAfter tlsId) . (^. #dependencies))
+          [member | bundle <- scopeBundles tlsScope, Managed member <- declarations bundle])
+      let wrongTlsAddress = unsafe (Resource.kubernetesAddress cluster "v1" "Secret"
+            (Just "other") "site-tls")
+      assertBool "site accepted supplied TLS from another namespace"
+        (isLeft (compileStaticSiteScope tlsInputs cluster namespaceId imageId
+          (Map.singleton tlsName (External tlsId wrongTlsAddress [] source))
+          emptyReleaseLog release source))
       let older = release {releaseId = "v0", imageTag = "v0",
             createdAt = UTCTime (fromGregorian 2026 9 23) 0}
           oldLog = addRelease release (addRelease older emptyReleaseLog)
@@ -3957,7 +3980,7 @@ staticInventoryTests =
             (UTCTime (fromGregorian 2026 9 24) 0)
           source = Resource.SourceLocation "fixture" "server-site"
       (scope, native) <- either (fail . show) pure
-        (compileServerSiteScope inputs cluster namespaceId imageId Map.empty Map.empty emptyReleaseLog release source)
+        (compileServerSiteScope inputs cluster namespaceId imageId Map.empty Map.empty Map.empty emptyReleaseLog release source)
       Map.size native @?= 3
       length [member | bundle <- scopeBundles scope, Managed member <- declarations bundle]
         @?= 3
@@ -3968,7 +3991,7 @@ staticInventoryTests =
             (runtimeScoped (EnvSecretRef (unsafe (mkSecretName "external"))))
       assertBool "server-site Secret bypassed typed dependency check"
         (isLeft (compileServerSiteScope (inputs {ServerDeploy.site = secretSite})
-          cluster namespaceId imageId Map.empty Map.empty emptyReleaseLog release source))
+          cluster namespaceId imageId Map.empty Map.empty Map.empty emptyReleaseLog release source))
       let secretName = unsafe (mkSecretName "external")
           secretId = Resource.mintResourceId foundation
             (unsafe (Resource.mkLogicalKey "external")) (unsafe (Resource.mkName "secret"))
@@ -3978,7 +4001,7 @@ staticInventoryTests =
           secretBindings = Map.singleton secretName secretBinding
       (secretScope, _) <- either (fail . show) pure
         (compileServerSiteScope (inputs {ServerDeploy.site = secretSite})
-          cluster namespaceId imageId Map.empty secretBindings emptyReleaseLog release source)
+          cluster namespaceId imageId Map.empty secretBindings Map.empty emptyReleaseLog release source)
       assertBool "server-site Service lacks accepted Secret ordering"
         (any (elem (OrderedAfter secretId) . (^. #dependencies))
           [member | bundle <- scopeBundles secretScope, Managed member <- declarations bundle])
@@ -3988,6 +4011,7 @@ staticInventoryTests =
         (isLeft (compileServerSiteScope (inputs {ServerDeploy.site = secretSite})
           cluster namespaceId imageId Map.empty
           (Map.singleton secretName (External secretId wrongAddress [] source))
+          Map.empty
           emptyReleaseLog release source))
       let volume = Volume
             { name = unsafe (mkVolumeName "data")
@@ -4001,12 +4025,12 @@ staticInventoryTests =
           volumeSite = site & #volumes .~ [volume]
       assertBool "retained server volume accepted without recovery"
         (isLeft (compileServerSiteScope (inputs {ServerDeploy.site = volumeSite})
-          cluster namespaceId imageId Map.empty Map.empty emptyReleaseLog release source))
+          cluster namespaceId imageId Map.empty Map.empty Map.empty emptyReleaseLog release source))
       recovery <- either (fail . T.unpack) pure
         (siteVolumeRecoveryBindings volumeSite ["data=backup:key:v1"])
       (_, volumeNative) <- either (fail . show) pure
         (compileServerSiteScope (inputs {ServerDeploy.site = volumeSite})
-          cluster namespaceId imageId recovery Map.empty emptyReleaseLog release source)
+          cluster namespaceId imageId recovery Map.empty Map.empty emptyReleaseLog release source)
       Map.size volumeNative @?= 4
   ]
 

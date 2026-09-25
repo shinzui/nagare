@@ -43,10 +43,10 @@ import Nagare.Static.Release (StaticRelease (..), StaticReleaseLog (..), addRele
 
 compileStaticSiteScope
   :: DeployInputs -> ResourceId -> ResourceId -> ResourceId
-  -> StaticReleaseLog -> StaticRelease -> SourceLocation
+  -> Map SecretName Declaration -> StaticReleaseLog -> StaticRelease -> SourceLocation
   -> Either (NonEmpty InventoryError)
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileStaticSiteScope inputs cluster namespaceId imageId prior release source = do
+compileStaticSiteScope inputs cluster namespaceId imageId tlsSecrets prior release source = do
   let site = inputs ^. #site
       name = siteNameText (site ^. #name)
       ns = namespaceText (site ^. #namespace)
@@ -56,8 +56,6 @@ compileStaticSiteScope inputs cluster namespaceId imageId prior release source =
         & #sources .~ [source] & (:| [])
   unless (site ^. #cdn == Nothing)
     (Left (invalid "static-site CDN requires a typed owner"))
-  unless (all ((== AutomaticTls) . (^. #tls)) (site ^. #domains))
-    (Left (invalid "supplied TLS requires an accepted Secret dependency"))
   unless (release ^. #releaseId == tag && release ^. #imageTag == tag
       && release ^. #image == imageRefText (site ^. #image)
       && release ^. #siteName == name && release ^. #namespace == ns
@@ -66,7 +64,7 @@ compileStaticSiteScope inputs cluster namespaceId imageId prior release source =
   unless (validLog name ns prior)
     (Left (invalid "static-site prior release history is inconsistent"))
   compileSiteRenderedScope name ns (site ^. #domains)
-    (rendered ^. #service) (rendered ^. #domainMappings) [] Map.empty []
+    (rendered ^. #service) (rendered ^. #domainMappings) [] Map.empty [] tlsSecrets
     cluster namespaceId imageId prior release source
 
 siteVolumeRecoveryBindings
@@ -94,16 +92,16 @@ siteVolumeRecoveryBindings site raw = do
           _ -> Left "server-site recovery must be VOLUME=BACKUP:KEY:VERSION"
       _ -> Left "server-site recovery must be VOLUME=BACKUP:KEY:VERSION"
 
--- | Server sites share the site ownership and release protocol. The initial
--- supported subset excludes Secret references until their typed credential
--- dependencies join this scope.
+-- | Server sites share the site ownership and release protocol. Runtime and
+-- supplied TLS Secret references bind accepted declarations in the same
+-- cluster and namespace.
 compileServerSiteScope
   :: Server.ServerDeployInputs -> ResourceId -> ResourceId -> ResourceId
-  -> Map VolumeName RecoveryIntent -> Map SecretName Declaration
+  -> Map VolumeName RecoveryIntent -> Map SecretName Declaration -> Map SecretName Declaration
   -> StaticReleaseLog -> StaticRelease -> SourceLocation
   -> Either (NonEmpty InventoryError)
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileServerSiteScope inputs cluster namespaceId imageId recovery envSecrets prior release source = do
+compileServerSiteScope inputs cluster namespaceId imageId recovery envSecrets tlsSecrets prior release source = do
   let site = inputs ^. #site
       name = siteNameText (site ^. #name)
       ns = namespaceText (site ^. #namespace)
@@ -117,8 +115,6 @@ compileServerSiteScope inputs cluster namespaceId imageId recovery envSecrets pr
     (Left (invalid "server-site recovery does not cover exactly its retained volumes"))
   unless (site ^. #cdn == Nothing)
     (Left (invalid "server-site CDN requires a typed owner"))
-  unless (all ((== AutomaticTls) . (^. #tls)) (site ^. #domains))
-    (Left (invalid "supplied TLS requires an accepted Secret dependency"))
   let secretRefs = [(secret, entry ^. #scopes) | entry <- Map.elems (site ^. #env),
         EnvSecretRef secret <- [entry ^. #value]]
   unless (all ((== Set.singleton Runtime) . snd) secretRefs)
@@ -140,20 +136,25 @@ compileServerSiteScope inputs cluster namespaceId imageId recovery envSecrets pr
     (Left (invalid "server-site volume renderer changed membership"))
   compileSiteRenderedScope name ns (site ^. #domains)
     (rendered ^. #service) (rendered ^. #domainMappings)
-    (zip (site ^. #volumes) volumeBytes) recovery secretIds
+    (zip (site ^. #volumes) volumeBytes) recovery secretIds tlsSecrets
     cluster namespaceId imageId prior release source
 
 compileSiteRenderedScope
   :: T.Text -> T.Text -> [DomainSpec] -> ByteString -> [ByteString]
   -> [(Volume, ByteString)] -> Map VolumeName RecoveryIntent -> [ResourceId]
+  -> Map SecretName Declaration
   -> ResourceId -> ResourceId -> ResourceId
   -> StaticReleaseLog -> StaticRelease -> SourceLocation
   -> Either (NonEmpty InventoryError)
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileSiteRenderedScope name ns domains serviceBytes domainBytes volumeInputs recovery secretIds
+compileSiteRenderedScope name ns domains serviceBytes domainBytes volumeInputs recovery secretIds tlsSecrets
     cluster namespaceId imageId prior release source = do
   let invalid message = inventoryError "invalid-site-scope" message
         & #sources .~ [source] & (:| [])
+      requiredTls = Set.fromList [secret | domain <- domains,
+        SuppliedTlsSecret secret <- [domain ^. #tls]]
+  unless (Map.keysSet tlsSecrets == requiredTls)
+    (Left (invalid "site TLS requires exactly its accepted Secret dependencies"))
   owner <- first invalid (mkScopeId Standalone ("site-" <> name))
   serviceKey <- first invalid (mkLogicalKey name)
   serviceRole <- first invalid (mkName "service")
@@ -188,9 +189,14 @@ compileSiteRenderedScope name ns domains serviceBytes domainBytes volumeInputs r
   domainMembers <- traverse (\(domain, bytes) -> do
       domainId <- first invalid (domainMappingResourceId owner domain)
       host <- first invalid (mkName (domainText (domain ^. #domain)))
+      tlsIds <- case domain ^. #tls of
+        AutomaticTls -> Right []
+        SuppliedTlsSecret secret -> do
+          secretId <- first invalid (siteSecretDependency cluster ns tlsSecrets secret)
+          pure [secretId]
       let domainSource = source {path = path source <> "/domain/" <> domainText (domain ^. #domain)}
       member <- bindOne owner cluster domainId DeleteWhenUnreferenced Stateless
-        [OrderedAfter namespaceId, OrderedAfter serviceId] domainSource bytes
+        (map OrderedAfter ([namespaceId, serviceId] <> tlsIds)) domainSource bytes
       checkAddress invalid cluster "serving.knative.dev/v1beta1" "DomainMapping"
         ns (domainText (domain ^. #domain)) member
       pure (first (\resource -> resource {aliases = [Hostname host]}) member))
@@ -299,7 +305,7 @@ siteSecretDependency
   :: ResourceId -> T.Text -> Map SecretName Declaration -> SecretName
   -> Either T.Text ResourceId
 siteSecretDependency cluster ns bindings secretName = do
-  declaration <- maybe (Left "server-site Secret has no typed declaration") Right
+  declaration <- maybe (Left "site Secret has no typed declaration") Right
     (Map.lookup secretName bindings)
   address <- case declaration of
     Managed member -> Right (member ^. #address)
@@ -308,7 +314,7 @@ siteSecretDependency cluster ns bindings secretName = do
   expected <- kubernetesAddress cluster "v1" "Secret"
     (Just ns) (secretNameText secretName)
   unless (address == expected)
-    (Left "server-site Secret has a different cluster, namespace, or name")
+    (Left "site Secret has a different cluster, namespace, or name")
   pure (declarationId declaration)
 
 bindOne

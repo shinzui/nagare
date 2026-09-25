@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-24
+* **Update**: Document accepted supplied TLS Secret dependencies for reviewed static and server sites.
 * **Update**: Document accepted runtime Secret dependencies for reviewed server sites and the remaining Build/Preview limit.
 * **Update**: Document reviewed server-site PVC membership and required retained-volume recovery bindings.
 * **Update**: Document supported reviewed server-site deployment and legacy import beside static sites, including stateless and Secret dependency limits.

@@ -644,6 +644,7 @@ data SiteDeployOpts = SiteDeployOpts
   , imageResource :: !(Maybe String)
   , siteVolumeRecovery :: ![String]
   , siteEnvSecretResources :: ![String]
+  , siteTlsSecretResources :: ![String]
   , legacyReleaseImport :: !(Maybe FilePath)
   , releaseAdoptionInput :: !(Maybe FilePath)
   }
@@ -1645,6 +1646,7 @@ siteDeployOptsParser defaultFile =
     <*> optional (strOption (long "image-resource" <> metavar "RESOURCE-ID" <> help "Accepted prepublished OCI image with --save-plan"))
     <*> many (strOption (long "volume-recovery" <> metavar "VOLUME=BACKUP:KEY:VERSION" <> help "Retained server-site PVC recovery with --save-plan"))
     <*> many (strOption (long "env-secret-resource" <> metavar "RESOURCE-ID" <> help "Accepted runtime Secret dependency for reviewed server sites"))
+    <*> many (strOption (long "tls-secret-resource" <> metavar "RESOURCE-ID" <> help "Accepted supplied-TLS Secret dependency for reviewed site domains"))
     <*> optional (strOption (long "legacy-release-import" <> metavar "FILE" <> help "Legacy site release ConfigMap JSON for exact adoption"))
     <*> optional (strOption (long "release-adoption-input" <> metavar "FILE" <> help "Versioned exact-incarnation adoption proposal"))
 
@@ -6868,6 +6870,7 @@ runSiteDeploy mctx sopts = do
             when (isJust (sopts ^. #imageResource)
                 || not (null (sopts ^. #siteVolumeRecovery))
                 || not (null (sopts ^. #siteEnvSecretResources))
+                || not (null (sopts ^. #siteTlsSecretResources))
                 || isJust (sopts ^. #legacyReleaseImport)
                 || isJust (sopts ^. #releaseAdoptionInput))
               (dieT "static-site inventory options require --save-plan")
@@ -6884,6 +6887,7 @@ runSiteDeploy mctx sopts = do
             when (isJust (sopts ^. #imageResource)
                 || not (null (sopts ^. #siteVolumeRecovery))
                 || not (null (sopts ^. #siteEnvSecretResources))
+                || not (null (sopts ^. #siteTlsSecretResources))
                 || isJust (sopts ^. #legacyReleaseImport)
                 || isJust (sopts ^. #releaseAdoptionInput))
               (dieT "server-site inventory options require --save-plan")
@@ -6906,7 +6910,9 @@ runStaticSiteDeployPlan mctx tp options site bd output = do
   runReviewedSiteDeployPlan mctx options
     (siteNameText (site ^. #name)) (namespaceText (site ^. #namespace))
     (imageRefText (site ^. #image)) (rendered ^. #url) tag
-    (\_ -> compileStaticSiteScope inputs) (legacyStaticSiteReleaseImport site) output
+    (\_ tls cluster namespaceId imageId ->
+      compileStaticSiteScope inputs cluster namespaceId imageId tls)
+    (legacyStaticSiteReleaseImport site) output
 
 runServerSiteDeployPlan
   :: Maybe String -> TargetProfile -> SiteDeployOpts -> ServerSite -> Text -> FilePath -> IO ()
@@ -6927,8 +6933,8 @@ runServerSiteDeployPlan mctx tp options original bd output = do
   runReviewedSiteDeployPlan mctx options
     (siteNameText (site ^. #name)) (namespaceText (site ^. #namespace))
     (imageRefText (site ^. #image)) (rendered ^. #url) tag
-    (\bindings cluster namespaceId imageId ->
-      compileServerSiteScope inputs cluster namespaceId imageId recovery bindings)
+    (\bindings tls cluster namespaceId imageId ->
+      compileServerSiteScope inputs cluster namespaceId imageId recovery bindings tls)
     (legacyServerSiteReleaseImport site) output
 
 reviewedSiteTag :: SiteDeployOpts -> IO Text
@@ -6941,6 +6947,7 @@ reviewedSiteTag options = do
 runReviewedSiteDeployPlan
   :: Maybe String -> SiteDeployOpts -> Text -> Text -> Text -> Text -> Text
   -> (Map.Map SecretName ResourceInventory.Declaration
+      -> Map.Map SecretName ResourceInventory.Declaration
       -> Resource.ResourceId -> Resource.ResourceId -> Resource.ResourceId
       -> StaticReleaseLog -> StaticRelease -> Resource.SourceLocation
       -> Either (NE.NonEmpty Resource.InventoryError)
@@ -6961,6 +6968,9 @@ runReviewedSiteDeployPlan mctx options siteName ns imageName url tag compile imp
   secretIds <- traverse (either dieT pure . Resource.mkResourceId . T.pack)
     (options ^. #siteEnvSecretResources)
   envSecrets <- either dieT pure (acceptedSecretBindings snapshot secretIds)
+  tlsIds <- traverse (either dieT pure . Resource.mkResourceId . T.pack)
+    (options ^. #siteTlsSecretResources)
+  tlsSecrets <- either dieT pure (acceptedSecretBindings snapshot tlsIds)
   let source = Resource.SourceLocation
         (maybe (T.pack (options ^. #file)) T.pack (options ^. #source)) siteName
   (cluster, namespaceId) <- either dieT pure (acceptedFoundationNamespace snapshot ns)
@@ -7001,7 +7011,7 @@ runReviewedSiteDeployPlan mctx options siteName ns imageName url tag compile imp
       pure (oldLog, oldRelease, Just proposal)
     _ -> dieT "site import options are incomplete"
   (scope, native) <- either (dieT . T.pack . show) pure
-    (compile envSecrets cluster namespaceId imageId prior release source)
+    (compile envSecrets tlsSecrets cluster namespaceId imageId prior release source)
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
   case adoption of
@@ -7236,6 +7246,7 @@ runPreviewDeploy mctx sopts pname = do
   when (isJust (sopts ^. #savePlan) || isJust (sopts ^. #imageResource)
       || not (null (sopts ^. #siteVolumeRecovery))
       || not (null (sopts ^. #siteEnvSecretResources))
+      || not (null (sopts ^. #siteTlsSecretResources))
       || isJust (sopts ^. #legacyReleaseImport)
       || isJust (sopts ^. #releaseAdoptionInput))
     (dieT "site preview deploy does not support production inventory options")
