@@ -15,9 +15,10 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Data.Yaml qualified as Yaml
 import Nagare.Dsl.Prelude hiding ((.=))
-import Nagare.Dsl.Types (mkServiceName, serviceNameText)
+import Nagare.Dsl.Types (ServiceName, mkServiceName, serviceNameText)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Resource.Inventory
@@ -49,7 +50,7 @@ compileTaskRunScope appName cronJob cronBytes runId source = do
     _ -> Left (invalid "task run needs an accepted namespaced CronJob")
   _ <- first invalid (mkServiceName runId)
   key <- first invalid (mkLogicalKey runId)
-  jobName <- first invalid (mkServiceName (cronName <> "-manual-" <> runId))
+  jobName <- first invalid (manualJobName cronName runId)
   owner <- first invalid (mkScopeId Standalone ("task-run-" <> ns <> "-" <> runId <> "-" <> cronName))
   role <- first invalid (mkName "job")
   value <-
@@ -143,3 +144,17 @@ objectField ::
 objectField invalid key fields = case KM.lookup (K.fromText key) fields of
   Just (Object value) -> Right value
   _ -> Left (invalid ("accepted task template has no object " <> key))
+
+-- Keep the run suffix when it fits. Long, otherwise valid CronJob names use a
+-- digest of the full task/run pair so truncation cannot discard the run ID.
+manualJobName :: T.Text -> T.Text -> Either T.Text ServiceName
+manualJobName cronName runId =
+  mkServiceName $
+    if T.length full <= 63
+      then full
+      else
+        T.dropWhileEnd (== '-') (T.take 42 cronName)
+          <> "-"
+          <> T.take 20 (digestText (contentDigest (TE.encodeUtf8 full)))
+  where
+    full = cronName <> "-manual-" <> runId

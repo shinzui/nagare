@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-24
+* **Fix**: Preserve stable reviewed Job identity when a valid task and run ID exceed the Kubernetes Job name limit together.
 * **Update**: Allow reviewed one-off Jobs from accepted unlabeled CronJobs using the `-` app sentinel and exact label matching.
 * **Fix**: Address co-located tasks by their deployed app ownership label even when the optional managed-environment association is unset.
 * **Update**: Document reviewed one-off Task Job planning from accepted CronJob evidence, stable run IDs, and guarded Job collection.

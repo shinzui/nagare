@@ -228,7 +228,9 @@ nagarectl inventory apply ./task-run-review --yes
 
 The Job has an independent scope and the name
 `nagare-task-cleanup-manual-cleanup-20260924`. Reusing the same run ID targets
-that identity; it cannot silently submit another Job. Planning reads the exact
+that identity; it cannot silently submit another Job. Longer task and run IDs
+use a deterministic digest in the Job name while the full run ID remains in its
+scope identity. Planning reads the exact
 accepted CronJob template from private inventory evidence and refuses an
 unaccepted or differently labeled task. Pass `-` as `APP` only when the accepted
 CronJob has no app label. The review binds creation and waits for

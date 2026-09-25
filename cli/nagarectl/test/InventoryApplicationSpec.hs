@@ -7,6 +7,7 @@ import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
+import Data.Text qualified as T
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.Dsl.Database (mkDatabaseName)
@@ -35,7 +36,7 @@ import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertFailure, testCase, (@?=))
+import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
 inventoryApplicationTests :: TestTree
 inventoryApplicationTests = testGroup "application inventory compilation"
@@ -86,6 +87,21 @@ inventoryApplicationTests = testGroup "application inventory compilation"
       case compileTaskRunScope Nothing cronJob cronBytes "r2" source of
         Left _ -> pure ()
         Right _ -> assertFailure "manual app-less run accepted an app-owned task"
+      let longRunId = T.replicate 48 "a"
+          jobAddress run = do
+            (jobScope, _) <- compileTaskRunScope (Just "demo") cronJob cronBytes run source
+            case [resource ^. #address | bundle <- scopeBundles jobScope,
+                  Managed resource <- declarations bundle] of
+              [address] -> Right address
+              _ -> error "manual run scope has no unique Job"
+          firstAddress = checked (jobAddress longRunId)
+          secondAddress = checked (jobAddress (longRunId <> "b"))
+      case firstAddress of
+        Kubernetes _ _ _ _ name -> assertBool "manual Job name exceeds Kubernetes limit"
+          (T.length (nameText name) <= 63)
+        _ -> assertFailure "manual task run is not a Kubernetes Job"
+      firstAddress @?= checked (jobAddress longRunId)
+      assertBool "long run IDs collided after name shortening" (firstAddress /= secondAddress)
   , testCase "manual app-less Job uses an accepted unlabeled CronJob" $ do
       let checked :: Show e => Either e a -> a
           checked = either (error . show) id
