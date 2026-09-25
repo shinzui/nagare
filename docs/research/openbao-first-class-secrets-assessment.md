@@ -1,3 +1,27 @@
+---
+type: Research Document
+title: Secrets architecture assessment for Kikan, Kotei, and Nagare
+description: Assess whether first-class OpenBao support is the right credential boundary for Nagare and its CI/CD consumers.
+generated:
+  by: process:legacy-research-import
+  at: "2026-09-25T13:17:08Z"
+researchId: RES-1
+status: complete
+scope: Nagare, Kikan, and Kotei credential ownership and OpenBao alternatives as assessed on 2026-07-26.
+reviews:
+  - kind: model
+    reviewer: openai-codex
+    reviewed_at: "2026-09-25T13:17:08Z"
+    document_timestamp: "2026-09-25T13:17:08Z"
+    scope: catalog-metadata
+    outcome: commented
+    provider: OpenAI
+    model: gpt-6
+    effort: medium
+    context: >-
+      Self-review of the RES-1 handle and profile migration only; the earlier technical assessment was not independently reverified.
+---
+
 # Secrets architecture assessment for Kikan, Kotei, and Nagare
 
 Date: 2026-07-26

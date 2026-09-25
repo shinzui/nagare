@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-09-25
+* **Add**: Record IR-25 as proposed for optional Coraza and OWASP CRS support on Nagare's direct ingress, informed by research RES-2.
+
 ## 2026-09-16
 * **Add**: Record IR-24 as proposed after the unreleased 0.4.0 Attic rehearsal exposed conflicting ownership of one Kubernetes Service. Generalize the request into a versioned resource inventory spanning cloud, host, cluster, data, secrets, artifacts, and releases, with collision-free identity, explicit ownership and lifecycle, dependency-aware resumable reconciliation, drift evidence, safe adoption, and guarded garbage collection.
 

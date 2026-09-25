@@ -122,6 +122,13 @@ in  Schema.Project::{
         , description = Some "Nagare-owned improvement requests"
         }
       , Schema.OkfBundle::{
+        , name = "research"
+        , path = "docs/research"
+        , profile = Some "docs/research/profile.dhall"
+        , okfVersion = "0.2"
+        , description = Some "Bounded investigations of Nagare architecture and alternatives"
+        }
+      , Schema.OkfBundle::{
         , name = "bug-reports"
         , path = "docs/bug-reports"
         , profile = Some "docs/bug-reports/profile.dhall"
