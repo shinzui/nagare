@@ -329,7 +329,8 @@ import Nagare.Static.Deploy (DeployInputs (..), staticUrl)
 import Nagare.Static.Preview
 import Nagare.Static.Release
 import Nagare.Static.Webhook
-import Nagare.Resource.Inventory (Declaration (Managed), ResourceBundle (..), scopeBundles, scopeId)
+import Nagare.Resource.Inventory (Declaration (External, Managed), ResourceBundle (..), scopeBundles, scopeId)
+import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Storage.Discover
   ( PVCRow (..)
@@ -3956,7 +3957,7 @@ staticInventoryTests =
             (UTCTime (fromGregorian 2026 9 24) 0)
           source = Resource.SourceLocation "fixture" "server-site"
       (scope, native) <- either (fail . show) pure
-        (compileServerSiteScope inputs cluster namespaceId imageId Map.empty emptyReleaseLog release source)
+        (compileServerSiteScope inputs cluster namespaceId imageId Map.empty Map.empty emptyReleaseLog release source)
       Map.size native @?= 3
       length [member | bundle <- scopeBundles scope, Managed member <- declarations bundle]
         @?= 3
@@ -3967,7 +3968,27 @@ staticInventoryTests =
             (runtimeScoped (EnvSecretRef (unsafe (mkSecretName "external"))))
       assertBool "server-site Secret bypassed typed dependency check"
         (isLeft (compileServerSiteScope (inputs {ServerDeploy.site = secretSite})
-          cluster namespaceId imageId Map.empty emptyReleaseLog release source))
+          cluster namespaceId imageId Map.empty Map.empty emptyReleaseLog release source))
+      let secretName = unsafe (mkSecretName "external")
+          secretId = Resource.mintResourceId foundation
+            (unsafe (Resource.mkLogicalKey "external")) (unsafe (Resource.mkName "secret"))
+          secretAddress = unsafe (Resource.kubernetesAddress cluster "v1" "Secret"
+            (Just "personal") "external")
+          secretBinding = External secretId secretAddress [] source
+          secretBindings = Map.singleton secretName secretBinding
+      (secretScope, _) <- either (fail . show) pure
+        (compileServerSiteScope (inputs {ServerDeploy.site = secretSite})
+          cluster namespaceId imageId Map.empty secretBindings emptyReleaseLog release source)
+      assertBool "server-site Service lacks accepted Secret ordering"
+        (any (elem (OrderedAfter secretId) . (^. #dependencies))
+          [member | bundle <- scopeBundles secretScope, Managed member <- declarations bundle])
+      let wrongAddress = unsafe (Resource.kubernetesAddress cluster "v1" "Secret"
+            (Just "another-namespace") "external")
+      assertBool "server-site accepted a Secret from another namespace"
+        (isLeft (compileServerSiteScope (inputs {ServerDeploy.site = secretSite})
+          cluster namespaceId imageId Map.empty
+          (Map.singleton secretName (External secretId wrongAddress [] source))
+          emptyReleaseLog release source))
       let volume = Volume
             { name = unsafe (mkVolumeName "data")
             , logicalKey = Nothing
@@ -3980,12 +4001,12 @@ staticInventoryTests =
           volumeSite = site & #volumes .~ [volume]
       assertBool "retained server volume accepted without recovery"
         (isLeft (compileServerSiteScope (inputs {ServerDeploy.site = volumeSite})
-          cluster namespaceId imageId Map.empty emptyReleaseLog release source))
+          cluster namespaceId imageId Map.empty Map.empty emptyReleaseLog release source))
       recovery <- either (fail . T.unpack) pure
         (siteVolumeRecoveryBindings volumeSite ["data=backup:key:v1"])
       (_, volumeNative) <- either (fail . show) pure
         (compileServerSiteScope (inputs {ServerDeploy.site = volumeSite})
-          cluster namespaceId imageId recovery emptyReleaseLog release source)
+          cluster namespaceId imageId recovery Map.empty emptyReleaseLog release source)
       Map.size volumeNative @?= 4
   ]
 

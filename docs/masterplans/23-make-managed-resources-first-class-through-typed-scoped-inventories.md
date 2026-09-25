@@ -539,4 +539,6 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 
 2026-09-24: EP-148 added every rendered server-site PVC to its reviewed scope with explicit retention and recovery binding. The direct server deploy's omission of PVC manifests remains for the command cutover; Secret dependencies, CDN, supplied TLS, preview, and rollback paths remain open.
 
+2026-09-24: EP-148 now resolves reviewed server-site Runtime Secret references to exact accepted Secret declarations and orders the Service after them. Build/Preview Secret publication, CDN, supplied TLS, preview, and rollback work remains.
+
 2026-09-24: EP-148 applied the same distinction to legacy env and Secret reads and now refuses malformed `data` entries instead of silently dropping keys. Direct store writes and reviewed preview/deploy integration remain open.

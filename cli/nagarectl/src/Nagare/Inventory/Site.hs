@@ -24,7 +24,7 @@ import Data.Yaml qualified as Yaml
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Server.Types (ServerSite (..))
 import Nagare.Dsl.Static.Types (StaticSite (..), siteNameText)
-import Nagare.Dsl.Types (DomainSpec (..), DomainTls (..), EnvVar (..), ScopedEnvVar (..), Volume (..), VolumeName, domainText, imageRefText, namespaceText, volumeNameText)
+import Nagare.Dsl.Types (DomainSpec (..), DomainTls (..), EnvScope (Runtime), EnvVar (..), ScopedEnvVar (..), SecretName, Volume (..), VolumeName, domainText, imageRefText, namespaceText, secretNameText, volumeNameText)
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Dsl.Render (pvcName)
 import Nagare.Inventory.Digest (contentDigest)
@@ -66,7 +66,7 @@ compileStaticSiteScope inputs cluster namespaceId imageId prior release source =
   unless (validLog name ns prior)
     (Left (invalid "static-site prior release history is inconsistent"))
   compileSiteRenderedScope name ns (site ^. #domains)
-    (rendered ^. #service) (rendered ^. #domainMappings) [] Map.empty
+    (rendered ^. #service) (rendered ^. #domainMappings) [] Map.empty []
     cluster namespaceId imageId prior release source
 
 siteVolumeRecoveryBindings
@@ -99,10 +99,11 @@ siteVolumeRecoveryBindings site raw = do
 -- dependencies join this scope.
 compileServerSiteScope
   :: Server.ServerDeployInputs -> ResourceId -> ResourceId -> ResourceId
-  -> Map VolumeName RecoveryIntent -> StaticReleaseLog -> StaticRelease -> SourceLocation
+  -> Map VolumeName RecoveryIntent -> Map SecretName Declaration
+  -> StaticReleaseLog -> StaticRelease -> SourceLocation
   -> Either (NonEmpty InventoryError)
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileServerSiteScope inputs cluster namespaceId imageId recovery prior release source = do
+compileServerSiteScope inputs cluster namespaceId imageId recovery envSecrets prior release source = do
   let site = inputs ^. #site
       name = siteNameText (site ^. #name)
       ns = namespaceText (site ^. #namespace)
@@ -118,10 +119,14 @@ compileServerSiteScope inputs cluster namespaceId imageId recovery prior release
     (Left (invalid "server-site CDN requires a typed owner"))
   unless (all ((== AutomaticTls) . (^. #tls)) (site ^. #domains))
     (Left (invalid "supplied TLS requires an accepted Secret dependency"))
-  unless (all (\entry -> case entry ^. #value of
-      EnvSecretRef _ -> False
-      _ -> True) (Map.elems (site ^. #env)))
-    (Left (invalid "server-site Secret environment requires typed dependencies"))
+  let secretRefs = [(secret, entry ^. #scopes) | entry <- Map.elems (site ^. #env),
+        EnvSecretRef secret <- [entry ^. #value]]
+  unless (all ((== Set.singleton Runtime) . snd) secretRefs)
+    (Left (invalid "server-site Build or Preview Secret references need publication inputs"))
+  unless (Map.keysSet envSecrets == Set.fromList (map fst secretRefs))
+    (Left (invalid "server-site runtime Secret references require exactly their typed dependencies"))
+  secretIds <- traverse (first invalid . siteSecretDependency cluster ns envSecrets)
+    (Set.toAscList (Set.fromList (map fst secretRefs)))
   unless (release ^. #releaseId == tag && release ^. #imageTag == tag
       && release ^. #image == imageRefText (site ^. #image)
       && release ^. #siteName == name && release ^. #namespace == ns
@@ -135,17 +140,17 @@ compileServerSiteScope inputs cluster namespaceId imageId recovery prior release
     (Left (invalid "server-site volume renderer changed membership"))
   compileSiteRenderedScope name ns (site ^. #domains)
     (rendered ^. #service) (rendered ^. #domainMappings)
-    (zip (site ^. #volumes) volumeBytes) recovery
+    (zip (site ^. #volumes) volumeBytes) recovery secretIds
     cluster namespaceId imageId prior release source
 
 compileSiteRenderedScope
   :: T.Text -> T.Text -> [DomainSpec] -> ByteString -> [ByteString]
-  -> [(Volume, ByteString)] -> Map VolumeName RecoveryIntent
+  -> [(Volume, ByteString)] -> Map VolumeName RecoveryIntent -> [ResourceId]
   -> ResourceId -> ResourceId -> ResourceId
   -> StaticReleaseLog -> StaticRelease -> SourceLocation
   -> Either (NonEmpty InventoryError)
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileSiteRenderedScope name ns domains serviceBytes domainBytes volumeInputs recovery
+compileSiteRenderedScope name ns domains serviceBytes domainBytes volumeInputs recovery secretIds
     cluster namespaceId imageId prior release source = do
   let invalid message = inventoryError "invalid-site-scope" message
         & #sources .~ [source] & (:| [])
@@ -175,7 +180,7 @@ compileSiteRenderedScope name ns domains serviceBytes domainBytes volumeInputs r
       pure member) volumeInputs
   let volumeIds = map ((^. #identity) . fst) volumeMembers
   serviceMember <- bindOne owner cluster serviceId DeleteWhenUnreferenced Stateless
-    (map OrderedAfter (namespaceId : imageId : volumeIds)) serviceSource
+    (map OrderedAfter ([namespaceId, imageId] <> volumeIds <> secretIds)) serviceSource
     serviceBytes
   checkAddress invalid cluster "serving.knative.dev/v1" "Service" ns name serviceMember
   unless (length domains == length domainBytes)
@@ -289,6 +294,22 @@ validLog name ns logv =
   in length ids == Set.size (Set.fromList ids)
       && all (\entry -> entry ^. #siteName == name && entry ^. #namespace == ns) entries
       && maybe (null entries) (`elem` ids) (logv ^. #current)
+
+siteSecretDependency
+  :: ResourceId -> T.Text -> Map SecretName Declaration -> SecretName
+  -> Either T.Text ResourceId
+siteSecretDependency cluster ns bindings secretName = do
+  declaration <- maybe (Left "server-site Secret has no typed declaration") Right
+    (Map.lookup secretName bindings)
+  address <- case declaration of
+    Managed member -> Right (member ^. #address)
+    External _ externalAddress _ _ -> Right externalAddress
+    ObservedChild _ _ _ _ _ -> Left "observed child cannot supply a site Secret"
+  expected <- kubernetesAddress cluster "v1" "Secret"
+    (Just ns) (secretNameText secretName)
+  unless (address == expected)
+    (Left "server-site Secret has a different cluster, namespace, or name")
+  pure (declarationId declaration)
 
 bindOne
   :: ScopeId -> ResourceId -> ResourceId -> LifecyclePolicy -> DataPolicy -> [Dependency]
