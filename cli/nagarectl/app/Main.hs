@@ -3482,6 +3482,11 @@ printUpgradeTransaction asJson tx =
 runPlatformUpgrade :: Maybe String -> UpgradeOpts -> IO ()
 runPlatformUpgrade mctx options = do
   active <- activeTarget mctx
+  -- The coarse upgrade runner has no component receipts. Once a context has
+  -- accepted inventory history, replaying its Pulumi/host/bootstrap phases
+  -- would bypass the reviewed component transaction and could overwrite an
+  -- independently revised application scope.
+  guardLegacyUpgradeInventory active
   if options ^. #apply
     then do
       unless (options ^. #yes) (dieT "refusing to apply an upgrade without --yes")
@@ -3538,6 +3543,31 @@ runPlatformUpgrade mctx options = do
           readUpgradeTransaction txPath >>= either (const (pure ())) (printUpgradeTransaction (options ^. #json))
           dieT err
         Right planned -> printUpgradeTransaction (options ^. #json) planned
+
+guardLegacyUpgradeInventory :: ActiveTarget -> IO ()
+guardLegacyUpgradeInventory active = do
+  opened <- Inventory.openTargetStoreReadOnly active
+  case opened of
+    Left (InventoryStore.StoreConditionFailed "inventory store is not initialized") -> pure ()
+    Left err -> dieT ("could not verify inventory history before platform upgrade: " <> T.pack (show err))
+    Right store -> do
+      loaded <- InventoryPlan.loadInventoryHistory store
+      case loaded of
+        Left (InventoryStore.StoreConditionFailed "inventory store is not initialized") -> pure ()
+        Left err -> dieT ("could not verify inventory history before platform upgrade: " <> T.pack (show err))
+        Right history -> do
+          let headValue = InventoryPlan.historyHead history
+              hasHistory = InventoryStore.headGeneration headValue > 0
+                || InventoryStore.headSequence headValue > 0
+                || not (Map.null (InventoryPlan.historyAccepted history))
+                || not (Map.null (InventoryPlan.historyRetained history))
+                || not (Map.null (InventoryStore.headCollected headValue))
+                || InventoryStore.headActiveTransaction headValue /= Nothing
+          when hasHistory $
+            dieT
+              ( "this context has resource inventory history or transaction state; the legacy platform upgrade phases cannot safely mutate it. "
+                  <> "For a pending legacy transaction, retain its bundle and use the original operator payload for guarded recovery."
+              )
 
 -- The transaction stores all paths needed to resume without re-resolving a tag.
 platformWorkspaceFromTransaction :: UpgradeTransaction -> PlatformWorkspace

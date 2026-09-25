@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-25
+* **Fix**: State that coarse platform upgrades refuse contexts with reviewed inventory history until component-backed upgrade and recovery are integrated.
 * **Update**: Allow reviewed application, Service, and worker deployment of a separately published image when the typed config describes a Dockerfile or Nixpacks build.
 * **Update**: Route accepted database and broker restarts through reviewed StatefulSet scope updates with optional saved plans while preserving data companions.
 * **Fix**: Explain that direct portal sync refuses accepted or retained shared auth settings and uses reviewed application contributions for managed portals.

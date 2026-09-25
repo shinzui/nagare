@@ -11,13 +11,22 @@ generated:
 
 # Upgrades
 
-> **Status:** ✅ Supported procedure
+> **Status:** Supported only before a context has reviewed resource inventory history. Inventory-backed platform upgrades are still being integrated.
 
 Nagare treats the CLI, immutable platform payload, context, generated host
 flake, and cluster marker as one versioned release. `platform status` compares
 those five identities; `platform upgrade` stages and previews a new release,
 persists every phase, and advances the context only after the infrastructure,
 host, and cluster phases succeed.
+
+The existing upgrade transaction uses coarse Pulumi, host, and cluster phases.
+It refuses planning or applying when the selected context has substantive
+resource inventory history, because those phases do not record component
+receipts and could overwrite independently revised scopes. Keep the old
+context pin and transaction bundle for recovery with its original operator
+payload; do not rerun the coarse upgrade against managed scopes. The reviewed
+component upgrade procedure will replace this restriction when its integration
+and recovery checks are complete.
 
 Run cloud commands with the intended [target context](contexts.md) active. Keep
 the IAP path in [Accessing the host](accessing-the-host.md) available before a

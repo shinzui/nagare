@@ -17,6 +17,11 @@ provenance:
       at: 2026-09-17T04:04:49Z
       mode: "update"
       note: "Cascaded consequences of MasterPlan 23 API validation"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-25T20:16:27Z
+      mode: "implement"
+      note: "Started integration audit and guarded legacy upgrades for inventoried contexts"
 ---
 
 # Integrate resource inventories into upgrades and release verification
@@ -38,10 +43,34 @@ Release evidence archives the inventory, review, receipts, and final observation
 - [ ] M3: Run deterministic and disposable-context convergence/recovery scenarios.
 - [ ] M4: Archive release evidence, document recovery, and finish ADR distillation.
 
+2026-09-25: Integration audit found that `runPlatformUpgrade` still applies the
+coarse Pulumi, host, and whole-cluster phases, while EP-148 still has direct
+application/data mutation paths. As an interim M1 safety boundary, the legacy
+upgrade command now reads the selected context's inventory history before
+planning or applying and refuses if accepted, retained, collected, or active
+transaction evidence exists. The `nagarectl` executable builds. This does not
+complete M1: a component-backed upgrade path and legacy recovery compatibility
+are still required. The 818-test `nagarectl` suite, Haskell style check,
+strict user-documentation validation, and diff check passed.
+
 
 ## Surprises & Discoveries
 
-None yet; implementation has not started.
+2026-09-25: The current release workflow still creates a published release
+through `softprops/action-gh-release` after treating any failed `gh release
+view` call as absence. It has no provider-durable draft binding or recovery
+from partial asset uploads. The publication adapter must replace that path
+before release evidence can be claimed complete.
+
+2026-09-25: EP-148 remains open on full application membership, operational
+and data command cutover, and direct-path removal. This is a hard input to M2
+coverage completion, not evidence that EP-150 can exclude those commands.
+
+2026-09-25: The operator selected `tan-ng-labs` for later live rehearsal, but
+a read-only GCP check found a running `nagare-01` VM there and the saved `labs`
+context targets that name. Do not use that existing context or VM as a
+disposable fixture. A live scenario needs a separate, uniquely named context
+and exact resource identities before any write.
 
 
 ## Decision Log
@@ -51,6 +80,12 @@ None yet; implementation has not started.
 2026-09-16: Preserve the old context version until all required target components verify. An application change never advances that platform pin.
 
 2026-09-16: Validate release integration without publishing a release or upgrading a live operator context as an incidental implementation step.
+
+2026-09-25: Until upgrade phases use reviewed component receipts, refuse the
+legacy upgrade command for a context with substantive inventory history. A
+guarded refusal preserves the old context pin and prevents the coarse replay
+from bypassing accepted scope ownership; it does not migrate an existing
+transaction or claim M1 completion.
 
 
 ## Outcomes & Retrospective
