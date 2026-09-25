@@ -15,6 +15,8 @@ module Nagare.Database.Backup
   ( -- * Pure object-key / extension helpers
     dbBackupObjectPath
   , dbBackupKeyPrefix
+  , manualBackupJobName
+  , manualDatabaseJobName
   , backupExt
   , backupRawExt
 
@@ -42,6 +44,7 @@ import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
 import Data.Time (getCurrentTime)
 import Data.Yaml qualified as Y
@@ -62,6 +65,8 @@ import Nagare.Cluster.GcsJob
 import Nagare.Database.Discover (DbRow (..), getDatabase)
 import Nagare.Dsl.Database (Engine (..), dbSecretName, engineImage, parseEngine)
 import Nagare.Dsl.Prelude hiding ((.=))
+import Nagare.Resource.Canonical (contentDigest)
+import Nagare.Resource.Types (digestText)
 import Nagare.Storage.Snapshot (snapshotTimestamp, snapshotsToPrune)
 import System.Exit (ExitCode (..), exitFailure)
 import System.Environment (lookupEnv)
@@ -85,6 +90,23 @@ dbBackupObjectPath name timestamp ext =
 -- 'Nagare.Cluster.GcsJob.storePrefixUrl' to form the backend URL.
 dbBackupKeyPrefix :: Text -> Text
 dbBackupKeyPrefix name = "databases/" <> name <> "/"
+
+-- | Keep the timestamp in a one-off Job's native name even when the database
+-- name is long. A digest of the full database name distinguishes equal prefixes.
+manualBackupJobName :: Text -> Text -> Text
+manualBackupJobName = manualDatabaseJobName "nagare-dbbackup-"
+
+manualDatabaseJobName :: Text -> Text -> Text -> Text
+manualDatabaseJobName prefix databaseName timestamp =
+  T.toLower $
+    if T.length full <= 63
+      then full
+      else prefix <> T.take available databaseName <> suffix
+  where
+    full = prefix <> databaseName <> "-" <> timestamp
+    suffix = "-" <> T.take 20 (digestText (contentDigest (TE.encodeUtf8 databaseName)))
+      <> "-" <> timestamp
+    available = 63 - T.length prefix - T.length suffix
 
 -- | The final (gzipped) object extension per engine.
 backupExt :: Engine -> Text
@@ -367,32 +389,32 @@ renderDbBackupCronJob ns name eng version backend keep =
 -- 'snapshotsToPrune'), and (unless @--dry-run@) report the destination. With
 -- @--dry-run@, print the Job (and the CronJob) manifests and apply nothing.
 runDbBackup :: Text -> Text -> StoreBackend -> Int -> Bool -> IO ()
-runDbBackup ns name backend keep dryRun = do
+runDbBackup ns databaseName backend keep dryRun = do
   transaction <- lookupEnv "NAGARE_INVENTORY_TRANSACTION"
   when (isJust transaction) (die "db backup cannot run inside a reviewed inventory transaction")
-  erow <- getDatabase ns name
+  erow <- getDatabase ns databaseName
   case erow of
     Left err -> die err
     Right r -> case parseEngine (r ^. #engine) of
-      Nothing -> die ("database '" <> name <> "' has an unknown engine: " <> r ^. #engine)
+      Nothing -> die ("database '" <> databaseName <> "' has an unknown engine: " <> r ^. #engine)
       Just eng -> do
         now <- getCurrentTime
         let ts = snapshotTimestamp now
             ext = backupExt eng
             image = engineImage eng <> ":" <> r ^. #version
-            secret = dbSecretName name
-            dest = storeObjectUrl backend (dbBackupObjectPath name ts ext)
-            prefix = storePrefixUrl backend (dbBackupKeyPrefix name)
-            name = T.take 63 (T.toLower ("nagare-dbbackup-" <> name <> "-" <> ts))
+            secret = dbSecretName databaseName
+            dest = storeObjectUrl backend (dbBackupObjectPath databaseName ts ext)
+            prefix = storePrefixUrl backend (dbBackupKeyPrefix databaseName)
+            jobName = manualBackupJobName databaseName ts
             jobInputs =
               BackupJobInputs
                 { namespace = ns
-                , jobName = name
+                , jobName = jobName
                 , engine = eng
                 , clientImage = image
-                , serviceHost = name
+                , serviceHost = databaseName
                 , secretName = secret
-                , name = name
+                , name = databaseName
                 , destination = BackupDestUrl dest
                 , prefix = prefix
                 , keep = keep
@@ -401,10 +423,10 @@ runDbBackup ns name backend keep dryRun = do
                 }
             cronInputs =
               BackupCronInputs
-                { schedule = defaultBackupSchedule
-                , base =
-                    jobInputs
-                      & #jobName .~ "nagare-dbbackup-" <> name
+                  { schedule = defaultBackupSchedule
+                  , base =
+                      jobInputs
+                      & #jobName .~ "nagare-dbbackup-" <> databaseName
                       & #destination .~ BackupDestStamped
                       & #selfPrune .~ True
                 }
@@ -417,8 +439,8 @@ runDbBackup ns name backend keep dryRun = do
             BS.putStr (renderBackupCronJob cronInputs)
           else do
             applyJob (renderBackupJob jobInputs)
-            waitForJob ns name
-            run_ $ cmd "kubectl" & addArgs ["delete", "job", T.unpack name, "-n", T.unpack ns, "--ignore-not-found"]
+            waitForJob ns jobName
+            run_ $ cmd "kubectl" & addArgs ["delete", "job", T.unpack jobName, "-n", T.unpack ns, "--ignore-not-found"]
             -- Laptop-side prune uses @gsutil@ and the cloud bucket; in local mode
             -- the MinIO Service is in-cluster (unreachable from the laptop), so the
             -- on-demand prune is skipped and retention is left to the in-pod

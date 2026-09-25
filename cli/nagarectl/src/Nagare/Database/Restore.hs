@@ -38,7 +38,7 @@ import Nagare.Cluster.GcsJob
   , storeObjectUrl
   , storeShellPreamble
   )
-import Nagare.Database.Backup (backupExt, backupRawExt, dbBackupObjectPath)
+import Nagare.Database.Backup (backupExt, backupRawExt, dbBackupObjectPath, manualDatabaseJobName)
 import Nagare.Database.Discover (DbRow (..), getDatabase)
 import Nagare.Dsl.Database (Engine (..), dbSecretName, engineImage, parseEngine)
 import Nagare.Dsl.Prelude hiding ((.=))
@@ -211,29 +211,29 @@ warn False = ""
 
 -- | Run @db restore NAME BACKUP_ID@.
 runDbRestore :: Text -> Text -> Text -> Bool -> StoreBackend -> Bool -> IO ()
-runDbRestore ns name backupId live backend dryRun = do
+runDbRestore ns databaseName backupId live backend dryRun = do
   transaction <- lookupEnv "NAGARE_INVENTORY_TRANSACTION"
   when (isJust transaction) (die "db restore cannot run inside a reviewed inventory transaction")
-  erow <- getDatabase ns name
+  erow <- getDatabase ns databaseName
   case erow of
     Left err -> die err
     Right r -> case parseEngine (r ^. #engine) of
-      Nothing -> die ("database '" <> name <> "' has an unknown engine: " <> r ^. #engine)
+      Nothing -> die ("database '" <> databaseName <> "' has an unknown engine: " <> r ^. #engine)
       Just eng -> do
         now <- getCurrentTime
         let ts = snapshotTimestamp now
-            src = resolveBackupObject backend name (backupExt eng) backupId
+            src = resolveBackupObject backend databaseName (backupExt eng) backupId
             image = engineImage eng <> ":" <> r ^. #version
-            name = T.take 63 (T.toLower ("nagare-dbrestore-" <> name <> "-" <> ts))
+            jobName = manualDatabaseJobName "nagare-dbrestore-" databaseName ts
             inputs =
               RestoreJobInputs
                 { namespace = ns
-                , jobName = name
+                , jobName = jobName
                 , engine = eng
                 , clientImage = image
-                , serviceHost = name
-                , secretName = dbSecretName name
-                , name = name
+                , serviceHost = databaseName
+                , secretName = dbSecretName databaseName
+                , name = databaseName
                 , sourceUrl = src
                 , liveTarget = live
                 , backend = backend
@@ -244,12 +244,12 @@ runDbRestore ns name backupId live backend dryRun = do
             BS.putStr (renderRestoreJob inputs)
           else do
             applyJob (renderRestoreJob inputs)
-            waitForJob ns name
-            run_ $ cmd "kubectl" & addArgs ["logs", "job/" <> T.unpack name, "-n", T.unpack ns, "--tail", "50"]
-            run_ $ cmd "kubectl" & addArgs ["delete", "job", T.unpack name, "-n", T.unpack ns, "--ignore-not-found"]
+            waitForJob ns jobName
+            run_ $ cmd "kubectl" & addArgs ["logs", "job/" <> T.unpack jobName, "-n", T.unpack ns, "--tail", "50"]
+            run_ $ cmd "kubectl" & addArgs ["delete", "job", T.unpack jobName, "-n", T.unpack ns, "--ignore-not-found"]
             if live
-              then TIO.putStrLn ("Restored " <> name <> " from " <> src)
-              else TIO.putStrLn ("Restored " <> name <> " into a scratch target from " <> src <> " — compare, then promote manually.")
+              then TIO.putStrLn ("Restored " <> databaseName <> " from " <> src)
+              else TIO.putStrLn ("Restored " <> databaseName <> " into a scratch target from " <> src <> " — compare, then promote manually.")
 
 applyJob :: ByteString -> IO ()
 applyJob manifest = withSystemTempFile "nagare-dbrestore-job.yaml" $ \fp h -> do

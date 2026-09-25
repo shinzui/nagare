@@ -106,6 +106,8 @@ import Nagare.Database.Backup
   , dbBackupKeyPrefix
   , dbBackupObjectPath
   , defaultBackupSchedule
+  , manualBackupJobName
+  , manualDatabaseJobName
   , renderBackupCronJob
   , renderBackupJob
   , renderDbBackupCronJob
@@ -4836,6 +4838,18 @@ backupRestoreTests =
           dbBackupObjectPath "mydb" "20260610T141503Z" "sql.gz" @?= "databases/mydb/20260610T141503Z.sql.gz"
       , testCase "dbBackupKeyPrefix builds databases/<name>/" $
           dbBackupKeyPrefix "mydb" @?= "databases/mydb/"
+      , testCase "manual backup Job keeps database and timestamp identities" $ do
+          manualBackupJobName "mydb" "20260610T141503Z"
+            @?= "nagare-dbbackup-mydb-20260610t141503z"
+          let firstJob = manualBackupJobName (T.replicate 40 "a" <> "one") "20260610T141503Z"
+              secondJob = manualBackupJobName (T.replicate 40 "a" <> "two") "20260610T141503Z"
+          assertBool "long backup Job name exceeds the native limit" (T.length firstJob <= 63)
+          assertBool "backup Job loses its timestamp" (T.isSuffixOf "20260610t141503z" firstJob)
+          assertBool "distinct databases share a backup Job" (firstJob /= secondJob)
+          let restore = manualDatabaseJobName "nagare-dbrestore-"
+                (T.replicate 40 "a" <> "one") "20260610T141503Z"
+          assertBool "long restore Job name exceeds the native limit" (T.length restore <= 63)
+          assertBool "restore Job loses its timestamp" (T.isSuffixOf "20260610t141503z" restore)
       , testCase "backupExt per engine" $
           map backupExt [Postgres, Redis, ClickHouse] @?= ["sql.gz", "rdb.gz", "native.gz"]
       , testCase "backupRawExt per engine" $
