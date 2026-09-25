@@ -53,6 +53,21 @@ nagarectl app deploy --file nagare/Config.hs --tag v1 \
 nagarectl inventory apply app-review --yes
 ```
 
+For a standard create or update, omit `--save-plan` to publish and apply the
+same reviewed scope in one invocation:
+
+```bash
+nagarectl app deploy --file nagare/Config.hs --tag v1 \
+  --image-resource publication:app-image-app-v1/app-v1/oci-image
+```
+
+The command prints the published review digest and public operation summaries
+before execution. Apply reloads the immutable review from the context's
+inventory store, so interrupted work can resume from that evidence. Adoption,
+replacement, and resource retirement still require separate review decisions;
+the one-invocation route refuses them. It also requires the selected context's
+inventory store and accepted image publication.
+
 To preview the same supported scope without saving or publishing a review, use
 `--dry-run` with the same accepted image and recovery inputs. It reads the
 selected context's accepted inventory and prints resource identities and

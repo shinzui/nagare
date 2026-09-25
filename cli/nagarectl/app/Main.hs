@@ -1548,7 +1548,7 @@ appDeployOptsParser defaultFile =
     <*> optional
       (strOption (long "save-plan" <> metavar "FILE" <> help "Save a reviewed inventory plan for a prepublished-image application"))
     <*> optional
-      (strOption (long "image-resource" <> metavar "RESOURCE-ID" <> help "Accepted OCI image resource for reviewed --dry-run or --save-plan"))
+      (strOption (long "image-resource" <> metavar "RESOURCE-ID" <> help "Accepted OCI image resource for reviewed preview, saved plan, or live deploy"))
     <*> many
       (strOption (long "database-recovery" <> metavar "NAME=BACKUP:KEY_VERSION" <> help "Recovery binding for each reviewed application database"))
     <*> many
@@ -2998,13 +2998,15 @@ main = do
         Nothing -> do
           if o ^. #dryRun
             then runAppDeployPlan mctx (toAppDeployParams tp o) o ""
+            else if isJust (o ^. #imageResource)
+              then runAppDeployPlan mctx (toAppDeployParams tp o) o ""
             else do
-              when (isJust (o ^. #imageResource) || not (null (o ^. #databaseRecovery))
+              when (not (null (o ^. #databaseRecovery))
                   || not (null (o ^. #tlsSecretResources)) || not (null (o ^. #envSecretResources))
                   || not (null (o ^. #serviceVolumeRecovery)) || not (null (o ^. #workerVolumeRecovery))
                   || o ^. #requestNamespace || isJust (o ^. #legacyReleaseImport)
                   || isJust (o ^. #releaseAdoptionInput))
-                (dieT "inventory resource and recovery options require --save-plan or --dry-run")
+                (dieT "inventory resource and recovery options require --image-resource, --save-plan, or --dry-run")
               runAppDeployWithGuard (refuseDirectApplicationDeployIfOwned mctx) (toAppDeployParams tp o)
         Just output -> runAppDeployPlan mctx (toAppDeployParams tp o) o output
     AppImagePlan o -> runAppImagePlan mctx o
@@ -7648,6 +7650,10 @@ runAppDeployPlan mctx params appOptions output = do
     _ -> dieT "legacy release import requires both --legacy-release-import and --release-adoption-input"
   when (appOptions ^. #dryRun && isJust (appOptions ^. #savePlan))
     (dieT "--save-plan cannot be combined with --dry-run")
+  when (isNothing (appOptions ^. #savePlan)
+      && (isJust (appOptions ^. #legacyReleaseImport)
+          || isJust (appOptions ^. #releaseAdoptionInput)))
+    (dieT "legacy release adoption requires --save-plan and a separate reviewed apply")
   when (appOptions ^. #json && not (appOptions ^. #dryRun))
     (dieT "--json requires --dry-run for reviewed application output")
   when (isJust (appOptions ^. #contextOverride) || isJust (appOptions ^. #dockerfileOverride))
@@ -7803,12 +7809,16 @@ runAppDeployPlan mctx params appOptions output = do
               in TIO.putStrLn ("  " <> Resource.resourceIdText
                   (ResourceInventory.declarationId declaration)
                   <> "  " <> T.pack (show address))
-    else case adoption of
-      Nothing -> Inventory.planInventoryCandidateWith
+    else case (adoption, appOptions ^. #savePlan) of
+      (Nothing, Nothing) -> Inventory.convergeInventoryCandidateWith
+        (inventoryPlanRegistryWithNative active workspace native)
+        (inventoryExecutionRegistry mctx) active candidate
+      (Nothing, Just _) -> Inventory.planInventoryCandidateWith
         (inventoryPlanRegistryWithNative active workspace native) active candidate output
-      Just proposal -> Inventory.planInventoryCandidateAdoptionWith
+      (Just proposal, Just _) -> Inventory.planInventoryCandidateAdoptionWith
         (inventoryPlanRegistryWithNative active workspace native)
         active candidate proposal output
+      (Just _, Nothing) -> dieT "legacy release adoption requires --save-plan"
 
 validateInlineReleaseAdoption
   :: ResourceInventory.ScopeDeclaration -> Text -> InventoryLifecycle.AdoptionInput -> IO ()

@@ -9,6 +9,7 @@ module Nagare.Inventory.Command
   , planInventory
   , planInventoryWith
   , planInventoryCandidateWith
+  , convergeInventoryCandidateWith
   , planInventoryCandidateAdoptionWith
   , planInventoryAdoptionWith
   , planInventoryMigrationWith
@@ -327,6 +328,39 @@ planInventoryCandidateWithDecider
   -> (InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) LifecycleDecisions)
   -> ActiveTarget -> CompositionCandidate -> FilePath -> IO ()
 planInventoryCandidateWithDecider registryFor decide target candidate output = do
+  (_, bundle, digest) <- prepareInventoryCandidateWithDecider registryFor decide target candidate
+  _ <- writeReviewBundle output bundle >>= either dieText pure
+  TIO.putStrLn (digestText digest)
+
+-- | Apply a standard create/update review in the same invocation. The review
+-- is published first, then reloaded so execution has only immutable evidence.
+-- Lifecycle decisions still require a separately reviewed command.
+convergeInventoryCandidateWith
+  :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry)
+  -> (ReviewBundle -> IO AdapterRegistry)
+  -> ActiveTarget -> CompositionCandidate -> IO ()
+convergeInventoryCandidateWith planningRegistry executionRegistry target candidate = do
+  (store, _, digest) <- prepareInventoryCandidateWithDecider planningRegistry
+    (\_ _ -> Right noLifecycleDecisions) target candidate
+  bundle <- loadPublishedReview store digest >>= either (dieText . showText) pure
+  validateReviewTarget target (reviewContextBinding (reviewBundleDocument bundle))
+  TIO.putStrLn ("Published review " <> digestText digest)
+  forM_ (reviewOperations (reviewBundleDocument bundle))
+    (TIO.putStrLn . reviewPublicSummary)
+  registry <- executionRegistry bundle
+  snapshot <- readStoreSnapshot store >>= either (dieText . showText) pure
+  reviewed <- either (dieText . showText . NE.toList) pure (verifyReview snapshot bundle)
+  result <- applyReviewed store registry reviewed >>= either (dieText . showText . NE.toList) pure
+  TIO.putStrLn (renderTransactionResult result)
+  case result of
+    Converged _ -> pure ()
+    _ -> exitFailure
+
+prepareInventoryCandidateWithDecider
+  :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry)
+  -> (InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) LifecycleDecisions)
+  -> ActiveTarget -> CompositionCandidate -> IO (InventoryStore, ReviewBundle, ContentDigest)
+prepareInventoryCandidateWithDecider registryFor decide target candidate = do
   rejectReentry
   validateTarget target candidate
   store <- openTargetStore target
@@ -342,8 +376,7 @@ planInventoryCandidateWithDecider registryFor decide target candidate output = d
   snapshot <- readStoreSnapshot store >>= either (dieText . showText) pure
   bundle <- prepareReview registry snapshot proposal >>= either (dieText . showText . NE.toList) pure
   digest <- publishReview store bundle >>= either (dieText . showText) pure
-  _ <- writeReviewBundle output bundle >>= either dieText pure
-  TIO.putStrLn (digestText digest)
+  pure (store, bundle, digest)
 
 applyInventory :: ActiveTarget -> FilePath -> Bool -> IO ()
 applyInventory = applyInventoryWith executionBlockedRegistry

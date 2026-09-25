@@ -34,9 +34,11 @@ import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedAccessB
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps (..), KubernetesMutation (..), KubernetesState (..), mkKubernetesAdapter)
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), mkKubernetesRuntimeOps)
+import Nagare.Inventory.Command (convergeInventoryCandidateWith, loadTargetSnapshot)
 import Nagare.Inventory.DataService (compileStandaloneBroker, compileStandaloneDatabase)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
+import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
@@ -44,9 +46,10 @@ import Nagare.Dsl.Broker (BrokerBinding (..), mkTopicName)
 import Nagare.Dsl.Access (authPortal, requireLogin)
 import Nagare.Resource.Application (applicationScopeId, volumeResourceId)
 import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
-import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (..), ManagedResource (..), DesiredSpec (KnativeService), Contribution (RegisterBackend, RegisterNamespace), ContributionGrant (BackendMapGrant, NamespaceGrant, ShomeiSettingsGrant), ScopeChange (ReplaceScope), backendMapResourceId, candidateGenerations, candidateInventory, composeInventory, contributionResourceId, declarationId, inventoryDeclarations, inventoryScopes, mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeConfigDigest, scopeId, scopeOverrides, shomeiSettingsResourceId)
-import Nagare.Resource.Wire (decodeScope, encodeCanonicalScope)
-import Nagare.Resource.Policy (RecoveryIntent (..), mkSecretRef)
+import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (..), ManagedResource (..), DesiredSpec (KnativeService), Contribution (RegisterBackend, RegisterNamespace), ContributionGrant (BackendMapGrant, NamespaceGrant, ShomeiSettingsGrant), ScopeChange (ReplaceScope), backendMapResourceId, candidateGenerations, candidateInventory, composeInventory, contributionResourceId, declarationId, inventoryDeclarations, inventoryScopes, mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeConfigDigest, scopeId, scopeOverrides, shomeiSettingsResourceId, snapshotScopes)
+import Nagare.Resource.Wire (canonicalValue, decodeScope, encodeCanonicalScope)
+import Nagare.Resource.Kubernetes (KubernetesInput (..))
+import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (DeleteWhenUnreferenced), RecoveryIntent (..), Sensitivity (Private), mkSecretRef)
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Dsl.Load (loadApplication, loadBroker)
@@ -58,10 +61,11 @@ import Nagare.Deploy (serviceUrl)
 import Nagare.Static.Release (StaticRelease (..), StaticReleaseLog (..), addRelease, emptyReleaseLog, renderReleaseConfigMapWith)
 import Nagare.Dsl.Presets (attachVolume)
 import Nagare.Env.Generated (mergeGenerated)
-import Nagare.Target (InventoryStoreKind (..), Mode (..), PulumiBackendKind (..), TargetProfile (..))
+import Nagare.Target (ActiveTarget (..), InventoryStoreKind (..), Mode (..), PulumiBackendKind (..), TargetProfile (..), mkContextName)
 import System.Exit (ExitCode (..))
 import System.Directory (doesFileExist)
-import System.Environment (lookupEnv)
+import System.Environment (lookupEnv, setEnv, unsetEnv)
+import System.IO.Temp (withSystemTempDirectory)
 import System.Process (readProcessWithExitCode)
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -72,6 +76,7 @@ appDeployTests =
     "Nagare.App.Deploy (EP-2)"
     [ testGroup "render + shared label (M1)" renderTests
     , testCase "disposable application review resumes from saved native members" nativeApplicationReview
+    , testCase "reviewed command publishes and applies its immutable review" commandReview
     , testGroup "rollout phases (M2)" phaseTests
     , testGroup "machine-readable plan (M3)" planTests
     , testGroup "remediation guardrails (EP-6)" remediationTests
@@ -126,6 +131,78 @@ testProfile =
     , acmeDirectory = "production"
     , platformVersion = Nothing
     }
+
+-- Run separately with NAGARE_EP148_TEST_COMMAND=1: XDG_STATE_HOME is process
+-- global, so the temporary command store must not race the parallel suite.
+commandReview :: IO ()
+commandReview = do
+  enabled <- lookupEnv "NAGARE_EP148_TEST_COMMAND"
+  case enabled of
+    Nothing -> pure ()
+    Just _ -> withSystemTempDirectory "ep148-command" $ \directory -> do
+      previous <- lookupEnv "XDG_STATE_HOME"
+      setEnv "XDG_STATE_HOME" directory
+      let restore = case previous of
+            Nothing -> unsetEnv "XDG_STATE_HOME"
+            Just previousDirectory -> setEnv "XDG_STATE_HOME" previousDirectory
+      run `finally` restore
+  where
+    checked :: Show e => Either e a -> a
+    checked = either (error . show) id
+    owner = checked (Resource.mkScopeId Resource.Application "command-fixture")
+    foundation = checked (Resource.mkScopeId Resource.Platform "foundation")
+    cluster = Resource.mintResourceId foundation
+      (checked (Resource.mkLogicalKey "cluster")) (checked (Resource.mkName "resource"))
+    resource = Resource.mintResourceId owner
+      (checked (Resource.mkLogicalKey "config")) (checked (Resource.mkName "configmap"))
+    context = checked (Resource.mkContextId "ep148-command")
+    binding = Resource.ContextBinding context (checked (Resource.mkName "project"))
+    target = ActiveTarget (checked (mkContextName "ep148-command"))
+      (testProfile & #project .~ "project" & #mode .~ Local)
+    source = Resource.SourceLocation "absent-source/Config.hs" "command"
+    value = Aeson.object
+      [ "apiVersion" Aeson..= ("v1" :: Text)
+      , "kind" Aeson..= ("ConfigMap" :: Text)
+      , "metadata" Aeson..= Aeson.object
+          ["name" Aeson..= ("ep148-command" :: Text)
+          , "namespace" Aeson..= ("default" :: Text)]
+      , "data" Aeson..= Aeson.object ["key" Aeson..= ("value" :: Text)]
+      ]
+    bytes = checked (canonicalValue value)
+    (member, native) = checked (bindKubernetesObject
+      (KubernetesInput resource owner cluster value (contentDigest bytes)
+        DeleteWhenUnreferenced Stateless Private source))
+    scope = checked (mkScopeDeclaration owner
+      [ResourceBundle [Managed member] [] [] [] [] []])
+    accepted = checked (mkScopeSnapshot binding Map.empty Map.empty)
+    candidate = checked (composeInventory accepted (ReplaceScope scope :| []))
+    run = do
+      observed <- newIORef Map.empty
+      writes <- newIORef (0 :: Int)
+      let operations = KubernetesAdapterOps
+            { kubernetesContext = context
+            , kubernetesObserve = \identity -> do
+                states <- readIORef observed
+                pure (Map.findWithDefault (KubernetesAbsent (contentDigest "absent"))
+                  identity states)
+            , kubernetesMutateConditional = \mutation -> do
+                let identity = mutationResource mutation
+                    physical = checked (Resource.mkPhysicalIdentity "uid-ep148-command")
+                modifyIORef' observed (Map.insert identity
+                  (KubernetesPresent physical "1" (Just identity) (mutationNativeDigest mutation)))
+                modifyIORef' writes (+ 1)
+                pure AdapterEffectCompleted
+            }
+          registryFor specs = checked (mkAdapterRegistry [mkKubernetesAdapter specs operations])
+          planRegistry _ _ = pure (registryFor (Map.singleton resource (member, native)))
+          applyRegistry reviewBundle = pure
+            (registryFor (checked (kubernetesSpecsFromReview reviewBundle)))
+      doesFileExist "absent-source/Config.hs" >>= (@?= False)
+      convergeInventoryCandidateWith planRegistry applyRegistry target candidate
+      readIORef writes >>= (@?= 1)
+      snapshot <- loadTargetSnapshot target
+      assertBool "single-invocation review did not accept the scope"
+        (Map.member owner (snapshotScopes snapshot))
 
 nativeApplicationReview :: IO ()
 nativeApplicationReview = do
