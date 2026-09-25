@@ -130,6 +130,8 @@ Implementation evidence is recorded in the commits linked to this plan and in Su
 
 2026-09-24: A retained central DomainMapping can be unready when its origin is gone. The collection planner already classified an owned unready object with matching bytes as present, but Kubernetes mutation preparation rejected it. Conditional collection now accepts that unready state only for an exact owned UID, nonempty resourceVersion, and matching native digest; stale resourceVersion preflight still refuses. A recording regression covers the complete adapter operation. Creation and declared Job verification continue to require readiness.
 
+2026-09-24: The legacy application/static release-history reader treated every nonzero `kubectl get` as an absent ConfigMap. A permission, context, or transport failure could therefore turn a later deploy into a fresh empty log. It now uses `--ignore-not-found`, accepts only a successful empty response as absence, and returns an error for all failed reads. A regression keeps an existing log from being interpreted as empty on failure. Full reviewed release metadata declaration and import are still open.
+
 ## Decision Log
 
 2026-09-16: Preserve separately submitted environment/secret intent across configuration deploys. Inputs are explicit versioned intent channels composed into one owner declaration, not live cluster data silently copied into desired state.

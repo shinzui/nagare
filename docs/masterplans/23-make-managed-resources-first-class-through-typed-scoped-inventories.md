@@ -518,3 +518,5 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 2026-09-24: A disposable `k3d-nagare-inventory-ep147` DomainMapping refused collection with a stale resourceVersion and accepted deletion with the exact UID/resourceVersion through the namespaced serving API. Absence was confirmed and the temporary namespace was removed. This validates the EP-148 native transport form; the full retained inventory collection and EP-150 gate remain open.
 
 2026-09-24: EP-148 corrected retained Kubernetes collection of unready central access DomainMappings. An owned route with exact native digest and UID may be deleted using its reviewed resourceVersion even when its origin has failed; a changed resourceVersion still refuses. The 782-test CLI suite passes. Other EP-148 milestones and EP-150 remain open.
+
+2026-09-24: EP-148 changed the legacy release-history read to distinguish a confirmed missing ConfigMap from any failed Kubernetes read. This closes a history-loss path during application/static deployment while reviewed release metadata and migration remain open.

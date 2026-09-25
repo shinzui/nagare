@@ -27,6 +27,7 @@ module Nagare.Static.Release
   , formatReleasesTable
   , readReleaseLog
   , readReleaseLogWith
+  , decodeReleaseLogRead
   , writeReleaseLog
   , writeReleaseLogWith
   , recordReleaseFor
@@ -241,9 +242,9 @@ formatReleasesTable logv
 -- kubectl IO
 
 -- | Read the history log for @subject@ in @ns@ from the ConfigMap named by
--- @prefix@ via @kubectl get configmap <name> -n <ns> -o json@. A missing
--- ConfigMap (non-zero exit) is an empty log; a present-but-malformed one is a
--- 'Left' error.
+-- @prefix@ via @kubectl get configmap <name> -n <ns> -o json
+-- --ignore-not-found@. Only a confirmed missing ConfigMap is an empty log;
+-- permission, context, and transport failures must not erase earlier history.
 readReleaseLogWith :: Text -> Text -> Text -> IO (Either Text StaticReleaseLog)
 readReleaseLogWith prefix subject ns = do
   (exitCode, StdoutRaw out) <-
@@ -257,11 +258,16 @@ readReleaseLogWith prefix subject ns = do
           , T.unpack ns
           , "-o"
           , "json"
+          , "--ignore-not-found"
           ]
         & silenceStderr
-  pure $ case exitCode of
-    ExitFailure _ -> Right emptyReleaseLog
-    ExitSuccess -> extractReleaseLog out
+  pure (decodeReleaseLogRead exitCode out)
+
+decodeReleaseLogRead :: ExitCode -> ByteString -> Either Text StaticReleaseLog
+decodeReleaseLogRead exitCode out = case exitCode of
+  ExitFailure _ -> Left "could not read release history ConfigMap"
+  ExitSuccess | BS.null out -> Right emptyReleaseLog
+  ExitSuccess -> extractReleaseLog out
 
 -- | Read the release log for @site@ in @ns@. A missing ConfigMap is an empty
 -- log; a present-but-malformed one is a 'Left' error.

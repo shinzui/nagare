@@ -3502,6 +3502,16 @@ releaseTests =
       case extractReleaseLog "{\"apiVersion\":\"v1\",\"kind\":\"ConfigMap\",\"metadata\":{}}" of
         Right back -> back @?= emptyReleaseLog
         Left e -> assertFailure ("expected empty log, got error: " <> T.unpack e)
+  , testCase "release history read distinguishes absence from provider failure" $ do
+      decodeReleaseLogRead ExitSuccess "" @?= Right emptyReleaseLog
+      let existing = renderReleaseConfigMap "notes" "personal"
+            (addRelease (release "a" t1) emptyReleaseLog)
+      case decodeReleaseLogRead (ExitFailure 1) existing of
+        Left _ -> pure ()
+        Right _ -> assertFailure "failed ConfigMap read replaced the history with an empty log"
+      case decodeReleaseLogRead ExitSuccess existing of
+        Right logv -> logv ^. #current @?= Just "a"
+        Left err -> assertFailure (T.unpack err)
   , testCase "configMapName is prefixed per site" $
       configMapName "notes" @?= "nagare-static-releases-notes"
   ]
