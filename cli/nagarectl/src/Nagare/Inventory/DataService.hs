@@ -10,6 +10,7 @@ module Nagare.Inventory.DataService
   , dataCommandNativeOwned
   , databaseNativeOwned
   , brokerNativeOwned
+  , brokerTopicChangeRequiresReview
   , acceptedFoundationNamespace
   ) where
 
@@ -147,6 +148,21 @@ standaloneRetirementScope kind name namespaceName pinnedKey snapshot = do
   unless (length statefulSets == 1)
     (Left "accepted standalone scope has no unique StatefulSet for that name and namespace")
   pure owner
+
+-- | Data-policy changes need a saved review and a separate apply. Initial
+-- broker creation can still use the single-invocation reviewed path.
+brokerTopicChangeRequiresReview :: ScopeDeclaration -> ScopeDeclaration -> Bool
+brokerTopicChangeRequiresReview desired accepted =
+  any (\(resourceId, specification) -> Map.lookup resourceId oldTopics /= Just specification)
+    (Map.toAscList newTopics)
+  where
+    topics scope = Map.fromList
+      [(resource ^. #identity, resource ^. #spec)
+      | bundle <- scopeBundles scope
+      , Managed resource <- declarations bundle
+      , resource ^. #executor == BrokerExecutor]
+    oldTopics = topics accepted
+    newTopics = topics desired
 
 -- | Match the native workload address, independent of display or scope key.
 -- Callers supply resources from both accepted and retained history.

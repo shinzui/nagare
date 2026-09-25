@@ -281,7 +281,7 @@ import Nagare.Inventory.Application (ApplicationScopeInput (..), DatabaseBinding
 import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteReleaseLog, acceptedSiteSource, compileServerSitePreviewScope, compileServerSiteRollbackScope, compileServerSiteScope, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteScope, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteNativeOwned, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
 import Nagare.Inventory.TaskRun (compileTaskRunScope)
 import Nagare.Inventory.Lifecycle qualified as InventoryLifecycle
-import Nagare.Inventory.DataService (NativeDataKind (..), acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, compileStandaloneDatabase, dataCommandNativeOwned, databaseNativeOwned, standaloneRetirementScope)
+import Nagare.Inventory.DataService (NativeDataKind (..), acceptedFoundationNamespace, brokerNativeOwned, brokerTopicChangeRequiresReview, compileStandaloneBroker, compileStandaloneDatabase, dataCommandNativeOwned, databaseNativeOwned, standaloneRetirementScope)
 import Nagare.Inventory.Environment (acceptedEnvChannelValues, acceptedSecretChannelValues, compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
 import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
@@ -4714,7 +4714,10 @@ runInventoryStatus mctx requested json gcOutput = do
     (inventoryHostAdapter active workspace) hostInputs
   (cache, cacheKey) <- inventoryCacheAdapter active workspace binding cacheSpecs
   broker <- inventoryBrokerAdapter active binding topicSpecs
-    (acceptedTopicIds history `Set.union` Set.fromList (retainedIds ResourceInventory.BrokerExecutor))
+    (Map.union (acceptedTopicResources history)
+      (Map.fromList [(resource, declaration)
+        | (resource, (_, declaration)) <- Map.toAscList (InventoryPlan.historyRetained history)
+        , declaration ^. #executor == ResourceInventory.BrokerExecutor]))
   kubernetes <- inventoryKubernetesAdapter active binding
     cacheKey kubernetesNative
   helm <- inventoryHelmAdapter active workspace binding helmNative
@@ -5157,10 +5160,10 @@ inventoryExecutionRegistry mctx bundle = do
           else pure (inventoryArtifactAdapter active workspace artifactSpecs)
       host <- maybe (pure (Inventory.executionBlockedAdapterFor ResourceInventory.HostExecutor)) (inventoryHostAdapter active workspace) hostInputs
       (cache, cacheKey) <- inventoryCacheAdapter active workspace binding cacheSpecs
-      acceptedTopics <- if Map.null topicSpecs then pure Set.empty else do
+      acceptedTopics <- if Map.null topicSpecs then pure Map.empty else do
         historyStore <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
         history <- InventoryPlan.loadInventoryHistory historyStore >>= either (dieT . T.pack . show) pure
-        pure (acceptedTopicIds history)
+        pure (acceptedTopicResources history)
       broker <- inventoryBrokerAdapter active binding topicSpecs acceptedTopics
       kubernetes <- inventoryKubernetesAdapter active binding cacheKey kubernetesSpecs
       helm <- inventoryHelmAdapter active workspace binding allHelmSpecs
@@ -5252,7 +5255,7 @@ inventoryPlanRegistryWithNative active workspace suppliedNative candidate histor
     then pure (Inventory.manifestAdapterFor history ResourceInventory.CacheExecutor, \_ -> pure (Left "cache output resolver is not installed"))
     else inventoryCacheAdapter active workspace (ResourceInventory.inventoryBinding inventory) cacheSpecs
   broker <- inventoryBrokerAdapter active (ResourceInventory.inventoryBinding inventory)
-    topicSpecs (acceptedTopicIds history)
+    topicSpecs (acceptedTopicResources history)
   kubernetes <- if Map.null kubernetesSpecs
     then pure (Inventory.manifestAdapterFor history ResourceInventory.KubernetesExecutor)
     else inventoryKubernetesAdapter active (ResourceInventory.inventoryBinding inventory) cacheKey kubernetesSpecs
@@ -5303,9 +5306,9 @@ inventoryCacheAdapter active workspace binding specs
             }
       pure (mkCacheAdapter specs (CacheRuntime.mkCacheRuntimeOps config), CacheRuntime.cachePublicKeyForResource config)
 
-acceptedTopicIds :: InventoryPlan.InventoryHistory -> Set.Set Resource.ResourceId
-acceptedTopicIds history = Set.fromList
-  [ resource ^. #identity
+acceptedTopicResources :: InventoryPlan.InventoryHistory -> Map.Map Resource.ResourceId ResourceInventory.ManagedResource
+acceptedTopicResources history = Map.fromList
+  [ (resource ^. #identity, resource)
   | (_, (_, scope)) <- Map.toAscList (InventoryPlan.historyAccepted history)
   , bundle <- ResourceInventory.scopeBundles scope
   , ResourceInventory.Managed resource <- ResourceInventory.declarations bundle
@@ -5313,7 +5316,8 @@ acceptedTopicIds history = Set.fromList
   ]
 
 inventoryBrokerAdapter :: ActiveTarget -> Resource.ContextBinding
-  -> Map.Map Resource.ResourceId TopicBinding -> Set.Set Resource.ResourceId
+  -> Map.Map Resource.ResourceId TopicBinding
+  -> Map.Map Resource.ResourceId ResourceInventory.ManagedResource
   -> IO InventoryAdapter.Adapter
 inventoryBrokerAdapter active binding specs accepted
   | Map.null specs = pure (Inventory.executionBlockedAdapterFor ResourceInventory.BrokerExecutor)
@@ -8310,6 +8314,9 @@ runBrokerCreatePlan mctx provider name params backupName keyName keyVersion outp
   (cluster, namespaceId) <- either dieT pure (acceptedFoundationNamespace snapshot namespaceName)
   (scope, native) <- either (dieT . T.pack . show) pure
     (compileStandaloneBroker broker owner cluster namespaceId recovery source)
+  when (isNothing output && maybe False (brokerTopicChangeRequiresReview scope . snd)
+      (Map.lookup owner (ResourceInventory.snapshotScopes snapshot)))
+    (dieT "changing an accepted broker topic requires --save-plan and a separate reviewed inventory apply")
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
   case output of

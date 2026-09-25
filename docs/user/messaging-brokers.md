@@ -91,11 +91,17 @@ key reference. The plan requires an accepted platform Namespace bound to the
 selected cluster identity. A `--config` broker must match the command's
 provider and name. A declared topic receives its own broker-scoped ownership
 claim and is created only after the StatefulSet is ready. An existing topic is
-not adopted by name. Changing a topic's settings in place needs a separate
-reviewed capability; the current reviewed path refuses that change. If topic
-creation loses its acknowledgement, inventory recovery does not assume the
-matching topic is the same incarnation; inspect and resolve the uncertain
-transaction before another apply.
+not adopted by name. A later reviewed `broker create` with the same stable
+broker and topic identities can change an explicit `--topic-retention-ms` value
+to another explicit value. Save that change with `--save-plan` and apply the
+review separately; the one-invocation route refuses accepted topic changes.
+The review checks the previously accepted setting
+against the live topic before applying `rpk topic alter-config`. Partition and
+replica changes, and adding or removing the explicit retention override, still
+refuse. Shortening retention can make older records eligible for deletion.
+If topic creation or retention update loses its acknowledgement, inventory
+recovery does not assume the matching topic is the same incarnation; inspect
+and resolve the uncertain transaction before another apply.
 
 ```text
 events.personal.svc.cluster.local:9092

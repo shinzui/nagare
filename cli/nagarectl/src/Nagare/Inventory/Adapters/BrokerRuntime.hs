@@ -20,6 +20,7 @@ import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Broker
+import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
 import Nagare.Resource.Types
 import System.Exit (ExitCode (..))
 import System.Process (proc, readCreateProcessWithExitCode)
@@ -34,6 +35,7 @@ topicRuntimeOps :: TopicRuntimeConfig -> TopicAdapterOps
 topicRuntimeOps config = TopicAdapterOps
   { topicInspect = inspect
   , topicCreate = create
+  , topicAlterRetention = alterRetention
   }
   where
     inspect resource = case Map.lookup resource (topicRuntimeSpecs config) of
@@ -66,6 +68,15 @@ topicRuntimeOps config = TopicAdapterOps
         pure (case result of
           Right _ -> AdapterEffectCompleted
           Left reason -> AdapterEffectAmbiguous reason)
+    alterRetention plan = case (Map.lookup (topicPlanResource plan) (topicRuntimeSpecs config), topicPlanRetentionMs plan) of
+      (Just binding, Just milliseconds) -> do
+        result <- runRpk config binding
+          ["topic", "alter-config", nameText (topicPlanName plan),
+            "--set", "retention.ms=" <> tshow milliseconds]
+        pure (case result of
+          Right _ -> AdapterEffectCompleted
+          Left reason -> AdapterEffectAmbiguous reason)
+      _ -> pure (AdapterEffectFailed (KnownNoEffect "reviewed topic retention target is absent"))
 
 runRpk :: TopicRuntimeConfig -> TopicBinding -> [Text] -> IO (Either Text BS.ByteString)
 runRpk config binding args = runKubectl config

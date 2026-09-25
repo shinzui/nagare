@@ -16,8 +16,6 @@ import Data.Generics.Labels ()
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Set (Set)
-import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -48,6 +46,7 @@ data TopicMutationPlan = TopicMutationPlan
   , topicPlanPartitions :: !Int
   , topicPlanReplicas :: !Int
   , topicPlanRetentionMs :: !(Maybe Int)
+  , topicPlanPreviousRetentionMs :: !(Maybe Int)
   } deriving stock (Eq, Show, Generic)
 
 data TopicObservation
@@ -59,6 +58,7 @@ data TopicObservation
 data TopicAdapterOps = TopicAdapterOps
   { topicInspect :: !(ResourceId -> IO TopicObservation)
   , topicCreate :: !(TopicMutationPlan -> IO AdapterExecution)
+  , topicAlterRetention :: !(TopicMutationPlan -> IO AdapterExecution)
   }
 
 topicSpecsFromDeclarations :: [Declaration] -> Either Text (Map ResourceId TopicBinding)
@@ -81,7 +81,7 @@ topicSpecsFromDeclarations declarations = Map.fromList <$> traverse bind topics
         _ -> Left "topic broker StatefulSet is absent from the inventory"
       _ -> Left "broker executor resource lacks a logical topic specification"
 
-mkTopicAdapter :: Set ResourceId -> Map ResourceId TopicBinding -> TopicAdapterOps -> Adapter
+mkTopicAdapter :: Map ResourceId ManagedResource -> Map ResourceId TopicBinding -> TopicAdapterOps -> Adapter
 mkTopicAdapter accepted specs ops = Adapter
   { adapterExecutor = BrokerExecutor
   , adapterIdentity = "reviewed-redpanda-topic"
@@ -90,10 +90,10 @@ mkTopicAdapter accepted specs ops = Adapter
       entries <- traverse observe resources
       pure (sequence entries >>= observationSet)
   , adapterPrepare = \operation -> pure $ do
-      plan <- first (PrepareRefused (plannedOperationId operation)) (planFor specs operation)
+      plan <- first (PrepareRefused (plannedOperationId operation)) (planFor accepted specs operation)
       bytes <- first (PrepareRefused (plannedOperationId operation)) (canonicalValue (toJSON plan))
-      pure (PreparedNative bytes ("create or verify broker topic " <> nameText (topicPlanName plan)))
-  , adapterPreflight = \operation prepared -> case decodePlan specs operation (preparedNativeBytes prepared) of
+      pure (PreparedNative bytes (summary plan))
+  , adapterPreflight = \operation prepared -> case decodePlan accepted specs operation (preparedNativeBytes prepared) of
       Left reason -> pure (Left reason)
       Right plan -> do
         fact <- topicInspect ops (topicPlanResource plan)
@@ -101,10 +101,14 @@ mkTopicAdapter accepted specs ops = Adapter
           (CreateResource, TopicMissing) -> Right ()
           (VerifyResource, TopicPresent _ partitions replicas retention)
             | matches plan partitions replicas retention -> Right ()
+          (UpdateResource, TopicPresent _ partitions replicas retention)
+            | partitions == topicPlanPartitions plan
+            , replicas == topicPlanReplicas plan
+            , retention == topicPlanPreviousRetentionMs plan -> Right ()
           (_, TopicUnavailable reason) -> Left reason
           (CreateResource, TopicPresent {}) -> Left "topic already exists and has no reviewed ownership"
           _ -> Left "topic observation differs from the reviewed action")
-  , adapterExecute = \operation prepared -> case decodePlan specs operation (preparedNativeBytes prepared) of
+  , adapterExecute = \operation prepared -> case decodePlan accepted specs operation (preparedNativeBytes prepared) of
       Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
       Right plan -> case topicPlanAction plan of
         VerifyResource -> pure AdapterEffectCompleted
@@ -114,8 +118,17 @@ mkTopicAdapter accepted specs ops = Adapter
             TopicMissing -> topicCreate ops plan
             TopicPresent {} -> pure (AdapterEffectFailed (KnownNoEffect "topic appeared before reviewed creation"))
             TopicUnavailable reason -> pure (AdapterEffectAmbiguous reason)
+        UpdateResource -> do
+          fact <- topicInspect ops (topicPlanResource plan)
+          case fact of
+            TopicPresent _ partitions replicas retention
+              | partitions == topicPlanPartitions plan
+              , replicas == topicPlanReplicas plan
+              , retention == topicPlanPreviousRetentionMs plan -> topicAlterRetention ops plan
+            TopicUnavailable reason -> pure (AdapterEffectAmbiguous reason)
+            _ -> pure (AdapterEffectFailed (KnownNoEffect "topic no longer matches the reviewed previous retention"))
         _ -> pure (AdapterEffectFailed (KnownNoEffect "topic action is unsupported"))
-  , adapterVerify = \operation prepared -> case decodePlan specs operation (preparedNativeBytes prepared) of
+  , adapterVerify = \operation prepared -> case decodePlan accepted specs operation (preparedNativeBytes prepared) of
       Left reason -> pure (Left reason)
       Right plan -> do
         fact <- topicInspect ops (topicPlanResource plan)
@@ -126,12 +139,14 @@ mkTopicAdapter accepted specs ops = Adapter
           TopicMissing -> Left "topic is absent after reviewed execution"
           TopicPresent {} -> Left "topic settings differ from review"
           TopicUnavailable reason -> Left reason)
-  , adapterRecover = \operation prepared -> case decodePlan specs operation (preparedNativeBytes prepared) of
+  , adapterRecover = \operation prepared -> case decodePlan accepted specs operation (preparedNativeBytes prepared) of
       Left reason -> pure (RecoveryUnresolved reason)
       Right plan -> do
         fact <- topicInspect ops (topicPlanResource plan)
         pure (case fact of
           TopicMissing | topicPlanAction plan == CreateResource -> RecoverySafeToRetry
+          _ | topicPlanAction plan == UpdateResource ->
+            RecoveryUnresolved "topic retention update may have taken effect; inspect the journal and topic before recovery"
           TopicPresent physical partitions replicas retention
             | topicPlanAction plan == VerifyResource
             , matches plan partitions replicas retention -> RecoveryProvedComplete (proof plan physical)
@@ -147,7 +162,7 @@ mkTopicAdapter accepted specs ops = Adapter
         pure $ case fact of
           TopicMissing -> Right (resource, ConfirmedAbsent (contentDigest (TE.encodeUtf8 (resourceIdText resource <> ":absent"))))
           TopicPresent physical partitions replicas retention
-            | Set.notMember resource accepted -> Right (resource, ObservedUnowned physical)
+            | Map.notMember resource accepted -> Right (resource, ObservedUnowned physical)
             | otherwise -> case topicDeclaration binding ^. #spec of
                 LogicalBrokerTopic wantedPartitions wantedReplicas wantedRetention
                   | wantedPartitions == partitions && wantedReplicas == replicas
@@ -155,9 +170,15 @@ mkTopicAdapter accepted specs ops = Adapter
                       Right (resource, ObservedPresent physical)
                 _ -> Right (resource, ObservedDrifted physical (contentDigest (TE.encodeUtf8 (T.pack (show (partitions, replicas, retention))))))
           TopicUnavailable reason -> Right (resource, ObservationUnavailable reason)
+    summary plan = case topicPlanAction plan of
+      UpdateResource -> "change broker topic " <> nameText (topicPlanName plan)
+        <> " retention.ms from " <> renderRetention (topicPlanPreviousRetentionMs plan)
+        <> " to " <> renderRetention (topicPlanRetentionMs plan)
+      _ -> "review broker topic " <> nameText (topicPlanName plan)
+    renderRetention = maybe "inherited" (T.pack . show)
 
-planFor :: Map ResourceId TopicBinding -> PlannedOperation -> Either Text TopicMutationPlan
-planFor specs operation = do
+planFor :: Map ResourceId ManagedResource -> Map ResourceId TopicBinding -> PlannedOperation -> Either Text TopicMutationPlan
+planFor accepted specs operation = do
   resource <- case NE.toList (plannedResources operation) of
     [single] -> Right single
     _ -> Left "topic operation must affect exactly one topic"
@@ -166,15 +187,26 @@ planFor specs operation = do
       (topicDeclaration binding ^. #address, topicDeclaration binding ^. #spec) of
     (BrokerTopic target topicName, LogicalBrokerTopic p r ms) -> Right (target, topicName, p, r, ms)
     _ -> Left "topic declaration has an invalid address or specification"
-  unless (plannedAction operation `elem` [CreateResource, VerifyResource])
-    (Left "topic replacement, adoption, update, and retirement need a separate reviewed capability")
-  pure (TopicMutationPlan 1 (plannedOperationId operation) (plannedAction operation)
-    (plannedInputDigest operation) resource broker name partitions replicas retention)
+  previousRetention <- case plannedAction operation of
+    UpdateResource -> case Map.lookup resource accepted of
+      Nothing -> Left "topic update lacks an accepted previous declaration"
+      Just old -> case (old ^. #address, old ^. #spec, retention) of
+        (BrokerTopic oldBroker oldName, LogicalBrokerTopic oldPartitions oldReplicas (Just oldRetention), Just newRetention)
+          | oldBroker == broker && oldName == name
+          , oldPartitions == partitions && oldReplicas == replicas
+          , oldRetention /= newRetention -> Right (Just oldRetention)
+        _ -> Left "reviewed topic update supports only an explicit retention change with unchanged broker, partitions, and replicas"
+    CreateResource -> Right Nothing
+    VerifyResource -> Right Nothing
+    _ -> Left "topic replacement, adoption, and retirement need a separate reviewed capability"
+  let wireVersion = if plannedAction operation == UpdateResource then 2 else 1
+  pure (TopicMutationPlan wireVersion (plannedOperationId operation) (plannedAction operation)
+    (plannedInputDigest operation) resource broker name partitions replicas retention previousRetention)
 
-decodePlan :: Map ResourceId TopicBinding -> PlannedOperation -> ByteString -> Either Text TopicMutationPlan
-decodePlan specs operation bytes = do
+decodePlan :: Map ResourceId ManagedResource -> Map ResourceId TopicBinding -> PlannedOperation -> ByteString -> Either Text TopicMutationPlan
+decodePlan accepted specs operation bytes = do
   plan <- first T.pack (eitherDecodeStrict bytes)
-  expected <- planFor specs operation
+  expected <- planFor accepted specs operation
   unless (plan == expected) (Left "private topic mutation differs from the reviewed declaration")
   pure plan
 
@@ -199,10 +231,11 @@ instance ToJSON TopicMutationPlan where
     , "partitions" .= topicPlanPartitions plan
     , "replicas" .= topicPlanReplicas plan
     , "retentionMs" .= topicPlanRetentionMs plan
+    , "previousRetentionMs" .= topicPlanPreviousRetentionMs plan
     ]
 
 instance FromJSON TopicMutationPlan where
   parseJSON = withObject "topic mutation plan" $ \o -> TopicMutationPlan
     <$> o .: "version" <*> o .: "operation" <*> o .: "action" <*> o .: "inputDigest"
     <*> o .: "resource" <*> o .: "broker" <*> o .: "name" <*> o .: "partitions"
-    <*> o .: "replicas" <*> o .: "retentionMs"
+    <*> o .: "replicas" <*> o .: "retentionMs" <*> o .:? "previousRetentionMs"

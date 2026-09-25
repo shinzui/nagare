@@ -1,6 +1,8 @@
 module InventoryApplicationSpec (inventoryApplicationTests) where
 
 import Data.Generics.Labels ()
+import Data.Aeson qualified as Aeson
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
 import Data.IORef
@@ -21,7 +23,7 @@ import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Broker
 import Nagare.Inventory.Adapters.BrokerRuntime (parseDescription, parseList)
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), compileFoundation)
-import Nagare.Inventory.DataService (NativeDataKind (..), acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, dataCommandNativeOwned, databaseNativeOwned, standaloneRetirementScope)
+import Nagare.Inventory.DataService (NativeDataKind (..), acceptedFoundationNamespace, brokerNativeOwned, brokerTopicChangeRequiresReview, compileStandaloneBroker, dataCommandNativeOwned, databaseNativeOwned, standaloneRetirementScope)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (mkOperationId)
 import Nagare.Inventory.Environment (acceptedEnvChannelValues, acceptedSecretChannelValues, compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
@@ -29,7 +31,7 @@ import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.TaskRun (compileTaskRunScope)
 import Nagare.Env.Store (ReconcileMode (..), reconcile)
 import Nagare.Resource.Application (applicationScopeId)
-import Nagare.Resource.Inventory (Declaration (Managed), DesiredSpec (NativeObject), Executor (BrokerExecutor), ManagedResource (..), ResourceBundle (..), mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeConfigDigest, scopeId)
+import Nagare.Resource.Inventory (Declaration (Managed), DesiredSpec (LogicalBrokerTopic, NativeObject), Executor (BrokerExecutor), ManagedResource (..), ResourceBundle (..), mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeConfigDigest, scopeId)
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
 import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (DeleteWhenUnreferenced), RecoveryClass (VerifyBeforeRetry), RecoveryIntent (..), Sensitivity (Private, Secret), mkSecretRef)
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
@@ -396,14 +398,24 @@ inventoryApplicationTests = testGroup "application inventory compilation"
             , topicCreate = \_ -> do
                 writeIORef topicState (TopicPresent physical 1 1 (Just 86400000))
                 pure AdapterEffectCompleted
+            , topicAlterRetention = \_ -> do
+                writeIORef topicState (TopicPresent physical 1 1 (Just 43200000))
+                pure AdapterEffectCompleted
             }
-          adapter = mkTopicAdapter Set.empty specs ops
+          adapter = mkTopicAdapter Map.empty specs ops
       before <- adapterObserve adapter [topicId] >>= either (fail . show) pure
       case Map.lookup topicId (observationMap before) of
         Just (ConfirmedAbsent _) -> pure ()
         other -> assertFailure ("topic absence was not proved: " <> show other)
       prepared <- adapterPrepare adapter operation >>= either (fail . show) pure
       adapterPreflight adapter operation prepared >>= either (fail . show) pure
+      case Aeson.eitherDecodeStrict (preparedNativeBytes prepared) of
+        Right (Aeson.Object fields) -> do
+          legacyBytes <- either (fail . show) pure
+            (canonicalValue (Aeson.Object (KeyMap.delete "previousRetentionMs" fields)))
+          let legacyPrepared = prepared {preparedNativeBytes = legacyBytes}
+          adapterPreflight adapter operation legacyPrepared >>= either (fail . show) pure
+        _ -> assertFailure "topic private plan is not a JSON object"
       executed <- adapterExecute adapter operation prepared
       executed @?= AdapterEffectCompleted
       _ <- adapterVerify adapter operation prepared >>= either (fail . show) pure
@@ -417,6 +429,43 @@ inventoryApplicationTests = testGroup "application inventory compilation"
       case recovered of
         RecoveryUnresolved _ -> pure ()
         _ -> assertFailure "topic with unknown creation incarnation recovered automatically"
+      oldTopic <- case topics of
+        [single] -> pure single
+        _ -> assertFailure "fixture does not contain exactly one topic" >> fail "missing topic"
+      let newTopic = oldTopic & #spec .~ LogicalBrokerTopic 1 1 (Just 43200000)
+          updatedSpecs = Map.adjust (\binding -> binding {topicDeclaration = newTopic}) topicId specs
+          updateAdapter = mkTopicAdapter (Map.singleton topicId oldTopic) updatedSpecs ops
+          updateOperation = PlannedOperation (either (error . show) id (mkOperationId "op-topic-update"))
+            UpdateResource BrokerExecutor (topicId :| []) (contentDigest "retention-update") [] VerifyBeforeRetry
+      updatedScope <- case scopeBundles scope of
+        [bundle] -> either (fail . show) pure (mkScopeDeclaration owner
+          [bundle {declarations = map (\case
+            Managed resource | resource ^. #identity == topicId -> Managed newTopic
+            declaration -> declaration) (declarations bundle)}])
+        _ -> assertFailure "broker fixture does not have one resource bundle" >> fail "missing bundle"
+      brokerTopicChangeRequiresReview scope scope @?= False
+      brokerTopicChangeRequiresReview updatedScope scope @?= True
+      updatePrepared <- adapterPrepare updateAdapter updateOperation >>= either (fail . show) pure
+      preparedPublicSummary updatePrepared @?= "change broker topic jobs retention.ms from 86400000 to 43200000"
+      adapterPreflight updateAdapter updateOperation updatePrepared >>= either (fail . show) pure
+      adapterExecute updateAdapter updateOperation updatePrepared >>= (@?= AdapterEffectCompleted)
+      _ <- adapterVerify updateAdapter updateOperation updatePrepared >>= either (fail . show) pure
+      updateRecovery <- adapterRecover updateAdapter updateOperation updatePrepared
+      case updateRecovery of
+        RecoveryUnresolved _ -> pure ()
+        _ -> assertFailure "ambiguous retention update recovered without an incarnation proof"
+      writeIORef topicState (TopicPresent physical 1 1 (Just 123))
+      refused <- adapterPreflight updateAdapter updateOperation updatePrepared
+      case refused of
+        Left _ -> pure ()
+        Right _ -> assertFailure "topic retention drift passed update preflight"
+      let topicBinding = updatedSpecs Map.! topicId
+          unsupported = Map.insert topicId (topicBinding {topicDeclaration = newTopic & #spec .~ LogicalBrokerTopic 2 1 (Just 43200000)}) updatedSpecs
+          unsafeAdapter = mkTopicAdapter (Map.singleton topicId oldTopic) unsupported ops
+      unsafePrepared <- adapterPrepare unsafeAdapter updateOperation
+      case unsafePrepared of
+        Left _ -> pure ()
+        Right _ -> assertFailure "partition change passed the retention-only update capability"
       let topicName = either (error . show) id (mkName "jobs")
       parseList topicName "[{\"name\":\"jobs\",\"partitions\":0,\"replicas\":0}]" @?= Right False
       parseList topicName "[{\"name\":\"jobs\",\"partitions\":1,\"replicas\":1}]" @?= Right True
