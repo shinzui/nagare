@@ -128,6 +128,19 @@ resourceInventoryTests =
               ]
             compiled owner key value = Managed (ok (compileKubernetesObject (KubernetesInput (rid owner key) owner cluster value digest Retain Stateless Public (SourceLocation "fixture" key))))
         rejects "claim-conflict" (compileScopes [scope p [compiled p "database" dbObject], scope a [compiled a "application" knativeObject]])
+    , testCase "DomainMapping reserves its hostname from native identity" $ do
+        let domainObject = object
+              [ "apiVersion" .= ("serving.knative.dev/v1beta1" :: Text)
+              , "kind" .= ("DomainMapping" :: Text)
+              , "metadata" .= object
+                  ["name" .= ("app.example.com" :: Text), "namespace" .= ("personal" :: Text)]
+              ]
+            domainMember = ok (compileKubernetesObject (KubernetesInput (rid a "domain") a cluster
+              domainObject digest Retain Stateless Public (SourceLocation "fixture" "domain")))
+        domainMember ^. #aliases @?= [Hostname (n "app.example.com")]
+        rejects "claim-conflict" (compileScopes
+          [scope p [External (rid p "hostname") (Hostname (n "app.example.com")) []
+            (SourceLocation "fixture" "hostname")], scope a [Managed domainMember]])
     , testCase "malformed Certificate cannot evade its Secret reservation" $ do
         let cert = object
               [ "apiVersion" .= ("cert-manager.io/v1" :: Text)

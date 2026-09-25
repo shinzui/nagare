@@ -109,5 +109,6 @@ kubernetesSpecsFromReview bundle = do
                 then declaration ^. #spec else recompiled ^. #spec
             }
       unless (reboundDeclaration == declaration && rebound == native)
-        (Left "reviewed Kubernetes native object differs from its typed declaration")
+        (Left ("reviewed Kubernetes native object differs from its typed declaration: "
+          <> resourceIdText resource))
       pure (resource, (declaration, native))

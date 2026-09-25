@@ -32,9 +32,10 @@ import Nagare.App.Deployments (appDeploymentsPrefix)
 import Nagare.App.Deploy
 import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedAccessBinding, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, standaloneWorkerVolumeRecoveryBindings, nativeWorkloadOwned, compileApplicationScope, compileApplicationService, compileStandaloneService, compileStandaloneServiceWithBrokers, compileStandaloneServiceWithDependencies, compileStandaloneServiceWithRelease, compileStandaloneWorker, compileStandaloneWorkerWithDependencies, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings, legacyApplicationReleaseImport, recordReviewedStandaloneOverrides, workerRetirementScope)
 import Nagare.Inventory.Adapter
-import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps (..), KubernetesMutation (..), mkKubernetesAdapter)
+import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps (..), KubernetesMutation (..), KubernetesState (..), mkKubernetesAdapter)
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), mkKubernetesRuntimeOps)
 import Nagare.Inventory.DataService (compileStandaloneBroker, compileStandaloneDatabase)
+import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
 import Nagare.Inventory.Plan
@@ -569,7 +570,9 @@ renderTests =
       let app = appWithHooks & #tasks .~ []
       serviceForRelease <- maybe (assertFailure "fixture has no web Service" >> fail "missing Service")
         pure (app ^. #service)
-      let foundation = unsafe (Resource.mkScopeId Resource.Platform "foundation")
+      let checked :: Show e => Either e a -> a
+          checked = either (error . show) id
+          foundation = unsafe (Resource.mkScopeId Resource.Platform "foundation")
           cluster = Resource.mintResourceId foundation
             (unsafe (Resource.mkLogicalKey "cluster")) (unsafe (Resource.mkName "resource"))
           namespaceId = Resource.mintResourceId foundation
@@ -728,6 +731,100 @@ renderTests =
       length (scopeBundles scope) @?= 7
       Map.size native @?= 10
       length [() | bundle <- scopeBundles scope, Managed _ <- declarations bundle] @?= 10
+      let customDomains = unsafe (mkDomains [("kizashi-serve.personal.apps.example.com", True)])
+          expandedApp = app & #service %~ fmap (\service -> service
+            & #tasks .~ (appWithHooks ^. #tasks) & #domains .~ customDomains)
+          expandedInput = input {scopeApplication = expandedApp}
+          (expandedScope, expandedNative) = checked (compileApplicationScope expandedInput)
+      Map.size expandedNative @?= 12
+      length [() | bundle <- scopeBundles expandedScope, Managed _ <- declarations bundle]
+        @?= 12
+      let nativeKinds = Set.fromList
+            [(group, Resource.nameText kind) | (member, _) <- Map.elems expandedNative
+            , Resource.Kubernetes _ group kind _ _ <- [member ^. #address]]
+      forM_ [("serving.knative.dev", "service"), ("serving.knative.dev", "domainmapping")
+        , ("apps", "deployment"), ("apps", "statefulset"), ("batch", "cronjob")
+        , ("", "secret"), ("", "persistentvolumeclaim")] $ \kind ->
+          assertBool ("expanded application omitted " <> show kind) (Set.member kind nativeKinds)
+      let reviewContext = unsafe (Resource.mkContextId "ep148-complete-app")
+          reviewBinding = Resource.ContextBinding reviewContext (unsafe (Resource.mkName "project"))
+          foundationSource = Resource.SourceLocation "fixture" "foundation"
+          reviewFoundationScope = checked (mkScopeDeclaration foundation [ResourceBundle
+            [ External cluster (Resource.CloudInstance
+                (unsafe (Resource.mkName "project")) (unsafe (Resource.mkName "zone"))
+                (unsafe (Resource.mkName "cluster"))) [] foundationSource
+            , External namespaceId (Resource.Kubernetes cluster ""
+                (unsafe (Resource.mkName "namespace")) Nothing
+                (unsafe (Resource.mkName "personal"))) [] foundationSource
+            , External publication (Resource.Artifact (unsafe (Resource.mkName "image"))
+                (unsafe (Resource.mkContentDigest (T.replicate 64 "0")))) [] foundationSource
+            ] [] [] [] [] []])
+          acceptedForReview = checked (mkScopeSnapshot reviewBinding
+            (Map.singleton foundation (unsafe (Resource.mkScopeGeneration 1), reviewFoundationScope))
+            Map.empty)
+          candidateForReview = checked (composeInventory acceptedForReview
+            (ReplaceScope expandedScope :| []))
+      observedStates <- newIORef Map.empty
+      executedIds <- newIORef []
+      let operations = KubernetesAdapterOps
+            { kubernetesContext = reviewContext
+            , kubernetesObserve = \resource -> do
+                states <- readIORef observedStates
+                pure (Map.findWithDefault
+                  (KubernetesAbsent (contentDigest (TE.encodeUtf8 (Resource.resourceIdText resource))))
+                  resource states)
+            , kubernetesMutateConditional = \mutation -> do
+                let resource = mutationResource mutation
+                    physical = unsafe (Resource.mkPhysicalIdentity
+                      ("recorded:" <> Resource.resourceIdText resource))
+                modifyIORef' observedStates (Map.insert resource
+                  (KubernetesPresent physical "1" (Just resource) (mutationNativeDigest mutation)))
+                modifyIORef' executedIds (resource :)
+                pure AdapterEffectCompleted
+            }
+          registryFor specs = checked (mkAdapterRegistry [mkKubernetesAdapter specs operations])
+      reviewStore <- newMemoryStore
+      _ <- initializeStore reviewStore reviewBinding "ep148-full-fixture"
+        >>= either (fail . show) pure
+      _ <- seedInventoryHistory reviewStore candidateForReview
+        >>= either (fail . show) pure
+      reviewHistory <- loadInventoryHistory reviewStore >>= either (fail . show) pure
+      let reviewRegistry = registryFor expandedNative
+          requirements = observationRequirements candidateForReview reviewHistory
+      observations <- observeWithRegistry reviewRegistry (requirementsByExecutor requirements)
+        >>= either (fail . show) pure
+      let proposal = checked (planChanges candidateForReview noLifecycleDecisions
+            reviewHistory observations)
+      reviewSnapshot <- readStoreSnapshot reviewStore >>= either (fail . show) pure
+      savedReview <- prepareReview reviewRegistry reviewSnapshot proposal
+        >>= either (fail . show) pure
+      publishedDigest <- publishReview reviewStore savedReview >>= either (fail . show) pure
+      publishedReview <- loadPublishedReview reviewStore publishedDigest
+        >>= either (fail . show) pure
+      reviewedNative <- either (fail . T.unpack) pure (kubernetesSpecsFromReview publishedReview)
+      Map.keysSet reviewedNative @?= Map.keysSet expandedNative
+      Map.map snd reviewedNative @?= Map.map snd expandedNative
+      publishedSnapshot <- readStoreSnapshot reviewStore >>= either (fail . show) pure
+      reviewed <- either (fail . show) pure (verifyReview publishedSnapshot publishedReview)
+      result <- applyReviewed reviewStore
+        (registryFor reviewedNative) reviewed
+        >>= either (fail . show) pure
+      case result of
+        Converged _ -> pure ()
+        other -> assertFailure ("complete application review did not converge: " <> show other)
+      writes <- readIORef executedIds
+      length writes @?= Map.size expandedNative
+      Set.fromList writes @?= Map.keysSet expandedNative
+      let executionOrder = Map.fromList (zip (reverse writes) [0 :: Int ..])
+      forM_ (Map.elems expandedNative) $ \(member, _) ->
+        forM_ [dependency | OrderedAfter dependency <- member ^. #dependencies
+          , Map.member dependency expandedNative] $ \dependency ->
+            case (Map.lookup dependency executionOrder,
+                  Map.lookup (member ^. #identity) executionOrder) of
+              (Just dependencyOrdinal, Just memberOrdinal) -> assertBool
+                ("review executed " <> show (member ^. #identity)
+                  <> " before " <> show dependency) (dependencyOrdinal < memberOrdinal)
+              _ -> assertFailure "review execution omitted a declared dependency"
       let workloadBytes =
             [bytes | (member, bytes) <- Map.elems native
             , case member ^. #address of

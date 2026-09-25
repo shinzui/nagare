@@ -100,7 +100,10 @@ compileKubernetesObject input = do
       , owner = ownerScope input
       , executor = KubernetesExecutor
       , address
-      , aliases = []
+      , aliases = case address of
+          Kubernetes _ "serving.knative.dev" nativeKind _ host
+            | nameText nativeKind == "domainmapping" -> [Hostname host]
+          _ -> []
       , spec
       , lifecycle = lifecyclePolicy input
       , dataPolicy = inputDataPolicy input
