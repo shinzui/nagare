@@ -178,8 +178,9 @@ provider resource, including the workload, Service, credential, and PVC. It
 records their identities as retained history. Use `db delete` only for the
 separate direct deletion workflow; reviewed Kubernetes deletion is not yet
 supported for these resources.
-Direct create and delete refuse a database whose StatefulSet is owned by
-accepted or retained inventory history.
+Direct database operations refuse accepted or retained workload, Service,
+credential, backup, configuration, or PVC addresses, including when the
+StatefulSet has already been collected.
 
 Planning uses the typed database input from the flags or `--config`, binds the
 credential template and all database objects to the standalone scope, and

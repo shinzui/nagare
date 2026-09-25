@@ -279,7 +279,7 @@ import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Application (ApplicationScopeInput (..), DatabaseBinding, acceptedAccessBinding, acceptedApplicationImage, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationScope, compileStandaloneServiceWithRelease, compileStandaloneWorkerWithDependencies, databaseRecoveryBindings, legacyApplicationReleaseImport, legacyStandaloneReleaseImport, nativeWorkloadOwned, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
 import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteReleaseLog, acceptedSiteSource, compileServerSitePreviewScope, compileServerSiteRollbackScope, compileServerSiteScope, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteScope, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteNativeOwned, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
 import Nagare.Inventory.Lifecycle qualified as InventoryLifecycle
-import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, compileStandaloneDatabase, databaseNativeOwned, standaloneRetirementScope, standaloneStatefulSetOwned)
+import Nagare.Inventory.DataService (NativeDataKind (..), acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, compileStandaloneDatabase, dataCommandNativeOwned, databaseNativeOwned, standaloneRetirementScope)
 import Nagare.Inventory.Environment (acceptedEnvChannelValues, acceptedSecretChannelValues, compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
 import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
@@ -8135,10 +8135,10 @@ runBroker mctx = \case
           (o ^. #recoveryKeyVersion) output
   BrokerGet o -> runBrokerGet (nsOf (o ^. #namespace)) (T.pack (o ^. #name))
   BrokerRestart o dryRun -> do
-    refuseDirectDataMutationIfOwned mctx "broker" "restart" (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
+    refuseDirectDataMutationIfOwned mctx BrokerObjects "restart" (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
     runBrokerRestart (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) dryRun
   BrokerDelete o ->
-    refuseDirectDataMutationIfOwned mctx "broker" "delete" (T.pack (o ^. #name)) (nsOf (o ^. #namespace)) >>
+    refuseDirectDataMutationIfOwned mctx BrokerObjects "delete" (T.pack (o ^. #name)) (nsOf (o ^. #namespace)) >>
     runBrokerDelete
       BrokerDeleteParams
         { name = T.pack (o ^. #name)
@@ -8212,13 +8212,13 @@ runDb mctx = \case
           (o ^. #recoveryBackup) (o ^. #recoveryKeyVersion) output
   DbGet o -> runDbGet (nsOf (o ^. #namespace)) (T.pack (o ^. #name))
   DbShell o -> do
-    refuseDirectDataMutationIfOwned mctx "database" "shell" (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
+    refuseDirectDataMutationIfOwned mctx DatabaseObjects "shell" (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
     runDbShell (nsOf (o ^. #namespace)) (T.pack (o ^. #name))
   DbRestart o dry -> do
-    refuseDirectDataMutationIfOwned mctx "database" "restart" (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
+    refuseDirectDataMutationIfOwned mctx DatabaseObjects "restart" (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
     runDbRestart (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) dry
   DbDelete o ->
-    refuseDirectDataMutationIfOwned mctx "database" "delete" (T.pack (o ^. #name)) (nsOf (o ^. #namespace)) >>
+    refuseDirectDataMutationIfOwned mctx DatabaseObjects "delete" (T.pack (o ^. #name)) (nsOf (o ^. #namespace)) >>
     runDbDelete
       DbDeleteParams
         { name = T.pack (o ^. #name)
@@ -8230,11 +8230,11 @@ runDb mctx = \case
     runStandaloneRetirePlan mctx "database" (T.pack (o ^. #name))
       (nsOf (o ^. #namespace)) (T.pack <$> o ^. #scopeKey) (o ^. #savePlan)
   DbBackup o -> do
-    refuseDirectDataMutationIfOwned mctx "database" "backup" (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
+    refuseDirectDataMutationIfOwned mctx DatabaseObjects "backup" (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
     backend <- resolveStoreBackend mctx (o ^. #bucket)
     runDbBackup (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) backend (o ^. #keep) (o ^. #dryRun)
   DbRestore o -> do
-    refuseDirectDataMutationIfOwned mctx "database" "restore" (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
+    refuseDirectDataMutationIfOwned mctx DatabaseObjects "restore" (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
     backend <- resolveStoreBackend mctx (o ^. #bucket)
     runDbRestore (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) (T.pack (o ^. #backupId)) (o ^. #live) backend (o ^. #dryRun)
   where
@@ -8281,13 +8281,18 @@ runStandaloneRetirePlan mctx kind name namespaceName pinnedKey output = do
   Inventory.planInventoryRetirementWith
     (inventoryPlanRegistry active workspace) active owner output
 
--- | The legacy create/delete paths have no inventory receipt. Refuse direct
--- mutation whenever accepted or retained history owns the named StatefulSet.
-refuseDirectDataMutationIfOwned :: Maybe String -> Text -> Text -> Text -> Text -> IO ()
+-- | Legacy operations have no inventory receipt. Check every native address
+-- their command family can touch, even after its StatefulSet was collected.
+refuseDirectDataMutationIfOwned
+  :: Maybe String -> NativeDataKind -> Text -> Text -> Text -> IO ()
 refuseDirectDataMutationIfOwned mctx kind operation name namespaceName =
-  withAcceptedInventoryHistory mctx (kind <> " " <> operation) $ \history ->
-    when (standaloneStatefulSetOwned name namespaceName (ownedHistoryResources history))
-      (dieT (kind <> " " <> name <> " is owned by accepted or retained inventory history; direct " <> operation <> " is refused"))
+  withAcceptedInventoryHistory mctx (kindName <> " " <> operation) $ \history ->
+    when (dataCommandNativeOwned kind name namespaceName (ownedHistoryResources history))
+      (dieT (kindName <> " " <> name <> " has an accepted or retained native address; direct " <> operation <> " is refused"))
+  where
+    kindName = case kind of
+      DatabaseObjects -> "database"
+      BrokerObjects -> "broker"
 
 -- | Reuse one read-only, context-bound history check for every legacy command
 -- that can mutate a native resource without an inventory receipt.

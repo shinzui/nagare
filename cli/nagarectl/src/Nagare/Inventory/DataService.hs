@@ -6,6 +6,8 @@ module Nagare.Inventory.DataService
   , compileStandaloneBroker
   , standaloneRetirementScope
   , standaloneStatefulSetOwned
+  , NativeDataKind (..)
+  , dataCommandNativeOwned
   , databaseNativeOwned
   , brokerNativeOwned
   , acceptedFoundationNamespace
@@ -157,6 +159,31 @@ standaloneStatefulSetOwned name namespaceName = any matches
           && nameText nativeNamespace == namespaceName
           && nameText nativeName == name
       _ -> False
+
+-- | Legacy data operations use a name rather than a full config. Check every
+-- native address their command family can write, including companions left
+-- behind after the StatefulSet has been collected.
+data NativeDataKind = DatabaseObjects | BrokerObjects
+  deriving stock (Eq, Show)
+
+dataCommandNativeOwned
+  :: NativeDataKind -> T.Text -> T.Text -> [ManagedResource] -> Bool
+dataCommandNativeOwned kind name namespaceName = any (nativeOwned namespaceName addresses)
+  where
+    addresses = case kind of
+      DatabaseObjects ->
+        [ ("apps", "statefulset", name)
+        , ("", "service", name)
+        , ("", "secret", dbSecretName name)
+        , ("", "configmap", dbConfigMapName name)
+        , ("", "persistentvolumeclaim", dbPvcName name)
+        , ("batch", "cronjob", "nagare-dbbackup-" <> name)
+        ]
+      BrokerObjects ->
+        [ ("apps", "statefulset", name)
+        , ("", "service", name)
+        , ("", "persistentvolumeclaim", brokerPvcName name)
+        ]
 
 -- | The legacy create commands write companion objects before their
 -- StatefulSets. Match every possible native address against accepted and

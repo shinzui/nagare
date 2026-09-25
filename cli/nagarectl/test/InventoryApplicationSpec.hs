@@ -10,14 +10,14 @@ import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.Dsl.Database (mkDatabaseName)
 import Nagare.Dsl.Load (loadApplication, loadBroker)
 import Nagare.Dsl.Task (Task (..), scheduledTask)
-import Nagare.Dsl.Types (mkServiceName)
+import Nagare.Dsl.Types (databaseNameText, mkServiceName, namespaceText)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Application (compileApplicationDatabases, reviewedTaskImages)
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Broker
 import Nagare.Inventory.Adapters.BrokerRuntime (parseDescription, parseList)
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), compileFoundation)
-import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, databaseNativeOwned, standaloneRetirementScope)
+import Nagare.Inventory.DataService (NativeDataKind (..), acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, dataCommandNativeOwned, databaseNativeOwned, standaloneRetirementScope)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (mkOperationId)
 import Nagare.Inventory.Environment (acceptedEnvChannelValues, acceptedSecretChannelValues, compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
@@ -227,9 +227,18 @@ inventoryApplicationTests = testGroup "application inventory compilation"
       [resource ^. #owner | bundle <- bundles, Managed resource <- bundle ^. #declarations]
         @?= replicate 5 owner
       case app ^. #databases of
-        [database] ->
+        [database] -> do
           map (databaseNativeOwned database . pure . fst) (Map.elems native)
             @?= replicate 5 True
+          let claims = [resource | (resource, _) <- Map.elems native,
+                case resource ^. #address of
+                  Kubernetes _ "" kind _ _ -> nameText kind == "persistentvolumeclaim"
+                  _ -> False]
+              name = databaseNameText (database ^. #name)
+              ns = namespaceText (database ^. #namespace)
+          length claims @?= 1
+          dataCommandNativeOwned DatabaseObjects name ns claims @?= True
+          dataCommandNativeOwned DatabaseObjects "other" ns claims @?= False
         _ -> assertFailure "fixture did not contain exactly one database"
       case compileApplicationDatabases app cluster Nothing Map.empty backend source of
         Left (err :| _) -> code err @?= "missing-database-recovery"
@@ -314,6 +323,13 @@ inventoryApplicationTests = testGroup "application inventory compilation"
         @?= Right (1, 1, Just 86400000)
       map (brokerNativeOwned broker . pure . fst) (Map.elems native)
         @?= replicate 3 True
+      let brokerServices = [resource | (resource, _) <- Map.elems native,
+            case resource ^. #address of
+              Kubernetes _ "" kind _ _ -> nameText kind == "service"
+              _ -> False]
+      length brokerServices @?= 1
+      dataCommandNativeOwned BrokerObjects "events" "personal" brokerServices @?= True
+      dataCommandNativeOwned BrokerObjects "events" "other" brokerServices @?= False
       let checked = either (error . show) id
           binding = ContextBinding (checked (mkContextId "fixture")) (checked (mkName "project"))
           snapshot = either (error . show) id (mkScopeSnapshot binding

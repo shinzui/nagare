@@ -141,6 +141,11 @@ provenance:
       at: 2026-09-25T02:36:41Z
       mode: "implement"
       note: "Track retained site PVC direct-write guard"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-25T02:42:55Z
+      mode: "implement"
+      note: "Track full companion-address guards for direct data commands"
 ---
 
 # Make managed resources first-class through typed scoped inventories
@@ -580,5 +585,7 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 2026-09-24: EP-148 extended guarded collection to delete-policy stateless PVCs, with a disposable native create/conditional-delete/absence proof. Durable claims remain retained. Preview collection proceeds DomainMapping, Service, then eligible PVC in separate reviewed operations because retained consumers remain visible during collection screening.
 
 2026-09-24: EP-148 extended the direct server deploy ownership guard to every PVC it would write, including retained claims whose Service was already collected.
+
+2026-09-24: EP-148 extended direct database and broker operation guards from the StatefulSet alone to all possible companion native addresses, so retained data and credentials remain protected after workload collection.
 
 2026-09-24: EP-148 applied the same distinction to legacy env and Secret reads and now refuses malformed `data` entries instead of silently dropping keys. Direct store writes and reviewed preview/deploy integration remain open.
