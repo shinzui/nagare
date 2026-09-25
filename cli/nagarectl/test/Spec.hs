@@ -201,7 +201,7 @@ import Nagare.Gcp.Adc
   , validateAdc
   )
 import Nagare.GhcEnv (findGhcEnvIn)
-import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteSource, compileServerSiteRollbackScope, compileServerSiteScope, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteScope, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteNativeOwned, siteVolumeRecoveryBindings)
+import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteSource, compileServerSiteRollbackScope, compileServerSiteScope, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteScope, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteNativeOwned, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
 import Nagare.Inventory.Environment (compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel)
 import Nagare.Image (DockerAuth (..), dockerAuthPlan, dockerBuildArgs, nixpacksBuildArgs, qualifyImage)
 import Nagare.Infra.Plan
@@ -4026,6 +4026,17 @@ staticInventoryTests =
       assertBool "preview Service lacks accepted environment ordering"
         (any (\member -> all (\resourceId -> OrderedAfter resourceId
           `elem` member ^. #dependencies) (map declarationId deps)) members)
+      previewSnapshot <- either (fail . show) pure (mkScopeSnapshot binding
+        (Map.singleton (scopeId scope) (unsafe (Resource.mkScopeGeneration 1), scope))
+        Map.empty)
+      svcName <- either (fail . T.unpack) pure (previewServiceName "demo" "branch")
+      host <- either (fail . T.unpack) pure
+        (previewDomain "demo" "branch" "example.com")
+      sitePreviewRetirementScope previewSnapshot cluster svcName "personal" host
+        @?= Right (scopeId scope)
+      assertBool "preview retirement selected a different domain"
+        (isLeft (sitePreviewRetirementScope previewSnapshot cluster svcName
+          "personal" "other.example.com"))
   , testCase "server site review binds its release and refuses untyped Secrets" $ do
       let site = ServerSite
             { name = unsafe (mkSiteName "demo")

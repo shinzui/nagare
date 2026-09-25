@@ -193,6 +193,7 @@ collectionPathPrefix :: Text -> Text -> Maybe String
 collectionPathPrefix "" kind | kind `elem` ["configmap", "service"] = Just "/api/v1"
 collectionPathPrefix "batch" "cronjob" = Just "/apis/batch/v1"
 collectionPathPrefix "serving.knative.dev" "domainmapping" = Just "/apis/serving.knative.dev/v1beta1"
+collectionPathPrefix "serving.knative.dev" "service" = Just "/apis/serving.knative.dev/v1"
 collectionPathPrefix _ _ = Nothing
 
 -- | A successful DELETE can precede actual removal, especially for controllers.

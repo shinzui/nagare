@@ -331,8 +331,21 @@ nagarectl inventory apply preview-review --yes
 
 The review owns the preview Service and DomainMapping in a separate scope. It
 refuses missing or differently addressed stores, an unaccepted image, and a
-direct preview already present without adoption. Reviewed preview retirement
-is still pending; direct `site preview delete` refuses its owned addresses.
+direct preview already present without adoption. To remove a reviewed preview,
+retire its scope, then separately review exact collection of its retained
+Service and DomainMapping:
+
+```bash
+nagarectl site preview delete feature-x --save-plan preview-retire-review
+nagarectl inventory apply preview-retire-review --yes
+nagarectl inventory collect --resource SERVICE-ID --resource DOMAIN-ID \
+  --out preview-collect-review
+nagarectl inventory apply preview-collect-review --yes
+```
+
+Use the two ResourceIds shown in inventory status after retirement. The
+collection review checks each object's UID and resourceVersion. Direct
+`site preview delete` refuses addresses owned by accepted or retained history.
 
 > Preview deploys currently target **static** sites. Server-site previews are a
 > planned follow-up (see

@@ -850,6 +850,28 @@ inventoryKubernetesTests =
         assertBool "DomainMapping deletion dropped its physical preconditions"
           (BS.isInfixOf "domain-uid" (TE.encodeUtf8 body)
             && BS.isInfixOf "resource-version" (TE.encodeUtf8 body))
+    , testCase "Knative preview Service collection carries exact UID and revision" $ do
+        let value = object
+              [ "apiVersion" .= ("serving.knative.dev/v1" :: Text)
+              , "kind" .= ("Service" :: Text)
+              , "metadata" .= object
+                  ["name" .= ("demo-pr-branch" :: Text), "namespace" .= ("personal" :: Text)]
+              , "spec" .= object ["template" .= object ["spec" .= object
+                  ["containers" .= [object ["image" .= ("example.test/demo:v1" :: Text)]]]]]
+              ]
+            bytes = ok (canonicalValue value)
+            (declaration, _) = ok (bindKubernetesObject
+              (input {inputObject = value, objectDigest = contentDigest bytes,
+                lifecyclePolicy = DeleteWhenUnreferenced}))
+            uid = ok (mkPhysicalIdentity "preview-service-uid")
+        supportsRetainedCollection declaration @?= True
+        (arguments, body) <- expectRight (collectionDeleteRequest
+          (declaration ^. #address) uid "resource-version")
+        arguments @?=
+          ["delete", "--raw", "/apis/serving.knative.dev/v1/namespaces/personal/services/demo-pr-branch", "-f", "-"]
+        assertBool "Knative Service deletion dropped its physical preconditions"
+          (BS.isInfixOf "preview-service-uid" (TE.encodeUtf8 body)
+            && BS.isInfixOf "resource-version" (TE.encodeUtf8 body))
     , testCase "retained unready access route can be conditionally collected" $ do
         let value = object
               [ "apiVersion" .= ("serving.knative.dev/v1beta1" :: Text)

@@ -10,6 +10,7 @@ module Nagare.Inventory.Site
   , acceptedSiteReleaseLog
   , acceptedSiteSource
   , acceptedSitePreviewDependencies
+  , sitePreviewRetirementScope
   , legacyServerSiteReleaseImport
   , legacyStaticSiteReleaseImport
   , siteVolumeRecoveryBindings
@@ -150,6 +151,31 @@ acceptedSitePreviewDependencies snapshot cluster name ns ids = do
     resolve resourceId = case filter ((== resourceId) . (^. #identity)) resources of
       [resource] -> Right (Managed resource)
       _ -> Left "site preview environment resource is absent or ambiguous in accepted inventory"
+
+-- | Select only the exact reviewed preview scope requested by a delete
+-- command. Retirement retains its native members for later collection.
+sitePreviewRetirementScope
+  :: ScopeSnapshot -> ResourceId -> T.Text -> T.Text -> T.Text
+  -> Either T.Text ScopeId
+sitePreviewRetirementScope snapshot cluster serviceName ns host = do
+  owner <- mkScopeId Standalone ("site-preview-" <> serviceName)
+  (_, scope) <- maybe (Left "accepted site preview scope is absent") Right
+    (Map.lookup owner (snapshotScopes snapshot))
+  serviceAddress <- kubernetesAddress cluster "serving.knative.dev/v1" "Service"
+    (Just ns) serviceName
+  domainAddress <- kubernetesAddress cluster "serving.knative.dev/v1beta1" "DomainMapping"
+    (Just ns) host
+  let members = [member | bundle <- scopeBundles scope,
+        Managed member <- declarations bundle]
+      declarationsCount = sum [length (declarations bundle) | bundle <- scopeBundles scope]
+      expected = Set.fromList [serviceAddress, domainAddress]
+  unless (length members == 2 && declarationsCount == 2
+      && Set.fromList (map (^. #address) members) == expected
+      && all (\member -> member ^. #owner == owner
+        && member ^. #lifecycle == DeleteWhenUnreferenced
+        && member ^. #dataPolicy == Stateless) members)
+    (Left "accepted site preview has unexpected owned members or native addresses")
+  pure owner
 
 sitePreviewStoreIds :: ResourceId -> T.Text -> T.Text -> [Declaration]
   -> Either T.Text [ResourceId]

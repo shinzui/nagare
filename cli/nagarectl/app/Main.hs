@@ -277,7 +277,7 @@ import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Application (ApplicationScopeInput (..), DatabaseBinding, acceptedAccessBinding, acceptedApplicationImage, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationScope, compileStandaloneServiceWithRelease, compileStandaloneWorkerWithDependencies, databaseRecoveryBindings, legacyApplicationReleaseImport, legacyStandaloneReleaseImport, nativeWorkloadOwned, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
-import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteReleaseLog, acceptedSiteSource, compileServerSiteRollbackScope, compileServerSiteScope, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteScope, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteNativeOwned, siteVolumeRecoveryBindings)
+import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteReleaseLog, acceptedSiteSource, compileServerSiteRollbackScope, compileServerSiteScope, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteScope, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteNativeOwned, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
 import Nagare.Inventory.Lifecycle qualified as InventoryLifecycle
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, compileStandaloneDatabase, databaseNativeOwned, standaloneRetirementScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Environment (acceptedEnvChannelValues, acceptedSecretChannelValues, compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
@@ -671,6 +671,12 @@ data SiteRollbackOpts = SiteRollbackOpts
   }
   deriving stock (Generic, Show)
 
+data SitePreviewDeleteOpts = SitePreviewDeleteOpts
+  { common :: !SiteCommonOpts
+  , savePlan :: !(Maybe FilePath)
+  }
+  deriving stock (Generic, Show)
+
 -- | Options for @app list@: a namespace (default @personal@) and @--all@ to drop
 -- the Nagare-managed label filter (EP-30).
 data AppListOpts = AppListOpts
@@ -777,7 +783,7 @@ data Command
   | SiteRollback SiteRollbackOpts String
   | SitePreviewDeploy SiteDeployOpts String
   | SitePreviewList SiteCommonOpts
-  | SitePreviewDelete SiteCommonOpts String
+  | SitePreviewDelete SitePreviewDeleteOpts String
   | Env EnvCommand
   | Secret SecretCommand
   | AppList AppListOpts
@@ -1676,6 +1682,12 @@ siteRollbackOptsParser defaultFile =
     <*> many (strOption (long "env-secret-resource" <> metavar "RESOURCE-ID" <> help "Accepted runtime Secret dependency"))
     <*> many (strOption (long "tls-secret-resource" <> metavar "RESOURCE-ID" <> help "Accepted supplied-TLS Secret dependency"))
 
+sitePreviewDeleteOptsParser :: FilePath -> Parser SitePreviewDeleteOpts
+sitePreviewDeleteOptsParser defaultFile =
+  SitePreviewDeleteOpts
+    <$> siteCommonOptsParser defaultFile
+    <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save reviewed preview retirement; collect retained members separately"))
+
 -- App lifecycle option fragments (EP-30).
 
 -- | @-n/--namespace@ for the @app@ commands; 'Nothing' means @personal@.
@@ -2513,7 +2525,7 @@ opts =
     previewDeleteCmd =
       info
         ( SitePreviewDelete
-            <$> siteCommonOptsParser defaultConfigFile
+            <$> sitePreviewDeleteOptsParser defaultConfigFile
             <*> strArgument (metavar "NAME" <> help "Preview name to delete")
               <**> helper
         )
@@ -7425,8 +7437,9 @@ runPreviewList copts = do
     else mapM_ TIO.putStrLn pnames
 
 -- | @site preview delete NAME@: remove a preview's Service and DomainMapping.
-runPreviewDelete :: Maybe String -> SiteCommonOpts -> Text -> IO ()
-runPreviewDelete mctx copts pname = do
+runPreviewDelete :: Maybe String -> SitePreviewDeleteOpts -> Text -> IO ()
+runPreviewDelete mctx options pname = do
+  let copts = options ^. #common
   bd <- resolveBaseDomain mctx (copts ^. #baseDomain)
   provisionGhcEnv (copts ^. #ghcEnv)
   site <- loadSiteOrDie (copts ^. #file)
@@ -7434,9 +7447,20 @@ runPreviewDelete mctx copts pname = do
       ns = namespaceText (site ^. #namespace)
   svcName <- orDie (previewServiceName prodName pname)
   pdomText <- orDie (previewDomain prodName pname bd)
-  refuseDirectSiteMutationIfOwned mctx "site preview delete" svcName ns [pdomText] False
-  deletePreview ns svcName pdomText
-  TIO.putStrLn ("Deleted preview: " <> svcName)
+  case options ^. #savePlan of
+    Nothing -> do
+      refuseDirectSiteMutationIfOwned mctx "site preview delete" svcName ns [pdomText] False
+      deletePreview ns svcName pdomText
+      TIO.putStrLn ("Deleted preview: " <> svcName)
+    Just output -> do
+      active <- activeTarget mctx
+      snapshot <- Inventory.loadTargetSnapshot active
+      (cluster, _) <- either dieT pure (acceptedFoundationNamespace snapshot ns)
+      owner <- either dieT pure
+        (sitePreviewRetirementScope snapshot cluster svcName ns pdomText)
+      (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+      Inventory.planInventoryRetirementWith
+        (inventoryPlanRegistry active workspace) active owner output
 
 -- ---------------------------------------------------------------------------
 -- app lifecycle handlers (EP-30)
