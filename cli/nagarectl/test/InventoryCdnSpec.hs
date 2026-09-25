@@ -10,6 +10,7 @@ import Data.Foldable (forM_, toList)
 import Data.Generics.Labels ()
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
@@ -19,9 +20,10 @@ import Nagare.Inventory.Adapters.Cdn
 import Nagare.Inventory.Adapters.CdnRuntime (DnsChangeStatus (..), DnsRuntimeConfig (..), dnsChangeBody, dnsRuntimeOps, parseDnsChangeStatus, parseExactDnsListing)
 import Nagare.Inventory.Adapters.Cloudflare
 import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.Execute (applyReviewed)
 import Nagare.Inventory.Journal (mkOperationId)
-import Nagare.Inventory.Plan (LifecycleDecisionKind (ApproveRetirement), LifecycleProposal (..), lifecycleObservationDigest, loadInventoryHistory, observationRequirements, planChanges, requiredResources, validateLifecycleDecisions)
-import Nagare.Inventory.Store (ScopeRevision (..), headAccepted, headConverged, headGeneration, initializeStore, newMemoryStore, publishIfAbsent, replaceHeadIfGenerationMatches, scopeKey)
+import Nagare.Inventory.Plan (LifecycleDecisionKind (ApproveRetirement), LifecycleProposal (..), historyAccepted, lifecycleObservationDigest, loadInventoryHistory, noLifecycleDecisions, observationRequirements, planChanges, prepareReview, proposalOperations, publishReview, requiredResources, validateLifecycleDecisions, verifyReview)
+import Nagare.Inventory.Store (ScopeRevision (..), headAccepted, headConverged, headGeneration, initializeStore, newMemoryStore, publishIfAbsent, readStoreSnapshot, replaceHeadIfGenerationMatches, scopeKey)
 import Nagare.Resource.Cdn (compileCloudflareDnsRecord, compileGoogleDnsRecord)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
@@ -278,6 +280,24 @@ inventoryCdnTests = testGroup "reviewed CDN DNS"
         other -> other) firstDns)
       let changed = mkCloudflareAdapter oldResources newBindings ops
           update = operation "op-update-rules" UpdateResource rulesId
+      cdnFacts <- adapterObserve changed [rulesId, firstDns] >>= either (fail . T.unpack) pure
+      routeId <- case [member ^. #identity | Managed member <- oldDeclarations,
+        member ^. #owner == appA,
+        Kubernetes _ "serving.knative.dev" kind _ _ <- [member ^. #address],
+        nameText kind == "domainmapping"] of
+        [resource] -> pure resource
+        other -> assertFailure ("expected one app A route: " <> show other) >> fail "missing route"
+      facts <- either (fail . T.unpack) pure (observationSet
+        (Map.toList (observationMap cdnFacts) <>
+          [(routeId, ObservedPresent (physical routeId))]))
+      proposal <- either (fail . show) pure (planChanges changedCandidate
+        noLifecycleDecisions history facts)
+      assertBool "app A cache update did not plan one complete ruleset change"
+        (any (\planned -> plannedAction planned == UpdateResource
+          && rulesId `elem` NE.toList (plannedResources planned)) (proposalOperations proposal))
+      assertBool "app A cache update planned an app B mutation"
+        (all (all (`notElem` unrelated) . NE.toList . plannedResources)
+          (proposalOperations proposal))
       prepared <- adapterPrepare changed update >>= either (fail . show) pure
       modifyIORef' state (Map.adjust (\case
         CloudflarePresent _ target -> CloudflarePresent (ok (mkPhysicalIdentity "cloudflare:foreign")) target
@@ -288,12 +308,37 @@ inventoryCdnTests = testGroup "reviewed CDN DNS"
         CloudflarePresent _ target -> CloudflarePresent (physical rulesId) target
         other -> other) rulesId)
       adapterPreflight changed update prepared >>= (@?= Right ())
-      adapterExecute changed update prepared >>= (@?= AdapterEffectCompleted)
+      let kubeAdapter = Adapter
+            { adapterExecutor = KubernetesExecutor
+            , adapterIdentity = "recording-cloudflare-route"
+            , adapterVersion = "1"
+            , adapterObserve = \resources -> pure (observationSet
+                [(resource, ObservedPresent (physical resource)) | resource <- resources])
+            , adapterPrepare = \_ -> pure (Right (PreparedNative "recorded-route" "verify existing route"))
+            , adapterPreflight = \_ _ -> pure (Right ())
+            , adapterExecute = \_ _ -> pure AdapterEffectCompleted
+            , adapterVerify = \_ _ -> pure (Right (contentDigest "recorded-route"))
+            , adapterRecover = \_ _ -> pure (RecoveryProvedComplete (contentDigest "recorded-route"))
+            }
+          registry = ok (mkAdapterRegistry [kubeAdapter, changed])
+      reviewBase <- readStoreSnapshot historyStore >>= either (fail . show) pure
+      preparedReview <- prepareReview registry reviewBase proposal >>= either (fail . show) pure
+      _ <- publishReview historyStore preparedReview >>= either (fail . show) pure
+      published <- readStoreSnapshot historyStore >>= either (fail . show) pure
+      admitted <- either (fail . show) pure (verifyReview published preparedReview)
+      _ <- applyReviewed historyStore registry admitted >>= either (fail . show) pure
       result <- adapterVerify changed update prepared
       assertBool "complete ruleset update did not verify" (either (const False) (const True) result)
       let initialWrites = Map.keys oldBindings
       actualWrites <- readIORef writes
       actualWrites @?= initialWrites <> [rulesId]
+      acceptedAfter <- loadInventoryHistory historyStore >>= either (fail . show) pure
+      fmap (revisionGeneration . fst) (Map.lookup platformOwner (historyAccepted acceptedAfter))
+        @?= Just generation
+      fmap (revisionGeneration . fst) (Map.lookup appB (historyAccepted acceptedAfter))
+        @?= Just generation
+      fmap (revisionGeneration . fst) (Map.lookup appA (historyAccepted acceptedAfter))
+        @?= Just (ok (mkScopeGeneration 2))
       adapterRecover changed update prepared >>= \case
         RecoveryUnresolved _ -> pure ()
         other -> assertFailure ("Cloudflare update was recovered without a provider receipt: " <> show other)
