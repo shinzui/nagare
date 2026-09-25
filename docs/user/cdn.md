@@ -29,6 +29,10 @@ For the base-domain apex, direct deploy reads and checks the Pulumi-owned A
 record before changing any application host record; it never writes that apex
 record. Direct deploy, purge, and disable refuse a hostname already claimed by
 accepted or retained inventory history, including claims from another namespace.
+For a more specific Google CDN hostname, direct deploy creates the A record
+only after a successful exact-name listing confirms it is absent. An existing
+record with a different IP or TTL refuses; change it through a reviewed owner
+workflow when that adapter is available. A failed DNS read never starts a create.
 
 A **Content Delivery Network (CDN)** is a globally distributed cache that sits in
 front of your origin. Instead of every request travelling to Nagare's one VM in
@@ -189,12 +193,12 @@ This is the operationally subtle part. Read it before fronting a real hostname.
   nearby Cloudflare data center, which forwards cache-misses to the VM's public IP.
   `nagarectl` upserts this record for you.
 - **Google Cloud CDN.** The Cloud DNS zone keeps its broad `*.<baseDomain>`
-  wildcard pointing at the VM. For a CDN-fronted hostname, `nagarectl` writes a
+  wildcard pointing at the VM. For a first-level CDN hostname, `nagarectl` creates a
   **more-specific** exact-hostname `A` record pointing at the load balancer's
   anycast IP (`cdnGlobalIp`). DNS resolution prefers the most specific match, so
   the exact record wins over the wildcard without touching it. `nagarectl cdn
   disable` deletes that more-specific record and the hostname falls back to the
-  wildcard/VM.
+  wildcard/VM. The base-domain apex record belongs to Pulumi and is only checked.
 
 ### Origin-TLS modes (how the edge talks back to the VM)
 
@@ -270,8 +274,9 @@ ways before moving to `Full`/`Full (strict)`:
 | Unrelated Cloudflare CDN zone | Cloudflare | Supplied Secret or Cloudflare-capable solver | Cloudflare |
 | Google CDN apex / first-level name | Context Cloud DNS | Automatic cert-manager | Google Certificate Manager |
 
-Google deploy-time DNS changes describe the exact A record first, then create,
-skip, or update it as needed, with every command pinned to the active project.
+Google deploy-time DNS changes list the exact A record first, then create it
+when absent or skip it when already exact. A different record refuses until its
+owner can make a reviewed change. Every command is pinned to the active project.
 `cdn disable` deletes only a supported first-level exact record so wildcard
 resolution returns to the VM; it refuses to delete the Pulumi-owned apex record.
 

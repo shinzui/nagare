@@ -19,10 +19,10 @@ module Nagare.Cdn.Provision
   , planCdn
   , googleCdnHostname
   , renderCdnPlan
-  , gcloudDnsDescribeArgs
+  , GcpDnsState (..)
+  , classifyGcpDnsRecord
+  , gcloudDnsListArgs
   , gcloudDnsCreateArgs
-  , gcloudDnsUpdateArgs
-  , gcloudDnsUpsertArgs
 
     -- * Provisioning (IO; total via Either)
   , provisionCdn
@@ -35,6 +35,7 @@ import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString.Char8 qualified as BC
+import Data.Foldable (toList)
 import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -164,17 +165,14 @@ ttlDesc :: Maybe Int -> Text
 ttlDesc Nothing = "never"
 ttlDesc (Just n) = tshow n <> "s"
 
--- | The exact idempotent update argv. Live provisioning first describes the
--- record, skips an exact match, creates an absent record, or runs this update.
-gcloudDnsUpsertArgs :: Text -> Text -> Text -> Text -> [Text]
-gcloudDnsUpsertArgs = gcloudDnsUpdateArgs
-
-gcloudDnsDescribeArgs :: Text -> Text -> Text -> [Text]
-gcloudDnsDescribeArgs project zone hostname =
+-- | A successful empty exact-name listing proves absence. A failed read never
+-- becomes create authority, even if its diagnostic contains "not found".
+gcloudDnsListArgs :: Text -> Text -> Text -> [Text]
+gcloudDnsListArgs project zone hostname =
   [ "dns"
   , "record-sets"
-  , "describe"
-  , hostname <> "."
+  , "list"
+  , "--name=" <> hostname <> "."
   , "--type=A"
   , "--zone=" <> zone
   , "--format=json"
@@ -194,18 +192,16 @@ gcloudDnsCreateArgs project zone hostname ip =
   , "--project=" <> project
   ]
 
-gcloudDnsUpdateArgs :: Text -> Text -> Text -> Text -> [Text]
-gcloudDnsUpdateArgs project zone hostname ip =
-  [ "dns"
-  , "record-sets"
-  , "update"
-  , hostname <> "."
-  , "--type=A"
-  , "--ttl=300"
-  , "--rrdatas=" <> ip
-  , "--zone=" <> zone
-  , "--project=" <> project
-  ]
+data GcpDnsState = DnsAbsent | DnsCurrent | DnsConflict
+  deriving stock (Eq, Show)
+
+classifyGcpDnsRecord :: Text -> Text -> BC.ByteString -> Either Text GcpDnsState
+classifyGcpDnsRecord hostname ip bytes = do
+  record <- parseRecordSet hostname bytes
+  pure $ case record of
+    Nothing -> DnsAbsent
+    Just ([current], 300) | current == ip -> DnsCurrent
+    Just _ -> DnsConflict
 
 -- | Render a plan as a stable, human-readable block for @--dry-run@.
 renderCdnPlan :: CdnPlan -> Text
@@ -293,25 +289,25 @@ provisionGcp refs plan target = do
 -- touching any application-owned host record, without assuming its TTL.
 verifyGcpDnsReference :: GcpStackRefs -> Text -> Text -> IO (Either Text ())
 verifyGcpDnsReference refs hostname ip = do
-  described <- runGcloud (gcloudDnsDescribeArgs (refs ^. #project) (refs ^. #dnsZone) hostname)
-  pure $ case described of
+  listed <- runGcloud (gcloudDnsListArgs (refs ^. #project) (refs ^. #dnsZone) hostname)
+  pure $ case listed of
     Left diagnostic -> Left (hostname <> ": platform-owned Cloud DNS record cannot be read: " <> diagnostic)
-    Right out -> case parseRecordSet out of
+    Right out -> case parseRecordSet hostname out of
       Left err -> Left (hostname <> ": platform-owned Cloud DNS record is invalid: " <> err)
-      Right ([current], _) | current == ip -> Right ()
+      Right (Just ([current], _)) | current == ip -> Right ()
       Right _ -> Left (hostname <> ": platform-owned Cloud DNS record does not point to the selected CDN IP")
 
 upsertGcpDns :: GcpStackRefs -> Text -> Text -> IO (Either Text ())
 upsertGcpDns refs hostname ip = do
-  described <- runGcloud (gcloudDnsDescribeArgs project zone hostname)
-  case described of
-    Right out -> case parseRecordSet out of
-      Right ([current], 300) | current == ip -> pure (Right ())
-      Right _ -> mutate (gcloudDnsUpdateArgs project zone hostname ip)
+  listed <- runGcloud (gcloudDnsListArgs project zone hostname)
+  case listed of
+    Left diagnostic -> pure (Left (hostname <> ": Cloud DNS listing failed: " <> diagnostic))
+    Right out -> case classifyGcpDnsRecord hostname ip out of
       Left err -> pure (Left (hostname <> ": cannot inspect the existing Cloud DNS A record: " <> err))
-    Left diagnostic
-      | isNotFound diagnostic -> mutate (gcloudDnsCreateArgs project zone hostname ip)
-      | otherwise -> pure (Left (hostname <> ": Cloud DNS describe failed: " <> diagnostic))
+      Right DnsAbsent -> mutate (gcloudDnsCreateArgs project zone hostname ip)
+      Right DnsCurrent -> pure (Right ())
+      Right DnsConflict -> pure (Left (hostname
+        <> ": an existing Cloud DNS A record differs; direct deploy cannot replace it without reviewed ownership"))
   where
     project = refs ^. #project
     zone = refs ^. #dnsZone
@@ -320,9 +316,6 @@ upsertGcpDns refs hostname ip = do
       pure $ case result of
         Right _ -> Right ()
         Left diagnostic -> Left ("gcloud failed: gcloud " <> T.unwords args <> ": " <> diagnostic)
-    isNotFound diagnostic =
-      let lower = T.toLower diagnostic
-       in any (`T.isInfixOf` lower) ["not found", "not_found", "does not exist", "404"]
 
 runGcloud :: [Text] -> IO (Either Text BC.ByteString)
 runGcloud args = do
@@ -338,15 +331,20 @@ runGcloud args = do
             <> T.strip (T.pack (if null err then out else err))
         )
 
-parseRecordSet :: BC.ByteString -> Either Text ([Text], Int)
-parseRecordSet bytes =
+parseRecordSet :: Text -> BC.ByteString -> Either Text (Maybe ([Text], Int))
+parseRecordSet hostname bytes =
   case eitherDecodeStrict bytes of
     Left err -> Left (T.pack err)
-    Right (Object object) -> do
+    Right (Array values) | null values -> Right Nothing
+    Right (Array values) | [Object object] <- toList values -> do
+      recordName <- field "name" object
+      recordType <- field "type" object
+      unless (recordName == hostname <> "." && recordType == ("A" :: Text))
+        (Left "listing returned a different record")
       rrdatas <- field "rrdatas" object
       ttl <- field "ttl" object
-      Right (rrdatas, ttl)
-    Right _ -> Left "response is not an object"
+      Right (Just (rrdatas, ttl))
+    Right _ -> Left "listing did not return zero or one A record"
   where
     field key object = case KeyMap.lookup (Key.fromText key) object of
       Nothing -> Left ("response has no " <> key)

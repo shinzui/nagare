@@ -5056,27 +5056,35 @@ cdnProvisionTests =
         ]
       assertBool "apex is a reference in the public review"
         ("Pulumi-owned reference; no write" `T.isInfixOf` renderCdnPlan plan)
-  , testCase "gcloudDnsUpsertArgs: exact argv (more-specific A record to the global IP)" $
-      gcloudDnsUpsertArgs "tan-nb-exp" "nagare-zone" "app.example.com" "203.0.113.20"
+  , testCase "gcloudDnsListArgs: exact project and hostname read before mutation" $
+      gcloudDnsListArgs "tan-nb-exp" "nagare-zone" "app.example.com"
         @?= [ "dns"
             , "record-sets"
-            , "update"
-            , "app.example.com."
+            , "list"
+            , "--name=app.example.com."
             , "--type=A"
-            , "--ttl=300"
-            , "--rrdatas=203.0.113.20"
             , "--zone=nagare-zone"
+            , "--format=json"
             , "--project=tan-nb-exp"
             ]
-  , testCase "gcloudDnsUpsertArgs: project is parameterized (EP-62)" $
-      assertBool
-        "--project follows the supplied project"
-        ("--project=acme-prod" `elem` gcloudDnsUpsertArgs "acme-prod" "z" "h" "ip")
-  , testCase "every convergent Cloud DNS operation is project-pinned" $
+  , testCase "direct Google DNS treats only a successful empty listing as absence" $ do
+      classifyGcpDnsRecord "app.example.com" "203.0.113.20" "[]" @?= Right DnsAbsent
+      let record ip ttl = BC.pack ("[{\"name\":\"app.example.com.\",\"type\":\"A\",\"ttl\":"
+            <> show ttl <> ",\"rrdatas\":[\"" <> ip <> "\"]}]")
+      classifyGcpDnsRecord "app.example.com" "203.0.113.20" (record "203.0.113.20" (300 :: Int))
+        @?= Right DnsCurrent
+      classifyGcpDnsRecord "app.example.com" "203.0.113.20" (record "203.0.113.10" (300 :: Int))
+        @?= Right DnsConflict
+      classifyGcpDnsRecord "app.example.com" "203.0.113.20" (record "203.0.113.20" (600 :: Int))
+        @?= Right DnsConflict
+      assertBool "a failed or malformed listing never proves absence"
+        (isLeft (classifyGcpDnsRecord "app.example.com" "203.0.113.20" "not found"))
+      assertBool "a wrong hostname never proves absence"
+        (isLeft (classifyGcpDnsRecord "other.example.com" "203.0.113.20" (record "203.0.113.20" (300 :: Int))))
+  , testCase "Cloud DNS read and create operations are project-pinned" $
       forM_
-        [ gcloudDnsDescribeArgs "acme-prod" "z" "h"
+        [ gcloudDnsListArgs "acme-prod" "z" "h"
         , gcloudDnsCreateArgs "acme-prod" "z" "h" "ip"
-        , gcloudDnsUpdateArgs "acme-prod" "z" "h" "ip"
         ]
         (assertBool "--project follows the supplied project" . elem "--project=acme-prod")
   , testCase "renderCdnPlan: Cloudflare dry-run block" $

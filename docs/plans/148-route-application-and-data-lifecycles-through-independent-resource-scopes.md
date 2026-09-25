@@ -123,6 +123,8 @@ The direct Google CDN plan now treats the Pulumi backend policy as a shared plat
 
 The direct Google CDN path now marks the Pulumi-owned apex A record as a read-only reference, verifies its target before any per-host write, and never upserts it. Direct deploy, site, purge, and disable commands refuse globally claimed hostnames in accepted or retained inventory, including external platform claims and claims from another namespace. The 800-test CLI suite passed before the final external-claim check; seven focused tests, the executable build, Haskell style check, and strict user-documentation validation passed after it. This protects existing reviewed owners while M2's per-host DNS adapter remains open.
 
+Direct Google host DNS now uses a successful exact-name A-record listing as the only proof of absence, creates only in that state, skips an exact current record, and refuses mismatched or unreadable records. Its old update argv is removed. Fourteen focused DNS tests passed; the reviewed per-host adapter remains M2 work.
+
 The inventory planner now observes only resources selected by a scope change, effective shared-owner members changed by its contributions, required broker topics, and explicit bootstrap dependencies. An app A update no longer asks the unrelated app B or platform cloud adapter for observations; the operation builder uses the same selection so it does not repair or rerun unrelated members. Retained collection still observes its exact target. This advances the M4 isolation requirement but does not finish the command cutover or provider proof.
 
 A recording transaction now takes that app A candidate through observation, review publication, admission, and apply with only a Kubernetes adapter registered. Its single effect is app A's resource ID; app B and the unrelated Pulumi scope retain their exact accepted revisions. The one-invocation command fixture now seeds both unrelated scopes in private context history and converges a new application with the same Kubernetes-only registry; five focused command tests passed. This proves command-service selection without cloud credentials or adapters, while live CLI and provider checks remain open.
@@ -143,6 +145,8 @@ Critical path from completed M1 to final acceptance, in execution order:
 - [ ] M4: Cut over remaining direct app render/apply entry points to the reviewed compiler and publication path.
 
 ## Surprises & Discoveries
+
+2026-09-25: The direct Google DNS path treated a failed `describe` whose diagnostic contained "not found" as an absent record, and updated any existing different record without an ownership receipt. A successful exact-name `record-sets list --format=json` can distinguish an empty result from a failed read. Direct host provisioning now refuses a mismatched existing record, while the future reviewed adapter can use [Cloud DNS atomic changes](https://docs.cloud.google.com/dns/docs/reference/rest/v1/changes/create) and exact old-record deletions for authorized updates.
 
 2026-09-25: The existing app A isolation fixture stopped at pure operation selection. Extending it through the immutable review and transaction executor with no Pulumi adapter proved that unrelated cloud credentials are not required by those layers. It does not exercise CLI context setup, so a live command check is still needed before M4 completion.
 
@@ -263,6 +267,8 @@ Critical path from completed M1 to final acceptance, in execution order:
 2026-09-24: The legacy env and Secret store reader had the same failed-read-to-empty behavior. Its JSON extractor also silently dropped any `data` entry whose value was not a string, contrary to its strictness comment. Both stores now accept only a successful empty `--ignore-not-found` response as absence; failed reads, non-object `data`, and non-string values refuse before a merge or exact replacement. Disposable-context reads of absent ConfigMap and Secret names both exited successfully with empty output, and 785 CLI tests pass. The reviewed channels still need complete preview/deploy integration.
 
 ## Decision Log
+
+2026-09-25: Until M2 binds per-host Cloud DNS to a reviewed owner and exact provider observation, direct Google CDN provisioning is create-or-verify only. An existing different A record requires the reviewed path; a failed listing cannot authorize creation. This removes an unreviewed ownership transfer while preserving initial direct provisioning.
 
 2026-09-25: Recut M1 to the reviewed Kubernetes application and standalone lifecycle it actually owns. The previous M1 exit wording required CDN work already assigned to M2 and direct-path removal assigned to M4, so it could not close in dependency order. This change preserves CDN, publication, full provider membership, data actions, and direct-path removal as final plan acceptance; M1 completion does not claim those effects are implemented.
 
@@ -399,6 +405,8 @@ DependencyExports contains typed capability witnesses and selected revision/phys
 
 
 ## Revision Notes
+
+2026-09-25: Until a claimed Cloud DNS adapter exists, the direct Google host route creates only after a successful exact-name empty listing and refuses mismatched records. This removes unreviewed updates to potentially foreign DNS records; M2 still owns the reviewed update and provider recovery path.
 
 2026-09-16: Recorded EP-151 as a soft dependency that gates only M4's removal of the last legacy deploy path, after the operator added the shared store as the eighth child.
 
