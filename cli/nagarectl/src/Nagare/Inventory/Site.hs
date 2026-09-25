@@ -108,21 +108,24 @@ compileStaticSitePreviewScope inputs raw cluster namespaceId imageId stores sour
   host <- first invalid (previewDomain name raw (inputs ^. #baseDomain))
   compileRenderedSitePreviewScope name ns (rendered ^. #serviceName) host
     (rendered ^. #service) (rendered ^. #domainMappings)
-    cluster namespaceId imageId stores [] source
+    [] Map.empty cluster namespaceId imageId stores [] source
 
 compileServerSitePreviewScope
   :: Server.ServerDeployInputs -> T.Text -> ResourceId -> ResourceId -> ResourceId
-  -> [Declaration] -> Map SecretName Declaration -> SourceLocation
+  -> [Declaration] -> Map VolumeName RecoveryIntent -> Map SecretName Declaration
+  -> SourceLocation
   -> Either (NonEmpty InventoryError)
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileServerSitePreviewScope inputs raw cluster namespaceId imageId stores envSecrets source = do
+compileServerSitePreviewScope inputs raw cluster namespaceId imageId stores recovery envSecrets source = do
   let site = inputs ^. #site
       name = siteNameText (site ^. #name)
       ns = namespaceText (site ^. #namespace)
       invalid message = inventoryError "invalid-server-preview-scope" message
         & #sources .~ [source] & (:| [])
-  unless (null (site ^. #volumes))
-    (Left (invalid "server preview volumes require independent recovery and claim inputs"))
+  unless (Map.keysSet recovery == Set.fromList
+      [volume ^. #name | volume <- site ^. #volumes,
+        volume ^. #retention == Dsl.Retain])
+    (Left (invalid "server preview recovery does not cover exactly its retained volumes"))
   let secretRefs = [(secret, entry ^. #scopes) | entry <- Map.elems (site ^. #env),
         EnvSecretRef secret <- [entry ^. #value]]
   unless (all ((== Set.singleton Runtime) . snd) secretRefs)
@@ -133,18 +136,25 @@ compileServerSitePreviewScope inputs raw cluster namespaceId imageId stores envS
     (Set.toAscList (Set.fromList (map fst secretRefs)))
   rendered <- first invalid (Server.serverPreviewManifests inputs raw)
   host <- first invalid (previewDomain name raw (inputs ^. #baseDomain))
+  let previewName = rendered ^. #serviceName
+      volumeBytes = ServerRender.renderServerVolumeClaims site
+        (ServerRender.ServerDeployContext (inputs ^. #imageTag) (Just previewName))
+  unless (length volumeBytes == length (site ^. #volumes))
+    (Left (invalid "server preview volume renderer changed membership"))
   compileRenderedSitePreviewScope name ns (rendered ^. #serviceName) host
     (rendered ^. #service) (rendered ^. #domainMappings)
+    (zip (site ^. #volumes) volumeBytes) recovery
     cluster namespaceId imageId stores secretIds source
 
 compileRenderedSitePreviewScope
   :: T.Text -> T.Text -> T.Text -> T.Text -> ByteString -> [ByteString]
+  -> [(Volume, ByteString)] -> Map VolumeName RecoveryIntent
   -> ResourceId -> ResourceId -> ResourceId -> [Declaration] -> [ResourceId]
   -> SourceLocation
   -> Either (NonEmpty InventoryError)
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
 compileRenderedSitePreviewScope name ns serviceName host serviceBytes domainManifests
-    cluster namespaceId imageId stores secretIds source = do
+    volumeInputs recovery cluster namespaceId imageId stores secretIds source = do
   let invalid message = inventoryError "invalid-site-preview-scope" message
         & #sources .~ [source] & (:| [])
   envIds <- first invalid (sitePreviewStoreIds cluster name ns stores)
@@ -158,9 +168,26 @@ compileRenderedSitePreviewScope name ns serviceName host serviceBytes domainMani
   owner <- first invalid (mkScopeId Standalone ("site-preview-" <> serviceName))
   serviceKey <- first invalid (mkLogicalKey serviceName)
   serviceRole <- first invalid (mkName "service")
+  volumeRole <- first invalid (mkName "site-pvc")
   let serviceId = mintResourceId owner serviceKey serviceRole
+  volumeMembers <- traverse (\(volume, bytes) -> do
+      volumeId <- first invalid (volumeResourceId owner volumeRole volume)
+      (lifecycle, policy) <- case volume ^. #retention of
+        Dsl.Retain -> do
+          intent <- maybe (Left (invalid "retained preview volume lacks recovery")) Right
+            (Map.lookup (volume ^. #name) recovery)
+          pure (Retain, Durable intent)
+        Dsl.Delete -> pure (DeleteWhenUnreferenced, Stateless)
+      let volumeSource = source
+            {path = path source <> "/volume/" <> volumeNameText (volume ^. #name)}
+      member <- bindOne owner cluster volumeId lifecycle policy
+        [OrderedAfter namespaceId] volumeSource bytes
+      checkAddress invalid cluster "v1" "PersistentVolumeClaim" ns
+        (pvcName serviceName (volumeNameText (volume ^. #name))) member
+      pure member) volumeInputs
+  let volumeIds = map ((^. #identity) . fst) volumeMembers
   serviceMember <- bindOne owner cluster serviceId DeleteWhenUnreferenced Stateless
-    (map OrderedAfter ([namespaceId, imageId] <> envIds <> secretIds))
+    (map OrderedAfter ([namespaceId, imageId] <> volumeIds <> envIds <> secretIds))
     (source {path = path source <> "/service"}) serviceBytes
   checkAddress invalid cluster "serving.knative.dev/v1" "Service" ns
     serviceName serviceMember
@@ -170,7 +197,8 @@ compileRenderedSitePreviewScope name ns serviceName host serviceBytes domainMani
     [OrderedAfter namespaceId, OrderedAfter serviceId]
     (source {path = path source <> "/domain/" <> host}) domainBytes
   checkAddress invalid cluster "serving.knative.dev/v1beta1" "DomainMapping" ns host domainMember
-  let members = [serviceMember, first (\resource -> resource {aliases = [Hostname hostname]}) domainMember]
+  let members = volumeMembers <>
+        [serviceMember, first (\resource -> resource {aliases = [Hostname hostname]}) domainMember]
       native = Map.fromList [(resource ^. #identity, (resource, bytes))
         | (resource, bytes) <- members]
   scope <- mkScopeDeclaration owner
@@ -197,9 +225,9 @@ acceptedSitePreviewDependencies snapshot cluster name ns ids = do
 -- | Select only the exact reviewed preview scope requested by a delete
 -- command. Retirement retains its native members for later collection.
 sitePreviewRetirementScope
-  :: ScopeSnapshot -> ResourceId -> T.Text -> T.Text -> T.Text
+  :: ScopeSnapshot -> ResourceId -> T.Text -> T.Text -> T.Text -> [T.Text]
   -> Either T.Text ScopeId
-sitePreviewRetirementScope snapshot cluster serviceName ns host = do
+sitePreviewRetirementScope snapshot cluster serviceName ns host volumeNames = do
   owner <- mkScopeId Standalone ("site-preview-" <> serviceName)
   (_, scope) <- maybe (Left "accepted site preview scope is absent") Right
     (Map.lookup owner (snapshotScopes snapshot))
@@ -207,15 +235,26 @@ sitePreviewRetirementScope snapshot cluster serviceName ns host = do
     (Just ns) serviceName
   domainAddress <- kubernetesAddress cluster "serving.knative.dev/v1beta1" "DomainMapping"
     (Just ns) host
+  volumeAddresses <- traverse (\volumeName -> kubernetesAddress cluster "v1"
+    "PersistentVolumeClaim" (Just ns) (pvcName serviceName volumeName)) volumeNames
+  unless (Set.size (Set.fromList volumeAddresses) == length volumeNames)
+    (Left "preview volume names are not distinct")
   let members = [member | bundle <- scopeBundles scope,
         Managed member <- declarations bundle]
       declarationsCount = sum [length (declarations bundle) | bundle <- scopeBundles scope]
-      expected = Set.fromList [serviceAddress, domainAddress]
-  unless (length members == 2 && declarationsCount == 2
+      expected = Set.fromList ([serviceAddress, domainAddress] <> volumeAddresses)
+      volumeSet = Set.fromList volumeAddresses
+      validMember member = member ^. #owner == owner
+        && (if (member ^. #address) `Set.member` volumeSet
+            then case (member ^. #lifecycle, member ^. #dataPolicy) of
+              (Retain, Durable _) -> True
+              (DeleteWhenUnreferenced, Stateless) -> True
+              _ -> False
+            else member ^. #lifecycle == DeleteWhenUnreferenced
+              && member ^. #dataPolicy == Stateless)
+  unless (length members == Set.size expected && declarationsCount == Set.size expected
       && Set.fromList (map (^. #address) members) == expected
-      && all (\member -> member ^. #owner == owner
-        && member ^. #lifecycle == DeleteWhenUnreferenced
-        && member ^. #dataPolicy == Stateless) members)
+      && all validMember members)
     (Left "accepted site preview has unexpected owned members or native addresses")
   pure owner
 

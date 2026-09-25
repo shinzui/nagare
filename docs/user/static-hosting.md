@@ -337,11 +337,13 @@ and each present member's exact address, UID, and resourceVersion. Pass
 `--preview-adoption-input FILE` with the saved deploy command. The proposal
 can adopt only unowned members of that preview scope.
 
-The same saved-plan command supports stateless server sites. For each Runtime
-Secret reference in the server config, add `--env-secret-resource RESOURCE-ID`
-for its accepted Secret. Server preview volumes and Build/Preview Secret
-references are not yet supported. Direct preview deployment still supports
-static sites only.
+The same saved-plan command supports server sites. For each Runtime Secret
+reference in the server config, add `--env-secret-resource RESOURCE-ID` for
+its accepted Secret. A preview volume has its own PVC under the preview
+Service name. Add `--volume-recovery VOLUME=BACKUP:KEY:VERSION` for each
+retained preview volume; a volume marked for deletion needs no recovery input.
+Build and Preview Secret references are not yet supported. Direct preview
+deployment still supports static sites only.
 
 To remove a reviewed preview,
 retire its scope, then separately review exact collection of its retained
@@ -356,11 +358,14 @@ nagarectl inventory apply preview-collect-review --yes
 ```
 
 Use the two ResourceIds shown in inventory status after retirement. The
-collection review checks each object's UID and resourceVersion. Direct
-`site preview delete` refuses addresses owned by accepted or retained history.
+collection review checks each object's UID and resourceVersion. A server
+preview with volumes also retires its exact PVC members. PVC collection is
+not yet supported, so those claims remain visible as retained resources.
+Direct `site preview delete` supports static sites only and refuses addresses
+owned by accepted or retained history.
 
-> Direct preview deployment targets **static** sites. Stateless server previews
-> require `--save-plan`, a prepublished image, and the accepted overlay stores.
+> Direct preview deployment targets **static** sites. Server previews require
+> `--save-plan`, a prepublished image, and the accepted overlay stores.
 
 ---
 

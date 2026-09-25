@@ -331,6 +331,7 @@ import Nagare.Static.Preview
 import Nagare.Static.Release
 import Nagare.Static.Webhook
 import Nagare.Resource.Inventory (Declaration (External, Managed), ResourceBundle (..), declarationId, mkScopeSnapshot, scopeBundles, scopeId)
+import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (DeleteWhenUnreferenced))
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Storage.Discover
@@ -4032,11 +4033,11 @@ staticInventoryTests =
       svcName <- either (fail . T.unpack) pure (previewServiceName "demo" "branch")
       host <- either (fail . T.unpack) pure
         (previewDomain "demo" "branch" "example.com")
-      sitePreviewRetirementScope previewSnapshot cluster svcName "personal" host
+      sitePreviewRetirementScope previewSnapshot cluster svcName "personal" host []
         @?= Right (scopeId scope)
       assertBool "preview retirement selected a different domain"
         (isLeft (sitePreviewRetirementScope previewSnapshot cluster svcName
-          "personal" "other.example.com"))
+          "personal" "other.example.com" []))
       let serverSite = ServerSite
             { name = unsafe (mkSiteName "demo")
             , namespace = unsafe (mkNamespace "personal")
@@ -4061,7 +4062,7 @@ staticInventoryTests =
           && BC.isInfixOf "nagare-secret-demo-preview" (serverRendered ^. #service))
       (serverScope, serverNative) <- either (fail . show) pure
         (compileServerSitePreviewScope serverInputs "branch" cluster namespaceId imageId
-          deps Map.empty source)
+          deps Map.empty Map.empty source)
       scopeId serverScope @?= scopeId scope
       Map.size serverNative @?= 2
       let secretName = unsafe (mkSecretName "external")
@@ -4074,13 +4075,13 @@ staticInventoryTests =
           secretBindings = Map.singleton secretName (External secretId secretAddress [] source)
       (secretScope, _) <- either (fail . show) pure
         (compileServerSitePreviewScope (serverInputs {ServerDeploy.site = secretSite})
-          "branch" cluster namespaceId imageId deps secretBindings source)
+          "branch" cluster namespaceId imageId deps Map.empty secretBindings source)
       assertBool "server preview Service lacks Runtime Secret ordering"
         (any (elem (OrderedAfter secretId) . (^. #dependencies))
           [member | bundle <- scopeBundles secretScope, Managed member <- declarations bundle])
       assertBool "server preview accepted an unbound Runtime Secret"
         (isLeft (compileServerSitePreviewScope (serverInputs {ServerDeploy.site = secretSite})
-          "branch" cluster namespaceId imageId deps Map.empty source))
+          "branch" cluster namespaceId imageId deps Map.empty Map.empty source))
       let volume = Volume
             { name = unsafe (mkVolumeName "data")
             , logicalKey = Nothing
@@ -4090,10 +4091,47 @@ staticInventoryTests =
             , readOnly = False
             , retention = Retain
             }
-      assertBool "server preview accepted a volume without a claim"
+          volumeSite = serverSite & #volumes .~ [volume]
+      assertBool "server preview accepted a retained volume without recovery"
         (isLeft (compileServerSitePreviewScope
-          (serverInputs {ServerDeploy.site = serverSite & #volumes .~ [volume]})
-          "branch" cluster namespaceId imageId deps Map.empty source))
+          (serverInputs {ServerDeploy.site = volumeSite})
+          "branch" cluster namespaceId imageId deps Map.empty Map.empty source))
+      recovery <- either (fail . T.unpack) pure
+        (siteVolumeRecoveryBindings volumeSite ["data=backup:key:v1"])
+      (volumeScope, volumeNative) <- either (fail . show) pure
+        (compileServerSitePreviewScope (serverInputs {ServerDeploy.site = volumeSite})
+          "branch" cluster namespaceId imageId deps recovery Map.empty source)
+      Map.size volumeNative @?= 3
+      let volumeMembers = [member | bundle <- scopeBundles volumeScope,
+            Managed member <- declarations bundle]
+          pvcAddress = unsafe (Resource.kubernetesAddress cluster "v1"
+            "PersistentVolumeClaim" (Just "personal") (pvcName svcName "data"))
+          pvcMembers = filter ((== pvcAddress) . (^. #address)) volumeMembers
+      pvcId <- case pvcMembers of
+        [pvc] -> pure (pvc ^. #identity)
+        _ -> fail "preview PVC membership differs from its rendered claim"
+      assertBool "preview Service lacks its exact volume dependency"
+        (any (elem (OrderedAfter pvcId)
+          . (^. #dependencies)) volumeMembers)
+      volumeSnapshot <- either (fail . show) pure (mkScopeSnapshot binding
+        (Map.singleton (scopeId volumeScope)
+          (unsafe (Resource.mkScopeGeneration 1), volumeScope)) Map.empty)
+      sitePreviewRetirementScope volumeSnapshot cluster svcName "personal" host ["data"]
+        @?= Right (scopeId volumeScope)
+      assertBool "preview retirement accepted missing volume membership"
+        (isLeft (sitePreviewRetirementScope volumeSnapshot cluster svcName
+          "personal" host []))
+      let deletableSite = serverSite & #volumes .~ [volume & #retention .~ Delete]
+      (deletableScope, _) <- either (fail . show) pure
+        (compileServerSitePreviewScope (serverInputs {ServerDeploy.site = deletableSite})
+          "branch" cluster namespaceId imageId deps Map.empty Map.empty source)
+      let deletableClaims = [member | bundle <- scopeBundles deletableScope,
+            Managed member <- declarations bundle, member ^. #address == pvcAddress]
+      assertBool "deletable preview claim has the wrong lifecycle"
+        (case deletableClaims of
+          [claim] -> claim ^. #lifecycle == DeleteWhenUnreferenced
+            && claim ^. #dataPolicy == Stateless
+          _ -> False)
   , testCase "server site review binds its release and refuses untyped Secrets" $ do
       let site = ServerSite
             { name = unsafe (mkSiteName "demo")

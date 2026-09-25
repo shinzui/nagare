@@ -126,6 +126,11 @@ provenance:
       at: 2026-09-25T02:22:40Z
       mode: "implement"
       note: "Track reviewed stateless server preview scopes"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-25T02:28:16Z
+      mode: "implement"
+      note: "Track server preview PVC ownership and recovery"
 ---
 
 # Make managed resources first-class through typed scoped inventories
@@ -559,5 +564,7 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 2026-09-24: EP-148 now accepts an exact-incarnation adoption proposal for existing direct static preview members, restricted to distinct unowned resources in the selected preview scope. Server previews, CDN, and other application operations remain open.
 
 2026-09-24: EP-148 added reviewed stateless server preview scopes with accepted overlay stores and Runtime Secret dependencies. Preview identity variables use the derived name and URL; server volumes, Build/Preview Secret publication, CDN, and other operational paths remain open.
+
+2026-09-24: EP-148 now binds server preview PVCs under the derived preview Service identity and requires explicit recovery for retained volumes. Exact-scope retirement covers the claims, while PVC collection remains open. Build/Preview Secret publication, CDN, and other operational paths remain open.
 
 2026-09-24: EP-148 applied the same distinction to legacy env and Secret reads and now refuses malformed `data` entries instead of silently dropping keys. Direct store writes and reviewed preview/deploy integration remain open.

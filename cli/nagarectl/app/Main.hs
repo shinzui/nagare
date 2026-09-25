@@ -7368,8 +7368,7 @@ rollbackManifests tp (Load.SiteServer s) bd tag =
 -- the production release history.
 runPreviewDeploy :: Maybe String -> SiteDeployOpts -> Text -> IO ()
 runPreviewDeploy mctx sopts pname = do
-  when (not (null (sopts ^. #siteVolumeRecovery))
-      || not (null (sopts ^. #siteTlsSecretResources))
+  when (not (null (sopts ^. #siteTlsSecretResources))
       || isJust (sopts ^. #legacyReleaseImport)
       || isJust (sopts ^. #releaseAdoptionInput))
     (dieT "site preview deploy does not support production inventory options")
@@ -7380,6 +7379,8 @@ runPreviewDeploy mctx sopts pname = do
   case esite of
     Left err -> dieT (Load.renderLoadError err)
     Right (Load.SiteStatic site) -> do
+      unless (null (sopts ^. #siteVolumeRecovery))
+        (dieT "static preview has no volume recovery inputs")
       unless (null (sopts ^. #siteEnvSecretResources))
         (dieT "static preview has no runtime Secret references")
       case sopts ^. #savePlan of
@@ -7492,9 +7493,11 @@ runReviewedServerPreviewPlan mctx tp options original bd pname output = do
   secretIds <- traverse (either dieT pure . Resource.mkResourceId . T.pack)
     (options ^. #siteEnvSecretResources)
   runtimeSecrets <- either dieT pure (acceptedSecretBindings snapshot secretIds)
+  recovery <- either dieT pure (siteVolumeRecoveryBindings site
+    (map T.pack (options ^. #siteVolumeRecovery)))
   (scope, native) <- either (dieT . T.pack . show) pure
     (compileServerSitePreviewScope inputs pname cluster namespaceId imageId
-      stores runtimeSecrets source)
+      stores recovery runtimeSecrets source)
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
   case options ^. #sitePreviewAdoptionInput of
@@ -7527,11 +7530,20 @@ runPreviewDelete mctx options pname = do
   let copts = options ^. #common
   bd <- resolveBaseDomain mctx (copts ^. #baseDomain)
   provisionGhcEnv (copts ^. #ghcEnv)
-  (prodName, ns) <- siteIdentityOrDie (copts ^. #file)
+  esite <- Load.loadSite (copts ^. #file)
+  site <- either (dieT . Load.renderLoadError) pure esite
+  let (prodName, ns) = siteConfigIdentity site
+      volumeNames = case site of
+        Load.SiteStatic _ -> []
+        Load.SiteServer server -> map (volumeNameText . (^. #name))
+          (server ^. #volumes)
   svcName <- orDie (previewServiceName prodName pname)
   pdomText <- orDie (previewDomain prodName pname bd)
   case options ^. #savePlan of
     Nothing -> do
+      case site of
+        Load.SiteServer _ -> dieT "server preview deletion requires --save-plan"
+        Load.SiteStatic _ -> pure ()
       refuseDirectSiteMutationIfOwned mctx "site preview delete" svcName ns [pdomText] False
       deletePreview ns svcName pdomText
       TIO.putStrLn ("Deleted preview: " <> svcName)
@@ -7540,7 +7552,7 @@ runPreviewDelete mctx options pname = do
       snapshot <- Inventory.loadTargetSnapshot active
       (cluster, _) <- either dieT pure (acceptedFoundationNamespace snapshot ns)
       owner <- either dieT pure
-        (sitePreviewRetirementScope snapshot cluster svcName ns pdomText)
+        (sitePreviewRetirementScope snapshot cluster svcName ns pdomText volumeNames)
       (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
       Inventory.planInventoryRetirementWith
         (inventoryPlanRegistry active workspace) active owner output
