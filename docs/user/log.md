@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-25
+* **Update**: Explain reviewed application and standalone Service stop/restart, the persisted cluster-local override, and explicit reviewed recovery.
 * **Update**: Document reviewed Google CDN host DNS for applications and production sites, the accepted platform BackendService input, atomic exact-old updates, and uncertain recovery.
 * **Update**: Document reviewed Google CDN site rollback with the same accepted backend binding and retained DNS declaration.
 * **Fix**: Make direct Google CDN host DNS create-only after a successful exact-name read; refuse existing mismatched records and failed reads.

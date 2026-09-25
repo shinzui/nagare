@@ -283,7 +283,7 @@ import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.Application (ApplicationScopeInput (..), GoogleCdnBinding (..), CloudflareCdnBinding (..), ReviewedCdnBinding (..), DatabaseBinding, acceptedAccessBinding, acceptedApplicationImage, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationDeployment, compileStandaloneServiceWithRelease, compileStandaloneWorkerWithDependencies, databaseRecoveryBindings, hostnameClaimOwned, legacyApplicationReleaseImport, legacyStandaloneReleaseImport, nativeWorkloadOwned, recordReviewedStandaloneOverrides, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), GoogleCdnBinding (..), CloudflareCdnBinding (..), ReviewedCdnBinding (..), DatabaseBinding, ServiceAction (..), acceptedAccessBinding, acceptedApplicationImage, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationDeployment, compileServiceActionScope, compileStandaloneServiceWithRelease, compileStandaloneWorkerWithDependencies, databaseRecoveryBindings, hostnameClaimOwned, legacyApplicationReleaseImport, legacyStandaloneReleaseImport, nativeWorkloadOwned, recordReviewedStandaloneOverrides, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
 import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteReleaseLog, acceptedSiteSource, compileServerSitePreviewScope, compileServerSiteRollbackScope, compileServerSiteRollbackScopeWithCdn, compileServerSiteRollbackScopeWithCloudflare, compileServerSiteScope, compileServerSiteScopeWithCdn, compileServerSiteScopeWithCloudflare, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteRollbackScopeWithCdn, compileStaticSiteRollbackScopeWithCloudflare, compileStaticSiteScope, compileStaticSiteScopeWithCdn, compileStaticSiteScopeWithCloudflare, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteNativeOwned, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
 import Nagare.Inventory.TaskRun (compileTaskRunScope)
 import Nagare.Inventory.Lifecycle qualified as InventoryLifecycle
@@ -8313,10 +8313,14 @@ runAppRestart :: Maybe String -> AppNameOpts -> IO ()
 runAppRestart mctx o = do
   let ns = appNamespace (o ^. #namespace)
       name = T.pack (o ^. #nameArg)
-  refuseDirectServiceMutationIfOwned mctx "app restart" name ns
   stamp <- computeTag
-  restartApp ns name stamp
-  waitForReady name ns >>= requireWait ("service '" <> name <> "'")
+  reviewed <- acceptedServiceActionExists mctx name ns
+  if reviewed
+    then runReviewedServiceAction mctx name ns (RestartService stamp)
+    else do
+      refuseDirectServiceMutationIfOwned mctx "app restart" name ns
+      restartApp ns name stamp
+      waitForReady name ns >>= requireWait ("service '" <> name <> "'")
   TIO.putStrLn ("Restarted: " <> name)
 
 -- | @app stop NAME@: take the app offline recoverably.
@@ -8324,15 +8328,67 @@ runAppStop :: Maybe String -> AppNameOpts -> IO ()
 runAppStop mctx o = do
   let ns = appNamespace (o ^. #namespace)
       name = T.pack (o ^. #nameArg)
-  refuseDirectServiceMutationIfOwned mctx "app stop" name ns
-  stopApp ns name
+  reviewed <- acceptedServiceActionExists mctx name ns
+  if reviewed
+    then runReviewedServiceAction mctx name ns StopService
+    else do
+      refuseDirectServiceMutationIfOwned mctx "app stop" name ns
+      stopApp ns name
   TIO.putStrLn
-    ( "Stopped "
-        <> name
-        <> " (run 'nagarectl deploy' or 'nagarectl app restart "
-        <> name
-        <> "' to restore public serving)"
-    )
+    ("Stopped " <> name <> if reviewed
+      then " (run an explicit reviewed deploy or 'nagarectl app restart "
+        <> name <> "' to restore public serving)"
+      else " (run 'nagarectl deploy' or 'nagarectl app restart "
+        <> name <> "' to restore public serving)")
+
+acceptedServiceActionExists :: Maybe String -> Text -> Text -> IO Bool
+acceptedServiceActionExists mctx name namespaceName =
+  withAcceptedInventoryHistoryResult mctx "app service action" False $ \history -> do
+    let selected = [resource | (_, (_, scope)) <- Map.toList (InventoryPlan.historyAccepted history),
+          bundle <- ResourceInventory.scopeBundles scope,
+          ResourceInventory.Managed resource <- ResourceInventory.declarations bundle,
+          case resource ^. #address of
+            Resource.Kubernetes _ "serving.knative.dev" kind (Just ns) nativeName ->
+              Resource.nameText kind == "service"
+                && Resource.nameText ns == namespaceName
+                && Resource.nameText nativeName == name
+            _ -> False]
+    case selected of
+      [] -> pure False
+      [_] -> pure True
+      _ -> dieT "multiple accepted scopes claim the selected Knative Service"
+
+runReviewedServiceAction :: Maybe String -> Text -> Text -> ServiceAction -> IO ()
+runReviewedServiceAction mctx name namespaceName serviceAction = do
+  active <- activeTarget mctx
+  (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+  snapshot <- Inventory.loadTargetSnapshot active
+  let selected = [scope | (_, scope) <- Map.elems (ResourceInventory.snapshotScopes snapshot),
+        bundle <- ResourceInventory.scopeBundles scope,
+        ResourceInventory.Managed resource <- ResourceInventory.declarations bundle,
+        case resource ^. #address of
+          Resource.Kubernetes _ "serving.knative.dev" kind (Just ns) nativeName ->
+            Resource.nameText kind == "service"
+              && Resource.nameText ns == namespaceName
+              && Resource.nameText nativeName == name
+          _ -> False]
+  scope <- case selected of
+    [single] -> pure single
+    _ -> dieT "reviewed service action requires one accepted Service scope"
+  store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+  history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
+  acceptedInventory <- either (dieT . T.pack . show) pure
+    (ResourceInventory.composeSnapshot snapshot)
+  (acceptedNative, _) <- InventoryStatus.loadAcceptedNative store history acceptedInventory
+    >>= either dieT pure
+  (revised, native) <- either (dieT . T.pack . show) pure
+    (compileServiceActionScope name namespaceName serviceAction scope acceptedNative)
+  candidate <- either (dieT . T.pack . show) pure
+    (ResourceInventory.composeInventory snapshot
+      (ResourceInventory.ReplaceScope revised NE.:| []))
+  Inventory.convergeInventoryCandidateWith
+    (inventoryPlanRegistryWithNative active workspace native)
+    (inventoryExecutionRegistry mctx) active candidate
 
 -- | @app delete NAME@: remove the Service, its DomainMappings, and its history.
 -- Domains come from the config when @--file@ resolves to a 'Deployment',
@@ -8708,12 +8764,17 @@ refuseDirectDataMutationIfOwned mctx kind operation name namespaceName =
 -- | Reuse one read-only, context-bound history check for every legacy command
 -- that can mutate a native resource without an inventory receipt.
 withAcceptedInventoryHistory :: Maybe String -> Text -> (InventoryPlan.InventoryHistory -> IO ()) -> IO ()
-withAcceptedInventoryHistory mctx operation inspect = do
+withAcceptedInventoryHistory mctx operation inspect =
+  withAcceptedInventoryHistoryResult mctx operation () inspect
+
+withAcceptedInventoryHistoryResult
+  :: Maybe String -> Text -> a -> (InventoryPlan.InventoryHistory -> IO a) -> IO a
+withAcceptedInventoryHistoryResult mctx operation missing inspect = do
   active <- activeTarget mctx
   opened <- Inventory.openTargetStoreReadOnly active
   case opened of
-    Left (InventoryStore.StoreConditionFailed "inventory store is not initialized") -> pure ()
-    Left (InventoryStore.StoreConditionFailed "inventory object prefix is not initialized") -> pure ()
+    Left (InventoryStore.StoreConditionFailed "inventory store is not initialized") -> pure missing
+    Left (InventoryStore.StoreConditionFailed "inventory object prefix is not initialized") -> pure missing
     Left err -> dieT ("cannot verify inventory ownership before " <> operation <> ": " <> T.pack (show err))
     Right store -> do
       history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure

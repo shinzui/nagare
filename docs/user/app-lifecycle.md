@@ -15,8 +15,9 @@ generated:
 >
 > The `app` and `deployments` commands are implemented and unit-tested, and the
 > example config renders end-to-end with `nagarectl deploy --dry-run`. The *live*
-> verbs (`list`/`get`/`logs`/`restart`/`stop`/`delete`) read and patch real
-> Knative state, so their transcripts below are the intended behaviour until
+> verbs (`list`/`get`/`logs`/`restart`/`stop`/`delete`) read real
+> Knative state; accepted Services use reviewed stop/restart mutations, while
+> legacy Services use direct patches. Their transcripts below are the intended behaviour until
 > `nagare-01` is back up. The flags and output shapes are exact.
 
 This page is for the **operator of an already-deployed app**. [Deploying
@@ -114,7 +115,11 @@ revision is currently serving; to read a *specific past* deployment's logs, use
 ## Restart, stop, delete
 
 **`app restart NAME`** rolls a fresh revision by stamping the Service template, then
-waits for the new revision to become Ready:
+waits for the new revision to become Ready. For an accepted application or
+standalone Service, the command publishes and applies a reviewed scope update
+using its accepted private Service bytes. The review clears a stopped Service's
+cluster-local override and records the restart stamp. Interrupted execution
+resumes from the inventory transaction; it does not issue a second direct patch.
 
 ```bash
 nagarectl app restart lifecycle-demo
@@ -127,7 +132,10 @@ Restarted: lifecycle-demo
 **`app stop NAME`** takes the app offline *recoverably*. Knative has no native
 "pause", so `stop` labels the Service `networking.knative.dev/visibility:
 cluster-local`, which removes its public route — the app stops answering on its
-URL but its history and config are untouched:
+URL but its release history and config digest are untouched. For an accepted
+application or standalone Service, `stop` records the cluster-local label as a
+reviewed operational override in that Service's scope. Ordinary inventory
+convergence preserves the stopped state:
 
 ```bash
 nagarectl app stop lifecycle-demo
@@ -137,9 +145,14 @@ nagarectl app stop lifecycle-demo
 Stopped lifecycle-demo (run 'nagarectl deploy' or 'nagarectl app restart lifecycle-demo' to restore public serving)
 ```
 
-Bring it back with either `nagarectl deploy` (a fresh deploy) or `nagarectl app
-restart lifecycle-demo` — `restart` also clears the cluster-local label, so the
-public route returns.
+For an accepted Service, the command first prints the published review digest
+and operation summaries. Its final line names an explicit reviewed deploy or
+`app restart` as the way to restore public serving.
+
+Bring a legacy app back with `nagarectl deploy` or `nagarectl app restart
+lifecycle-demo`. For an accepted Service, use an explicit reviewed deploy with
+its accepted image resource or `nagarectl app restart lifecycle-demo`. Both
+clear the cluster-local label so the public route returns.
 
 For an inventory-managed application, save a retirement review and apply it
 through the inventory command:

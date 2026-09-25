@@ -31,7 +31,7 @@ import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.Cdn.Provision (GcpStackRefs (..))
 import Nagare.App.Deployments (appDeploymentsPrefix)
 import Nagare.App.Deploy
-import Nagare.Inventory.Application (ApplicationScopeInput (..), GoogleCdnBinding (..), CloudflareCdnBinding (..), ReviewedCdnBinding (..), acceptedAccessBinding, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, standaloneWorkerVolumeRecoveryBindings, nativeWorkloadOwned, hostnameClaimOwned, compileApplicationDeployment, compileApplicationScope, compileApplicationService, compileStandaloneService, compileStandaloneServiceWithBrokers, compileStandaloneServiceWithDependencies, compileStandaloneServiceWithRelease, compileStandaloneWorker, compileStandaloneWorkerWithDependencies, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings, legacyApplicationReleaseImport, recordReviewedStandaloneOverrides, workerRetirementScope)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), GoogleCdnBinding (..), CloudflareCdnBinding (..), ReviewedCdnBinding (..), ServiceAction (..), acceptedAccessBinding, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, standaloneWorkerVolumeRecoveryBindings, nativeWorkloadOwned, hostnameClaimOwned, compileApplicationDeployment, compileApplicationScope, compileApplicationService, compileServiceActionScope, compileStandaloneService, compileStandaloneServiceWithBrokers, compileStandaloneServiceWithDependencies, compileStandaloneServiceWithRelease, compileStandaloneWorker, compileStandaloneWorkerWithDependencies, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings, legacyApplicationReleaseImport, recordReviewedStandaloneOverrides, workerRetirementScope)
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Cdn (DnsAdapterOps (..), DnsObservation (..), dnsSpecsFromDeclarations, mkDnsAdapter)
 import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps (..), KubernetesMutation (..), KubernetesState (..), mkKubernetesAdapter)
@@ -536,6 +536,54 @@ renderTests =
           (Map.singleton secretName wrongSecret) Map.empty source of
         Left _ -> pure ()
         Right _ -> assertFailure "supplied TLS accepted a Secret in another namespace"
+  , testCase "reviewed stop survives convergence and restart clears its visibility override" $ do
+      loaded <- loadApplication fixturePath
+      app <- either (fail . show) pure loaded
+      let foundation = unsafe (Resource.mkScopeId Resource.Platform "foundation")
+          cluster = Resource.mintResourceId foundation
+            (unsafe (Resource.mkLogicalKey "cluster")) (unsafe (Resource.mkName "resource"))
+          namespaceId = Resource.mintResourceId foundation
+            (unsafe (Resource.mkLogicalKey "foundation")) (unsafe (Resource.mkName "namespace-personal"))
+          publication = Resource.mintResourceId foundation
+            (unsafe (Resource.mkLogicalKey "image")) (unsafe (Resource.mkName "publication"))
+          source = Resource.SourceLocation "test" "service-action"
+          withDomain = app & #service %~ fmap
+            (#domains .~ unsafe (mkDomains [("app.example.com", True)]))
+      (bundle, native) <- either (fail . show) pure
+        (compileApplicationService withDomain testEnv cluster namespaceId publication
+          Map.empty Map.empty Map.empty source)
+      owner <- either (fail . T.unpack) pure (applicationScopeId withDomain)
+      base <- either (fail . show) pure (mkScopeDeclaration owner [bundle])
+      (stopped, stoppedNative) <- either (fail . show) pure
+        (compileServiceActionScope "kizashi-serve" "personal" StopService base native)
+      Map.lookup "operational.visibility" (scopeOverrides stopped) @?= Just "cluster-local"
+      let changed = [rid | (rid, value) <- Map.toList native,
+            Map.lookup rid stoppedNative /= Just value]
+      length changed @?= 1
+      serviceId <- case changed of
+        [single] -> pure single
+        _ -> assertFailure "stop changed unexpected native members" >> fail "missing Service"
+      let stoppedBytes = snd (stoppedNative Map.! serviceId)
+      assertBool "stop did not persist the cluster-local label in reviewed native bytes"
+        (BC.isInfixOf "\"networking.knative.dev/visibility\":\"cluster-local\"" stoppedBytes)
+      compileServiceActionScope "kizashi-serve" "personal" StopService stopped stoppedNative
+        @?= Right (stopped, stoppedNative)
+      (restarted, restartedNative) <- either (fail . show) pure
+        (compileServiceActionScope "kizashi-serve" "personal" (RestartService "r2")
+          stopped stoppedNative)
+      Map.lookup "operational.visibility" (scopeOverrides restarted) @?= Nothing
+      Map.lookup "operational.restart" (scopeOverrides restarted) @?= Just "r2"
+      let restartedBytes = snd (restartedNative Map.! serviceId)
+      assertBool "restart kept the stopped label"
+        (not (BC.isInfixOf "networking.knative.dev/visibility" restartedBytes))
+      assertBool "restart did not bind a new revision stamp"
+        (BC.isInfixOf "\"nagare.dev/restartedAt\":\"r2\"" restartedBytes)
+      assertBool "reviewed Service action changed its sibling DomainMapping"
+        (all (\rid -> Map.lookup rid restartedNative == Map.lookup rid native)
+          [rid | rid <- Map.keys native, rid /= serviceId])
+      case compileServiceActionScope "other" "personal" StopService stopped stoppedNative of
+        Left _ -> pure ()
+        Right _ -> assertFailure "service action selected a different Service"
   , testCase "standalone Service binds the same rendered object under its own scope" $ do
       loaded <- loadApplication fixturePath
       app <- either (fail . show) pure loaded

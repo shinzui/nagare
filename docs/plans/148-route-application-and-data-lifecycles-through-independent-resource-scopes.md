@@ -97,6 +97,11 @@ provenance:
       at: 2026-09-25T16:03:38Z
       mode: "implement"
       note: "Add reviewed Google CDN DNS ownership and provider adapter for application and site scopes"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-25T19:23:31Z
+      mode: "implement"
+      note: "Route accepted Service stop and restart through reviewed scope updates"
 ---
 
 # Route application and data lifecycles through independent resource scopes
@@ -146,6 +151,8 @@ A recording transaction now takes that app A candidate through observation, revi
 
 The disposable two-worker native review/resume fixture now also seeds accepted app B and Pulumi scopes. With only a Kubernetes adapter, it reviewed and applied app A, resumed a simulated lost acknowledgement without a duplicate native write, and kept both foreign revisions fixed. Eight focused resume tests passed against `k3d-nagare-inventory-ep148`, and the cluster was stopped afterward. This closes the selected-scope provider isolation check; full application membership and direct-path cutover remain open.
 
+Accepted application and standalone Knative Services now route `app stop` and `app restart` through a one-invocation reviewed scope replacement. The compiler starts from accepted private native bytes, changes only the selected Service, and records a cluster-local or restart override while retaining the original config digest and sibling declarations. An explicit reviewed deploy compiles a fresh scope without the stop override. Unmanaged legacy Services keep the guarded direct command. The focused stop/restart regression, executable build, 815-test CLI suite, Haskell style check, strict user-documentation validation, and diff check passed. Interrupted native stop/restart replay and a live Service probe remain open, so M3 remains incomplete.
+
 M1 completed for the reviewed Kubernetes lifecycle: application and standalone scope compilers bind the supported native members, accepted dependencies, explicit recovery and input choices, release history, scheduled tasks, and independent per-tag hook Jobs. The accepted-image dry-run, saved review, and one-invocation live route share those compiled declarations. At M1 closure, unsupported CDN and build publication inputs refused before mutation. The full CLI suite and a disposable native two-worker review/resume passed. Google DNS ownership has since advanced in M2; Cloudflare ownership, full publication and provider proof, reviewed operational/data actions in M3, and removal of direct render/apply paths in M4 remain required for final acceptance.
 
 - [x] M1: Compile and execute reviewed application and standalone Kubernetes lifecycles for supported intent, with unsupported provider effects refusing before mutation.
@@ -162,6 +169,8 @@ Critical path from completed M1 to final acceptance, in execution order:
 - [ ] M4: Cut over remaining direct app render/apply entry points to the reviewed compiler and publication path.
 
 ## Surprises & Discoveries
+
+2026-09-25: The direct stop command patched only a Knative metadata label. Replaying an accepted deployment from its original native bytes would remove that label, so a reviewed stop must change the accepted Service declaration itself and record the operational visibility override. A restart must remove the label in the new native bytes and stamp the template to force a fresh revision. The reviewed action compiler carries forward sibling DomainMappings and private native members; a pure regression shows a second stop is identical and a restart changes only the Service member. Native interruption and provider behavior still need a dedicated probe.
 
 2026-09-25: Cloud DNS accepted a uniquely named public zone under the reserved `.invalid` suffix in `tan-ng-labs`, so the live adapter proof required no delegation or existing zone changes. The explicit live test created an A record through the reviewed adapter, updated it by deleting the exact accepted old RRset, verified the new target, and refused a repeat update with the stale old value. Its cleanup removed the A record; only default NS and SOA remained before the disposable zone was deleted. This proves the Google DNS transport and precondition on one disposable provider zone, not the full multi-provider application transaction.
 
@@ -446,6 +455,8 @@ DependencyExports contains typed capability witnesses and selected revision/phys
 
 
 ## Revision Notes
+
+2026-09-25: Routed accepted Service stop/restart through reviewed application or standalone scope updates, preserving stopped visibility across ordinary convergence and documenting the guarded legacy fallback. M3 still needs interruption/provider proof and the remaining data and operational commands.
 
 2026-09-25: Bound typed application and production static/server-site Cloudflare deploy and rollback to exactly one accepted platform zone grant selected by `CF_ZONE_ID` and the platform `publicIp` output. The compilers emit per-host proxied DNS and cache contributions; no live Cloudflare zone was used. M2 remains open for publication/input integration and provider proof.
 
