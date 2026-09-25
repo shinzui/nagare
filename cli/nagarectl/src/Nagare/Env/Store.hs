@@ -20,6 +20,7 @@ module Nagare.Env.Store
   , reconcile
   , renderEnvConfigMap
   , renderEnvSecret
+  , renderEnvSecretPreview
   , extractConfigMapData
   , extractSecretData
   , readEnvStore
@@ -104,6 +105,17 @@ renderEnvSecret app ns scope kvs =
             , "namespace" .= ns
             ]
       , "data" .= dataObject b64encode kvs
+      ]
+
+-- | A public dry-run summary. Secret data is deliberately absent, including
+-- its reversible base64 wire encoding, and this is not an apply-able manifest.
+renderEnvSecretPreview :: Text -> Text -> EnvScope -> Map Text Text -> ByteString
+renderEnvSecretPreview app ns scope kvs =
+  LBS.toStrict . encode $
+    object
+      [ "name" .= managedSecretName app scope
+      , "namespace" .= ns
+      , "keys" .= Map.keys kvs
       ]
 
 -- | Build a stable, sorted @data@ JSON object, mapping each value through @f@.

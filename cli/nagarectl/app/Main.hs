@@ -169,6 +169,7 @@ import Nagare.Env.Store
   , reconcile
   , renderEnvConfigMap
   , renderEnvSecret
+  , renderEnvSecretPreview
   , writeEnvStore
   , writeSecretStore
   )
@@ -8339,14 +8340,13 @@ applyOrDryRunEnv dry name ns scope desired
       BC.putStrLn (renderEnvConfigMap name ns scope desired)
   | otherwise = writeEnvStore name ns scope desired
 
--- | Print the rendered Secret (dry-run) or write the store (otherwise). Under
--- dry-run the manifest carries base64-encoded values (the wire format); the
--- operator already holds the plaintext, so this is not a secrecy regression.
+-- | A public dry-run shows only Secret identity and key names. Reversible
+-- base64 values remain private even before the channel has inventory ownership.
 applyOrDryRunSecret :: Bool -> Text -> Text -> EnvScope -> Map Text Text -> IO ()
 applyOrDryRunSecret dry name ns scope desired
   | dry = do
       BC.putStrLn ("--- Secret (" <> TE.encodeUtf8 (scopeToken scope) <> ") ---")
-      BC.putStrLn (renderEnvSecret name ns scope desired)
+      BC.putStrLn (renderEnvSecretPreview name ns scope desired)
   | otherwise = writeSecretStore name ns scope desired
 
 -- | Read each requested scope's env store and print an aligned table.

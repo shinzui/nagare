@@ -529,4 +529,6 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 
 2026-09-24: EP-148 added exact reviewed import for legacy per-Service release history in application and standalone Service scopes. The import preserves the old current record and requires an explicit unowned-incarnation adoption proposal; later reviewed deploys append from accepted private evidence. Static/server site migration and the remaining EP-148 operations are still open.
 
+2026-09-24: EP-148 removed reversible Secret bytes from the direct CLI dry-run display. It now reports identity and keys only; the full native Secret remains in private execution and reviewed evidence paths.
+
 2026-09-24: EP-148 applied the same distinction to legacy env and Secret reads and now refuses malformed `data` entries instead of silently dropping keys. Direct store writes and reviewed preview/deploy integration remain open.

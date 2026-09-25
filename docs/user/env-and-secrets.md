@@ -15,8 +15,8 @@ generated:
 >
 > The scoped env model, the `nagarectl env`/`secret` CLI, the generated `NAGARE_*`
 > variables, and build/preview application all exist and are tested. Every command on
-> this page works in `--dry-run` today (no cluster), and live writes use whichever
-> Kubernetes target your current kubeconfig points at.
+> this page can be rendered or reviewed without changing a cluster, and direct
+> live writes use whichever Kubernetes target your current kubeconfig points at.
 
 ## What this page is
 
@@ -138,10 +138,11 @@ Defaults and rules:
   dropping any key not present. The two are mutually exclusive.
 - **`secret set` reads the value from stdin, never argv** (so it never appears in `ps`,
   `/proc`, or shell history). **`secret list` prints key names only**, never values.
-- **`--dry-run`** on any mutating command prints the exact ConfigMap/Secret manifest that
-  *would* be applied and touches no cluster. (The store manifest is emitted as compact
-  JSON — valid YAML, which `kubectl apply -f` accepts.) A Secret dry-run shows
-  base64-encoded values (the wire format, not encryption).
+- **`--dry-run`** on direct env changes prints the exact ConfigMap manifest and
+  touches no cluster. A direct Secret dry-run shows only the Secret name,
+  namespace, and key names. It is a summary, not an apply-able manifest; neither
+  plaintext nor reversible base64 values are printed. Reviewed Secret changes
+  use `--save-plan` and keep native values in private review evidence.
 
 ### `env set` — set one managed variable
 
@@ -181,11 +182,11 @@ shell history:
 $ printf 'topsecret' | nagarectl secret set envdemo API_KEY \
     --config cluster/examples/env-and-secrets/nagare/Config.hs --dry-run
 --- Secret (runtime) ---
-{"apiVersion":"v1","data":{"API_KEY":"dG9wc2VjcmV0"},"kind":"Secret","metadata":{"name":"nagare-secret-envdemo-runtime","namespace":"personal"},"type":"Opaque"}
+{"keys":["API_KEY"],"name":"nagare-secret-envdemo-runtime","namespace":"personal"}
 ```
 
-`dG9wc2VjcmV0` is base64 of `topsecret` (confirm with `printf 'dG9wc2VjcmV0' | base64 -d`),
-proving the value came from stdin. If stdin is a TTY, `secret set` prompts with echo off.
+The dry-run output identifies the affected Secret and keys without exposing the
+value read from stdin. If stdin is a TTY, `secret set` prompts with echo off.
 
 ### `secret list` / `secret delete`
 

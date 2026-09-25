@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-24
+* **Update**: Show only Secret identity and key names in direct dry-run output; keep plaintext and reversible base64 values out of public previews.
 * **Update**: Document exact reviewed adoption of existing application and standalone Service release logs before subsequent reviewed deployment.
 * **Update**: Clarify that reviewed app deploy refuses aggregate pre-deploy hooks while Service scheduled tasks join its review.
 * **Update**: Document reviewed single-Service release history and its legacy import boundary.

@@ -3384,6 +3384,20 @@ envStoreTests =
           | Just (Aeson.Object d) <- KeyMap.lookup (Key.fromText "data") o ->
               KeyMap.lookup (Key.fromText "API_KEY") d @?= Just (Aeson.String "aGVsbG8=")
         other -> assertFailure ("unexpected secret JSON: " <> show other)
+  , testCase "public Secret preview exposes keys without reusable values" $ do
+      let previewBytes = renderEnvSecretPreview "notes" "personal" Runtime
+            (Map.singleton "API_KEY" "topsecret")
+      case Aeson.eitherDecodeStrict previewBytes of
+        Right (Aeson.Object fields) -> do
+          KeyMap.lookup (Key.fromText "name") fields @?=
+            Just (Aeson.String "nagare-secret-notes-runtime")
+          KeyMap.lookup (Key.fromText "keys") fields @?=
+            Just (Aeson.toJSON (["API_KEY"] :: [Text]))
+          KeyMap.lookup (Key.fromText "data") fields @?= Nothing
+          assertBool "preview exposed plaintext or base64 Secret data"
+            (not ("topsecret" `BS.isInfixOf` previewBytes
+              || "dG9wc2VjcmV0" `BS.isInfixOf` previewBytes))
+        other -> assertFailure ("unexpected Secret preview: " <> show other)
   , testCase "extractConfigMapData of missing data yields empty map" $
       extractConfigMapData "{\"kind\":\"ConfigMap\"}" @?= Right Map.empty
   , testCase "extractConfigMapData of malformed JSON is Left" $
