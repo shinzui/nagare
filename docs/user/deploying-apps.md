@@ -67,8 +67,8 @@ nagarectl inventory apply service-review --yes
 
 The reviewed Service scope also records a release-history ConfigMap after its
 Service and scheduled tasks. It carries forward entries from accepted private
-history. An existing direct ConfigMap remains unowned until the pending legacy
-history import is available, so its reviewed plan refuses before mutation.
+history. An existing direct ConfigMap needs the exact legacy import below before
+ordinary reviewed deployment.
 
 The Service requires the accepted namespace and image. Add
 `--service-volume-recovery VOLUME=BACKUP:KEY:VERSION` for each retained PVC,
@@ -133,12 +133,37 @@ inventory head; apply uses the native bytes saved in that review. Other
 application inputs are refused until their inventory operation and recovery
 contracts are available. The reviewed release-history member uses the web
 Service name, matching the legacy ConfigMap. If a direct deploy already created
-that ConfigMap, planning refuses its unowned live object. The explicit legacy
-history import is still pending, so keep using the direct path for that app until
-its history can be adopted without losing entries. A later reviewed deploy reads
-only the accepted private history, keeps earlier entries, and writes the next
-entry after the workload resources. Release history and accepted reviews live in
-the selected context's inventory store.
+that ConfigMap, ordinary planning refuses its unowned live object. Save its
+complete JSON under a private path and prepare a versioned adoption proposal
+using `cli/nagarectl/test/fixtures/inventory/lifecycle/adopt.example.json` as the
+shape. Set `candidate` to `"."`, bind the active context and project, and give
+the exact release resource address and observed UID. Include any other live
+unowned resources in the selected deploy scope that this review must adopt.
+The command reports the release resource ID if the proposal omits it.
+
+Run the import with the **currently recorded tag** and an accepted OCI image
+matching that record. Use `nagarectl app deploy` for an aggregate application or
+`nagarectl deploy` for a standalone Service:
+
+```bash
+kubectl --context KUBE_CONTEXT -n personal get configmap \
+  nagare-app-deployments-SERVICE_NAME -o json > legacy-releases.json
+nagarectl app deploy --file nagare/Config.hs --tag CURRENT_TAG \
+  --image-resource RESOURCE-ID \
+  --legacy-release-import legacy-releases.json \
+  --release-adoption-input adoption.json \
+  --save-plan import-review
+nagarectl inventory apply import-review --yes
+```
+
+For a standalone Service, replace `nagarectl app deploy` with `nagarectl deploy`
+and keep the same import flags. The import review preserves the old history and
+requires exact content and physical identity for adoption. A changed or absent
+live ConfigMap refuses. Inspect the whole review: other application resources
+may also need adoption. After import, a normal reviewed deploy reads the accepted
+private history, keeps earlier entries, and records the next release after its
+workloads. Release history and accepted reviews live in the selected context's
+inventory store.
 
 > **Status:** 🟡 Built and tested through CLI/render coverage. The live deploy path
 > supports both cloud mode and local mode: short image names are qualified through

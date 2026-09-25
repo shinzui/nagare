@@ -25,6 +25,8 @@ module Nagare.Inventory.Application
   , acceptedAccessBinding
   , acceptedApplicationReleaseLog
   , acceptedStandaloneReleaseLog
+  , legacyApplicationReleaseImport
+  , legacyStandaloneReleaseImport
   , DatabaseBinding
   , acceptedDatabaseBindings
   , applicationVolumeRecoveryBindings
@@ -72,7 +74,7 @@ import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Env.Generated (mergeGenerated)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.Adapters.KubernetesRuntime (databaseCredentialKind)
-import Nagare.Static.Release (StaticRelease (..), StaticReleaseLog (..), addRelease, emptyReleaseLog, extractReleaseLog, renderReleaseConfigMapWith)
+import Nagare.Static.Release (StaticRelease (..), StaticReleaseLog (..), addRelease, emptyReleaseLog, extractReleaseLog, findRelease, renderReleaseConfigMapWith)
 import Nagare.Resource.Application (applicationScopeId, deploymentResourceId, domainMappingResourceId, taskResourceId, volumeResourceId, workerResourceId)
 import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
 import Nagare.Resource.Inventory
@@ -615,6 +617,47 @@ acceptedStandaloneReleaseLog
   -> ScopeId -> Deployment -> ResourceId -> Either T.Text StaticReleaseLog
 acceptedStandaloneReleaseLog snapshot native owner service cluster =
   acceptedReleaseLog snapshot native owner (standaloneReleaseApplication service) cluster
+
+-- | Import the exact legacy ConfigMap shape before asking the lifecycle
+-- planner to adopt its live incarnation. Importing the current record through
+-- addRelease must preserve the log; native digest proof checks the live object.
+legacyApplicationReleaseImport
+  :: Application -> T.Text -> T.Text -> ByteString
+  -> Either T.Text (StaticReleaseLog, StaticRelease)
+legacyApplicationReleaseImport app expectedTag expectedImage bytes = do
+  value <- first ("could not decode legacy release ConfigMap: " <>)
+    (first T.pack (eitherDecodeStrict bytes))
+  let subject = releaseSubject app
+      expectedName = appConfigMapName subject
+      expectedNamespace = namespaceText (app ^. #namespace)
+  metadata <- case value of
+    Object fields
+      | KM.lookup "apiVersion" fields == Just (String "v1")
+      , KM.lookup "kind" fields == Just (String "ConfigMap")
+      , Just (Object meta) <- KM.lookup "metadata" fields -> Right meta
+    _ -> Left "legacy release import is not a v1 ConfigMap"
+  unless (KM.lookup "name" metadata == Just (String expectedName)
+      && KM.lookup "namespace" metadata == Just (String expectedNamespace))
+    (Left "legacy release import has a different name or namespace")
+  logv <- extractReleaseLog bytes
+  validateReleaseLog app logv
+  currentId <- maybe (Left "legacy release import has no current release") Right
+    (logv ^. #current)
+  currentRelease <- maybe (Left "legacy release import has no current record") Right
+    (findRelease currentId logv)
+  unless (currentRelease ^. #releaseId == expectedTag
+      && currentRelease ^. #imageTag == expectedTag
+      && currentRelease ^. #image == expectedImage)
+    (Left "legacy current release does not match the selected rollout image and tag")
+  unless (addRelease currentRelease logv == logv)
+    (Left "legacy release history would change during import")
+  pure (logv, currentRelease)
+
+legacyStandaloneReleaseImport
+  :: Deployment -> T.Text -> T.Text -> ByteString
+  -> Either T.Text (StaticReleaseLog, StaticRelease)
+legacyStandaloneReleaseImport service =
+  legacyApplicationReleaseImport (standaloneReleaseApplication service)
 
 acceptedReleaseLog
   :: ScopeSnapshot -> Map ResourceId (ManagedResource, ByteString)

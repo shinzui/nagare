@@ -527,4 +527,6 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 
 2026-09-24: EP-148 now refuses application-level pre-deploy Tasks in reviewed app scope compilation. The direct rollout executes them before workloads, but declaring only their CronJobs cannot prove those migration effects. Service-attached scheduled CronJobs remain supported; reviewed one-shot Job operations are still required.
 
+2026-09-24: EP-148 added exact reviewed import for legacy per-Service release history in application and standalone Service scopes. The import preserves the old current record and requires an explicit unowned-incarnation adoption proposal; later reviewed deploys append from accepted private evidence. Static/server site migration and the remaining EP-148 operations are still open.
+
 2026-09-24: EP-148 applied the same distinction to legacy env and Secret reads and now refuses malformed `data` entries instead of silently dropping keys. Direct store writes and reviewed preview/deploy integration remain open.

@@ -274,7 +274,8 @@ import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.Application (ApplicationScopeInput (..), DatabaseBinding, acceptedAccessBinding, acceptedApplicationImage, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationScope, compileStandaloneServiceWithRelease, compileStandaloneWorkerWithDependencies, databaseRecoveryBindings, nativeWorkloadOwned, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), DatabaseBinding, acceptedAccessBinding, acceptedApplicationImage, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationScope, compileStandaloneServiceWithRelease, compileStandaloneWorkerWithDependencies, databaseRecoveryBindings, legacyApplicationReleaseImport, legacyStandaloneReleaseImport, nativeWorkloadOwned, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
+import Nagare.Inventory.Lifecycle qualified as InventoryLifecycle
 import Nagare.Inventory.DataService (acceptedFoundationNamespace, brokerNativeOwned, compileStandaloneBroker, compileStandaloneDatabase, databaseNativeOwned, standaloneRetirementScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Environment (acceptedEnvChannelValues, acceptedSecretChannelValues, compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
 import Nagare.Inventory.Host qualified as InventoryHost
@@ -529,6 +530,8 @@ data DeployOpts = DeployOpts
   , serviceVolumeRecovery :: ![String]
   , tlsSecretResources :: ![String]
   , envSecretResources :: ![String]
+  , legacyReleaseImport :: !(Maybe FilePath)
+  , releaseAdoptionInput :: !(Maybe FilePath)
   }
   deriving stock (Generic, Show)
 
@@ -578,6 +581,8 @@ data AppDeployOpts = AppDeployOpts
   , serviceVolumeRecovery :: ![String]
   , workerVolumeRecovery :: ![String]
   , requestNamespace :: !Bool
+  , legacyReleaseImport :: !(Maybe FilePath)
+  , releaseAdoptionInput :: !(Maybe FilePath)
   }
   deriving stock (Generic, Show)
 
@@ -1464,6 +1469,8 @@ deployOptsParser defaultFile =
     <*> many (strOption (long "service-volume-recovery" <> metavar "VOLUME=BACKUP:KEY:VERSION" <> help "Retained Service PVC recovery for --save-plan"))
     <*> many (strOption (long "tls-secret-resource" <> metavar "RESOURCE-ID" <> help "Accepted supplied-TLS Secret for --save-plan"))
     <*> many (strOption (long "env-secret-resource" <> metavar "RESOURCE-ID" <> help "Accepted runtime Secret for --save-plan"))
+    <*> optional (strOption (long "legacy-release-import" <> metavar "FILE" <> help "Legacy release ConfigMap JSON to preserve during exact reviewed adoption"))
+    <*> optional (strOption (long "release-adoption-input" <> metavar "FILE" <> help "Versioned exact-incarnation adoption proposal for --legacy-release-import"))
 
 appImagePlanOptsParser :: Parser AppImagePlanOpts
 appImagePlanOptsParser =
@@ -1523,6 +1530,10 @@ appDeployOptsParser defaultFile =
       (strOption (long "worker-volume-recovery" <> metavar "WORKER/VOLUME=BACKUP:KEY:VERSION" <> help "Recovery binding for a retained worker PVC; repeat with --save-plan"))
     <*> switch
       (long "request-namespace" <> help "Request a new namespace through the platform foundation's explicit grant with --save-plan")
+    <*> optional
+      (strOption (long "legacy-release-import" <> metavar "FILE" <> help "Legacy release ConfigMap JSON to preserve during exact reviewed adoption"))
+    <*> optional
+      (strOption (long "release-adoption-input" <> metavar "FILE" <> help "Versioned exact-incarnation adoption proposal for --legacy-release-import"))
 
 workerDeployOptsParser :: FilePath -> Parser WorkerDeployOpts
 workerDeployOptsParser defaultFile =
@@ -2930,7 +2941,8 @@ main = do
           when (isJust (o ^. #imageResource) || not (null (o ^. #databaseRecovery))
               || not (null (o ^. #tlsSecretResources)) || not (null (o ^. #envSecretResources))
               || not (null (o ^. #serviceVolumeRecovery)) || not (null (o ^. #workerVolumeRecovery))
-              || o ^. #requestNamespace)
+              || o ^. #requestNamespace || isJust (o ^. #legacyReleaseImport)
+              || isJust (o ^. #releaseAdoptionInput))
             (dieT "inventory resource and recovery options require --save-plan")
           runAppDeployWithGuard (refuseDirectApplicationDeployIfOwned mctx) (toAppDeployParams tp o)
         Just output -> runAppDeployPlan mctx (toAppDeployParams tp o) o output
@@ -6506,7 +6518,9 @@ runDeploy mctx dopts = case dopts ^. #savePlan of
     unless (isNothing (dopts ^. #imageResource)
         && null (dopts ^. #serviceVolumeRecovery)
         && null (dopts ^. #tlsSecretResources)
-        && null (dopts ^. #envSecretResources))
+        && null (dopts ^. #envSecretResources)
+        && isNothing (dopts ^. #legacyReleaseImport)
+        && isNothing (dopts ^. #releaseAdoptionInput))
       (dieT "inventory resource and recovery options require --save-plan")
     runDirectDeploy mctx dopts
 
@@ -6527,6 +6541,10 @@ reviewedStandaloneDatabases active snapshot cluster namespaceName names = do
 
 runDeployPlan :: Maybe String -> DeployOpts -> FilePath -> IO ()
 runDeployPlan mctx options output = do
+  case (options ^. #legacyReleaseImport, options ^. #releaseAdoptionInput) of
+    (Nothing, Nothing) -> pure ()
+    (Just _, Just _) -> pure ()
+    _ -> dieT "legacy release import requires both --legacy-release-import and --release-adoption-input"
   when (options ^. #dryRun || isJust (options ^. #contextOverride)
       || isJust (options ^. #dockerfileOverride))
     (dieT "reviewed deploy requires a prepublished image and no build overrides or --dry-run")
@@ -6601,14 +6619,17 @@ runDeployPlan mctx options output = do
     (ResourceInventory.composeSnapshot snapshot)
   (acceptedNative, _) <- InventoryStatus.loadAcceptedNative store history acceptedInventory
     >>= either dieT pure
-  priorReleases <- either dieT pure
-    (acceptedStandaloneReleaseLog snapshot acceptedNative owner service cluster)
-  releasedAt <- getCurrentTime
   let source = Resource.SourceLocation
         (maybe (T.pack (options ^. #file)) T.pack (options ^. #source))
         (serviceNameText (service ^. #name))
       releaseTag = rollout ^. #effectiveTag
-      release = StaticRelease
+  (priorReleases, release, adoption) <- case
+    (options ^. #legacyReleaseImport, options ^. #releaseAdoptionInput) of
+    (Nothing, Nothing) -> do
+      prior <- either dieT pure
+        (acceptedStandaloneReleaseLog snapshot acceptedNative owner service cluster)
+      releasedAt <- getCurrentTime
+      pure (prior, StaticRelease
         { releaseId = releaseTag
         , siteName = serviceNameText (service ^. #name)
         , namespace = namespaceName
@@ -6617,15 +6638,34 @@ runDeployPlan mctx options output = do
         , url = serviceUrl service (rollout ^. #baseDomain)
         , source = T.pack <$> options ^. #source
         , createdAt = releasedAt
-        }
+        }, Nothing)
+    (Just legacyFile, Just proposalFile) -> do
+      legacyBytes <- (try (BS.readFile legacyFile) :: IO (Either IOException ByteString))
+        >>= either (dieT . T.pack . show) pure
+      (prior, currentRelease) <- either dieT pure
+        (legacyStandaloneReleaseImport service releaseTag
+          (imageRefText (rollout ^. #qualifiedImage)) legacyBytes)
+      proposalBytes <- (try (BS.readFile proposalFile) :: IO (Either IOException ByteString))
+        >>= either (dieT . T.pack . show) pure
+      proposal <- either dieT pure (InventoryLifecycle.decodeAdoptionInput proposalBytes)
+      unless (InventoryLifecycle.adoptionCandidateDirectory proposal == ".")
+        (dieT "inline Service import requires candidate '.' in its adoption proposal")
+      pure (prior, currentRelease, Just proposal)
+    _ -> dieT "legacy release import options are incomplete"
   (scope, native) <- either (dieT . T.pack . show) pure
     (compileStandaloneServiceWithRelease owner service rollout cluster namespaceId imageId
       volumeRecovery tlsSecrets envSecrets brokerServices brokerTopics databaseBindings accessBinding
       priorReleases release source)
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
-  Inventory.planInventoryCandidateWith
-    (inventoryPlanRegistryWithNative active workspace native) active candidate output
+  case adoption of
+    Nothing -> Inventory.planInventoryCandidateWith
+      (inventoryPlanRegistryWithNative active workspace native) active candidate output
+    Just proposal -> do
+      validateInlineReleaseAdoption scope (serviceNameText (service ^. #name)) proposal
+      Inventory.planInventoryCandidateAdoptionWith
+        (inventoryPlanRegistryWithNative active workspace native)
+        active candidate proposal output
 
 runDirectDeploy :: Maybe String -> DeployOpts -> IO ()
 runDirectDeploy mctx dopts = do
@@ -7148,6 +7188,10 @@ appNamespace = maybe "personal" T.pack
 -- (MasterPlan 14, EP-2), so the library never depends on the option type.
 runAppDeployPlan :: Maybe String -> AppDeployParams -> AppDeployOpts -> FilePath -> IO ()
 runAppDeployPlan mctx params appOptions output = do
+  case (appOptions ^. #legacyReleaseImport, appOptions ^. #releaseAdoptionInput) of
+    (Nothing, Nothing) -> pure ()
+    (Just _, Just _) -> pure ()
+    _ -> dieT "legacy release import requires both --legacy-release-import and --release-adoption-input"
   when (appOptions ^. #dryRun || appOptions ^. #json)
     (dieT "--save-plan cannot be combined with --dry-run or --json")
   when (isJust (appOptions ^. #contextOverride) || isJust (appOptions ^. #dockerfileOverride))
@@ -7224,16 +7268,19 @@ runAppDeployPlan mctx params appOptions output = do
     (ResourceInventory.composeSnapshot snapshot)
   (acceptedNative, _) <- InventoryStatus.loadAcceptedNative store history acceptedInventory
     >>= either dieT pure
-  priorReleases <- either dieT pure
-    (acceptedApplicationReleaseLog snapshot acceptedNative app cluster)
-  releasedAt <- getCurrentTime
   let source = Resource.SourceLocation
         (maybe (T.pack (params ^. #configPath)) T.pack (appOptions ^. #source))
         (serviceNameText (app ^. #name))
       releaseTag = rollout ^. #effectiveTag
       releaseSubject = maybe (serviceNameText (app ^. #name))
         (serviceNameText . (^. #name)) (app ^. #service)
-      release = StaticRelease
+  (priorReleases, release, adoption) <- case
+    (appOptions ^. #legacyReleaseImport, appOptions ^. #releaseAdoptionInput) of
+    (Nothing, Nothing) -> do
+      prior <- either dieT pure
+        (acceptedApplicationReleaseLog snapshot acceptedNative app cluster)
+      releasedAt <- getCurrentTime
+      pure (prior, StaticRelease
         { releaseId = releaseTag
         , siteName = releaseSubject
         , namespace = appNamespaceName
@@ -7243,8 +7290,21 @@ runAppDeployPlan mctx params appOptions output = do
             (app ^. #service)
         , source = T.pack <$> appOptions ^. #source
         , createdAt = releasedAt
-        }
-      input = ApplicationScopeInput
+        }, Nothing)
+    (Just legacyFile, Just proposalFile) -> do
+      legacyBytes <- (try (BS.readFile legacyFile) :: IO (Either IOException ByteString))
+        >>= either (dieT . T.pack . show) pure
+      (prior, currentRelease) <- either dieT pure
+        (legacyApplicationReleaseImport app releaseTag
+          (imageRefText (rollout ^. #qualifiedImage)) legacyBytes)
+      proposalBytes <- (try (BS.readFile proposalFile) :: IO (Either IOException ByteString))
+        >>= either (dieT . T.pack . show) pure
+      proposal <- either dieT pure (InventoryLifecycle.decodeAdoptionInput proposalBytes)
+      unless (InventoryLifecycle.adoptionCandidateDirectory proposal == ".")
+        (dieT "inline application import requires candidate '.' in its adoption proposal")
+      pure (prior, currentRelease, Just proposal)
+    _ -> dieT "legacy release import options are incomplete"
+  let input = ApplicationScopeInput
         { scopeApplication = app
         , scopeRollout = rollout
         , scopeCluster = cluster
@@ -7266,8 +7326,39 @@ runAppDeployPlan mctx params appOptions output = do
   (scope, native) <- either (dieT . T.pack . show) pure (compileApplicationScope input)
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
-  Inventory.planInventoryCandidateWith
-    (inventoryPlanRegistryWithNative active workspace native) active candidate output
+  case adoption of
+    Nothing -> Inventory.planInventoryCandidateWith
+      (inventoryPlanRegistryWithNative active workspace native) active candidate output
+    Just proposal -> do
+      validateInlineReleaseAdoption scope releaseSubject proposal
+      Inventory.planInventoryCandidateAdoptionWith
+        (inventoryPlanRegistryWithNative active workspace native)
+        active candidate proposal output
+
+validateInlineReleaseAdoption
+  :: ResourceInventory.ScopeDeclaration -> Text -> InventoryLifecycle.AdoptionInput -> IO ()
+validateInlineReleaseAdoption scope subject proposal = do
+  let releaseMembers = [member | bundle <- ResourceInventory.scopeBundles scope,
+        ResourceInventory.Managed member <- ResourceInventory.declarations bundle,
+        case member ^. #address of
+          Resource.Kubernetes _ "" kind _ name ->
+            Resource.nameText kind == "configmap"
+              && Resource.nameText name == appConfigMapName subject
+          _ -> False]
+      managedIds = Set.fromList
+        [member ^. #identity | bundle <- ResourceInventory.scopeBundles scope,
+          ResourceInventory.Managed member <- ResourceInventory.declarations bundle]
+      proposed = InventoryLifecycle.adoptionTargets proposal
+  releaseMember <- case releaseMembers of
+    [member] -> pure member
+    _ -> dieT "legacy import has no unique release-history declaration"
+  unless (all (\target ->
+      InventoryLifecycle.adoptionResource target `Set.member` managedIds
+        && isNothing (InventoryLifecycle.adoptionPreviousOwner target)) proposed)
+    (dieT "legacy release import can adopt only unowned resources in the selected deploy scope")
+  unless (any ((== releaseMember ^. #identity) . InventoryLifecycle.adoptionResource) proposed)
+    (dieT ("legacy import proposal must adopt the unowned release resource "
+      <> Resource.resourceIdText (releaseMember ^. #identity)))
 
 toAppDeployParams :: TargetProfile -> AppDeployOpts -> AppDeployParams
 toAppDeployParams tp o =

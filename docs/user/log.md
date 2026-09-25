@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-24
+* **Update**: Document exact reviewed adoption of existing application and standalone Service release logs before subsequent reviewed deployment.
 * **Update**: Clarify that reviewed app deploy refuses aggregate pre-deploy hooks while Service scheduled tasks join its review.
 * **Update**: Document reviewed single-Service release history and its legacy import boundary.
 * **Update**: Document reviewed application release history, accepted prior entries, and the legacy ConfigMap adoption requirement.

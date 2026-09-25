@@ -9,6 +9,7 @@ module Nagare.Inventory.Command
   , planInventory
   , planInventoryWith
   , planInventoryCandidateWith
+  , planInventoryCandidateAdoptionWith
   , planInventoryAdoptionWith
   , planInventoryMigrationWith
   , planInventoryRetirementWith
@@ -221,6 +222,17 @@ planInventoryAdoptionWith registryFor target inputFile output = do
   let relative = adoptionCandidateDirectory proposalInput
       candidateDirectory = if isAbsolute relative then relative else takeDirectory inputFile </> relative
   candidate <- loadCandidate candidateDirectory >>= either dieText pure
+  planInventoryCandidateWithDecider registryFor
+    (\history observations -> decideAdoption candidate history observations proposalInput)
+    target candidate output
+
+-- | Domain compilers can retain private native bytes while submitting an
+-- explicit adoption decision for their already composed candidate. The input
+-- still binds exact observed incarnations and the current context.
+planInventoryCandidateAdoptionWith
+  :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry)
+  -> ActiveTarget -> CompositionCandidate -> AdoptionInput -> FilePath -> IO ()
+planInventoryCandidateAdoptionWith registryFor target candidate proposalInput output =
   planInventoryCandidateWithDecider registryFor
     (\history observations -> decideAdoption candidate history observations proposalInput)
     target candidate output

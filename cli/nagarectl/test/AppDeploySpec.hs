@@ -24,8 +24,9 @@ import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime (..), fromGregorian)
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
+import Nagare.App.Deployments (appDeploymentsPrefix)
 import Nagare.App.Deploy
-import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedAccessBinding, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, standaloneWorkerVolumeRecoveryBindings, nativeWorkloadOwned, compileApplicationScope, compileApplicationService, compileStandaloneService, compileStandaloneServiceWithBrokers, compileStandaloneServiceWithDependencies, compileStandaloneServiceWithRelease, compileStandaloneWorker, compileStandaloneWorkerWithDependencies, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings, workerRetirementScope)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), acceptedAccessBinding, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, standaloneWorkerVolumeRecoveryBindings, nativeWorkloadOwned, compileApplicationScope, compileApplicationService, compileStandaloneService, compileStandaloneServiceWithBrokers, compileStandaloneServiceWithDependencies, compileStandaloneServiceWithRelease, compileStandaloneWorker, compileStandaloneWorkerWithDependencies, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings, legacyApplicationReleaseImport, workerRetirementScope)
 import Nagare.Inventory.DataService (compileStandaloneBroker, compileStandaloneDatabase)
 import Nagare.Dsl.Broker (BrokerBinding (..), mkTopicName)
 import Nagare.Dsl.Access (authPortal, requireLogin)
@@ -41,7 +42,7 @@ import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (AccessMode (ReadWriteOnce), DomainTls (SuppliedTlsSecret), EnvScope (Build), EnvVar (EnvSecretRef), RetentionPolicy (Retain), Volume (..), databaseNameText, imageRefText, mkDomains, mkEnvName, mkImageRef, mkMountPath, mkNamespace, mkQuantity, mkSecretName, mkServiceName, mkVolumeName, runtimeScoped, scopedEnv, serviceNameText)
 import Nagare.Dsl.Worker (Worker (..))
 import Nagare.Deploy (serviceUrl)
-import Nagare.Static.Release (StaticRelease (..), StaticReleaseLog (..), addRelease, emptyReleaseLog)
+import Nagare.Static.Release (StaticRelease (..), StaticReleaseLog (..), addRelease, emptyReleaseLog, renderReleaseConfigMapWith)
 import Nagare.Dsl.Presets (attachVolume)
 import Nagare.Env.Generated (mergeGenerated)
 import Nagare.Target (InventoryStoreKind (..), Mode (..), PulumiBackendKind (..), TargetProfile (..))
@@ -454,6 +455,27 @@ renderTests =
       releaseMember <- case releaseMembers of
         [member] -> pure member
         _ -> assertFailure "reviewed application has no unique release metadata" >> fail "missing release"
+      (_, legacyBytes) <- maybe (assertFailure "release has no private native bytes" >> fail "missing native")
+        pure (Map.lookup (releaseMember ^. #identity) releasedNative)
+      (importedLog, importedRelease) <- either (fail . T.unpack) pure
+        (legacyApplicationReleaseImport app tag (release ^. #image) legacyBytes)
+      (_, importedNative) <- either (fail . show) pure
+        (compileApplicationScope (input {scopeRelease = (importedLog, importedRelease)}))
+      Map.lookup (releaseMember ^. #identity) importedNative @?=
+        Map.lookup (releaseMember ^. #identity) releasedNative
+      assertBool "legacy release import accepted a different Service name"
+        (isLeft (legacyApplicationReleaseImport
+          (app & #service %~ fmap (#name .~ unsafe (mkServiceName "other")))
+          tag (release ^. #image) legacyBytes))
+      assertBool "legacy release import accepted a different rollout tag"
+        (isLeft (legacyApplicationReleaseImport app "other-tag"
+          (release ^. #image) legacyBytes))
+      assertBool "legacy release import accepted a different rollout image"
+        (isLeft (legacyApplicationReleaseImport app tag "other-image" legacyBytes))
+      assertBool "legacy release import would reorder old entries"
+        (isLeft (legacyApplicationReleaseImport app tag (release ^. #image)
+          (renderReleaseConfigMapWith appDeploymentsPrefix "kizashi-serve" "personal"
+            (importedLog & #releases %~ reverse))))
       let workloadIds = [member ^. #identity | bundle <- scopeBundles scope,
             Managed member <- declarations bundle,
             member ^. #identity /= releaseMember ^. #identity]
