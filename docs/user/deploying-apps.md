@@ -53,6 +53,18 @@ nagarectl app deploy --file nagare/Config.hs --tag v1 \
 nagarectl inventory apply app-review --yes
 ```
 
+To preview the same supported scope without saving or publishing a review, use
+`--dry-run` with the same accepted image and recovery inputs. It reads the
+selected context's accepted inventory and prints resource identities and
+addresses; `--json` prints the public scope document. Neither output includes
+private native manifests or Secret values.
+
+```bash
+nagarectl app deploy --file nagare/Config.hs --tag v1 \
+  --image-resource publication:app-image-app-v1/app-v1/oci-image \
+  --dry-run
+```
+
 Scheduled tasks attached to the application's web Service join this review as
 CronJobs. They must resolve to the same accepted image as the application; an
 explicit task image pointing elsewhere refuses. Tasks in the aggregate
@@ -595,9 +607,6 @@ with **one** command, `nagarectl app deploy`, which builds and pushes the shared
 image once, then rolls the app out in dependency order:
 
 ```bash
-# Dry-run (no cluster): print every rendered object, each with nagare.dev/app=<name>.
-nagarectl app deploy --dry-run -f nagare/Config.hs
-
 # Live: build/push once, then roll out in order.
 nagarectl app deploy -f nagare/Config.hs
 ```
@@ -611,14 +620,16 @@ guarantee, not a runbook step. Because the migration is re-run on every deploy,
 it must be idempotent at the SQL level (the standard "migrations tracked in a
 table" discipline) — an already-applied migration must be a no-op.
 
-For tooling, `--dry-run --json` emits the whole rollout as a single machine-
-readable document — `{ app, image, objects: [ { kind, name, phase, labels, … } ] }`,
-ordered hook → database → service → worker, every object carrying the shared
-`nagare.dev/app` label — so an external system of record can track the release as
-one unit without scraping prose:
+The reviewed `--dry-run --json` path requires an accepted image, an explicit
+tag, and any required recovery bindings. It refuses this example while its
+aggregate migration hook lacks a reviewed Job operation. For a supported
+application, it emits the canonical public scope document, including its
+config digest, explicit overrides, and typed resource declarations:
 
 ```bash
-nagarectl app deploy --dry-run --json -f nagare/Config.hs | jq '[.objects[].kind]'
+nagarectl app deploy --dry-run --json --tag v1 \
+  --image-resource RESOURCE-ID -f nagare/Config.hs \
+  | jq '{scope, configDigest, overrides}'
 ```
 
 ## Verify (against a running cluster)

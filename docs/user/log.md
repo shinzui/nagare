@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-24
+* **Update**: Route reviewed application dry-run through the same typed scope compilation as saved planning; document its accepted inputs and redacted public output.
 * **Update**: Explain canonical typed-config digests in reviewed application, Service, and worker scope revisions.
 * **Fix**: Preserve stable reviewed Job identity when a valid task and run ID exceed the Kubernetes Job name limit together.
 * **Update**: Allow reviewed one-off Jobs from accepted unlabeled CronJobs using the `-` app sentinel and exact label matching.

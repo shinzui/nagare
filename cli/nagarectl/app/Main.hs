@@ -1536,7 +1536,7 @@ appDeployOptsParser defaultFile =
     <*> dryRunOpt
     <*> switch
       ( long "json"
-          <> help "With --dry-run, emit the rollout plan as a single JSON document (for tooling/kotei)"
+          <> help "With --dry-run, emit the reviewed scope as one public JSON document"
       )
     <*> optional
       ( strOption
@@ -1548,19 +1548,19 @@ appDeployOptsParser defaultFile =
     <*> optional
       (strOption (long "save-plan" <> metavar "FILE" <> help "Save a reviewed inventory plan for a prepublished-image application"))
     <*> optional
-      (strOption (long "image-resource" <> metavar "RESOURCE-ID" <> help "Accepted OCI image inventory resource used by --save-plan"))
+      (strOption (long "image-resource" <> metavar "RESOURCE-ID" <> help "Accepted OCI image resource for reviewed --dry-run or --save-plan"))
     <*> many
-      (strOption (long "database-recovery" <> metavar "NAME=BACKUP:KEY_VERSION" <> help "Recovery binding for an application database; repeat for each database with --save-plan"))
+      (strOption (long "database-recovery" <> metavar "NAME=BACKUP:KEY_VERSION" <> help "Recovery binding for each reviewed application database"))
     <*> many
-      (strOption (long "tls-secret-resource" <> metavar "RESOURCE-ID" <> help "Accepted Secret for a supplied-TLS domain; repeat with --save-plan"))
+      (strOption (long "tls-secret-resource" <> metavar "RESOURCE-ID" <> help "Accepted Secret for a reviewed supplied-TLS domain"))
     <*> many
-      (strOption (long "env-secret-resource" <> metavar "RESOURCE-ID" <> help "Accepted Secret for a runtime environment reference; repeat with --save-plan"))
+      (strOption (long "env-secret-resource" <> metavar "RESOURCE-ID" <> help "Accepted Secret for a reviewed runtime environment reference"))
     <*> many
-      (strOption (long "service-volume-recovery" <> metavar "VOLUME=BACKUP:KEY:VERSION" <> help "Recovery binding for a retained Service PVC; repeat with --save-plan"))
+      (strOption (long "service-volume-recovery" <> metavar "VOLUME=BACKUP:KEY:VERSION" <> help "Recovery binding for a reviewed retained Service PVC"))
     <*> many
-      (strOption (long "worker-volume-recovery" <> metavar "WORKER/VOLUME=BACKUP:KEY:VERSION" <> help "Recovery binding for a retained worker PVC; repeat with --save-plan"))
+      (strOption (long "worker-volume-recovery" <> metavar "WORKER/VOLUME=BACKUP:KEY:VERSION" <> help "Recovery binding for a reviewed retained worker PVC"))
     <*> switch
-      (long "request-namespace" <> help "Request a new namespace through the platform foundation's explicit grant with --save-plan")
+      (long "request-namespace" <> help "Request a new namespace through the platform foundation's explicit grant in review")
     <*> optional
       (strOption (long "legacy-release-import" <> metavar "FILE" <> help "Legacy release ConfigMap JSON to preserve during exact reviewed adoption"))
     <*> optional
@@ -2996,13 +2996,16 @@ main = do
       tp <- activeProfile mctx
       case o ^. #savePlan of
         Nothing -> do
-          when (isJust (o ^. #imageResource) || not (null (o ^. #databaseRecovery))
-              || not (null (o ^. #tlsSecretResources)) || not (null (o ^. #envSecretResources))
-              || not (null (o ^. #serviceVolumeRecovery)) || not (null (o ^. #workerVolumeRecovery))
-              || o ^. #requestNamespace || isJust (o ^. #legacyReleaseImport)
-              || isJust (o ^. #releaseAdoptionInput))
-            (dieT "inventory resource and recovery options require --save-plan")
-          runAppDeployWithGuard (refuseDirectApplicationDeployIfOwned mctx) (toAppDeployParams tp o)
+          if o ^. #dryRun
+            then runAppDeployPlan mctx (toAppDeployParams tp o) o ""
+            else do
+              when (isJust (o ^. #imageResource) || not (null (o ^. #databaseRecovery))
+                  || not (null (o ^. #tlsSecretResources)) || not (null (o ^. #envSecretResources))
+                  || not (null (o ^. #serviceVolumeRecovery)) || not (null (o ^. #workerVolumeRecovery))
+                  || o ^. #requestNamespace || isJust (o ^. #legacyReleaseImport)
+                  || isJust (o ^. #releaseAdoptionInput))
+                (dieT "inventory resource and recovery options require --save-plan or --dry-run")
+              runAppDeployWithGuard (refuseDirectApplicationDeployIfOwned mctx) (toAppDeployParams tp o)
         Just output -> runAppDeployPlan mctx (toAppDeployParams tp o) o output
     AppImagePlan o -> runAppImagePlan mctx o
     DeploymentsList o -> runDeploymentsList o
@@ -7632,13 +7635,15 @@ runAppDeployPlan mctx params appOptions output = do
     (Nothing, Nothing) -> pure ()
     (Just _, Just _) -> pure ()
     _ -> dieT "legacy release import requires both --legacy-release-import and --release-adoption-input"
-  when (appOptions ^. #dryRun || appOptions ^. #json)
-    (dieT "--save-plan cannot be combined with --dry-run or --json")
+  when (appOptions ^. #dryRun && isJust (appOptions ^. #savePlan))
+    (dieT "--save-plan cannot be combined with --dry-run")
+  when (appOptions ^. #json && not (appOptions ^. #dryRun))
+    (dieT "--json requires --dry-run for reviewed application output")
   when (isJust (appOptions ^. #contextOverride) || isJust (appOptions ^. #dockerfileOverride))
     (dieT "reviewed app deploy requires a prepublished image; build overrides are unsupported")
   when (isNothing (appOptions ^. #tag))
     (dieT "reviewed app deploy requires an explicit --tag")
-  imageText <- maybe (dieT "--save-plan requires --image-resource") (pure . T.pack)
+  imageText <- maybe (dieT "reviewed app deploy requires --image-resource") (pure . T.pack)
     (appOptions ^. #imageResource)
   imageId <- either dieT pure (Resource.mkResourceId imageText)
   app <- Load.loadApplication (params ^. #configPath)
@@ -7771,12 +7776,26 @@ runAppDeployPlan mctx params appOptions output = do
   (scope, native) <- either (dieT . T.pack . show) pure (compileApplicationScope input)
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
-  case adoption of
-    Nothing -> Inventory.planInventoryCandidateWith
-      (inventoryPlanRegistryWithNative active workspace native) active candidate output
-    Just proposal -> do
-      validateInlineReleaseAdoption scope (appConfigMapName releaseSubject) proposal
-      Inventory.planInventoryCandidateAdoptionWith
+  forM_ adoption (validateInlineReleaseAdoption scope (appConfigMapName releaseSubject))
+  if appOptions ^. #dryRun
+    then
+      if appOptions ^. #json
+        then BC.putStrLn (ResourceWire.encodeCanonicalScope scope)
+        else do
+          TIO.putStrLn ("Reviewed application scope " <> T.pack (show (ResourceInventory.scopeId scope)))
+          forM_ (ResourceInventory.scopeBundles scope) $ \bundle ->
+            forM_ (ResourceInventory.declarations bundle) $ \declaration ->
+              let address = case declaration of
+                    ResourceInventory.Managed member -> member ^. #address
+                    ResourceInventory.External _ location _ _ -> location
+                    ResourceInventory.ObservedChild _ _ location _ _ -> location
+              in TIO.putStrLn ("  " <> Resource.resourceIdText
+                  (ResourceInventory.declarationId declaration)
+                  <> "  " <> T.pack (show address))
+    else case adoption of
+      Nothing -> Inventory.planInventoryCandidateWith
+        (inventoryPlanRegistryWithNative active workspace native) active candidate output
+      Just proposal -> Inventory.planInventoryCandidateAdoptionWith
         (inventoryPlanRegistryWithNative active workspace native)
         active candidate proposal output
 
