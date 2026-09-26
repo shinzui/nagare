@@ -167,6 +167,11 @@ provenance:
       at: 2026-09-26T19:46:13Z
       mode: "implement"
       note: "Route manual volume snapshots through reviewed fixed Jobs and exact source checks"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-26T20:16:41Z
+      mode: "update"
+      note: "Audit implementation logs and original scope; clarify remaining outcomes, validation batching, and shared provider evidence"
 ---
 
 # Route application and data lifecycles through independent resource scopes
@@ -182,6 +187,22 @@ Every supported application-side mutation is either a desired-scope update, a re
 
 
 ## Progress
+
+### Current handoff — implementation audit, 2026-09-26
+
+
+M1 is accepted; M2, M3, and M4 remain open. The paragraphs under Historical implementation evidence below are accumulated evidence, not an ordered backlog: statements that a route is still direct or a capability is still missing can be superseded by later entries. Use the current command dispatcher, coverage document, and these completion boundaries when resuming. Do not reimplement a completed cutover because an older paragraph calls it pending.
+
+The remaining M2 outcome is a complete publication/input contract, including actual consumption of Build inputs where supported, plus the specified combined application membership evidence. Pinning accepted Build channel revisions to an externally supplied archive records declared provenance; it does not prove that a builder consumed them. Decide and document that contract before adding more publication flags. Shared-owner composition and the selected offline Cloudflare proof already have evidence; no live Cloudflare zone is a completion prerequisite.
+
+The remaining M3 outcomes are the still-unrouted operational families and complete data recovery semantics: access grant/revoke/portal synchronization, CDN purge/disable and exact retirement, scoped interactive maintenance, scheduled backup receipts and exact pruning, volume pruning, and the live-target/other-engine restore cases still named by this plan and its coverage document. Reviewed manual database backup, manual database pruning, PostgreSQL scratch restore, volume snapshot, and scratch volume restore already exist. Implement related source/receipt/restore/prune behavior as one coherent command-family change. Refusal is a necessary interim boundary, but does not by itself fulfill an explicitly promised operation. Any permanent exclusion needs an explicit scope decision reflected in the parent plan and coverage claims.
+
+The remaining M4 outcome is an audited command and library surface with no second live mutation path, updated smoke/in-cluster webhook consumers, packaging, and current coverage/user documentation. Aggregate, Service, worker, site, env/Secret, task, and standalone data cutovers have substantial committed evidence. Audit their current dispatch and library exports before changing them again. Do not treat every historical direct-path warning as a new removal task.
+
+Provider evidence is one named integration workstream shared with [EP-150](150-integrate-resource-inventories-into-upgrades-and-release-verification.md), which owns the shipped local/cloud rehearsal. EP-148 supplies its fixtures, command behavior, and targeted adapter proofs; the same recorded integration result may satisfy both plans. Combined native application membership remains unverified and is not waived here. Before another native attempt, name the exact fixture, required ready components, missing assertion, and evidence destination. An unhealthy Knative webhook or unavailable object-store image is a fixture blocker; record it once and continue independent implementation rather than repeatedly starting the same failing environment.
+
+### Historical implementation evidence
+
 
 Implementation evidence is recorded in the commits linked to this plan and in Surprises & Discoveries. Reviewed application, standalone web Service, and standalone worker scopes, standalone brokers with create-only logical topics, accepted topic-bearing workload bindings, accepted auth backend contributions and central routes, database members, OCI publication, and reviewed set/delete/merge/exact Runtime/Build/app-wide Preview environment and versioned Secret channels are working slices. M1 is complete for the reviewed Kubernetes path. M2 has reviewed Google per-host DNS ownership, a Cloudflare host/zone owner with an offline HTTP transport proof, a combined offline application transaction, and typed application/production-site Cloudflare submission. Combined provider proof and remaining publication/input integration are still open. The Cloudflare provider proof is offline only because no disposable zone is available. M3 and M4 still require reviewed operational/data commands and removal of direct mutation paths. Application, standalone web Service, and standalone worker retirement select accepted native identities and preserve retained resources. Final plan acceptance remains open until M2 through M4 close.
 
@@ -294,9 +315,19 @@ Critical path from completed M1 to final acceptance, in execution order:
 - [x] M3/M4 manual task command cutover (2026-09-26): Live one-off runs require a reviewed stable run ID; schedule deletion requires saved staged reviews. Direct Job creation and CronJob deletion effects are removed.
 - [x] M3/M4 volume snapshot cutover (2026-09-26): `storage snapshot --snapshot-id ID --save-plan DIR` binds one accepted PVC, its source revision and UID, and an optional accepted local store credential to a fixed, create-only archive and receipt Job. Apply and resume recheck source UIDs and accepted native bytes; direct Job submission and broad pruning are removed. Exact pruning and live provider proof remain.
 - [x] M3/M4 scratch volume restore cutover (2026-09-26): `storage restore APP VOLUME BACKUP_ID --restore-id ID --save-plan DIR` selects an accepted snapshot Job and its UID-bound Pod receipt, then binds a separate PVC and fixed restore Job. The Job rereads and hashes both stored objects before extraction. The adapter rechecks backup Job, target PVC, and local credential UIDs and native bytes. Live `--into-live` and the old direct Job effects are removed. Provider proof, exact pruning, and live-target recovery remain.
+- [x] M2 Build channel publication binding (2026-09-26): `app image-plan --build-input-resource RESOURCE-ID` selects exact accepted Build ConfigMap or Secret channels from one application, records their accepted scope revisions in the image publication scope, and orders publication after them. Runtime/Preview channels, changed native addresses, and reuse of a publication key with changed content or inputs refuse. This records declared inputs to a supplied archive; a reviewed builder that proves actual consumption and Build Secret handling in application/site compilation remain open.
 - [ ] M4: Cut over remaining direct app render/apply entry points to the reviewed compiler and publication path.
 
 ## Surprises & Discoveries
+
+2026-09-26 implementation audit: The pre-implementation plan at `abf934bc` already required publication, all application/data command families, backup verification/expiry/pruning, write-fenced restore, interactive maintenance, and duplicate-path removal. Most growth is realization of that original breadth, not newly requested features. Its four milestones conceal several substantial implementations, and the unspecified Build-consumption, maintenance-session, restore-fence, and scheduled-object receipt protocols force design work during coding. Server previews were also added even though the legacy CLI had no server-preview route; that is a concrete capability expansion within the broadly worded site/preview requirement.
+
+2026-09-26 implementation audit: Local Codex session `01a0dbf1-422f-7c42-bb42-61f633ea2296`, sampled through 20:13 UTC, contains 99 extracted shell commands with `cabal test`, including 51 without a test-name filter, 69 with `cabal build`, 47 style-check commands, and 36 documentation-validation commands. These are issued commands, not a count of successful suites; some failed or retried. At 14:45 UTC the implementer explicitly acknowledged full-suite validation after small edits. The log also contains 15 context compactions and repeated small-commit handoffs with M2–M4 still open. This supports batching changes and checks around acceptance outcomes, not simply asking the agent to continue longer.
+
+2026-09-26 implementation audit: The gap between 06:28:37 and 12:36:04 UTC in that session was approval waiting, confirmed by the operator during this audit. Its logged boundaries are a temporary kubeconfig cleanup tool call and its response. Exclude those approximately six hours from implementation/compilation time. Separate fixture failures are concrete: MinIO image retrieval returned 401 and the native Knative webhook lacked a ready endpoint. Neither justifies repeatedly broadening feature implementation or rerunning unrelated validation.
+
+
+2026-09-26: The active `app image-plan` path accepts an externally prepared Docker archive. Build channels existed as reviewed resources, but image publication had no input relationship to them. Its public scope can pin channel revision digests and depend on exact accepted members without exposing Secret values. That is a declaration of build provenance, not proof that the external builder used those values; Build Secret references in app and server-site configs must still refuse until a reviewed build consumer exists. The previous environment and build-mode guides described the removed direct build behavior and have been corrected. The 847-test CLI suite passed before the final exact-resource-ID tightening; its focused selector test, the rebuilt executable and CLI help, Haskell structure check, strict user documentation, and diff check passed afterward.
 
 2026-09-26: A snapshot's completed upload Pod already carries the read-back receipt in its termination message. The scratch restore can select that exact Job UID through the existing reader, then verify fresh receipt and archive bytes in its own Job before it writes into a new PVC. Its source PVC is needed for ownership and size, not as a writable mount. The old volume restore module still contained direct PVC/Job apply, wait, and deletion effects after the CLI guard, so the live route and those library effects must both be removed.
 
@@ -470,6 +501,9 @@ Critical path from completed M1 to final acceptance, in execution order:
 
 ## Decision Log
 
+2026-09-26: Preserve the requested feature scope while making completion explicit in the current handoff. The original Concrete Steps assigns actual provider integration to EP-150, whereas later Progress repeatedly makes additional native proofs EP-148 gates. Coordinate one named proof and reuse its evidence; do not silently waive missing native behavior or expand to every provider/engine combination. Treat historical status paragraphs as dated evidence. New discoveries must identify the existing acceptance requirement they block, or be recorded as a proposed scope change, rather than becoming an unbounded new completion gate.
+
+
 2026-09-26: Volume restore accepts only an accepted manual snapshot and writes into a new scratch PVC under a stable restore ID. Planning reads the completed backup Job's UID-bound Pod receipt; apply and resume recheck that Job, the target PVC, and any local store credential. The restore Job rereads both object-store objects and compares their SHA-256 values with the accepted receipt before extracting. A failed Job may leave partial scratch files and needs explicit recovery. Live PVC overwrite is outside this reviewed operation until application write fencing and exact recovery are designed.
 
 2026-09-26: Manual volume snapshots use an explicit stable ID and a namespace-isolated `manual-volumes/<namespace>/<app>/<volume>/<id>.tar.gz` object with a separate checksum receipt. The reviewed Job mounts the accepted PVC read-only and refuses to overwrite either key. Its source revision is recorded in the review; the PVC and local store credential UIDs and native bytes are rechecked before submit and receipt acceptance. A concurrent file write can still make a tar archive inconsistent; operators must quiesce applications that need application-consistent backups. No automatic prefix pruning is allowed, because it cannot identify exact reviewed object versions or accepted restore dependencies. This preserves earlier objects while reviewed restore and exact pruning are built.
@@ -572,7 +606,7 @@ M1 complete for the reviewed Kubernetes application and standalone lifecycle. St
 
 Hard dependencies are [cloud/artifact adapters](146-reconcile-cloud-host-and-artifact-resources-through-inventory-adapters.md), [cluster components](147-compile-cluster-bootstrap-into-owned-resource-components.md), and [lifecycle policy](149-explain-drift-and-execute-reviewed-adoption-migration-and-retirement.md), which themselves depend on the typed inventory and durable executor. They provide canonical context/scope/resource identity, opaque review boundaries, typed publication outputs, a complete database declaration builder, guarded Kubernetes execution, owner-composed contributions, and identity-bound adoption/retirement.
 
-cli/nagarectl/src/Nagare/App/Deploy.hs has renderAppObjects, renderPlan, liveDeploy, livePhaseExec, ensureDatabase, and runHooks. Its current database render path omits credentials and backup CronJobs that live creation adds, and reconstructs flags from a richer Database value. Database/Create.hs, Broker/Create.hs, Env/Store.hs, App.hs, Task/Run.hs, Task/Delete.hs, Storage/Snapshot.hs, and Storage/Restore.hs contain independent mutations. Worker/Deploy.hs, Static/Deploy.hs, Server/Deploy.hs, and app/Main.hs supply additional deployment paths.
+At the start of this plan, cli/nagarectl/src/Nagare/App/Deploy.hs had independent liveDeploy, livePhaseExec, ensureDatabase, and runHooks effects, and its preview omitted database members. Those descriptions are historical: the current module supplies read-only rendering, and inventory compilers bind complete reviewed native members. cli/nagarectl/app/Main.hs selects the reviewed command paths. cli/nagarectl/src/Nagare/Inventory/Application.hs, cli/nagarectl/src/Nagare/Inventory/DataService.hs, cli/nagarectl/src/Nagare/Inventory/Environment.hs, cli/nagarectl/src/Nagare/Inventory/Backup.hs, and cli/nagarectl/src/Nagare/Inventory/Restore.hs now contain substantial implementations. Inspect the current dispatch, exports, and docs/architecture/managed-resource-coverage.md for remaining effects; do not reconstruct removed legacy functions from this plan's earlier notes.
 
 Access/Resolve.hs writes shared auth backend configuration and shomei settings. Cluster/Namespace.hs applies namespaces from multiple callers. Cdn/Provision.hs and Cdn/Cloudflare.hs mutate DNS/CDN resources, so application scopes are not exclusively Kubernetes scopes. Broker/Topic.hs manages logical Kafka topics through rpk. App/Deployments.hs writes release metadata. These resources all belong in declarations or reviewed operations.
 
@@ -622,6 +656,9 @@ Extend docs/architecture/managed-resource-coverage.md and existing user docs for
 
 ## Concrete Steps
 
+Choose one remaining outcome from the current handoff and inspect its compiler, CLI, native adapter, recovery path, and existing tests together before editing. Complete the related changes as a batch; use a focused compile/test while iterating, then run the affected full suites, executable build, style and applicable documentation checks at that outcome's acceptance boundary. Repeat a broad check only after a relevant subsequent change, failure, or unresolved risk. A clean small commit is a checkpoint, not a reason to stop authorized implementation. Update the current handoff in place instead of adding routine test-count paragraphs to Progress.
+
+
 Run from the repository root with its development environment. Add InventoryApplicationSpec.hs and InventoryDataServiceSpec.hs to cli/nagarectl/test and ResourceApplicationSpec.hs/ResourceBrokerSpec.hs to cli/nagare-dsl/test.
 
 ```bash
@@ -634,6 +671,9 @@ Extend the existing AppDeploySpec.hs, AccessResolveSpec.hs, DomainBindingSpec.hs
 
 
 ## Validation and Acceptance
+
+For each remaining outcome, record the public command, accepted input, expected effects/refusals, and the concrete test or provider fixture that proves it. Distinguish implementation complete, recording-provider proof, native-provider proof, and environment blocked; none implies the others. Reuse existing passing evidence unless the affected implementation or an identified risk requires revalidation. The Cloudflare offline-only decision remains authoritative. The combined native membership requirement below remains open, with EP-150 integration evidence reusable as described in the current handoff.
+
 
 Compose platform plus two applications, then deploy only app A. Platform base revisions, app B declarations, and unrelated resource identities remain unchanged. Authorized shared backend contributions from both apps survive. An app cannot claim the platform's database or another app's Service/hostname, even if the native provider would accept the write.
 
@@ -667,6 +707,9 @@ DependencyExports contains typed capability witnesses and selected revision/phys
 
 
 ## Revision Notes
+
+2026-09-26: Audited original scope, current code, commit history, and the active Codex transcript to diagnose slow completion. Added an authoritative remaining-outcome handoff, corrected stale source orientation, bounded validation and provider-proof workflow, and preserved all existing acceptance requirements and concurrent implementation evidence.
+
 
 2026-09-26: `task run` without `--run-id` now refuses live execution in every context, and `task delete --yes` without `--save-plan` refuses. Their direct Job create/wait and CronJob delete drivers were reduced to read-only previews. Reviewed run and staged delete compilers remain the sole live paths.
 

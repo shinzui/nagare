@@ -41,6 +41,16 @@ both the archive's file hash and OCI manifest digest. Keep the archive at the
 same absolute path until apply or resume completes; the publisher rechecks its
 bytes before copying to the selected context's registry.
 
+If the external build consumed an accepted Build environment or Secret channel,
+pass each channel's resource ID with `--build-input-resource RESOURCE-ID`. The
+publication review records each exact accepted channel revision and orders image
+publication after those resources. It accepts only Build channels from one app;
+Runtime or Preview channels and changed native addresses refuse. This records
+the declared inputs to the supplied archive. The CLI does not run the build or
+verify that the external builder actually consumed them. Build Secret values
+are not printed in the public review. Reuse of a publication key with different
+archive content, destination, or Build inputs refuses; choose a new key.
+
 ```bash
 docker save registry.example/app:v1 -o /absolute/path/app-v1.tar
 nagarectl app image-plan --archive /absolute/path/app-v1.tar \

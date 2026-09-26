@@ -343,9 +343,10 @@ filtering keeps it out of the running container (see the next section).
 
 ## Build-time env
 
-A **`Build`-scoped** variable is passed to the image build as a `--build-arg`, so a
-`Dockerfile` can read it via `ARG NAME` / `ENV NAME=$NAME`. It is **not** in the running
-container's inline `env:` — it is filtered out by scope at render time. The example's
+A **`Build`-scoped** variable can be supplied to an external image build. A
+`Dockerfile` can read a nonsecret build argument via `ARG NAME` / `ENV NAME=$NAME`.
+The variable is **not** in the running container's inline `env:` — it is filtered
+out by scope at render time. The example's
 `BUILD_STAMP` is declared `{Build}` and consumed in its
 [`Dockerfile`](../../cluster/examples/env-and-secrets/Dockerfile):
 
@@ -354,17 +355,17 @@ ARG BUILD_STAMP=unset
 ENV BUILD_STAMP=${BUILD_STAMP}
 ```
 
-At deploy time, Nagare gathers the app's Build-scoped variables (the inline `{Build}`
-entries plus the managed `nagare-env-<app>-build` / `nagare-secret-<app>-build` stores)
-and passes them to `docker build` as `--build-arg`s. Managed Build env can be set with the
-CLI's `--build` scope flag, e.g. `nagarectl env set envdemo NPM_REGISTRY https://r.example.com --build`.
+The reviewed deploy path uses a separately built and published image. Set managed
+Build environment values with the CLI's `--build` scope flag, then build the
+image with the intended inputs. Pass the accepted Build channel resource IDs to
+`app image-plan --build-input-resource RESOURCE-ID` when publishing its archive.
+That review binds the accepted channel revisions to the image publication; it
+cannot prove what an external builder consumed. `app deploy` does not read Build
+channels or pass their values to Docker. Build Secret references in application
+and server-site configs still refuse until a reviewed build consumer exists.
 
-> **Security caveat (read this).** A `--build-arg` value is recorded in the image's build
-> history and is readable by anyone who can pull the image (`docker history`). Build-arg
-> values are therefore **not a secret mechanism**. If you scope a *secret-ref* to `Build`,
-> Nagare still passes it as a `--build-arg` but prints a loud warning to stderr — for a
-> genuinely confidential build secret, use a BuildKit secret
-> (`RUN --mount=type=secret`), not a build-arg.
+Docker build arguments can be recorded in image history. Use a build mechanism
+that keeps confidential values out of image layers when preparing an archive.
 
 ## Preview env overlays
 

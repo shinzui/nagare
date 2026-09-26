@@ -26,7 +26,7 @@ import Nagare.Inventory.Components.Foundation (FoundationInput (..), compileFoun
 import Nagare.Inventory.DataService (NativeDataKind (..), acceptedFoundationNamespace, brokerNativeOwned, brokerTopicChangeRequiresReview, compileStandaloneBroker, dataCommandNativeOwned, databaseNativeOwned, standaloneRetirementScope)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (mkOperationId)
-import Nagare.Inventory.Environment (acceptedEnvChannelValues, acceptedSecretChannelValues, compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
+import Nagare.Inventory.Environment (acceptedBuildChannelMember, acceptedEnvChannelValues, acceptedSecretChannelValues, compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.TaskRun (compileTaskRunScope)
 import Nagare.Inventory.TaskLifecycle (compileTaskSuspensionScope, retireSuspendedTaskScope, taskSuspended)
@@ -230,6 +230,50 @@ inventoryApplicationTests = testGroup "application inventory compilation"
             (Just "personal") "nagare-env-kizashi-preview")
           Map.size previewNative @?= 1
         _ -> assertFailure "Preview env channel has unexpected membership"
+  , testCase "image inputs select only exact accepted Build channels" $ do
+      let checked = either (error . show) id
+          foundation = checked (mkScopeId Platform "foundation")
+          cluster = mintResourceId foundation (checked (mkLogicalKey "cluster"))
+            (checked (mkName "cluster"))
+          namespaceId = mintResourceId foundation (checked (mkLogicalKey "foundation"))
+            (checked (mkName "namespace-personal"))
+          source = SourceLocation "reviewed" "build-input"
+          binding = ContextBinding (checked (mkContextId "fixture")) (checked (mkName "project"))
+      (buildEnv, _) <- either (fail . show) pure
+        (compileBuildEnvChannel "kizashi" "personal" cluster namespaceId
+          (Map.singleton "STAMP" "v1") source)
+      (buildSecret, _) <- either (fail . show) pure
+        (compileBuildSecretChannel "kizashi" "personal" cluster namespaceId
+          (checked (mkName "v1")) (Map.singleton "TOKEN" "private") source)
+      (runtimeSecret, _) <- either (fail . show) pure
+        (compileRuntimeSecretChannel "kizashi" "personal" cluster namespaceId
+          (checked (mkName "v1")) (Map.singleton "TOKEN" "private") source)
+      snapshot <- either (fail . show) pure (mkScopeSnapshot binding
+        (Map.fromList [(scopeId scope, (checked (mkScopeGeneration 1), scope))
+          | scope <- [buildEnv, buildSecret, runtimeSecret]]) Map.empty)
+      let onlyMember scope = case [member | bundle <- scopeBundles scope,
+            Managed member <- declarations bundle] of
+            [member] -> member
+            _ -> error "channel has no unique member"
+          envMember = onlyMember buildEnv
+          secretMember = onlyMember buildSecret
+          runtimeMember = onlyMember runtimeSecret
+      acceptedBuildChannelMember snapshot (envMember ^. #identity)
+        @?= Right ("kizashi", buildEnv, envMember)
+      acceptedBuildChannelMember snapshot (secretMember ^. #identity)
+        @?= Right ("kizashi", buildSecret, secretMember)
+      case acceptedBuildChannelMember snapshot (runtimeMember ^. #identity) of
+        Left _ -> pure ()
+        Right _ -> assertFailure "Runtime Secret was accepted as a Build image input"
+      let forgedSecret = secretMember & #address .~ checked (kubernetesAddress cluster
+            "v1" "Secret" (Just "personal") "another-secret")
+      forgedScope <- either (fail . show) pure (mkScopeDeclaration (scopeId buildSecret)
+        [ResourceBundle [Managed forgedSecret] [] [] [] [] []])
+      forgedSnapshot <- either (fail . show) pure (mkScopeSnapshot binding (Map.singleton
+        (scopeId forgedScope) (checked (mkScopeGeneration 1), forgedScope)) Map.empty)
+      case acceptedBuildChannelMember forgedSnapshot (secretMember ^. #identity) of
+        Left _ -> pure ()
+        Right _ -> assertFailure "Build image input accepted a changed Secret address"
   , testCase "Runtime env intent compiles into an independent exact ConfigMap channel" $ do
       let checked = either (error . show) id
           foundation = checked (mkScopeId Platform "foundation")

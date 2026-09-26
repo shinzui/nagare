@@ -270,7 +270,7 @@ import Nagare.Inventory.TaskRun (compileTaskRunScope)
 import Nagare.Inventory.TaskLifecycle (compileTaskSuspensionScope, retireSuspendedTaskScope, taskSuspended)
 import Nagare.Inventory.Lifecycle qualified as InventoryLifecycle
 import Nagare.Inventory.DataService (NativeDataKind (..), acceptedFoundationNamespace, brokerNativeOwned, brokerTopicChangeRequiresReview, compileBackupPruneRemovalScope, compileStandaloneBroker, compileStandaloneDatabase, compileStatefulSetRestartScope, dataCommandNativeOwned, databaseNativeOwned, standaloneRetirementScope)
-import Nagare.Inventory.Environment (acceptedEnvChannelValues, acceptedSecretChannelValues, compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
+import Nagare.Inventory.Environment (acceptedBuildChannelMember, acceptedEnvChannelValues, acceptedSecretChannelValues, compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
 import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
@@ -529,6 +529,7 @@ data AppImagePlanOpts = AppImagePlanOpts
   { archive :: !FilePath
   , destination :: !String
   , key :: !String
+  , buildInputResources :: ![String]
   , savePlan :: !(Maybe FilePath)
   }
   deriving stock (Generic, Show)
@@ -1531,6 +1532,7 @@ appImagePlanOptsParser =
     <$> strOption (long "archive" <> metavar "FILE" <> help "Docker archive to bind by SHA-256")
     <*> strOption (long "destination" <> metavar "IMAGE:TAG" <> help "Exact registry tag to publish")
     <*> strOption (long "key" <> metavar "KEY" <> help "Stable publication key")
+    <*> many (strOption (long "build-input-resource" <> metavar "RESOURCE-ID" <> help "Exact accepted Build environment or Secret channel used to prepare this archive"))
     <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed image publication for separate apply"))
 
 appDeployOptsParser :: FilePath -> Parser AppDeployOpts
@@ -8034,6 +8036,23 @@ runAppImagePlan mctx options = do
     ("app-image-" <> Resource.logicalKeyText logical))
   role <- either dieT pure (Resource.mkName "oci-image")
   artifactName <- either dieT pure (Resource.mkName (Resource.logicalKeyText logical))
+  inputIds <- traverse (either dieT pure . Resource.mkResourceId . T.pack)
+    (options ^. #buildInputResources)
+  unless (length inputIds == Set.size (Set.fromList inputIds))
+    (dieT "image Build input resource IDs must be distinct")
+  snapshot <- Inventory.loadTargetSnapshot active
+  inputMembers <- traverse (either dieT pure . acceptedBuildChannelMember snapshot) inputIds
+  unless (Set.size (Set.fromList [app | (app, _, _) <- inputMembers]) <= 1)
+    (dieT "image Build inputs must belong to one application")
+  inputRevisions <- if null inputMembers then pure [] else do
+    store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+    history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
+    forM inputMembers $ \(_, inputScope, member) -> case
+      Map.lookup (ResourceInventory.scopeId inputScope)
+        (InventoryPlan.historyAccepted history) of
+      Just (revision, accepted) | accepted == inputScope ->
+        pure (member ^. #identity, InventoryStore.revisionDigest revision)
+      _ -> dieT "image Build input differs from accepted scope history"
   let imageId = Resource.mintResourceId owner logical role
       resource = ArtifactResourceSpec
         { artifactLogicalKey = logical
@@ -8047,14 +8066,20 @@ runAppImagePlan mctx options = do
         , artifactLifecycle = ResourcePolicy.Retain
         , artifactDataPolicy = ResourcePolicy.Stateless
         , artifactSensitivity = ResourcePolicy.Private
-        , artifactDependencies = []
+        , artifactDependencies = map ResourceReference.OrderedAfter inputIds
         , artifactConsumers = InventoryArtifact.ConsumerCompletenessUnknown
         , artifactPublishOperation = True
         , artifactSource = Resource.SourceLocation (T.pack archivePath) "oci-archive-v1"
         }
-  scope <- either (dieT . T.pack . show) pure (InventoryArtifact.compileArtifactScope
+  compiled <- either (dieT . T.pack . show) pure (InventoryArtifact.compileArtifactScope
     (ArtifactDeclarationBundle 1 owner (resource NE.:| [])))
-  snapshot <- Inventory.loadTargetSnapshot active
+  let scope = ResourceInventory.withScopeOverrides
+        (Map.fromList [("build-input." <> Resource.resourceIdText inputId,
+          Resource.digestText revision) | (inputId, revision) <- inputRevisions]) compiled
+  case Map.lookup owner (ResourceInventory.snapshotScopes snapshot) of
+    Just (_, prior) | prior /= scope ->
+      dieT "image publication key already has different accepted content or Build inputs; choose a new key"
+    _ -> pure ()
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
   case options ^. #savePlan of

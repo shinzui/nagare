@@ -11,6 +11,7 @@ module Nagare.Inventory.Environment
   , validateSecretRotation
   , acceptedEnvChannelValues
   , acceptedSecretChannelValues
+  , acceptedBuildChannelMember
   ) where
 
 import Data.Aeson (Value (..))
@@ -177,6 +178,44 @@ acceptedSecretChannelValues snapshot native candidate = case Map.lookup (scopeId
           Nothing -> Left "accepted Secret channel has no data"
         _ -> Left "accepted Secret channel has invalid native bytes"
     _ -> Left "accepted Secret channel has unexpected membership"
+
+-- | Select only the exact accepted Build ConfigMap or Secret channel member.
+-- Image publication can name this member as an input without exposing its
+-- private values. Runtime and Preview channels cannot masquerade as Build
+-- inputs, even if a caller supplies their resource IDs directly.
+acceptedBuildChannelMember
+  :: ScopeSnapshot -> ResourceId -> Either T.Text (T.Text, ScopeDeclaration, ManagedResource)
+acceptedBuildChannelMember snapshot selected = case
+  [(scope, member) | (_, scope) <- Map.elems (snapshotScopes snapshot),
+    bundle <- scopeBundles scope, Managed member <- declarations bundle,
+    member ^. #identity == selected] of
+  [(scope, member)] -> do
+    let owner = scopeId scope
+        ownerName = nameText (scopeName owner)
+        channel = case T.stripSuffix "-build" ownerName of
+          Just rest | Just app <- T.stripPrefix "env-" rest ->
+            Just (app, "build-env", "configmap", managedConfigMapName app Build, Private)
+          Just rest | Just app <- T.stripPrefix "secret-" rest ->
+            Just (app, "build-secret", "secret", managedSecretName app Build, Secret)
+          _ -> Nothing
+    (app, keyText, kind, nativeName, visibility) <- maybe
+      (Left "image input is not an accepted Build channel") Right channel
+    key <- mkLogicalKey keyText
+    role <- mkName kind
+    unless (scopeKind owner == Application && not (T.null app)
+        && member ^. #owner == owner
+        && member ^. #identity == mintResourceId owner key role
+        && member ^. #executor == KubernetesExecutor
+        && member ^. #sensitivity == visibility
+        && [declaration | bundle <- scopeBundles scope,
+             declaration <- declarations bundle] == [Managed member]
+        && case member ^. #address of
+             Kubernetes _ "" objectKind (Just _) name ->
+               nameText objectKind == kind && nameText name == nativeName
+             _ -> False)
+      (Left "image input differs from its accepted Build channel identity")
+    pure (app, scope, member)
+  _ -> Left "image Build input is absent or ambiguous in accepted inventory"
 
 -- | One opaque version identifies one exact Secret payload. Reusing a version
 -- with different native content would make a rotation receipt ambiguous.
