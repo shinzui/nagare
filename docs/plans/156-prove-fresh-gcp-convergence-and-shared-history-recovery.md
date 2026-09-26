@@ -11,6 +11,12 @@ provenance:
     model: "gpt-6-astra"
     harness: "codex-cli"
     at: 2026-09-26T20:29:54Z
+  revisions:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-26T22:23:39Z
+      mode: "update"
+      note: "Cascade EP-148 decomposition: assign remaining feature, cutover, and proof ownership without weakening release acceptance"
 ---
 
 # Prove fresh GCP convergence and shared history recovery
@@ -41,6 +47,8 @@ No new implementation findings in this successor plan. Inherited evidence and kn
 
 ## Decision Log
 
+2026-09-26: Redirect unfinished EP-148 dependencies to EP-158–161 and preserve this plan’s assigned integration, package, or release obligations. EP-148 is superseded history, not a pending completion gate.
+
 
 2026-09-26: Carry forward completed EP-150 implementation and give this remaining outcome its own acceptance boundary. The split changes ownership and tracking, not the required functionality or proof.
 
@@ -68,7 +76,7 @@ M1 finishes the fixture under fixtures/inventory-release/gcp/ and supplies scrip
 
 Run the installed candidate through actual cloud foundation, guarded NixOS activation, cluster bootstrap/auth/cache, and the application/data scenario established by EP-155. Include live Google DNS/CDN host ownership against the accepted platform backend and preserve shared routing. The existing approved offline-only Cloudflare proof remains sufficient for that provider; do not ask again for a nonexistent disposable zone.
 
-M2 exercises a safely injected acknowledgement interruption at real provider boundaries with retained reviews and receipts. Proven work is skipped; ambiguous outcomes use explicit recovery. Verify the guarded host's post-activation readiness and rollback/self-reversion contract, not only SSH exit. A second isolated operator state root reads shared history and cannot steal an active writer; explicit takeover/recovery follows the existing contract. Prove database/volume restore integrity, private history export/restore, app-only isolation, and final no-op behavior. Cleanup is a separate exact review that removes only disposable owned objects and the matching delegation, leaving standing neighbors untouched.
+M2 exercises a safely injected acknowledgement interruption at real provider boundaries with retained reviews and receipts. Proven work is skipped; ambiguous outcomes use explicit recovery. Verify the guarded host's post-activation readiness and rollback/self-reversion contract, not only SSH exit. A second isolated operator state root reads shared history and cannot steal an active writer; explicit takeover/recovery follows the existing contract. Prove cloud registry publication with accepted Build input pins, scheduled backup receipt ingestion and exact GCS pruning, database/volume restore integrity with shared fencing, maintenance recovery across state roots, private history export/restore, app-only isolation, and final no-op behavior. Reuse EP-155 engine-specific native checks where the same candidate and transport behavior suffice; cloud-specific GCS/registry/shared-writer assertions still require this cloud run. Cleanup is a separate exact review that removes only disposable owned objects and the matching delegation, leaving standing neighbors untouched.
 
 
 ## Concrete Steps
@@ -107,4 +115,4 @@ Work against isolated test state and exact named contexts. Preserve immutable re
 ## Interfaces and Dependencies
 
 
-Completed EP-146/147/149/151 provide executors/store. [EP-152](152-complete-fresh-platform-bootstrap-through-reviewed-components.md) supplies working fresh bootstrap, [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md) the scenario/receipt contract, [EP-154](154-validate-installed-inventory-packages-on-every-supported-system.md) native packages, and [EP-148](148-route-application-and-data-lifecycles-through-independent-resource-scopes.md) required commands. Plan/fixture preparation can start before they close; a successful live local run and working cloud prerequisites gate cloud apply. [EP-157](157-gate-the-inventory-release-on-complete-immutable-evidence.md) consumes this evidence. Initial estimate: 8–16 active hours excluding approvals, provider queues, and unfinished feature implementation, low confidence; reforecast after the first complete read-only cloud preview including state bucket and delegation.
+Completed EP-146/147/149/151 provide executors/store. [EP-152](152-complete-fresh-platform-bootstrap-through-reviewed-components.md) supplies working fresh bootstrap, [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md) the scenario/receipt contract, [EP-154](154-validate-installed-inventory-packages-on-every-supported-system.md) native packages, and the delivered EP-148 baseline plus [EP-158](158-complete-reviewed-access-and-cdn-operations.md), [EP-159](159-complete-scheduled-backup-receipts-and-exact-retention-pruning.md), [EP-160](160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md), and [EP-161](161-provide-scoped-interactive-maintenance-with-durable-recovery.md) required commands. Plan/fixture preparation can start before they close; a successful live local run and working cloud prerequisites gate cloud apply. [EP-157](157-gate-the-inventory-release-on-complete-immutable-evidence.md) consumes this evidence. Initial estimate: 8–16 active hours excluding approvals, provider queues, and unfinished feature implementation, low confidence; reforecast after the first complete read-only cloud preview including state bucket and delegation.

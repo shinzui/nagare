@@ -176,7 +176,7 @@ provenance:
 
 # Route application and data lifecycles through independent resource scopes
 
-This ExecPlan is a living document. Keep its living sections current and promote durable decisions into docs/adr/.
+This ExecPlan is retained as implementation history. On 2026-09-26 its unfinished work was transferred to EP-153–161 as described below; MasterPlan 23 marks it Cancelled/superseded, not implementation-complete. Completed evidence and checkboxes remain intact. Resume work under the owning successor rather than extending this historical backlog.
 
 
 ## Purpose / Big Picture
@@ -188,20 +188,17 @@ Every supported application-side mutation is either a desired-scope update, a re
 
 ## Progress
 
-**Current handoff — implementation audit, 2026-09-26**
+**Current handoff — superseded with delivered work preserved, 2026-09-26**
 
+M1 was accepted. M2, M3, and M4 were partially implemented, not completed, when the operator authorized this split. Their remaining obligations now have the following owners. Completed checkboxes below retain their original evidence. Closed transfer markers mean superseded work, never newly finished functionality; checkbox percentages are not effort estimates.
 
-M1 is accepted; M2, M3, and M4 remain open. The paragraphs under Historical implementation evidence below are accumulated evidence, not an ordered backlog: statements that a route is still direct or a capability is still missing can be superseded by later entries. Use the current command dispatcher, coverage document, and these completion boundaries when resuming. Do not reimplement a completed cutover because an older paragraph calls it pending.
+[EP-158](158-complete-reviewed-access-and-cdn-operations.md) owns reviewed access grant/revoke, portal synchronization, CDN purge/disable, and exact routing retirement. [EP-159](159-complete-scheduled-backup-receipts-and-exact-retention-pruning.md) owns scheduled backup receipts, delegated execution/receipt ingestion, retention selection, and exact pruning. [EP-160](160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md) owns the shared data-fence contract, remaining database-engine/scratch and live-target restore, and live volume recovery. [EP-161](161-provide-scoped-interactive-maintenance-with-durable-recovery.md) owns scoped interactive database/exec/migration sessions, termination evidence, and re-observation through that shared fence.
 
-The supported M2 publication/input contract now has a local Dockerfile path: accepted Build channel values are delivered to BuildKit in the same command that prepares the reviewed archive, and aggregate application, standalone Service and worker, and server-site production, preview, and rollback bind Build-only Secret references to those pinned image inputs. External archives may declare channel revision pins, but cannot authorize Build-only Secret references because their builders are outside this command. The production artifact transport has now published one saved review to a disposable local registry and verified the remote manifest and accepted history. The remaining M2 outcome is specified combined native application membership evidence; cloud registry publication remains a separate GCP proof. Shared-owner composition and the selected offline Cloudflare proof already have evidence; no live Cloudflare zone is a completion prerequisite.
+[EP-153](153-close-managed-command-coverage-for-the-inventory-release.md) takes the remaining M4 command/library audit and cutover, smoke and in-cluster webhook consumers, and user documentation; [EP-154](154-validate-installed-inventory-packages-on-every-supported-system.md) owns installed package support. [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md) owns combined local native application membership and outstanding promised native migration/collection bindings; [EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md) owns the corresponding cloud/registry/shared-store proof. [EP-157](157-gate-the-inventory-release-on-complete-immutable-evidence.md) requires all successors' outcomes and final candidate evidence. No successor waits for EP-148 to become Complete, and neither retirement nor guarded refusal satisfies a missing feature.
 
-The local Dockerfile path now reads accepted revisions and private native values in the command that builds the archive, supplies public values as build arguments and Secret bytes through required BuildKit mounts, and records a build-method marker with the archive digest and input pins. An external archive cannot authorize a Build-only Secret reference. The required mount check proves delivery to the builder, not that an application command read the mount or that an unused multistage instruction ran. Native combined membership remains M2 work.
+**Delivered baseline.** Reviewed application/Service/worker/site/preview scopes, accepted data and broker-topic bindings, hooks and task lifecycle, independent env/Secret channels, auth owner contributions, Google DNS and offline Cloudflare composition, and substantial direct-path removal are implemented. Local Dockerfile builds now deliver accepted Build values and Secret mounts to BuildKit and bind image inputs; the production artifact adapter published a saved review to a disposable local registry. Required mounts prove delivery, not application-level use. Manual database backup and exact pruning, PostgreSQL scratch restore, volume snapshot/scratch restore, and finite-expiry exact volume pruning are implemented. Their targeted evidence stays in this file and the commits; it does not establish the outstanding combined native proof.
 
-The remaining M3 outcomes are the still-unrouted operational families and complete data recovery semantics: access grant/revoke/portal synchronization, CDN purge/disable and exact retirement, scoped interactive maintenance, scheduled backup receipts and exact pruning, and the live-target/other-engine restore cases still named by this plan and its coverage document. Reviewed manual database backup and pruning, PostgreSQL scratch restore, volume snapshot, scratch volume restore, and finite-expiry exact volume pruning now exist. Implement related source/receipt/restore/prune behavior as one coherent command-family change. Refusal is a necessary interim boundary, but does not by itself fulfill an explicitly promised operation. Any permanent exclusion needs an explicit scope decision reflected in the parent plan and coverage claims.
-
-The remaining M4 outcome is an audited command and library surface with no second live mutation path, updated smoke/in-cluster webhook consumers, packaging, and current coverage/user documentation. Aggregate, Service, worker, site, env/Secret, task, and standalone data cutovers have substantial committed evidence. Local artifact-only generic planning and execution now avoid Pulumi preparation even beside accepted Pulumi scopes. Audit the remaining dispatch and library exports before changing them again. Do not treat every historical direct-path warning as a new removal task.
-
-Provider evidence is one named integration workstream shared with [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md) for local and [EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md) for GCP rehearsal; these replace EP-150’s remaining integration work. [EP-157](157-gate-the-inventory-release-on-complete-immutable-evidence.md) owns the final complete-release gate. These proof plans consume implemented command paths without requiring this plan’s administrative completion first, so this plan can cite their evidence without a dependency cycle. EP-148 supplies its fixtures, command behavior, and targeted adapter proofs; the same recorded integration result may satisfy both plans. Combined native application membership remains unverified and is not waived here. Before another native attempt, name the exact fixture, required ready components, missing assertion, and evidence destination. An unhealthy Knative webhook or unavailable object-store image is a fixture blocker; record it once and continue independent implementation rather than repeatedly starting the same failing environment.
+**Resume order.** EP-160 M1 resolves the shared recovery/exclusion contract before live maintenance depends on it. EP-158 and EP-159 can proceed independently using the delivered baseline. EP-152 bootstrap and EP-153's finite entrypoint audit can proceed alongside these features. Before a native run, name the exact fixture, ready components, missing assertion, and evidence destination; report fixture outages and approval waits separately from active engineering work.
 
 **Historical implementation evidence**
 
@@ -299,16 +296,16 @@ A disposable `k3d-nagare-inventory-ep148` transaction then created a synthetic d
 M1 completed for the reviewed Kubernetes lifecycle: application and standalone scope compilers bind the supported native members, accepted dependencies, explicit recovery and input choices, release history, scheduled tasks, and independent per-tag hook Jobs. The accepted-image dry-run, saved review, and one-invocation live route share those compiled declarations. At M1 closure, unsupported CDN and build publication inputs refused before mutation. The full CLI suite and a disposable native two-worker review/resume passed. Google DNS and the selected offline Cloudflare ownership proof have since advanced in M2; build/input integration and full native provider membership, reviewed operational/data actions in M3, and removal of direct render/apply paths in M4 remain required for final acceptance.
 
 - [x] M1: Compile and execute reviewed application and standalone Kubernetes lifecycles for supported intent, with unsupported provider effects refusing before mutation.
-- [ ] M2: Integrate shared-owner contributions, environment intent, and publication.
-- [ ] M3: Route operational and data lifecycle commands through reviewed operations.
-- [ ] M4: Remove duplicate render/apply paths and prove scope isolation.
+- [-] M2: Delivered contributions/input/publication retained; remaining combined native membership transferred to [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md) and [EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md). {disposition=superseded-by, by=EP-155+EP-156}
+- [-] M3: Remaining access/CDN, scheduled backup, restore, and maintenance behavior transferred to [EP-158](158-complete-reviewed-access-and-cdn-operations.md), [EP-159](159-complete-scheduled-backup-receipts-and-exact-retention-pruning.md), [EP-160](160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md), and [EP-161](161-provide-scoped-interactive-maintenance-with-durable-recovery.md); native collection bindings to [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md). {disposition=superseded-by, by=EP-158+EP-159+EP-160+EP-161+EP-155}
+- [-] M4: Remaining command cutover/docs, packaging, and native isolation proof transferred to [EP-153](153-close-managed-command-coverage-for-the-inventory-release.md), [EP-154](154-validate-installed-inventory-packages-on-every-supported-system.md), [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md), and [EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md). {disposition=superseded-by, by=EP-153+EP-154+EP-155+EP-156}
 
-Critical path from completed M1 to final acceptance, in execution order:
+Historical delivered outcomes and explicit transfers (active execution order is in the successor plans):
 
 - [x] Bind the application, standalone Service, worker, database, broker, route, schedule, release, and accepted input dependencies to reviewed scopes.
 - [x] Bind aggregate hooks to independent per-tag Job scopes, explicit affected resources, completion proofs, and workload ordering.
 - [x] M2 CDN/DNS ownership (2026-09-25): Google application and production-site host records have reviewed claims, an exact platform BackendService reference, and disposable-zone provider proof. Cloudflare has separate host claims, platform rules/TLS owners, typed application/site submission, a context-bound reviewed HTTP transport, CLI review/apply/status dispatch, and nine focused offline provider tests. The Decision Log accepts offline Cloudflare proof because no disposable zone is available; no live Cloudflare mutation is claimed.
-- [ ] Prove review and execution membership for a full application including a preview, CDN, broker topic, and Secret references against a disposable provider context. One disposable in-memory provider context passed the complete journal and apply flow, including independent scope generations after an app update; native broker/preview/provider integration remains.
+- [-] Remaining full native application membership, including preview, CDN, broker topic, and Secret references, transferred to [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md) and [EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md); recording evidence retained. {disposition=superseded-by, by=EP-155+EP-156}
 - [x] M4 webhook submission (2026-09-26): Signed static webhooks require initialized history and submit the exact accepted image and preview stores through reviewed site commands; direct site effect functions are removed. A local signed production/preview roundtrip passed against the recording Kubernetes provider. In-cluster runner configuration and native Knative provider proof remain separate acceptance work.
 - [x] M3/M4 standalone data command cutover (2026-09-26): Live database and broker create/restart use reviewed scopes in every context; delete saves a retained retirement review. Direct native delete modules are removed. Manual data actions, interactive maintenance, collection, and live provider proof remained for subsequent work.
 - [x] M4 standalone data effect removal (2026-09-26): The obsolete direct database/broker create and restart helpers are read-only previews; their direct provider effects are removed.
@@ -324,7 +321,7 @@ Critical path from completed M1 to final acceptance, in execution order:
 - [x] M2 standalone Build Secret binding (2026-09-26): Reviewed standalone Service and worker deployment select Build-only Secret names from the accepted image's pinned channels in the same cluster and namespace. The compilers preserve the original config digest and omit Build-only references from native Service, Task, and worker manifests; missing pins and mixed Build/Runtime references refuse. The executable and test target compiled together; all 848 CLI tests, Haskell structure check, strict user documentation, and diff check passed. External archive consumption remains unproven.
 - [x] M2 local Dockerfile Build input delivery (2026-09-26): `app image-plan --build-dockerfile FILE --build-context DIR` uses the exact accepted Build channel revisions and private values before compiling the publication review. It gives ConfigMap keys to BuildKit as arguments, requires each Secret key on a `RUN --mount=type=secret,id=KEY,required=true`, delivers its bytes through a 0600 temporary file, builds without cache, and saves an archive at a new path. Duplicate channel keys refuse. Only publications from this path authorize Build-only Secret references; external archives can still declare input pins but cannot authorize those references. The 850-test CLI suite, executable and test build, Haskell structure check, strict user documentation, and diff check passed; the fake Docker transport proves exact bytes and temporary-file cleanup. A local Docker build with a dummy Secret, network disabled, and a preloaded Alpine base executed the required mount, saved the image, read back the Secret hash from the container, and passed the archive to `skopeo inspect`. The isolated `scripts/test-inventory-scope-isolation.py --local-build` path then applied Build ConfigMap and Secret channels through the recording Kubernetes provider, ran the built `app image-plan` with those accepted resource IDs and local Docker, saved an artifact-only review, verified its output hash, and left accepted history unchanged. Live registry publication and native combined application proof remain open, so M2 stays open.
 - [x] M2 local registry publication and M4 artifact selection (2026-09-26): `scripts/test-inventory-scope-isolation.py --local-publication` builds from accepted Build ConfigMap and Secret values, saves the immutable image review, applies it through the production artifact transport to a disposable `registry:2`, compares the remote and reviewed archive manifest digests, and checks the publication scope in accepted history. Generic artifact-only planning beside accepted Pulumi and host scopes selects only artifact work; local apply no longer initializes Pulumi or runs `npm ci`, and the artifact transport suppresses the target loader's eager stack selection. The provider path passed with real Docker and Skopeo. Cloud registry publication and combined native application membership remain open.
-- [ ] M4: Cut over remaining direct app render/apply entry points to the reviewed compiler and publication path.
+- [-] M4: Remaining direct command/library cutover and consumer wiring transferred to [EP-153](153-close-managed-command-coverage-for-the-inventory-release.md). {disposition=superseded-by, by=EP-153}
 
 ## Surprises & Discoveries
 
@@ -517,6 +514,8 @@ Critical path from completed M1 to final acceptance, in execution order:
 
 ## Decision Log
 
+2026-09-26: The operator authorized splitting only unfinished EP-148 work into EP-158–161 and transferring cross-cutting acceptance to EP-153–157. Preserve every completed result and every unfulfilled release requirement. EP-160 alone owns shared data-fence state; EP-161 consumes it. The original plan is superseded rather than falsely marked complete.
+
 2026-09-26: Default reviewed volume snapshots to `retain`; permit a future UTC `--expires-at` only at initial snapshot review, and bind that choice into the stored receipt and scope revision. Restore planning refuses expired snapshots, and the restore Job checks the deadline again. Prune only an expired accepted snapshot through a separate saved `PruneData` review after checking accepted restore and retained dependencies, the completed snapshot Job UID, its receipt, exact object hashes, and provider versions. Bind a local MinIO credential as an accepted source with a physical UID precondition. Use `OperatorRecovery` and no Job retry because a partially deleted archive/receipt pair cannot be safely replayed. Keep live-target restore and native object-store proof open.
 
 2026-09-26: Support Build-only Secret references only when `app image-plan` builds a Dockerfile archive locally from exact accepted Build channels. Pass ConfigMap values as build arguments and Secret bytes through temporary 0600 BuildKit file mounts, require a matching `required=true` secret mount for each Secret key, disable cache, and bind the input revisions, build method, archive hash, and manifest digest to the image publication. Treat externally built Dockerfile and Nixpacks archives as declared provenance: they can pin Build channel revisions but cannot authorize Build-only Secret references. The mount check and local command establish delivery to BuildKit; the Dockerfile author controls whether an executed instruction reads a value. Do not claim arbitrary build-script consumption from a scope pin.
@@ -619,10 +618,12 @@ Critical path from completed M1 to final acceptance, in execution order:
 
 ## Outcomes & Retrospective
 
-M1 complete for the reviewed Kubernetes application and standalone lifecycle. Stable identities, accepted data and broker bindings, auth contributions, release history, environment and Secret references, and per-tag hook scopes are compiled into reviewed declarations. Reviewed Google CDN host DNS has explicit ownership for applications and production sites; Cloudflare has offline host/zone/TLS ownership, an HTTP adapter contract, and typed application/production-site submission, while live Cloudflare validation and unsupported build intent remain open. The 810-test CLI suite, 458-test DSL suite, disposable two-worker native review/resume, and one live Cloud DNS adapter create/update/stale-old proof passed. A bounded reviewed topic retention update is implemented. The overall plan remains in progress: M2 publication and full provider membership; M3 data and operational actions; and M4 direct-path removal and full scope-isolation proof remain open.
+Superseded on 2026-09-26 after substantial delivered implementation, including accepted M1, reviewed input/image publication, task and data command cutovers, manual backup/pruning, and scratch restore. All completed Progress entries and dated discoveries remain evidence for their recorded revisions. Combined native membership, remaining operational/data features, and complete cutover were not accepted before this split. [EP-158](158-complete-reviewed-access-and-cdn-operations.md)–[EP-161](161-provide-scoped-interactive-maintenance-with-durable-recovery.md) now own the remaining feature outcomes; [EP-153](153-close-managed-command-coverage-for-the-inventory-release.md)–[EP-157](157-gate-the-inventory-release-on-complete-immutable-evidence.md) own coverage, packaging, native integration, and full release acceptance. No feature or validation requirement was waived. The long historical backlog obscured separate protocols and provider gates; successors have bounded milestones and one owner for shared contracts.
 
 
 ## Context and Orientation
+
+**Historical specification retained.** The current handoff above transfers execution and acceptance to the successor plans. The original requirements below remain traceability material; do not restart completed work or use old pending statements as the current backlog.
 
 Hard dependencies are [cloud/artifact adapters](146-reconcile-cloud-host-and-artifact-resources-through-inventory-adapters.md), [cluster components](147-compile-cluster-bootstrap-into-owned-resource-components.md), and [lifecycle policy](149-explain-drift-and-execute-reviewed-adoption-migration-and-retirement.md), which themselves depend on the typed inventory and durable executor. They provide canonical context/scope/resource identity, opaque review boundaries, typed publication outputs, a complete database declaration builder, guarded Kubernetes execution, owner-composed contributions, and identity-bound adoption/retirement.
 
@@ -634,6 +635,8 @@ Access/Resolve.hs writes shared auth backend configuration and shomei settings. 
 
 
 ## Plan of Work
+
+**Historical specification retained.** The current handoff above transfers execution and acceptance to the successor plans. The original requirements below remain traceability material; do not restart completed work or use old pending statements as the current backlog.
 
 ### M1 — Application and standalone declarations
 
@@ -676,6 +679,8 @@ Extend docs/architecture/managed-resource-coverage.md and existing user docs for
 
 ## Concrete Steps
 
+**Historical specification retained.** The current handoff above transfers execution and acceptance to the successor plans. The original requirements below remain traceability material; do not restart completed work or use old pending statements as the current backlog.
+
 Choose one remaining outcome from the current handoff and inspect its compiler, CLI, native adapter, recovery path, and existing tests together before editing. Complete the related changes as a batch; use a focused compile/test while iterating, then run the affected full suites, executable build, style and applicable documentation checks at that outcome's acceptance boundary. Repeat a broad check only after a relevant subsequent change, failure, or unresolved risk. A clean small commit is a checkpoint, not a reason to stop authorized implementation. Update the current handoff in place instead of adding routine test-count paragraphs to Progress.
 
 
@@ -691,6 +696,8 @@ Extend the existing AppDeploySpec.hs, AccessResolveSpec.hs, DomainBindingSpec.hs
 
 
 ## Validation and Acceptance
+
+**Historical specification retained.** The current handoff above transfers execution and acceptance to the successor plans. The original requirements below remain traceability material; do not restart completed work or use old pending statements as the current backlog.
 
 For each remaining outcome, record the public command, accepted input, expected effects/refusals, and the concrete test or provider fixture that proves it. Distinguish implementation complete, recording-provider proof, native-provider proof, and environment blocked; none implies the others. Reuse existing passing evidence unless the affected implementation or an identified risk requires revalidation. The Cloudflare offline-only decision remains authoritative. The combined native membership requirement below remains open, with EP-155/156 integration evidence reusable as described in the current handoff.
 
@@ -708,6 +715,8 @@ Every command records a scope replacement or operation against an exact base rev
 
 
 ## Interfaces and Dependencies
+
+**Historical specification retained.** The current handoff above transfers execution and acceptance to the successor plans. The original requirements below remain traceability material; do not restart completed work or use old pending statements as the current backlog.
 
 ```haskell
 compileApplication
@@ -727,6 +736,8 @@ DependencyExports contains typed capability witnesses and selected revision/phys
 
 
 ## Revision Notes
+
+2026-09-26: Recompose unfinished EP-148 work into four feature plans plus existing integration/coverage successors. Preserve completed checkboxes and history, close only transferred items, and retain all release gates.
 
 2026-09-26: Redirected active provider-proof handoffs from superseded EP-150 to EP-155/156 and the final EP-157 release gate. Required functionality and proof are unchanged; integration can proceed on implemented paths without a circular plan-completion prerequisite.
 

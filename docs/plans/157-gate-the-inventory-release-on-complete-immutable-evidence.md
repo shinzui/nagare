@@ -11,6 +11,12 @@ provenance:
     model: "gpt-6-astra"
     harness: "codex-cli"
     at: 2026-09-26T20:29:54Z
+  revisions:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-26T22:23:39Z
+      mode: "update"
+      note: "Cascade EP-148 decomposition: assign remaining feature, cutover, and proof ownership without weakening release acceptance"
 ---
 
 # Gate the inventory release on complete immutable evidence
@@ -41,6 +47,8 @@ No new implementation findings in this successor plan. Inherited evidence and kn
 
 ## Decision Log
 
+2026-09-26: Redirect unfinished EP-148 dependencies to EP-158–161 and preserve this plan’s assigned integration, package, or release obligations. EP-148 is superseded history, not a pending completion gate.
+
 
 2026-09-26: Carry forward completed EP-150 implementation and give this remaining outcome its own acceptance boundary. The split changes ownership and tracking, not the required functionality or proof.
 
@@ -66,7 +74,7 @@ cli/nagarectl/src/Nagare/Inventory/Adapters/GitHubRelease.hs and GitHubReleaseRu
 
 M1 defines a versioned public evidence index over local and GCP run manifests, native-system output/rehearsal manifests, exact coverage result, and the candidate source/payload identity. Reuse the current projector for exact committed receipts and secret-safe fields. Extend schema/assembly/publisher validation together for the declared evidence asset shape. Require every supported system in release.json, both scenario modes, and complete command coverage. Different revisions, missing receipts, uncommitted journal objects, incomplete coverage, secret canaries, missing native runs, and absent cloud proof all fail before publication. Cached artifacts or prior provider probes cannot be relabeled as final candidate evidence. Same-tag retries retain exact bytes and physical IDs.
 
-M2 runs the complete release rehearsal without creating a tag or publishing a real Nagare release. Map all seven IR-24 verification cases—collision, adoption, data-preserving rename, resume, drift classification, real convergence/no-op/removal, and immutable evidence—to accepted results. Include independent-scope preservation, secret-read refusal, store corruption/concurrency/stale-review checks, and exact declaration/execution coverage. Review docs/user and affected ADRs; correct stale instructions and promote durable discoveries. The parent can close only after EP-148 and EP-152–156 are complete and all evidence matches the candidate. Publication itself remains a separate explicitly authorized release action.
+M2 runs the complete release rehearsal without creating a tag or publishing a real Nagare release. Map all seven IR-24 verification cases—collision, adoption, data-preserving rename, resume, drift classification, real convergence/no-op/removal, and immutable evidence—to accepted results. Include independent-scope preservation, secret-read refusal, store corruption/concurrency/stale-review checks, and exact declaration/execution coverage. Review docs/user and affected ADRs; correct stale instructions and promote durable discoveries. The parent can close only after EP-152–156 and EP-158–161 are complete (EP-148 and EP-150 are superseded history) and all evidence matches the candidate. Publication itself remains a separate explicitly authorized release action.
 
 
 ## Concrete Steps
@@ -103,4 +111,4 @@ Work against isolated test state and exact named contexts. Preserve immutable re
 ## Interfaces and Dependencies
 
 
-Completed EP-146/147/149/151 are implementation prerequisites. [EP-153](153-close-managed-command-coverage-for-the-inventory-release.md) owns coverage, [EP-154](154-validate-installed-inventory-packages-on-every-supported-system.md) native artifacts, [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md) local evidence, and [EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md) cloud evidence. These interfaces can be implemented/tested offline before providers finish; all are mandatory final inputs. [EP-152](152-complete-fresh-platform-bootstrap-through-reviewed-components.md) bootstrap and [EP-148](148-route-application-and-data-lifecycles-through-independent-resource-scopes.md) promised behavior must be accepted for parent closure. Initial estimate: 4–8 active hours after evidence inputs are available, low confidence; assess missing-input rejection first. This estimate excludes public release publication and does not waive any gate.
+Completed EP-146/147/149/151 are implementation prerequisites. [EP-153](153-close-managed-command-coverage-for-the-inventory-release.md) owns coverage, [EP-154](154-validate-installed-inventory-packages-on-every-supported-system.md) native artifacts, [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md) local evidence, and [EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md) cloud evidence. These interfaces can be implemented/tested offline before providers finish; all are mandatory final inputs. [EP-152](152-complete-fresh-platform-bootstrap-through-reviewed-components.md) bootstrap and [EP-158](158-complete-reviewed-access-and-cdn-operations.md), [EP-159](159-complete-scheduled-backup-receipts-and-exact-retention-pruning.md), [EP-160](160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md), and [EP-161](161-provide-scoped-interactive-maintenance-with-durable-recovery.md) promised behavior must be accepted for parent closure. Initial estimate: 4–8 active hours after evidence inputs are available, low confidence; assess missing-input rejection first. This estimate excludes public release publication and does not waive any gate.

@@ -10,7 +10,16 @@ focused evidence, delegated work, and disposition of the older entry point. A ro
 is `migrated` only when the public entry point uses the shared planner/executor and
 the retained transport refuses an unscoped or foreign adapter child. `adapter-ready`
 means the typed adapter exists but production command registration is still open.
-EP-147 and EP-148 extend this table; EP-150 owns the final completeness audit.
+EP-147 and EP-148 supplied the existing implementation evidence. EP-148 and
+EP-150 are now superseded histories. [EP-153](../plans/153-close-managed-command-coverage-for-the-inventory-release.md)
+owns the final completeness audit and remaining command/consumer cutover;
+EP-158 owns access/CDN operations, EP-159 scheduled backup receipts/pruning,
+EP-160 restore and shared data fencing, and EP-161 interactive maintenance.
+EP-154 owns packaging, EP-155/156 native integration and remaining native
+migration/collection bindings, and EP-157 the complete release evidence gate.
+Older M2/M3/M4 references in the rows identify EP-148's historical milestones;
+their outstanding obligations follow this ownership map. This tracking change
+does not promote any row to migrated or waive its required behavior or proof.
 
 | Mutation family | Owner scope | Declaration compiler | Executor / retained transport | Test evidence | Delegation | Legacy disposition | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- |

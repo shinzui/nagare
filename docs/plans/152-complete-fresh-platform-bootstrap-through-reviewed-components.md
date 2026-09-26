@@ -11,6 +11,12 @@ provenance:
     model: "gpt-6-astra"
     harness: "codex-cli"
     at: 2026-09-26T20:29:54Z
+  revisions:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-26T22:23:39Z
+      mode: "update"
+      note: "Cascade EP-148 decomposition: assign remaining feature, cutover, and proof ownership without weakening release acceptance"
 ---
 
 # Complete fresh platform bootstrap through reviewed components
@@ -40,6 +46,8 @@ No new implementation findings in this successor plan. Inherited evidence and kn
 
 
 ## Decision Log
+
+2026-09-26: Redirect unfinished EP-148 dependencies to EP-158–161 and preserve this plan’s assigned integration, package, or release obligations. EP-148 is superseded history, not a pending completion gate.
 
 
 2026-09-26: Carry forward completed EP-150 implementation and give this remaining outcome its own acceptance boundary. The split changes ownership and tracking, not the required functionality or proof.
@@ -101,4 +109,4 @@ Work against isolated test state and exact named contexts. Preserve immutable re
 ## Interfaces and Dependencies
 
 
-Hard prerequisites [EP-146](146-reconcile-cloud-host-and-artifact-resources-through-inventory-adapters.md), [EP-147](147-compile-cluster-bootstrap-into-owned-resource-components.md), [EP-149](149-explain-drift-and-execute-reviewed-adoption-migration-and-retirement.md), and [EP-151](151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes.md) are Complete. [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md) and [EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md) consume these bootstrap stages; they do not redefine them. Own bootstrap dispatch and the platform candidate, while [EP-153](153-close-managed-command-coverage-for-the-inventory-release.md) owns the complete command audit. Share Main.hs edits carefully. EP-148 completion is not required to implement bootstrap. Initial estimate: 8–16 active hours, low confidence; reforecast after the first fresh cloud preparation reaches a saved plan without an existing cluster.
+Hard prerequisites [EP-146](146-reconcile-cloud-host-and-artifact-resources-through-inventory-adapters.md), [EP-147](147-compile-cluster-bootstrap-into-owned-resource-components.md), [EP-149](149-explain-drift-and-execute-reviewed-adoption-migration-and-retirement.md), and [EP-151](151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes.md) are Complete. [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md) and [EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md) consume these bootstrap stages; they do not redefine them. Own bootstrap dispatch and the platform candidate, while [EP-153](153-close-managed-command-coverage-for-the-inventory-release.md) owns the complete command audit. Share Main.hs edits carefully. Neither superseded EP-148 closure nor completion of its feature successors EP-158–161 is required to implement bootstrap. Initial estimate: 8–16 active hours, low confidence; reforecast after the first fresh cloud preparation reaches a saved plan without an existing cluster.

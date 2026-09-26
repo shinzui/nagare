@@ -11,6 +11,12 @@ provenance:
     model: "gpt-6-astra"
     harness: "codex-cli"
     at: 2026-09-26T20:29:54Z
+  revisions:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-26T22:23:39Z
+      mode: "update"
+      note: "Cascade EP-148 decomposition: assign remaining feature, cutover, and proof ownership without weakening release acceptance"
 ---
 
 # Validate installed inventory packages on every supported system
@@ -40,6 +46,8 @@ No new implementation findings in this successor plan. Inherited evidence and kn
 
 
 ## Decision Log
+
+2026-09-26: Redirect unfinished EP-148 dependencies to EP-158–161 and preserve this plan’s assigned integration, package, or release obligations. EP-148 is superseded history, not a pending completion gate.
 
 
 2026-09-26: Carry forward completed EP-150 implementation and give this remaining outcome its own acceptance boundary. The split changes ownership and tracking, not the required functionality or proof.
@@ -105,4 +113,4 @@ Work against isolated test state and exact named contexts. Preserve immutable re
 ## Interfaces and Dependencies
 
 
-Use completed EP-146/147/149/151 implementations. [EP-152](152-complete-fresh-platform-bootstrap-through-reviewed-components.md) and [EP-148](148-route-application-and-data-lifecycles-through-independent-resource-scopes.md) supply the command code to package; [EP-153](153-close-managed-command-coverage-for-the-inventory-release.md) supplies the registration inventory. These are integration dependencies: packaging repairs can begin now, but final evidence must cover the final code. [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md)/[EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md) consume installed candidates, and [EP-157](157-gate-the-inventory-release-on-complete-immutable-evidence.md) consumes native evidence. Initial estimate: 4–8 active hours excluding runner queues, low confidence; reforecast after the first full native gate on each system.
+Use completed EP-146/147/149/151 implementations. [EP-152](152-complete-fresh-platform-bootstrap-through-reviewed-components.md) and the delivered EP-148 baseline plus [EP-158](158-complete-reviewed-access-and-cdn-operations.md), [EP-159](159-complete-scheduled-backup-receipts-and-exact-retention-pruning.md), [EP-160](160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md), and [EP-161](161-provide-scoped-interactive-maintenance-with-durable-recovery.md) supply the command code to package; [EP-153](153-close-managed-command-coverage-for-the-inventory-release.md) supplies the registration inventory. These are integration dependencies: packaging repairs can begin now, but final evidence must cover the final code. [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md)/[EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md) consume installed candidates, and [EP-157](157-gate-the-inventory-release-on-complete-immutable-evidence.md) consumes native evidence. Initial estimate: 4–8 active hours excluding runner queues, low confidence; reforecast after the first full native gate on each system.
