@@ -148,7 +148,8 @@ nagarectl db get NAME              # detail: engine, version, host, retention, r
 nagarectl db shell NAME            # interactive psql / redis-cli / clickhouse-client inside the pod
 nagarectl db restart NAME          # roll the StatefulSet pod and wait for ready
 nagarectl db delete NAME --yes     # delete, honoring RetentionPolicy (guarded by --yes)
-nagarectl db backup NAME           # logical dump to GCS or MinIO, keep-last-N retention
+nagarectl db backup NAME           # legacy direct logical dump before inventory admission
+nagarectl db backup NAME --backup-id ID --save-plan DIR  # reviewed manual Job
 nagarectl db restore NAME BACKUP_ID  # restore a backup, scratch-first
 ```
 
@@ -355,8 +356,28 @@ after the review is applied; inspect active backup Jobs before relying on the
 new policy. Exact backup pruning is not available yet; monitor
 object-store usage and preserve those backups until it exists. A database with
 `retention = Delete` is throwaway and has no scheduled
-backup. In an uninitialized legacy context, the CronJob still self-prunes and
-you can take one on demand:
+backup. For an accepted database, save and apply a manual backup review:
+
+```bash
+nagarectl db backup pg-main --backup-id manual-20260926 --save-plan ./pg-main-manual-backup
+nagarectl inventory apply ./pg-main-manual-backup --yes
+```
+
+Add `--expires-at 2027-01-01T00:00:00Z` to record a UTC expiry; without it,
+the review records `retain`. The backup ID is stable and at most 20 lowercase
+letters, digits, or hyphens. It fixes the Job name and exact object key, so a
+repeated review cannot silently create a second Job. The saved scope records
+the accepted database revision, StatefulSet and PVC UIDs, object URL, expiry,
+and SHA-256 readback policy. Apply checks the source UIDs and accepted native
+bytes again before submitting the Job. A successful Job checked the stored
+bytes, but the inventory does not yet retain the object's checksum as a durable
+receipt. The source checks occur before submission and are not atomic with the
+Job's data read; keep IDs unique because the object-store upload is not yet a
+create-only write. Expiry does not delete the object; reviewed exact pruning
+and restore are still pending.
+
+In an uninitialized legacy context, the CronJob still self-prunes and you can
+take one on demand:
 
 ```bash
 nagarectl db backup pg-main
@@ -368,8 +389,9 @@ dump for Redis, a native dump for ClickHouse), gzipped, at
 `databases/<name>/<timestamp>.<ext>` in the active store. Legacy scheduled
 backups keep the newest seven; `--keep` controls pruning after a manual cloud
 backup, while a manual local backup does not prune. Scheduled backups in
-reviewed inventory do not prune, and manual backup or restore commands
-refuse after inventory admission. The dump waits up to five minutes for the
+reviewed inventory do not prune. Direct manual backup and restore commands
+refuse after inventory admission; the reviewed manual backup route above is
+available for accepted databases. The dump waits up to five minutes for the
 database to accept connections, and a failed backup Job is retried twice. This
 gives a backup scheduled after a VM start time to survive DNS or server startup
 delays. In cloud mode that key is under

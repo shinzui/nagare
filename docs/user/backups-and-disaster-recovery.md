@@ -25,11 +25,12 @@ The guiding principle: **the machine is disposable.** Recovery is `pulumi up`,
 is successful only if rebuilding it is *boring*.
 
 In a context with initialized resource inventory history, direct live `db backup`,
-`db restore`, `storage snapshot`, and `storage restore` refuse until their
-reviewed operation paths are available. Scheduled database backup declarations
-remain part of reviewed database scopes. The manual commands below describe
-the legacy path in contexts without initialized history; dry-run output is
-available without submitting a Job.
+`db restore`, `storage snapshot`, and `storage restore` refuse. An accepted
+database can use `db backup NAME --backup-id ID --save-plan DIR` followed by
+`inventory apply DIR --yes`; the other reviewed data operations remain pending.
+Scheduled database backup declarations remain part of reviewed database scopes.
+The direct commands below describe the legacy path in contexts without initialized
+history; dry-run output is available without submitting a Job.
 
 ---
 
@@ -49,7 +50,7 @@ Most of Nagare is reproduced from Git; only a few things need real backup jobs.
 | Host Postgres | Restore from disk if data disk survives; use managed DBs for Nagare-owned backup tooling | 🟡 |
 | Whole data disk | Daily GCE snapshot at 08:00 UTC, retained seven days and kept if the source disk is deleted | 🟡 (declared; live apply/verification pending) |
 | App volumes (PVCs) | Legacy `nagarectl storage snapshot` → GCS or MinIO (`volumes/<app>/<volume>/`); direct data operations refuse after inventory admission | 🟡 (reviewed snapshot and restore pending) |
-| Managed databases | Daily CronJob → GCS or MinIO (`databases/<name>/`); newly reviewed schedules verify stored bytes and do not prune; manual backup and restore refuse after inventory admission | 🟡 (reviewed backup receipt, pruning, and restore pending) |
+| Managed databases | Daily CronJob → GCS or MinIO (`databases/<name>/`); newly reviewed schedules verify stored bytes and do not prune; accepted databases can save and apply a reviewed manual backup Job | 🟡 (durable per-object receipt, pruning, and restore pending) |
 | Attic signing identity and metadata | Managed PostgreSQL `nix-cache` / daily `nagare-dbbackup-nix-cache` CronJob | 🟡 (provider implemented; live restore acceptance pending) |
 | Attic cache chunks | Reproducible producer inputs; optionally export the dedicated GCS bucket before retirement | Rebuildable |
 | Grafana dashboards | **Git** (dashboard JSON under `cluster/observability`) | ✅ |
@@ -106,7 +107,14 @@ an RDB dump (Redis), a native dump (ClickHouse) — gzips it, and uploads it to
 schedules keep the last N; newly reviewed schedules read the stored object back
 and compare SHA-256 before the Job succeeds, but do not prune or record a
 durable per-object receipt. Existing accepted schedules keep their earlier
-scripts until a review updates them. Take one on demand with
+scripts until a review updates them. For an accepted database, save a manual
+backup review with `nagarectl db backup NAME --backup-id ID --save-plan DIR`,
+then run `nagarectl inventory apply DIR --yes`. The ID fixes the Job and object
+key. An optional `--expires-at YYYY-MM-DDTHH:MM:SSZ` records expiry without
+deleting the object; the default is `retain`. The review pins the source
+StatefulSet and PVC UIDs and apply checks them again before submission. The
+Job reads the stored object back and compares SHA-256 before completion, but
+there is no durable per-object checksum receipt yet. Take a direct backup with
 `nagarectl db backup NAME` only before inventory admission; list cloud backups
 with `gsutil ls gs://<backup-bucket>/databases/<name>/`, or inspect local MinIO
 through the cluster when running local mode.

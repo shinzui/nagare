@@ -24,6 +24,7 @@ import Data.Text.Encoding qualified as TE
 import Data.Aeson.Types (Parser)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
+import Nagare.Inventory.Backup (manualBackupJobSourcePins)
 import Nagare.Inventory.BackendMap (renderBackendMapNative, renderShomeiSettingsNative)
 import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
 import Nagare.Inventory.Digest
@@ -117,32 +118,63 @@ mkKubernetesAdapter specs ops =
       Left reason -> pure (Left reason)
       Right mutation -> do
         current <- kubernetesObserve ops (mutationResource mutation)
-        pure (if mutationAction mutation == RunDeclaredOperation && current == mutationBefore mutation
-          then Right ()
-          else requireSameBefore mutation current)
+        sourceGuard <- verifyBackupSources mutation
+        pure $ do
+          if mutationAction mutation == RunDeclaredOperation && current == mutationBefore mutation
+            then Right ()
+            else requireSameBefore mutation current
+          sourceGuard
     execute operation prepared = case decodeMutation (kubernetesContext ops) specs operation prepared of
       Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
       Right mutation -> do
         current <- kubernetesObserve ops (mutationResource mutation)
         case requireSameBefore mutation current of
           Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
-          Right () -> if mutationAction mutation `elem` [RunDeclaredOperation, VerifyResource]
-            then pure AdapterEffectCompleted
-            else kubernetesMutateConditional ops mutation
+          Right () -> do
+            sourceGuard <- verifyBackupSources mutation
+            case sourceGuard of
+              Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
+              Right () -> if mutationAction mutation `elem` [RunDeclaredOperation, VerifyResource]
+                then pure AdapterEffectCompleted
+                else kubernetesMutateConditional ops mutation
     verify operation prepared = case decodeMutation (kubernetesContext ops) specs operation prepared of
       Left reason -> pure (Left reason)
       Right mutation -> do
         current <- kubernetesObserve ops (mutationResource mutation)
-        pure (completionProof mutation current)
+        sourceGuard <- verifyBackupSources mutation
+        pure (sourceGuard >> completionProof mutation current)
     recover operation prepared = case decodeMutation (kubernetesContext ops) specs operation prepared of
       Left reason -> pure (RecoveryUnresolved reason)
       Right mutation -> do
         current <- kubernetesObserve ops (mutationResource mutation)
-        pure $ case completionProof mutation current of
-          Right proof -> RecoveryProvedComplete proof
-          Left _ -> case requireSameBefore mutation current of
-            Right () -> RecoverySafeToRetry
-            Left reason -> RecoveryUnresolved reason
+        sourceGuard <- verifyBackupSources mutation
+        pure $ case sourceGuard of
+          Left reason -> RecoveryUnresolved reason
+          Right () -> case completionProof mutation current of
+            Right proof -> RecoveryProvedComplete proof
+            Left _ -> case requireSameBefore mutation current of
+              Right () -> RecoverySafeToRetry
+              Left reason -> RecoveryUnresolved reason
+    verifyBackupSources mutation
+      | mutationAction mutation `notElem` [CreateResource, RunDeclaredOperation] = pure (Right ())
+      | otherwise = case Map.lookup (mutationResource mutation) specs of
+          Nothing -> pure (Left "manual backup Job lacks its bound native object")
+          Just (_, native) -> case manualBackupJobSourcePins native of
+            Left reason -> pure (Left reason)
+            Right Nothing -> pure (Right ())
+            Right (Just pins) -> do
+              checked <- traverse checkOne pins
+              pure (sequence_ checked)
+      where
+        checkOne (resource, expectedUid) = case Map.lookup resource specs of
+          Nothing -> pure (Left "manual backup source lacks accepted native evidence")
+          Just (_, sourceNative) -> do
+            current <- kubernetesObserve ops resource
+            pure $ case current of
+              KubernetesPresent uid _ (Just owner) digest
+                | uid == expectedUid && owner == resource
+                  && digest == contentDigest sourceNative -> Right ()
+              _ -> Left "manual backup source UID, ownership, readiness, or native bytes changed"
 
 singleSpec :: Map ResourceId (ManagedResource, ByteString) -> PlannedOperation -> Either Text (ResourceId, ManagedResource, ByteString)
 singleSpec specs operation = do

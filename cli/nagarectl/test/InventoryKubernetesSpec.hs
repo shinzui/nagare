@@ -17,6 +17,8 @@ import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import Data.Time (UTCTime)
+import Data.Time.Format (defaultTimeLocale, parseTimeM)
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.Database.Backup (renderDbBackupCronJob, renderPreviousInventoryDbBackupCronJob)
@@ -31,6 +33,7 @@ import Nagare.Inventory.Adapters.Kubernetes
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), cacheClientDataMatches, certificateReady, collectionDeleteRequest, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, credentialDataMatches, deploymentAvailable, deploymentSelectorReplacement, desiredFieldsMatch, generatedCredentialTemplate, jobCompleted, knativeReady, materializeCacheKey, materializeCredential, mkKubernetesRuntimeOps, observeCacheClientOutput, parseObserved, readinessForAddress, statefulSetImmutableReplacement, statefulSetReady, supportedUpdateAddress, withoutCacheClientData)
 import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
 import Nagare.Inventory.Database (compileDatabaseForBackend)
+import Nagare.Inventory.Backup (ManualBackupRequest (..), BackupSourceProof (..), compileManualBackupScope, manualBackupJobSourcePins, manualBackupSourceProof)
 import Nagare.Inventory.DataService (NativeDataKind (..), compileBackupPruneRemovalScope, compileStandaloneDatabase, compileStatefulSetRestartScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Components.Foundation (compileContributedNamespaces)
@@ -423,6 +426,108 @@ inventoryKubernetesTests =
         assertBool "backup native member omitted" (any (\(member, _) -> case address member of
           Kubernetes _ "batch" kind _ _ -> nameText kind == "cronjob"
           _ -> False) (Map.elems bound))
+    , testCase "manual database backup binds object and source incarnation into its own Job scope" $ do
+        let owner = ok (mkScopeId Standalone "database-pg-main")
+            db = Database (ok (mkDatabaseName "pg-main")) Nothing Postgres (defaultEngineVersion Postgres)
+              (ok (Dsl.mkNamespace "default")) (ok (Dsl.mkQuantity "10Gi")) Nothing Dsl.Retain
+            recovery = RecoveryIntent (ok (mkName "backup"))
+              (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
+            direct = DatabaseDirectInput db owner cluster Nothing recovery (SourceLocation "database" "postgres")
+            backend = GcsBackend "project" "bucket"
+            (databaseScope, databaseNative) = ok (compileStandaloneDatabase direct backend)
+            expiry = maybe (error "invalid test expiry") id
+              (parseTimeM True defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ"
+                "2027-01-01T00:00:00Z" :: Maybe UTCTime)
+            request = ManualBackupRequest
+              { databaseName = "pg-main", namespaceName = "default", backupId = "run-001"
+              , expiresAt = Just expiry
+              , sourceRevision = ScopeRevision (ok (mkScopeGeneration 3)) (contentDigest "accepted-database")
+              , sourceStatefulUid = ok (mkPhysicalIdentity "stateful-uid")
+              , sourcePvcUid = ok (mkPhysicalIdentity "pvc-uid")
+              , storageBackend = backend, backupSource = SourceLocation "db backup" "run-001" }
+            (backupScope, backupNative) = ok (compileManualBackupScope request databaseScope databaseNative)
+            (job, bytes) = case Map.elems backupNative of
+              [entry] -> entry
+              _ -> error "manual backup scope must have one Job"
+            pinned = compileManualBackupScope request databaseScope databaseNative
+        pinned @?= Right (backupScope, backupNative)
+        scopeId backupScope @?= ok (mkScopeId Standalone "database-backup-default-pg-main-run-001")
+        Map.lookup "backup.object" (scopeOverrides backupScope)
+          @?= Just "gs://bucket/databases/pg-main/run-001.sql.gz"
+        Map.lookup "backup.source.pvc.uid" (scopeOverrides backupScope) @?= Just "pvc-uid"
+        Map.lookup "backup.expiry" (scopeOverrides backupScope) @?= Just "2027-01-01T00:00:00Z"
+        case [snapshotOperation | bundle <- scopeBundles backupScope,
+          snapshotOperation <- bundle ^. #operations] of
+          [snapshotOperation] -> do
+            operationKind snapshotOperation @?= SnapshotData
+            affects snapshotOperation @?= (job ^. #identity :| [])
+          other -> assertFailure ("manual backup snapshot operation missing: " <> show other)
+        case manualBackupSourceProof backupScope of
+          Right (Just proof) -> do
+            sourceScopeName proof @?= scopeIdText owner
+            sourceScopeGeneration proof @?= 3
+            sourceStatefulPhysical proof @?= ok (mkPhysicalIdentity "stateful-uid")
+            sourcePvcPhysical proof @?= ok (mkPhysicalIdentity "pvc-uid")
+          other -> assertFailure ("manual backup source proof missing: " <> show other)
+        assertBool "backup Job does not verify stored bytes" (BC.isInfixOf "sha256sum" bytes)
+        assertBool "backup Job still prunes objects" (not (BC.isInfixOf "pruning" bytes))
+        assertBool "backup Job lacks source UID annotation" (BC.isInfixOf "stateful-uid" bytes)
+        manualBackupJobSourcePins bytes @?= Right (Just
+          [ (ok (databaseResourceId owner (ok (mkName "statefulset")) db),
+              ok (mkPhysicalIdentity "stateful-uid"))
+          , (ok (databaseResourceId owner (ok (mkName "pvc")) db),
+              ok (mkPhysicalIdentity "pvc-uid")) ])
+        case eitherDecodeStrict bytes of
+          Right (Object root) | Just (Object metadata) <- KM.lookup "metadata" root
+            , Just (Object annotations) <- KM.lookup "annotations" metadata ->
+              assertBool "Kubernetes backup annotation contains a non-string value"
+                (all (\case String _ -> True; _ -> False) (KM.elems annotations))
+          other -> assertFailure ("backup Job metadata missing: " <> show other)
+        assertBool "backup Job has no PVC dependency" (length (dependencies job) == 3)
+        assertBool "different PVC incarnation retained the same Job intent"
+          (compileManualBackupScope (request {sourcePvcUid = ok (mkPhysicalIdentity "replacement-pvc")})
+            databaseScope databaseNative /= pinned)
+        assertBool "missing accepted PVC bytes were accepted"
+          (isLeft (compileManualBackupScope request databaseScope
+            (Map.delete (ok (databaseResourceId owner (ok (mkName "pvc")) db)) databaseNative)))
+        let statefulId = ok (databaseResourceId owner (ok (mkName "statefulset")) db)
+            pvcId = ok (databaseResourceId owner (ok (mkName "pvc")) db)
+            backupOperation = createOperation {plannedResources = job ^. #identity :| []}
+            sourceState sourceId uid = KubernetesPresent uid "1" (Just sourceId)
+              (contentDigest (snd (databaseNative Map.! sourceId)))
+            sourceStates = Map.fromList
+              [ (job ^. #identity, KubernetesAbsent (contentDigest "absent"))
+              , (statefulId, sourceState statefulId (ok (mkPhysicalIdentity "stateful-uid")))
+              , (pvcId, sourceState pvcId (ok (mkPhysicalIdentity "pvc-uid"))) ]
+        states <- newIORef sourceStates
+        writes <- newIORef (0 :: Int)
+        let adapter = mkKubernetesAdapter (Map.union backupNative databaseNative)
+              KubernetesAdapterOps
+                { kubernetesContext = ok (mkContextId "test")
+                , kubernetesObserve = \sourceId -> Map.findWithDefault
+                    (KubernetesUnknown "unbound") sourceId <$> readIORef states
+                , kubernetesMutateConditional = \_ -> do
+                    modifyIORef' writes (+ 1)
+                    pure AdapterEffectCompleted }
+        prepared <- adapterPrepare adapter backupOperation >>= expectRight
+        adapterPreflight adapter backupOperation prepared >>= expectRight
+        modifyIORef' states (Map.insert pvcId
+          (sourceState pvcId (ok (mkPhysicalIdentity "replacement-pvc"))))
+        stale <- adapterPreflight adapter backupOperation prepared
+        assertBool "stale backup source passed preflight" (isLeft stale)
+        adapterExecute adapter backupOperation prepared
+          >>= (@?= AdapterEffectFailed (KnownNoEffect
+            "manual backup source UID, ownership, readiness, or native bytes changed"))
+        readIORef writes >>= (@?= 0)
+        selected <- lookupEnv "NAGARE_EP148_BACKUP_TEST_CONTEXT"
+        mapM_ (\selectedContext -> do
+          assertBool "refusing a non-disposable Kubernetes context"
+            ("k3d-nagare-inventory-" `T.isPrefixOf` T.pack selectedContext)
+          (code, _, errorText) <- readProcessWithExitCode "kubectl"
+            ["--context", selectedContext, "create", "--dry-run=server", "-f", "-"]
+            (BC.unpack bytes)
+          assertBool ("Kubernetes rejected manual backup Job: " <> errorText)
+            (code == ExitSuccess)) selected
     , testCase "legacy accepted database pruning needs an exact CronJob-only review" $ do
         let owner = ok (mkScopeId Standalone "database-pg-main")
             db = Database (ok (mkDatabaseName "pg-main")) Nothing Postgres (defaultEngineVersion Postgres)
