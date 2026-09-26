@@ -467,11 +467,11 @@ import Nagare.Target
   , writeContextPlatformVersion
   , writeContextInventoryStore
   )
-import Nagare.Task.Delete (TaskDeleteParams (..), runTaskDelete)
+import Nagare.Task.Delete (previewTaskDelete)
 import Nagare.Task.Discover (AppScope (..))
 import Nagare.Task.List (runTaskList)
 import Nagare.Task.Logs (TaskLogTarget (..), runTaskLogs)
-import Nagare.Task.Run (TaskRunParams (..), runTaskRun)
+import Nagare.Task.Run (previewTaskRun)
 import Nagare.Version
   ( BuildVersion (..)
   , VersionError (..)
@@ -1895,7 +1895,7 @@ taskDeleteOptsParser =
     <$> taskAppArg
     <*> taskNameArg
     <*> namespaceOpt
-    <*> switch (long "yes" <> help "Confirm deletion (without it, prints the plan and deletes nothing)")
+    <*> switch (long "yes" <> help "Legacy flag; live deletion uses --save-plan and inventory apply --yes")
     <*> dryRunOpt
     <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save the next reviewed deletion stage for an accepted task"))
 
@@ -3002,7 +3002,7 @@ opts =
               "run"
               ( info
                   (Task . TaskRun <$> taskRunOptsParser <**> helper)
-                  (progDesc "Run a task once from its CronJob; --run-id reviews an accepted task's Job, and --save-plan saves that review")
+                  (progDesc "Run an accepted task through a stable reviewed Job; --run-id is required for live execution")
               )
             <> command
               "logs"
@@ -3014,7 +3014,7 @@ opts =
               "delete"
               ( info
                   (Task . TaskDelete <$> taskDeleteOptsParser <**> helper)
-                  (progDesc "Delete a task's CronJob; --save-plan stages reviewed deletion in managed contexts")
+                  (progDesc "Save staged CronJob suspension, retirement, and collection reviews with --save-plan")
               )
         )
     deploymentsCmd =
@@ -9029,15 +9029,6 @@ cloudflareZoneOwned history = accepted || retained || unresolved
           _ -> False]
     unresolved = isJust (InventoryStore.headActiveTransaction (InventoryPlan.historyHead history))
 
-refuseDirectTaskMutationIfOwned :: Maybe String -> Text -> Text -> Text -> IO ()
-refuseDirectTaskMutationIfOwned mctx operation name namespaceName =
-  withAcceptedInventoryHistory mctx ("task " <> operation) $ \history ->
-    let resources = ownedHistoryResources history
-        cronjob = nativeWorkloadOwned "batch" "cronjob" (taskResourceName name) namespaceName resources
-        historyMap = nativeWorkloadOwned "" "configmap" ("nagare-task-runs-" <> name) namespaceName resources
-    in when (cronjob || historyMap)
-      (dieT ("task " <> name <> " is owned by accepted or retained inventory history; direct " <> operation <> " is refused"))
-
 refuseDirectVolumeMutationIfOwned :: Maybe String -> Text -> Deployment -> Text -> IO ()
 refuseDirectVolumeMutationIfOwned mctx operation deployment volumeName =
   withAcceptedInventoryHistory mctx ("storage " <> operation) $ \history -> do
@@ -9201,19 +9192,9 @@ runTask mctx = \case
     case o ^. #savePlan of
       Just output -> runReviewedTaskRunPlan mctx o (Just output)
       Nothing | isJust (o ^. #runId) -> runReviewedTaskRunPlan mctx o Nothing
-      Nothing -> do
-        unless (o ^. #dryRun) $ do
-          withAcceptedInventoryHistory mctx "task run" $ \_ ->
-            dieT "inventory history is initialized; direct task run is refused. Use --run-id for a reviewed Job"
-          refuseDirectTaskMutationIfOwned mctx "run" (T.pack (o ^. #task)) (nsOf (o ^. #namespace))
-        runTaskRun
-          TaskRunParams
-            { app = T.pack (o ^. #app)
-            , task = T.pack (o ^. #task)
-            , namespace = nsOf (o ^. #namespace)
-            , scope = scopeOf (o ^. #app)
-            , dryRun = o ^. #dryRun
-            }
+      Nothing | o ^. #dryRun ->
+        previewTaskRun (nsOf (o ^. #namespace)) (T.pack (o ^. #task))
+      Nothing -> dieT "live task run requires --run-id for a reviewed Job"
   TaskLogs o ->
     runTaskLogs
       TaskLogTarget
@@ -9226,19 +9207,10 @@ runTask mctx = \case
   TaskDelete o -> do
     case o ^. #savePlan of
       Just output -> runReviewedTaskDeletePlan mctx o output
-      Nothing -> do
-        when (o ^. #yes && not (o ^. #dryRun)) $ do
-          withAcceptedInventoryHistory mctx "task delete" $ \_ ->
-            dieT "inventory history is initialized; direct task delete is refused. Use task delete --save-plan DIR for reviewed schedule deletion"
-          refuseDirectTaskMutationIfOwned mctx "delete" (T.pack (o ^. #task)) (nsOf (o ^. #namespace))
-        runTaskDelete
-          TaskDeleteParams
-            { name = T.pack (o ^. #task)
-            , namespace = nsOf (o ^. #namespace)
-            , scope = scopeOf (o ^. #app)
-            , yes = o ^. #yes
-            , dryRun = o ^. #dryRun
-            }
+      Nothing | o ^. #yes && not (o ^. #dryRun) ->
+        dieT "task delete requires --save-plan; apply each reviewed stage with inventory apply --yes"
+      Nothing -> previewTaskDelete (nsOf (o ^. #namespace))
+        (scopeOf (o ^. #app)) (T.pack (o ^. #task))
   where
     nsOf = maybe "personal" T.pack
     -- A required APP positional: "-" means app-less, anything else is that app.

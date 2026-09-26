@@ -67,9 +67,9 @@ refuse 'static site deploy without image' 'requires --image-resource' \
 refuse 'static preview deploy without image' 'requires --image-resource' \
   site preview deploy --name feature-x \
   --file ../nagare-dsl/test/fixtures/static-site/nagare/Config.hs
-refuse 'timestamped task run' 'direct task run is refused' \
+refuse 'task run without stable ID' 'live task run requires --run-id' \
   task run notes cleanup
-refuse 'direct task deletion' 'direct task delete is refused' \
+refuse 'task deletion without review' 'task delete requires --save-plan' \
   task delete notes cleanup --yes
 refuse 'database create without recovery' 'reviewed database create requires --recovery-backup' \
   db create postgres fixture
@@ -174,7 +174,25 @@ if ! grep -q 'inventory store is not initialized' "$fixture_root/out"; then
   cat "$fixture_root/out" >&2
   exit 1
 fi
+if "$nagarectl_bin" --context fresh task run notes cleanup > "$fixture_root/out" 2>&1; then
+  printf 'fresh task run unexpectedly succeeded\n' >&2
+  exit 1
+fi
+if ! grep -q 'live task run requires --run-id' "$fixture_root/out"; then
+  printf 'fresh task run refused for the wrong reason:\n' >&2
+  cat "$fixture_root/out" >&2
+  exit 1
+fi
+if "$nagarectl_bin" --context fresh task delete notes cleanup --yes > "$fixture_root/out" 2>&1; then
+  printf 'fresh task delete unexpectedly succeeded\n' >&2
+  exit 1
+fi
+if ! grep -q 'task delete requires --save-plan' "$fixture_root/out"; then
+  printf 'fresh task delete refused for the wrong reason:\n' >&2
+  cat "$fixture_root/out" >&2
+  exit 1
+fi
 test ! -e "$XDG_STATE_HOME/nagare/fresh/inventory/head.json"
 
 cmp -s "$store_dir/head.json" "$fixture_root/head-before"
-printf 'application entrypoint guards: thirty-three live refusals and five fresh-context refusals, inventory heads unchanged\n'
+printf 'application entrypoint guards: thirty-three live refusals and seven fresh-context refusals, inventory heads unchanged\n'

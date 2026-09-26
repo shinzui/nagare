@@ -67,7 +67,7 @@ nagarectl deploy -f nagare/Config.hs
 
 # See it, run it once now, and read the logs:
 nagarectl task list
-nagarectl task run notes heartbeat
+nagarectl task run notes heartbeat --run-id heartbeat-001
 nagarectl task logs notes heartbeat
 ```
 
@@ -76,7 +76,7 @@ nagarectl task logs notes heartbeat
 > selects the app's deployed image. The `scheduledTask` preset
 > leaves it unset. A task co-located in the `notes` application is still deployed
 > with the `notes` ownership label, so address it as `nagarectl task run notes
-> heartbeat`. Use the `-` sentinel only for a task deployed without an app label.
+> heartbeat --run-id ID`. Use the `-` sentinel only for a task deployed without an app label.
 
 
 ## Concepts
@@ -87,10 +87,8 @@ nagarectl task logs notes heartbeat
   optional app reference).
 - A **CronJob** is the Kubernetes object that, on a cron schedule, creates a
   **Job**, which runs a **Pod** to completion. Nagare names it `nagare-task-<name>`.
-- A **one-off run** is a single Job created from the CronJob's template,
-  bypassing the schedule. Direct `nagarectl task run` shells
-  `kubectl create job --from=cronjob/nagare-task-<name>`. The reviewed route
-  derives the Job from the accepted CronJob's saved native template.
+- A **one-off run** is a single Job derived from the accepted CronJob's saved
+  native template with a stable run ID, bypassing the schedule.
 - The **cron schedule** is a validated 5-field expression
   (`minute hour day-of-month month day-of-week`), e.g. `0 3 * * *` ("daily at
   03:00"). A malformed schedule is rejected at load with a precise message. Each
@@ -195,11 +193,11 @@ public fixed-tag image is not a fit (use the app's built image).
 
 ```text
 nagarectl task list [APP]        # table of tasks (omit APP for all; "-" for app-less)
-nagarectl task run APP TASK      # run once, now; --dry-run prints the kubectl command
+nagarectl task run APP TASK --dry-run  # read-only legacy command preview
 nagarectl task run APP TASK --run-id ID  # review and apply an accepted task's Job
 nagarectl task run APP TASK --run-id ID --save-plan DIR  # review an accepted task's one-off Job
 nagarectl task logs APP TASK     # most recent pod logs (--follow to tail; --tail N)
-nagarectl task delete APP TASK   # preview legacy direct deletion
+nagarectl task delete APP TASK   # read-only preview of retirement stages
 nagarectl task delete APP TASK --save-plan DIR  # next reviewed deletion stage
 ```
 
@@ -216,9 +214,9 @@ $ nagarectl task list -n personal
   heartbeat         -              */15 * * * *    2026-06-10T17:15:00Z  2026-06-10T17:15:01Z  0
 ```
 
-`nagarectl task run APP TASK` fires the task once, right now: it creates a Job from
-the deployed CronJob, waits for it to finish, and reports. `--dry-run` prints the
-exact command without creating a Job:
+`nagarectl task run APP TASK --run-id ID` fires an accepted task once through
+a reviewed Job and records completion. `--dry-run` without a run ID prints the
+older kubectl command shape without creating a Job.
 
 For a CronJob already accepted in the resource inventory, run it with a stable ID.
 The command saves an immutable review in the context's inventory store, displays
@@ -248,10 +246,8 @@ Job completion; an uncertain effect needs inventory recovery before retry.
 `--save-plan` to inspect a reviewed run. Pre-deploy migration hooks use
 independent per-tag reviewed Jobs as described in [Deploying apps](deploying-apps.md).
 
-The direct route below remains for tasks outside accepted inventory in contexts
-whose inventory history is not initialized. In an initialized context, a live
-run requires `--run-id` and an accepted CronJob; the timestamped direct run
-refuses even if that task name is new. Image-free `--dry-run` remains available.
+Every live run requires `--run-id` and an accepted CronJob, even in a fresh
+context. The timestamped command remains only as read-only `--dry-run` output.
 
 ```text
 $ nagarectl task run notes cleanup --dry-run
@@ -260,32 +256,18 @@ kubectl create job nagare-task-cleanup-manual-<timestamp> --from=cronjob/nagare-
 Then: kubectl wait --for=condition=complete --timeout=600s job/nagare-task-cleanup-manual-<timestamp> -n personal
 ```
 
-A live run streams to completion:
-
-```text
-$ nagarectl task run notes cleanup -n personal
-Starting one-off run nagare-task-cleanup-manual-20260610174500 ...
-job.batch/nagare-task-cleanup-manual-20260610174500 created
-job.batch/nagare-task-cleanup-manual-20260610174500 condition met
-Task cleanup completed (nagare-task-cleanup-manual-20260610174500).
-```
-
-`nagarectl task delete APP TASK` (without `--yes`) prints the deletion plan and
-deletes nothing. On a context without initialized inventory history, `--yes`
-removes the CronJob idempotently:
+`nagarectl task delete APP TASK` without `--save-plan` previews the stages and
+changes nothing:
 
 ```text
 $ nagarectl task delete notes cleanup
-Would delete (run again with --yes):
+Would review CronJob suspension, retention, and conditional collection:
   cronjob/nagare-task-cleanup
-  configmap/nagare-task-runs-cleanup
-
-$ nagarectl task delete notes cleanup --yes
-Deleted task cleanup
+Run task delete --save-plan DIR, apply it, and repeat for each stage.
 ```
 
-In an initialized inventory context, direct `task delete --yes` refuses. Delete
-an accepted schedule through three saved reviews, applying each before planning
+Live `task delete --yes` refuses in every context. Delete an accepted schedule
+through three saved reviews, applying each before planning
 the next:
 
 ```text

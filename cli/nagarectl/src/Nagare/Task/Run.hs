@@ -1,51 +1,25 @@
--- | @nagarectl task run APP TASK@ (MasterPlan 10, EP-51, Integration Point IP6):
--- run a scheduled task once, now. Creates a single Job from the deployed CronJob
--- via @kubectl create job <name> --from=cronjob/nagare-task-<task>@, waits for it
--- with @kubectl wait --for=condition=complete@, tails its logs on failure, and
--- reports. With @--dry-run@, prints the exact @kubectl@ command and runs nothing.
---
--- This reuses Kubernetes' native @--from=cronjob@ so a manual run is byte-for-byte
--- identical to a scheduled run — no separate Job rendering, no drift. It mirrors the
--- apply -> wait -> log-on-failure flow of 'Nagare.Database.Backup.waitForJob'.
+-- | Read-only legacy task-run preview and pure command helpers (EP-51).
+-- Live manual runs use stable reviewed Job scopes from accepted CronJob bytes.
 module Nagare.Task.Run
-  ( TaskRunParams (..)
-  , oneOffJobName
+  ( oneOffJobName
   , runArgs
-  , runTaskRun
+  , previewTaskRun
   )
 where
 
-import Cradle
-import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Time (UTCTime, defaultTimeLocale, formatTime, getCurrentTime)
 import Nagare.Dsl.Prelude
-import Nagare.Task.Discover (AppScope, getTask)
-import System.Exit (ExitCode (..), exitFailure)
-import System.Environment (lookupEnv)
-import System.IO (stderr)
 
-data TaskRunParams = TaskRunParams
-  { app :: !Text
-  , task :: !Text
-  , namespace :: !Text
-  , scope :: !AppScope
-  , dryRun :: !Bool
-  }
-  deriving stock (Generic, Show)
-
--- | The deterministic one-off Job name: @nagare-task-<task>-manual-<YYYYmmddHHMMSS>@,
--- lower-cased and truncated to Kubernetes' 63-character name limit (as
--- 'Nagare.Database.Backup' does for its backup Job). Pure in @now@ so it is testable.
+-- | The legacy timestamped Job name, retained for offline preview output.
 oneOffJobName :: Text -> UTCTime -> Text
 oneOffJobName task now =
   T.take 63 (T.toLower ("nagare-task-" <> task <> "-manual-" <> stamp))
   where
     stamp = T.pack (formatTime defaultTimeLocale "%Y%m%d%H%M%S" now)
 
--- | The @kubectl@ argument vector for the one-off run (pure, unit-testable):
--- @create job <name> --from=cronjob/nagare-task-<task> -n <ns>@.
+-- | The legacy kubectl argument vector, printed but never executed here.
 runArgs :: Text -> Text -> Text -> [String]
 runArgs ns task name =
   [ "create"
@@ -56,66 +30,18 @@ runArgs ns task name =
   , T.unpack ns
   ]
 
--- | Run a task once. In @--dry-run@ mode this only prints the exact @kubectl@
--- commands and contacts no cluster. Otherwise it verifies the task exists (scoped
--- by @scope@) so a typo fails before touching the cluster, then creates the Job,
--- waits, and reports.
-runTaskRun :: TaskRunParams -> IO ()
-runTaskRun p
-  | p ^. #dryRun = do
-      now <- getCurrentTime
-      let ns = p ^. #namespace
-          taskText = p ^. #task
-          name = oneOffJobName taskText now
-          args = runArgs ns taskText name
-      TIO.putStrLn "--- task run (dry-run) ---"
-      TIO.putStrLn ("kubectl " <> T.unwords (map T.pack args))
-      TIO.putStrLn
-        ( "Then: kubectl wait --for=condition=complete --timeout=600s job/"
-            <> name
-            <> " -n "
-            <> ns
-        )
-  | otherwise = do
-      transaction <- lookupEnv "NAGARE_INVENTORY_TRANSACTION"
-      when (isJust transaction) $ do
-        TIO.hPutStrLn stderr "nagarectl: task run cannot run inside a reviewed inventory transaction"
-        exitFailure
-      erow <- getTask (p ^. #namespace) (p ^. #scope) (p ^. #task)
-      case erow of
-        Left err -> do
-          TIO.hPutStrLn stderr ("nagarectl: " <> err)
-          exitFailure
-        Right _ -> do
-          now <- getCurrentTime
-          let ns = p ^. #namespace
-              taskText = p ^. #task
-              name = oneOffJobName taskText now
-              args = runArgs ns taskText name
-          TIO.putStrLn ("Starting one-off run " <> name <> " ...")
-          run_ $ cmd "kubectl" & addArgs args
-          waitForTaskJob ns name taskText
-          TIO.putStrLn ("Task " <> taskText <> " completed (" <> name <> ").")
-
--- | Wait for the one-off Job to reach @condition=complete@; on timeout/failure,
--- tail its logs and exit non-zero. Mirrors 'Nagare.Database.Backup.waitForJob'.
-waitForTaskJob :: Text -> Text -> Text -> IO ()
-waitForTaskJob ns name task = do
-  (code, _ :: StdoutUntrimmed) <-
-    run $
-      cmd "kubectl"
-        & addArgs
-          [ "wait"
-          , "--for=condition=complete"
-          , "--timeout=600s"
-          , "job/" <> T.unpack name
-          , "-n"
-          , T.unpack ns
-          ]
-        & silenceStderr
-  case code of
-    ExitSuccess -> pure ()
-    ExitFailure _ -> do
-      TIO.hPutStrLn stderr ("nagarectl: task " <> task <> " run " <> name <> " did not complete; recent logs:")
-      run_ $ cmd "kubectl" & addArgs ["logs", "job/" <> T.unpack name, "-n", T.unpack ns, "--tail", "50"]
-      exitFailure
+-- | Show what the older timestamped command would have run. The reviewed
+-- command uses an accepted CronJob and stable run ID instead.
+previewTaskRun :: Text -> Text -> IO ()
+previewTaskRun ns task = do
+  now <- getCurrentTime
+  let name = oneOffJobName task now
+      args = runArgs ns task name
+  TIO.putStrLn "--- task run (dry-run) ---"
+  TIO.putStrLn ("kubectl " <> T.unwords (map T.pack args))
+  TIO.putStrLn
+    ( "Then: kubectl wait --for=condition=complete --timeout=600s job/"
+        <> name
+        <> " -n "
+        <> ns
+    )

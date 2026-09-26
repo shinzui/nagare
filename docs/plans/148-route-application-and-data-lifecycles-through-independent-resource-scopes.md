@@ -142,6 +142,11 @@ provenance:
       at: 2026-09-26T18:52:11Z
       mode: "implement"
       note: "Route every live managed environment and Secret write through reviewed channels"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-26T18:58:52Z
+      mode: "implement"
+      note: "Remove direct manual task Job and schedule deletion effects"
 ---
 
 # Route application and data lifecycles through independent resource scopes
@@ -189,6 +194,9 @@ Standalone database and broker live create and restart now always select their r
 Manual database backup and PostgreSQL scratch restore now require their accepted Job scopes and saved reviews for live execution in every context. The former direct Job apply/wait/prune branches are removed; their older renderers remain available only for read-only `--dry-run` output. Live-target and other-engine restore, provider proof, and volume data operations remain open.
 
 Managed Runtime, Build, and Preview environment and Secret writes now use reviewed channel scopes in every context. Legacy read-only dry-run rendering remains, while direct ConfigMap/Secret write helpers are removed. Live Secret changes require an opaque rotation version; live environment changes preserve accepted channel history.
+
+Manual task runs now require stable reviewed Job IDs in every context, and scheduled task deletion requires saved suspension, retention, and conditional collection reviews. The previous timestamped Job creation and direct CronJob deletion effects are removed; their command previews remain read-only.
+The executable build, all 845 CLI tests, thirty-three initialized-context and seven fresh-context entrypoint refusals with unchanged inventory heads, Haskell structure check, strict user-documentation validation, and diff check passed for this cutover.
 The runner also requires a named context at startup and a shared GCS inventory store for cloud deliveries, so an implicit/default context or machine-private cloud history cannot be mistaken for evidence that the target is unmanaged. The example in-cluster Service needs a context and store configuration before it can deploy again.
 Live direct CDN purge/disable and access grant/revoke/portal sync now refuse after inventory initialization, including unclaimed hostnames. Read-only CDN and access commands and CDN dry-runs remain available. Their reviewed operational counterparts are still M3 work. The isolated CLI regression covers thirty-three live refusals with an unchanged inventory head.
 The legacy native-address guard now runs only for live database/broker deletion, database backup/restore, volume restore, and unreviewed env/Secret writes. Their read-only preview branches remain available without requiring an ownership decision or inventory receipt.
@@ -255,6 +263,7 @@ Critical path from completed M1 to final acceptance, in execution order:
 - [x] M3/M4 standalone data command cutover (2026-09-26): Live database and broker create/restart use reviewed scopes in every context; delete saves a retained retirement review. Direct native delete modules are removed. Manual data actions, interactive maintenance, collection, and live provider proof remained for subsequent work.
 - [x] M3/M4 manual database data cutover (2026-09-26): Live manual backup and scratch restore require saved reviewed Job plans in every context; direct Job submission and broad inline manual pruning are removed. Volume snapshot/restore, live-target and other-engine restore, provider proof, and exact collection remain.
 - [x] M3/M4 environment and Secret command cutover (2026-09-26): All live channel writes use reviewed scopes; direct ConfigMap and Secret apply helpers are removed. Read-only dry-run rendering remains.
+- [x] M3/M4 manual task command cutover (2026-09-26): Live one-off runs require a reviewed stable run ID; schedule deletion requires saved staged reviews. Direct Job creation and CronJob deletion effects are removed.
 - [ ] M4: Cut over remaining direct app render/apply entry points to the reviewed compiler and publication path.
 
 ## Surprises & Discoveries
@@ -420,6 +429,8 @@ Critical path from completed M1 to final acceptance, in execution order:
 2026-09-26: The first executable `app deploy --save-plan` isolation probe reached `runghc` but selected a stale `.ghc.environment` for GHC 9.12.3 before the current 9.12.4 file. The config loader then refused a valid local app before inventory planning. Auto-discovery now asks `ghc --numeric-version` and chooses only a matching project environment, falling back to Cabal if no match exists. The subsequent reviewed app probe produced Kubernetes-only operations without calling unrelated Pulumi, host, artifact, or cloud executables.
 
 ## Decision Log
+
+2026-09-26: Require a stable run ID for every live manual task run and a saved review for every scheduled-task deletion stage. Keep timestamped Job and deletion-plan output only as read-only previews. The accepted CronJob and its private native bytes authorize reviewed Job creation, while suspension, retirement, and exact collection remain separate decisions.
 
 2026-09-26: Make reviewed Runtime, Build, and Preview channels the sole live path for managed environment and Secret values. Live env set/delete/sync implicitly use the existing reviewed compiler; `--reviewed` remains accepted for compatibility. Live Secret set/delete require an explicit rotation version. Keep the former renderer only for read-only dry-run output, redacting Secret values. Refuse an uninitialized store before publishing any new channel history.
 
@@ -612,6 +623,8 @@ DependencyExports contains typed capability witnesses and selected revision/phys
 
 
 ## Revision Notes
+
+2026-09-26: `task run` without `--run-id` now refuses live execution in every context, and `task delete --yes` without `--save-plan` refuses. Their direct Job create/wait and CronJob delete drivers were reduced to read-only previews. Reviewed run and staged delete compilers remain the sole live paths.
 
 2026-09-26: `env set/delete/sync` now always submit live reviewed channel changes; `secret set/delete` do so with `--version`. Direct ConfigMap/Secret apply helpers and the CLI direct-write guards are removed. Dry-run rendering remains read-only, with Secret values redacted. The executable build, full CLI suite, Haskell style, strict user docs, and the isolated entrypoint regression passed; five fresh-context refusals left inventory history absent.
 

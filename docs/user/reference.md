@@ -429,10 +429,9 @@ See [Deploying apps](deploying-apps.md) and [App lifecycle](app-lifecycle.md).
 | Command | Does |
 | --- | --- |
 | `nagarectl task list [APP] [-n NS]` | List managed CronJobs, optionally for one app; use `-` for app-less tasks. |
-| `nagarectl task run APP TASK [--dry-run]` | Create a one-off Job from the deployed CronJob and wait for completion. |
+| `nagarectl task run APP TASK --run-id ID [--save-plan DIR]` | Create a stable reviewed Job from the accepted CronJob; apply now or save its review. `--dry-run` alone prints a read-only legacy command preview. |
 | `nagarectl task logs APP TASK [--follow] [--tail N]` | Show the latest task-run Pod logs. |
-| `nagarectl task delete APP TASK --yes [--dry-run]` | Delete the task CronJob and run-history ConfigMap before inventory initialization; direct deletion refuses afterward. |
-| `nagarectl task delete APP TASK --save-plan DIR` | Save the next reviewed CronJob suspension, retention, or collection stage for an accepted task; apply each review before planning the next. |
+| `nagarectl task delete APP TASK --save-plan DIR` | Save the next reviewed CronJob suspension, retention, or collection stage for an accepted task; apply each review before planning the next. Without `--save-plan`, print a read-only preview. |
 | `nagarectl worker deploy [-f FILE] [--dry-run]` | An accepted `--image-resource` and explicit tag are required. Deploy publishes and applies a standard reviewed worker change, `--save-plan` saves its review, and `--dry-run` prints the public scope. Publish an image archive first with `app image-plan`. |
 
 These are separate from the finite `Nagare.Dsl.Job` library contract, which has
@@ -468,7 +467,7 @@ runner `nagared` (`cluster/bootstrap/nagared/`) does Git-triggered deploys.
 
 | Command | Does |
 | --- | --- |
-| `nagarectl broker create redpanda NAME` | With all three recovery options, publish and apply a reviewed broker and its topics; `--save-plan` saves the review. Without recovery options, use the legacy direct provisioner. |
+| `nagarectl broker create redpanda NAME` | With all three recovery options, publish and apply a reviewed broker and its topics; `--save-plan` saves the review. Live create requires these inputs in every context. |
 | `nagarectl broker create redpanda NAME --dry-run` | Print the broker manifests and topic plan; no cluster changes. |
 | `nagarectl broker list` | List managed brokers in a namespace. |
 | `nagarectl broker get NAME` | Show provider, version, bootstrap, PVC, readiness, metrics endpoint health, and VictoriaMetrics scrape status. |
