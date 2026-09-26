@@ -6,7 +6,9 @@ an existing ``personal`` Namespace, and the fixture image preloaded at its tag.
 It leaves the two created native objects for inspection and explicit cleanup.
 The ``--local-build`` mode uses recording Kubernetes and artifact providers,
 then exercises the built image command with real local Docker and accepted
-Build channels. It requires the Alpine base image to be available locally.
+Build channels. ``--local-publication`` also applies that immutable review
+through the production artifact transport to a disposable Docker registry.
+Both modes require the Alpine base image to be available locally.
 """
 
 import hashlib
@@ -39,11 +41,14 @@ def run(cli: Path, root: Path, environment: dict[str, str], args: list[str],
 
 def main() -> None:
     options = sys.argv[2:]
-    local_build = "--local-build" in options
-    if local_build:
+    local_publication = "--local-publication" in options
+    if local_publication:
+        options.remove("--local-publication")
+    local_build = "--local-build" in options or local_publication
+    if "--local-build" in options:
         options.remove("--local-build")
     if len(sys.argv) < 2 or (options and (len(options) != 2 or options[0] != "--live-kubeconfig")):
-        raise SystemExit("usage: test-inventory-scope-isolation.py BUILT_NAGARECTL [--local-build] [--live-kubeconfig FILE]")
+        raise SystemExit("usage: test-inventory-scope-isolation.py BUILT_NAGARECTL [--local-build | --local-publication | --live-kubeconfig FILE]")
     cli = Path(sys.argv[1]).resolve(strict=True)
     live_kubeconfig = Path(options[1]).resolve(strict=True) if options else None
     if local_build and live_kubeconfig:
@@ -131,6 +136,7 @@ def main() -> None:
             "NAGARE_LOCAL_OBJECT_STORE=http://minio:9000/nagare-backups\n"
         )
         marker = scratch / "provider-called"
+        provider_args = scratch / "provider-args"
         kubectl_calls = scratch / "kubectl-calls.jsonl"
         kubectl_state = scratch / "kubectl-state.json"
         kubectl_errors = scratch / "kubectl-errors.jsonl"
@@ -140,7 +146,8 @@ def main() -> None:
             fake = fake_bin / executable
             fake.write_text(
                 "#!/bin/sh\nprintf '%s\\n' \"$0\" >> "
-                + shlex.quote(str(marker)) + "\nexit 95\n"
+                + shlex.quote(str(marker)) + "\nprintf '%s\\n' \"$0 $*\" >> "
+                + shlex.quote(str(provider_args)) + "\nexit 95\n"
             )
             fake.chmod(0o755)
         kubectl = fake_bin / "kubectl"
@@ -420,12 +427,18 @@ sys.exit(95)
                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                               check=False).returncode:
                 raise AssertionError("local image build probe requires a preloaded alpine:latest")
-            skopeo = fake_bin / "skopeo"
-            skopeo.write_text(
-                "#!/bin/sh\ncase \"$*\" in *docker://*) echo 'manifest unknown' >&2; exit 1;; esac\n"
-                "exec " + shlex.quote(real_skopeo) + " \"$@\"\n"
-            )
-            skopeo.chmod(0o755)
+            if local_publication and subprocess.run(
+                    ["docker", "image", "inspect", "registry:2"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    check=False).returncode:
+                raise AssertionError("local publication probe requires a preloaded registry:2")
+            if not local_publication:
+                skopeo = fake_bin / "skopeo"
+                skopeo.write_text(
+                    "#!/bin/sh\ncase \"$*\" in *docker://*) echo 'manifest unknown' >&2; exit 1;; esac\n"
+                    "exec " + shlex.quote(real_skopeo) + " \"$@\"\n"
+                )
+                skopeo.chmod(0o755)
             run(cli, root, app_environment, ["--context", "isolated", "env", "set",
                 "isolated-app", "PUBLIC", "shown", "--config", str(app_config), "--build"])
             run(cli, root, app_environment, ["--context", "isolated", "secret", "set",
@@ -439,11 +452,30 @@ sys.exit(95)
                 "RUN --mount=type=secret,id=TOKEN,required=true "
                 "test \"$PUBLIC\" = shown && sha256sum /run/secrets/TOKEN > /proof.sha256\n"
             )
-            destination = "k3d-registry.localhost:5000/build-proof:ep148"
-            archive = scratch / "built-image.tar"
-            image_review = scratch / "built-image-review"
-            head_before_image = app_head.read_bytes()
+            registry_container = None
+            if local_publication:
+                registry_container = subprocess.check_output(
+                    ["docker", "run", "--detach", "--rm", "--publish",
+                     "127.0.0.1::5000", "registry:2"], text=True, timeout=60).strip()
+            destination = ""
             try:
+                if registry_container:
+                    port_line = subprocess.check_output(
+                        ["docker", "port", registry_container, "5000/tcp"],
+                        text=True, timeout=30).strip()
+                    registry_host = "127.0.0.1:" + port_line.rsplit(":", 1)[1]
+                    (context_dir / "isolated.env").write_text(
+                        "CLOUDSDK_CORE_PROJECT=project\nNAGARE_MODE=local\n"
+                        f"NAGARE_REGISTRY_HOST={registry_host}\n"
+                        "NAGARE_BASE_DOMAIN=127-0-0-1.sslip.io\n"
+                        "NAGARE_LOCAL_OBJECT_STORE=http://minio:9000/nagare-backups\n"
+                    )
+                else:
+                    registry_host = "k3d-registry.localhost:5000"
+                destination = f"{registry_host}/build-proof:ep148"
+                archive = scratch / "built-image.tar"
+                image_review = scratch / "built-image-review"
+                head_before_image = app_head.read_bytes()
                 run(cli, root, app_environment, ["--context", "isolated", "app",
                     "image-plan", "--archive", str(archive), "--destination", destination,
                     "--key", "build-proof", "--build-dockerfile", str(dockerfile),
@@ -468,9 +500,36 @@ sys.exit(95)
                     raise AssertionError("Build Secret escaped into the public image review")
                 if not archive.is_file() or app_head.read_bytes() != head_before_image:
                     raise AssertionError("local image planning failed to save an archive or changed accepted history")
+                if local_publication:
+                    source_digest = subprocess.check_output(
+                        [real_skopeo, "inspect", "--format", "{{.Digest}}",
+                         f"docker-archive:{archive}"], text=True, timeout=60).strip()
+                    if marker.exists():
+                        marker.unlink()
+                    run(cli, root, app_environment, ["--context", "isolated", "inventory",
+                        "apply", str(image_review), "--yes"])
+                    remote_digest = subprocess.check_output(
+                        [real_skopeo, "inspect", "--tls-verify=false", "--format",
+                         "{{.Digest}}", f"docker://{destination}"], text=True, timeout=60).strip()
+                    if remote_digest != source_digest:
+                        raise AssertionError("published registry manifest differs from reviewed archive")
+                    accepted = json.loads(app_head.read_text())["accepted"]
+                    if not any(entry["scope"] == {"kind": "Publication", "name": "app-image-build-proof"}
+                               for entry in accepted):
+                        raise AssertionError("published image scope was not accepted")
+                    provider_calls = marker.read_text().splitlines() if marker.exists() else []
+                    if any(Path(call).name in ("npm", "pulumi", "gcloud")
+                           for call in provider_calls):
+                        raise AssertionError("artifact-only apply prepared an unrelated provider: "
+                            + repr(provider_args.read_text().splitlines()[-20:]))
+                    print("inventory scope isolation: reviewed image published to local registry")
             finally:
-                subprocess.run(["docker", "image", "rm", destination], check=False,
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
+                if registry_container:
+                    subprocess.run(["docker", "stop", registry_container], check=False,
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
+                if destination:
+                    subprocess.run(["docker", "image", "rm", destination], check=False,
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
             print("inventory scope isolation: local BuildKit image review used accepted Build channels")
         print("inventory scope isolation: reviewed app planned and applied without unrelated providers")
 

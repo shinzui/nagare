@@ -5582,7 +5582,13 @@ inventoryExecutionRegistry mctx bundle = do
             active <- activeTarget mctx
             (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
             pure (active, workspace)
-          else prepareInfraMutation mctx
+          else do
+            active <- activeTarget mctx
+            if null registrations && active ^. #profile . #mode == Local
+              then do
+                (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+                pure (active, workspace)
+              else prepareInfraMutation mctx
       pulumi <-
         if null registrations
           then pure (Inventory.executionBlockedAdapterFor ResourceInventory.PulumiExecutor)

@@ -36,6 +36,9 @@ fi
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/.." && pwd)"
 # shellcheck source=lib/target.sh
+# Artifact observation and publication need the context guard, never a Pulumi
+# stack. Local target loading otherwise selects or initializes one per call.
+export NAGARE_SKIP_PULUMI_STACK_SELECT=1
 source "${script_dir}/lib/target.sh"
 
 absence_digest() {
