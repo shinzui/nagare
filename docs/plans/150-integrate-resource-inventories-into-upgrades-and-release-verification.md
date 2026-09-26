@@ -64,6 +64,15 @@ Release evidence archives the inventory, review, receipts, and final observation
 - [ ] M3: Run deterministic and disposable-context convergence/recovery scenarios.
 - [ ] M4: Archive release evidence, document recovery, and finish ADR distillation.
 
+2026-09-26: Closed four more legacy platform entry points after inventory
+admission: release adoption, predeployment re-pin, upgrade rollback, and
+Pulumi outcome recovery now check inventory history before loading provider
+state or transaction evidence. Fresh bootstrap planning checks that the
+selected immutable payload version matches the context pin. The public CLI
+fixture proves eleven admitted-history refusals and unchanged context/store
+bytes; the executable builds and Haskell style passes. M1 still needs complete
+component-backed bootstrap and live convergence proof.
+
 2026-09-26: The operator confirmed every existing Nagare context and its data
 can be discarded and recreated for the first release. M1 no longer requires a
 new in-place `platform upgrade` transaction or conversion of old phase

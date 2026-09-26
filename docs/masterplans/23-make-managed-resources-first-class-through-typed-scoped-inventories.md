@@ -260,6 +260,8 @@ The operator confirmed all existing contexts and their data are disposable for
 the first release. The full release claim now requires fresh component-backed
 bootstrap and refusal of legacy mutation after inventory admission, rather
 than an in-place platform upgrade command or old-transaction conversion.
+Release adoption, predeployment re-pin, rollback, and Pulumi recovery now
+share that refusal; fresh bootstrap planning requires a matching context pin.
 EP-148 remains an unmet hard dependency for command coverage; disposable
 local/GCP convergence, complete coverage, and immutable inventory release
 evidence remain EP-150 gates. This scope change does not establish adoption

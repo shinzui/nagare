@@ -3445,6 +3445,8 @@ runPlatformStamp _ =
 runPlatformAdopt :: Maybe String -> String -> Bool -> Bool -> IO ()
 runPlatformAdopt mctx rawVersion yes asJson = do
   target <- either (dieT . ("invalid --version: " <>) . renderVersionError) (pure . renderPlatformVersion) (parsePlatformVersion (T.pack rawVersion))
+  selected <- activeTarget mctx
+  guardLegacyMutationInventory "platform adopt" selected
   (active, status) <- gatherPlatformStatus mctx
   if asJson
     then LBC.hPutStrLn stderr (Aeson.encode (Aeson.object ["context" Aeson..= contextNameText (active ^. #contextName), "requestedVersion" Aeson..= target, "observations" Aeson..= platformStatusValue status]))
@@ -3471,6 +3473,8 @@ runPlatformAdopt mctx rawVersion yes asJson = do
 runPlatformRepin :: Maybe String -> String -> Bool -> IO ()
 runPlatformRepin mctx rawVersion yes = do
   target <- either (dieT . ("invalid --version: " <>) . renderVersionError) (pure . renderPlatformVersion) (parsePlatformVersion (T.pack rawVersion))
+  selected <- activeTarget mctx
+  guardLegacyMutationInventory "platform repin" selected
   (active, status) <- gatherPlatformStatus mctx
   let contextName = active ^. #contextName
       profile = active ^. #profile
@@ -3588,6 +3592,7 @@ runPlatformUpgradeStatus mctx requested asJson = do
 runPlatformUpgradeRollback :: Maybe String -> String -> Bool -> Bool -> IO ()
 runPlatformUpgradeRollback mctx requested yes asJson = do
   active <- activeTarget mctx
+  guardLegacyMutationInventory "platform upgrade rollback" active
   (_, original) <- loadUpgradeTransaction (active ^. #contextName) (Just requested)
   unless yes (dieT "refusing to roll back a release selection without --yes")
   unless (original ^. #state == Completed) (dieT "only a completed upgrade transaction can be rolled back")
@@ -3627,6 +3632,7 @@ runPlatformUpgradeRecoverPulumi mctx requested outcomeToken yes = do
     _ -> dieT "--outcome must be either applied or retry"
   unless yes (dieT "refusing to record a Pulumi recovery decision without --yes")
   active <- activeTarget mctx
+  guardLegacyMutationInventory "platform upgrade recover-pulumi" active
   (txPath, tx) <- loadUpgradeTransaction (active ^. #contextName) (Just requested)
   when (tx ^. #state == Completed) (dieT "a completed upgrade has no Pulumi outcome to recover")
   let workspace = platformWorkspaceFromTransaction tx
@@ -4784,6 +4790,8 @@ buildPlatformCandidate active paths workspace snapshot = do
   unless (manifest ^. #payloadId == workspace ^. #payloadId
       && manifest ^. #platformVersion == workspace ^. #platformVersion)
     (dieT "platform candidate payload and retained workspace identities disagree")
+  unless (active ^. #profile . #platformVersion == Just (manifest ^. #platformVersion))
+    (dieT "platform bootstrap requires a context pin matching the selected payload; in-place platform version changes require a separate reviewed transition")
   kubeVersion <- readBootstrapKubeVersion active
   let root = workspace ^. #root
       profile = active ^. #profile

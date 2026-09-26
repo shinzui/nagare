@@ -58,6 +58,11 @@ refuse 'named init' init guarded --project other-project --skip-preflight
 refuse 'legacy init' --context guarded init --project other-project --skip-preflight
 refuse 'confirmed cleanup' --context guarded cleanup --confirm
 refuse 'host credential placement' host place-age-key --context guarded --key-file "$fixture_root/missing-age-key"
+refuse 'platform adoption' --context guarded platform adopt --version 0.2.2 --yes
+refuse 'platform re-pin' --context guarded platform repin --version 0.2.2 --yes
+refuse 'platform upgrade' --context guarded platform upgrade --to 0.2.2
+refuse 'platform rollback' --context guarded platform upgrade rollback missing --yes
+refuse 'platform Pulumi recovery' --context guarded platform upgrade recover-pulumi missing --outcome retry --yes
 test -f "$context_dir/guarded.env"
 test -f "$store_dir/head.json"
 cmp -s "$context_dir/guarded.env" "$fixture_root/profile-before"
@@ -76,4 +81,4 @@ chmod 600 "$store_dir/head.json"
 "$nagarectl_bin" context delete guarded --yes > "$fixture_root/out"
 test ! -e "$context_dir/guarded.env"
 test -f "$store_dir/head.json"
-printf 'inventory entrypoint guards: six admitted refusals, untouched-store delete allowed\n'
+printf 'inventory entrypoint guards: eleven admitted refusals, untouched-store delete allowed\n'
