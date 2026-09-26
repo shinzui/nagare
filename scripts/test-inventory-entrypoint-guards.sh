@@ -16,16 +16,22 @@ cat > "$context_dir/guarded.env" <<'EOF'
 CLOUDSDK_CORE_PROJECT=project
 NAGARE_MODE=local
 EOF
-if "$nagarectl_bin" --context guarded app deploy --tag v1 \
-    -f "$fixture_root/missing-app.hs" > "$fixture_root/out" 2>&1; then
-  printf 'image-free app deploy unexpectedly succeeded\n' >&2
-  exit 1
-fi
-if ! grep -q 'reviewed app deploy requires --image-resource' "$fixture_root/out"; then
-  printf 'image-free app deploy did not enter reviewed planning:\n' >&2
-  cat "$fixture_root/out" >&2
-  exit 1
-fi
+refuse_image_free_deploy() {
+  local label="$1"
+  shift
+  if "$nagarectl_bin" --context guarded "$@" > "$fixture_root/out" 2>&1; then
+    printf '%s unexpectedly succeeded\n' "$label" >&2
+    exit 1
+  fi
+  if ! grep -q 'requires --image-resource' "$fixture_root/out"; then
+    printf '%s did not enter reviewed planning:\n' "$label" >&2
+    cat "$fixture_root/out" >&2
+    exit 1
+  fi
+}
+refuse_image_free_deploy 'image-free app deploy' app deploy --tag v1 -f "$fixture_root/missing-app.hs"
+refuse_image_free_deploy 'image-free Service deploy' deploy --tag v1 -f "$fixture_root/missing-service.hs"
+refuse_image_free_deploy 'image-free worker deploy' worker deploy --tag v1 -f "$fixture_root/missing-worker.hs"
 test ! -e "$store_dir/head.json"
 python3 - "$store_dir/head.json" <<'PY'
 import json
@@ -92,4 +98,4 @@ chmod 600 "$store_dir/head.json"
 "$nagarectl_bin" context delete guarded --yes > "$fixture_root/out"
 test ! -e "$context_dir/guarded.env"
 test -f "$store_dir/head.json"
-printf 'inventory entrypoint guards: image-free app refusal, eleven admitted refusals, untouched-store delete allowed\n'
+printf 'inventory entrypoint guards: three image-free deploy refusals, eleven admitted refusals, untouched-store delete allowed\n'

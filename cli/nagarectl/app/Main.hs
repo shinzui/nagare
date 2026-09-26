@@ -55,7 +55,6 @@ import Nagare.Access.Resolve
   , mkBaseDomain
   , portalRegistration
   , publicHostText
-  , resolveDeploymentAccess
   )
 import Nagare.App
   ( AppSummary (..)
@@ -74,7 +73,6 @@ import Nagare.App.Deployments
   ( appConfigMapName
   , formatDeploymentsTable
   , readDeployments
-  , recordDeploymentFor
   , resolveRevisionForTag
   )
 import Nagare.Broker.Create (BrokerCreateParams (..), resolveBroker, runBrokerCreateWithGuard)
@@ -82,7 +80,6 @@ import Nagare.Broker.Delete (BrokerDeleteParams (..), runBrokerDelete)
 import Nagare.Broker.Get (runBrokerGet)
 import Nagare.Broker.List (runBrokerList)
 import Nagare.Broker.Restart (runBrokerRestart)
-import Nagare.Build (addBuildArgs, applyBuildOverrides, describeBuild, performBuild)
 import Nagare.Cdn.Cloudflare (cfRequestWithStatus, loadCloudflareCreds, purgeHostname)
 import Nagare.Cdn.Provision
   ( CdnResult (..)
@@ -123,24 +120,22 @@ import Nagare.Database.List (runDbList)
 import Nagare.Database.Restart (runDbRestart)
 import Nagare.Database.Restore (runDbRestore)
 import Nagare.Database.Shell (runDbShell)
-import Nagare.Deploy (applyManifests, applyPVCs, pvcPhases, requireWait, serviceUrl, waitForReady)
-import Nagare.Deploy.Resolve (resolveBrokerEnv, resolveBuildSpec, resolveConnectionEnv, resolveTag)
+import Nagare.Deploy (applyManifests, requireWait, serviceUrl, waitForReady)
+import Nagare.Deploy.Resolve (resolveTag)
 import Nagare.Domain.Binding
   ( BindingTarget (..)
-  , preflightDomainBindings
   , renderBindingTarget
-  , waitForDomainBindings
   )
-import Nagare.Domain.Tls (preflightDomainTls, renderDomainTlsCheck, verifyDomainTlsReady)
+import Nagare.Domain.Tls (renderDomainTlsCheck)
 import Nagare.Dsl.Application (Application (..))
 import Nagare.Dsl.Broker (BrokerProvider (..), brokerNameText)
-import Nagare.Dsl.Build (BuildSpec, requiresBuild, resolveImageTag)
+import Nagare.Dsl.Build (resolveImageTag)
 import Nagare.Dsl.Cdn.Types (Cdn, CdnProvider (CloudflareCdn))
 import Nagare.Dsl.Database (Database (..), Engine (..), dbSecretName)
 import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Load qualified as Load
 import Nagare.Dsl.Prelude
-import Nagare.Dsl.Render (managedConfigMapName, managedSecretName, pvcName, renderDomainMappings, renderService, renderVolumeClaims, scopeToken)
+import Nagare.Dsl.Render (managedConfigMapName, managedSecretName, pvcName, scopeToken)
 import Nagare.Dsl.Server.Types (ServerSite)
 import Nagare.Dsl.Static.Render (StaticDeployContext (..))
 import Nagare.Dsl.Static.Types (StaticSite, siteNameText)
@@ -164,7 +159,6 @@ import Nagare.Dsl.Types
   , serviceNameText
   , volumeNameText
   )
-import Nagare.Env.BuildArgs (gatherBuildArgs, printBuildArgWarnings)
 import Nagare.Env.Dotenv (parseDotenv)
 import Nagare.Env.Generated (generatedEnv, mergeGenerated)
 import Nagare.Env.Generated qualified as Gen
@@ -209,9 +203,6 @@ import Nagare.Host.Config
   )
 import Nagare.Image
   ( computeTag
-  , configureDockerAuthFor
-  , imageRef
-  , pushImage
   , qualifyImage
   )
 import Nagare.Infra.Plan
@@ -449,7 +440,7 @@ import Nagare.Static.Release
 import Nagare.Storage.Inspect (runStorageInspect)
 import Nagare.Storage.List (runStorageList)
 import Nagare.Storage.Restore (runStorageRestore)
-import Nagare.Storage.Snapshot (backupExcludedWarnings, runSnapshot)
+import Nagare.Storage.Snapshot (runSnapshot)
 import Nagare.Target
   ( AcmeDirectory (..)
   , ActiveTarget (..)
@@ -502,7 +493,6 @@ import Nagare.Task.Delete (TaskDeleteParams (..), runTaskDelete)
 import Nagare.Task.Discover (AppScope (..))
 import Nagare.Task.List (runTaskList)
 import Nagare.Task.Logs (TaskLogTarget (..), runTaskLogs)
-import Nagare.Task.Resolve (predefinedTaskEnv, renderResolvedTask)
 import Nagare.Task.Run (TaskRunParams (..), runTaskRun)
 import Nagare.Version
   ( BuildVersion (..)
@@ -515,7 +505,6 @@ import Nagare.Version
   , renderBuildVersionText
   , renderPlatformVersion
   )
-import Nagare.Worker.Deploy (WorkerDeployParams (..), runWorkerDeployWithGuard)
 import Options.Applicative
 import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, doesPathExist, findExecutable, listDirectory, makeAbsolute, pathIsSymbolicLink, removeDirectoryRecursive, renameDirectory, renameFile)
 import System.Environment (getEnvironment, lookupEnv, setEnv, unsetEnv)
@@ -7374,19 +7363,8 @@ printNamespaceAction namespace = do
   BC.putStrLn manifest
 
 runDeploy :: Maybe String -> DeployOpts -> IO ()
-runDeploy mctx dopts = case dopts ^. #savePlan of
-  Just output -> runDeployPlan mctx dopts output
-  Nothing | isJust (dopts ^. #imageResource) ->
-    runDeployPlan mctx dopts ""
-  Nothing -> do
-    unless (isNothing (dopts ^. #imageResource)
-        && null (dopts ^. #serviceVolumeRecovery)
-        && null (dopts ^. #tlsSecretResources)
-        && null (dopts ^. #envSecretResources)
-        && isNothing (dopts ^. #legacyReleaseImport)
-        && isNothing (dopts ^. #releaseAdoptionInput))
-      (dieT "inventory resource and recovery options require --image-resource or --save-plan")
-    runDirectDeploy mctx dopts
+runDeploy mctx dopts = runDeployPlan mctx dopts
+  (fromMaybe "" (dopts ^. #savePlan))
 
 -- | Database engine and credential authority come from the accepted private
 -- review, never from a live name lookup or an independently supplied config.
@@ -7546,175 +7524,6 @@ runDeployPlan mctx options output = do
           (inventoryPlanRegistryWithNative active workspace native)
           active candidate proposal output
       (Just _, Nothing) -> dieT "legacy release adoption requires --save-plan"
-
-runDirectDeploy :: Maybe String -> DeployOpts -> IO ()
-runDirectDeploy mctx dopts = do
-  unless (dopts ^. #dryRun) (refuseDirectDeploymentWhenManaged mctx "deploy")
-  bd <- resolveBaseDomain mctx (dopts ^. #baseDomain)
-  provisionGhcEnv (dopts ^. #ghcEnv)
-
-  edep <- Load.loadDeployment (dopts ^. #file)
-  tp <- activeProfile mctx
-  dep <- case edep of
-    Left err -> dieT (Load.renderLoadError err)
-    -- EP-62 M3: a name-only image (no '/') is qualified with the resolved
-    -- registry prefix; a fully-qualified ref is left untouched.
-    Right d -> do
-      unless (dopts ^. #dryRun) $ do
-        refuseDirectServiceMutationIfOwned mctx "deploy" (serviceNameText (d ^. #name))
-          (namespaceText (d ^. #namespace))
-        forM_ (d ^. #domains) $ \domain ->
-          refuseDirectCdnHostMutationIfOwned mctx "deploy" (domainText (domain ^. #domain))
-        when (hasCloudflareCdn (d ^. #cdn))
-          (refuseDirectCloudflareZoneMutationIfOwned mctx "deploy")
-        refuseDirectAccessOwnerIfManaged mctx "deploy"
-        forM_ (d ^. #tasks) $ \task ->
-          refuseDirectTaskMutationIfOwned mctx "deploy" (serviceNameText (task ^. #name))
-            (namespaceText (d ^. #namespace))
-      case qualifyImage tp (d ^. #image) of
-        Left e -> dieT ("nagarectl deploy: " <> e)
-        Right qimg -> pure (d & #image %~ const qimg)
-
-  imageTag <- resolveTag (dopts ^. #tag)
-  spec <- resolveBuildSpec (dopts ^. #contextOverride) (dopts ^. #dockerfileOverride) (dep ^. #build)
-
-  -- EP-46: resolve each referenced managed database to its engine + identity and
-  -- build the per-engine connection env (literals + Secret refs). Empty when the
-  -- app references no databases (no cluster call), so stateless apps are
-  -- unaffected. Merged below alongside the NAGARE_* generated env.
-  connEnv <- resolveConnectionEnv (dep ^. #namespace) (dep ^. #databases)
-  brokerEnv <- resolveBrokerEnv (dep ^. #namespace) (dep ^. #brokers)
-
-  -- EP-26: inject the generated NAGARE_* identity variables as inline {Runtime}
-  -- env before rendering, so they appear in the Service and override the managed
-  -- envFrom store. EP-31 adds an app-level --source, surfaced as NAGARE_SOURCE.
-  let srcText = T.pack <$> dopts ^. #source
-      url = serviceUrl dep bd
-      gctx =
-        Gen.GeneratedContext
-          { Gen.serviceName = serviceNameText (dep ^. #name)
-          , Gen.namespace = namespaceText (dep ^. #namespace)
-          , Gen.serviceUrl = url
-          , Gen.baseDomain = bd
-          , Gen.releaseId = imageTag
-          , Gen.source = srcText
-          }
-      -- EP-46 connection vars, EP-77 broker vars, and EP-26 NAGARE_* all win
-      -- over user env (disjoint names; all left of the user map).
-      dep' =
-        dep
-          & #env
-          %~ ( mergeGenerated (generatedEnv gctx)
-                 . mergeGenerated brokerEnv
-                 . mergeGenerated connEnv
-             )
-
-  let effTag = resolveImageTag spec imageTag
-      ref = imageRef dep' effTag
-      pvcBytes = renderVolumeClaims dep' -- EP-35: [] when the app declares no volumes
-      svcBytes = renderService dep' imageTag -- renderer resolves the tag itself
-      dmBytes = renderDomainMappings dep'
-      name = serviceNameText (dep' ^. #name)
-      ns = namespaceText (dep' ^. #namespace)
-      -- EP-52: render each co-located task's CronJob with deploy-time values
-      -- resolved. The app's resolved image reference is the SAME string the app's
-      -- own container gets this run, so an inheriting task runs the app's current
-      -- code. The predefined NAGARE_* vars are merged into each task's inline env
-      -- (the task's own env wins on a non-NAGARE collision; left-biased merge).
-      appImageTagged = imageRefText (dep' ^. #image) <> ":" <> effTag
-      withPredef tk = tk & #env %~ mergeGenerated (predefinedTaskEnv tk)
-      taskBytes =
-        [ renderResolvedTask appImageTagged effTag withPredef tk
-        | tk <- dep' ^. #tasks
-        ]
-      bindingTargets =
-        [ BindingTarget
-            { host = domainText (domainSpec ^. #domain)
-            , namespace = ns
-            , service = name
-            }
-        | domainSpec <- dep' ^. #domains
-        ]
-
-  -- EP-36: warn (never fail) for each volume opted out of backups, in both
-  -- dry-run and live deploys, so no volume is ever silently unprotected.
-  forM_ (backupExcludedWarnings name (dep' ^. #volumes)) (TIO.hPutStrLn stderr)
-
-  if dopts ^. #dryRun
-    then do
-      printNamespaceAction ns
-      -- EP-35: PVCs are created before the Service, so they print first in dry-run.
-      forM_ pvcBytes $ \pvc -> do
-        BC.putStrLn "--- PersistentVolumeClaim manifest ---"
-        BC.putStr pvc
-      BC.putStrLn "--- Knative Service manifest ---"
-      BC.putStr svcBytes
-      forM_ dmBytes $ \dm -> do
-        BC.putStrLn "--- DomainMapping manifest ---"
-        BC.putStr dm
-      forM_ bindingTargets $ \target ->
-        TIO.putStrLn ("Would check domain binding: " <> renderBindingTarget target)
-      forM_ (dep' ^. #domains) $ \domainSpec ->
-        TIO.putStrLn ("Would check domain TLS: " <> renderDomainTlsCheck domainSpec)
-      forM_ taskBytes $ \tb -> do
-        BC.putStrLn "--- Task CronJob manifest ---"
-        BC.putStr tb
-      TIO.putStrLn ("Build mode: " <> describeBuild (tp ^. #targetPlatform) spec)
-      TIO.putStrLn ("URL: " <> url)
-      cdnDeployStep mctx True (dep' ^. #cdn) [domainText (ds ^. #domain) | ds <- dep' ^. #domains] ns name
-    else do
-      ensureNamespace ApplicationNamespace ns >>= orDie
-      if requiresBuild spec
-        then do
-          -- EP-27: gather the app's Build-scoped env (inline {Build} + the managed
-          -- Build store) and pass it to docker build as --build-arg flags. Done only
-          -- when actually building (Build-scoped env never reaches the runtime container).
-          (bargs, warns) <- gatherBuildArgs name ns (dep ^. #env)
-          printBuildArgWarnings warns
-          configureDockerAuthFor tp
-          performBuild (tp ^. #targetPlatform) (addBuildArgs bargs spec) ref
-          pushImage ref
-        else TIO.putStrLn "Skipping build/push: deploying prebuilt image."
-      -- EP-35: apply the PVCs first (no-op when empty), then the Service. Never a
-      -- pre-Service Bound wait (local-path is WaitForFirstConsumer; that deadlocks).
-      preflightDomainBindings bindingTargets >>= orDie
-      preflightDomainTls tp bd ns (dep' ^. #domains) >>= orDie
-      applyPVCs pvcBytes
-      applyManifests (svcBytes : dmBytes)
-      -- EP-52: provision each co-located task's resolved CronJob in the same
-      -- idempotent apply pass. Empty (no declared tasks) applies nothing.
-      unless (null taskBytes) $ do
-        applyManifests taskBytes
-        TIO.putStrLn ("Provisioned " <> tShow (length taskBytes) <> " task(s).")
-      waitForReady name ns >>= requireWait ("service '" <> name <> "'")
-      waitForDomainBindings 300 bindingTargets >>= orDie
-      verifyDomainTlsReady tp bd ns (dep' ^. #domains) >>= orDie
-      resolveDeploymentAccess bd dep'
-      reportPVCs ns dep'
-      -- EP-31: record the deployment in the per-app history ConfigMap. The
-      -- deployment id is the resolved image tag (= NAGARE_RELEASE_ID, = --tag).
-      -- Non-fatal: a failed history write must not fail a successful deploy.
-      rec <- recordDeploymentFor (imageRefText (dep ^. #image)) imageTag url name ns srcText
-      case rec of
-        Left warn -> TIO.hPutStrLn stderr ("nagarectl: " <> warn)
-        Right () -> pure ()
-      TIO.putStrLn ("Deployed: " <> url)
-      cdnDeployStep mctx False (dep' ^. #cdn) [domainText (ds ^. #domain) | ds <- dep' ^. #domains] ns name
-
--- | After a live deploy, print one informational line per declared volume
--- reporting its PVC's bound phase (EP-35). A no-op when the app has no volumes,
--- so a stateless deploy's output is byte-identical to before this change. Never
--- fails the deploy: 'pvcPhases' tolerates a missing/Pending PVC.
-reportPVCs :: Text -> Deployment -> IO ()
-reportPVCs ns dep = do
-  let app = serviceNameText (dep ^. #name)
-      vols = dep ^. #volumes
-      names = [pvcName app (volumeNameText (v ^. #name)) | v <- vols]
-  unless (null vols) $ do
-    phases <- pvcPhases ns names
-    forM_ (zip vols phases) $ \(v, (pn, phase)) ->
-      TIO.putStrLn
-        ("Volume " <> volumeNameText (v ^. #name) <> ": pvc " <> pn <> " is " <> phase)
 
 -- | Deploy a site (EP-14/EP-15/EP-18). Dispatches on the config's @kind@: a
 -- @StaticSite@ runs the Nginx path, a @ServerSite@ runs the Node path. Both share
@@ -9640,13 +9449,6 @@ refuseDirectSiteMutationIfOwned mctx operation name namespaceName domains volume
       (dieT ("site " <> name <> " has an accepted or retained native address; direct "
         <> operation <> " is refused"))
 
-refuseDirectWorkerDeployIfOwned :: Maybe String -> Text -> Text -> IO ()
-refuseDirectWorkerDeployIfOwned mctx name namespaceName =
-  withAcceptedInventoryHistory mctx "worker deploy" $ \history ->
-    when (nativeWorkloadOwned "apps" "deployment" name namespaceName
-        (ownedHistoryResources history))
-      (dieT ("worker " <> name <> " is owned by accepted or retained inventory history; direct deploy is refused"))
-
 refuseDirectTaskMutationIfOwned :: Maybe String -> Text -> Text -> Text -> IO ()
 refuseDirectTaskMutationIfOwned mctx operation name namespaceName =
   withAcceptedInventoryHistory mctx ("task " <> operation) $ \history ->
@@ -9688,33 +9490,10 @@ refuseDirectVolumeMutationIfOwned mctx operation deployment volumeName =
 
 -- | Dispatch the @worker@ command group (EP-71). Provisions the GHC environment
 -- before loading the worker's @Config.hs@ (mirroring @db create --config@), then
--- runs the deploy. Cluster I/O and rendering live in 'Nagare.Worker.Deploy'.
+-- routes the deployment through the reviewed inventory compiler.
 runWorker :: Maybe String -> WorkerCommand -> IO ()
 runWorker mctx = \case
-  WorkerDeploy o -> do
-    case o ^. #savePlan of
-      Just output -> runWorkerPlan mctx o output
-      Nothing | isJust (o ^. #imageResource) ->
-        runWorkerPlan mctx o ""
-      Nothing -> do
-        unless (isNothing (o ^. #imageResource) && null (o ^. #volumeRecovery)
-            && null (o ^. #envSecretResources))
-          (dieT "inventory resource and recovery options require --image-resource or --save-plan")
-        provisionGhcEnv (o ^. #ghcEnv)
-        tp <- activeProfile mctx
-        runWorkerDeployWithGuard (\worker -> do
-          unless (o ^. #dryRun) $ do
-            refuseDirectDeploymentWhenManaged mctx "worker deploy"
-            refuseDirectWorkerDeployIfOwned mctx
-              (serviceNameText (worker ^. #name)) (namespaceText (worker ^. #namespace)))
-          WorkerDeployParams
-            { configPath = o ^. #file
-            , tag = T.pack <$> o ^. #tag
-            , contextOverride = o ^. #contextOverride
-            , dockerfileOverride = o ^. #dockerfileOverride
-            , dryRun = o ^. #dryRun
-            , targetProfile = tp
-            }
+  WorkerDeploy o -> runWorkerPlan mctx o (fromMaybe "" (o ^. #savePlan))
   WorkerDelete o -> do
     active <- activeTarget mctx
     snapshot <- Inventory.loadTargetSnapshot active

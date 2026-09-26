@@ -143,9 +143,8 @@ nagarectl deploy --file nagare/Config.hs --tag v1 \
   --image-resource RESOURCE-ID
 ```
 
-In a context with initialized inventory history, live `deploy` requires this
-reviewed image route even for a Service that has never been deployed. Its
-image-free `--dry-run` remains available for offline rendering.
+Every live `deploy` requires this reviewed image route and an initialized
+inventory store, including for a Service that has never been deployed.
 
 The command prints the published review digest and public operations before
 applying them. An existing direct release history still needs the separate
@@ -162,9 +161,9 @@ nagarectl deploy --file nagare/Config.hs --tag v1 \
 ```
 
 This preview reads the selected context's accepted inventory and checks scope
-claims, but does not save or apply a review. Without `--image-resource`,
-`deploy --dry-run` keeps its offline config and manifest validation behavior.
-The two review options cannot be combined in one invocation.
+claims, but does not save or apply a review. It requires the same accepted
+image as live deployment. The two review options cannot be combined in one
+invocation.
 
 The reviewed Service scope also records a release-history ConfigMap after its
 Service and scheduled tasks. It carries forward entries from accepted private

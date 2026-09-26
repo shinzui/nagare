@@ -27,29 +27,29 @@ in [`nagare/Config.hs`](nagare/Config.hs):
   `nagare.dev/app: kizashi`, so the whole app can be listed, inspected, and torn
   down as a unit.
 
-A public, pullable image (`gcr.io/knative-samples/helloworld-go`) is used for
-every workload so this example deploys with no build step and no registry
-credentials of your own.
+A public image (`gcr.io/knative-samples/helloworld-go`) is used for every
+workload in the typed config. For a reviewed deploy, change the shared image
+reference to the selected context's registry, then publish an archive at that
+exact destination and tag.
 
 ## Deploy
 
-`nagarectl app deploy` (EP-2) builds and pushes the shared image once, then rolls
-the app out in dependency order — **pre-deploy hooks first** (the migration Task
-runs to completion and must succeed), **then** the managed databases are ensured,
-**then** the Service and Workers are applied and waited on:
+`nagarectl app deploy` requires an accepted image publication, an explicit tag,
+and an initialized inventory store. Publish the image archive with
+`app image-plan`, then supply its resource ID and the reviewed recovery and
+hook-effect inputs described in the [deployment guide](../../../docs/user/deploying-apps.md).
+The reviewed application workload waits for its declared pre-deploy Job proof:
 
 ```bash
-# Direct live rollout against the selected context.
-nagarectl app deploy -f cluster/examples/multi-workload-app/nagare/Config.hs
+nagarectl app deploy -f cluster/examples/multi-workload-app/nagare/Config.hs \
+  --tag RELEASE_TAG --image-resource RESOURCE-ID \
+  --hook-affects MIGRATION_TASK=database:DATABASE_NAME \
+  --database-recovery DATABASE_NAME=BACKUP:KEY_VERSION
 ```
 
-The inventory-backed `--dry-run` path requires a prepublished image and an
-accepted inventory. It currently refuses this example's aggregate migration
-hook until that Job and its data effects have a reviewed operation.
-
-A failed pre-deploy hook aborts the release before any Service or Worker is
-touched — so "run migrations before the new code boots" is a first-class,
-enforced property rather than a manual runbook step.
+`--dry-run` uses the same reviewed compiler and requires the same accepted
+dependencies. A failed migration Job leaves the workload unchanged until an
+operator resolves that operation.
 
 See [Deploying apps](../../../docs/user/deploying-apps.md) and
 [Running workers](../../../docs/user/workers.md) for the per-kind guides.

@@ -19,19 +19,21 @@ fails `failureThreshold` times, the kubelet restarts the container. See
 
 ## Deploy
 
+Change the example's public image reference to the selected context's registry,
+then publish its archive at the exact tag with `app image-plan`.
+
 ```bash
-# Dry-run (no cluster needed): see the rendered apps/v1 Deployment and build action.
-nagarectl worker deploy -f cluster/examples/queue-worker/nagare/Config.hs --dry-run
+# After publishing the exact image with app image-plan:
+nagarectl worker deploy -f cluster/examples/queue-worker/nagare/Config.hs \
+  --tag RELEASE_TAG --image-resource RESOURCE-ID --dry-run
 ```
 
-A real `nagarectl worker deploy` (against a running cluster) builds/pushes only
-if the config is not a prebuilt image, applies the Deployment, and waits for the
-rollout:
+A live reviewed deploy uses the same accepted image and applies its immutable
+review through the inventory journal:
 
-```text
-Applying apps/v1 Deployment queue-worker to namespace personal ...
-deployment "queue-worker" successfully rolled out
-Worker queue-worker is running (2 replicas requested) in namespace personal.
+```bash
+nagarectl worker deploy -f cluster/examples/queue-worker/nagare/Config.hs \
+  --tag RELEASE_TAG --image-resource RESOURCE-ID
 ```
 
 Prove it with stock `kubectl`:

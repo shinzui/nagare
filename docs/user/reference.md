@@ -411,7 +411,7 @@ operation.
 
 | Command | Does |
 | --- | --- |
-| `nagarectl deploy [-f FILE] [--dry-run]` | With an accepted `--image-resource` and explicit tag, deploy publishes and applies a standard reviewed Service change, `--save-plan` saves its review, and `--dry-run` prints the public scope. The legacy path builds/pushes as required; image-free dry-run renders offline manifests. |
+| `nagarectl deploy [-f FILE] [--dry-run]` | An accepted `--image-resource` and explicit tag are required. Deploy publishes and applies a standard reviewed Service change, `--save-plan` saves its review, and `--dry-run` prints the public scope. Publish an image archive first with `app image-plan`. |
 | `nagarectl app deploy [-f FILE] [--dry-run] [--json]` | An accepted `--image-resource` and explicit tag are required. Deploy publishes and applies a standard reviewed app change, `--save-plan` saves its review, and `--dry-run` prints the public scope. Publish an image archive first with `app image-plan`. Google CDN requires `--cdn-backend-resource RESOURCE-ID` naming the accepted platform BackendService; Cloudflare requires an accepted platform zone grant selected by `CF_ZONE_ID`. Aggregate hooks require `--hook-affects TASK=database:NAME` or `TASK=RESOURCE-ID` for each affected resource, or `--hook-no-data-effects TASK`. |
 | `nagarectl app list [-n NS] [--all]` | List Nagare-managed Knative apps; `--all` includes unmanaged Services. |
 | `nagarectl app get NAME [-n NS]` | Show image, revision, URL, readiness, and config-enriched limits/domains when available. |
@@ -433,7 +433,7 @@ See [Deploying apps](deploying-apps.md) and [App lifecycle](app-lifecycle.md).
 | `nagarectl task logs APP TASK [--follow] [--tail N]` | Show the latest task-run Pod logs. |
 | `nagarectl task delete APP TASK --yes [--dry-run]` | Delete the task CronJob and run-history ConfigMap before inventory initialization; direct deletion refuses afterward. |
 | `nagarectl task delete APP TASK --save-plan DIR` | Save the next reviewed CronJob suspension, retention, or collection stage for an accepted task; apply each review before planning the next. |
-| `nagarectl worker deploy [-f FILE] [--dry-run]` | With an accepted `--image-resource` and explicit tag, deploy publishes and applies a standard reviewed worker change, `--save-plan` saves its review, and `--dry-run` prints the public scope. The legacy path builds/pushes as required; image-free dry-run renders offline manifests. |
+| `nagarectl worker deploy [-f FILE] [--dry-run]` | An accepted `--image-resource` and explicit tag are required. Deploy publishes and applies a standard reviewed worker change, `--save-plan` saves its review, and `--dry-run` prints the public scope. Publish an image archive first with `app image-plan`. |
 
 These are separate from the finite `Nagare.Dsl.Job` library contract, which has
 no `nagarectl job` command. See [Scheduled tasks](scheduled-tasks.md),

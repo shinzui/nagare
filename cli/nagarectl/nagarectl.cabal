@@ -193,7 +193,6 @@ library
     Nagare.Task.Resolve
     Nagare.Task.Run
     Nagare.Version
-    Nagare.Worker.Deploy
 
   build-depends:
     aeson,

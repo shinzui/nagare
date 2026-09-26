@@ -11,13 +11,10 @@ generated:
 
 # Running workers
 
-> 🟡 **In progress.** Built and offline-verified — the typed `Worker` model, the
-> `apps/v1` Deployment renderer, `emit`/`load` round-trip, and the
-> `nagarectl worker deploy` command all ship and are covered by unit, golden, and
-> config-load tests. A worker config renders a valid `apps/v1` Deployment via
-> `nagarectl worker deploy --dry-run`. The full **live** end-to-end run (apply
-> the Deployment, observe `2/2` Ready, stream logs) is pending only because
-> `nagare-01` is often `TERMINATED`; the exact on-VM commands are below.
+> 🟡 **In progress.** Reviewed worker scope compilation and native Deployment
+> execution have passed local provider tests. Deployments require an accepted
+> image publication and inventory store. A full application and worker proof
+> against the production context remains open.
 
 For **app developers** who need to run a process **continuously in the
 background** — a queue consumer, a stream processor, a long polling loop — rather
@@ -99,10 +96,8 @@ nagarectl worker deploy --tag release-1 \
   --image-resource RESOURCE-ID
 ```
 
-Once the selected context has initialized inventory history, live worker
-deployment requires this accepted image and reviewed route, including for a
-new worker name. The image-free `--dry-run` remains available for offline
-rendering.
+Every live worker deployment requires this accepted image, reviewed route,
+and initialized inventory store, including for a new worker name.
 
 The command prints the published review digest and public operations before
 applying them. Retiring a worker still uses a separate review.
@@ -119,9 +114,8 @@ nagarectl worker deploy --tag release-1 \
 ```
 
 This reads the accepted inventory and checks scope claims without saving or
-applying a review. Without `--image-resource`, `worker deploy --dry-run` keeps
-its offline manifest rendering behavior. The two review options cannot be
-combined.
+applying a review. It requires the same accepted image as live deployment.
+The two review options cannot be combined.
 
 The image resource must name the exact image and tag resolved by the worker
 config. A retained PVC also needs one `--volume-recovery
@@ -147,14 +141,9 @@ If several accepted worker scopes could match, pass `--scope-key KEY` to pin the
 worker's stable logical key. Retirement still verifies the native Deployment
 name and namespace against accepted history.
 
-On a context without initialized inventory history, the legacy direct deploy
-command is:
-
-```bash
-$ nagarectl worker deploy
-Worker queue-consumer is running (2 replicas requested) in namespace personal.
-Inspect: kubectl get deployment queue-consumer -n personal
-```
+Prepare and publish a new image with `app image-plan` before updating a worker.
+The reviewed worker command uses its accepted image and records the deployment
+in the inventory journal.
 
 ## The `Worker` config fields
 
@@ -215,34 +204,30 @@ slow-starting worker is not killed before its first successful check.
 
 ```text
 nagarectl worker deploy [-f|--file FILE] [-t|--tag TAG]
-                        [-c|--build-context DIR] [--dockerfile FILE]
-                        [--ghc-env FILE] [--dry-run]
+                        --image-resource RESOURCE-ID
+                        [--ghc-env FILE] [--dry-run] [--save-plan DIR]
 ```
 
-It loads `nagare/Config.hs` as a `Worker`, qualifies the image against your
-active context, builds and pushes the image (unless it is a prebuilt image,
-reusing the same build path as `nagarectl deploy`), applies the PVCs (if any) and
-then the `apps/v1` Deployment, and waits for the rollout
-(`kubectl rollout status deployment/<name>`). A worker has no URL, so none is
-printed. `--dry-run` prints the rendered manifests and the build mode and applies
-nothing.
+It loads `nagare/Config.hs` as a `Worker`, checks the accepted image publication
+and namespace, and publishes a reviewed scope. Standard execution applies the
+saved review through the inventory journal; `--save-plan` lets you inspect and
+apply it separately. `--dry-run` prints the public scope without publishing or
+applying. A worker has no URL.
 
-## Inspect, scale, pause, and stop with kubectl
+## Inspect and change workers
 
-A worker is a standard Deployment, so you operate it with stock `kubectl`:
+A worker is a standard Deployment, so you can inspect it with `kubectl`:
 
 ```bash
 kubectl get deployment <name> -n <namespace>            # READY shows replicas
 kubectl get ksvc -n <namespace>                         # a worker is NOT listed here
 kubectl logs deploy/<name> -n <namespace> --tail=20     # worker output
-kubectl scale deployment <name> -n <namespace> --replicas=4   # scale
-kubectl scale deployment <name> -n <namespace> --replicas=0   # pause (no pods)
-kubectl delete deployment <name> -n <namespace>         # remove
 ```
 
-You can also pause a worker by setting `replicas = 0` in the config and
-redeploying. A worker's durable volumes default to `Retain`, so a `Retain` PVC is
-intentionally left behind when you delete the Deployment.
+Scale or pause a worker by changing `replicas` in its config and submitting a
+new reviewed deploy. Use `worker delete --save-plan` for retirement. A worker's
+durable volumes default to `Retain` and need a separate reviewed collection
+decision.
 
 ## Worked example
 
@@ -251,12 +236,11 @@ compiling worker that uses a public image with a `command` override (it prints
 `working` every 5 seconds) and runs 2 replicas — see its
 [README](../../cluster/examples/queue-worker/README.md).
 
-## Live verification (when `nagare-01` is up)
+## Live verification (with an accepted image publication)
 
 ```bash
-just live-test     # opens the IAP tunnel and forwards the k3s API to 127.0.0.1:6443
 cd cluster/examples/queue-worker
-nagarectl worker deploy
+nagarectl worker deploy --tag release-1 --image-resource RESOURCE-ID
 kubectl get deployment queue-worker -n personal   # 2/2 Ready
 kubectl get ksvc -n personal                      # queue-worker must NOT appear
 kubectl logs deploy/queue-worker -n personal --tail=5
