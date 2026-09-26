@@ -4,8 +4,12 @@
 Live mode requires a disposable kubeconfig whose context is named ``isolated``,
 an existing ``personal`` Namespace, and the fixture image preloaded at its tag.
 It leaves the two created native objects for inspection and explicit cleanup.
+The ``--local-build`` mode uses recording Kubernetes and artifact providers,
+then exercises the built image command with real local Docker and accepted
+Build channels. It requires the Alpine base image to be available locally.
 """
 
+import hashlib
 import json
 import os
 import shlex
@@ -16,10 +20,11 @@ import tempfile
 from pathlib import Path
 
 
-def run(cli: Path, root: Path, environment: dict[str, str], args: list[str]) -> str:
+def run(cli: Path, root: Path, environment: dict[str, str], args: list[str],
+        input_text: str | None = None) -> str:
     result = subprocess.run(
         [str(cli), *args], cwd=root / "cli/nagarectl", env=environment,
-        text=True, capture_output=True, check=False,
+        text=True, capture_output=True, check=False, input=input_text,
     )
     if result.returncode:
         diagnostic_file = environment.get("SCOPE_TEST_KUBECTL_ERRORS")
@@ -33,10 +38,16 @@ def run(cli: Path, root: Path, environment: dict[str, str], args: list[str]) -> 
 
 
 def main() -> None:
-    if len(sys.argv) not in (2, 4) or (len(sys.argv) == 4 and sys.argv[2] != "--live-kubeconfig"):
-        raise SystemExit("usage: test-inventory-scope-isolation.py BUILT_NAGARECTL [--live-kubeconfig FILE]")
+    options = sys.argv[2:]
+    local_build = "--local-build" in options
+    if local_build:
+        options.remove("--local-build")
+    if len(sys.argv) < 2 or (options and (len(options) != 2 or options[0] != "--live-kubeconfig")):
+        raise SystemExit("usage: test-inventory-scope-isolation.py BUILT_NAGARECTL [--local-build] [--live-kubeconfig FILE]")
     cli = Path(sys.argv[1]).resolve(strict=True)
-    live_kubeconfig = Path(sys.argv[3]).resolve(strict=True) if len(sys.argv) == 4 else None
+    live_kubeconfig = Path(options[1]).resolve(strict=True) if options else None
+    if local_build and live_kubeconfig:
+        raise SystemExit("--local-build uses the recording Kubernetes provider only")
     live_kubectl = shutil.which("kubectl") if live_kubeconfig else None
     if live_kubeconfig and not live_kubectl:
         raise SystemExit("live provider probe requires kubectl")
@@ -401,6 +412,66 @@ sys.exit(95)
         calls = marker.read_text().splitlines() if marker.exists() else []
         if not calls or any(Path(call).name != "kubectl" for call in calls):
             raise AssertionError("reviewed app apply invoked an unrelated provider: " + repr(calls))
+        if local_build:
+            real_skopeo = shutil.which("skopeo")
+            if not real_skopeo or not shutil.which("docker"):
+                raise AssertionError("local image build probe requires skopeo and Docker")
+            if subprocess.run(["docker", "image", "inspect", "alpine:latest"],
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                              check=False).returncode:
+                raise AssertionError("local image build probe requires a preloaded alpine:latest")
+            skopeo = fake_bin / "skopeo"
+            skopeo.write_text(
+                "#!/bin/sh\ncase \"$*\" in *docker://*) echo 'manifest unknown' >&2; exit 1;; esac\n"
+                "exec " + shlex.quote(real_skopeo) + " \"$@\"\n"
+            )
+            skopeo.chmod(0o755)
+            run(cli, root, app_environment, ["--context", "isolated", "env", "set",
+                "isolated-app", "PUBLIC", "shown", "--config", str(app_config), "--build"])
+            run(cli, root, app_environment, ["--context", "isolated", "secret", "set",
+                "isolated-app", "TOKEN", "--config", str(app_config), "--build",
+                "--version", "local-v1"], "local-dummy-credential\n")
+            build_root = scratch / "local-build"
+            build_root.mkdir()
+            dockerfile = build_root / "Dockerfile"
+            dockerfile.write_text(
+                "FROM alpine:latest\nARG PUBLIC\n"
+                "RUN --mount=type=secret,id=TOKEN,required=true "
+                "test \"$PUBLIC\" = shown && sha256sum /run/secrets/TOKEN > /proof.sha256\n"
+            )
+            destination = "k3d-registry.localhost:5000/build-proof:ep148"
+            archive = scratch / "built-image.tar"
+            image_review = scratch / "built-image-review"
+            head_before_image = app_head.read_bytes()
+            try:
+                run(cli, root, app_environment, ["--context", "isolated", "app",
+                    "image-plan", "--archive", str(archive), "--destination", destination,
+                    "--key", "build-proof", "--build-dockerfile", str(dockerfile),
+                    "--build-context", str(build_root),
+                    "--build-input-resource",
+                    "application:env-isolated-app-build/build-env/configmap",
+                    "--build-input-resource",
+                    "application:secret-isolated-app-build/build-secret/secret",
+                    "--save-plan", str(image_review)])
+                proof = subprocess.check_output(
+                    ["docker", "run", "--rm", "--network=none", "--platform", "linux/amd64",
+                     destination, "cat", "/proof.sha256"], text=True, timeout=60)
+                if proof.split()[0] != hashlib.sha256(b"local-dummy-credential").hexdigest():
+                    raise AssertionError("reviewed Build Secret bytes did not reach Dockerfile")
+                review_bytes = (image_review / "review.json").read_bytes()
+                operations = json.loads(review_bytes)["operations"]
+                if not operations or any("ArtifactExecutor" not in json.dumps(operation)
+                                         for operation in operations):
+                    raise AssertionError("local image build review contains non-artifact operations: "
+                        + repr(operations)[:1200])
+                if b"local-dummy-credential" in review_bytes:
+                    raise AssertionError("Build Secret escaped into the public image review")
+                if not archive.is_file() or app_head.read_bytes() != head_before_image:
+                    raise AssertionError("local image planning failed to save an archive or changed accepted history")
+            finally:
+                subprocess.run(["docker", "image", "rm", destination], check=False,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
+            print("inventory scope isolation: local BuildKit image review used accepted Build channels")
         print("inventory scope isolation: reviewed app planned and applied without unrelated providers")
 
 
