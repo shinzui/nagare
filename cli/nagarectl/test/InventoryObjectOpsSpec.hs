@@ -29,7 +29,17 @@ import Test.Tasty.HUnit
 
 inventoryObjectOpsTests :: TestTree
 inventoryObjectOpsTests = testGroup "inventory object operations"
-  [ testCase "object-backed inventory obeys the existing conditional store contract" $ do
+  [ testCase "future canonical inventory head remains discoverable without decoding ownership" $ do
+      inspectHeadSchema "{\"version\":2}" @?= Right 2
+      assertBool "noncanonical future head is refused"
+        (isLeft (inspectHeadSchema "{ \"version\": 2 }"))
+      assertBool "missing schema is refused"
+        (isLeft (inspectHeadSchema "{}"))
+      store <- newMemoryStore
+      _ <- publishIfAbsent store "head.json" "{\"version\":2}"
+        >>= either (assertFailure . show) pure
+      readHead store >>= assertBool "future head cannot be used for mutation" . isLeft
+  , testCase "object-backed inventory obeys the existing conditional store contract" $ do
       ops <- fakeObjectOps
       store <- newObjectStore ops fixtureBinding "client-a" Nothing >>= either (assertFailure . show) pure
       exerciseStore store

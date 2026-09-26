@@ -59,6 +59,13 @@ check passed. This remains partial M1:
 component-backed platform upgrades and legacy transaction recovery compatibility
 are not implemented.
 
+2026-09-25: Read-only `inventory store status` now reports a canonical newer
+head's schema and digest as `unsupported-schema` without decoding ownership or
+executor claims. The full store reader still refuses the newer head for
+mutation. A focused store test and CLI build pass. This closes only the
+unsupported-schema discovery slice of M1, not platform integration. Haskell
+style, strict user docs, and diff checks also pass.
+
 2026-09-25: Integration audit found that `runPlatformUpgrade` still applies the
 coarse Pulumi, host, and whole-cluster phases, while EP-148 still has direct
 application/data mutation paths. As an interim M1 safety boundary, the legacy
@@ -285,6 +292,11 @@ version header; never decode their unknown phases into executable records.
 Current payload compatibility minima are both version 1, with an absent field
 in older payloads interpreted as 1. A future payload requiring more is refused
 before planning or applying the coarse legacy transaction.
+
+2026-09-25: A newer canonical inventory head may reveal only its wire version
+and digest through read-only status. The supported full decoder remains the
+sole mutation path; status must not infer ownership or executor state from an
+unknown schema.
 
 2026-09-25: The live rehearsal has distinct plan, apply, and verify invocations.
 The first compiled candidate carries the pre-apply snapshot, so no-op proof

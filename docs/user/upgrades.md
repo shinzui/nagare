@@ -37,6 +37,9 @@ target version without interpreting or resuming its phases. Use an operator
 payload that supports that wire version for recovery. An older CLI and raw
 provider tools cannot be assumed to honor inventory writer locks; retire
 those entry points before relying on a shared history store for exclusion.
+Likewise, `inventory store status --json` reports an unsupported newer head
+schema and its digest without decoding its ownership or executor claims; all
+inventory mutations still require a fully supported head.
 
 Run cloud commands with the intended [target context](contexts.md) active. Keep
 the IAP path in [Accessing the host](accessing-the-host.md) available before a

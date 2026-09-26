@@ -23,6 +23,7 @@ module Nagare.Inventory.Store
   , inventoryStoreRoot
   , initializeStore
   , readHead
+  , inspectHeadSchema
   , readStoreSnapshot
   , publishIfAbsent
   , readObject
@@ -388,6 +389,19 @@ readHead :: InventoryStore -> IO (Either StoreError (Maybe HeadManifest))
 readHead store = do
   loaded <- readObject store "head.json"
   pure $ loaded >>= traverse decodeHead
+
+-- | Identify a newer canonical head without interpreting its ownership or
+-- executor fields. Only read-only status may use this result; mutations still
+-- require the supported full decoder in 'readHead'.
+inspectHeadSchema :: ByteString -> Either StoreError Int
+inspectHeadSchema bytes = do
+  value <- first (StoreInvalidObject "head.json" . T.pack) (eitherDecodeStrict' bytes)
+  canonical <- first (StoreInvalidObject "head.json") (canonicalValue value)
+  unless (canonical == bytes) (Left (StoreInvalidObject "head.json" "head manifest is not canonical"))
+  version <- first (StoreInvalidObject "head.json" . T.pack) (parseEither
+    (withObject "HeadManifest" (.: "version")) value)
+  unless (version >= (1 :: Int)) (Left (StoreInvalidObject "head.json" "invalid inventory head schema version"))
+  pure version
 
 decodeHead :: ByteString -> Either StoreError HeadManifest
 decodeHead bytes = do

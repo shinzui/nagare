@@ -5217,12 +5217,11 @@ runInventoryStoreStatus :: Maybe String -> Bool -> IO ()
 runInventoryStoreStatus mctx json = do
   active <- activeTarget mctx
   store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
-  headValue <- InventoryStore.readHead store >>= either (dieT . T.pack . show) pure
-    >>= maybe (dieT "inventory history is not initialized") pure
   rawHead <- InventoryStore.readObject store "head.json" >>= either (dieT . T.pack . show) pure
-    >>= maybe (dieT "inventory history head disappeared") pure
-  verified <- InventoryStore.readHead store >>= either (dieT . T.pack . show) pure
-  unless (verified == Just headValue) (dieT "inventory history changed during status")
+    >>= maybe (dieT "inventory history is not initialized") pure
+  schema <- either (dieT . T.pack . show) pure (InventoryStore.inspectHeadSchema rawHead)
+  repeated <- InventoryStore.readObject store "head.json" >>= either (dieT . T.pack . show) pure
+  unless (repeated == Just rawHead) (dieT "inventory history changed during status")
   let profile = active ^. #profile
       kind = effectiveInventoryStore profile
       context = contextNameText (active ^. #contextName)
@@ -5231,19 +5230,33 @@ runInventoryStoreStatus mctx json = do
         InventoryStoreGcs -> if T.null (profile ^. #inventoryStoreUrl)
           then defaultGcsInventoryStoreUrl context profile
           else profile ^. #inventoryStoreUrl
-      report = Aeson.object
-        [ "kind" Aeson..= inventoryStoreToken kind
-        , "url" Aeson..= url
-        , "binding" Aeson..= InventoryStore.headBinding headValue
-        , "headDigest" Aeson..= InventoryDigest.contentDigest rawHead
-        , "generation" Aeson..= InventoryStore.headGeneration headValue
-        , "activeTransaction" Aeson..= InventoryStore.headActiveTransaction headValue
-        , "executorClaim" Aeson..= InventoryStore.headExecutorClaim headValue
-        , "migration" Aeson..= InventoryStore.headMigration headValue
-        ]
-  if json then LBC.putStrLn (Aeson.encode report)
-    else TIO.putStrLn ("Inventory store " <> inventoryStoreToken kind <> " at " <> url
-      <> ", generation " <> T.pack (show (InventoryStore.headGeneration headValue)))
+  if schema > 1 then do
+    let report = Aeson.object
+          [ "kind" Aeson..= inventoryStoreToken kind
+          , "url" Aeson..= url
+          , "headDigest" Aeson..= InventoryDigest.contentDigest rawHead
+          , "schemaVersion" Aeson..= schema
+          , "state" Aeson..= ("unsupported-schema" :: Text)
+          ]
+    if json then LBC.putStrLn (Aeson.encode report)
+      else TIO.putStrLn ("Inventory store " <> inventoryStoreToken kind <> " at " <> url
+        <> " uses unsupported head schema " <> T.pack (show schema) <> "; use a newer operator payload")
+  else do
+    headValue <- InventoryStore.readHead store >>= either (dieT . T.pack . show) pure
+      >>= maybe (dieT "inventory history head disappeared") pure
+    let report = Aeson.object
+          [ "kind" Aeson..= inventoryStoreToken kind
+          , "url" Aeson..= url
+          , "binding" Aeson..= InventoryStore.headBinding headValue
+          , "headDigest" Aeson..= InventoryDigest.contentDigest rawHead
+          , "generation" Aeson..= InventoryStore.headGeneration headValue
+          , "activeTransaction" Aeson..= InventoryStore.headActiveTransaction headValue
+          , "executorClaim" Aeson..= InventoryStore.headExecutorClaim headValue
+          , "migration" Aeson..= InventoryStore.headMigration headValue
+          ]
+    if json then LBC.putStrLn (Aeson.encode report)
+      else TIO.putStrLn ("Inventory store " <> inventoryStoreToken kind <> " at " <> url
+        <> ", generation " <> T.pack (show (InventoryStore.headGeneration headValue)))
 
 runInventoryStoreMigrate :: Maybe String -> String -> Bool -> Bool -> IO ()
 runInventoryStoreMigrate mctx destination dryRun yes = do
