@@ -131,6 +131,7 @@ library
     Nagare.Inventory.Application
     Nagare.Inventory.Site
     Nagare.Inventory.TaskRun
+    Nagare.Inventory.TaskLifecycle
     Nagare.Inventory.Digest
     Nagare.Inventory.Execute
     Nagare.Inventory.HelmReview

@@ -431,7 +431,8 @@ See [Deploying apps](deploying-apps.md) and [App lifecycle](app-lifecycle.md).
 | `nagarectl task list [APP] [-n NS]` | List managed CronJobs, optionally for one app; use `-` for app-less tasks. |
 | `nagarectl task run APP TASK [--dry-run]` | Create a one-off Job from the deployed CronJob and wait for completion. |
 | `nagarectl task logs APP TASK [--follow] [--tail N]` | Show the latest task-run Pod logs. |
-| `nagarectl task delete APP TASK --yes [--dry-run]` | Delete the task CronJob and its run-history ConfigMap. |
+| `nagarectl task delete APP TASK --yes [--dry-run]` | Delete the task CronJob and run-history ConfigMap before inventory initialization; direct deletion refuses afterward. |
+| `nagarectl task delete APP TASK --save-plan DIR` | Save the next reviewed CronJob suspension, retention, or collection stage for an accepted task; apply each review before planning the next. |
 | `nagarectl worker deploy [-f FILE] [--dry-run]` | With an accepted `--image-resource` and explicit tag, deploy publishes and applies a standard reviewed worker change, `--save-plan` saves its review, and `--dry-run` prints the public scope. The legacy path builds/pushes as required; image-free dry-run renders offline manifests. |
 
 These are separate from the finite `Nagare.Dsl.Job` library contract, which has

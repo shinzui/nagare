@@ -199,7 +199,8 @@ nagarectl task run APP TASK      # run once, now; --dry-run prints the kubectl c
 nagarectl task run APP TASK --run-id ID  # review and apply an accepted task's Job
 nagarectl task run APP TASK --run-id ID --save-plan DIR  # review an accepted task's one-off Job
 nagarectl task logs APP TASK     # most recent pod logs (--follow to tail; --tail N)
-nagarectl task delete APP TASK   # delete the CronJob (guarded by --yes)
+nagarectl task delete APP TASK   # preview legacy direct deletion
+nagarectl task delete APP TASK --save-plan DIR  # next reviewed deletion stage
 ```
 
 Tasks are discovered by label — `nagare.dev/managed-by=nagarectl,nagare.dev/task`
@@ -283,9 +284,28 @@ $ nagarectl task delete notes cleanup --yes
 Deleted task cleanup
 ```
 
-In an initialized inventory context, direct `task delete --yes` refuses until
-reviewed schedule retirement is available. The plan-only form and `--dry-run`
-remain read-only.
+In an initialized inventory context, direct `task delete --yes` refuses. Delete
+an accepted schedule through three saved reviews, applying each before planning
+the next:
+
+```text
+nagarectl task delete notes cleanup --save-plan ./task-suspend-review
+nagarectl inventory apply ./task-suspend-review --yes
+nagarectl task delete notes cleanup --save-plan ./task-retain-review
+nagarectl inventory apply ./task-retain-review --yes
+nagarectl task delete notes cleanup --save-plan ./task-collect-review
+nagarectl inventory apply ./task-collect-review --yes
+```
+
+The first review sets the accepted CronJob's `spec.suspend` to `true`, stopping
+future scheduled runs. The second removes that CronJob from desired intent and
+retains its exact live identity while the application's other members stay
+accepted. The third conditionally deletes that retained CronJob by its observed
+identity. A retry of `--save-plan` selects the next stage from accepted history.
+Existing Jobs and any legacy run-history ConfigMap are separate objects and are
+not deleted by this sequence. A Job that still depends on the CronJob may need
+its own reviewed retirement before the schedule can retire. The plan-only form
+and `--dry-run` remain read-only.
 
 
 ## Running in an app's world

@@ -289,6 +289,7 @@ import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Application (ApplicationScopeInput (..), GoogleCdnBinding (..), CloudflareCdnBinding (..), ReviewedCdnBinding (..), DatabaseBinding, ServiceAction (..), acceptedAccessBinding, acceptedApplicationImage, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationDeployment, compileServiceActionScope, compileStandaloneServiceWithRelease, compileStandaloneWorkerWithDependencies, databaseRecoveryBindings, hostnameClaimOwned, legacyApplicationReleaseImport, legacyStandaloneReleaseImport, nativeWorkloadOwned, recordReviewedStandaloneOverrides, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
 import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteReleaseLog, acceptedSiteSource, compileServerSitePreviewScope, compileServerSiteRollbackScope, compileServerSiteRollbackScopeWithCdn, compileServerSiteRollbackScopeWithCloudflare, compileServerSiteScope, compileServerSiteScopeWithCdn, compileServerSiteScopeWithCloudflare, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteRollbackScopeWithCdn, compileStaticSiteRollbackScopeWithCloudflare, compileStaticSiteScope, compileStaticSiteScopeWithCdn, compileStaticSiteScopeWithCloudflare, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteNativeOwned, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
 import Nagare.Inventory.TaskRun (compileTaskRunScope)
+import Nagare.Inventory.TaskLifecycle (compileTaskSuspensionScope, retireSuspendedTaskScope, taskSuspended)
 import Nagare.Inventory.Lifecycle qualified as InventoryLifecycle
 import Nagare.Inventory.DataService (NativeDataKind (..), acceptedFoundationNamespace, brokerNativeOwned, brokerTopicChangeRequiresReview, compileStandaloneBroker, compileStandaloneDatabase, compileStatefulSetRestartScope, dataCommandNativeOwned, databaseNativeOwned, standaloneRetirementScope)
 import Nagare.Inventory.Environment (acceptedEnvChannelValues, acceptedSecretChannelValues, compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
@@ -1114,7 +1115,7 @@ data TaskCommand
     TaskRun TaskRunOpts
   | -- | nagarectl task logs APP TASK [-n NS] [--follow] [--tail N]
     TaskLogs TaskLogsOpts
-  | -- | nagarectl task delete APP TASK [-n NS] [--yes] [--dry-run]
+  | -- | nagarectl task delete APP TASK [-n NS] [--yes] [--dry-run] [--save-plan DIR]
     TaskDelete TaskDeleteOpts
   deriving stock (Generic, Show)
 
@@ -1152,6 +1153,7 @@ data TaskDeleteOpts = TaskDeleteOpts
   , namespace :: !(Maybe String)
   , yes :: !Bool
   , dryRun :: !Bool
+  , savePlan :: !(Maybe FilePath)
   }
   deriving stock (Generic, Show)
 
@@ -1928,6 +1930,7 @@ taskDeleteOptsParser =
     <*> namespaceOpt
     <*> switch (long "yes" <> help "Confirm deletion (without it, prints the plan and deletes nothing)")
     <*> dryRunOpt
+    <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save the next reviewed deletion stage for an accepted task"))
 
 dbListOptsParser :: Parser DbListOpts
 dbListOptsParser = DbListOpts <$> namespaceOpt
@@ -3033,7 +3036,7 @@ opts =
               "delete"
               ( info
                   (Task . TaskDelete <$> taskDeleteOptsParser <**> helper)
-                  (progDesc "Delete a task's CronJob (guarded by --yes)")
+                  (progDesc "Delete a task's CronJob; --save-plan stages reviewed deletion in managed contexts")
               )
         )
     deploymentsCmd =
@@ -9586,18 +9589,21 @@ runTask mctx = \case
         , tail = o ^. #tail
         }
   TaskDelete o -> do
-    when (o ^. #yes && not (o ^. #dryRun)) $ do
-      withAcceptedInventoryHistory mctx "task delete" $ \_ ->
-        dieT "inventory history is initialized; direct task delete is refused until reviewed schedule retirement is available"
-      refuseDirectTaskMutationIfOwned mctx "delete" (T.pack (o ^. #task)) (nsOf (o ^. #namespace))
-    runTaskDelete
-      TaskDeleteParams
-        { name = T.pack (o ^. #task)
-        , namespace = nsOf (o ^. #namespace)
-        , scope = scopeOf (o ^. #app)
-        , yes = o ^. #yes
-        , dryRun = o ^. #dryRun
-        }
+    case o ^. #savePlan of
+      Just output -> runReviewedTaskDeletePlan mctx o output
+      Nothing -> do
+        when (o ^. #yes && not (o ^. #dryRun)) $ do
+          withAcceptedInventoryHistory mctx "task delete" $ \_ ->
+            dieT "inventory history is initialized; direct task delete is refused. Use task delete --save-plan DIR for reviewed schedule deletion"
+          refuseDirectTaskMutationIfOwned mctx "delete" (T.pack (o ^. #task)) (nsOf (o ^. #namespace))
+        runTaskDelete
+          TaskDeleteParams
+            { name = T.pack (o ^. #task)
+            , namespace = nsOf (o ^. #namespace)
+            , scope = scopeOf (o ^. #app)
+            , yes = o ^. #yes
+            , dryRun = o ^. #dryRun
+            }
   where
     nsOf = maybe "personal" T.pack
     -- A required APP positional: "-" means app-less, anything else is that app.
@@ -9606,6 +9612,83 @@ runTask mctx = \case
     -- An optional APP positional (task list): absent means "any app".
     scopeOfMaybe Nothing = AnyApp
     scopeOfMaybe (Just a) = scopeOf a
+
+-- | Each invocation saves exactly one deletion stage. Applying a suspension
+-- first prevents new scheduled runs; member retention and physical collection
+-- each need their own explicit reviewed lifecycle decision.
+runReviewedTaskDeletePlan :: Maybe String -> TaskDeleteOpts -> FilePath -> IO ()
+runReviewedTaskDeletePlan mctx options output = do
+  when (options ^. #yes || options ^. #dryRun)
+    (dieT "--save-plan is a reviewed task deletion stage; apply its review with inventory apply --yes")
+  let appName = T.pack (options ^. #app)
+      taskName = T.pack (options ^. #task)
+      ns = maybe "personal" T.pack (options ^. #namespace)
+      appLabel = if appName == "-" then Nothing else Just appName
+  active <- activeTarget mctx
+  (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+  snapshot <- Inventory.loadTargetSnapshot active
+  (cluster, _) <- either dieT pure (acceptedFoundationNamespace snapshot ns)
+  cronAddress <- either dieT pure (Resource.kubernetesAddress cluster "batch/v1"
+    "CronJob" (Just ns) (taskResourceName taskName))
+  let accepted = [(resource, scope) | (_, scope) <- Map.elems (ResourceInventory.snapshotScopes snapshot),
+        bundle <- ResourceInventory.scopeBundles scope,
+        ResourceInventory.Managed resource <- ResourceInventory.declarations bundle,
+        resource ^. #address == cronAddress]
+  store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+  history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
+  let retained = [resource | (_, resource) <- Map.elems (InventoryPlan.historyRetained history),
+        resource ^. #address == cronAddress]
+  unless (length accepted + length retained == 1)
+    (dieT "reviewed task delete requires one accepted or retained CronJob at the selected address")
+  acceptedInventory <- either (dieT . T.pack . show) pure
+    (ResourceInventory.composeSnapshot snapshot)
+  (acceptedNative, _) <- InventoryStatus.loadAcceptedNative store history acceptedInventory
+    >>= either dieT pure
+  let nativeBytes resource = do
+        (bound, bytes) <- maybe (dieT "CronJob lacks private native evidence") pure
+          (Map.lookup (resource ^. #identity) acceptedNative)
+        unless (bound == resource)
+          (dieT "CronJob differs from its private native evidence")
+        pure bytes
+      nativeFor candidate replacements =
+        let desired = Set.fromList [resource ^. #identity
+              | ResourceInventory.Managed resource <- ResourceInventory.inventoryDeclarations
+                  (ResourceInventory.candidateInventory candidate)]
+        in Map.filterWithKey (\resource _ -> Set.member resource desired)
+          (Map.union replacements acceptedNative)
+  case (accepted, retained) of
+    ([(resource, scope)], []) -> do
+      bytes <- nativeBytes resource
+      suspended <- either (dieT . T.pack . show) pure (taskSuspended appLabel resource bytes)
+      if suspended
+        then do
+          revised <- either (dieT . T.pack . show) pure
+            (retireSuspendedTaskScope appLabel resource scope acceptedNative)
+          candidate <- either (dieT . T.pack . show) pure
+            (ResourceInventory.composeInventory snapshot
+              (ResourceInventory.ReplaceScope revised NE.:| []))
+          Inventory.planInventoryCandidateWithRetirements
+            (inventoryPlanRegistryWithNative active workspace (nativeFor candidate Map.empty))
+            active candidate [resource ^. #identity] output
+          TIO.putStrLn "Saved CronJob retention review. Apply it, then run task delete --save-plan again to review collection."
+        else do
+          (revised, changedNative) <- either (dieT . T.pack . show) pure
+            (compileTaskSuspensionScope appLabel resource scope acceptedNative)
+          candidate <- either (dieT . T.pack . show) pure
+            (ResourceInventory.composeInventory snapshot
+              (ResourceInventory.ReplaceScope revised NE.:| []))
+          Inventory.planInventoryCandidateWith
+            (inventoryPlanRegistryWithNative active workspace (nativeFor candidate changedNative))
+            active candidate output
+          TIO.putStrLn "Saved CronJob suspension review. Apply it, then run task delete --save-plan again to review retention."
+    ([], [resource]) -> do
+      bytes <- nativeBytes resource
+      suspended <- either (dieT . T.pack . show) pure (taskSuspended appLabel resource bytes)
+      unless suspended (dieT "retained CronJob was not suspended in accepted intent; refusing collection")
+      Inventory.planInventoryCollectionWith (inventoryPlanRegistry active workspace)
+        active (resource ^. #identity) output
+      TIO.putStrLn "Saved exact CronJob collection review. Apply it to delete the retained schedule."
+    _ -> dieT "reviewed task delete found ambiguous CronJob ownership"
 
 runReviewedTaskRunPlan :: Maybe String -> TaskRunOpts -> Maybe FilePath -> IO ()
 runReviewedTaskRunPlan mctx options output = do

@@ -9,6 +9,7 @@ module Nagare.Inventory.Command
   , planInventory
   , planInventoryWith
   , planInventoryWithRetirements
+  , planInventoryCandidateWithRetirements
   , planInventoryCandidateWith
   , convergeInventoryCandidateWith
   , planInventoryCandidateAdoptionWith
@@ -221,9 +222,15 @@ planInventoryWithRetirements
   :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry)
   -> ActiveTarget -> FilePath -> [ResourceId] -> FilePath -> IO ()
 planInventoryWithRetirements registryFor target candidateDirectory resources output = do
+  candidate <- loadCandidate candidateDirectory >>= either dieText pure
+  planInventoryCandidateWithRetirements registryFor target candidate resources output
+
+planInventoryCandidateWithRetirements
+  :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry)
+  -> ActiveTarget -> CompositionCandidate -> [ResourceId] -> FilePath -> IO ()
+planInventoryCandidateWithRetirements registryFor target candidate resources output = do
   when (Set.size (Set.fromList resources) /= length resources)
     (dieText "retirement resource IDs must be distinct")
-  candidate <- loadCandidate candidateDirectory >>= either dieText pure
   let decide history observations = do
         proposals <- traverse (\resource -> case Map.lookup resource (observationMap observations) of
           Nothing -> Left (PlanError "retirement-observation"

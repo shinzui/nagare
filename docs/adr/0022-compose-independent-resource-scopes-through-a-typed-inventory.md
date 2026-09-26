@@ -525,9 +525,12 @@ machine. The CLI guard alone did not protect it.
 
 The same initialized-store boundary applies to live Task commands. Manual
 execution requires an accepted CronJob and a stable `--run-id`, which gives its
-Job a reviewed identity and retry receipt. Direct schedule deletion has no
-reviewed retirement operation yet, so it refuses. Plan-only and dry-run Task
-output remain available; an uninitialized context retains the legacy commands.
+Job a reviewed identity and retry receipt. Direct schedule deletion refuses.
+`task delete --save-plan` instead saves successive reviews to suspend the
+accepted CronJob, retain that suspended member while preserving its scope's
+other members, and conditionally collect the retained incarnation. Each stage
+must be applied before planning the next. Plan-only and dry-run Task output
+remain available; an uninitialized context retains the legacy commands.
 
 Direct data commands follow the same boundary. Once a context initializes its
 inventory store, database and broker create/delete and unclaimed restart refuse

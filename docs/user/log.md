@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-26
+* **Update**: Save reviewed task deletion as successive CronJob suspension, member retention, and exact collection reviews; each stage requires apply.
 * **Update**: Allow explicitly reviewed retention of one removed inventory member while its application scope and siblings remain accepted; collection remains a separate review.
 * **Fix**: Require a named context for `nagared` and a shared inventory store for cloud webhook deployments.
 * **Fix**: Refuse direct live CDN purge/disable and access grant/revoke/portal sync after inventory initialization; keep their read-only inspection paths.

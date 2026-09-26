@@ -29,9 +29,10 @@ import Nagare.Inventory.Journal (mkOperationId)
 import Nagare.Inventory.Environment (acceptedEnvChannelValues, acceptedSecretChannelValues, compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.TaskRun (compileTaskRunScope)
+import Nagare.Inventory.TaskLifecycle (compileTaskSuspensionScope, retireSuspendedTaskScope, taskSuspended)
 import Nagare.Env.Store (ReconcileMode (..), reconcile)
 import Nagare.Resource.Application (applicationScopeId)
-import Nagare.Resource.Inventory (Declaration (Managed), DesiredSpec (LogicalBrokerTopic, NativeObject), Executor (BrokerExecutor), ManagedResource (..), ResourceBundle (..), mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeConfigDigest, scopeId)
+import Nagare.Resource.Inventory (Declaration (Managed), DesiredSpec (LogicalBrokerTopic, NativeObject), Executor (BrokerExecutor), ManagedResource (..), ResourceBundle (..), mkScopeDeclaration, mkScopeSnapshot, scopeBundles, scopeConfigDigest, scopeId, withScopeConfigDigest)
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
 import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (DeleteWhenUnreferenced), RecoveryClass (VerifyBeforeRetry), RecoveryIntent (..), Sensitivity (Private, Secret), mkSecretRef)
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
@@ -129,6 +130,64 @@ inventoryApplicationTests = testGroup "application inventory compilation"
       case compileTaskRunScope (Just "demo") cronJob cronBytes "r2" source of
         Left _ -> pure ()
         Right _ -> assertFailure "manual app run accepted an unlabeled task"
+  , testCase "task deletion suspends exact accepted CronJob before member retirement" $ do
+      let checked :: Show e => Either e a -> a
+          checked = either (error . show) id
+          task name = checked (scheduledTask name "0 2 * * *" "example.test/demo" name)
+            & #app .~ Just (checked (mkServiceName "demo"))
+          foundation = checked (mkScopeId Platform "foundation")
+          cluster = mintResourceId foundation (checked (mkLogicalKey "cluster"))
+            (checked (mkName "cluster"))
+          owner = checked (mkScopeId Application "demo")
+          source = SourceLocation "fixture" "task-delete"
+          member name =
+            let bytes = renderTask (task name)
+                value = checked (Yaml.decodeEither' bytes)
+                canonical = checked (canonicalValue value)
+                resourceId = mintResourceId owner (checked (mkLogicalKey name))
+                  (checked (mkName "cronjob"))
+                input = KubernetesInput resourceId owner cluster value
+                  (contentDigest canonical) DeleteWhenUnreferenced Stateless Private source
+            in (checked (bindKubernetesObject input), bytes)
+          ((selected, _), selectedBytes) = member "cleanup"
+          ((sibling, _), siblingBytes) = member "heartbeat"
+          base = withScopeConfigDigest (contentDigest "original-config") $
+            checked (mkScopeDeclaration owner
+              [ResourceBundle [Managed selected, Managed sibling] [] [] [] [] []])
+          native = Map.fromList
+            [(selected ^. #identity, (selected, selectedBytes)),
+             (sibling ^. #identity, (sibling, siblingBytes))]
+          members scope = [resource | bundle <- scopeBundles scope,
+            Managed resource <- declarations bundle]
+      taskSuspended (Just "demo") selected selectedBytes @?= Right False
+      case retireSuspendedTaskScope (Just "demo") selected base native of
+        Left _ -> pure ()
+        Right _ -> assertFailure "unsuspended CronJob was retired"
+      (suspendedScope, suspendedNative) <- either (fail . show) pure
+        (compileTaskSuspensionScope (Just "demo") selected base native)
+      scopeConfigDigest suspendedScope @?= scopeConfigDigest base
+      Map.lookup (sibling ^. #identity) suspendedNative @?= Map.lookup (sibling ^. #identity) native
+      suspended <- case [resource | resource <- members suspendedScope,
+          resource ^. #identity == selected ^. #identity] of
+        [resource] -> pure resource
+        _ -> assertFailure "suspension did not preserve exactly one selected CronJob"
+      let suspendedBytes = snd (suspendedNative Map.! (selected ^. #identity))
+      assertBool "suspension did not change selected native digest"
+        (suspended ^. #spec /= selected ^. #spec)
+      taskSuspended (Just "demo") suspended suspendedBytes @?= Right True
+      compileTaskSuspensionScope (Just "demo") suspended suspendedScope suspendedNative
+        @?= Right (suspendedScope, suspendedNative)
+      retired <- either (fail . show) pure
+        (retireSuspendedTaskScope (Just "demo") suspended suspendedScope suspendedNative)
+      members retired @?= [sibling]
+      scopeConfigDigest retired @?= scopeConfigDigest base
+      case taskSuspended (Just "other") suspended suspendedBytes of
+        Left _ -> pure ()
+        Right _ -> assertFailure "task lifecycle accepted another app label"
+      case compileTaskSuspensionScope (Just "demo")
+          (selected & #spec .~ NativeObject (contentDigest "wrong")) base native of
+        Left _ -> pure ()
+        Right _ -> assertFailure "task lifecycle accepted a different declaration"
   , testCase "reviewed scheduled tasks use the accepted application image" $ do
       let checked = either (error . show) id
           sameImage = checked (scheduledTask "cleanup" "0 2 * * *" "registry/app" "cleanup")
