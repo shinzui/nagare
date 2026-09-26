@@ -52,7 +52,15 @@ import Nagare.Static.Webhook
   , WebhookOutcome (..)
   , decideWebhook
   )
-import Nagare.Target (ActiveTarget, TargetProfile, resolveActiveTarget)
+import Nagare.Target
+  ( ActiveTarget
+  , InventoryStoreKind (..)
+  , Mode (..)
+  , TargetProfile
+  , contextNameText
+  , effectiveInventoryStore
+  , resolveActiveTarget
+  )
 import Network.HTTP.Types
   ( Status
   , status200
@@ -145,6 +153,8 @@ main = do
   secret <- resolveSecret (o ^. #secretFile)
   provisionGhcEnv (o ^. #ghcEnv)
   active <- resolveActiveTarget Nothing
+  when (contextNameText (active ^. #contextName) == "default") $
+    ioError (userError "nagared requires a named Nagare context before direct webhook deployment")
   let env =
         Env
           { secret = secret
@@ -269,6 +279,10 @@ runAction env _site act = do
 -- | Webhooks have no reviewed image or site submission. Check the selected
 -- context on every delivery, including a retry handled by a long-lived runner.
 webhookInventoryGate :: ActiveTarget -> IO (Either (Status, Text) ())
+webhookInventoryGate active
+  | active ^. #profile . #mode == Cloud
+      && effectiveInventoryStore (active ^. #profile) == InventoryStoreLocal =
+      pure (Left (status409, "cloud webhooks require a shared GCS inventory store"))
 webhookInventoryGate active = do
   opened <- Inventory.openTargetStoreReadOnly active
   pure $ case opened of

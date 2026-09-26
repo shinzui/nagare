@@ -509,7 +509,10 @@ It now resolves the active context and checks that context's inventory store on
 each triggered delivery and immediately before deployment. An initialized
 store returns HTTP 409, including when admission occurs after the worker
 starts. Reviewed context-bound webhook submission remains necessary before
-managed contexts can use that route. The CLI guard alone did not protect it.
+managed contexts can use that route. The runner requires a named context, and
+cloud deliveries require its inventory store to be shared through GCS;
+otherwise a private local store could falsely appear empty on the webhook
+machine. The CLI guard alone did not protect it.
 
 The same initialized-store boundary applies to live Task commands. Manual
 execution requires an accepted CronJob and a stable `--run-id`, which gives its

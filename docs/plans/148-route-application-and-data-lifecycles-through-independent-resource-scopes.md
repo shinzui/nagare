@@ -134,6 +134,7 @@ The same boundary now refuses direct live database and broker creation, deletion
 Direct live env set/delete/sync and unversioned Secret set/delete now also refuse after initialization, including a newly named app. Reviewed env changes use `--reviewed` or a saved review; Secret changes bind a version.
 Legacy app stop, restart, and delete and direct site rollback and static preview deletion now refuse in an initialized context if they cannot select an accepted reviewed scope. Accepted app stop/restart, saved app retirement, site rollback, and preview retirement remain available.
 The `nagared` webhook runner now resolves the active context at startup and checks its inventory store for every triggered delivery and again before deploy. It returns HTTP 409 when the store is initialized. A local signed-webhook test initialized the store after the worker started and proved refusal before checkout with unchanged inventory bytes. Reviewed webhook submission remains open in M4.
+The runner also requires a named context at startup and a shared GCS inventory store for cloud deliveries, so an implicit/default context or machine-private cloud history cannot be mistaken for evidence that the target is unmanaged. The example in-cluster Service needs a context and store configuration before it can deploy again.
 Live direct CDN purge/disable and access grant/revoke/portal sync now refuse after inventory initialization, including unclaimed hostnames. Read-only CDN and access commands and CDN dry-runs remain available. Their reviewed operational counterparts are still M3 work. The isolated CLI regression covers thirty-three live refusals with an unchanged inventory head.
 The legacy native-address guard now runs only for live database/broker deletion, database backup/restore, volume restore, and unreviewed env/Secret writes. Their read-only preview branches remain available without requiring an ownership decision or inventory receipt.
 Versioned `secret set`, `secret delete`, and exact `secret sync` now use the same one-invocation review service when no saved review directory is supplied; private native Secret bytes remain in the immutable evidence store. Unversioned direct writes remain guarded legacy routes.
@@ -347,6 +348,8 @@ Critical path from completed M1 to final acceptance, in execution order:
 
 2026-09-26: Close the webhook's separate direct deployment entry point at the selected context's initialized-store boundary. Check on every triggered delivery rather than only at server startup, since a long-lived worker can outlive inventory admission. Recheck before the deployment call after checkout/config load. Return HTTP 409 for a managed context and refuse unverifiable store reads; reviewed webhook submission remains a later M4 operation.
 
+2026-09-26: Require a named webhook context and a shared GCS inventory store in cloud mode. The implicit default context and a cloud worker's private local state directory cannot prove absence of a different workstation's accepted history. This restriction deliberately leaves the example in-cluster webhook Service unavailable until it is configured with a context and shared store.
+
 2026-09-26: Apply the initialized-context boundary to remaining direct application actions that already have reviewed counterparts. Accepted Service stop/restart select their reviewed scope; unaccepted names cannot direct-patch. App deletion, site rollback, and static preview deletion require their saved reviews after admission. This keeps direct legacy behavior in uninitialized contexts without letting a fresh name bypass inventory.
 
 2026-09-26: Require the reviewed environment and versioned Secret channels for every live write after inventory initialization. The previous native-address guard protected accepted stores but let a newly named store bypass the channel revision, private Secret evidence, and review journal. Keep direct dry-run output and the legacy uninitialized-context route.
@@ -508,6 +511,8 @@ DependencyExports contains typed capability witnesses and selected revision/phys
 2026-09-26: Refused direct CDN purge/disable and access grant/revoke/portal sync after inventory admission; extended isolated CLI refusal proof to thirty-three cases.
 
 2026-09-26: Added the webhook runner's dynamic inventory gate and a signed local HTTP regression proving post-start initialization refuses before checkout.
+
+2026-09-26: Tightened the webhook gate to require a named context and cloud shared inventory history; the local HTTP regression also proves startup refusal without a named context.
 
 2026-09-26: Closed direct app stop/restart/delete and site rollback/preview deletion after inventory admission, with twenty-eight isolated CLI refusal cases.
 

@@ -506,10 +506,12 @@ typed config with `runghc`, so its image must provide those; on a single-node bo
 it is often simplest to run it on the host. The manifests in
 `cluster/bootstrap/nagared/` are the starting point.
 
-The webhook runner still uses the direct static deploy functions. It resolves
-the active context when it starts and checks that context's inventory store on
+The webhook runner still uses the direct static deploy functions. It requires
+a named active context when it starts and checks that context's inventory store on
 every triggered delivery and again just before deployment. Once the store is
 initialized, it returns HTTP 409 without checking out or deploying the site.
+Cloud webhooks also refuse when that context uses a private local inventory
+store; select a shared GCS store to make history observable to the runner.
 Reviewed webhook submission remains M4 work; use the reviewed CLI site route
 for inventory-backed contexts.
 

@@ -8,11 +8,15 @@ second engine):
 - a push to the configured production branch → production deploy + release record;
 - a pull request `opened`/`synchronize`/`reopened` → preview deploy named `pr-<number>`.
 
-The runner resolves its active context at startup and rechecks that context's
+The runner requires a named active context at startup and rechecks that context's
 inventory store on every triggered delivery. An initialized store makes the
 direct webhook route return HTTP 409 before checkout or deployment. Use the
 reviewed `nagarectl site` commands for inventory-backed contexts; reviewed
-webhook submission is still pending.
+webhook submission is still pending. In cloud mode, the runner also refuses
+when the selected context uses a private local inventory store; configure a
+shared GCS store so it can observe the context's history. The example in-cluster
+Service manifest has no named context mounted and therefore cannot deploy until
+its context and store are configured.
 
 ## Routes
 

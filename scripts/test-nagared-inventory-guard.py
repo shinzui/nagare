@@ -42,11 +42,24 @@ def main():
             XDG_CONFIG_HOME=str(root / "config"),
             XDG_STATE_HOME=str(root / "state"),
             NAGARE_CONTEXT="guarded",
+            NAGARE_MODE="local",
             NAGARE_WEBHOOK_SECRET="topsecret",
         )
+        unnamed_environment = environment.copy()
+        unnamed_environment.pop("NAGARE_CONTEXT")
+        unnamed = subprocess.run(
+            [executable, "--port", str(port)],
+            cwd=root,
+            env=unnamed_environment,
+            capture_output=True,
+            timeout=5,
+        )
+        assert unnamed.returncode != 0
+        assert b"requires a named Nagare context" in unnamed.stderr, unnamed.stderr
         workspace = root / "workspace"
         process = subprocess.Popen(
             [executable, "--port", str(port), "--workspace", str(workspace)],
+            cwd=root,
             env=environment,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
