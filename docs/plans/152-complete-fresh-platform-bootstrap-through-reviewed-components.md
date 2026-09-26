@@ -59,6 +59,8 @@ Inherited baseline: commits `9c308390`, `28e05b72`, and `09d83188` supplied expl
 
 2026-09-26: Generic inventory reviews used a constant `operator-cli` payload identity, which left prerequisite-only bootstrap stages without a payload binding. The planner now accepts a bootstrap-specific identity, and execution checks it before loading provider contracts. No prerequisite-only stage is yet publicly plannable because cloud/local foundation assembly remains outstanding.
 
+2026-09-26: A new cloud context can still create its GCS Pulumi state bucket through `bootstrapGcsIfNeeded` during `init` or `context create`, before any inventory review. `ensurePulumiForContext` then selects the configured backend. M1 must move that first bucket effect into an explicit reviewed stage or a reviewed adoption handoff; merely adding later cloud declarations would leave the fresh-bootstrap acceptance gap open.
+
 
 ## Decision Log
 
