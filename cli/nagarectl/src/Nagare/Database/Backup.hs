@@ -31,6 +31,7 @@ module Nagare.Database.Backup
   , BackupCronInputs (..)
   , renderBackupCronJob
   , renderDbBackupCronJob
+  , renderInventoryDbBackupCronJob
 
     -- * Command driver
   , runDbBackup
@@ -355,12 +356,18 @@ renderBackupCronJob i =
             ]
       ]
 
--- | Convenience renderer for the scheduled-backup CronJob of a database, from
--- its identity (the values EP-45's @db create@ has on hand). Self-pruning, daily
--- default schedule. EP-45 applies this at create time unless retention = Delete.
--- The @backend@ (EP-84) selects GCS or MinIO for the upload.
+-- | Legacy scheduled backup. Inline keep-last-N deletion is confined to
+-- unadmitted contexts while reviewed pruning remains a separate lifecycle action.
 renderDbBackupCronJob :: Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
-renderDbBackupCronJob ns name eng version backend keep =
+renderDbBackupCronJob = renderDbBackupCronJobWithPrune True
+
+-- | A reviewed database may schedule uploads, but the CronJob must not delete
+-- older backup objects without a separate reviewed pruning decision.
+renderInventoryDbBackupCronJob :: Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
+renderInventoryDbBackupCronJob = renderDbBackupCronJobWithPrune False
+
+renderDbBackupCronJobWithPrune :: Bool -> Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
+renderDbBackupCronJobWithPrune shouldPrune ns name eng version backend keep =
   renderBackupCronJob
     BackupCronInputs
       { schedule = defaultBackupSchedule
@@ -376,7 +383,7 @@ renderDbBackupCronJob ns name eng version backend keep =
             , destination = BackupDestStamped
             , prefix = storePrefixUrl backend (dbBackupKeyPrefix name)
             , keep = keep
-            , selfPrune = True
+            , selfPrune = shouldPrune
             , backend = backend
             }
       }

@@ -332,10 +332,15 @@ rendered `deploy` shows, for a Postgres reference:
 
 ## Backups and restore
 
-Every `nagarectl db create` provisions a **daily, self-pruning CronJob** that
-backs the database up to the active object store — GCS in cloud mode, MinIO in
-local mode. A managed database is backup-included by default unless
-`retention = Delete`, which marks it throwaway. Take one on demand:
+For a retained database, `nagarectl db create` includes a **daily backup
+CronJob** that writes to the active object store — GCS in cloud mode, MinIO in
+local mode. A newly compiled inventory-reviewed CronJob does not prune older
+backups. An already accepted CronJob keeps its previous script until a new
+database review replaces it. Exact backup pruning is not available yet; monitor
+object-store usage and preserve those backups until it exists. A database with
+`retention = Delete` is throwaway and has no scheduled
+backup. In an uninitialized legacy context, the CronJob still self-prunes and
+you can take one on demand:
 
 ```bash
 nagarectl db backup pg-main
@@ -344,17 +349,20 @@ gsutil ls gs://tan-nb-exp-nagare-backups/databases/pg-main/   # cloud mode
 
 The dump is an engine-appropriate logical export (`pg_dump` for Postgres, an RDB
 dump for Redis, a native dump for ClickHouse), gzipped, at
-`databases/<name>/<timestamp>.<ext>` in the active store, with keep-last-N
-retention (`--keep`, default 7). Scheduled and on-demand backups share that key
-layout, so either can be restored by its timestamp. The dump waits up to five
-minutes for the database to accept connections, and a failed backup Job is
-retried twice, so a run the CronJob catches up right after a VM start is not lost
-to DNS or server start-up. In cloud mode that key is under
+`databases/<name>/<timestamp>.<ext>` in the active store. Legacy scheduled
+backups keep the newest seven; `--keep` controls pruning after a manual cloud
+backup, while a manual local backup does not prune. Scheduled backups in
+reviewed inventory do not prune, and manual backup or restore commands
+refuse after inventory admission. The dump waits up to five minutes for the
+database to accept connections, and a failed backup Job is retried twice. This
+gives a backup scheduled after a VM start time to survive DNS or server startup
+delays. In cloud mode that key is under
 `gs://<backup-bucket>/`; in local mode it is under `s3://nagare-backups/` on
 MinIO.
 
-Restore is **scratch-first**: by default the dump is loaded into a disposable
-target (`<db>_restore_scratch` for Postgres/ClickHouse) so live data is untouched
+In an uninitialized legacy context, restore is **scratch-first**: by default
+the dump is loaded into a disposable target (`<db>_restore_scratch` for
+Postgres/ClickHouse) so live data is untouched
 until you compare and promote manually. Pass `--into-live` to target the live
 database.
 

@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-26
+* **Fix**: Explain that inventory-reviewed scheduled database backups upload without inline pruning until a reviewed lifecycle action can delete exact backup objects; legacy backup retention remains available only before inventory admission.
 * **Update**: Document reviewed server previews with Preview-only inline environment entries and accepted Preview Secret dependencies.
 * **Fix**: Plan and apply an unrelated inventory scope without preparing Pulumi, host, or artifact providers or reopening unchanged Kubernetes sources.
 * **Fix**: Complete reviewed task collection through the CLI using accepted private native bytes and the exact retained CronJob incarnation.

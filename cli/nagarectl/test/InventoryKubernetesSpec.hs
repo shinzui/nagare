@@ -30,7 +30,7 @@ import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), cacheClientDataMatches, certificateReady, collectionDeleteRequest, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, credentialDataMatches, deploymentAvailable, deploymentSelectorReplacement, desiredFieldsMatch, generatedCredentialTemplate, jobCompleted, knativeReady, materializeCacheKey, materializeCredential, mkKubernetesRuntimeOps, observeCacheClientOutput, parseObserved, readinessForAddress, statefulSetImmutableReplacement, statefulSetReady, supportedUpdateAddress, withoutCacheClientData)
 import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
-import Nagare.Inventory.Database (compileDatabaseForBackend, compileDatabaseNative, compileDatabaseNativeWithBackup)
+import Nagare.Inventory.Database (compileDatabaseForBackend)
 import Nagare.Inventory.DataService (NativeDataKind (..), compileStandaloneDatabase, compileStatefulSetRestartScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Components.Foundation (compileContributedNamespaces)
@@ -390,30 +390,34 @@ inventoryKubernetesTests =
         result <- adapterPrepare adapter createOperation
         case result of Left PrepareRefused {} -> pure (); other -> assertFailure ("reserved annotation accepted: " <> show other)
         readIORef calls >>= (@?= 0)
-    , testCase "database direct bundle retains canonical native members" $ do
+    , testCase "throwaway database binds its canonical native members" $ do
         let db = Database (ok (mkDatabaseName "pg-main")) Nothing Postgres (defaultEngineVersion Postgres)
-              (ok (Dsl.mkNamespace "personal")) (ok (Dsl.mkQuantity "10Gi")) Nothing Dsl.Retain
+              (ok (Dsl.mkNamespace "personal")) (ok (Dsl.mkQuantity "10Gi")) Nothing Dsl.Delete
             recovery = RecoveryIntent (ok (mkName "backup")) (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
             direct = DatabaseDirectInput db scope cluster Nothing recovery (SourceLocation "database" "postgres")
-            (bundle, bound) = ok (compileDatabaseNative direct)
+            (bundle, bound) = ok (compileDatabaseForBackend direct (GcsBackend "project" "bucket"))
         length (declarations bundle) @?= 4
         Map.size bound @?= 4
         mapM_ (\(decl, bytes) -> case spec decl of
           NativeObject digest -> digest @?= contentDigest bytes
           StatefulSet _ _ digest -> digest @?= contentDigest bytes
           other -> assertFailure ("unexpected database spec: " <> show other)) (Map.elems bound)
-    , testCase "database backup bundle binds the real CronJob renderer" $ do
+    , testCase "reviewed database backup uploads without inline pruning" $ do
         let db = Database (ok (mkDatabaseName "pg-main")) Nothing Postgres (defaultEngineVersion Postgres)
               (ok (Dsl.mkNamespace "personal")) (ok (Dsl.mkQuantity "10Gi")) Nothing Dsl.Retain
             recovery = RecoveryIntent (ok (mkName "backup")) (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
             direct = DatabaseDirectInput db scope cluster Nothing recovery (SourceLocation "database" "postgres")
-            rendered = renderDbBackupCronJob "personal" "pg-main" Postgres (engineVersionText (defaultEngineVersion Postgres)) (GcsBackend "project" "bucket") 7
-            backup = ok (Yaml.decodeEither' rendered)
-            (bundle, bound) = ok (compileDatabaseNativeWithBackup direct backup)
-            compiledFromBackend = ok (compileDatabaseForBackend direct (GcsBackend "project" "bucket"))
+            legacy = renderDbBackupCronJob "personal" "pg-main" Postgres (engineVersionText (defaultEngineVersion Postgres)) (GcsBackend "project" "bucket") 7
+            (bundle, bound) = ok (compileDatabaseForBackend direct (GcsBackend "project" "bucket"))
+            backupBytes = [bytes | (member, bytes) <- Map.elems bound,
+              Kubernetes _ "batch" kind _ _ <- [address member], nameText kind == "cronjob"]
         length (declarations bundle) @?= 5
         Map.size bound @?= 5
-        compiledFromBackend @?= (bundle, bound)
+        length backupBytes @?= 1
+        assertBool "reviewed backup can delete unreviewed objects"
+          (all (\bytes -> not (BC.isInfixOf "pruning" bytes) && not (BC.isInfixOf "gsutil -m rm -I" bytes)) backupBytes)
+        assertBool "legacy backup pruning unexpectedly changed"
+          (BC.isInfixOf "pruning" legacy)
         assertBool "backup native member omitted" (any (\(member, _) -> case address member of
           Kubernetes _ "batch" kind _ _ -> nameText kind == "cronjob"
           _ -> False) (Map.elems bound))

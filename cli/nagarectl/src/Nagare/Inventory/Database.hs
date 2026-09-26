@@ -1,7 +1,7 @@
 -- | Bind the pure database bundle to exact canonical Kubernetes members.
 -- The private bytes returned here are the only native inputs suitable for a
 -- reviewed Kubernetes adapter; no YAML is rendered again at apply time.
-module Nagare.Inventory.Database (compileDatabaseNative, compileDatabaseNativeWithBackup, compileDatabaseForBackend) where
+module Nagare.Inventory.Database (compileDatabaseForBackend) where
 
 import Data.Aeson (Value)
 import Data.ByteString (ByteString)
@@ -13,7 +13,7 @@ import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend)
-import Nagare.Database.Backup (renderDbBackupCronJob)
+import Nagare.Database.Backup (renderInventoryDbBackupCronJob)
 import Nagare.Dsl.Database (Database (..), engineVersionText)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (RetentionPolicy (..), databaseNameText, namespaceText)
@@ -55,7 +55,7 @@ compileDatabaseForBackend input backend
   | directDatabase input ^. #retention == Delete = compileDatabaseNative input
   | otherwise = do
       let database = directDatabase input
-          rendered = renderDbBackupCronJob
+          rendered = renderInventoryDbBackupCronJob
             (namespaceText (database ^. #namespace))
             (databaseNameText (database ^. #name))
             (database ^. #engine)
