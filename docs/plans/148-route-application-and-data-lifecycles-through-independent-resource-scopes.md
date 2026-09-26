@@ -152,6 +152,11 @@ provenance:
       at: 2026-09-26T19:12:00Z
       mode: "implement"
       note: "Prove signed production and preview webhook submission through reviewed CLI and recording Kubernetes provider"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-26T19:16:30Z
+      mode: "implement"
+      note: "Remove duplicate standalone database and broker create and restart effects"
 ---
 
 # Route application and data lifecycles through independent resource scopes
@@ -197,6 +202,9 @@ The `nagared` webhook runner requires a named context and initialized shared inv
 A disposable local webhook transaction now creates a Git fixture, seeds an accepted image and four environment stores, and sends a signed push followed by a signed same-repository pull request. The actual `nagared` runner invokes the built `nagarectl` twice, and the reviewed inventory transaction converges against a recording Kubernetes provider. The production Service and release history are present, the preview Service has exactly the four accepted Runtime/Preview references, and unrelated accepted scope revisions do not advance. This is a local recording-provider roundtrip; an in-cluster runner and native Knative provider proof remain open.
 
 Standalone database and broker live create and restart now always select their reviewed scopes. `db delete` and `broker delete` require `--save-plan` and submit the same retained-scope retirement as the explicit `retire` commands; the direct native deletion modules are removed. Offline create and restart dry runs retain their renderers. Full native collection and other data actions remain M3/M4 work.
+
+The legacy database and broker create and restart modules now have only read-only dry-run output; a non-dry-run call to those helpers refuses. Their namespace creation, credential creation, manifest apply, rollout restart, topic reconciliation, and wait effects have been removed. The reviewed compiler and executor remain the live path. This removes four duplicate mutation functions while preserving offline command previews.
+The executable build, all 845 CLI tests, thirty-three initialized-context and seven fresh-context entrypoint refusals with unchanged inventory heads, Haskell structure check, and diff check passed after removal.
 
 Manual database backup and PostgreSQL scratch restore now require their accepted Job scopes and saved reviews for live execution in every context. The former direct Job apply/wait/prune branches are removed; their older renderers remain available only for read-only `--dry-run` output. Live-target and other-engine restore, provider proof, and volume data operations remain open.
 
@@ -268,12 +276,15 @@ Critical path from completed M1 to final acceptance, in execution order:
 - [ ] Prove review and execution membership for a full application including a preview, CDN, broker topic, and Secret references against a disposable provider context. One disposable in-memory provider context passed the complete journal and apply flow, including independent scope generations after an app update; native broker/preview/provider integration remains.
 - [x] M4 webhook submission (2026-09-26): Signed static webhooks require initialized history and submit the exact accepted image and preview stores through reviewed site commands; direct site effect functions are removed. A local signed production/preview roundtrip passed against the recording Kubernetes provider. In-cluster runner configuration and native Knative provider proof remain separate acceptance work.
 - [x] M3/M4 standalone data command cutover (2026-09-26): Live database and broker create/restart use reviewed scopes in every context; delete saves a retained retirement review. Direct native delete modules are removed. Manual data actions, interactive maintenance, collection, and live provider proof remained for subsequent work.
+- [x] M4 standalone data effect removal (2026-09-26): The obsolete direct database/broker create and restart helpers are read-only previews; their direct provider effects are removed.
 - [x] M3/M4 manual database data cutover (2026-09-26): Live manual backup and scratch restore require saved reviewed Job plans in every context; direct Job submission and broad inline manual pruning are removed. Volume snapshot/restore, live-target and other-engine restore, provider proof, and exact collection remain.
 - [x] M3/M4 environment and Secret command cutover (2026-09-26): All live channel writes use reviewed scopes; direct ConfigMap and Secret apply helpers are removed. Read-only dry-run rendering remains.
 - [x] M3/M4 manual task command cutover (2026-09-26): Live one-off runs require a reviewed stable run ID; schedule deletion requires saved staged reviews. Direct Job creation and CronJob deletion effects are removed.
 - [ ] M4: Cut over remaining direct app render/apply entry points to the reviewed compiler and publication path.
 
 ## Surprises & Discoveries
+
+2026-09-26: The live database and broker CLI had already moved to reviewed scope planning, but the earlier create/restart library modules still contained complete imperative Kubernetes mutations reachable from a direct library call. Restricting those modules to dry-run rendering closes that second effect path. Credential observation classification and create-only decision logic remain as adapter-independent helpers; the legacy provider shell-outs are gone.
 
 2026-09-26: The webhook's initial regression ended at checkout, so it could not detect a mismatch between the accepted image tag, the reviewed CLI arguments, and provider effects. A disposable local Git repository plus accepted image and four overlay-store declarations now drives a signed push and pull-request preview through the built runner and CLI. The provider recording confirms the production and preview Services and the exact four preview references. The first fixture attempt used a registry destination lacking the context's project/repository prefix; the runner correctly refused it. A second used a Namespace address with the wrong cluster identity and was also refused before a write. With exact accepted inputs, both deliveries converged. This proves local command selection and review execution, not live Knative readiness.
 

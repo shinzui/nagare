@@ -1,14 +1,10 @@
--- | @nagarectl db create ENGINE NAME@ (MasterPlan 9, EP-45): generate a strong
--- password, write the managed credential Secret (IP3), then provision the
--- PVC/StatefulSet/Service (and, for ClickHouse, the memory ConfigMap) EP-44's
--- renderer produces, in apply order, and wait for the StatefulSet to be Ready.
+-- | Read-only compatibility rendering for @nagarectl db create --dry-run@.
 --
 -- The desired 'Database' is built in memory from argv plus flags through EP-44's
 -- smart constructors (full validation, no config file needed); a @--config@ path
 -- loads a typed 'Database' instead. The password is generated once and reused on
--- re-create (idempotent): the create path never issues @kubectl delete@, so it
--- can never wipe data. @--dry-run@ names the credential Secret without
--- generating or printing a password, then prints non-secret manifests.
+-- live create uses the reviewed standalone database scope. @--dry-run@ names
+-- the credential Secret without generating or printing a password.
 module Nagare.Database.Create
   ( DbCreateParams (..)
   , runDbCreate
@@ -21,7 +17,6 @@ module Nagare.Database.Create
   )
 where
 
-import Cradle
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
@@ -29,10 +24,9 @@ import Data.Map qualified as Map
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
-import Nagare.Cluster.Namespace (NamespacePurpose (..), ensureNamespace, renderNamespace)
+import Nagare.Cluster.Namespace (NamespacePurpose (..), renderNamespace)
 import Nagare.Database.Backup (renderDbBackupCronJob)
-import Nagare.Database.Secret
-import Nagare.Deploy (applyManifests, requireWait, waitForRollout)
+import Nagare.Database.Secret (dbHost)
 import Nagare.Dsl.Database
   ( Database (..)
   , Engine (..)
@@ -43,7 +37,7 @@ import Nagare.Dsl.Database
   , mkDatabaseName
   , mkEngineVersion
   )
-import Nagare.Dsl.Database.Render (renderDatabase, statefulSetName)
+import Nagare.Dsl.Database.Render (renderDatabase)
 import Nagare.Dsl.Load (loadDatabase, renderLoadError)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types
@@ -56,11 +50,8 @@ import Nagare.Dsl.Types
   )
 import Nagare.Env.Store (extractSecretData)
 import Nagare.Target (TargetProfile (..), storeBackendFor)
-import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..), exitFailure)
 import System.IO (stderr)
-import System.IO (hClose)
-import System.IO.Temp (withSystemTempFile)
 
 -- | The create inputs, unpacked from @Main@'s @DbCreateOpts@ so the library does
 -- not depend on the executable's option types.
@@ -126,9 +117,8 @@ runDbCreate eng nameT params = runDbCreateWithGuard eng nameT params (const (pur
 -- particular, a Config.hs value may name a different object from argv.
 runDbCreateWithGuard :: Engine -> Text -> DbCreateParams -> (Database -> IO ()) -> IO ()
 runDbCreateWithGuard eng nameT params checkOwnership = do
-  transaction <- lookupEnv "NAGARE_INVENTORY_TRANSACTION"
-  when (isJust transaction) $
-    dieT "db create cannot run inside a reviewed inventory transaction"
+  unless (params ^. #dryRun) $
+    dieT "live db create requires a reviewed standalone database scope"
   db <- resolveDatabase eng nameT params
   checkOwnership db
   let name = databaseNameText (db ^. #name)
@@ -136,13 +126,6 @@ runDbCreateWithGuard eng nameT params checkOwnership = do
       engine' = db ^. #engine
       purpose = params ^. #namespacePurpose
       host = dbHost name ns
-      mkParts pw =
-        ConnectionParts
-          { user = defaultDbUser
-          , password = pw
-          , host = host
-          , database = sanitizeDbName name
-          }
       manifests = renderDatabase db
       -- EP-47: a managed database is backup-included by default — a daily,
       -- self-pruning CronJob — unless retention = Delete (treated as throwaway).
@@ -151,29 +134,18 @@ runDbCreateWithGuard eng nameT params checkOwnership = do
       bucket = tp ^. #backupBucket
   backend <- either dieT pure (storeBackendFor tp bucket)
   let cronJob = renderDbBackupCronJob ns name engine' (engineVersionText (db ^. #version)) backend 7
-  if params ^. #dryRun
-    then do
-      namespaceManifest <- orDie (renderNamespace purpose ns)
-      TIO.putStrLn "--- Namespace manifest ---"
-      TIO.putStr (TE.decodeUtf8 namespaceManifest)
-      TIO.putStrLn ""
-      TIO.putStrLn ("--- Credential Secret " <> dbSecretName name <> " (data generated at apply; omitted from dry run) ---")
-      mapM_ printManifest manifests
-      when backsUp $ do
-        TIO.putStrLn "--- Backup CronJob manifest ---"
-        TIO.putStr (TE.decodeUtf8 cronJob)
-        TIO.putStrLn ""
-      TIO.putStrLn
-        ("Would create database " <> name <> " (" <> engineToken engine' <> ") at " <> host)
-    else do
-      ensureNamespace purpose ns >>= orDie
-      _ <- ensureDatabaseSecret ns name engine' mkParts
-      applyManifests manifests
-      when backsUp (applyManifests [cronJob])
-      waitForRollout ns (statefulSetName name)
-        >>= requireWait ("database '" <> name <> "'")
-      TIO.putStrLn
-        ("Created database " <> name <> " (" <> engineToken engine' <> ") at " <> host)
+  namespaceManifest <- orDie (renderNamespace purpose ns)
+  TIO.putStrLn "--- Namespace manifest ---"
+  TIO.putStr (TE.decodeUtf8 namespaceManifest)
+  TIO.putStrLn ""
+  TIO.putStrLn ("--- Credential Secret " <> dbSecretName name <> " (data generated at reviewed apply; omitted from dry run) ---")
+  mapM_ printManifest manifests
+  when backsUp $ do
+    TIO.putStrLn "--- Backup CronJob manifest ---"
+    TIO.putStr (TE.decodeUtf8 cronJob)
+    TIO.putStrLn ""
+  TIO.putStrLn
+    ("Would create database " <> name <> " (" <> engineToken engine' <> ") at " <> host)
 
 -- | Both the direct compatibility path and inventory planning load exactly the
 -- same validated typed value.
@@ -186,23 +158,8 @@ resolveDatabase eng nameT params = case params ^. #config of
         Right d -> pure d
     Nothing -> orDie (buildDatabase eng nameT params)
 
--- | Read the existing credential or create it with the API server's create-only
--- operation. A concurrent creator wins; its value is reread rather than
--- overwritten. No failure to read may authorize a new credential.
-ensureDatabaseSecret :: Text -> Text -> Engine -> (Text -> ConnectionParts) -> IO Text
-ensureDatabaseSecret ns name eng makeConnection =
-  ensureCredential (readPasswordObservation ns name eng) generatePassword createOnly >>= either dieT pure
-  where
-    createOnly password = do
-      let secret = renderDbSecret (DbSecretInputs name ns eng (secretKeysFor eng (makeConnection password)))
-      created <- withSystemTempFile "nagare-db-secret.json" $ \path handle -> do
-        BS.hPut handle secret
-        hClose handle
-        run $ cmd "kubectl" & addArgs ["create", "-f", path] & silenceStderr
-      pure (created == ExitSuccess)
-
--- | Creation is conditional at the API server. On a race, use the winner's
--- credential only after a second confirmed read; never overwrite it.
+-- | The pure create-only credential decision helper retained for callers that
+-- supply their own reviewed observation and mutation adapter.
 ensureCredential
   :: IO (Either Text (Maybe Text))
   -> IO Text
@@ -223,15 +180,6 @@ ensureCredential observe generate createOnly = do
           Right Nothing -> Left "database Secret create failed and no valid concurrent Secret exists"
           Left reason -> Left reason
 
-readPasswordObservation :: Text -> Text -> Engine -> IO (Either Text (Maybe Text))
-readPasswordObservation ns name eng = do
-  (code, StdoutRaw out) <-
-    run $
-      cmd "kubectl"
-        & addArgs ["get", "secret", T.unpack (dbSecretName name), "-n", T.unpack ns, "-o", "json", "--ignore-not-found"]
-        & silenceStderr
-  pure (classifyPasswordObservation eng code out)
-
 -- | Only a successful, empty --ignore-not-found response proves absence.
 -- Failed or malformed reads never authorize a replacement credential.
 classifyPasswordObservation :: Engine -> ExitCode -> ByteString -> Either Text (Maybe Text)
@@ -241,15 +189,6 @@ classifyPasswordObservation eng code out = case code of
   ExitSuccess -> case extractSecretData out of
     Right kvs | Just pw <- Map.lookup (passwordKey eng) kvs, not (T.null pw) -> Right (Just pw)
     _ -> Left "database Secret is malformed or lacks its password; refusing to rotate it"
-
--- | Generate a strong URL-safe password via @openssl rand -hex 24@ (192 bits).
-generatePassword :: IO Text
-generatePassword = do
-  (code, StdoutRaw out) <-
-    run $ cmd "openssl" & addArgs (["rand", "-hex", "24"] :: [String]) & silenceStderr
-  case code of
-    ExitSuccess -> pure (T.strip (TE.decodeUtf8 out))
-    ExitFailure _ -> dieT "could not generate a password: 'openssl rand' failed"
 
 -- | Print one manifest with a @--- <Kind> manifest ---@ header.
 printManifest :: ByteString -> IO ()

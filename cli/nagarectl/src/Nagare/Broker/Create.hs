@@ -1,6 +1,5 @@
--- | @nagarectl broker create redpanda NAME@: build a typed broker from flags or
--- a config-as-program file, render EP-76's manifests, apply them idempotently,
--- and wait for the Redpanda StatefulSet to become ready.
+-- | Read-only compatibility rendering for @nagarectl broker create --dry-run@.
+-- Live create uses the reviewed standalone broker scope.
 module Nagare.Broker.Create
   ( BrokerCreateParams (..)
   , buildBroker
@@ -15,11 +14,10 @@ import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
-import Nagare.Broker.Topic (reconcileBrokerTopics, renderTopicPlan)
-import Nagare.Cluster.Namespace (NamespacePurpose (..), ensureNamespace, renderNamespace)
-import Nagare.Deploy (applyManifests, requireWait, waitForRollout)
+import Nagare.Broker.Topic (renderTopicPlan)
+import Nagare.Cluster.Namespace (NamespacePurpose (..), renderNamespace)
 import Nagare.Dsl.Broker
-import Nagare.Dsl.Broker.Render (brokerBootstrapServers, brokerStatefulSetName, renderBroker)
+import Nagare.Dsl.Broker.Render (brokerBootstrapServers, renderBroker)
 import Nagare.Dsl.Load (loadBroker, renderLoadError)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types
@@ -28,7 +26,6 @@ import Nagare.Dsl.Types
   , mkQuantity
   , namespaceText
   )
-import System.Environment (lookupEnv)
 import System.Exit (exitFailure)
 import System.IO (stderr)
 
@@ -95,33 +92,23 @@ runBrokerCreate provider nameT params =
 runBrokerCreateWithGuard
   :: BrokerProvider -> Text -> BrokerCreateParams -> (Broker -> IO ()) -> IO ()
 runBrokerCreateWithGuard provider nameT params checkOwnership = do
-  transaction <- lookupEnv "NAGARE_INVENTORY_TRANSACTION"
-  when (isJust transaction) $
-    dieT "broker create cannot run inside a reviewed inventory transaction"
+  unless (params ^. #dryRun) $
+    dieT "live broker create requires a reviewed standalone broker scope"
   broker <- resolveBroker provider nameT params
   checkOwnership broker
   let name = brokerNameText (broker ^. #name)
       ns = namespaceText (broker ^. #namespace)
       manifests = renderBroker broker
       bootstrap = brokerBootstrapServers broker
-  if params ^. #dryRun
-    then do
-      namespaceManifest <- orDie (renderNamespace ApplicationNamespace ns)
-      TIO.putStrLn "--- Namespace manifest ---"
-      TIO.putStr (TE.decodeUtf8 namespaceManifest)
-      TIO.putStrLn ""
-      mapM_ printManifest manifests
-      TIO.putStr (renderTopicPlan broker)
-      TIO.putStrLn ("Would create broker " <> name <> " (" <> brokerProviderToken (broker ^. #provider) <> ")")
-      TIO.putStrLn ("Bootstrap servers: " <> bootstrap)
-      TIO.putStrLn "No cluster changes were applied."
-    else do
-      ensureNamespace ApplicationNamespace ns >>= orDie
-      applyManifests manifests
-      waitForRollout ns (brokerStatefulSetName name)
-        >>= requireWait ("broker '" <> name <> "'")
-      reconcileBrokerTopics broker
-      TIO.putStrLn ("Created broker " <> name <> " at " <> bootstrap)
+  namespaceManifest <- orDie (renderNamespace ApplicationNamespace ns)
+  TIO.putStrLn "--- Namespace manifest ---"
+  TIO.putStr (TE.decodeUtf8 namespaceManifest)
+  TIO.putStrLn ""
+  mapM_ printManifest manifests
+  TIO.putStr (renderTopicPlan broker)
+  TIO.putStrLn ("Would create broker " <> name <> " (" <> brokerProviderToken (broker ^. #provider) <> ")")
+  TIO.putStrLn ("Bootstrap servers: " <> bootstrap)
+  TIO.putStrLn "No cluster changes were applied."
 
 resolveBroker :: BrokerProvider -> Text -> BrokerCreateParams -> IO Broker
 resolveBroker provider nameT params = case params ^. #config of

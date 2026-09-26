@@ -2893,7 +2893,7 @@ opts =
               ( info
                   (Broker <$> (BrokerRestart <$> brokerNameOptsParser <*> dryRunOpt
                     <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed restart of an accepted broker"))) <**> helper)
-                  (progDesc "Roll a legacy broker directly or review an accepted broker restart")
+                  (progDesc "Review an accepted broker restart or preview the legacy command")
               )
             <> command
               "delete"
@@ -2946,7 +2946,7 @@ opts =
               ( info
                   (Db <$> (DbRestart <$> dbNameOptsParser <*> dryRunOpt
                     <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed restart of an accepted database"))) <**> helper)
-                  (progDesc "Roll a legacy database directly or review an accepted database restart")
+                  (progDesc "Review an accepted database restart or preview the legacy command")
               )
             <> command
               "delete"
@@ -8807,7 +8807,7 @@ runDisableBackupPrunePlan mctx name namespaceName output = do
 -- legacy renderer remains available only for a read-only dry run.
 runDataRestart :: Maybe String -> NativeDataKind -> Text -> Text -> Bool
   -> Maybe FilePath -> IO () -> IO ()
-runDataRestart mctx kind name namespaceName dryRun output legacy = do
+runDataRestart mctx kind name namespaceName dryRun output preview = do
   owned <- withAcceptedInventoryHistoryResult mctx "data restart" False $ \history ->
     pure (dataCommandNativeOwned kind name namespaceName
       (ownedHistoryResources history))
@@ -8847,7 +8847,7 @@ runDataRestart mctx kind name namespaceName dryRun output legacy = do
           (inventoryExecutionRegistry mctx) active candidate
         Just directory -> Inventory.planInventoryCandidateWith
           (inventoryPlanRegistryWithNative active workspace native) active candidate directory
-    else legacy
+    else preview
 
 runDbCreatePlan :: Maybe String -> Engine -> Text -> DbCreateParams
   -> Maybe String -> Maybe String -> Maybe FilePath -> IO ()
