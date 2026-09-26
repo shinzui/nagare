@@ -5,6 +5,28 @@ inventory. It is an audit aid, not a declaration source: executable scope member
 reviewed operations, retained native bundles, and journal receipts remain the
 authority.
 
+<!-- managed-command-registry:start -->
+| Typed command group | Registered routes | Unresolved routes |
+| --- | ---: | --- |
+| `Command` | 67 | `Cleanup` |
+| `HostCommand` | 5 | `HostPlaceAgeKey` |
+| `KubeconfigCommand` | 1 | none |
+| `ClusterCommand` | 2 | none |
+| `ContextCommand` | 8 | `ContextCreate`, `ContextDelete` |
+| `InfraCommand` | 4 | `InfraDestroy` |
+| `EnvCommand` | 4 | none |
+| `SecretCommand` | 4 | none |
+| `StorageCommand` | 5 | none |
+| `DbCommand` | 11 | `DbShell` |
+| `BrokerCommand` | 6 | none |
+| `TaskCommand` | 4 | none |
+| `WorkerCommand` | 2 | none |
+| `AccessCommand` | 4 | `AccessGrant`, `AccessRevoke` |
+| `PortalCommand` | 2 | `PortalSync` |
+| `DomainsCommand` | 2 | none |
+| `CdnCommand` | 4 | `CdnDisable`, `CdnPurge` |
+<!-- managed-command-registry:end -->
+
 Each row names the lifecycle-owning scope, declaration compiler, native executor,
 focused evidence, delegated work, and disposition of the older entry point. A row
 is `migrated` only when the public entry point uses the shared planner/executor and
@@ -62,6 +84,8 @@ does not promote any row to migrated or waive its required behavior or proof.
 | Context profile replacement and removal | context control metadata | No typed declaration or reviewed profile migration exists yet | `init NAME`, `context create --force`, and `context delete --yes` write or remove the local profile; unnamed `init` writes the checkout profile and can enable project APIs. The selected old profile determines the inventory store and project binding | `InventorySpec` exercises the substantive-history predicate used by the shared admission guard; `scripts/test-inventory-entrypoint-guards.sh` invokes all four public paths | Inventory store migration has a separate reviewed copy-and-tombstone protocol | Existing-context writes and deletion, plus unnamed init for a selected admitted context, refuse after substantive inventory history; fresh-context creation remains available. A reviewed profile-change protocol is still required | unavailable-after-admission |
 | Image, stale-preview, and release-history cleanup | host image cache, preview scope, and application/site release-history scope | No complete cleanup declaration exists yet; reviewed preview retirement and exact collection cover only part of this family | `Nagare.Ops.Cleanup.executeCleanup` still uses direct `crictl` and Kubernetes deletions or ConfigMap rewrites | `scripts/test-inventory-entrypoint-guards.sh` proves CLI refusal before provider work; cleanup selector tests cover only legacy behavior | Containerd image garbage collection is derived host work; preview and release-history ownership require exact scope decisions | `cleanup` remains a dry-run after admission; `cleanup --confirm` refuses before listing or deleting provider resources when substantive inventory history exists | unavailable-after-admission |
 | Global release payload publication | repository and annotated-tag publication owner, independent of deployment contexts | `GitHubRelease.compilePublicationReview` binds EP-146 release artifact declarations, exact bytes, tag object/commit, notes, and complete attachment names/digests | `GitHubReleaseRuntime` creates a provider-bound draft, verifies physical asset IDs and downloaded bytes, uploads a digest-addressed receipt, and publishes that draft; `release cleanup-starter` deletes only an exact reviewed failed upload placeholder | `InventoryPublicationSpec` injects lost acknowledgements after draft, product, receipt, and publish writes and checks empty-local-state retry, changed candidate and foreign asset refusal; a private probe repository proved published retry with unchanged IDs and a reconstructed local completion observation | Consuming contexts hold external references and never own publication | `.github/workflows/release.yml` invokes the tagged checked CLI publisher instead of direct release-action mutation; complete inventory evidence attachment remains EP-150 work | partial |
+| Inventory history export, restore, and store migration | selected context inventory history | `Inventory.Command.exportInventory`, `restoreInventory`, and `migrateTargetStore` bind the selected context, store generation, and copied member digests | The store API copies exact heads and journal members with conditional creation and refuses an initialized destination | `InventorySpec` checks export/restore round trip, duplicate and foreign-context refusal; `InventoryMigrationSpec` checks migration and readback | The remote object store performs conditional writes | CLI inventory export, restore, and store-migrate use the shared store API; these commands do not mutate provider resources | migrated |
+| Interactive database maintenance | accepted standalone or application database scope | A scoped maintenance declaration and durable session identity remain owned by EP-161 | Legacy `db shell` refuses an admitted inventory context before opening a provider session | `scripts/test-application-entrypoint-guards.sh` checks early refusal; EP-161 must prove bounded session and recovery behavior | An interactive shell can issue arbitrary database writes and therefore needs an explicit fence | Keep the admitted-context refusal until EP-161's reviewed maintenance path is implemented and verified | partial |
 
 ## Adapter-child boundary
 

@@ -17,6 +17,11 @@ provenance:
       at: 2026-09-26T22:23:39Z
       mode: "update"
       note: "Cascade EP-148 decomposition: assign remaining feature, cutover, and proof ownership without weakening release acceptance"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-26T22:44:03Z
+      mode: "implement"
+      note: "Implement finite command registration audit and record remaining release gaps"
 ---
 
 # Close managed command coverage for the inventory release
@@ -33,7 +38,7 @@ Every supported mutation command and shipped recipe is mapped to its owner, revi
 ## Progress
 
 
-- [ ] M1: An executable command-registration audit accounts for every mutation family, including library and recipe entry points, and catches an injected unregistered mutation.
+- [x] M1 (2026-09-26): The finite audit registers 135 typed CLI routes, 34 recipes, 25 production inventory-service calls, and their detailed coverage families. `bash scripts/test-managed-command-audit.sh` passed and rejected an injected `Command.AuditInjectedMutation`; the generated catalogue snapshot matches the registry. The coverage result correctly remains incomplete while M2 and dependent feature rows are open.
 - [ ] M2: Remaining platform mutations and application command/consumer cutovers have reviewed behavior, obsolete duplicate effects are removed, and coverage and user documentation agree with implemented commands.
 
 Inherited baseline: legacy upgrade/Pulumi/context/cleanup/host-credential guards, eleven CLI refusal assertions, and the coverage catalogue already exist. Several guarded operations remain unavailable after admission; their guards are not evidence of a working replacement.
@@ -42,7 +47,9 @@ Inherited baseline: legacy upgrade/Pulumi/context/cleanup/host-credential guards
 ## Surprises & Discoveries
 
 
-No new implementation findings in this successor plan. Inherited evidence and known gaps are identified below.
+The registration audit found eight packaged recipes still classified as pending, including direct VM power, image publication, host switch, raw hello deployment, both smoke scripts, and infra destroy. The existing catalogue also still has 30 incomplete rows, some owned by EP-155/158–161. A passing registration audit therefore cannot be treated as a complete release coverage result.
+
+The release evidence assembler formerly accepted a bare `{schemaVersion: 1, complete: true}` coverage stub. It now checks a non-dirty audit with registered route/recipe/library counts, empty pending and error lists, a candidate source digest, and a `sourceRevision` equal to the release manifest revision. `bash scripts/test-managed-resource-evidence.sh` proves a mismatched revision is refused.
 
 
 ## Decision Log
@@ -51,6 +58,8 @@ No new implementation findings in this successor plan. Inherited evidence and kn
 
 
 2026-09-26: Carry forward completed EP-150 implementation and give this remaining outcome its own acceptance boundary. The split changes ownership and tracking, not the required functionality or proof.
+
+2026-09-26: Bind the generated coverage result to the release source revision and require concrete registration counts and zero unresolved rows. A manually written complete flag cannot serve as command-coverage proof.
 
 
 ## Outcomes & Retrospective
@@ -85,13 +94,15 @@ Finish user docs and remove proven-obsolete policy wrappers. Preserve provider t
 Run from the repository root in its existing development environment. Commands for a new runner are explicitly marked as a required interface; implement them before running.
 
 ```bash
+(python3 scripts/audit-managed-commands.py --coverage-result /tmp/nagare-command-coverage.json)
+bash scripts/test-managed-command-audit.sh
 (cd cli/nagarectl && cabal test nagarectl-test --test-options='-p inventory' --test-show-details=failures)
 bash scripts/test-inventory-entrypoint-guards.sh
 bash scripts/test-application-entrypoint-guards.sh
 okf validate docs/user --strict --profile mori/user-documentation-profile.dhall --profile-enforce --log-enforce
 ```
 
-Expected result: relevant checks exit zero; refused negative fixtures exit nonzero before effects. Native evidence must name the exact candidate and target.
+Expected result: the audit and relevant checks exit zero; the injected mutation fails inside the audit test and the current coverage JSON has `complete: false` with explicit pending routes and catalogue rows. Refused negative fixtures exit nonzero before effects. Native evidence must name the exact candidate and target.
 
 
 ## Validation and Acceptance
@@ -111,4 +122,4 @@ Work against isolated test state and exact named contexts. Preserve immutable re
 ## Interfaces and Dependencies
 
 
-Completed EP-146/147/149/151 provide underlying contracts. [EP-152](152-complete-fresh-platform-bootstrap-through-reviewed-components.md) owns bootstrap, [EP-158](158-complete-reviewed-access-and-cdn-operations.md), [EP-159](159-complete-scheduled-backup-receipts-and-exact-retention-pruning.md), [EP-160](160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md), and [EP-161](161-provide-scoped-interactive-maintenance-with-durable-recovery.md) own the remaining feature protocols, and [EP-157](157-gate-the-inventory-release-on-complete-immutable-evidence.md) consumes the revision-bound coverage result. Agree its schema with the existing `--coverage-result` reader in scripts/assemble-managed-resource-evidence.sh; extend producer and consumer together if needed. Implementation can begin now; final full coverage requires all promised command implementations. Revised estimate after absorbing EP-148 M4: 6–12 active hours excluding EP-158–161 feature protocols and EP-155/156 native runs, low confidence. Reforecast immediately if the M1 audit reveals another substantial platform operation protocol; do not absorb it as an invisible extra gate.
+Completed EP-146/147/149/151 provide underlying contracts. [EP-152](152-complete-fresh-platform-bootstrap-through-reviewed-components.md) owns bootstrap, [EP-158](158-complete-reviewed-access-and-cdn-operations.md), [EP-159](159-complete-scheduled-backup-receipts-and-exact-retention-pruning.md), [EP-160](160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md), and [EP-161](161-provide-scoped-interactive-maintenance-with-durable-recovery.md) own the remaining feature protocols, and [EP-157](157-gate-the-inventory-release-on-complete-immutable-evidence.md) consumes the revision-bound coverage result. The coverage producer in scripts/audit-managed-commands.py emits schema version 1 with `sourceRevision`, `candidateDigest`, `dirty`, registration counts, and exact pending/error lists. The `--coverage-result` reader in scripts/assemble-managed-resource-evidence.sh requires the release revision and complete zero-gap result; extend both together if the schema changes. Final full coverage requires all promised command implementations. Revised estimate after absorbing EP-148 M4: 6–12 active hours excluding EP-158–161 feature protocols and EP-155/156 native runs, low confidence. Reforecast immediately if the M1 audit reveals another substantial platform operation protocol; do not absorb it as an invisible extra gate.

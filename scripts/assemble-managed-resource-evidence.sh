@@ -85,7 +85,13 @@ jq -e --slurpfile reviewed "$rehearsal_dir/review/review.json" \
     and .missingProviders == [] and .accepted == .converged
     and .accepted == $reviewed[0].desiredRevisions' \
   "$rehearsal_dir/final-observation.json" >/dev/null || die "final observation is incomplete or diverged"
-jq -e '.schemaVersion == 1 and .complete == true' "$coverage_result" >/dev/null \
+jq -e '.schemaVersion == 1 and .complete == true and .dirty == false
+  and (.registeredRoutes | type == "number" and . > 0)
+  and (.recipes | type == "number" and . > 0)
+  and (.libraryCalls | type == "number" and . > 0)
+  and (.candidateDigest | type == "string" and test("^[0-9a-f]{64}$"))
+  and .pending == [] and .pendingRecipes == [] and .incompleteCatalogueRows == []
+  and .errors == []' "$coverage_result" >/dev/null \
   || die "mutation coverage is incomplete"
 jq -e '.schemaVersion == 1 and (.context | type == "string" and length > 0)
   and (.mode == "local" or .mode == "cloud") and (.expectedCluster | type == "string" and length > 0)
@@ -101,6 +107,9 @@ payload_digest="$(jq -er --arg system "$system" '
 jq -e '.consistent == true and (.version | type == "string" and length > 0)
   and (.revision | type == "string" and length > 0)' "$release_manifest" >/dev/null \
   || die "release manifest is not a consistent candidate"
+jq -e --slurpfile release "$release_manifest" \
+  '.sourceRevision == $release[0].revision' "$coverage_result" >/dev/null \
+  || die "mutation coverage belongs to another source revision"
 jq -e --slurpfile release "$release_manifest" \
   '.version == $release[0].version and .revision == $release[0].revision' \
   "$rehearsal_dir/operator-version.json" >/dev/null \

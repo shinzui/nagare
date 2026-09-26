@@ -85,8 +85,12 @@ jq -nS \
     {path: "journal/00000000000000000000.json", digest: $journal},
     {path: "journal/00000000000000000001.json", digest: $completion}]}' \
   > "$test_root/private-store/backup.json"
-jq -nS '{schemaVersion: 1, complete: true, auditedCommands: 1,
+jq -nS --arg digest "$candidate_digest" '{schemaVersion: 1, complete: true,
+  sourceRevision: "fixture-revision", candidateDigest: $digest, dirty: false,
+  registeredRoutes: 1, recipes: 1, libraryCalls: 1,
+  pending: [], pendingRecipes: [], incompleteCatalogueRows: [], errors: [],
   privateNote: "must-never-be-public"}' > "$test_root/coverage.json"
+cp "$test_root/coverage.json" "$test_root/coverage-complete.json"
 
 archive
 jq -e --arg candidate "$candidate_digest" --arg review "$review_digest" \
@@ -102,7 +106,12 @@ archive
 
 jq -nS '{schemaVersion: 1, complete: false}' > "$test_root/coverage.json"
 expect_refusal 'mutation coverage is incomplete'
-jq -nS '{schemaVersion: 1, complete: true}' > "$test_root/coverage.json"
+cp "$test_root/coverage-complete.json" "$test_root/coverage.json"
+jq -S '.sourceRevision = "another-revision"' "$test_root/coverage.json" \
+  > "$test_root/coverage-changed.json"
+mv "$test_root/coverage-changed.json" "$test_root/coverage.json"
+expect_refusal 'mutation coverage belongs to another source revision'
+cp "$test_root/coverage-complete.json" "$test_root/coverage.json"
 sed 's/op-fixture/op-other/' "$test_root/private-store/journal/00000000000000000000.json" \
   > "$test_root/private-store/journal/changed.json"
 mv "$test_root/private-store/journal/changed.json" \
