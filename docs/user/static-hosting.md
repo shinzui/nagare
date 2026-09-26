@@ -193,9 +193,10 @@ server site's environment, add `--env-secret-resource RESOURCE-ID` for the
 accepted Secret in the same cluster and namespace. Preview-only references do
 not enter the production Service. A Build-only Secret reference requires its
 exact accepted channel to be pinned on the selected image publication with
-`app image-plan --build-input-resource RESOURCE-ID`; it stays out of the
-Service. That pin records a declared input to the supplied archive but cannot
-prove that an external builder consumed the Secret. For each retained server volume, add
+`app image-plan --build-input-resource RESOURCE-ID`, and the archive must be
+built with `--build-dockerfile FILE --build-context DIR`. It stays out of the
+Service. An externally supplied archive cannot authorize Build Secret use.
+For each retained server volume, add
 `--volume-recovery VOLUME=BACKUP:KEY:VERSION` to the reviewed command. The
 review declares the rendered PVC before the Service and keeps the backup/key
 recovery identity with that durable resource. Supported previews and site
@@ -316,8 +317,8 @@ environment entries appear in the preview Service, while production receives
 Runtime entries. A preview volume has its own PVC under the preview
 Service name. Add `--volume-recovery VOLUME=BACKUP:KEY:VERSION` for each
 retained preview volume; a volume marked for deletion needs no recovery input.
-Build-only Secret references require a pinned input on the accepted image
-publication and stay out of the preview Service.
+Build-only Secret references require a pinned input and a local BuildKit build
+on the accepted image publication. They stay out of the preview Service.
 
 To remove a reviewed preview, retire its scope, then review exact collection
 in dependency order. Collect the DomainMapping first, then the Service:

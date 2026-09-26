@@ -100,8 +100,9 @@ An aggregate application may declare a Build-only Secret reference when its
 accepted image publication pins that app's exact Build Secret channel. The
 review checks the pin and leaves the Build Secret out of runtime Service,
 worker, and task manifests. Reviewed standalone Service and worker deployment
-use the same pinned input rule. The image review records declared external build
-inputs; it does not prove that the external builder consumed the Secret.
+use the same pinned input rule. Build-only Secret references also require an
+archive made by `app image-plan --build-dockerfile FILE --build-context DIR`;
+declaring inputs for an external archive alone does not authorize Secret use.
 
 To preview the same supported scope without saving or publishing a review, use
 `--dry-run` with the same accepted image and recovery inputs. It reads the

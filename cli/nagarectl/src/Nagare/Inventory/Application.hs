@@ -392,7 +392,12 @@ acceptedImageBuildSecrets snapshot imageId cluster appName namespaceName = do
         Right Nothing
       _ -> Left "image Build input has a different cluster, namespace, or kind")
     (zip inputIds channels)
-  pure (Set.fromList [name | Just name <- names])
+  let selectedSecrets = Set.fromList [name | Just name <- names]
+  unless (Set.null selectedSecrets
+      || Map.lookup "build-method" (scopeOverrides imageScope)
+          == Just "dockerfile-buildkit-v1")
+    (Left "image Build Secret inputs lack a reviewed local BuildKit build")
+  pure selectedSecrets
 
 -- | Select the one accepted OCI publication for an exact tagged destination.
 -- The caller still passes its ID to the reviewed command, which rechecks the

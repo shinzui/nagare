@@ -130,6 +130,7 @@ library
     Nagare.Inventory.Prune
     Nagare.Inventory.Restore
     Nagare.Inventory.Environment
+    Nagare.Inventory.ImageBuild
     Nagare.Inventory.Application
     Nagare.Inventory.Site
     Nagare.Inventory.TaskRun

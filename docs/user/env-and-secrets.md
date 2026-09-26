@@ -359,10 +359,13 @@ The reviewed deploy path uses a separately built and published image. Set manage
 Build environment values with the CLI's `--build` scope flag, then build the
 image with the intended inputs. Pass the accepted Build channel resource IDs to
 `app image-plan --build-input-resource RESOURCE-ID` when publishing its archive.
-That review binds the accepted channel revisions to the image publication; it
-cannot prove what an external builder consumed. `app deploy` does not read Build
-channels or pass their values to Docker. An aggregate application can name a
-Build-only Secret when its accepted image publication pins that exact channel;
+That review binds the accepted channel revisions to the image publication. For
+Build-only Secrets, supply `--build-dockerfile FILE --build-context DIR` so the
+same command passes accepted Secret keys through required BuildKit mounts and
+exports the archive. An external archive cannot prove Build Secret use.
+`app deploy` does not read Build channels or pass their values to Docker. An
+aggregate application can name a Build-only Secret when its accepted image
+publication pins that exact channel and records the local BuildKit build;
 the Secret stays out of runtime manifests. Standalone Service and worker
 deployment and server-site production, preview, and rollback use the same
 accepted image input binding.

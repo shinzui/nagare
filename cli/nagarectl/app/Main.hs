@@ -271,6 +271,7 @@ import Nagare.Inventory.TaskLifecycle (compileTaskSuspensionScope, retireSuspend
 import Nagare.Inventory.Lifecycle qualified as InventoryLifecycle
 import Nagare.Inventory.DataService (NativeDataKind (..), acceptedFoundationNamespace, brokerNativeOwned, brokerTopicChangeRequiresReview, compileBackupPruneRemovalScope, compileStandaloneBroker, compileStandaloneDatabase, compileStatefulSetRestartScope, dataCommandNativeOwned, databaseNativeOwned, standaloneRetirementScope)
 import Nagare.Inventory.Environment (acceptedBuildChannelMember, acceptedEnvChannelValues, acceptedSecretChannelValues, compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
+import Nagare.Inventory.ImageBuild (buildDockerArchive)
 import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
@@ -530,6 +531,8 @@ data AppImagePlanOpts = AppImagePlanOpts
   , destination :: !String
   , key :: !String
   , buildInputResources :: ![String]
+  , buildDockerfile :: !(Maybe FilePath)
+  , buildContext :: !(Maybe FilePath)
   , savePlan :: !(Maybe FilePath)
   }
   deriving stock (Generic, Show)
@@ -1533,6 +1536,8 @@ appImagePlanOptsParser =
     <*> strOption (long "destination" <> metavar "IMAGE:TAG" <> help "Exact registry tag to publish")
     <*> strOption (long "key" <> metavar "KEY" <> help "Stable publication key")
     <*> many (strOption (long "build-input-resource" <> metavar "RESOURCE-ID" <> help "Exact accepted Build environment or Secret channel used to prepare this archive"))
+    <*> optional (strOption (long "build-dockerfile" <> metavar "FILE" <> help "Build the archive locally with this Dockerfile and accepted Build inputs"))
+    <*> optional (strOption (long "build-context" <> metavar "DIR" <> help "Docker context for --build-dockerfile"))
     <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed image publication for separate apply"))
 
 appDeployOptsParser :: FilePath -> Parser AppDeployOpts
@@ -8034,7 +8039,9 @@ runAppImagePlan mctx options = do
       && not (T.any (== '@') destination))
     (dieT "image destination must be a tagged image in the active context registry")
   archivePath <- makeAbsolute (options ^. #archive)
-  (archiveDigest, manifestDigest) <- inspectArchive archivePath >>= either dieT pure
+  when (isJust (options ^. #buildDockerfile)
+      /= isJust (options ^. #buildContext))
+    (dieT "local image build requires both --build-dockerfile and --build-context")
   logical <- either dieT pure (Resource.mkLogicalKey (T.pack (options ^. #key)))
   owner <- either dieT pure (Resource.mkScopeId Resource.Publication
     ("app-image-" <> Resource.logicalKeyText logical))
@@ -8048,15 +8055,53 @@ runAppImagePlan mctx options = do
   inputMembers <- traverse (either dieT pure . acceptedBuildChannelMember snapshot) inputIds
   unless (Set.size (Set.fromList [app | (app, _, _) <- inputMembers]) <= 1)
     (dieT "image Build inputs must belong to one application")
-  inputRevisions <- if null inputMembers then pure [] else do
+  (inputRevisions, inputNative) <- if null inputMembers then pure ([], Map.empty) else do
     store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
     history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
-    forM inputMembers $ \(_, inputScope, member) -> case
+    acceptedInventory <- either (dieT . T.pack . show) pure
+      (ResourceInventory.composeSnapshot snapshot)
+    (native, _) <- InventoryStatus.loadAcceptedNative store history acceptedInventory
+      >>= either dieT pure
+    revisions <- forM inputMembers $ \(_, inputScope, member) -> case
       Map.lookup (ResourceInventory.scopeId inputScope)
         (InventoryPlan.historyAccepted history) of
       Just (revision, accepted) | accepted == inputScope ->
         pure (member ^. #identity, InventoryStore.revisionDigest revision)
       _ -> dieT "image Build input differs from accepted scope history"
+    pure (revisions, native)
+  let inputAddresses = [(boundCluster, namespaceName) | (_, _, member) <- inputMembers,
+        Resource.Kubernetes boundCluster "" _ (Just namespaceName) _ <- [member ^. #address]]
+  unless (length inputAddresses == length inputMembers
+      && Set.size (Set.fromList inputAddresses) <= 1)
+    (dieT "image Build inputs must be in one cluster and namespace")
+  case (options ^. #buildDockerfile, options ^. #buildContext) of
+    (Just dockerfile, Just context) -> do
+      channelValues <- forM inputMembers $ \(_, inputScope, member) ->
+        case member ^. #address of
+          Resource.Kubernetes _ "" kind _ _
+            | Resource.nameText kind == "configmap" -> do
+                values <- either dieT pure
+                  (acceptedEnvChannelValues snapshot inputNative inputScope)
+                pure (values, Map.empty)
+            | Resource.nameText kind == "secret" -> do
+                values <- either dieT pure
+                  (acceptedSecretChannelValues snapshot inputNative inputScope)
+                when (Map.null values)
+                  (dieT "accepted Build Secret channel has no keys to mount")
+                pure (Map.empty, values)
+          _ -> dieT "image Build input has an unexpected native kind"
+      let buildArgs = Map.unions (map fst channelValues)
+          buildSecrets = Map.unions (map snd channelValues)
+      unless (Map.size buildArgs == sum (map (Map.size . fst) channelValues)
+          && Map.size buildSecrets == sum (map (Map.size . snd) channelValues))
+        (dieT "accepted Build channels contain duplicate keys")
+      dockerfilePath <- makeAbsolute dockerfile
+      contextPath <- makeAbsolute context
+      either dieT pure =<< buildDockerArchive (profile ^. #targetPlatform)
+        destination dockerfilePath contextPath archivePath buildArgs buildSecrets
+    (Nothing, Nothing) -> pure ()
+    _ -> dieT "local image build options are incomplete"
+  (archiveDigest, manifestDigest) <- inspectArchive archivePath >>= either dieT pure
   let imageId = Resource.mintResourceId owner logical role
       resource = ArtifactResourceSpec
         { artifactLogicalKey = logical
@@ -8078,8 +8123,11 @@ runAppImagePlan mctx options = do
   compiled <- either (dieT . T.pack . show) pure (InventoryArtifact.compileArtifactScope
     (ArtifactDeclarationBundle 1 owner (resource NE.:| [])))
   let scope = ResourceInventory.withScopeOverrides
-        (Map.fromList [("build-input." <> Resource.resourceIdText inputId,
-          Resource.digestText revision) | (inputId, revision) <- inputRevisions]) compiled
+        (Map.fromList
+          ([("build-input." <> Resource.resourceIdText inputId,
+              Resource.digestText revision) | (inputId, revision) <- inputRevisions]
+            <> [("build-method", "dockerfile-buildkit-v1")
+               | isJust (options ^. #buildDockerfile)])) compiled
   case Map.lookup owner (ResourceInventory.snapshotScopes snapshot) of
     Just (_, prior) | prior /= scope ->
       dieT "image publication key already has different accepted content or Build inputs; choose a new key"

@@ -16,7 +16,20 @@ generated:
 > explicit tag and accepted `--image-resource`. `nagarectl deploy` and
 > `nagarectl app deploy` no longer build or push an image. The typed build modes
 > below describe how to prepare the archive. Accepted Build channel inputs can be declared
-> on `app image-plan` with `--build-input-resource RESOURCE-ID`.
+> on `app image-plan` with `--build-input-resource RESOURCE-ID`. For a Dockerfile
+> build, `--build-dockerfile FILE --build-context DIR` makes Nagare build and
+> export the archive locally from those accepted inputs before publication review.
+
+When a reviewed workload references a Build-only Secret, prepare the archive
+with both local build flags and a new, absent `--archive FILE` path. Nagare
+reads the accepted Build channel revision, passes ConfigMap keys as build
+arguments, and passes Secret keys as private BuildKit file mounts. Every Secret
+key needs a `RUN --mount=type=secret,id=KEY,required=true` in the Dockerfile.
+The build runs without cache, then Nagare saves and hashes the resulting archive.
+An externally supplied archive may still declare Build channel inputs, but it
+cannot authorize a Build-only Secret reference because Nagare cannot verify
+how that archive was built. [Docker's Build secret guide](https://docs.docker.com/build/building/secrets/)
+explains why Secret values should use mounts instead of build arguments.
 
 Every `Deployment` carries a typed `build` field that says **how** its container
 image is produced. There are three modes:
