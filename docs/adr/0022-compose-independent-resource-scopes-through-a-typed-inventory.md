@@ -514,3 +514,11 @@ execution requires an accepted CronJob and a stable `--run-id`, which gives its
 Job a reviewed identity and retry receipt. Direct schedule deletion has no
 reviewed retirement operation yet, so it refuses. Plan-only and dry-run Task
 output remain available; an uninitialized context retains the legacy commands.
+
+Direct data commands follow the same boundary. Once a context initializes its
+inventory store, database and broker create/delete and unclaimed restart refuse
+without a reviewed operation. Database shell, manual backup and restore, and
+app-volume snapshot and restore also refuse live direct execution. Reviewed
+create, restart, and retention-preserving retirement remain available; the
+remaining operations need explicit receipts and recovery policy before M3 can
+close. Read-only dry-run forms remain available where the command supports them.

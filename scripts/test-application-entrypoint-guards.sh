@@ -70,6 +70,28 @@ refuse 'timestamped task run' 'direct task run is refused' \
   task run notes cleanup
 refuse 'direct task deletion' 'direct task delete is refused' \
   task delete notes cleanup --yes
+refuse 'direct database create' 'direct database create is refused' \
+  db create postgres fixture
+refuse 'direct broker create' 'direct broker create is refused' \
+  broker create redpanda fixture
+refuse 'direct database restart' 'direct data restart is refused' \
+  db restart fixture
+refuse 'direct broker restart' 'direct data restart is refused' \
+  broker restart fixture
+refuse 'direct database deletion' 'direct database delete is refused' \
+  db delete fixture --yes
+refuse 'direct broker deletion' 'direct broker delete is refused' \
+  broker delete fixture --yes
+refuse 'direct database backup' 'direct database backup is refused' \
+  db backup fixture
+refuse 'direct database restore' 'direct database restore is refused' \
+  db restore fixture backup-identity
+refuse 'direct database shell' 'direct database shell is refused' \
+  db shell fixture
+refuse 'direct volume snapshot' 'direct storage snapshot is refused' \
+  storage snapshot hello --config ../nagare-dsl/test/fixtures/nagare/Config.hs data
+refuse 'direct volume restore' 'direct storage restore is refused' \
+  storage restore hello --config ../nagare-dsl/test/fixtures/nagare/Config.hs data backup-identity
 
 cmp -s "$store_dir/head.json" "$fixture_root/head-before"
-printf 'application entrypoint guards: seven live refusals, inventory head unchanged\n'
+printf 'application entrypoint guards: eighteen live refusals, inventory head unchanged\n'

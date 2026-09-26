@@ -8894,11 +8894,13 @@ runStorage mctx = \case
     runStorageInspect dep (T.pack vol)
   StorageSnapshot copts vol bucket keep -> do
     dep <- resolveStorageDep copts
+    refuseDirectDataWriteWhenManaged mctx "storage snapshot"
     refuseDirectVolumeMutationIfOwned mctx "snapshot" dep (T.pack vol)
     backend <- resolveStoreBackend mctx bucket
     runSnapshot dep (T.pack vol) backend keep
   StorageRestore copts vol backupId bucket live dryRun -> do
     dep <- resolveStorageDep copts
+    unless dryRun (refuseDirectDataWriteWhenManaged mctx "storage restore")
     refuseDirectVolumeMutationIfOwned mctx "restore" dep (T.pack vol)
     backend <- resolveStoreBackend mctx bucket
     runStorageRestore dep (T.pack vol) (T.pack backupId) live backend dryRun
@@ -8931,17 +8933,20 @@ runBroker mctx = \case
         runBrokerCreatePlan mctx provider (T.pack name) params
           (o ^. #recoveryBackup) (o ^. #recoveryKey)
           (o ^. #recoveryKeyVersion) (o ^. #savePlan)
-      else runBrokerCreateWithGuard provider (T.pack name) params $ \broker ->
-        withAcceptedInventoryHistory mctx "broker create" $ \history ->
-          when (brokerNativeOwned broker (ownedHistoryResources history))
-            (dieT "broker objects are owned by accepted or retained inventory history; direct create is refused")
+      else do
+        unless (o ^. #dryRun) (refuseDirectDataWriteWhenManaged mctx "broker create")
+        runBrokerCreateWithGuard provider (T.pack name) params $ \broker ->
+          withAcceptedInventoryHistory mctx "broker create" $ \history ->
+            when (brokerNativeOwned broker (ownedHistoryResources history))
+              (dieT "broker objects are owned by accepted or retained inventory history; direct create is refused")
   BrokerGet o -> runBrokerGet (nsOf (o ^. #namespace)) (T.pack (o ^. #name))
   BrokerRestart o dryRun output ->
     runDataRestart mctx BrokerObjects (T.pack (o ^. #name))
       (nsOf (o ^. #namespace)) dryRun output
       (runBrokerRestart (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) dryRun)
-  BrokerDelete o ->
-    refuseDirectDataMutationIfOwned mctx BrokerObjects "delete" (T.pack (o ^. #name)) (nsOf (o ^. #namespace)) >>
+  BrokerDelete o -> do
+    when (o ^. #yes && not (o ^. #dryRun)) (refuseDirectDataWriteWhenManaged mctx "broker delete")
+    refuseDirectDataMutationIfOwned mctx BrokerObjects "delete" (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
     runBrokerDelete
       BrokerDeleteParams
         { name = T.pack (o ^. #name)
@@ -9014,20 +9019,24 @@ runDb mctx = \case
         when (o ^. #dryRun) (dieT "reviewed database create cannot combine with --dry-run")
         runDbCreatePlan mctx eng (T.pack name) params
           (o ^. #recoveryBackup) (o ^. #recoveryKeyVersion) (o ^. #savePlan)
-      else runDbCreateWithGuard eng (T.pack name) params $ \database ->
-        withAcceptedInventoryHistory mctx "database create" $ \history ->
-          when (databaseNativeOwned database (ownedHistoryResources history))
-            (dieT "database objects are owned by accepted or retained inventory history; direct create is refused")
+      else do
+        unless (o ^. #dryRun) (refuseDirectDataWriteWhenManaged mctx "database create")
+        runDbCreateWithGuard eng (T.pack name) params $ \database ->
+          withAcceptedInventoryHistory mctx "database create" $ \history ->
+            when (databaseNativeOwned database (ownedHistoryResources history))
+              (dieT "database objects are owned by accepted or retained inventory history; direct create is refused")
   DbGet o -> runDbGet (nsOf (o ^. #namespace)) (T.pack (o ^. #name))
   DbShell o -> do
+    refuseDirectDataWriteWhenManaged mctx "database shell"
     refuseDirectDataMutationIfOwned mctx DatabaseObjects "shell" (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
     runDbShell (nsOf (o ^. #namespace)) (T.pack (o ^. #name))
   DbRestart o dry output ->
     runDataRestart mctx DatabaseObjects (T.pack (o ^. #name))
       (nsOf (o ^. #namespace)) dry output
       (runDbRestart (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) dry)
-  DbDelete o ->
-    refuseDirectDataMutationIfOwned mctx DatabaseObjects "delete" (T.pack (o ^. #name)) (nsOf (o ^. #namespace)) >>
+  DbDelete o -> do
+    when (o ^. #yes && not (o ^. #dryRun)) (refuseDirectDataWriteWhenManaged mctx "database delete")
+    refuseDirectDataMutationIfOwned mctx DatabaseObjects "delete" (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
     runDbDelete
       DbDeleteParams
         { name = T.pack (o ^. #name)
@@ -9039,10 +9048,12 @@ runDb mctx = \case
     runStandaloneRetirePlan mctx "database" (T.pack (o ^. #name))
       (nsOf (o ^. #namespace)) (T.pack <$> o ^. #scopeKey) (o ^. #savePlan)
   DbBackup o -> do
+    unless (o ^. #dryRun) (refuseDirectDataWriteWhenManaged mctx "database backup")
     refuseDirectDataMutationIfOwned mctx DatabaseObjects "backup" (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
     backend <- resolveStoreBackend mctx (o ^. #bucket)
     runDbBackup (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) backend (o ^. #keep) (o ^. #dryRun)
   DbRestore o -> do
+    unless (o ^. #dryRun) (refuseDirectDataWriteWhenManaged mctx "database restore")
     refuseDirectDataMutationIfOwned mctx DatabaseObjects "restore" (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
     backend <- resolveStoreBackend mctx (o ^. #bucket)
     runDbRestore (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) (T.pack (o ^. #backupId)) (o ^. #live) backend (o ^. #dryRun)
@@ -9093,7 +9104,9 @@ runDataRestart mctx kind name namespaceName dryRun output legacy = do
           (inventoryExecutionRegistry mctx) active candidate
         Just directory -> Inventory.planInventoryCandidateWith
           (inventoryPlanRegistryWithNative active workspace native) active candidate directory
-    else legacy
+    else do
+      unless dryRun (refuseDirectDataWriteWhenManaged mctx "data restart")
+      legacy
 
 runDbCreatePlan :: Maybe String -> Engine -> Text -> DbCreateParams
   -> Maybe String -> Maybe String -> Maybe FilePath -> IO ()
@@ -9139,6 +9152,14 @@ runStandaloneRetirePlan mctx kind name namespaceName pinnedKey output = do
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   Inventory.planInventoryRetirementWith
     (inventoryPlanRegistry active workspace) active owner output
+
+-- | An initialized context cannot admit a new direct data operation, even
+-- when the requested native name has never appeared in accepted history.
+refuseDirectDataWriteWhenManaged :: Maybe String -> Text -> IO ()
+refuseDirectDataWriteWhenManaged mctx operation =
+  withAcceptedInventoryHistory mctx operation $ \_ ->
+    dieT ("inventory history is initialized; direct " <> operation
+      <> " is refused until a reviewed operation is available")
 
 -- | Legacy operations have no inventory receipt. Check every native address
 -- their command family can touch, even after its StatefulSet was collected.

@@ -184,7 +184,8 @@ nagarectl inventory apply ./pg-main-restart --yes
 ```
 
 An accepted database refuses `db restart --dry-run`; use `--save-plan` to inspect
-the actual update. A legacy database still uses the direct restart command.
+the actual update. A legacy database still uses the direct restart command only
+before the context's inventory history is initialized.
 
 To retire a database already accepted into a standalone inventory scope, review
 the retirement separately:
@@ -198,9 +199,9 @@ If the database has a pinned logical key different from its current name, pass
 `--scope-key KEY`. The command checks the accepted StatefulSet name and
 namespace before planning. Applying this retirement review preserves every
 provider resource, including the workload, Service, credential, and PVC. It
-records their identities as retained history. Use `db delete` only for the
-separate direct deletion workflow; reviewed Kubernetes deletion is not yet
-supported for these resources.
+records their identities as retained history. Reviewed Kubernetes deletion is
+not yet supported for these resources. Direct `db delete --yes` is available
+only before the context's inventory history is initialized.
 Direct database operations refuse accepted or retained workload, Service,
 credential, backup, configuration, or PVC addresses, including when the
 StatefulSet has already been collected. The direct create check includes a
@@ -214,7 +215,13 @@ the backup policy and credential key version used by that scope. The plan
 requires the platform's accepted Namespace declaration bound to the selected
 cluster identity. A `--config` database must match the command's engine and
 name. The older `db create` form without recovery options still uses the direct
-create path during the command migration.
+create path only before the context's inventory history is initialized.
+
+In an initialized inventory context, direct live database create, shell,
+delete, backup, and restore refuse even for an unclaimed name. Create, restart,
+and retirement have reviewed routes above. Manual backup, restore, interactive
+maintenance, and deletion still need reviewed operations. Read-only output remains available
+where the command provides `--dry-run` or a plan-only form.
 
 `db create` generates the `nagare-db-<name>` Secret, then applies the PVC,
 ClickHouse memory ConfigMap (ClickHouse only), Service, and StatefulSet, then

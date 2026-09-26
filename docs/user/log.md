@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-26
+* **Fix**: Refuse direct live database, broker, and volume data operations in initialized inventory contexts; keep reviewed create/restart/retirement and read-only previews available.
 * **Fix**: Require stable-ID reviewed task runs after inventory initialization and refuse direct scheduled-task deletion there until reviewed retirement exists.
 * **Fix**: Require reviewed live Service, worker, and site deploys after inventory initialization, including static previews; keep image-free offline rendering available.
 * **Update**: Scope the first inventory-backed release to fresh contexts; label platform upgrade and rollback as legacy compatibility unavailable after inventory admission.

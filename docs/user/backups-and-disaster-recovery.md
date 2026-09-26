@@ -24,6 +24,13 @@ The guiding principle: **the machine is disposable.** Recovery is `pulumi up`,
 `nixos-rebuild switch`, bootstrap the cluster, restore data, deploy apps. Nagare
 is successful only if rebuilding it is *boring*.
 
+In a context with initialized resource inventory history, direct live `db backup`,
+`db restore`, `storage snapshot`, and `storage restore` refuse until their
+reviewed operation paths are available. Scheduled database backup declarations
+remain part of reviewed database scopes. The manual commands below describe
+the legacy path in contexts without initialized history; dry-run output is
+available without submitting a Job.
+
 ---
 
 ## What to back up (and where it already lives)

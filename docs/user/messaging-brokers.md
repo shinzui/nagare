@@ -82,7 +82,8 @@ the broker was created with a pinned logical key different from its current
 name. The accepted StatefulSet name and namespace are checked before planning.
 Applying this retirement review preserves the broker and its topics and records
 their identities as retained history. Reviewed Kubernetes deletion is not yet
-supported for these resources; `broker delete` is a separate direct workflow.
+supported for these resources; `broker delete --yes` is a separate direct
+workflow available only before the context's inventory history is initialized.
 Direct broker operations refuse accepted or retained StatefulSet, Service, or
 PVC addresses, including when the StatefulSet has already been collected.
 
@@ -120,7 +121,10 @@ For an accepted broker, `broker restart` reviews and applies a pod template
 update while preserving its PVC, Service, and topic claims. To inspect before
 apply, run `nagarectl broker restart events --save-plan ./events-restart`, then
 `nagarectl inventory apply ./events-restart --yes`. An accepted broker refuses
-`--dry-run`; legacy brokers keep the direct restart behavior.
+`--dry-run`; legacy brokers keep the direct restart behavior before inventory
+history is initialized. In an initialized context, direct live create,
+restart, and delete refuse even for an unclaimed broker. Use the reviewed
+create, restart, and retirement routes above; reviewed deletion is pending.
 
 `broker delete` removes the StatefulSet and Service but keeps the PVC by default
 so data is not destroyed accidentally. Delete the PVC only when you intend to

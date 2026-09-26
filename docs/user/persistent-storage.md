@@ -254,6 +254,11 @@ and the [disaster-recovery runbook](../runbooks/disaster-recovery.md); the verb
 is `nagarectl storage restore APP VOLUME <timestamp>` (scratch-first by default;
 `--into-live` targets the live PVC).
 
+After a context initializes inventory history, live direct `storage snapshot`
+and `storage restore` refuse even for an unclaimed volume. Reviewed snapshot
+and restore operations are still pending. `storage restore --dry-run` remains
+available to inspect the rendered operation without changing the cluster.
+
 
 ## Two worked examples
 

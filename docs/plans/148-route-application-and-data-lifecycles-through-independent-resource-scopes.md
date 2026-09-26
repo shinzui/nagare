@@ -129,7 +129,8 @@ Reviewed application deploy also declares the per-Service release-history Config
 
 Stable-ID `task run` now publishes, reloads, and applies its reviewed Job in one invocation; `--save-plan` remains available for separate inspection and apply. The direct timestamped route remains for tasks outside accepted inventory.
 In initialized inventory contexts, live `task run` now requires that stable-ID reviewed route, even for a newly named CronJob. Direct `task delete --yes` refuses there until schedule retirement has an exact reviewed operation. The read-only run/delete previews remain available; uninitialized contexts retain the legacy commands.
-An isolated CLI regression exercised seven live application and Task refusals against an initialized context and verified that its inventory head remained byte-for-byte unchanged.
+An isolated CLI regression exercised the live application and Task refusals against an initialized context and verified that its inventory head remained byte-for-byte unchanged.
+The same boundary now refuses direct live database and broker creation, deletion, and restart for new names. Reviewed create, restart, and retirement remain available. Direct database shell, backup, and restore and app-volume snapshot and restore also refuse after initialization while their reviewed operational forms are still pending. The CLI regression now covers eighteen live refusals; its inventory head remained unchanged.
 Versioned `secret set`, `secret delete`, and exact `secret sync` now use the same one-invocation review service when no saved review directory is supplied; private native Secret bytes remain in the immutable evidence store. Unversioned direct writes remain guarded legacy routes.
 `env set`, `env delete`, and merged or exact `env sync` can opt into the same one-invocation reviewed path with `--reviewed`; the existing `--save-plan` route shares its compiler. Unreviewed direct env writes remain guarded legacy routes.
 Reviewed aggregate pre-deploy hooks now bind independent per-tag scopes with stable Jobs and typed completion operations. The caller must list every affected resource or assert no data effects; hook Jobs wait for their CronJobs, affected resources, and preceding hooks, and workloads wait for completion. Old hook scopes remain accepted across tags, while a changed hook under the same tag refuses. CDN and remaining command paths stay in M2 through M4.
@@ -337,6 +338,8 @@ Critical path from completed M1 to final acceptance, in execution order:
 
 ## Decision Log
 
+2026-09-26: Extend the initialized-store cutover to data command fallbacks. A native-address check cannot authorize a new, unreviewed StatefulSet, backup Job, maintenance shell, or snapshot in a context already using inventory. Keep direct commands for uninitialized contexts and read-only dry-run forms where provided. Manual backup, restore, maintenance, and deletion still require reviewed operations; this refusal is an intermediate safety boundary, not M3 completion.
+
 2026-09-26: Use inventory initialization as the boundary for direct Task Job submission and schedule deletion. A timestamped manual run has no stable retry identity, and direct CronJob deletion has no reviewed lifecycle decision. Require the accepted-CronJob `--run-id` route for live runs; refuse live deletion until schedule retirement is implemented. Plan-only and dry-run output remain available.
 
 2026-09-26: Treat inventory store initialization as the direct application, Service, worker, and site deploy boundary. The earlier native-address guards allowed a new name to perform unreviewed namespace, credential, route, and workload writes in a context already using inventory. The reviewed OCI archive and accepted-image deployment route is available there; keep live legacy deployment only for contexts without initialized history until build input publication and the other command cutovers close. Read-only offline dry-runs remain available.
@@ -486,6 +489,8 @@ DependencyExports contains typed capability witnesses and selected revision/phys
 
 
 ## Revision Notes
+
+2026-09-26: Refused direct live data operations in initialized inventory contexts and documented the remaining reviewed operation gaps. Expanded the isolated CLI refusal regression to eighteen cases.
 
 2026-09-26: Closed direct live Task run/delete after inventory initialization. Reviewed stable-ID manual runs remain available; reviewed schedule retirement is still M3 work.
 
