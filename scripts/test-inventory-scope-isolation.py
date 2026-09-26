@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
-"""Exercise reviewed app planning and apply beside unrelated provider owners."""
+"""Exercise reviewed app planning and apply beside unrelated provider owners.
+
+Live mode requires a disposable kubeconfig whose context is named ``isolated``,
+an existing ``personal`` Namespace, and the fixture image preloaded at its tag.
+It leaves the two created native objects for inspection and explicit cleanup.
+"""
 
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -16,17 +22,24 @@ def run(cli: Path, root: Path, environment: dict[str, str], args: list[str]) -> 
         text=True, capture_output=True, check=False,
     )
     if result.returncode:
+        diagnostic_file = environment.get("SCOPE_TEST_KUBECTL_ERRORS")
+        diagnostics = (Path(diagnostic_file).read_text()
+            if diagnostic_file and Path(diagnostic_file).exists() else "")
         raise AssertionError(
             f"nagarectl {' '.join(args)} failed ({result.returncode}):\n"
-            f"{result.stdout}{result.stderr}"
+            f"{result.stdout}{result.stderr}{diagnostics}"
         )
     return result.stdout
 
 
 def main() -> None:
-    if len(sys.argv) != 2:
-        raise SystemExit("usage: test-inventory-scope-isolation.py BUILT_NAGARECTL")
+    if len(sys.argv) not in (2, 4) or (len(sys.argv) == 4 and sys.argv[2] != "--live-kubeconfig"):
+        raise SystemExit("usage: test-inventory-scope-isolation.py BUILT_NAGARECTL [--live-kubeconfig FILE]")
     cli = Path(sys.argv[1]).resolve(strict=True)
+    live_kubeconfig = Path(sys.argv[3]).resolve(strict=True) if len(sys.argv) == 4 else None
+    live_kubectl = shutil.which("kubectl") if live_kubeconfig else None
+    if live_kubeconfig and not live_kubectl:
+        raise SystemExit("live provider probe requires kubectl")
     root = Path(__file__).resolve().parent.parent
     fixture = json.loads((root / "cli/nagarectl/test/fixtures/inventory/valid.json").read_text())
     foundation = fixture["snapshot"][0]["declaration"]
@@ -109,6 +122,7 @@ def main() -> None:
         marker = scratch / "provider-called"
         kubectl_calls = scratch / "kubectl-calls.jsonl"
         kubectl_state = scratch / "kubectl-state.json"
+        kubectl_errors = scratch / "kubectl-errors.jsonl"
         fake_bin = scratch / "bin"
         fake_bin.mkdir()
         for executable in ("npm", "pulumi", "gcloud"):
@@ -121,17 +135,30 @@ def main() -> None:
         kubectl = fake_bin / "kubectl"
         kubectl.write_text("""#!/usr/bin/env python3
 import json
+import subprocess
 import sys
 from pathlib import Path
 
 marker = Path(%r)
 calls = Path(%r)
 state_file = Path(%r)
+live_binary = %r
+errors = Path(%r)
 with marker.open("a") as output:
     output.write(sys.argv[0] + "\\n")
 with calls.open("a") as output:
     output.write(json.dumps(sys.argv[1:]) + "\\n")
 args = sys.argv[1:]
+if live_binary is not None:
+    result = subprocess.run([live_binary, *args], stdin=sys.stdin.buffer,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    sys.stdout.buffer.write(result.stdout)
+    sys.stderr.buffer.write(result.stderr)
+    if result.returncode:
+        with errors.open("a") as output:
+            output.write(json.dumps({"args": args, "exit": result.returncode,
+                "stderr": result.stderr.decode(errors="replace")}) + "\\n")
+    sys.exit(result.returncode)
 objects = json.loads(state_file.read_text()) if state_file.exists() else {}
 namespace = args[args.index("--namespace") + 1] if "--namespace" in args else ""
 if "get" in args:
@@ -161,7 +188,8 @@ if "create" in args:
 if "wait" in args and any(value.startswith("ksvc/") for value in args):
     sys.exit(0)
 sys.exit(95)
-""" % (str(marker), str(kubectl_calls), str(kubectl_state)))
+""" % (str(marker), str(kubectl_calls), str(kubectl_state), live_kubectl,
+            str(kubectl_errors)))
         kubectl.chmod(0o755)
         environment = {key: value for key, value in os.environ.items()
             if not key.startswith("NAGARE_") and not key.startswith("CLOUDSDK_")}
@@ -172,6 +200,9 @@ sys.exit(95)
             "NAGARE_MODE": "local",
             "PATH": str(fake_bin) + os.pathsep + os.environ.get("PATH", ""),
         })
+        if live_kubeconfig:
+            environment["KUBECONFIG"] = str(live_kubeconfig)
+            environment["SCOPE_TEST_KUBECTL_ERRORS"] = str(kubectl_errors)
         compiled = scratch / "compiled"
         review = scratch / "review"
         run(cli, root, environment, ["inventory", "compile", "--input",
@@ -213,35 +244,36 @@ sys.exit(95)
         if marker.exists():
             raise AssertionError("unrelated provider executable was called: "
                 + marker.read_text())
-        selected_candidate = json.loads(json.dumps(candidate))
-        selected_app = selected_candidate["changes"][0]["replace"]
-        selected_foundation = selected_candidate["snapshot"][0]["declaration"]
-        selected_foundation["bundles"][0]["grants"] = [
-            [selected_app["scope"], "platform:foundation/cluster/resource"]
-        ]
-        selected_app["bundles"][0]["contributions"] = [{
-            "owner": selected_foundation["scope"],
-            "cluster": "platform:foundation/cluster/resource",
-            "namespace": "selected", "key": "selected",
-        }]
-        selected_file = scratch / "selected-candidate.json"
-        selected_file.write_text(json.dumps(selected_candidate))
-        selected_compiled = scratch / "selected-compiled"
-        selected_review = scratch / "selected-review"
-        selected_environment = environment | {
-            "XDG_STATE_HOME": str(scratch / "selected-state")
-        }
-        run(cli, root, selected_environment, ["inventory", "compile", "--input",
-            str(selected_file), "--out", str(selected_compiled)])
-        run(cli, root, selected_environment, ["--context", "isolated", "inventory", "plan",
-            "--inventory", str(selected_compiled), "--out", str(selected_review)])
-        selected_operations = json.loads((selected_review / "review.json").read_text())["operations"]
-        if len(selected_operations) != 1 or "KubernetesExecutor" not in json.dumps(selected_operations):
-            raise AssertionError("selected Namespace did not plan one Kubernetes operation")
-        calls = marker.read_text().splitlines() if marker.exists() else []
-        if not calls or any(Path(call).name != "kubectl" for call in calls):
-            raise AssertionError("selected Namespace invoked an unrelated provider: " + repr(calls))
-        marker.unlink()
+        if not live_kubeconfig:
+            selected_candidate = json.loads(json.dumps(candidate))
+            selected_app = selected_candidate["changes"][0]["replace"]
+            selected_foundation = selected_candidate["snapshot"][0]["declaration"]
+            selected_foundation["bundles"][0]["grants"] = [
+                [selected_app["scope"], "platform:foundation/cluster/resource"]
+            ]
+            selected_app["bundles"][0]["contributions"] = [{
+                "owner": selected_foundation["scope"],
+                "cluster": "platform:foundation/cluster/resource",
+                "namespace": "selected", "key": "selected",
+            }]
+            selected_file = scratch / "selected-candidate.json"
+            selected_file.write_text(json.dumps(selected_candidate))
+            selected_compiled = scratch / "selected-compiled"
+            selected_review = scratch / "selected-review"
+            selected_environment = environment | {
+                "XDG_STATE_HOME": str(scratch / "selected-state")
+            }
+            run(cli, root, selected_environment, ["inventory", "compile", "--input",
+                str(selected_file), "--out", str(selected_compiled)])
+            run(cli, root, selected_environment, ["--context", "isolated", "inventory", "plan",
+                "--inventory", str(selected_compiled), "--out", str(selected_review)])
+            selected_operations = json.loads((selected_review / "review.json").read_text())["operations"]
+            if len(selected_operations) != 1 or "KubernetesExecutor" not in json.dumps(selected_operations):
+                raise AssertionError("selected Namespace did not plan one Kubernetes operation")
+            calls = marker.read_text().splitlines() if marker.exists() else []
+            if not calls or any(Path(call).name != "kubectl" for call in calls):
+                raise AssertionError("selected Namespace invoked an unrelated provider: " + repr(calls))
+            marker.unlink()
 
         app_candidate = json.loads(json.dumps(candidate))
         app_foundation = app_candidate["snapshot"][0]["declaration"]
@@ -296,7 +328,8 @@ sys.exit(95)
         if marker.exists():
             raise AssertionError("app fixture seeding invoked a provider: " + marker.read_text())
         app_review = scratch / "app-review"
-        app_config = root / "cli/nagarectl/test/fixtures/app-scope-isolation/nagare/Config.hs"
+        config_name = "WorkerConfig.hs" if live_kubeconfig else "Config.hs"
+        app_config = root / "cli/nagarectl/test/fixtures/app-scope-isolation/nagare" / config_name
         run(cli, root, app_environment, ["--context", "isolated", "app", "deploy",
             "--file", str(app_config), "--tag", "v1", "--image-resource", image_id,
             "--save-plan", str(app_review)])
@@ -307,6 +340,9 @@ sys.exit(95)
         calls = marker.read_text().splitlines() if marker.exists() else []
         if not calls or any(Path(call).name != "kubectl" for call in calls):
             raise AssertionError("reviewed application invoked an unrelated provider: " + repr(calls))
+        review_calls = [json.loads(line) for line in kubectl_calls.read_text().splitlines()]
+        if any("get" in call and "cache" in call for call in review_calls):
+            raise AssertionError("reviewed application observed an unrelated native member")
         marker.unlink()
         kubectl_calls.unlink()
         app_head = scratch / "app-state/nagare/isolated/inventory/head.json"
@@ -323,15 +359,45 @@ sys.exit(95)
             raise AssertionError("reviewed app apply changed an unrelated accepted revision")
         if "isolated-app" not in new_revisions:
             raise AssertionError("reviewed app apply did not accept the application scope")
-        provider_objects = json.loads(kubectl_state.read_text()) if kubectl_state.exists() else {}
-        expected_objects = {"personal:service:isolated-app",
+        expected_workload = ("personal:deployment:isolated-app" if live_kubeconfig
+            else "personal:service:isolated-app")
+        expected_objects = {expected_workload,
             "personal:configmap:nagare-app-deployments-isolated-app"}
+        if live_kubeconfig:
+            provider_objects = {}
+            for key in expected_objects:
+                namespace, kind, name = key.split(":", 2)
+                result = subprocess.run(
+                    [live_kubectl, "--context", "isolated", "get", kind, name,
+                     "--namespace", namespace, "-o", "json"],
+                    env=app_environment, text=True, capture_output=True, check=False,
+                )
+                if result.returncode:
+                    raise AssertionError("reviewed app native object is absent: " + key
+                        + "\n" + result.stderr)
+                provider_objects[key] = json.loads(result.stdout)
+        else:
+            provider_objects = json.loads(kubectl_state.read_text()) if kubectl_state.exists() else {}
         if set(provider_objects) != expected_objects:
             raise AssertionError("reviewed app apply wrote unexpected native objects: "
                 + repr(sorted(provider_objects)))
+        if live_kubeconfig:
+            if any(not native.get("metadata", {}).get("uid") or
+                   not native.get("metadata", {}).get("resourceVersion")
+                   for native in provider_objects.values()):
+                raise AssertionError("live provider objects lack physical identities")
+            deployment = provider_objects[expected_workload]
+            if deployment.get("status", {}).get("availableReplicas") != 1:
+                raise AssertionError("reviewed worker Deployment is not available")
+            images = [container["image"] for container in
+                deployment["spec"]["template"]["spec"]["containers"]]
+            if images != ["k3d-registry.localhost:5000/isolated:v1"]:
+                raise AssertionError("reviewed worker uses an unexpected image: " + repr(images))
         apply_calls = [json.loads(line) for line in kubectl_calls.read_text().splitlines()]
         if sum("create" in call for call in apply_calls) != 2:
             raise AssertionError("reviewed app apply did not create each native member once")
+        if any("get" in call and "cache" in call for call in apply_calls):
+            raise AssertionError("reviewed app apply observed an unrelated native member")
         calls = marker.read_text().splitlines() if marker.exists() else []
         if not calls or any(Path(call).name != "kubectl" for call in calls):
             raise AssertionError("reviewed app apply invoked an unrelated provider: " + repr(calls))
