@@ -276,17 +276,13 @@ observability:
     @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform guard; fi
     scripts/run-reviewed-bootstrap.sh
 
-# EP-4 ships the sample app; this applies it as a smoke test. Apply the
-# Kubernetes manifests explicitly (the app contract is the typed
-# nagare/Config.hs, not a k8s object, so it must not be passed to kubectl;
-# `nagarectl deploy` is the path that renders it).
-# Apply the hello Knative sample app as a smoke test.
+# Deploy the typed hello example from an already accepted image publication.
+# The image resource must name the exact context-registry hello:TAG image.
+# Publish the image with `nagarectl app image-plan` first.
 [group('apps')]
-deploy-hello:
-    @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform guard; fi
+deploy-hello image_resource tag:
     nagarectl cluster guard
-    kubectl apply -f cluster/examples/hello-knative-service/service.yaml
-    kubectl apply -f cluster/examples/hello-knative-service/domainmapping.yaml
+    nagarectl deploy --file cluster/examples/hello-knative-service/nagare/Config.hs --tag {{tag}} --image-resource {{image_resource}}
 
 # Quick cluster status across all namespaces (pods and Knative services).
 [group('apps')]

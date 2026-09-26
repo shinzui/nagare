@@ -6,7 +6,7 @@ reviewed operations, retained native bundles, and journal receipts remain the
 authority.
 
 <!-- managed-command-registry:start -->
-| Typed command group | Registered routes | Unresolved routes |
+| Entrypoint | Registered routes | Unresolved routes |
 | --- | ---: | --- |
 | `Command` | 67 | `Cleanup` |
 | `HostCommand` | 5 | `HostPlaceAgeKey` |
@@ -25,6 +25,8 @@ authority.
 | `PortalCommand` | 2 | `PortalSync` |
 | `DomainsCommand` | 2 | none |
 | `CdnCommand` | 4 | `CdnDisable`, `CdnPurge` |
+| `justfile` | 34 | `host-image`, `host-switch`, `infra-destroy`, `local-smoke`, `smoke`, `vm-start`, `vm-stop` |
+| `Inventory.Command` production calls | 25 | none |
 <!-- managed-command-registry:end -->
 
 Each row names the lifecycle-owning scope, declaration compiler, native executor,

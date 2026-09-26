@@ -13,22 +13,20 @@ path, and the reference artifact EP-6's `nagarectl` renders against.
   reference is a **compile-time or load-time error**, never a silent cluster
   rejection. This replaced the former untyped `nagare.yaml` in the EP-12 cutover
   (see `docs/masterplans/2-type-safe-haskell-deployment-dsl-for-nagarectl.md`).
-- `service.yaml` — the rendered `serving.knative.dev/v1` Service, kept as a
-  reference manifest (it is what `nagarectl deploy` renders from `Config.hs`).
-  `min`/`max` scale become `autoscaling.knative.dev/{min,max}-scale` annotations.
-- `domainmapping.yaml` — a `serving.knative.dev/v1beta1` DomainMapping mapping a
-  custom hostname (`hello.example.com`) onto the service.
+- `service.yaml` and `domainmapping.yaml` — historical example manifests for
+  inspection. They are not deployment inputs; the reviewed command compiles
+  `Config.hs` and binds the selected context's accepted image publication.
 
 ## Preview the rendered manifest (no cluster)
 
-`nagarectl deploy --dry-run` compiles-and-runs `nagare/Config.hs` and prints the
-Knative Service (and DomainMapping) YAML plus the computed URL, without touching
-the cluster:
+`nagarectl deploy --dry-run` compiles `nagare/Config.hs` against an accepted
+image publication and prints the public scope without changing the cluster:
 
 ```bash
 # From cli/nagarectl/ (where `cabal build` materialised a .ghc.environment.* so
 # the loader's runghc can resolve nagare-dsl):
-cabal run -v0 nagarectl -- deploy --dry-run \
+cabal run -v0 nagarectl -- deploy --dry-run --tag sample-v1 \
+  --image-resource publication:app-image-hello-sample-v1/hello-sample-v1/oci-image \
   --file ../../cluster/examples/hello-knative-service/nagare/Config.hs
 ```
 
@@ -38,9 +36,18 @@ environment: `nagarectl deploy --dry-run --ghc-env <path-to-.ghc.environment.*>`
 
 ## Deploy and test (HTTP)
 
+Publish the chosen hello image archive to the selected context registry with
+`nagarectl app image-plan --archive FILE --destination PREFIX/hello:sample-v1
+--key hello-sample-v1`. `PREFIX` is the selected context's
+`NAGARE_REGISTRY_PREFIX`; the archive and resulting publication are bound by
+digest. See [Deploying applications](../../../docs/user/deploying-apps.md) for
+the image publication procedure. The example config uses the short image name
+`hello`, which the CLI qualifies under that prefix. Replace `sample-v1` and the
+resource ID together when publishing a different image.
+
 ```bash
-export KUBECONFIG=/tmp/nagare-kubeconfig.yaml   # see EP-4 M0 / MasterPlan access note
-kubectl apply -f cluster/examples/hello-knative-service/service.yaml
+export KUBECONFIG=/tmp/nagare-kubeconfig.yaml
+just deploy-hello publication:app-image-hello-sample-v1/hello-sample-v1/oci-image sample-v1
 kubectl -n personal get ksvc hello -w           # wait for READY=True
 
 BASE_DOMAIN=$(pulumi -C infra/pulumi stack output baseDomain)
@@ -55,8 +62,9 @@ curl -i --resolve hello.personal.${BASE_DOMAIN}:80:${PUBLIC_IP} \
 
 ## DomainMapping (HTTP)
 
+The reviewed deploy includes the declared `hello.example.com` DomainMapping.
+
 ```bash
-kubectl apply -f cluster/examples/hello-knative-service/domainmapping.yaml
 kubectl -n personal get domainmapping hello.example.com
 curl -i --resolve hello.example.com:80:${PUBLIC_IP} http://hello.example.com
 # Expect: 200, "Hello Nagare!"
@@ -69,9 +77,15 @@ zone; see `../../bootstrap/cert-manager/README.md`. Once enabled,
 `curl -v https://hello.personal.<baseDomain>` returns HTTP/2 200 behind a
 browser-trusted wildcard cert.
 
-## Cleanup
+## Retirement
+
+Retire the accepted standalone Service scope through a saved inventory review.
+The first apply retains its provider objects; collect each retained member by
+exact resource ID in a separate reviewed `inventory collect` operation. The
+inventory status output supplies those IDs.
 
 ```bash
-kubectl delete -f cluster/examples/hello-knative-service/domainmapping.yaml
-kubectl delete -f cluster/examples/hello-knative-service/service.yaml
+nagarectl app delete hello --save-plan hello-retirement
+nagarectl inventory apply hello-retirement --yes
+nagarectl inventory status
 ```

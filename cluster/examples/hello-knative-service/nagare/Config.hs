@@ -20,7 +20,7 @@ deployment :: Either String Deployment
 deployment = do
   name' <- first show (mkServiceName "hello")
   ns' <- first show (mkNamespace "personal")
-  img' <- first show (mkImageRef "gcr.io/knative-samples/helloworld-go")
+  img' <- first show (mkImageRef "hello")
   doms <- first show (mkDomains [("hello.example.com", True)])
   port' <- first show (mkPort 8080)
   target <- first show (mkEnvName "TARGET")

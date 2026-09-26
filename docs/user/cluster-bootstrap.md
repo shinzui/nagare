@@ -227,12 +227,16 @@ separately.
 
 ## Smoke test
 
-EP-4 ships a sample Knative service. Apply it and confirm HTTPS:
+EP-4 ships a sample Knative service. Publish the exact `hello:TAG` image to the
+selected context registry with `nagarectl app image-plan` first, then use its
+accepted resource ID to deploy and confirm HTTPS. The [example
+README](../../cluster/examples/hello-knative-service/README.md) has the
+publication and retirement steps.
 
 ```bash
-just deploy-hello       # kubectl apply -f cluster/examples/hello-knative-service
+just deploy-hello IMAGE_RESOURCE TAG   # accepted context-registry hello:TAG image
 just status             # ksvc shows the hello service with a URL + Ready
-curl https://hello.default.<baseDomain>
+curl https://hello.personal.<baseDomain>
 ```
 
 ## Verify

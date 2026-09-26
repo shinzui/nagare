@@ -254,7 +254,7 @@ Shell recipes use `NAGARE_CONTEXT=NAME just <recipe>`.
 | `just local-down` | Delete the local k3d cluster and registry | MP-16 EP-82 |
 | `nagare local-smoke` (`just local-smoke` in a checkout) | Local zero-cloud smoke: deploy → volume/database backup+restore (MinIO) → HTTP 200 → teardown | MP-16 EP-86 / MP-19 EP-101 |
 | `nagare observability` (`just observability` in a checkout) | Guard the selected cluster, then install the Victoria stack + Grafana via Helm using context-owned encrypted Secrets | EP-5 / MP-19 EP-101 / MP-22 EP-134 |
-| `just deploy-hello` | Guard the selected cluster, then apply the sample Knative service | EP-4 ✅ / MP-22 EP-134 |
+| `just deploy-hello IMAGE_RESOURCE TAG` | Guard the selected cluster, then deploy the typed hello example through a reviewed Service scope. `IMAGE_RESOURCE` must name an accepted publication of the exact context-registry `hello:TAG` image. | EP-153 |
 | `just status` | `kubectl get pods -A` + `kubectl get ksvc -A` | — |
 | `just live-test` | Open an IAP/SSH-forwarded kube connection and print the `KUBECONFIG` to use | MP-8 EP-70 |
 | `just smoke` | Run the cloud deploy, GCS volume round-trip, HTTP check, and teardown smoke test | EP-69 |

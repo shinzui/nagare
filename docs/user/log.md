@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-26
+* **Change**: Route `just deploy-hello` through reviewed standalone Service deployment with an accepted context-registry image and explicit tag; update the example's deployment and retirement instructions.
 * **Change**: Save reviewed scratch volume restores from accepted snapshot receipts; recheck current archive and receipt bytes before extracting into a separate PVC, and remove direct restore effects.
 * **Change**: Save reviewed volume snapshots against an accepted PVC UID with create-only object and receipt uploads; remove direct snapshot Job submission and broad pruning.
 * **Test**: Exercise signed production and pull-request webhook deliveries through the built runner, reviewed site CLI, and a recording Kubernetes provider; verify the exact accepted image and four preview stores.

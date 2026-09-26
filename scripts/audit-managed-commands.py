@@ -168,10 +168,10 @@ def family_assignments() -> dict[str, str]:
 
 RECIPES = {
     "read": "default docs-validate terminology-validate reviews-validate user-documentation-validate nixos-registry-host nix-cache-status job-runs-status context-show status live-test haskell-style-check",
-    "reviewed": "infra-up infra-preview cluster-bootstrap nix-cache-publish nix-cache-bootstrap job-runs-bootstrap cluster-enable-tls local-bootstrap local-minio observability",
+    "reviewed": "infra-up infra-preview cluster-bootstrap nix-cache-publish nix-cache-bootstrap job-runs-bootstrap cluster-enable-tls local-bootstrap local-minio observability deploy-hello",
     "bounded": "iap-ssh",
     "local": "local-up local-down nix-cache-secret-init",
-    "pending": "infra-destroy vm-stop vm-start host-image host-switch deploy-hello smoke local-smoke",
+    "pending": "infra-destroy vm-stop vm-start host-image host-switch smoke local-smoke",
 }
 
 RECIPE_FAMILY = {
@@ -255,7 +255,7 @@ def audit(source: str) -> tuple[list[str], dict[str, dict[str, str]]]:
                 errors.append(f"registered entrypoint changed: {relative}: {marker}")
 
     recipe_source = (ROOT / "justfile").read_text()
-    actual_recipes = set(re.findall(r"(?m)^([a-z][a-z0-9-]*)(?: \*args)?:", recipe_source))
+    actual_recipes = set(re.findall(r"(?m)^([a-z][a-z0-9-]*)(?: [^\n:]*)?:", recipe_source))
     registered_recipes = [name for names in RECIPES.values() for name in names.split()]
     for name in sorted(actual_recipes - set(registered_recipes)):
         errors.append(f"unregistered recipe {name}")
@@ -317,7 +317,7 @@ def audit(source: str) -> tuple[list[str], dict[str, dict[str, str]]]:
 def catalogue_snapshot(registered: dict[str, dict[str, str]]) -> str:
     lines = [
         CATALOGUE_START,
-        "| Typed command group | Registered routes | Unresolved routes |",
+        "| Entrypoint | Registered routes | Unresolved routes |",
         "| --- | ---: | --- |",
     ]
     for type_name, routes in registered.items():
@@ -327,6 +327,15 @@ def catalogue_snapshot(registered: dict[str, dict[str, str]]) -> str:
             + (", ".join(f"`{name}`" for name in pending) if pending else "none")
             + " |"
         )
+    lines.append(
+        f"| `justfile` | {sum(len(names.split()) for names in RECIPES.values())} | "
+        + ", ".join(f"`{name}`" for name in sorted(RECIPES["pending"].split()))
+        + " |"
+    )
+    lines.append(
+        f"| `Inventory.Command` production calls | "
+        f"{sum(len(names.split()) for names in LIBRARY_CALLS.values())} | none |"
+    )
     lines.append(CATALOGUE_END)
     return "\n".join(lines)
 
