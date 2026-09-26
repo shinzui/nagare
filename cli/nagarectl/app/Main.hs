@@ -270,7 +270,7 @@ import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Application (ApplicationScopeInput (..), GoogleCdnBinding (..), CloudflareCdnBinding (..), ReviewedCdnBinding (..), DatabaseBinding, ServiceAction (..), acceptedAccessBinding, acceptedApplicationImage, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationDeployment, compileServiceActionScope, compileStandaloneServiceWithRelease, compileStandaloneWorkerWithDependencies, databaseRecoveryBindings, hostnameClaimOwned, legacyApplicationReleaseImport, legacyStandaloneReleaseImport, nativeWorkloadOwned, recordReviewedStandaloneOverrides, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
-import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteReleaseLog, acceptedSiteSource, compileServerSitePreviewScope, compileServerSiteRollbackScope, compileServerSiteRollbackScopeWithCdn, compileServerSiteRollbackScopeWithCloudflare, compileServerSiteScope, compileServerSiteScopeWithCdn, compileServerSiteScopeWithCloudflare, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteRollbackScopeWithCdn, compileStaticSiteRollbackScopeWithCloudflare, compileStaticSiteScope, compileStaticSiteScopeWithCdn, compileStaticSiteScopeWithCloudflare, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteNativeOwned, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
+import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteReleaseLog, acceptedSiteSource, compileServerSitePreviewScope, compileServerSiteRollbackScope, compileServerSiteRollbackScopeWithCdn, compileServerSiteRollbackScopeWithCloudflare, compileServerSiteScope, compileServerSiteScopeWithCdn, compileServerSiteScopeWithCloudflare, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteRollbackScopeWithCdn, compileStaticSiteRollbackScopeWithCloudflare, compileStaticSiteScope, compileStaticSiteScopeWithCdn, compileStaticSiteScopeWithCloudflare, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
 import Nagare.Inventory.Backup (ManualBackupRequest (..), BackupSourceProof (..), compileManualBackupScope, manualBackupSourceProof)
 import Nagare.Inventory.Prune (ManualPruneRequest (..), PruneSourceProof (..), compileManualPruneScope, manualPruneSourceProof)
 import Nagare.Inventory.Restore (ManualRestoreRequest (..), compileManualRestoreScope, manualRestoreTargetProof)
@@ -414,7 +414,7 @@ import Nagare.Static.Deploy
   , StaticManifests (..)
   , productionManifests
   )
-import Nagare.Static.Preview (deletePreview, listPreviews, previewDomain, previewServiceName)
+import Nagare.Static.Preview (listPreviews, previewDomain, previewServiceName)
 import Nagare.Static.Release
   ( StaticRelease (..)
   , StaticReleaseLog (..)
@@ -1739,7 +1739,7 @@ siteRollbackOptsParser :: FilePath -> Parser SiteRollbackOpts
 siteRollbackOptsParser defaultFile =
   SiteRollbackOpts
     <$> siteCommonOptsParser defaultFile
-    <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save reviewed site rollback"))
+    <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Required saved review for site rollback"))
     <*> optional (strOption (long "image-resource" <> metavar "RESOURCE-ID" <> help "Accepted OCI image for the selected release"))
     <*> optional (strOption (long "cdn-backend-resource" <> metavar "RESOURCE-ID" <> help "Accepted platform Pulumi BackendService for reviewed Google CDN DNS"))
     <*> many (strOption (long "volume-recovery" <> metavar "VOLUME=BACKUP:KEY:VERSION" <> help "Retained server-site PVC recovery"))
@@ -1750,7 +1750,7 @@ sitePreviewDeleteOptsParser :: FilePath -> Parser SitePreviewDeleteOpts
 sitePreviewDeleteOptsParser defaultFile =
   SitePreviewDeleteOpts
     <$> siteCommonOptsParser defaultFile
-    <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save reviewed preview retirement; collect retained members separately"))
+    <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Required saved review for preview retirement; collect retained members separately"))
 
 -- App lifecycle option fragments (EP-30).
 
@@ -7764,11 +7764,6 @@ reviewedCdnBinding active workspace snapshot intent rawBackend = case intent of
   _ -> fmap (fmap GoogleCdnBindingFor)
     (reviewedGoogleCdnBinding active workspace snapshot intent rawBackend)
 
--- | The custom-domain hostnames of a site (in declaration order) — the hostnames
--- a CDN fronts.
-siteHostnames :: [DomainSpec] -> [Text]
-siteHostnames = map (domainText . (^. #domain))
-
 -- | @site releases@: print the recorded release history. Kind-agnostic — works
 -- for both static and server sites (the release record is runtime-agnostic).
 runSiteReleases :: SiteCommonOpts -> IO ()
@@ -7784,6 +7779,8 @@ runSiteReleases copts = do
 -- rebinds the site scope and its release-history pointer to an accepted image.
 runSiteRollback :: Maybe String -> SiteRollbackOpts -> Text -> IO ()
 runSiteRollback mctx options rid = do
+  output <- maybe (dieT "site rollback requires --save-plan for a reviewed rollback") pure
+    (options ^. #savePlan)
   let copts = options ^. #common
   bd <- resolveBaseDomain mctx (copts ^. #baseDomain)
   tp <- activeProfile mctx
@@ -7791,38 +7788,7 @@ runSiteRollback mctx options rid = do
   esite <- Load.loadSite (copts ^. #file)
   case esite of
     Left err -> dieT (Load.renderLoadError err)
-    Right sc -> case options ^. #savePlan of
-      Just output -> runReviewedSiteRollbackPlan mctx tp options sc bd rid output
-      Nothing -> do
-        when (isJust (options ^. #imageResource)
-            || isJust (options ^. #cdnBackendResource)
-            || not (null (options ^. #siteVolumeRecovery))
-            || not (null (options ^. #siteEnvSecretResources))
-            || not (null (options ^. #siteTlsSecretResources)))
-          (dieT "site rollback inventory options require --save-plan")
-        runDirectSiteRollback mctx tp sc bd rid
-
-runDirectSiteRollback :: Maybe String -> TargetProfile -> Load.SiteConfig -> Text -> Text -> IO ()
-runDirectSiteRollback mctx tp sc bd rid = do
-  let (name, ns) = siteConfigIdentity sc
-      hosts = case sc of
-        Load.SiteStatic site -> siteHostnames (site ^. #domains)
-        Load.SiteServer site -> siteHostnames (site ^. #domains)
-  refuseDirectLegacyOperationWhenManaged mctx "site rollback" "use --save-plan for a reviewed rollback"
-  refuseDirectSiteMutationIfOwned mctx "site rollback" name ns hosts [] True
-  elog <- readReleaseLog name ns
-  logv <- case elog of
-    Left err -> dieT err
-    Right l -> pure l
-  case findRelease rid logv of
-    Nothing -> dieT ("no such release: " <> rid)
-    Just rel -> do
-      let (svc, dms) = rollbackManifests tp sc bd (rel ^. #imageTag)
-      ensureNamespace ApplicationNamespace ns >>= orDie
-      applyManifests (svc : dms)
-      waitForReady name ns >>= requireWait ("service '" <> name <> "'")
-      writeReleaseLog name ns (logv & #current .~ Just (rel ^. #releaseId))
-      TIO.putStrLn ("Rolled back to " <> (rel ^. #releaseId) <> ": " <> (rel ^. #url))
+    Right sc -> runReviewedSiteRollbackPlan mctx tp options sc bd rid output
 
 runReviewedSiteRollbackPlan
   :: Maybe String -> TargetProfile -> SiteRollbackOpts -> Load.SiteConfig
@@ -7907,16 +7873,6 @@ siteIdentityOrDie file = do
   case esite of
     Left err -> dieT (Load.renderLoadError err)
     Right sc -> pure (siteConfigIdentity sc)
-
--- | Render the production Service + DomainMappings for a rollback to @tag@,
--- dispatching on kind.
-rollbackManifests :: TargetProfile -> Load.SiteConfig -> Text -> Text -> (ByteString, [ByteString])
-rollbackManifests tp (Load.SiteStatic s) bd tag =
-  let m = productionManifests (DeployInputs s tag bd "." True tp)
-   in (m ^. #service, m ^. #domainMappings)
-rollbackManifests tp (Load.SiteServer s) bd tag =
-  let m = serverManifests (ServerDeployInputs s tag bd "." True tp)
-   in (m ^. #service, m ^. #domainMappings)
 
 -- | @site preview deploy --name NAME@: deploy the accepted image as an isolated
 -- preview Service under a derived name and domain. Previews are not recorded in
@@ -8070,9 +8026,11 @@ runPreviewList copts = do
     then TIO.putStrLn "(no previews)"
     else mapM_ TIO.putStrLn pnames
 
--- | @site preview delete NAME@: remove a preview's Service and DomainMapping.
+-- | @site preview delete NAME@: save retirement of the preview scope.
 runPreviewDelete :: Maybe String -> SitePreviewDeleteOpts -> Text -> IO ()
 runPreviewDelete mctx options pname = do
+  output <- maybe (dieT "site preview delete requires --save-plan for reviewed retirement") pure
+    (options ^. #savePlan)
   let copts = options ^. #common
   bd <- resolveBaseDomain mctx (copts ^. #baseDomain)
   provisionGhcEnv (copts ^. #ghcEnv)
@@ -8085,24 +8043,14 @@ runPreviewDelete mctx options pname = do
           (server ^. #volumes)
   svcName <- orDie (previewServiceName prodName pname)
   pdomText <- orDie (previewDomain prodName pname bd)
-  case options ^. #savePlan of
-    Nothing -> do
-      case site of
-        Load.SiteServer _ -> dieT "server preview deletion requires --save-plan"
-        Load.SiteStatic _ -> pure ()
-      refuseDirectLegacyOperationWhenManaged mctx "site preview delete" "use --save-plan for reviewed preview retirement"
-      refuseDirectSiteMutationIfOwned mctx "site preview delete" svcName ns [pdomText] [] False
-      deletePreview ns svcName pdomText
-      TIO.putStrLn ("Deleted preview: " <> svcName)
-    Just output -> do
-      active <- activeTarget mctx
-      snapshot <- Inventory.loadTargetSnapshot active
-      (cluster, _) <- either dieT pure (acceptedFoundationNamespace snapshot ns)
-      owner <- either dieT pure
-        (sitePreviewRetirementScope snapshot cluster svcName ns pdomText volumeNames)
-      (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
-      Inventory.planInventoryRetirementWith
-        (inventoryPlanRegistry active workspace) active owner output
+  active <- activeTarget mctx
+  snapshot <- Inventory.loadTargetSnapshot active
+  (cluster, _) <- either dieT pure (acceptedFoundationNamespace snapshot ns)
+  owner <- either dieT pure
+    (sitePreviewRetirementScope snapshot cluster svcName ns pdomText volumeNames)
+  (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+  Inventory.planInventoryRetirementWith
+    (inventoryPlanRegistry active workspace) active owner output
 
 -- ---------------------------------------------------------------------------
 -- app lifecycle handlers (EP-30)
@@ -9223,16 +9171,6 @@ refuseDirectServiceMutationIfOwned mctx operation name namespaceName =
       || nativeWorkloadOwned "" "configmap" (appConfigMapName name) namespaceName
         (ownedHistoryResources history))
       (dieT ("Service " <> name <> " is owned by accepted or retained inventory history; direct " <> operation <> " is refused"))
-
-refuseDirectSiteMutationIfOwned
-  :: Maybe String -> Text -> Text -> Text -> [Text] -> [Text] -> Bool -> IO ()
-refuseDirectSiteMutationIfOwned mctx operation name namespaceName domains volumes writesHistory =
-  withAcceptedInventoryHistory mctx operation $ \history ->
-    let resources = ownedHistoryResources history
-    in when (siteNativeOwned name namespaceName domains volumes writesHistory resources
-        || any (\host -> hostnameClaimOwned host (historyHostnameDeclarations history)) domains)
-      (dieT ("site " <> name <> " has an accepted or retained native address; direct "
-        <> operation <> " is refused"))
 
 refuseDirectTaskMutationIfOwned :: Maybe String -> Text -> Text -> Text -> IO ()
 refuseDirectTaskMutationIfOwned mctx operation name namespaceName =

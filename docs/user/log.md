@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-26
+* **Change**: Require a saved review for every site rollback and preview deletion; remove both direct CLI mutation paths.
 * **Change**: Route production and preview site deployments through reviewed inventory execution in every context; require an accepted image and explicit tag, and make `--dry-run` print their public scopes.
 * **Change**: Require reviewed image publication and an explicit tag for standalone Service and worker deploys, including dry-run; remove their direct build, push, and Kubernetes deployment paths.
 * **Change**: Require a published image resource and an explicit tag for every `app deploy`; the command now uses reviewed inventory execution in both fresh and admitted contexts, and the legacy direct rollout is removed.

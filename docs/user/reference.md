@@ -457,9 +457,9 @@ in-cluster default. See [Identity-aware access](access.md).
 | `nagarectl site deploy` | Requires `--skip-build`, an accepted `--image-resource`, and an explicit tag. Publishes and applies a reviewed static or server site; `--save-plan` saves its review and `--dry-run` prints the public scope. Google CDN requires `--cdn-backend-resource RESOURCE-ID` naming the accepted platform BackendService; Cloudflare requires an accepted platform zone grant selected by `CF_ZONE_ID`. |
 | `nagarectl site deploy --dry-run` | Print the canonical public site scope after checking accepted dependencies; no mutation. |
 | `nagarectl site releases` | List recorded releases (per-site ConfigMap; `*` = live). |
-| `nagarectl site rollback RELEASE_ID` | Re-point production at a prior release's image tag. Reviewed Google CDN rollback also requires `--cdn-backend-resource RESOURCE-ID`; Cloudflare uses its accepted zone selected by `CF_ZONE_ID`. Both use `--image-resource` and `--save-plan`. |
+| `nagarectl site rollback RELEASE_ID` | Save a review to select an accepted prior release and image publication, then apply it separately. Requires `--image-resource` and `--save-plan`; Google CDN also requires an accepted `--cdn-backend-resource RESOURCE-ID`, while Cloudflare uses its accepted zone selected by `CF_ZONE_ID`. |
 | `nagarectl site preview deploy --name NAME` | Requires `--skip-build`, an accepted `--image-resource`, and an explicit tag. Publishes and applies a reviewed static or server preview with accepted overlay stores; `--save-plan` saves its review and `--dry-run` prints the public scope. |
-| `nagarectl site preview list` / `delete NAME` | List / remove previews. |
+| `nagarectl site preview list` / `delete NAME` | List previews / save a required retirement review for a preview; collect its members in separate reviews. |
 
 See the [Static & full-stack site hosting](static-hosting.md) guide. The webhook
 runner `nagared` (`cluster/bootstrap/nagared/`) does Git-triggered deploys.

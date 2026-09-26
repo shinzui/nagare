@@ -230,17 +230,15 @@ work for both static and server sites.
 
 ```bash
 nagarectl site releases             # list recorded releases (newest first; * = live)
-nagarectl site rollback 20260609-120000   # re-point production at a prior image tag
 ```
 
-Rollback re-applies the Service with the older image (already in the registry —
-no rebuild) and marks that release current. History is capped at 50 records and a
-re-deploy of the same tag updates in place rather than duplicating. Direct
-rollback is available only before the context initializes inventory history;
-afterward save and apply the reviewed rollback below.
+Rollback selects the older published image and marks that release current.
+History is capped at 50 records and a re-deploy of the same tag updates in place
+rather than duplicating. Every rollback requires a saved review and a separate
+`inventory apply`.
 
-For a site already owned by inventory, review the rollback against its accepted
-private release history and the publication for the selected image tag:
+Review the rollback against accepted private release history and the publication
+for the selected image tag:
 
 ```bash
 nagarectl site rollback RELEASE_ID --image-resource RESOURCE-ID \
@@ -267,15 +265,16 @@ Deploy an isolated copy of the site — for a branch or pull request — under i
 own name and domain, without touching production:
 
 ```bash
-nagarectl site preview deploy --name feature-x
+nagarectl site preview deploy --name feature-x --skip-build --tag TAG \
+  --image-resource IMAGE-ID
 nagarectl site preview list
-nagarectl site preview delete feature-x
+nagarectl site preview delete feature-x --save-plan preview-retire-review
 ```
 
 A preview becomes a separate Knative Service named `<site>-pr-<name>` at
 `https://<name>.<site>.preview.<base-domain>`. The name is normalized to a
-DNS-safe form (`Feature/X-1` → `feature-x-1`). `delete` removes the preview's
-Service and DomainMapping and is safe to repeat.
+DNS-safe form (`Feature/X-1` → `feature-x-1`). Deletion starts with a saved
+retirement review, followed by separate exact collection reviews.
 
 To review a static preview, publish its tagged image and accept the site's four
 environment stores first: Runtime ConfigMap, Runtime Secret, Preview ConfigMap,
@@ -334,12 +333,8 @@ After collecting its Service, a preview PVC declared with deletion policy
 can be collected with `inventory collect --resource PVC-ID --out pvc-review`
 and `inventory apply pvc-review --yes`. Retained durable PVCs stay visible
 with their recovery intent and cannot be collected through this path.
-Direct `site preview delete` supports static sites only before inventory
-initialization. Afterward use `--save-plan` for reviewed preview retirement,
-including a newly named preview.
-
-> Direct preview deployment targets **static** sites. Reviewed server previews
-> require a prepublished image and the accepted overlay stores.
+`site preview delete` always requires `--save-plan`, including for a newly named
+preview. Server previews require a prepublished image and accepted overlay stores.
 
 ---
 
@@ -461,12 +456,12 @@ nagarectl site deploy --skip-build --tag TAG --image-resource RESOURCE-ID
                       [--base-domain DOMAIN] [--project-dir DIR] [--source REF]
                       [--ghc-env FILE]
 nagarectl site releases
-nagarectl site rollback RELEASE_ID
+nagarectl site rollback RELEASE_ID --image-resource RESOURCE-ID --save-plan DIR
 nagarectl site preview deploy --name NAME --skip-build --tag TAG
                                     --image-resource RESOURCE-ID
                                     [--dry-run | --save-plan DIR]
 nagarectl site preview list
-nagarectl site preview delete NAME
+nagarectl site preview delete NAME --save-plan DIR
 ```
 
 `--file` defaults to `nagare/Config.hs`. `--base-domain` defaults to
