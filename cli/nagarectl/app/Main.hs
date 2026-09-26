@@ -7286,6 +7286,7 @@ runDeployPlan mctx options output = do
 
 runDirectDeploy :: Maybe String -> DeployOpts -> IO ()
 runDirectDeploy mctx dopts = do
+  unless (dopts ^. #dryRun) (refuseDirectDeploymentWhenManaged mctx "deploy")
   bd <- resolveBaseDomain mctx (dopts ^. #baseDomain)
   provisionGhcEnv (dopts ^. #ghcEnv)
 
@@ -7296,16 +7297,17 @@ runDirectDeploy mctx dopts = do
     -- EP-62 M3: a name-only image (no '/') is qualified with the resolved
     -- registry prefix; a fully-qualified ref is left untouched.
     Right d -> do
-      refuseDirectServiceMutationIfOwned mctx "deploy" (serviceNameText (d ^. #name))
-        (namespaceText (d ^. #namespace))
-      forM_ (d ^. #domains) $ \domain ->
-        refuseDirectCdnHostMutationIfOwned mctx "deploy" (domainText (domain ^. #domain))
-      when (hasCloudflareCdn (d ^. #cdn))
-        (refuseDirectCloudflareZoneMutationIfOwned mctx "deploy")
-      refuseDirectAccessOwnerIfManaged mctx "deploy"
-      forM_ (d ^. #tasks) $ \task ->
-        refuseDirectTaskMutationIfOwned mctx "deploy" (serviceNameText (task ^. #name))
+      unless (dopts ^. #dryRun) $ do
+        refuseDirectServiceMutationIfOwned mctx "deploy" (serviceNameText (d ^. #name))
           (namespaceText (d ^. #namespace))
+        forM_ (d ^. #domains) $ \domain ->
+          refuseDirectCdnHostMutationIfOwned mctx "deploy" (domainText (domain ^. #domain))
+        when (hasCloudflareCdn (d ^. #cdn))
+          (refuseDirectCloudflareZoneMutationIfOwned mctx "deploy")
+        refuseDirectAccessOwnerIfManaged mctx "deploy"
+        forM_ (d ^. #tasks) $ \task ->
+          refuseDirectTaskMutationIfOwned mctx "deploy" (serviceNameText (task ^. #name))
+            (namespaceText (d ^. #namespace))
       case qualifyImage tp (d ^. #image) of
         Left e -> dieT ("nagarectl deploy: " <> e)
         Right qimg -> pure (d & #image %~ const qimg)
@@ -7482,11 +7484,13 @@ runSiteDeploy mctx sopts = do
                   || isJust (sopts ^. #legacyReleaseImport)
                   || isJust (sopts ^. #releaseAdoptionInput))
                 (dieT "static-site inventory options require --image-resource or --save-plan")
-              refuseDirectSiteMutationIfOwned mctx "site deploy"
-                (siteNameText (s ^. #name)) (namespaceText (s ^. #namespace))
-                (siteHostnames (s ^. #domains)) [] True
-              when (hasCloudflareCdn (s ^. #cdn))
-                (refuseDirectCloudflareZoneMutationIfOwned mctx "site deploy")
+              unless (sopts ^. #dryRun) (refuseDirectDeploymentWhenManaged mctx "site deploy")
+              unless (sopts ^. #dryRun) $ do
+                refuseDirectSiteMutationIfOwned mctx "site deploy"
+                  (siteNameText (s ^. #name)) (namespaceText (s ^. #namespace))
+                  (siteHostnames (s ^. #domains)) [] True
+                when (hasCloudflareCdn (s ^. #cdn))
+                  (refuseDirectCloudflareZoneMutationIfOwned mctx "site deploy")
               deployStatic mctx tp sopts (s & #image %~ const qimg) bd
     Right (Load.SiteServer s) -> do
       case qualifyImage tp (s ^. #image) of
@@ -7505,12 +7509,14 @@ runSiteDeploy mctx sopts = do
                   || isJust (sopts ^. #legacyReleaseImport)
                   || isJust (sopts ^. #releaseAdoptionInput))
                 (dieT "server-site inventory options require --image-resource or --save-plan")
-              refuseDirectSiteMutationIfOwned mctx "site deploy"
-                (siteNameText (s ^. #name)) (namespaceText (s ^. #namespace))
-                (siteHostnames (s ^. #domains))
-                (map (volumeNameText . (^. #name)) (s ^. #volumes)) True
-              when (hasCloudflareCdn (s ^. #cdn))
-                (refuseDirectCloudflareZoneMutationIfOwned mctx "site deploy")
+              unless (sopts ^. #dryRun) (refuseDirectDeploymentWhenManaged mctx "site deploy")
+              unless (sopts ^. #dryRun) $ do
+                refuseDirectSiteMutationIfOwned mctx "site deploy"
+                  (siteNameText (s ^. #name)) (namespaceText (s ^. #namespace))
+                  (siteHostnames (s ^. #domains))
+                  (map (volumeNameText . (^. #name)) (s ^. #volumes)) True
+                when (hasCloudflareCdn (s ^. #cdn))
+                  (refuseDirectCloudflareZoneMutationIfOwned mctx "site deploy")
               deployServer mctx tp sopts (s & #image %~ const qimg) bd
 
 runStaticSiteDeployPlan
@@ -8054,6 +8060,7 @@ runPreviewDeploy mctx sopts pname = do
 runDirectStaticPreview :: Maybe String -> TargetProfile -> SiteDeployOpts
   -> StaticSite -> Text -> Text -> IO ()
 runDirectStaticPreview mctx tp sopts site bd pname = do
+  unless (sopts ^. #dryRun) (refuseDirectDeploymentWhenManaged mctx "site preview deploy")
   when (not (null (sopts ^. #sitePreviewEnvResources))
       || isJust (sopts ^. #sitePreviewAdoptionInput))
     (dieT "site preview inventory resources require --image-resource or --save-plan")
@@ -8061,7 +8068,7 @@ runDirectStaticPreview mctx tp sopts site bd pname = do
   let inputs = siteDeployInputs tp sopts site imageTag bd
   m <- orDie (previewManifests inputs pname)
   pdomText <- orDie (previewDomain (siteNameText (site ^. #name)) pname bd)
-  refuseDirectSiteMutationIfOwned mctx "site preview deploy"
+  unless (sopts ^. #dryRun) $ refuseDirectSiteMutationIfOwned mctx "site preview deploy"
     (m ^. #serviceName) (namespaceText (site ^. #namespace))
     [pdomText] [] False
   if sopts ^. #dryRun
@@ -9221,8 +9228,13 @@ refuseDirectAccessOwnerIfManaged mctx operation =
 -- history: the direct path also writes namespaces, credentials, and routes.
 refuseDirectApplicationDeployIfOwned :: Maybe String -> Application -> IO ()
 refuseDirectApplicationDeployIfOwned mctx _ =
-  withAcceptedInventoryHistory mctx "app deploy" $ \_ ->
-    dieT "inventory history is initialized; direct app deploy is refused. Publish the image with app image-plan, then deploy with --image-resource"
+  refuseDirectDeploymentWhenManaged mctx "app deploy"
+
+refuseDirectDeploymentWhenManaged :: Maybe String -> Text -> IO ()
+refuseDirectDeploymentWhenManaged mctx operation =
+  withAcceptedInventoryHistory mctx operation $ \_ ->
+    dieT ("inventory history is initialized; direct " <> operation
+      <> " is refused. Publish the image with app image-plan, then deploy with --image-resource")
 
 refuseDirectCdnHostMutationIfOwned :: Maybe String -> Text -> Text -> IO ()
 refuseDirectCdnHostMutationIfOwned mctx operation host =
@@ -9332,8 +9344,11 @@ runWorker mctx = \case
           (dieT "inventory resource and recovery options require --image-resource or --save-plan")
         provisionGhcEnv (o ^. #ghcEnv)
         tp <- activeProfile mctx
-        runWorkerDeployWithGuard (\worker -> refuseDirectWorkerDeployIfOwned mctx
-          (serviceNameText (worker ^. #name)) (namespaceText (worker ^. #namespace)))
+        runWorkerDeployWithGuard (\worker -> do
+          unless (o ^. #dryRun) $ do
+            refuseDirectDeploymentWhenManaged mctx "worker deploy"
+            refuseDirectWorkerDeployIfOwned mctx
+              (serviceNameText (worker ^. #name)) (namespaceText (worker ^. #namespace)))
           WorkerDeployParams
             { configPath = o ^. #file
             , tag = T.pack <$> o ^. #tag

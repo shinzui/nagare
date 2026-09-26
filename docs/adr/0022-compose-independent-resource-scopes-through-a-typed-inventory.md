@@ -490,3 +490,21 @@ dependencies. A later payload version transition must introduce its own
 reviewed component protocol before changing an admitted context's pin. This
 scope decision does not relax application command cutover, complete resource
 coverage, live local/GCP convergence, or immutable release evidence.
+
+## Amendment — 2026-09-26: live deployment crosses the inventory boundary at initialization
+
+Once a context's inventory history store is initialized, live CLI deploys for
+applications, standalone Services and workers, and static/server production
+sites and static previews require an accepted image publication and reviewed
+scope submission. The direct render/build/apply route refuses even for a new
+name: an unclaimed workload name does not authorize its namespace, credentials,
+routing, or other shared effects. Image-free, read-only dry-run rendering remains
+available. Contexts without initialized history retain the legacy deployment
+route while the migration is incomplete. This boundary is deliberately earlier
+than the substantive-history admission rule for legacy context control and
+cleanup commands above.
+
+The `nagared` webhook executable still invokes direct static deploy functions
+without selecting an inventory context. It must gain reviewed context-bound
+submission or refuse managed-context targets before inventory coverage can be
+claimed for webhook deployment. The CLI guard alone does not protect that path.

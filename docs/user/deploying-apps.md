@@ -144,6 +144,10 @@ nagarectl deploy --file nagare/Config.hs --tag v1 \
   --image-resource RESOURCE-ID
 ```
 
+In a context with initialized inventory history, live `deploy` requires this
+reviewed image route even for a Service that has never been deployed. Its
+image-free `--dry-run` remains available for offline rendering.
+
 The command prints the published review digest and public operations before
 applying them. An existing direct release history still needs the separate
 exact adoption review described below.

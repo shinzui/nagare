@@ -99,6 +99,11 @@ nagarectl worker deploy --tag release-1 \
   --image-resource RESOURCE-ID
 ```
 
+Once the selected context has initialized inventory history, live worker
+deployment requires this accepted image and reviewed route, including for a
+new worker name. The image-free `--dry-run` remains available for offline
+rendering.
+
 The command prints the published review digest and public operations before
 applying them. Retiring a worker still uses a separate review.
 The reviewed route also accepts a worker config with a Dockerfile or Nixpacks
@@ -142,7 +147,8 @@ If several accepted worker scopes could match, pass `--scope-key KEY` to pin the
 worker's stable logical key. Retirement still verifies the native Deployment
 name and namespace against accepted history.
 
-The existing direct deploy command is:
+On a context without initialized inventory history, the legacy direct deploy
+command is:
 
 ```bash
 $ nagarectl worker deploy

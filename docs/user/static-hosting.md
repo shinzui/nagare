@@ -27,7 +27,8 @@ write. It replaces the static portion of Cloudflare Pages **and** its full-stack
 story (server-side rendering, server functions, API routes) for personal
 projects, staying entirely inside Nagare's single-node Knative cluster.
 
-One command does it:
+On a context without initialized inventory history, the legacy deploy is one
+command:
 
 ```bash
 nagarectl site deploy
@@ -234,9 +235,13 @@ nagarectl site deploy --skip-build --tag TAG --image-resource RESOURCE-ID
 This works for supported static and server sites. The command prints the
 published review digest and public operations before applying them. Existing
 direct site objects still require the separate exact adoption review below.
+Once inventory history is initialized in the selected context, live production
+and static preview deployment require a prepublished image and this reviewed
+route, even for a new site. Image-free `--dry-run` remains available for
+rendering. The reviewed preview command is shown below.
 
 The publication must have the exact tagged image reference in the active
-context registry; `nagarectl app image plan` can review publication from a
+context registry; `nagarectl app image-plan` can review publication from a
 Docker archive. The Namespace must already be accepted. Static and server site
 reviews use the same renderers as direct deployment, check the image and release
 tag, and keep earlier history from accepted private evidence. They currently
@@ -497,6 +502,11 @@ worker. Configure the GitHub webhook with:
 typed config with `runghc`, so its image must provide those; on a single-node box
 it is often simplest to run it on the host. The manifests in
 `cluster/bootstrap/nagared/` are the starting point.
+
+The webhook runner still uses the direct static deploy functions and has no
+selected inventory context. Its writes are outside the reviewed site route
+above; do not target a site managed by an accepted inventory scope until
+webhook submission is routed through inventory.
 
 > HMAC verification proves that GitHub delivered the event; it does not make a
 > fork's code trusted. Fork rejection happens before checkout or config

@@ -156,7 +156,7 @@ A recording transaction now takes that app A candidate through observation, revi
 
 The disposable two-worker native review/resume fixture now also seeds accepted app B and Pulumi scopes. With only a Kubernetes adapter, it reviewed and applied app A, resumed a simulated lost acknowledgement without a duplicate native write, and kept both foreign revisions fixed. Eight focused resume tests passed against `k3d-nagare-inventory-ep148`, and the cluster was stopped afterward. This closes the selected-scope provider isolation check; full application membership and direct-path cutover remain open.
 
-Direct aggregate `app deploy` now refuses in any context with initialized inventory history, including a newly named app. It checks before build or provider effects and directs the operator to publish an OCI archive with `app image-plan` and deploy with `--image-resource`. The executable build, Haskell style check, strict user-documentation validation, and diff check passed. This closes the direct aggregate deployment bypass for initialized contexts; legacy deployment is still available before store initialization, and other direct command families remain M3/M4 work. EP-151 is complete, so its store dependency no longer gates the final cutover.
+Direct aggregate `app deploy` now refuses in any context with initialized inventory history, including a newly named app. It checks before build or provider effects and directs the operator to publish an OCI archive with `app image-plan` and deploy with `--image-resource`. Single-Service, worker, static/server production, and static-preview live deploys now use the same initialized-store boundary; their image-free dry-run paths remain available. The executable build, Haskell style check, strict user-documentation validation, diff check, and 829 CLI tests passed for this boundary. Legacy deployment is still available before store initialization, and other direct command families remain M3/M4 work. EP-151 is complete, so its store dependency no longer gates the final cutover.
 
 Accepted application and standalone Knative Services now route `app stop` and `app restart` through a one-invocation reviewed scope replacement. The compiler starts from accepted private native bytes, changes only the selected Service, and records a cluster-local or restart override while retaining the original config digest and sibling declarations. An explicit reviewed deploy compiles a fresh scope without the stop override. Unmanaged legacy Services keep the guarded direct command. The focused stop/restart regression, executable build, 815-test CLI suite, Haskell style check, strict user-documentation validation, and diff check passed. A recording journal test then proved that an interrupted stop resumes without a second write, a repeated stop plans no operation, and an explicit deploy plans the label removal. Live Knative provider validation remains open, so M3 remains incomplete.
 
@@ -188,6 +188,8 @@ Critical path from completed M1 to final acceptance, in execution order:
 - [ ] M4: Cut over remaining direct app render/apply entry points to the reviewed compiler and publication path.
 
 ## Surprises & Discoveries
+
+2026-09-26: `cli/nagarectl/nagared/Main.hs` invokes `deployStaticProduction` and `deployStaticPreview` directly after a webhook checkout. It does not call the CLI dispatcher or know a selected inventory context, so the initialized-store guard on `site deploy` does not protect webhook deployments. M4 must give the webhook runner a context-bound reviewed submission or an explicit managed-context refusal before removing the last direct site path.
 
 2026-09-25: The direct `access portal sync` path read the live backend map and rewrote Shomei settings without checking inventory ownership. The existing guard considered only the backend grant and retained backend map, so a retained or separately granted Shomei settings map could still be overwritten. The guard now covers both shared settings kinds and runs immediately before the sync write.
 
@@ -333,7 +335,7 @@ Critical path from completed M1 to final acceptance, in execution order:
 
 ## Decision Log
 
-2026-09-26: Treat inventory store initialization as the direct aggregate app deploy boundary. The earlier native-address guard allowed a new app name to perform unreviewed namespace, credential, route, and workload writes in a context already using inventory. The reviewed OCI archive and accepted-image deployment route is available there; keep the legacy route only for contexts without initialized history until build input publication and the other command cutovers close.
+2026-09-26: Treat inventory store initialization as the direct application, Service, worker, and site deploy boundary. The earlier native-address guards allowed a new name to perform unreviewed namespace, credential, route, and workload writes in a context already using inventory. The reviewed OCI archive and accepted-image deployment route is available there; keep live legacy deployment only for contexts without initialized history until build input publication and the other command cutovers close. Read-only offline dry-runs remain available.
 
 2026-09-25: The operator selected offline-only Cloudflare proof because no disposable Cloudflare zone is available. M2 will use a fake HTTP provider and complete reviewed journal transaction for Cloudflare acceptance; live Cloudflare mutation is deferred and will not hold this milestone open. This does not relax the requirement for typed host/zone ownership, stale-state refusal, uncertain-write recovery, and honest documentation of the external-race limit.
 
@@ -481,7 +483,7 @@ DependencyExports contains typed capability witnesses and selected revision/phys
 
 ## Revision Notes
 
-2026-09-26: Refused direct aggregate app deployment after inventory initialization, documented the reviewed archive publication route, and recorded EP-151 completion. M4 remains open for the other direct paths and build input integration.
+2026-09-26: Refused direct aggregate app deployment after inventory initialization, then applied the same live deploy boundary to standalone Service, worker, production site, and static preview routes. Documented the reviewed archive publication route and recorded EP-151 completion. M4 remains open for the other direct paths and build input integration.
 
 2026-09-25: Added a gated disposable Kubernetes review/apply test for accepted data restart. It verifies initial Secret/StatefulSet creation, selected-only restart membership, exact saved native bytes, and the live StatefulSet annotation before cleanup. A real database/broker pod rollout remains M3 validation.
 
