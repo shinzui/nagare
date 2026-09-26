@@ -22,6 +22,11 @@ provenance:
       at: 2026-09-25T20:16:27Z
       mode: "implement"
       note: "Started integration audit and guarded legacy upgrades for inventoried contexts"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-26T00:11:09Z
+      mode: "implement"
+      note: "Made future upgrade transactions inspectable and declared supported inventory wire minimums"
 ---
 
 # Integrate resource inventories into upgrades and release verification
@@ -42,6 +47,17 @@ Release evidence archives the inventory, review, receipts, and final observation
 - [ ] M2: Package contracts and audit all supported mutation paths.
 - [ ] M3: Run deterministic and disposable-context convergence/recovery scenarios.
 - [ ] M4: Archive release evidence, document recovery, and finish ADR distillation.
+
+2026-09-25: M1 compatibility boundary now reads schema-1 upgrade transactions
+as before and exposes a future transaction's context, ID, target, and schema
+through `platform upgrade status` without interpreting its phases. Apply,
+rollback, and recovery refuse the newer wire. Release payloads declare minimum
+inventory and upgrade-transaction schema versions; the current CLI refuses a
+target requiring more than version 1. The 34 focused platform tests, CLI build,
+release consistency suite, Haskell style check, strict user docs, and diff
+check passed. This remains partial M1:
+component-backed platform upgrades and legacy transaction recovery compatibility
+are not implemented.
 
 2026-09-25: Integration audit found that `runPlatformUpgrade` still applies the
 coarse Pulumi, host, and whole-cluster phases, while EP-148 still has direct
@@ -251,6 +267,12 @@ explicitly in the final publish request. This follows the draft PATCH probe,
 which showed that an omitted tag can detach the draft from the intended tag.
 The pre-publication receipt stays an additional asset rather than a
 self-hashing product member.
+
+2026-09-25: Inspect future upgrade transaction schemas only as an identity and
+version header; never decode their unknown phases into executable records.
+Current payload compatibility minima are both version 1, with an absent field
+in older payloads interpreted as 1. A future payload requiring more is refused
+before planning or applying the coarse legacy transaction.
 
 
 ## Outcomes & Retrospective

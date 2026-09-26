@@ -2,6 +2,8 @@
   "assetSchemaVersion": 1,
   "hostFlakeMetadataSchemaVersion": 1,
   "compatibilitySchemaVersion": 1,
+  "minimumInventorySchemaVersion": 1,
+  "minimumUpgradeTransactionSchemaVersion": 1,
   "payloadId": "source-development",
   "platformVersion": "0.4.0",
   "sourceRevision": null,

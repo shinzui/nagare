@@ -43,6 +43,8 @@ import System.IO.Temp (createTempDirectory)
 
 data PayloadManifest = PayloadManifest
   { assetSchemaVersion :: !Int
+  , minimumInventorySchemaVersion :: !Int
+  , minimumUpgradeTransactionSchemaVersion :: !Int
   , payloadId :: !Text
   , platformVersion :: !Text
   , sourceRevision :: !(Maybe Text)
@@ -54,6 +56,8 @@ instance Aeson.FromJSON PayloadManifest where
   parseJSON = Aeson.withObject "PayloadManifest" $ \o ->
     PayloadManifest
       <$> o .: "assetSchemaVersion"
+      <*> o Aeson..:? "minimumInventorySchemaVersion" Aeson..!= 1
+      <*> o Aeson..:? "minimumUpgradeTransactionSchemaVersion" Aeson..!= 1
       <*> o .: "payloadId"
       <*> o .: "platformVersion"
       <*> o .: "sourceRevision"
@@ -223,6 +227,8 @@ writeWorkspaceManifest root manifest digest =
     Aeson.encode $
       Aeson.object
         [ "assetSchemaVersion" Aeson..= (manifest ^. #assetSchemaVersion)
+        , "minimumInventorySchemaVersion" Aeson..= (manifest ^. #minimumInventorySchemaVersion)
+        , "minimumUpgradeTransactionSchemaVersion" Aeson..= (manifest ^. #minimumUpgradeTransactionSchemaVersion)
         , "payloadId" Aeson..= (manifest ^. #payloadId)
         , "platformVersion" Aeson..= (manifest ^. #platformVersion)
         , "sourceRevision" Aeson..= (manifest ^. #sourceRevision)

@@ -155,6 +155,8 @@ jq -e '
   .assetSchemaVersion == 1
   and .hostFlakeMetadataSchemaVersion == 1
   and .compatibilitySchemaVersion == 1
+  and .minimumInventorySchemaVersion == 1
+  and .minimumUpgradeTransactionSchemaVersion == 1
   and (.supportedSystems | type == "array" and length > 0)
   and (.supportedSystems | all(. == "x86_64-linux" or . == "aarch64-darwin"))
   and ((.supportedSystems | unique | length) == (.supportedSystems | length))
@@ -178,7 +180,9 @@ checked_sources="$(jq -c \
          {source: "CHANGELOG.md", version: $version},
          {source: "docs/releases/v" + $version + ".md", version: $version},
          {source: "host-flake-metadata-schema", version: "1"},
-         {source: "platform-compatibility-schema", version: "1"}]' \
+         {source: "platform-compatibility-schema", version: "1"},
+         {source: "minimum-inventory-schema", version: "1"},
+         {source: "minimum-upgrade-transaction-schema", version: "1"}]' \
   <<<"$checked_sources")"
 
 if [[ "$source_only" == false ]]; then

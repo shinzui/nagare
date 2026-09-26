@@ -387,11 +387,13 @@ import Nagare.Platform.Upgrade
   , UpgradeOps (..)
   , UpgradePhase (..)
   , UpgradeTransaction (..)
+  , UpgradeTransactionView (..)
   , applyUpgrade
   , newUpgradeTransaction
   , phaseToken
   , planUpgrade
   , readUpgradeTransaction
+  , inspectUpgradeTransaction
   , recordUpgradePhase
   , renderUpgradeTransaction
   , writeUpgradeTransaction
@@ -3519,8 +3521,31 @@ loadUpgradeTransaction context requested = do
 runPlatformUpgradeStatus :: Maybe String -> Maybe String -> Bool -> IO ()
 runPlatformUpgradeStatus mctx requested asJson = do
   active <- activeTarget mctx
-  (_, tx) <- loadUpgradeTransaction (active ^. #contextName) requested
-  printUpgradeTransaction asJson tx
+  let context = active ^. #contextName
+  txId <- case requested of
+    Just requestedId -> pure (T.pack requestedId)
+    Nothing -> latestUpgradeTransactionId context >>= maybe (dieT "no upgrade transaction exists for this context") pure
+  path <- upgradeTransactionPath context txId
+  inspected <- inspectUpgradeTransaction path >>= either dieT pure
+  case inspected of
+    SupportedUpgrade tx -> do
+      when (tx ^. #context /= contextNameText context) $
+        dieT ("upgrade transaction belongs to context '" <> tx ^. #context <> "', not '" <> contextNameText context <> "'")
+      printUpgradeTransaction asJson tx
+    UnsupportedUpgrade version observedId observedContext target -> do
+      when (observedContext /= contextNameText context || observedId /= txId) $
+        dieT "unsupported upgrade transaction identity does not match the requested context and ID"
+      if asJson
+        then LBC.putStrLn (Aeson.encode (Aeson.object
+          [ "id" Aeson..= observedId
+          , "context" Aeson..= observedContext
+          , "schemaVersion" Aeson..= version
+          , "targetVersion" Aeson..= target
+          , "state" Aeson..= ("unsupported-schema" :: Text)
+          ]))
+        else TIO.putStrLn ("Upgrade " <> observedId <> " (" <> observedContext
+          <> ") uses unsupported schema " <> T.pack (show version)
+          <> "; inspect with a newer operator payload before mutation")
 
 runPlatformUpgradeRollback :: Maybe String -> String -> Bool -> Bool -> IO ()
 runPlatformUpgradeRollback mctx requested yes asJson = do
@@ -3677,6 +3702,7 @@ runPlatformUpgrade mctx options = do
       (path, tx) <- loadUpgradeTransaction (active ^. #contextName) (Just resumeId)
       paths <- validatePlatformRoot ExplicitRoot (tx ^. #workspaceRoot) >>= either (dieT . renderPlatformPathError) pure
       manifest <- readPayloadManifest paths >>= either (dieT . renderWorkspaceError) pure
+      either dieT pure (guardUpgradePayloadCompatibility manifest)
       let workspace = platformWorkspaceFromTransaction tx
       hostRoot <- hostConfigDir (active ^. #contextName)
       ops <- upgradeOps active workspace manifest (tx ^. #stagedHostRoot) hostRoot path
@@ -3691,6 +3717,7 @@ runPlatformUpgrade mctx options = do
       target <- maybe (dieT "a new upgrade plan requires --to VERSION") (either (dieT . ("invalid --to version: " <>) . renderVersionError) (pure . renderPlatformVersion) . parsePlatformVersion . T.pack) (options ^. #to)
       targetPaths <- resolveUpgradePayload target (options ^. #payloadRoot)
       manifest <- readPayloadManifest targetPaths >>= either (dieT . renderWorkspaceError) pure
+      either dieT pure (guardUpgradePayloadCompatibility manifest)
       when (manifest ^. #platformVersion /= target) $
         dieT ("target payload reports version " <> manifest ^. #platformVersion <> ", expected " <> target)
       stateRoot <- nagareStateDir
@@ -3751,6 +3778,14 @@ guardLegacyUpgradeInventory active = do
               ( "this context has resource inventory history or transaction state; the legacy platform upgrade phases cannot safely mutate it. "
                   <> "For a pending legacy transaction, retain its bundle and use the original operator payload for guarded recovery."
               )
+
+guardUpgradePayloadCompatibility :: PayloadManifest -> Either Text ()
+guardUpgradePayloadCompatibility manifest
+  | manifest ^. #minimumInventorySchemaVersion /= 1 =
+      Left "target payload requires an inventory schema this operator does not support; use the target operator payload"
+  | manifest ^. #minimumUpgradeTransactionSchemaVersion /= 1 =
+      Left "target payload requires an upgrade transaction schema this operator does not support; use the target operator payload"
+  | otherwise = Right ()
 
 -- The transaction stores all paths needed to resume without re-resolving a tag.
 platformWorkspaceFromTransaction :: UpgradeTransaction -> PlatformWorkspace

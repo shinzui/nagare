@@ -139,6 +139,13 @@ mv "$unsupported/release.tmp" "$unsupported/release.json"
 expect_failure unsupported-system \
   check_release --version "$version" --source-root "$unsupported" --source-only
 
+unsupported_wire="$test_root/unsupported-wire"
+copy_release_sources "$unsupported_wire"
+jq '.minimumUpgradeTransactionSchemaVersion = 2' "$unsupported_wire/release.json" > "$unsupported_wire/release.tmp"
+mv "$unsupported_wire/release.tmp" "$unsupported_wire/release.json"
+expect_failure unsupported-upgrade-wire \
+  check_release --version "$version" --source-root "$unsupported_wire" --source-only
+
 git_fixture="$test_root/git-source"
 copy_release_sources "$git_fixture"
 git -C "$git_fixture" init -q

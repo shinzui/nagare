@@ -7,6 +7,7 @@ module Nagare.Platform.Upgrade
   , PhaseRecord (..)
   , TransactionState (..)
   , UpgradeTransaction (..)
+  , UpgradeTransactionView (..)
   , ResumeDecision (..)
   , UpgradeOps (..)
   , previewPhases
@@ -17,6 +18,7 @@ module Nagare.Platform.Upgrade
   , applyUpgrade
   , writeUpgradeTransaction
   , readUpgradeTransaction
+  , inspectUpgradeTransaction
   , renderUpgradeTransaction
   , recordUpgradePhase
   )
@@ -25,7 +27,7 @@ where
 import Control.Exception (IOException, try)
 import Data.Aeson ((.:), (.:?))
 import Data.Aeson qualified as Aeson
-import Data.Aeson.Types (Parser)
+import Data.Aeson.Types (Parser, parseEither)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
@@ -78,6 +80,14 @@ data UpgradeTransaction = UpgradeTransaction
   , phases :: ![PhaseRecord]
   }
   deriving stock (Generic, Eq, Show)
+
+-- | A future transaction remains identifiable for inspection even when this
+-- binary cannot decode or resume its phases. The complete wire value is never
+-- used as an executable transaction in that case.
+data UpgradeTransactionView
+  = SupportedUpgrade !UpgradeTransaction
+  | UnsupportedUpgrade !Int !Text !Text !(Maybe Text)
+  deriving stock (Eq, Show)
 
 data UpgradeOps = UpgradeOps
   { runUpgradePhase :: !(UpgradePhase -> IO (Either Text Text))
@@ -296,14 +306,31 @@ writeUpgradeTransaction path tx = do
 
 readUpgradeTransaction :: FilePath -> IO (Either Text UpgradeTransaction)
 readUpgradeTransaction path = do
+  inspected <- inspectUpgradeTransaction path
+  pure $ case inspected of
+    Right (SupportedUpgrade tx) -> Right tx
+    Right (UnsupportedUpgrade version _ _ _) ->
+      Left ("unsupported upgrade transaction schema " <> T.pack (show version))
+    Left err -> Left err
+
+inspectUpgradeTransaction :: FilePath -> IO (Either Text UpgradeTransactionView)
+inspectUpgradeTransaction path = do
   result <- try (BS.readFile path)
   pure $ case result of
     Left (err :: IOException) -> Left ("could not read upgrade transaction " <> T.pack path <> ": " <> T.pack (show err))
-    Right bytes -> case Aeson.eitherDecodeStrict' bytes of
+    Right bytes -> case Aeson.eitherDecodeStrict' bytes :: Either String Aeson.Value of
       Left err -> Left ("invalid upgrade transaction " <> T.pack path <> ": " <> T.pack err)
-      Right tx
-        | tx ^. #schemaVersion /= 1 -> Left ("unsupported upgrade transaction schema " <> T.pack (show (tx ^. #schemaVersion)))
-        | otherwise -> Right tx
+      Right value -> case parseEither inspect value of
+        Left err -> Left ("invalid upgrade transaction " <> T.pack path <> ": " <> T.pack err)
+        Right inspected -> Right inspected
+  where
+    inspect = Aeson.withObject "UpgradeTransaction" $ \o -> do
+      version <- o .: "schemaVersion"
+      if version == (1 :: Int)
+        then SupportedUpgrade <$> Aeson.parseJSON (Aeson.Object o)
+        else if version > 1
+          then UnsupportedUpgrade version <$> o .: "id" <*> o .: "context" <*> o .:? "targetVersion"
+          else fail "unsupported older upgrade transaction schema"
 
 renderUpgradeTransaction :: UpgradeTransaction -> Text
 renderUpgradeTransaction tx =

@@ -28,6 +28,16 @@ payload; do not rerun the coarse upgrade against managed scopes. The reviewed
 component upgrade procedure will replace this restriction when its integration
 and recovery checks are complete.
 
+Release metadata declares the minimum inventory and upgrade-transaction wire
+schemas required by its payload. The current operator supports version 1 of
+each and refuses an upgrade payload that requires a newer version. A newer
+transaction can still be identified with `platform upgrade status ID --json`:
+it reports `state: "unsupported-schema"`, its schema version, context, ID, and
+target version without interpreting or resuming its phases. Use an operator
+payload that supports that wire version for recovery. An older CLI and raw
+provider tools cannot be assumed to honor inventory writer locks; retire
+those entry points before relying on a shared history store for exclusion.
+
 Run cloud commands with the intended [target context](contexts.md) active. Keep
 the IAP path in [Accessing the host](accessing-the-host.md) available before a
 host or networking change.

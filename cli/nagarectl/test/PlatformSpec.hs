@@ -264,6 +264,21 @@ platformTests =
         reapplied <- applyUpgrade True ops applied >>= either (assertFailure . T.unpack) pure
         reapplied @?= applied
         readIORef events >>= (@?= observed)
+    , testCase "future upgrade schema is inspectable but cannot be resumed" $
+        withSystemTempDirectory "nagare-future-upgrade" $ \root -> do
+          let path = root </> "tx-future.json"
+              future = Aeson.object
+                [ "schemaVersion" Aeson..= (2 :: Int)
+                , "id" Aeson..= ("tx-future" :: T.Text)
+                , "context" Aeson..= ("labs" :: T.Text)
+                , "targetVersion" Aeson..= ("0.5.0" :: T.Text)
+                , "phases" Aeson..= (["future-phase"] :: [T.Text])
+                ]
+          LBS.writeFile path (Aeson.encode future)
+          inspectUpgradeTransaction path >>= (@?= Right
+            (UnsupportedUpgrade 2 "tx-future" "labs" (Just "0.5.0")))
+          readUpgradeTransaction path >>= assertBool "future wire refuses mutation"
+            . either (T.isInfixOf "unsupported upgrade transaction schema 2") (const False)
     , testCase "resume can repair a pending phase from durable evidence without invoking it" $ do
         events <- newIORef []
         saved <- newIORef Nothing
