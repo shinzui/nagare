@@ -17,7 +17,8 @@ generated:
 > example config renders end-to-end with `nagarectl deploy --dry-run`. The *live*
 > verbs (`list`/`get`/`logs`/`restart`/`stop`/`delete`) read real
 > Knative state; accepted Services use reviewed stop/restart mutations, while
-> legacy Services use direct patches. Their transcripts below are the intended behaviour until
+> legacy Services use direct patches only before inventory initialization.
+> Their transcripts below are the intended behaviour until
 > `nagare-01` is back up. The flags and output shapes are exact.
 
 This page is for the **operator of an already-deployed app**. [Deploying
@@ -113,6 +114,11 @@ revision is currently serving; to read a *specific past* deployment's logs, use
 `deployments logs NAME ID` below.
 
 ## Restart, stop, delete
+
+After a context initializes inventory history, `app restart` and `app stop`
+require an accepted Service scope. Direct `app delete` refuses; use
+`--save-plan` to review retirement of the accepted application or standalone
+Service. A newly named Service cannot use the legacy mutation path there.
 
 **`app restart NAME`** rolls a fresh revision by stamping the Service template, then
 waits for the new revision to become Ready. For an accepted application or

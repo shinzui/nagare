@@ -305,7 +305,9 @@ nagarectl site rollback 20260609-120000   # re-point production at a prior image
 
 Rollback re-applies the Service with the older image (already in the registry —
 no rebuild) and marks that release current. History is capped at 50 records and a
-re-deploy of the same tag updates in place rather than duplicating.
+re-deploy of the same tag updates in place rather than duplicating. Direct
+rollback is available only before the context initializes inventory history;
+afterward save and apply the reviewed rollback below.
 
 For a site already owned by inventory, review the rollback against its accepted
 private release history and the publication for the selected image tag:
@@ -400,8 +402,9 @@ After collecting its Service, a preview PVC declared with deletion policy
 can be collected with `inventory collect --resource PVC-ID --out pvc-review`
 and `inventory apply pvc-review --yes`. Retained durable PVCs stay visible
 with their recovery intent and cannot be collected through this path.
-Direct `site preview delete` supports static sites only and refuses addresses
-owned by accepted or retained history.
+Direct `site preview delete` supports static sites only before inventory
+initialization. Afterward use `--save-plan` for reviewed preview retirement,
+including a newly named preview.
 
 > Direct preview deployment targets **static** sites. Reviewed server previews
 > require a prepublished image and the accepted overlay stores.

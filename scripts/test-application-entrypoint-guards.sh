@@ -103,6 +103,16 @@ refuse 'direct Secret set' 'direct secret set is refused' \
   secret set hello --config ../nagare-dsl/test/fixtures/nagare/Config.hs KEY
 refuse 'direct Secret delete' 'direct secret delete is refused' \
   secret delete hello --config ../nagare-dsl/test/fixtures/nagare/Config.hs KEY
+refuse 'direct app restart' 'direct app restart is refused' \
+  app restart fixture
+refuse 'direct app stop' 'direct app stop is refused' \
+  app stop fixture
+refuse 'direct app deletion' 'direct app delete is refused' \
+  app delete fixture
+refuse 'direct site rollback' 'direct site rollback is refused' \
+  site rollback --file ../nagare-dsl/test/fixtures/static-site/nagare/Config.hs prior-release
+refuse 'direct preview deletion' 'direct site preview delete is refused' \
+  site preview delete --file ../nagare-dsl/test/fixtures/static-site/nagare/Config.hs feature-x
 
 cmp -s "$store_dir/head.json" "$fixture_root/head-before"
-printf 'application entrypoint guards: twenty-three live refusals, inventory head unchanged\n'
+printf 'application entrypoint guards: twenty-eight live refusals, inventory head unchanged\n'

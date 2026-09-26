@@ -7927,6 +7927,7 @@ runDirectSiteRollback mctx tp sc bd rid = do
       hosts = case sc of
         Load.SiteStatic site -> siteHostnames (site ^. #domains)
         Load.SiteServer site -> siteHostnames (site ^. #domains)
+  refuseDirectLegacyOperationWhenManaged mctx "site rollback" "use --save-plan for a reviewed rollback"
   refuseDirectSiteMutationIfOwned mctx "site rollback" name ns hosts [] True
   elog <- readReleaseLog name ns
   logv <- case elog of
@@ -8231,6 +8232,7 @@ runPreviewDelete mctx options pname = do
       case site of
         Load.SiteServer _ -> dieT "server preview deletion requires --save-plan"
         Load.SiteStatic _ -> pure ()
+      refuseDirectLegacyOperationWhenManaged mctx "site preview delete" "use --save-plan for reviewed preview retirement"
       refuseDirectSiteMutationIfOwned mctx "site preview delete" svcName ns [pdomText] [] False
       deletePreview ns svcName pdomText
       TIO.putStrLn ("Deleted preview: " <> svcName)
@@ -8662,6 +8664,7 @@ runAppRestart mctx o = do
   if reviewed
     then runReviewedServiceAction mctx name ns (RestartService stamp)
     else do
+      refuseDirectLegacyOperationWhenManaged mctx "app restart" "the Service needs an accepted scope"
       refuseDirectServiceMutationIfOwned mctx "app restart" name ns
       restartApp ns name stamp
       waitForReady name ns >>= requireWait ("service '" <> name <> "'")
@@ -8676,6 +8679,7 @@ runAppStop mctx o = do
   if reviewed
     then runReviewedServiceAction mctx name ns StopService
     else do
+      refuseDirectLegacyOperationWhenManaged mctx "app stop" "the Service needs an accepted scope"
       refuseDirectServiceMutationIfOwned mctx "app stop" name ns
       stopApp ns name
   TIO.putStrLn
@@ -8744,6 +8748,7 @@ runAppDelete mctx o = do
   case o ^. #savePlan of
     Nothing -> do
       when (isJust (o ^. #scopeKey)) (dieT "--scope-key requires --save-plan")
+      refuseDirectLegacyOperationWhenManaged mctx "app delete" "use --save-plan for reviewed retirement"
       refuseDirectServiceMutationIfOwned mctx "app delete" name ns
       refuseDirectAccessOwnerIfManaged mctx "app delete"
       domains <- resolveDeleteDomains o ns name
@@ -9264,6 +9269,12 @@ refuseDirectDeploymentWhenManaged mctx operation =
   withAcceptedInventoryHistory mctx operation $ \_ ->
     dieT ("inventory history is initialized; direct " <> operation
       <> " is refused. Publish the image with app image-plan, then deploy with --image-resource")
+
+refuseDirectLegacyOperationWhenManaged :: Maybe String -> Text -> Text -> IO ()
+refuseDirectLegacyOperationWhenManaged mctx operation remedy =
+  withAcceptedInventoryHistory mctx operation $ \_ ->
+    dieT ("inventory history is initialized; direct " <> operation
+      <> " is refused; " <> remedy)
 
 refuseDirectCdnHostMutationIfOwned :: Maybe String -> Text -> Text -> IO ()
 refuseDirectCdnHostMutationIfOwned mctx operation host =

@@ -528,3 +528,10 @@ channel writes and versioned Secret channel writes. A newly named store cannot
 enter through the direct command merely because no accepted native address
 exists yet. The old direct forms remain for uninitialized contexts and their
 dry-run output remains read-only.
+
+Legacy application stop, restart, and delete also refuse after initialization
+when no accepted Service scope selects the action. Accepted stop and restart
+already have reviewed scope updates; app deletion needs a saved retirement
+review. Static and server site rollback needs a saved reviewed release change,
+and static preview deletion needs reviewed retirement. These checks prevent a
+new native name from bypassing the context journal.
