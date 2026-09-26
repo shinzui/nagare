@@ -261,7 +261,7 @@ import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.Application (ApplicationScopeInput (..), GoogleCdnBinding (..), CloudflareCdnBinding (..), ReviewedCdnBinding (..), DatabaseBinding, ServiceAction (..), acceptedAccessBinding, acceptedApplicationImage, acceptedImageBuildSecrets, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationDeployment, compileServiceActionScope, compileStandaloneServiceWithRelease, compileStandaloneWorkerWithDependencies, databaseRecoveryBindings, hostnameClaimOwned, legacyApplicationReleaseImport, legacyStandaloneReleaseImport, nativeWorkloadOwned, recordReviewedStandaloneOverrides, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), GoogleCdnBinding (..), CloudflareCdnBinding (..), ReviewedCdnBinding (..), DatabaseBinding, ServiceAction (..), acceptedAccessBinding, acceptedApplicationImage, acceptedImageBuildSecrets, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationDeployment, compileServiceActionScope, compileStandaloneServiceWithReleaseAndBuild, compileStandaloneWorkerWithDependenciesAndBuild, databaseRecoveryBindings, hostnameClaimOwned, legacyApplicationReleaseImport, legacyStandaloneReleaseImport, nativeWorkloadOwned, recordReviewedStandaloneOverrides, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
 import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteReleaseLog, acceptedSiteSource, compileServerSitePreviewScopeWithBuild, compileServerSiteRollbackScopeWithBuild, compileServerSiteScopeWithBuild, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteRollbackScopeWithCdn, compileStaticSiteRollbackScopeWithCloudflare, compileStaticSiteScope, compileStaticSiteScopeWithCdn, compileStaticSiteScopeWithCloudflare, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
 import Nagare.Inventory.Backup (ManualBackupRequest (..), BackupSourceProof (..), VolumeSnapshotRequest (..), compileManualBackupScope, compileVolumeSnapshotScope, manualBackupSourceProof)
 import Nagare.Inventory.Prune (ManualPruneRequest (..), PruneSourceProof (..), compileManualPruneScope, manualPruneSourceProof)
@@ -7384,6 +7384,8 @@ runDeployPlan mctx options output = do
         }
   rollout <- resolveAppRolloutWithBrokerEnv params app Map.empty
   either dieT pure (acceptedApplicationImage snapshot imageId (rollout ^. #taggedAppImage))
+  buildSecrets <- either dieT pure (acceptedImageBuildSecrets snapshot imageId cluster
+    (serviceNameText (service ^. #name)) namespaceName)
   tlsIds <- traverse (either dieT pure . Resource.mkResourceId . T.pack)
     (options ^. #tlsSecretResources)
   envIds <- traverse (either dieT pure . Resource.mkResourceId . T.pack)
@@ -7434,7 +7436,7 @@ runDeployPlan mctx options output = do
       pure (prior, currentRelease, Just proposal)
     _ -> dieT "legacy release import options are incomplete"
   (compiledScope, native) <- either (dieT . T.pack . show) pure
-    (compileStandaloneServiceWithRelease owner service rollout cluster namespaceId imageId
+    (compileStandaloneServiceWithReleaseAndBuild buildSecrets owner service rollout cluster namespaceId imageId
       volumeRecovery tlsSecrets envSecrets brokerServices brokerTopics databaseBindings accessBinding
       priorReleases release source)
   scope <- either (dieT . T.pack . show) pure
@@ -9354,13 +9356,15 @@ runWorkerPlan mctx options output = do
         }
   rollout <- resolveAppRolloutWithBrokerEnv params app Map.empty
   either dieT pure (acceptedApplicationImage snapshot imageId (rollout ^. #taggedAppImage))
+  buildSecrets <- either dieT pure (acceptedImageBuildSecrets snapshot imageId cluster
+    (serviceNameText (worker ^. #name)) (namespaceText (worker ^. #namespace)))
   envIds <- traverse (either dieT pure . Resource.mkResourceId . T.pack)
     (options ^. #envSecretResources)
   envSecrets <- either dieT pure (acceptedSecretBindings snapshot envIds)
   let source = Resource.SourceLocation (T.pack (options ^. #file))
         (serviceNameText (worker ^. #name))
   (compiledScope, native) <- either (dieT . T.pack . show) pure
-    (compileStandaloneWorkerWithDependencies owner worker rollout cluster namespaceId imageId
+    (compileStandaloneWorkerWithDependenciesAndBuild buildSecrets owner worker rollout cluster namespaceId imageId
       recovery envSecrets brokerServices brokerTopics databaseBindings source)
   scope <- either (dieT . T.pack . show) pure
     (recordReviewedStandaloneOverrides rollout imageId

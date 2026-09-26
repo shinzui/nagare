@@ -31,7 +31,7 @@ import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.Cdn.Provision (GcpStackRefs (..))
 import Nagare.App.Deployments (appDeploymentsPrefix)
 import Nagare.App.Deploy
-import Nagare.Inventory.Application (ApplicationScopeInput (..), GoogleCdnBinding (..), CloudflareCdnBinding (..), ReviewedCdnBinding (..), ServiceAction (..), acceptedAccessBinding, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, standaloneWorkerVolumeRecoveryBindings, nativeWorkloadOwned, hostnameClaimOwned, compileApplicationDeployment, compileApplicationScope, compileApplicationService, compileServiceActionScope, compileStandaloneService, compileStandaloneServiceWithBrokers, compileStandaloneServiceWithDependencies, compileStandaloneServiceWithRelease, compileStandaloneWorker, compileStandaloneWorkerWithDependencies, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings, legacyApplicationReleaseImport, recordReviewedStandaloneOverrides, workerRetirementScope)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), GoogleCdnBinding (..), CloudflareCdnBinding (..), ReviewedCdnBinding (..), ServiceAction (..), acceptedAccessBinding, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, standaloneWorkerVolumeRecoveryBindings, nativeWorkloadOwned, hostnameClaimOwned, compileApplicationDeployment, compileApplicationScope, compileApplicationService, compileServiceActionScope, compileStandaloneService, compileStandaloneServiceWithBrokers, compileStandaloneServiceWithDependencies, compileStandaloneServiceWithRelease, compileStandaloneServiceWithReleaseAndBuild, compileStandaloneWorker, compileStandaloneWorkerWithDependencies, compileStandaloneWorkerWithDependenciesAndBuild, compileApplicationTasks, compileApplicationWorkers, databaseRecoveryBindings, legacyApplicationReleaseImport, recordReviewedStandaloneOverrides, workerRetirementScope)
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Cdn (DnsAdapterOps (..), DnsObservation (..), dnsSpecsFromDeclarations, mkDnsAdapter)
 import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps (..), KubernetesMutation (..), KubernetesState (..), mkKubernetesAdapter)
@@ -61,7 +61,7 @@ import Nagare.Resource.Types qualified as Resource
 import Nagare.Dsl.Load (loadApplication, loadBroker)
 import Nagare.Dsl.Database (dbSecretName)
 import Nagare.Dsl.Prelude
-import Nagare.Dsl.Types (AccessMode (ReadWriteOnce), DomainTls (SuppliedTlsSecret), EnvScope (Build), EnvVar (EnvSecretRef), RetentionPolicy (Retain), Volume (..), databaseNameText, imageRefText, mkDomains, mkEnvName, mkImageRef, mkMountPath, mkNamespace, mkQuantity, mkSecretName, mkServiceName, mkVolumeName, runtimeScoped, scopedEnv, serviceNameText)
+import Nagare.Dsl.Types (AccessMode (ReadWriteOnce), DomainTls (SuppliedTlsSecret), EnvScope (Build, Runtime), EnvVar (EnvSecretRef), RetentionPolicy (Retain), Volume (..), databaseNameText, imageRefText, mkDomains, mkEnvName, mkImageRef, mkMountPath, mkNamespace, mkQuantity, mkSecretName, mkServiceName, mkVolumeName, runtimeScoped, scopedEnv, serviceNameText)
 import Nagare.Dsl.Worker (Worker (..), mkReplicas)
 import Nagare.Deploy (serviceUrl)
 import Nagare.Static.Release (StaticRelease (..), StaticReleaseLog (..), addRelease, emptyReleaseLog, renderReleaseConfigMapWith)
@@ -1674,6 +1674,49 @@ renderTests =
         (compileStandaloneServiceWithRelease serviceOwner independentService serviceRollout
           cluster namespaceId publication Map.empty Map.empty Map.empty brokerServices Map.empty
           Map.empty Nothing emptyReleaseLog release (scopeSource input))
+      let buildSecret = unsafe (mkSecretName "build-credential")
+          buildEntry = unsafe (scopedEnv (Set.singleton Build) (EnvSecretRef buildSecret))
+          buildService = independentService & #env %~ Map.insert
+            (unsafe (mkEnvName "BUILD_TOKEN")) buildEntry
+          buildWorker = standaloneWorker & #env %~ Map.insert
+            (unsafe (mkEnvName "BUILD_TOKEN")) buildEntry
+      (buildServiceScope, buildServiceNative) <- either (fail . show) pure
+        (compileStandaloneServiceWithReleaseAndBuild (Set.singleton buildSecret)
+          serviceOwner buildService serviceRollout cluster namespaceId publication
+          Map.empty Map.empty Map.empty brokerServices Map.empty Map.empty Nothing
+          emptyReleaseLog release (scopeSource input))
+      assertBool "standalone Service Build Secret entered native bytes"
+        (all (not . BS.isInfixOf "BUILD_TOKEN" . snd)
+          (Map.elems buildServiceNative))
+      assertBool "standalone Service lost its original Build config digest"
+        (scopeConfigDigest buildServiceScope /= scopeConfigDigest standaloneReleasedScope)
+      assertBool "standalone Service accepted an unpinned Build Secret"
+        (isLeft (compileStandaloneServiceWithReleaseAndBuild Set.empty
+          serviceOwner buildService serviceRollout cluster namespaceId publication
+          Map.empty Map.empty Map.empty brokerServices Map.empty Map.empty Nothing
+          emptyReleaseLog release (scopeSource input)))
+      let mixedEntry = unsafe (scopedEnv (Set.fromList [Build, Runtime])
+            (EnvSecretRef buildSecret))
+          mixedService = independentService & #env %~ Map.insert
+            (unsafe (mkEnvName "BUILD_TOKEN")) mixedEntry
+      assertBool "standalone Service accepted a mixed Build/Runtime Secret"
+        (isLeft (compileStandaloneServiceWithReleaseAndBuild (Set.singleton buildSecret)
+          serviceOwner mixedService serviceRollout cluster namespaceId publication
+          Map.empty Map.empty Map.empty brokerServices Map.empty Map.empty Nothing
+          emptyReleaseLog release (scopeSource input)))
+      (buildWorkerScope, buildWorkerNative) <- either (fail . show) pure
+        (compileStandaloneWorkerWithDependenciesAndBuild (Set.singleton buildSecret)
+          standaloneOwner buildWorker workerRollout cluster namespaceId publication
+          Map.empty Map.empty brokerServices Map.empty Map.empty (scopeSource input))
+      assertBool "standalone worker Build Secret entered native bytes"
+        (all (not . BS.isInfixOf "BUILD_TOKEN" . snd)
+          (Map.elems buildWorkerNative))
+      assertBool "standalone worker lost its original Build config digest"
+        (scopeConfigDigest buildWorkerScope /= scopeConfigDigest standaloneBrokerScope)
+      assertBool "standalone worker accepted an unpinned Build Secret"
+        (isLeft (compileStandaloneWorkerWithDependenciesAndBuild Set.empty
+          standaloneOwner buildWorker workerRollout cluster namespaceId publication
+          Map.empty Map.empty brokerServices Map.empty Map.empty (scopeSource input)))
       let serviceOverrides = Map.fromList
             [("tag", serviceRollout ^. #imageTag)
             , ("baseDomain", serviceRollout ^. #baseDomain)

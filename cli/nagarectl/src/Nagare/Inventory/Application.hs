@@ -11,9 +11,11 @@ module Nagare.Inventory.Application
   , compileStandaloneServiceWithBrokers
   , compileStandaloneServiceWithDependencies
   , compileStandaloneServiceWithRelease
+  , compileStandaloneServiceWithReleaseAndBuild
   , compileApplicationWorkers
   , compileStandaloneWorker
   , compileStandaloneWorkerWithDependencies
+  , compileStandaloneWorkerWithDependenciesAndBuild
   , recordReviewedStandaloneOverrides
   , compileApplicationTasks
   , applicationNativeOwned
@@ -1743,6 +1745,28 @@ compileStandaloneWorkerWithDependencies owner worker rollout cluster namespaceId
       & #sources .~ [source]
       & (:| [])
 
+compileStandaloneWorkerWithDependenciesAndBuild
+  :: Set.Set SecretName -> ScopeId -> Worker -> RolloutEnv
+  -> ResourceId -> ResourceId -> ResourceId
+  -> Map ResourceId RecoveryIntent -> Map SecretName Declaration
+  -> Map BrokerName Declaration -> Map BrokerName (Map TopicName Declaration)
+  -> Map DatabaseName DatabaseBinding -> SourceLocation
+  -> Either (NonEmpty InventoryError)
+       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileStandaloneWorkerWithDependenciesAndBuild buildSecrets owner worker rollout cluster namespaceId imageId recovery envSecrets brokerServices brokerTopics databaseBindings source = do
+  _ <- first invalid (runtimeSecretNamesWithBuild buildSecrets
+    (Map.elems (worker ^. #env)))
+  let runtimeWorker = worker & #env %~ stripBuildSecretEnv
+  (scope, native) <- compileStandaloneWorkerWithDependencies owner runtimeWorker rollout
+    cluster namespaceId imageId recovery envSecrets brokerServices brokerTopics
+    databaseBindings source
+  digest <- first invalid (configDigestOf (encodeWorker worker))
+  pure (withScopeConfigDigest digest scope, native)
+  where
+    invalid message = inventoryError "invalid-standalone-worker" message
+      & #sources .~ [source]
+      & (:| [])
+
 standaloneBrokerEnvironment
   :: ResourceId -> T.Text -> [BrokerBinding] -> Map BrokerName Declaration
   -> Map BrokerName (Map TopicName Declaration)
@@ -1995,6 +2019,32 @@ compileStandaloneServiceWithRelease owner service rollout cluster namespaceId im
   configDigest <- first invalid (configDigestOf (encodeDeployment service))
   scope <- withScopeConfigDigest configDigest <$> mkScopeDeclaration owner bundles
   pure (scope, native)
+  where
+    invalid message = inventoryError "invalid-standalone-service-release" message
+      & #scopes .~ [owner]
+      & #sources .~ [source]
+      & (:| [])
+
+compileStandaloneServiceWithReleaseAndBuild
+  :: Set.Set SecretName -> ScopeId -> Deployment -> RolloutEnv
+  -> ResourceId -> ResourceId -> ResourceId
+  -> Map VolumeName RecoveryIntent -> Map SecretName Declaration -> Map SecretName Declaration
+  -> Map BrokerName Declaration -> Map BrokerName (Map TopicName Declaration)
+  -> Map DatabaseName DatabaseBinding -> Maybe AccessBinding
+  -> StaticReleaseLog -> StaticRelease -> SourceLocation
+  -> Either (NonEmpty InventoryError)
+       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileStandaloneServiceWithReleaseAndBuild buildSecrets owner service rollout cluster namespaceId imageId recovery tlsSecrets envSecrets brokerServices brokerTopics databaseBindings accessBinding prior release source = do
+  _ <- first invalid (runtimeSecretNamesWithBuild buildSecrets
+    (Map.elems (service ^. #env)
+      <> concatMap (Map.elems . (^. #env)) (service ^. #tasks)))
+  let runtimeService = service & #env %~ stripBuildSecretEnv
+        & #tasks %~ map (\task -> task & #env %~ stripBuildSecretEnv)
+  (scope, native) <- compileStandaloneServiceWithRelease owner runtimeService rollout
+    cluster namespaceId imageId recovery tlsSecrets envSecrets brokerServices brokerTopics
+    databaseBindings accessBinding prior release source
+  digest <- first invalid (configDigestOf (encodeDeployment service))
+  pure (withScopeConfigDigest digest scope, native)
   where
     invalid message = inventoryError "invalid-standalone-service-release" message
       & #scopes .~ [owner]

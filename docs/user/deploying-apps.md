@@ -99,8 +99,8 @@ are unavailable on this command; apply them while preparing the archive.
 An aggregate application may declare a Build-only Secret reference when its
 accepted image publication pins that app's exact Build Secret channel. The
 review checks the pin and leaves the Build Secret out of runtime Service,
-worker, and task manifests. Standalone Service and worker builds still reject
-Build Secret references. The image review records declared external build
+worker, and task manifests. Reviewed standalone Service and worker deployment
+use the same pinned input rule. The image review records declared external build
 inputs; it does not prove that the external builder consumed the Secret.
 
 To preview the same supported scope without saving or publishing a review, use
