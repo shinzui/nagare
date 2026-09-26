@@ -1,0 +1,106 @@
+---
+id: 157
+slug: gate-the-inventory-release-on-complete-immutable-evidence
+title: "Gate the inventory release on complete immutable evidence"
+kind: exec-plan
+created_at: 2026-09-26T20:29:54Z
+intention: "intention_01m2nkkn0deaht66kevpmkjjpp"
+master_plan: "docs/masterplans/23-make-managed-resources-first-class-through-typed-scoped-inventories.md"
+provenance:
+  created_by:
+    model: "gpt-6-astra"
+    harness: "codex-cli"
+    at: 2026-09-26T20:29:54Z
+---
+
+# Gate the inventory release on complete immutable evidence
+
+This ExecPlan is a living document for remaining work transferred from EP-150.
+
+
+## Purpose / Big Picture
+
+
+The inventory release is accepted only when the complete candidate has working commands, installed native packages, local and GCP recovery evidence, and immutable public release attachments. A missing prerequisite fails the release gate. This plan integrates the existing publisher instead of implementing it again.
+
+
+## Progress
+
+
+- [ ] M1: Assembly and publication require complete revision-bound coverage, local/cloud rehearsal evidence, and native-system artifacts; missing, stale, or tampered evidence refuses.
+- [ ] M2: A full non-publishing release rehearsal passes for the final candidate, documentation/ADRs match supported behavior, and every parent acceptance requirement has evidence.
+
+Inherited baseline: commit `1891b34c` delivered GitHubRelease/GitHubReleaseRuntime, checked publication, fault tests, and a real private-repository fresh-checkout retry without duplicate writes. Commits `432dad9a` and `cbd7c3cf` delivered evidence projection with exact receipt coverage. Do not repeat the provider probe or rewrite the publisher unless a relevant change invalidates its evidence.
+
+
+## Surprises & Discoveries
+
+
+No new implementation findings in this successor plan. Inherited evidence and known gaps are identified below.
+
+
+## Decision Log
+
+
+2026-09-26: Carry forward completed EP-150 implementation and give this remaining outcome its own acceptance boundary. The split changes ownership and tracking, not the required functionality or proof.
+
+
+## Outcomes & Retrospective
+
+
+Remaining-work plan created; no new acceptance run has been performed. Inherited capabilities are credited in Progress and must not be presented as newly completed work.
+
+
+## Context and Orientation
+
+
+This plan replaces part of [EP-150](150-integrate-resource-inventories-into-upgrades-and-release-verification.md); its 2026-09-25 implementation is already present. A scope is one owner's desired resource set. The inventory composes all scopes; an immutable review binds exact native inputs, and a private journal records verified operation receipts. Completion of one scope must not change another owner's revision. cli/nagarectl/src/Nagare/Inventory/Command.hs supplies the shared command service; Plan.hs, Execute.hs, and Store.hs in that directory own review, execution, and history. Public evidence must exclude reusable credentials and private native plans.
+
+[ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md) requires complete ownership and reviewed effects. [ADR 6](../adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md) permits this first release to start with fresh contexts while rejecting in-place platform version changes after admission. [ADR 4](../adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md) keeps operator state outside immutable payloads. [ADR 7](../adr/0007-publish-immutable-nix-releases-from-validated-tags.md) requires immutable release evidence. The operator requested decomposition without reduced functionality or validation; temporary refusal of promised behavior is not completion.
+
+cli/nagarectl/src/Nagare/Inventory/Adapters/GitHubRelease.hs and GitHubReleaseRuntime.hs, cli/nagarectl/test/InventoryPublicationSpec.hs, scripts/assemble-managed-resource-evidence.sh, scripts/assemble-release.sh, scripts/test-managed-resource-evidence.sh, scripts/test-release.sh, release.json, and .github/workflows/release.yml own publication/evidence. The workflow already calls checked `release publish`; EP-150's prose claiming it still uses softprops is historical. Inventory evidence is currently optional at assembly, and the workflow assembly invocation does not supply it. The existing projector binds one rehearsal/private export to a candidate; require both local and cloud evidence through an explicit aggregate/index rather than treating one as both.
+
+
+## Plan of Work
+
+
+M1 defines a versioned public evidence index over local and GCP run manifests, native-system output/rehearsal manifests, exact coverage result, and the candidate source/payload identity. Reuse the current projector for exact committed receipts and secret-safe fields. Extend schema/assembly/publisher validation together for the declared evidence asset shape. Require every supported system in release.json, both scenario modes, and complete command coverage. Different revisions, missing receipts, uncommitted journal objects, incomplete coverage, secret canaries, missing native runs, and absent cloud proof all fail before publication. Cached artifacts or prior provider probes cannot be relabeled as final candidate evidence. Same-tag retries retain exact bytes and physical IDs.
+
+M2 runs the complete release rehearsal without creating a tag or publishing a real Nagare release. Map all seven IR-24 verification cases—collision, adoption, data-preserving rename, resume, drift classification, real convergence/no-op/removal, and immutable evidence—to accepted results. Include independent-scope preservation, secret-read refusal, store corruption/concurrency/stale-review checks, and exact declaration/execution coverage. Review docs/user and affected ADRs; correct stale instructions and promote durable discoveries. The parent can close only after EP-148 and EP-152–156 are complete and all evidence matches the candidate. Publication itself remains a separate explicitly authorized release action.
+
+
+## Concrete Steps
+
+
+Run from the repository root in its existing development environment. Commands for a new runner are explicitly marked as a required interface; implement them before running.
+
+```bash
+(cd cli/nagarectl && cabal test nagarectl-test --test-options='-p publication' --test-show-details=failures)
+bash scripts/test-managed-resource-evidence.sh
+bash scripts/test-release.sh
+okf validate docs/user --strict --profile mori/user-documentation-profile.dhall --profile-enforce --log-enforce
+bash scripts/assemble-release.sh --help
+bash scripts/assemble-managed-resource-evidence.sh --help
+```
+
+Expected result: relevant checks exit zero; refused negative fixtures exit nonzero before effects. Native evidence must name the exact candidate and target.
+
+
+## Validation and Acceptance
+
+
+A valid complete candidate assembles reproducibly; removing either scenario mode, a native system, a receipt, or a required coverage entry makes the gate fail before any publication call. Altered source/payload/digest bindings refuse. Same inputs produce the same attachment bytes, while private archives and Secret values remain absent. The checked publisher still recovers exact already-verified assets from provider evidence after a fresh checkout. No release-ready claim is issued while any promised command, native fixture, or data recovery assertion is unresolved. Record final results in this plan, MasterPlan 23, and IR-24 only after the full gate passes.
+
+Use focused checks during implementation and one relevant full acceptance gate for the coherent outcome; repeat broad checks only after a relevant change or failure. Record candidate source revision, command, fixture identity, observed result, and evidence location. Passing inherited tests is regression evidence, not proof that a newly required outcome exists. Keep Progress checkboxes directly under the Progress heading so Mina can read them. Use partial markers for actual unfinished implementation, never mark a milestone complete merely to improve a percentage.
+
+
+## Idempotence and Recovery
+
+
+Work against isolated test state and exact named contexts. Preserve immutable reviews and private journals after interruption; inspect/resume the same transaction rather than regenerate a changed review or blindly retry effects. An unknown provider result is not absence. Never clean a resource by broad project, namespace, or prefix merely because a test failed. No plan here authorizes publication of a real Nagare release. Do not search or read /nix/store; Nix may execute its normal builds, but source inspection uses the checkout and Mori.
+
+
+## Interfaces and Dependencies
+
+
+Completed EP-146/147/149/151 are implementation prerequisites. [EP-153](153-close-managed-command-coverage-for-the-inventory-release.md) owns coverage, [EP-154](154-validate-installed-inventory-packages-on-every-supported-system.md) native artifacts, [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md) local evidence, and [EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md) cloud evidence. These interfaces can be implemented/tested offline before providers finish; all are mandatory final inputs. [EP-152](152-complete-fresh-platform-bootstrap-through-reviewed-components.md) bootstrap and [EP-148](148-route-application-and-data-lifecycles-through-independent-resource-scopes.md) promised behavior must be accepted for parent closure. Initial estimate: 4–8 active hours after evidence inputs are available, low confidence; assess missing-input rejection first. This estimate excludes public release publication and does not waive any gate.

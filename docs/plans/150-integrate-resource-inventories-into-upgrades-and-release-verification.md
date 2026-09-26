@@ -37,11 +37,16 @@ provenance:
       at: 2026-09-26T02:49:40Z
       mode: "implement"
       note: "Closed unscoped context profile and cleanup writes after inventory admission"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-26T20:36:32Z
+      mode: "update"
+      note: "Split remaining integration work into EP-152–157 while preserving delivered evidence and full release acceptance"
 ---
 
 # Integrate resource inventories into upgrades and release verification
 
-This ExecPlan is a living document. Keep its living sections current and promote durable decisions into docs/adr/.
+**Status: Cancelled — superseded by EP-152–157 on 2026-09-26.** This is an archive of delivered implementation and its original acceptance contract, not an active implementation queue. The remaining requirements were transferred without reducing release functionality or validation. MasterPlan 23 owns the active registry. Do not mark the original four milestones complete or restart their already-delivered work.
 
 
 ## Purpose / Big Picture
@@ -59,10 +64,16 @@ Release evidence archives the inventory, review, receipts, and final observation
 
 ## Progress
 
-- [ ] M1: Converge a fresh platform context and confine legacy upgrade paths.
-- [ ] M2: Package contracts and audit all supported mutation paths.
-- [ ] M3: Run deterministic and disposable-context convergence/recovery scenarios.
-- [ ] M4: Archive release evidence, document recovery, and finish ADR distillation.
+- [-] M1: Remaining fresh platform bootstrap and legacy-boundary acceptance transferred to [EP-152](152-complete-fresh-platform-bootstrap-through-reviewed-components.md). {disposition=superseded-by, by=EP-152}
+- [-] M2: Remaining command coverage and installed-package proof transferred to [EP-153](153-close-managed-command-coverage-for-the-inventory-release.md) and [EP-154](154-validate-installed-inventory-packages-on-every-supported-system.md). {disposition=superseded-by, by=EP-153+EP-154}
+- [-] M3: Remaining local and GCP integration/recovery proof transferred to [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md) and [EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md). {disposition=superseded-by, by=EP-155+EP-156}
+- [-] M4: Remaining mandatory evidence and full release acceptance transferred to [EP-157](157-gate-the-inventory-release-on-complete-immutable-evidence.md). {disposition=superseded-by, by=EP-157}
+
+**Delivered baseline, preserved by this split.** Commit `1891b34c` implemented recoverable GitHub publication, real private-provider retry, inventory-history restoration, and deterministic multi-scope recovery. `6b6e22b5` delivered the guarded plan/apply/verify launcher. `432dad9a` and `cbd7c3cf` delivered exact receipt-bound redacted release evidence. `9c308390`, `28e05b72`, and `09d83188` delivered platform-only candidate composition, the fresh-context release boundary, and legacy mutation refusals; earlier commits added schema/packaging and other entrypoint protections. Their tests and provider evidence below remain valid at their recorded revisions. These delivered capabilities are inputs to the successor plans, not erased work or new unimplemented features.
+
+**Remaining-work allocation.** EP-152 owns production bootstrap/marker behavior; EP-153 owns the finite full command audit and platform-side gaps; EP-154 owns installed Darwin/Linux packages; EP-155 owns the common scenario and local proof; EP-156 owns GCP/shared-store proof; EP-157 owns complete candidate evidence and the final gate. EP-148 still owns promised application/data behavior. The next implementation outcome is EP-152, with coverage and packaging able to proceed alongside it. No successor can redefine a successful partial run as the requested working release.
+
+**Historical implementation evidence follows.** Dates below may be UTC; the September 25 local work includes entries dated September 26 UTC.
 
 2026-09-26: Closed four more legacy platform entry points after inventory
 admission: release adoption, predeployment re-pin, upgrade rollback, and
@@ -388,6 +399,8 @@ would overstate the run's receipt evidence.
 
 ## Decision Log
 
+2026-09-26: The operator requested bounded replacement plans and explicitly rejected a broken or reduced version. Retire this oversized execution umbrella as Cancelled/superseded, preserve its delivered implementations and evidence, and transfer all remaining acceptance to EP-152–157. MasterPlan 23 records owners, integration gates, and a conditional forecast; EP-148 remains mandatory.
+
 2026-09-26: First-release admission starts with fresh inventory-backed
 contexts because the operator confirmed all existing context resources and
 data are disposable. A dedicated in-place `platform upgrade` command and old
@@ -454,7 +467,9 @@ the live rehearsal has been achieved.
 
 ## Outcomes & Retrospective
 
-Not implemented. Completion requires recorded disposable-context evidence and no unaccounted supported mutation path; passing mocked tests alone is insufficient.
+Substantial implementation was delivered on September 25, including provider-backed recoverable publication, deterministic recovery, store restoration, the rehearsal launcher, compatibility boundaries, and redacted evidence projection. The original four broad acceptance milestones were not closed. This plan is now Cancelled/superseded by EP-152–157; its scope was redistributed, not declared complete or abandoned. The full release still requires complete native local/GCP behavior, command coverage, installed native packages, and immutable candidate evidence.
+
+The Context, Plan of Work, and validation sections below preserve the original contract for traceability. Their present-tense implementation descriptions are historical. In particular, the release workflow already uses the checked publisher; successors must inspect current code instead of repeating that migration.
 
 
 ## Context and Orientation
@@ -609,6 +624,8 @@ The older replacement initiative in docs/masterplans/21-rehearsed-replacement-up
 
 
 ## Revision Notes
+
+2026-09-26: Reallocated remaining M1 to EP-152, M2 to EP-153/154, M3 to EP-155/156, and M4 to EP-157. Preserved all prior evidence, credited delivered baseline, and marked the original umbrella superseded without weakening its acceptance requirements.
 
 2026-09-16: EP-151 became a hard dependency and the ADR 13 question in M2 was replaced by a check of what EP-151 delivered, after the operator added the shared store as the eighth child.
 

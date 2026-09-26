@@ -558,3 +558,10 @@ legacy operational writes. They refuse once the context inventory is
 initialized, including for a new hostname. Their reviewed operations and
 recovery policy remain M3 work; read-only inspection and CDN dry-runs remain
 available.
+
+
+## Amendment — 2026-09-26: preserve release acceptance across plan decomposition
+
+Splitting integration work into smaller execution plans does not reduce the inventory release contract. Fresh-context bootstrap, promised application/data operations, complete mutation coverage, installed packages on every supported native system, local and GCP recovery evidence, and immutable candidate-bound release evidence remain mandatory together. A guarded refusal of a promised feature or a partial local success does not establish release readiness. The previously accepted fresh-context boundary and offline-only Cloudflare proof remain unchanged.
+
+[MasterPlan 23](../masterplans/23-make-managed-resources-first-class-through-typed-scoped-inventories.md) assigns the remaining former EP-150 work to EP-152–157. Native integration proof may be shared with the feature plan that consumes it; administrative plan completion must not create a circular prerequisite for running that proof. Prior provider evidence remains scoped to its recorded candidate and cannot be relabeled as evidence for changed code.
