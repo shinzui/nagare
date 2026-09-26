@@ -5355,45 +5355,47 @@ runInventoryPlan mctx candidateDirectory retained output = do
     then Inventory.planInventory target candidateDirectory output
     else do
       resources <- traverse (either dieT pure . Resource.mkResourceId . T.pack) retained
-      let needsInfra required = any (\executor ->
-            not (null (Map.findWithDefault [] executor required)))
+      let infrastructure = Set.fromList
             [ResourceInventory.PulumiExecutor, ResourceInventory.ArtifactExecutor,
              ResourceInventory.HostExecutor]
+          selectedInfra required = Set.filter (\executor ->
+            not (null (Map.findWithDefault [] executor required))) infrastructure
           -- A new store can seed only unchanged base scopes. Its selected
           -- replacements are enough to decide preflight before seeding.
-          freshNeedsInfra = any (\case
-            ResourceInventory.ReplaceScope scope -> any (\case
-              ResourceInventory.Managed resource -> resource ^. #executor `elem`
-                [ResourceInventory.PulumiExecutor, ResourceInventory.ArtifactExecutor,
-                 ResourceInventory.HostExecutor]
-              _ -> False) [declaration | bundle <- ResourceInventory.scopeBundles scope,
-                declaration <- ResourceInventory.declarations bundle]
-            _ -> False) (NE.toList (ResourceInventory.candidateChanges candidate))
+          freshInfra = Set.fromList [resource ^. #executor
+            | ResourceInventory.ReplaceScope scope <- NE.toList
+                (ResourceInventory.candidateChanges candidate)
+            , bundle <- ResourceInventory.scopeBundles scope
+            , ResourceInventory.Managed resource <- ResourceInventory.declarations bundle
+            , Set.member (resource ^. #executor) infrastructure]
       -- Keep infrastructure preflight before the planner initializes or seeds
       -- history; unrelated accepted providers need no preparation.
       preflightInfra <- Inventory.openTargetStoreReadOnly target >>= \case
         Left (InventoryStore.StoreConditionFailed "inventory store is not initialized") ->
-          pure freshNeedsInfra
+          pure freshInfra
         Left err -> dieT (T.pack (show err))
         Right store -> InventoryStore.readHead store >>= \case
           Left err -> dieT (T.pack (show err))
-          Right Nothing -> pure freshNeedsInfra
+          Right Nothing -> pure freshInfra
           Right (Just headValue) | not (InventoryStore.hasSubstantiveHistory headValue) ->
-            pure freshNeedsInfra
+            pure freshInfra
           Right (Just _) -> do
             history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
-            pure (needsInfra (InventoryPlan.requirementsByExecutor
+            pure (selectedInfra (InventoryPlan.requirementsByExecutor
               (InventoryPlan.observationRequirements candidate history)))
       (active, workspace) <-
-        if preflightInfra
+        if not (Set.null preflightInfra)
+            && (Set.member ResourceInventory.PulumiExecutor preflightInfra
+                || target ^. #profile . #mode == Cloud)
           then prepareInfraMutation mctx
           else do
             active <- activeTarget mctx
             (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
             pure (active, workspace)
       let registryFor selected history = do
-            when (not preflightInfra && needsInfra (InventoryPlan.requirementsByExecutor
-              (InventoryPlan.observationRequirements selected history)))
+            let currentInfra = selectedInfra (InventoryPlan.requirementsByExecutor
+                  (InventoryPlan.observationRequirements selected history))
+            when (not (Set.isSubsetOf currentInfra preflightInfra))
               (dieT "selected infrastructure changed since preflight; replan")
             inventoryPlanRegistry active workspace selected history
       Inventory.planInventoryWithRetirements registryFor

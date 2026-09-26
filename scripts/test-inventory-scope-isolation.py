@@ -293,6 +293,52 @@ sys.exit(95)
                 raise AssertionError("selected Namespace invoked an unrelated provider: " + repr(calls))
             marker.unlink()
 
+        if local_publication:
+            artifact_owner = {"kind": "Publication", "name": "app-image-generic-probe"}
+            artifact_id = "publication:app-image-generic-probe/probe/oci-image"
+            artifact_scope = {"version": 1, "scope": artifact_owner,
+                "bundles": [bundle([{"tag": "Managed", "contents": {
+                    "identity": artifact_id, "owner": artifact_owner,
+                    "executor": "ArtifactExecutor",
+                    "address": {"tag": "Artifact", "contents": ["probe", "f" * 64]},
+                    "aliases": [], "spec": {"tag": "ArtifactPublication", "contents": [
+                        "oci-image", "k3d-registry.localhost:5000/probe:ep148",
+                        "a" * 64, False]},
+                    "lifecycle": "Retain", "dataPolicy": {"tag": "Stateless"},
+                    "sensitivity": "Private", "dependencies": [], "delegations": [],
+                    "source": {"file": "fixture", "path": "generic-artifact"},
+                }}])]}
+            artifact_candidate = json.loads(json.dumps(candidate))
+            artifact_candidate["changes"] = [{"replace": artifact_scope}]
+            artifact_file = scratch / "artifact-candidate.json"
+            artifact_file.write_text(json.dumps(artifact_candidate))
+            artifact_compiled = scratch / "artifact-compiled"
+            artifact_review = scratch / "artifact-review"
+            artifact_environment = environment | {
+                "XDG_STATE_HOME": str(scratch / "artifact-state")}
+            fake_skopeo = fake_bin / "skopeo"
+            fake_skopeo.write_text(
+                "#!/bin/sh\ncase \"$*\" in *docker://*) echo 'manifest unknown' >&2; exit 1;; esac\nexit 95\n")
+            fake_skopeo.chmod(0o755)
+            try:
+                run(cli, root, artifact_environment, ["inventory", "compile",
+                    "--input", str(artifact_file), "--out", str(artifact_compiled)])
+                run(cli, root, artifact_environment, ["--context", "isolated",
+                    "inventory", "plan", "--inventory", str(artifact_compiled),
+                    "--out", str(artifact_review)])
+                artifact_operations = json.loads((artifact_review / "review.json").read_text())["operations"]
+                if not artifact_operations or any("ArtifactExecutor" not in json.dumps(operation)
+                    for operation in artifact_operations):
+                    raise AssertionError("generic artifact plan did not select only its provider")
+                provider_calls = marker.read_text().splitlines() if marker.exists() else []
+                if any(Path(call).name in ("npm", "pulumi", "gcloud") for call in provider_calls):
+                    raise AssertionError("generic artifact plan prepared an unrelated provider: "
+                        + repr(provider_args.read_text().splitlines()[-20:]))
+            finally:
+                fake_skopeo.unlink()
+                if marker.exists():
+                    marker.unlink()
+
         app_candidate = json.loads(json.dumps(candidate))
         app_foundation = app_candidate["snapshot"][0]["declaration"]
         app_foundation["bundles"][0]["declarations"].append({
