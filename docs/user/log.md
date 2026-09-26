@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-26
+* **Test**: Exercise signed production and pull-request webhook deliveries through the built runner, reviewed site CLI, and a recording Kubernetes provider; verify the exact accepted image and four preview stores.
 * **Change**: Require stable reviewed IDs for live manual task runs and saved staged reviews for scheduled task deletion; remove direct Job creation and CronJob deletion effects.
 * **Change**: Route every live managed Runtime, Build, and Preview environment and versioned Secret write through reviewed channel scopes; remove direct ConfigMap and Secret apply helpers.
 * **Change**: Require saved reviewed Job plans for every live manual database backup and scratch restore; keep the older Job renderers only for read-only dry runs and remove direct apply, wait, and manual pruning effects.

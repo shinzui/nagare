@@ -13,8 +13,9 @@ generated:
 
 > **Status:** 🟡 **Reviewed production and preview deployment is available.**
 > The typed site model and inventory compilers produce public dry-run scopes,
-> saved reviews, and journaled execution. Full native application integration
-> and reviewed webhook submission remain open.
+> saved reviews, and journaled execution. Signed webhook submission has a local
+> reviewed provider roundtrip. In-cluster webhook and full native application
+> integration remain open.
 
 This page is for **app developers** who want to host a website on Nagare the way
 Cloudflare Pages hosts one: push a project, get an HTTPS URL, with previews,
