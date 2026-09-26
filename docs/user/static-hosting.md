@@ -506,10 +506,12 @@ typed config with `runghc`, so its image must provide those; on a single-node bo
 it is often simplest to run it on the host. The manifests in
 `cluster/bootstrap/nagared/` are the starting point.
 
-The webhook runner still uses the direct static deploy functions and has no
-selected inventory context. Its writes are outside the reviewed site route
-above; do not target a site managed by an accepted inventory scope until
-webhook submission is routed through inventory.
+The webhook runner still uses the direct static deploy functions. It resolves
+the active context when it starts and checks that context's inventory store on
+every triggered delivery and again just before deployment. Once the store is
+initialized, it returns HTTP 409 without checking out or deploying the site.
+Reviewed webhook submission remains M4 work; use the reviewed CLI site route
+for inventory-backed contexts.
 
 > HMAC verification proves that GitHub delivered the event; it does not make a
 > fork's code trusted. Fork rejection happens before checkout or config

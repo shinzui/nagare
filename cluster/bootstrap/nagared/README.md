@@ -8,6 +8,12 @@ second engine):
 - a push to the configured production branch → production deploy + release record;
 - a pull request `opened`/`synchronize`/`reopened` → preview deploy named `pr-<number>`.
 
+The runner resolves its active context at startup and rechecks that context's
+inventory store on every triggered delivery. An initialized store makes the
+direct webhook route return HTTP 409 before checkout or deployment. Use the
+reviewed `nagarectl site` commands for inventory-backed contexts; reviewed
+webhook submission is still pending.
+
 ## Routes
 
 ```text

@@ -133,6 +133,7 @@ An isolated CLI regression exercised the live application and Task refusals agai
 The same boundary now refuses direct live database and broker creation, deletion, and restart for new names. Reviewed create, restart, and retirement remain available. Direct database shell, backup, and restore and app-volume snapshot and restore also refuse after initialization while their reviewed operational forms are still pending.
 Direct live env set/delete/sync and unversioned Secret set/delete now also refuse after initialization, including a newly named app. Reviewed env changes use `--reviewed` or a saved review; Secret changes bind a version.
 Legacy app stop, restart, and delete and direct site rollback and static preview deletion now refuse in an initialized context if they cannot select an accepted reviewed scope. Accepted app stop/restart, saved app retirement, site rollback, and preview retirement remain available. The CLI regression covers twenty-eight live refusals with an unchanged inventory head.
+The `nagared` webhook runner now resolves the active context at startup and checks its inventory store for every triggered delivery and again before deploy. It returns HTTP 409 when the store is initialized. A local signed-webhook test initialized the store after the worker started and proved refusal before checkout with unchanged inventory bytes. Reviewed webhook submission remains open in M4.
 Versioned `secret set`, `secret delete`, and exact `secret sync` now use the same one-invocation review service when no saved review directory is supplied; private native Secret bytes remain in the immutable evidence store. Unversioned direct writes remain guarded legacy routes.
 `env set`, `env delete`, and merged or exact `env sync` can opt into the same one-invocation reviewed path with `--reviewed`; the existing `--save-plan` route shares its compiler. Unreviewed direct env writes remain guarded legacy routes.
 Reviewed aggregate pre-deploy hooks now bind independent per-tag scopes with stable Jobs and typed completion operations. The caller must list every affected resource or assert no data effects; hook Jobs wait for their CronJobs, affected resources, and preceding hooks, and workloads wait for completion. Old hook scopes remain accepted across tags, while a changed hook under the same tag refuses. CDN and remaining command paths stay in M2 through M4.
@@ -194,7 +195,7 @@ Critical path from completed M1 to final acceptance, in execution order:
 
 ## Surprises & Discoveries
 
-2026-09-26: `cli/nagarectl/nagared/Main.hs` invokes `deployStaticProduction` and `deployStaticPreview` directly after a webhook checkout. It does not call the CLI dispatcher or know a selected inventory context, so the initialized-store guard on `site deploy` does not protect webhook deployments. M4 must give the webhook runner a context-bound reviewed submission or an explicit managed-context refusal before removing the last direct site path.
+2026-09-26: `cli/nagarectl/nagared/Main.hs` invokes `deployStaticProduction` and `deployStaticPreview` directly after a webhook checkout. It does not call the CLI dispatcher, so the initialized-store guard on `site deploy` did not protect webhook deployments. The runner now resolves its context and refuses a triggered delivery after inventory initialization before checkout, then rechecks before the direct deploy. M4 still needs reviewed webhook submission before this source of deployments is available to managed contexts.
 
 2026-09-25: The direct `access portal sync` path read the live backend map and rewrote Shomei settings without checking inventory ownership. The existing guard considered only the backend grant and retained backend map, so a retained or separately granted Shomei settings map could still be overwritten. The guard now covers both shared settings kinds and runs immediately before the sync write.
 
@@ -339,6 +340,8 @@ Critical path from completed M1 to final acceptance, in execution order:
 2026-09-24: The legacy env and Secret store reader had the same failed-read-to-empty behavior. Its JSON extractor also silently dropped any `data` entry whose value was not a string, contrary to its strictness comment. Both stores now accept only a successful empty `--ignore-not-found` response as absence; failed reads, non-object `data`, and non-string values refuse before a merge or exact replacement. Disposable-context reads of absent ConfigMap and Secret names both exited successfully with empty output, and 785 CLI tests pass. The reviewed channels still need complete preview/deploy integration.
 
 ## Decision Log
+
+2026-09-26: Close the webhook's separate direct deployment entry point at the selected context's initialized-store boundary. Check on every triggered delivery rather than only at server startup, since a long-lived worker can outlive inventory admission. Recheck before the deployment call after checkout/config load. Return HTTP 409 for a managed context and refuse unverifiable store reads; reviewed webhook submission remains a later M4 operation.
 
 2026-09-26: Apply the initialized-context boundary to remaining direct application actions that already have reviewed counterparts. Accepted Service stop/restart select their reviewed scope; unaccepted names cannot direct-patch. App deletion, site rollback, and static preview deletion require their saved reviews after admission. This keeps direct legacy behavior in uninitialized contexts without letting a fresh name bypass inventory.
 
@@ -495,6 +498,8 @@ DependencyExports contains typed capability witnesses and selected revision/phys
 
 
 ## Revision Notes
+
+2026-09-26: Added the webhook runner's dynamic inventory gate and a signed local HTTP regression proving post-start initialization refuses before checkout.
 
 2026-09-26: Closed direct app stop/restart/delete and site rollback/preview deletion after inventory admission, with twenty-eight isolated CLI refusal cases.
 

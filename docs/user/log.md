@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-26
+* **Fix**: Refuse `nagared` webhook deployments after the selected context initializes inventory history, including when admission occurs after the webhook worker starts.
 * **Fix**: Require accepted reviewed scopes for live app stop/restart and saved reviews for app deletion, site rollback, and preview deletion after inventory initialization.
 * **Fix**: Require reviewed env and versioned Secret writes after inventory initialization, including newly named application stores.
 * **Fix**: Refuse direct live database, broker, and volume data operations in initialized inventory contexts; keep reviewed create/restart/retirement and read-only previews available.

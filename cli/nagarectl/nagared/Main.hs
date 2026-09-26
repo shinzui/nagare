@@ -13,6 +13,9 @@
 --
 -- The signature is checked before the body is parsed or any deploy runs, so an
 -- unsigned or mis-signed request never reaches Docker or the cluster. The
+-- selected context's inventory store is checked on every triggered delivery;
+-- direct webhook deployment refuses once that store is initialized.
+--
 -- handling is idempotent: a retried delivery for the same commit re-resets the
 -- checkout and re-records the same release id (deduped), so no duplicate work.
 module Main (main) where
@@ -34,6 +37,8 @@ import Nagare.Dsl.Load
   )
 import Nagare.Dsl.Prelude
 import Nagare.GhcEnv (resolveProjectGhcEnv)
+import Nagare.Inventory.Command qualified as Inventory
+import Nagare.Inventory.Store (StoreError (..))
 import Nagare.Static.Checkout (checkoutRepo)
 import Nagare.Static.Deploy
   ( DeployInputs (..)
@@ -47,13 +52,14 @@ import Nagare.Static.Webhook
   , WebhookOutcome (..)
   , decideWebhook
   )
-import Nagare.Target (TargetProfile, resolveTargetProfile)
+import Nagare.Target (ActiveTarget, TargetProfile, resolveActiveTarget)
 import Network.HTTP.Types
   ( Status
   , status200
   , status400
   , status401
   , status404
+  , status409
   , status500
   )
 import Network.Wai
@@ -121,6 +127,7 @@ data Env = Env
   , baseDomain :: !Text
   , workspace :: !FilePath
   , targetProfile :: !TargetProfile
+  , activeTarget :: !ActiveTarget
   , configTimeout :: !ConfigTimeout
   }
   deriving stock (Generic, Show)
@@ -137,14 +144,15 @@ main = do
   o <- execParser parserInfo
   secret <- resolveSecret (o ^. #secretFile)
   provisionGhcEnv (o ^. #ghcEnv)
-  targetProfile <- resolveTargetProfile
+  active <- resolveActiveTarget Nothing
   let env =
         Env
           { secret = secret
           , productionBranch = o ^. #productionBranch
           , baseDomain = o ^. #baseDomain
           , workspace = o ^. #workspace
-          , targetProfile = targetProfile
+          , targetProfile = active ^. #profile
+          , activeTarget = active
           , configTimeout = ConfigTimeout (o ^. #configTimeout)
           }
   putStrLn ("nagared listening on :" <> show (o ^. #port))
@@ -226,29 +234,48 @@ describeAction = \case
 
 runAction :: Env -> Text -> DeployAction -> IO Response
 runAction env _site act = do
-  let spec = actionCheckout act
-  checkout <- checkoutRepo (env ^. #workspace) spec
-  case checkout of
-    Left e -> pure (textResponse status500 ("checkout failed: " <> e))
-    Right dir -> do
-      esite <- loadStaticSiteWith (env ^. #configTimeout) (dir </> "nagare" </> "Config.hs")
-      case esite of
-        Left le -> pure (textResponse status500 (renderLoadError le))
-        Right s -> do
-          let inputs =
-                DeployInputs
-                  { site = s
-                  , imageTag = T.take 12 (spec ^. #sha)
-                  , baseDomain = env ^. #baseDomain
-                  , projectDir = dir
-                  , skipBuild = False
-                  , targetProfile = env ^. #targetProfile
-                  }
-          outcome <- try (deployFor inputs act) :: IO (Either SomeException (Either Text Text))
-          pure $ case outcome of
-            Left ex -> textResponse status500 ("deploy raised: " <> T.pack (show ex))
-            Right (Left e) -> textResponse status500 e
-            Right (Right url) -> textResponse status200 ("deployed: " <> url)
+  gate <- webhookInventoryGate (env ^. #activeTarget)
+  case gate of
+    Left (status, reason) -> pure (textResponse status reason)
+    Right () -> do
+      let spec = actionCheckout act
+      checkout <- checkoutRepo (env ^. #workspace) spec
+      case checkout of
+        Left e -> pure (textResponse status500 ("checkout failed: " <> e))
+        Right dir -> do
+          esite <- loadStaticSiteWith (env ^. #configTimeout) (dir </> "nagare" </> "Config.hs")
+          case esite of
+            Left le -> pure (textResponse status500 (renderLoadError le))
+            Right s -> do
+              gateBeforeDeploy <- webhookInventoryGate (env ^. #activeTarget)
+              case gateBeforeDeploy of
+                Left (status, reason) -> pure (textResponse status reason)
+                Right () -> do
+                  let inputs =
+                        DeployInputs
+                          { site = s
+                          , imageTag = T.take 12 (spec ^. #sha)
+                          , baseDomain = env ^. #baseDomain
+                          , projectDir = dir
+                          , skipBuild = False
+                          , targetProfile = env ^. #targetProfile
+                          }
+                  outcome <- try (deployFor inputs act) :: IO (Either SomeException (Either Text Text))
+                  pure $ case outcome of
+                    Left ex -> textResponse status500 ("deploy raised: " <> T.pack (show ex))
+                    Right (Left e) -> textResponse status500 e
+                    Right (Right url) -> textResponse status200 ("deployed: " <> url)
+
+-- | Webhooks have no reviewed image or site submission. Check the selected
+-- context on every delivery, including a retry handled by a long-lived runner.
+webhookInventoryGate :: ActiveTarget -> IO (Either (Status, Text) ())
+webhookInventoryGate active = do
+  opened <- Inventory.openTargetStoreReadOnly active
+  pure $ case opened of
+    Left (StoreConditionFailed "inventory store is not initialized") -> Right ()
+    Left (StoreConditionFailed "inventory object prefix is not initialized") -> Right ()
+    Left err -> Left (status500, "cannot verify inventory history before webhook deploy: " <> T.pack (show err))
+    Right _ -> Left (status409, "inventory history is initialized; direct webhook deploy is refused")
 
 deployFor :: DeployInputs -> DeployAction -> IO (Either Text Text)
 deployFor inputs = \case

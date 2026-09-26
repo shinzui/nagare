@@ -504,10 +504,12 @@ route while the migration is incomplete. This boundary is deliberately earlier
 than the substantive-history admission rule for legacy context control and
 cleanup commands above.
 
-The `nagared` webhook executable still invokes direct static deploy functions
-without selecting an inventory context. It must gain reviewed context-bound
-submission or refuse managed-context targets before inventory coverage can be
-claimed for webhook deployment. The CLI guard alone does not protect that path.
+The `nagared` webhook executable still invokes direct static deploy functions.
+It now resolves the active context and checks that context's inventory store on
+each triggered delivery and immediately before deployment. An initialized
+store returns HTTP 409, including when admission occurs after the worker
+starts. Reviewed context-bound webhook submission remains necessary before
+managed contexts can use that route. The CLI guard alone did not protect it.
 
 The same initialized-store boundary applies to live Task commands. Manual
 execution requires an accepted CronJob and a stable `--run-id`, which gives its
