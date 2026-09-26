@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise a selected empty scope beside unrelated cloud and native owners."""
+"""Exercise selected empty and Kubernetes scopes beside unrelated cloud owners."""
 
 import json
 import os
@@ -53,6 +53,28 @@ def main() -> None:
         }
     cloud = {"version": 1, "scope": owner,
         "bundles": [bundle([{"tag": "Managed", "contents": cloud_resource}])]}
+    host_owner = {"kind": "Platform", "name": "unrelated-host"}
+    host_resource_id = "platform:unrelated-host/system/resource"
+    host_resource = {
+        "identity": host_resource_id, "owner": host_owner,
+        "executor": "HostExecutor",
+        "address": {"tag": "Host", "contents": [
+            "platform:foundation/cluster/resource", "unrelated"]},
+        "aliases": [],
+        "spec": {"tag": "NativeObject", "contents": "b" * 64},
+        "lifecycle": "Retain", "dataPolicy": {"tag": "Stateless"},
+        "sensitivity": "Public", "dependencies": [], "delegations": [],
+        "source": {"file": "fixture", "path": "unrelated-host"},
+    }
+    host_bundle = bundle([{"tag": "Managed", "contents": host_resource}])
+    host_bundle["operations"] = [{
+        "identity": "platform:unrelated-host/activation/apply",
+        "affects": [host_resource_id],
+        "inputs": [{"tag": "ContentInput", "contents": "c" * 64},
+            {"tag": "ContentInput", "contents": "d" * 64}],
+        "recovery": "OperatorRecovery", "operationKind": "ActivateHost",
+    }]
+    host = {"version": 1, "scope": host_owner, "bundles": [host_bundle]}
     app = {"version": 1, "scope": {"kind": "Application", "name": "empty"},
         "bundles": [bundle([])]}
     candidate = {
@@ -61,10 +83,12 @@ def main() -> None:
         "base": [
             {"scope": foundation["scope"], "generation": 7},
             {"scope": owner, "generation": 1},
+            {"scope": host_owner, "generation": 1},
         ],
         "snapshot": [
             {"generation": 7, "declaration": foundation},
             {"generation": 1, "declaration": cloud},
+            {"generation": 1, "declaration": host},
         ],
         "reservations": [],
         "changes": [{"replace": app}],
@@ -84,10 +108,15 @@ def main() -> None:
         fake_bin.mkdir()
         for executable in ("npm", "pulumi", "gcloud", "kubectl"):
             fake = fake_bin / executable
-            fake.write_text(
+            body = (
                 "#!/bin/sh\nprintf '%s\\n' \"$0\" >> "
-                + shlex.quote(str(marker)) + "\nexit 95\n"
+                + shlex.quote(str(marker)) + "\n"
             )
+            if executable == "kubectl":
+                body += "case \" $* \" in *' get '*) exit 0;; *) exit 95;; esac\n"
+            else:
+                body += "exit 95\n"
+            fake.write_text(body)
             fake.chmod(0o755)
         environment = {key: value for key, value in os.environ.items()
             if not key.startswith("NAGARE_") and not key.startswith("CLOUDSDK_")}
@@ -132,14 +161,42 @@ def main() -> None:
         new_revisions = {entry["scope"]["name"]: entry["revision"]
             for entry in after["accepted"]}
         if any(old_revisions[name] != new_revisions.get(name)
-               for name in ("cloud", "foundation")):
+               for name in ("cloud", "foundation", "unrelated-host")):
             raise AssertionError("unrelated accepted scope revisions changed")
         if "empty" not in new_revisions:
             raise AssertionError("selected empty application scope was not accepted")
         if marker.exists():
             raise AssertionError("unrelated provider executable was called: "
                 + marker.read_text())
-        print("inventory scope isolation: fresh and empty stores planned without unrelated provider processes")
+        selected_candidate = json.loads(json.dumps(candidate))
+        selected_app = selected_candidate["changes"][0]["replace"]
+        selected_foundation = selected_candidate["snapshot"][0]["declaration"]
+        selected_foundation["bundles"][0]["grants"] = [
+            [selected_app["scope"], "platform:foundation/cluster/resource"]
+        ]
+        selected_app["bundles"][0]["contributions"] = [{
+            "owner": selected_foundation["scope"],
+            "cluster": "platform:foundation/cluster/resource",
+            "namespace": "selected", "key": "selected",
+        }]
+        selected_file = scratch / "selected-candidate.json"
+        selected_file.write_text(json.dumps(selected_candidate))
+        selected_compiled = scratch / "selected-compiled"
+        selected_review = scratch / "selected-review"
+        selected_environment = environment | {
+            "XDG_STATE_HOME": str(scratch / "selected-state")
+        }
+        run(cli, root, selected_environment, ["inventory", "compile", "--input",
+            str(selected_file), "--out", str(selected_compiled)])
+        run(cli, root, selected_environment, ["--context", "isolated", "inventory", "plan",
+            "--inventory", str(selected_compiled), "--out", str(selected_review)])
+        selected_operations = json.loads((selected_review / "review.json").read_text())["operations"]
+        if len(selected_operations) != 1 or "KubernetesExecutor" not in json.dumps(selected_operations):
+            raise AssertionError("selected Namespace did not plan one Kubernetes operation")
+        calls = marker.read_text().splitlines() if marker.exists() else []
+        if not calls or any(Path(call).name != "kubectl" for call in calls):
+            raise AssertionError("selected Namespace invoked an unrelated provider: " + repr(calls))
+        print("inventory scope isolation: empty and selected Kubernetes scopes ignored unrelated providers")
 
 
 if __name__ == "__main__":

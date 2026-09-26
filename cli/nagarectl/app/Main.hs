@@ -5490,24 +5490,39 @@ runInventoryRecover mctx transaction operation decisionFile takeOver = do
 inventoryExecutionRegistry :: Maybe String -> InventoryPlan.ReviewBundle -> IO InventoryAdapter.AdapterRegistry
 inventoryExecutionRegistry mctx bundle = do
   scopes <- traverse (either (dieT . T.pack . show) pure . ResourceWire.decodeScope) (Map.elems (InventoryPlan.reviewBundleScopes bundle))
-  let declarations = [declaration | scopeDeclaration <- scopes, resourceBundle <- ResourceInventory.scopeBundles scopeDeclaration, declaration <- ResourceInventory.declarations resourceBundle]
-  registrations <- either dieT pure (InventoryCloud.registrationsFromDeclarations declarations)
-  artifactSpecs <- either dieT pure (InventoryArtifact.artifactExecutionSpecsFromDeclarations declarations)
+  let document = InventoryPlan.reviewBundleDocument bundle
+      operations = map InventoryPlan.reviewPlannedOperation
+        (InventoryPlan.reviewOperations document)
+      selected executor = Set.fromList
+        [resource | operation <- operations,
+          InventoryAdapter.plannedExecutor operation == executor,
+          resource <- NE.toList (InventoryAdapter.plannedResources operation)]
+      declarations = [declaration | scopeDeclaration <- scopes, resourceBundle <- ResourceInventory.scopeBundles scopeDeclaration, declaration <- ResourceInventory.declarations resourceBundle]
+  allRegistrations <- either dieT pure (InventoryCloud.registrationsFromDeclarations declarations)
+  let registrations = filter (\registration -> Set.member
+        (InventoryCloud.registrationResource registration)
+        (selected ResourceInventory.PulumiExecutor)) allRegistrations
+  allArtifactSpecs <- either dieT pure (InventoryArtifact.artifactExecutionSpecsFromDeclarations declarations)
+  let artifactSpecs = Map.restrictKeys allArtifactSpecs (selected ResourceInventory.ArtifactExecutor)
   cacheSpecs <- either dieT pure (cacheSpecsFromDeclarations declarations)
-  topicSpecs <- either dieT pure (topicSpecsFromDeclarations declarations)
-  dnsSpecs <- either dieT pure (dnsSpecsFromDeclarations declarations)
+  allTopicSpecs <- either dieT pure (topicSpecsFromDeclarations declarations)
+  let topicSpecs = Map.restrictKeys allTopicSpecs (selected ResourceInventory.BrokerExecutor)
+  allDnsSpecs <- either dieT pure (dnsSpecsFromDeclarations declarations)
+  let dnsSpecs = Map.restrictKeys allDnsSpecs (selected ResourceInventory.CdnExecutor)
   cdnDeclarations <- either (dieT . T.pack . show) pure (ResourceInventory.composedDeclarations
     (Map.fromList [(ResourceInventory.scopeId scope, scope) | scope <- scopes]))
-  cloudflareSpecs <- either dieT pure (cloudflareBindingsFromDeclarations cdnDeclarations)
-  hostInputs <- either dieT pure (InventoryHost.hostExecutionInputsFromScopes scopes)
+  allCloudflareSpecs <- either dieT pure (cloudflareBindingsFromDeclarations cdnDeclarations)
+  let cloudflareSpecs = Map.restrictKeys allCloudflareSpecs (selected ResourceInventory.CdnExecutor)
+  hostInputs <- if Set.null (selected ResourceInventory.HostExecutor)
+    then pure Nothing
+    else either dieT pure (InventoryHost.hostExecutionInputsFromScopes scopes)
   reviewedKubernetesSpecs <- either dieT pure (kubernetesSpecsFromReview bundle)
   helmSpecs <- either dieT pure (helmSpecsFromReview bundle)
-  let retiredIds = Map.keysSet (InventoryPlan.reviewRetentions (InventoryPlan.reviewBundleDocument bundle))
-        `Set.union` Map.keysSet (InventoryPlan.reviewCollections (InventoryPlan.reviewBundleDocument bundle))
-      binding = InventoryPlan.reviewContextBinding (InventoryPlan.reviewBundleDocument bundle)
+  let retiredIds = Map.keysSet (InventoryPlan.reviewRetentions document)
+        `Set.union` Map.keysSet (InventoryPlan.reviewCollections document)
+      binding = InventoryPlan.reviewContextBinding document
       activeExecutors = Set.fromList
-        [InventoryAdapter.plannedExecutor (InventoryPlan.reviewPlannedOperation operation)
-        | operation <- InventoryPlan.reviewOperations (InventoryPlan.reviewBundleDocument bundle)]
+        [InventoryAdapter.plannedExecutor operation | operation <- operations]
       selectedInfra = any (`Set.member` activeExecutors)
         [ResourceInventory.PulumiExecutor, ResourceInventory.ArtifactExecutor,
          ResourceInventory.HostExecutor]
@@ -5530,8 +5545,11 @@ inventoryExecutionRegistry mctx bundle = do
     unless (Set.union (Map.keysSet selectedKubernetes) (Map.keysSet selectedHelm) == retiredIds)
       (dieT "retirement review lacks accepted immutable native evidence")
     pure (selectedKubernetes, selectedHelm)
-  let kubernetesSpecs = Map.union reviewedKubernetesSpecs retiringKubernetesSpecs
-      allHelmSpecs = Map.union helmSpecs retiringHelmSpecs
+  let kubernetesSpecs = Map.restrictKeys
+        (Map.union reviewedKubernetesSpecs retiringKubernetesSpecs)
+        (selected ResourceInventory.KubernetesExecutor)
+      allHelmSpecs = Map.restrictKeys (Map.union helmSpecs retiringHelmSpecs)
+        (selected ResourceInventory.HelmExecutor)
   if null registrations && Map.null artifactSpecs && isNothing hostInputs && Map.null kubernetesSpecs && Map.null cacheSpecs && Map.null topicSpecs && Map.null dnsSpecs && Map.null cloudflareSpecs && Map.null allHelmSpecs
     then either dieT pure (InventoryAdapter.mkAdapterRegistry (map Inventory.executionBlockedAdapterFor [ResourceInventory.KubernetesExecutor, ResourceInventory.PulumiExecutor, ResourceInventory.HostExecutor, ResourceInventory.ArtifactExecutor, ResourceInventory.CacheExecutor, ResourceInventory.BrokerExecutor, ResourceInventory.HelmExecutor, ResourceInventory.CdnExecutor]))
     else do
@@ -5576,6 +5594,7 @@ inventoryPlanRegistryWithNative active workspace suppliedNative candidate histor
       scopes = Map.elems (ResourceInventory.inventoryScopes inventory)
       required = InventoryPlan.requirementsByExecutor
         (InventoryPlan.observationRequirements candidate history)
+      selected executor = Set.fromList (Map.findWithDefault [] executor required)
       selectedKubernetes = Set.fromList
         (Map.findWithDefault [] ResourceInventory.KubernetesExecutor required)
       selectedHelm = Set.fromList
@@ -5585,19 +5604,29 @@ inventoryPlanRegistryWithNative active workspace suppliedNative candidate histor
         | (_, (_, scope)) <- Map.toAscList (InventoryPlan.historyAccepted history)
         , bundle <- ResourceInventory.scopeBundles scope
         , declaration <- ResourceInventory.declarations bundle]
-  registrations <- either dieT pure (InventoryCloud.registrationsFromDeclarations declarations)
-  artifactSpecs <- either dieT pure (InventoryArtifact.artifactExecutionSpecsFromDeclarations declarations)
+  allRegistrations <- either dieT pure (InventoryCloud.registrationsFromDeclarations declarations)
+  let registrations = filter (\registration -> Set.member
+        (InventoryCloud.registrationResource registration)
+        (selected ResourceInventory.PulumiExecutor)) allRegistrations
+  allArtifactSpecs <- either dieT pure (InventoryArtifact.artifactExecutionSpecsFromDeclarations declarations)
+  let artifactSpecs = Map.restrictKeys allArtifactSpecs (selected ResourceInventory.ArtifactExecutor)
   cacheSpecs <- either dieT pure (cacheSpecsFromDeclarations declarations)
-  topicSpecs <- either dieT pure (topicSpecsFromDeclarations (historical <> declarations))
+  allTopicSpecs <- either dieT pure (topicSpecsFromDeclarations (historical <> declarations))
+  let topicSpecs = Map.restrictKeys allTopicSpecs (selected ResourceInventory.BrokerExecutor)
   desiredDnsSpecs <- either dieT pure (dnsSpecsFromDeclarations declarations)
   historicalDnsSpecs <- either dieT pure (dnsSpecsFromDeclarations historical)
-  let dnsSpecs = Map.union desiredDnsSpecs historicalDnsSpecs
+  let dnsSpecs = Map.restrictKeys (Map.union desiredDnsSpecs historicalDnsSpecs)
+        (selected ResourceInventory.CdnExecutor)
   desiredCloudflareSpecs <- either dieT pure (cloudflareBindingsFromDeclarations declarations)
   historicalComposed <- either (dieT . T.pack . show) pure (ResourceInventory.composedDeclarations
     (Map.map snd (InventoryPlan.historyAccepted history)))
   historicalCloudflareSpecs <- either dieT pure (cloudflareBindingsFromDeclarations historicalComposed)
-  let cloudflareSpecs = Map.union desiredCloudflareSpecs historicalCloudflareSpecs
-  hostInputs <- either dieT pure (InventoryHost.hostExecutionInputsFromScopes scopes)
+  let cloudflareSpecs = Map.restrictKeys
+        (Map.union desiredCloudflareSpecs historicalCloudflareSpecs)
+        (selected ResourceInventory.CdnExecutor)
+  hostInputs <- if Set.null (selected ResourceInventory.HostExecutor)
+    then pure Nothing
+    else either dieT pure (InventoryHost.hostExecutionInputsFromScopes scopes)
   let kubernetesResources = [resource | ResourceInventory.Managed resource <- declarations, resource ^. #executor == ResourceInventory.KubernetesExecutor]
       helmResources = [resource | ResourceInventory.Managed resource <- declarations, resource ^. #executor == ResourceInventory.HelmExecutor]
   namespaceNative <- either dieT pure (compileContributedNamespaces declarations)
@@ -5649,14 +5678,18 @@ inventoryPlanRegistryWithNative active workspace suppliedNative candidate histor
       (ResourceInventory.composeSnapshot acceptedSnapshot)
     (native, helmNative) <- InventoryStatus.loadAcceptedNative store history acceptedInventory
       >>= either dieT pure
-    let selectedKubernetes = Map.filterWithKey (\resource _ -> Set.member resource historicalKubernetesIds) native
-        selectedHelm = Map.filterWithKey (\resource _ -> Set.member resource historicalHelmIds) helmNative
-    unless (Map.keysSet selectedKubernetes == historicalKubernetesIds
-        && Map.keysSet selectedHelm == historicalHelmIds)
+    let selectedRetiringKubernetes = Map.filterWithKey
+          (\resource _ -> Set.member resource historicalKubernetesIds) native
+        selectedRetiringHelm = Map.filterWithKey
+          (\resource _ -> Set.member resource historicalHelmIds) helmNative
+    unless (Map.keysSet selectedRetiringKubernetes == historicalKubernetesIds
+        && Map.keysSet selectedRetiringHelm == historicalHelmIds)
       (dieT "retained or retiring resource lacks immutable native evidence")
-    pure (selectedKubernetes, selectedHelm)
-  let kubernetesSpecs = Map.unions [kubernetesSuppliedNative, loaded, retiringNative]
-      helmSpecs = Map.union helmSuppliedNative retiringHelmNative
+    pure (selectedRetiringKubernetes, selectedRetiringHelm)
+  let kubernetesSpecs = Map.restrictKeys
+        (Map.unions [kubernetesSuppliedNative, loaded, retiringNative]) selectedKubernetes
+      helmSpecs = Map.restrictKeys
+        (Map.union helmSuppliedNative retiringHelmNative) selectedHelm
   pulumi <-
     if null registrations
       then pure (Inventory.manifestAdapterFor history ResourceInventory.PulumiExecutor)
