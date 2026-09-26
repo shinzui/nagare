@@ -261,7 +261,7 @@ import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.Application (ApplicationScopeInput (..), GoogleCdnBinding (..), CloudflareCdnBinding (..), ReviewedCdnBinding (..), DatabaseBinding, ServiceAction (..), acceptedAccessBinding, acceptedApplicationImage, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationDeployment, compileServiceActionScope, compileStandaloneServiceWithRelease, compileStandaloneWorkerWithDependencies, databaseRecoveryBindings, hostnameClaimOwned, legacyApplicationReleaseImport, legacyStandaloneReleaseImport, nativeWorkloadOwned, recordReviewedStandaloneOverrides, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), GoogleCdnBinding (..), CloudflareCdnBinding (..), ReviewedCdnBinding (..), DatabaseBinding, ServiceAction (..), acceptedAccessBinding, acceptedApplicationImage, acceptedImageBuildSecrets, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationDeployment, compileServiceActionScope, compileStandaloneServiceWithRelease, compileStandaloneWorkerWithDependencies, databaseRecoveryBindings, hostnameClaimOwned, legacyApplicationReleaseImport, legacyStandaloneReleaseImport, nativeWorkloadOwned, recordReviewedStandaloneOverrides, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
 import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteReleaseLog, acceptedSiteSource, compileServerSitePreviewScope, compileServerSiteRollbackScope, compileServerSiteRollbackScopeWithCdn, compileServerSiteRollbackScopeWithCloudflare, compileServerSiteScope, compileServerSiteScopeWithCdn, compileServerSiteScopeWithCloudflare, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteRollbackScopeWithCdn, compileStaticSiteRollbackScopeWithCloudflare, compileStaticSiteScope, compileStaticSiteScopeWithCdn, compileStaticSiteScopeWithCloudflare, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
 import Nagare.Inventory.Backup (ManualBackupRequest (..), BackupSourceProof (..), VolumeSnapshotRequest (..), compileManualBackupScope, compileVolumeSnapshotScope, manualBackupSourceProof)
 import Nagare.Inventory.Prune (ManualPruneRequest (..), PruneSourceProof (..), compileManualPruneScope, manualPruneSourceProof)
@@ -8174,6 +8174,8 @@ runAppDeployPlan mctx params appOptions output = do
   either dieT pure (acceptedApplicationImage snapshot imageId (rollout ^. #taggedAppImage))
   either dieT pure (reviewedTaskImages (app ^. #tasks)
     (rollout ^. #taggedAppImage) (rollout ^. #effectiveTag))
+  buildSecrets <- either dieT pure (acceptedImageBuildSecrets snapshot imageId
+    (serviceNameText (app ^. #name)))
   tlsIds <- traverse (either dieT pure . Resource.mkResourceId . T.pack)
     (appOptions ^. #tlsSecretResources)
   envIds <- traverse (either dieT pure . Resource.mkResourceId . T.pack)
@@ -8239,6 +8241,7 @@ runAppDeployPlan mctx params appOptions output = do
         , scopeServiceVolumeRecovery = serviceVolumeRecovery
         , scopeTlsSecrets = tlsSecrets
         , scopeEnvSecrets = envSecrets
+        , scopeBuildSecrets = buildSecrets
         , scopeWorkerVolumeRecovery = workerVolumeRecovery
         , scopeBackupBackend = backend
         , scopeRelease = (priorReleases, release)

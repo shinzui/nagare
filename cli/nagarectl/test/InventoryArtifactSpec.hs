@@ -3,19 +3,24 @@ module InventoryArtifactSpec (inventoryArtifactTests) where
 import Nagare.Dsl.Prelude hiding ((.=))
 
 import Data.IORef
+import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Nagare.Dsl.Types (mkSecretName)
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Artifact
 import Nagare.Inventory.Adapters.ArtifactRuntime
 import Nagare.Inventory.Artifact
-import Nagare.Inventory.Application (acceptedApplicationImage, acceptedImageResourceForDestination)
+import Nagare.Inventory.Application (acceptedApplicationImage, acceptedImageBuildSecrets, acceptedImageResourceForDestination)
 import Nagare.Inventory.Digest
+import Nagare.Inventory.Environment (compileBuildSecretChannel)
 import Nagare.Inventory.Journal
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
+import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
@@ -76,6 +81,49 @@ inventoryArtifactTests =
         case acceptedApplicationImage snapshot artifactResource "registry.example/app:v1" of
           Left _ -> pure ()
           Right () -> assertFailure "an absent image identity was accepted"
+    , testCase "accepted image pins its Build Secret channel without making it runtime input" $ do
+        let foundation = either (error . Text.unpack) id (mkScopeId Platform "foundation")
+            cluster = mintResourceId foundation (logicalKey "cluster") (name "cluster")
+            namespaceId = mintResourceId foundation (logicalKey "foundation")
+              (name "namespace-personal")
+        (buildScope, _) <- expectRight (compileBuildSecretChannel
+          "kizashi" "personal" cluster namespaceId (name "v1")
+          (Map.singleton "TOKEN" "private") (SourceLocation "test" "build-secret"))
+        buildId <- case [member ^. #identity | bundle <- scopeBundles buildScope,
+          Managed member <- declarations bundle] of
+          [single] -> pure single
+          _ -> assertFailure "Build channel has no unique Secret" >> fail "missing Build Secret"
+        let oci = imageSpec
+              { artifactLogicalKey = logicalKey "app-image"
+              , artifactRole = name "oci-image"
+              , artifactName = name "app-image"
+              , artifactDestination = "registry.example/app:v1"
+              , artifactKind = OciImageArtifact
+              , artifactDependencies = [OrderedAfter buildId]
+              }
+            imageId = mintResourceId scope (artifactLogicalKey oci) (artifactRole oci)
+            pin = "build-input." <> resourceIdText buildId
+            binding = ContextBinding (either (error . Text.unpack) id (mkContextId "test")) (name "project")
+        base <- expectRight (compileArtifactScope (ArtifactDeclarationBundle 1 scope (oci :| [])))
+        let published = withScopeOverrides
+              (Map.singleton pin (digestText (contentDigest "accepted-build-revision"))) base
+        snapshot <- expectRight (mkScopeSnapshot binding
+          (Map.fromList [(scope, (either (error . Text.unpack) id (mkScopeGeneration 1), published))
+            , (scopeId buildScope, (either (error . Text.unpack) id (mkScopeGeneration 1), buildScope))])
+          Map.empty)
+        acceptedImageBuildSecrets snapshot imageId "kizashi"
+          @?= Right (Set.singleton (either (error . Text.unpack) id
+            (mkSecretName "nagare-secret-kizashi-build")))
+        case acceptedImageBuildSecrets snapshot imageId "another-app" of
+          Left _ -> pure ()
+          Right _ -> assertFailure "image Build input was borrowed by another app"
+        unpinned <- expectRight (mkScopeSnapshot binding
+          (Map.fromList [(scope, (either (error . Text.unpack) id (mkScopeGeneration 1), base))
+            , (scopeId buildScope, (either (error . Text.unpack) id (mkScopeGeneration 1), buildScope))])
+          Map.empty)
+        case acceptedImageBuildSecrets unpinned imageId "kizashi" of
+          Left _ -> pure ()
+          Right _ -> assertFailure "image dependency without a revision pin was accepted"
     , testCase "matching immutable content resumes without republishing" $ do
         calls <- newIORef (0 :: Int)
         state <- newIORef (ArtifactPresent physical expectedDigest)

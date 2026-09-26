@@ -361,8 +361,11 @@ image with the intended inputs. Pass the accepted Build channel resource IDs to
 `app image-plan --build-input-resource RESOURCE-ID` when publishing its archive.
 That review binds the accepted channel revisions to the image publication; it
 cannot prove what an external builder consumed. `app deploy` does not read Build
-channels or pass their values to Docker. Build Secret references in application
-and server-site configs still refuse until a reviewed build consumer exists.
+channels or pass their values to Docker. An aggregate application can name a
+Build-only Secret when its accepted image publication pins that exact channel;
+the Secret stays out of runtime manifests. Standalone Service, worker, and
+server-site Build Secret references still refuse pending their reviewed input
+binding.
 
 Docker build arguments can be recorded in image history. Use a build mechanism
 that keeps confidential values out of image layers when preparing an archive.

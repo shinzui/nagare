@@ -96,6 +96,12 @@ config's image reference and explicit tag. Every live `app deploy` requires the
 accepted image resource and an initialized inventory store, including a newly
 named app in a context with no prior application history. Build path overrides
 are unavailable on this command; apply them while preparing the archive.
+An aggregate application may declare a Build-only Secret reference when its
+accepted image publication pins that app's exact Build Secret channel. The
+review checks the pin and leaves the Build Secret out of runtime Service,
+worker, and task manifests. Standalone Service and worker builds still reject
+Build Secret references. The image review records declared external build
+inputs; it does not prove that the external builder consumed the Secret.
 
 To preview the same supported scope without saving or publishing a review, use
 `--dry-run` with the same accepted image and recovery inputs. It reads the

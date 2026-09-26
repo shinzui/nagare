@@ -471,6 +471,7 @@ nativeApplicationReview = do
             , scopeServiceVolumeRecovery = Map.empty
             , scopeTlsSecrets = Map.empty
             , scopeEnvSecrets = Map.empty
+            , scopeBuildSecrets = Set.empty
             , scopeWorkerVolumeRecovery = Map.empty
             , scopeBackupBackend = GcsBackend "project" "bucket"
             , scopeRelease = (emptyReleaseLog, release)
@@ -1058,6 +1059,7 @@ renderTests =
             , scopeServiceVolumeRecovery = Map.empty
             , scopeTlsSecrets = Map.empty
             , scopeEnvSecrets = Map.empty
+            , scopeBuildSecrets = Set.empty
             , scopeWorkerVolumeRecovery = Map.empty
             , scopeBackupBackend = GcsBackend "project" "bucket"
             , scopeRelease = (emptyReleaseLog, release)
@@ -2234,6 +2236,21 @@ renderTests =
           }) of
         Left _ -> pure ()
         Right _ -> assertFailure "build-scoped Secret entered the runtime dependency channel"
+      let acceptedBuildInput = secretInput
+            { scopeApplication = buildSecret
+            , scopeRollout = scopeRollout input & #appEnv .~ buildSecret ^. #env
+            , scopeEnvSecrets = Map.empty
+            , scopeBuildSecrets = Set.singleton secretName
+            }
+      (buildScope, buildNative) <- either (fail . ("build input: " <>) . show) pure
+        (compileApplicationScope acceptedBuildInput)
+      assertBool "Build Secret became a runtime dependency"
+        (all (notElem (OrderedAfter secretId) . (^. #dependencies))
+          [member | bundle <- scopeBundles buildScope,
+            Managed member <- declarations bundle])
+      assertBool "Build Secret name or variable leaked into a workload manifest"
+        (all (\(_, bytes) -> not (BS.isInfixOf "external-token" bytes
+          || BS.isInfixOf "PRIVATE_TOKEN" bytes)) (Map.elems buildNative))
       case app ^. #workers of
         firstWorker : secondWorker : rest -> do
           let key = unsafe (Resource.mkLogicalKey "shared-worker")

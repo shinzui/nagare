@@ -20,6 +20,7 @@ module Nagare.Inventory.Application
   , nativeWorkloadOwned
   , hostnameClaimOwned
   , acceptedApplicationImage
+  , acceptedImageBuildSecrets
   , acceptedImageResourceForDestination
   , reviewedTaskImages
   , databaseRecoveryBindings
@@ -78,13 +79,14 @@ import Nagare.Dsl.Database (Database (..), Engine (..), dbSecretName, engineToke
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Render (pvcName)
 import Nagare.Dsl.Database.Render (dbConfigMapName, dbPvcName)
-import Nagare.Dsl.Types (DatabaseName, Deployment (..), DomainSpec (..), DomainTls (..), EnvScope (Runtime), EnvVar (..), Namespace, ScopedEnvVar (..), SecretName, Volume (..), VolumeName, databaseNameText, domainText, imageRefText, mkDomain, mkEnvName, mkSecretName, namespaceText, runtimeScoped, secretNameText, serviceNameText, volumeNameText)
+import Nagare.Dsl.Types (DatabaseName, Deployment (..), DomainSpec (..), DomainTls (..), EnvScope (Build, Runtime), EnvVar (..), Namespace, ScopedEnvVar (..), SecretName, Volume (..), VolumeName, databaseNameText, domainText, imageRefText, mkDomain, mkEnvName, mkSecretName, namespaceText, runtimeScoped, secretNameText, serviceNameText, volumeNameText)
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Dsl.Worker (Worker (..))
 import Nagare.Dsl.Task (Task (..), mkTask, taskResourceName)
 import Nagare.Task.Resolve (resolveTaskImage)
 import Nagare.Inventory.Database (compileDatabaseForBackend)
 import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.Environment (acceptedBuildChannelMember)
 import Nagare.Env.Generated (mergeGenerated)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.TaskRun (jobFromCronJob)
@@ -339,6 +341,51 @@ acceptedApplicationImage snapshot imageId taggedImage =
         | nameText kind == "oci-image" && destination == taggedImage -> Right ()
       _ -> Left "accepted image resource is not the requested OCI publication"
     _ -> Left "image resource is absent or ambiguous in accepted inventory"
+
+-- | The accepted publication explicitly names every Build channel it claims
+-- as an input. Its scope pins the revision accepted when the archive was
+-- published; a later channel rotation cannot silently change that claim.
+-- The current channel is used only to verify its typed name and address.
+acceptedImageBuildSecrets
+  :: ScopeSnapshot -> ResourceId -> T.Text -> Either T.Text (Set.Set SecretName)
+acceptedImageBuildSecrets snapshot imageId appName = do
+  (imageScope, image) <- case
+    [(scope, resource) | (_, scope) <- Map.elems (snapshotScopes snapshot),
+      bundle <- scopeBundles scope, Managed resource <- declarations bundle,
+      resource ^. #identity == imageId] of
+    [selected] -> Right selected
+    _ -> Left "image publication is absent or ambiguous in accepted inventory"
+  unless (scopeKind (scopeId imageScope) == Publication
+      && image ^. #owner == scopeId imageScope
+      && case image ^. #spec of
+           ArtifactPublication kind _ _ _ -> nameText kind == "oci-image"
+           _ -> False)
+    (Left "Build inputs require an accepted OCI publication")
+  let inputIds = [resource | OrderedAfter resource <- image ^. #dependencies]
+      expectedKeys = Set.fromList
+        ["build-input." <> resourceIdText resource | resource <- inputIds]
+      pinnedKeys = Set.fromList
+        [key | key <- Map.keys (scopeOverrides imageScope),
+          "build-input." `T.isPrefixOf` key]
+  unless (length inputIds == Set.size (Set.fromList inputIds)
+      && pinnedKeys == expectedKeys)
+    (Left "image publication Build input pins differ from its dependencies")
+  channels <- traverse (acceptedBuildChannelMember snapshot) inputIds
+  names <- traverse (\(resourceId, (ownerApp, _, channel)) -> do
+    unless (ownerApp == appName)
+      (Left "image Build channel belongs to another application")
+    revisionText <- maybe (Left "image Build input lacks an accepted revision pin") Right
+      (Map.lookup ("build-input." <> resourceIdText resourceId)
+        (scopeOverrides imageScope))
+    _ <- mkContentDigest revisionText
+    case channel ^. #address of
+      Kubernetes _ "" kind (Just _) name | nameText kind == "secret" ->
+        Just <$> mkSecretName (nameText name)
+      Kubernetes _ "" kind (Just _) _ | nameText kind == "configmap" ->
+        Right Nothing
+      _ -> Left "image Build input has an unexpected native address")
+    (zip inputIds channels)
+  pure (Set.fromList [name | Just name <- names])
 
 -- | Select the one accepted OCI publication for an exact tagged destination.
 -- The caller still passes its ID to the reviewed command, which rechecks the
@@ -752,6 +799,8 @@ data ApplicationScopeInput = ApplicationScopeInput
   , scopeServiceVolumeRecovery :: !(Map VolumeName RecoveryIntent)
   , scopeTlsSecrets :: !(Map SecretName Declaration)
   , scopeEnvSecrets :: !(Map SecretName Declaration)
+  , scopeBuildSecrets :: !(Set.Set SecretName)
+  -- ^ Build-only references proved by the accepted image publication inputs.
   , scopeWorkerVolumeRecovery :: !(Map ResourceId RecoveryIntent)
   , scopeBackupBackend :: !StoreBackend
   , scopeRelease :: !(StaticReleaseLog, StaticRelease)
@@ -902,13 +951,41 @@ secretDependency cluster namespaceName bindings secretName = do
   pure (declarationId secret)
 
 runtimeSecretNames :: [ScopedEnvVar] -> Either T.Text [SecretName]
-runtimeSecretNames entries = Set.toList . Set.fromList . concat <$> traverse one entries
+runtimeSecretNames = runtimeSecretNamesWithBuild Set.empty
+
+runtimeSecretNamesWithBuild
+  :: Set.Set SecretName -> [ScopedEnvVar] -> Either T.Text [SecretName]
+runtimeSecretNamesWithBuild buildSecrets entries =
+  Set.toList . Set.fromList . concat <$> traverse one entries
   where
     one entry = case entry ^. #value of
       EnvLiteral _ -> Right []
       EnvSecretRef secret
         | entry ^. #scopes == Set.singleton Runtime -> Right [secret]
+        | entry ^. #scopes == Set.singleton Build
+            && Set.member secret buildSecrets -> Right []
         | otherwise -> Left "Secret-backed build or preview environment requires a separate reviewed input channel"
+
+-- Build-only Secret references belong to the image publication. Removing
+-- them from the runtime render input preserves the original typed config
+-- digest while keeping their names out of workload manifests.
+stripBuildSecretRefs :: Application -> Application
+stripBuildSecretRefs app = app
+  & #env %~ stripBuildSecretEnv
+  & #service %~ fmap (\service -> service
+      & #env %~ stripBuildSecretEnv & #tasks %~ map stripTask)
+  & #workers %~ map (\worker -> worker & #env %~ stripBuildSecretEnv)
+  & #tasks %~ map stripTask
+  where
+    stripTask task = task & #env %~ stripBuildSecretEnv
+
+stripBuildSecretEnv :: Map Dsl.EnvName ScopedEnvVar -> Map Dsl.EnvName ScopedEnvVar
+stripBuildSecretEnv = Map.filter (\entry -> case entry ^. #value of
+  EnvSecretRef _ -> entry ^. #scopes /= Set.singleton Build
+  _ -> True)
+
+stripBuildSecretRollout :: RolloutEnv -> RolloutEnv
+stripBuildSecretRollout rollout = rollout & #appEnv %~ stripBuildSecretEnv
 
 -- | A reviewed workload can derive non-secret connection fields from its typed
 -- database and reference generated credential fields by Secret key. No live
@@ -1073,7 +1150,8 @@ compileApplicationScope input = do
         <> concatMap (Map.elems . (^. #env)) (app ^. #workers)
         <> concatMap (Map.elems . (^. #env)) (app ^. #tasks)
         <> maybe [] (concatMap (Map.elems . (^. #env)) . (^. #tasks)) (app ^. #service)
-  requiredEnvSecrets <- first invalid (runtimeSecretNames envValues)
+  requiredEnvSecrets <- first invalid
+    (runtimeSecretNamesWithBuild (scopeBuildSecrets input) envValues)
   case (app ^. #service >>= (^. #cdn), scopeCdnBinding input) of
     (Nothing, Nothing) -> pure ()
     (Just cdn, Just (GoogleCdnBindingFor binding)) -> do
@@ -1136,24 +1214,26 @@ compileApplicationScope input = do
   let envSecrets = Map.union ownSecretMap (scopeEnvSecrets input)
   _ <- traverse (first invalid . secretDependency (scopeCluster input)
     (namespaceText (app ^. #namespace)) envSecrets) requiredEnvSecrets
+  let runtimeApp = stripBuildSecretRefs app
+      runtimeRollout = stripBuildSecretRollout (scopeRollout input)
   serviceWithConnection <- traverse (\service -> do
     generated <- first invalid (declaredConnectionEnv app (service ^. #databases))
     localBrokerEnv <- first invalid (brokerEnvFor (service ^. #brokers))
     _ <- first invalid (mergeBrokerConnectionEnvs [brokerEnv, localBrokerEnv])
     pure (service & #env %~ mergeGenerated (mergeGenerated localBrokerEnv generated)
-      & #brokers .~ [] & #access .~ effectiveAccess & #cdn .~ Nothing)) (app ^. #service)
+      & #brokers .~ [] & #access .~ effectiveAccess & #cdn .~ Nothing)) (runtimeApp ^. #service)
   workersWithConnection <- traverse (\worker -> do
     generated <- first invalid (declaredConnectionEnv app (worker ^. #databases))
     localBrokerEnv <- first invalid (brokerEnvFor (worker ^. #brokers))
     _ <- first invalid (mergeBrokerConnectionEnvs [brokerEnv, localBrokerEnv])
     pure (worker & #env %~ mergeGenerated (mergeGenerated localBrokerEnv generated)
-      & #brokers .~ [])) (app ^. #workers)
-  let scopedApp = app & #service .~ serviceWithConnection
+      & #brokers .~ [])) (runtimeApp ^. #workers)
+  let scopedApp = runtimeApp & #service .~ serviceWithConnection
         & #workers .~ workersWithConnection
   serviceResult <- case scopedApp ^. #service of
     Nothing -> Right Nothing
     Just _ -> Just <$> compileApplicationServiceWithAccess (scopeAccessBinding input)
-      scopedApp (scopeRollout input)
+      scopedApp runtimeRollout
       (scopeCluster input) (scopeNamespace input) (scopeImage input)
       (scopeServiceVolumeRecovery input) (scopeTlsSecrets input) envSecrets source
   cdnBundles <- case (app ^. #service >>= (^. #cdn), scopeCdnBinding input) of
@@ -1186,10 +1266,10 @@ compileApplicationScope input = do
           (cloudflareCdnOriginIp binding) domainId ruleset source
         pure [cache, dns]) domains
     _ -> Left (invalid "CDN input is incomplete")
-  (workerBundles, workerNative) <- compileApplicationWorkers scopedApp (scopeRollout input)
+  (workerBundles, workerNative) <- compileApplicationWorkers scopedApp runtimeRollout
     (scopeCluster input) (scopeNamespace input) (scopeImage input)
     (scopeWorkerVolumeRecovery input) envSecrets source
-  (taskBundle, taskNative) <- compileApplicationTasks app (scopeRollout input)
+  (taskBundle, taskNative) <- compileApplicationTasks runtimeApp runtimeRollout
     (scopeCluster input) (scopeNamespace input) (scopeImage input) envSecrets source
   let namespaceBundles = maybe [] (\request -> [ResourceBundle [] [] [] [request] [] []]) namespaceContribution
       brokerIdsFor bindings = Set.toList (Set.fromList
@@ -1282,8 +1362,10 @@ compileApplicationDeployment input = do
         <> concatMap (Map.elems . (^. #env)) (baseApp ^. #workers)
         <> maybe [] (concatMap (Map.elems . (^. #env)) . (^. #tasks))
           (baseApp ^. #service)
-  baseSecretNames <- first invalid (runtimeSecretNames baseEnvValues)
-  allSecretNames <- first invalid (runtimeSecretNames
+  baseSecretNames <- first invalid
+    (runtimeSecretNamesWithBuild (scopeBuildSecrets input) baseEnvValues)
+  allSecretNames <- first invalid (runtimeSecretNamesWithBuild
+    (scopeBuildSecrets input)
     (baseEnvValues <> concatMap (Map.elems . (^. #env)) hooks))
   let baseSecrets = Map.restrictKeys (scopeEnvSecrets input)
         (Set.fromList baseSecretNames)
@@ -1317,8 +1399,9 @@ compileApplicationDeployment input = do
     unless (Map.keysSet (scopeEnvSecrets input)
         == Set.fromList allSecretNames `Set.difference` Map.keysSet ownSecretMap)
       (Left (invalid "runtime Secret environment requires exactly its application and hook dependencies"))
-    (hookTaskBundle, hookTaskNative) <- compileTaskMembers owner hooks
-      (scopeRollout input) cluster (scopeNamespace input) (scopeImage input)
+    (hookTaskBundle, hookTaskNative) <- compileTaskMembers owner
+      (stripBuildSecretRefs app ^. #tasks)
+      (stripBuildSecretRollout (scopeRollout input)) cluster (scopeNamespace input) (scopeImage input)
       envSecrets source
     brokerDependencies <- concat <$> traverse (\binding -> first invalid
       (brokerEvidenceIds cluster namespaceName binding
