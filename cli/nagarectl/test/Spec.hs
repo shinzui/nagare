@@ -427,7 +427,7 @@ import Nagare.Version
   )
 import PlatformCutoverSpec (platformCutoverTests)
 import PlatformSpec (platformTests)
-import System.Directory (createDirectoryIfMissing, createFileLink, getCurrentDirectory, pathIsSymbolicLink, setCurrentDirectory)
+import System.Directory (createDirectoryIfMissing, createFileLink, doesFileExist, getCurrentDirectory, pathIsSymbolicLink, setCurrentDirectory)
 import System.Environment (getEnvironment, lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (ExitFailure, ExitSuccess), exitWith)
 import System.FilePath ((<.>), (</>))
@@ -5023,9 +5023,10 @@ backupRestoreTests =
       , testCase "reviewed backup reads back exact stored bytes for both backends" $ do
           let cloud = TE.decodeUtf8 (renderInventoryDbBackupCronJob "personal" "mydb" Postgres "18" tnbGcsBackend 7)
               local = TE.decodeUtf8 (renderInventoryDbBackupCronJob "personal" "mydb" Postgres "18" localMinioBackend 7)
-              cloudScript = uploadShell (backupJobInputsPg & #verifyStored .~ True)
+              cloudScript = uploadShell (backupJobInputsPg & #verifyStored .~ True
+                & #destination .~ BackupDestStamped)
               localScript = uploadShell (backupJobInputsPg & #verifyStored .~ True
-                & #backend .~ localMinioBackend)
+                & #destination .~ BackupDestStamped & #backend .~ localMinioBackend)
           assertBool "GCS upload has no readback" ("gsutil cp \"$DEST\" - | sha256sum" `T.isInfixOf` cloudScript)
           assertBool "MinIO upload has no readback" ("aws s3 cp \"$DEST\" - --endpoint-url" `T.isInfixOf` localScript)
           assertBool "GCS does not compare digests" ("test \"$EXPECTED\" = \"$ACTUAL\"" `T.isInfixOf` cloudScript)
@@ -5041,9 +5042,11 @@ backupRestoreTests =
                 fakeHash = brokenTools </> "sha256sum"
                 stored = directory </> "object.gz"
                 cloudScript = T.unpack (T.replace "/dump" (T.pack dump)
-                  (uploadShell (backupJobInputsPg & #verifyStored .~ True)))
+                  (uploadShell (backupJobInputsPg & #verifyStored .~ True
+                    & #destination .~ BackupDestStamped)))
                 localScript = T.unpack (T.replace "/dump" (T.pack dump)
                   (uploadShell (backupJobInputsPg & #verifyStored .~ True
+                    & #destination .~ BackupDestStamped
                     & #backend .~ localMinioBackend)))
             createDirectoryIfMissing True dump
             createDirectoryIfMissing True brokenTools
@@ -5074,10 +5077,10 @@ backupRestoreTests =
                 run script corrupt badHash = readCreateProcessWithExitCode
                   ((proc "/bin/sh" ["-c", script]) {env = Just
                     ([("PATH", (if badHash then brokenTools <> ":" else "") <> directory <> ":" <> path),
-                      ("DEST", "gs://test/backup.gz"),
+                      ("DEST", "gs://test/backup.gz"), ("PREFIX", "gs://test/"),
                       ("NAGARE_TEST_OBJECT", stored), ("NAGARE_TEST_CORRUPT", corrupt)]
                       <> filter (\(key, _) -> key `notElem`
-                        ["PATH", "DEST", "NAGARE_TEST_OBJECT", "NAGARE_TEST_CORRUPT"]) parentEnv)}) ""
+                        ["PATH", "DEST", "PREFIX", "NAGARE_TEST_OBJECT", "NAGARE_TEST_CORRUPT"]) parentEnv)}) ""
             forM_ [("GCS", cloudScript), ("MinIO", localScript)] $ \(label, script) -> do
               (good, _, _) <- run script "0" False
               good @?= ExitSuccess
@@ -5089,6 +5092,115 @@ backupRestoreTests =
               case emptyHash of
                 ExitFailure _ -> pure ()
                 ExitSuccess -> assertFailure (label <> " empty digests completed the backup Job")
+      , testCase "reviewed manual backup never overwrites an existing object" $
+          withSystemTempDirectory "nagare-backup-create-only" $ \directory -> do
+            let dump = directory </> "dump"
+                fakeGcloud = directory </> "gcloud"
+                fakeGsutil = directory </> "gsutil"
+                fakeAws = directory </> "aws"
+                fakeDnf = directory </> "dnf"
+                cloudScript = T.unpack (T.replace "/dump" (T.pack dump)
+                  (uploadShell (backupJobInputsPg & #verifyStored .~ True)))
+                localScript = T.unpack (T.replace "/dump" (T.pack dump)
+                  (uploadShell (backupJobInputsPg & #verifyStored .~ True
+                    & #destination .~ BackupDestUrl "s3://test/databases/mydb/run-001.sql.gz"
+                    & #backend .~ localMinioBackend)))
+                localMultipartScript = T.unpack (T.replace "4294967296" "1"
+                  (T.replace "/dump" (T.pack dump)
+                    (uploadShell (backupJobInputsPg & #verifyStored .~ True
+                      & #destination .~ BackupDestUrl "s3://test/databases/mydb/run-002.sql.gz"
+                      & #backend .~ localMinioBackend))))
+            createDirectoryIfMissing True dump
+            writeFile fakeGcloud $ unlines
+              [ "#!/bin/sh", "set -eu"
+              , "[ \"$1\" = storage ] && [ \"$2\" = cp ] && [ \"$5\" = --if-generation-match=0 ] || exit 2"
+              , "[ ! -e \"$NAGARE_TEST_OBJECT\" ] || exit 47"
+              , "cat \"$3\" > \"$NAGARE_TEST_OBJECT\""
+              ]
+            writeFile fakeGsutil "#!/bin/sh\nset -eu\n[ \"$1\" = cp ] || exit 2\ncat \"$NAGARE_TEST_OBJECT\"\n"
+            writeFile fakeAws $ unlines
+              [ "#!/bin/sh", "set -eu"
+              , "if [ \"$1\" = s3api ] && [ \"$2\" = put-object ]; then"
+              , "  shift 2; BODY=; CONDITIONAL=0; BUCKET=; KEY="
+              , "  while [ \"$#\" -gt 0 ]; do"
+              , "    case \"$1\" in"
+              , "      --body) BODY=$2;; --bucket) BUCKET=$2;; --key) KEY=$2;;"
+              , "      --if-none-match) [ \"$2\" = '*' ] || exit 3; CONDITIONAL=1;;"
+              , "    esac"
+              , "    shift 2"
+              , "  done"
+              , "  [ \"$CONDITIONAL\" = 1 ] && [ \"$BUCKET\" = test ] && [ -n \"$KEY\" ] || exit 4"
+              , "  [ ! -e \"$NAGARE_TEST_OBJECT\" ] || exit 47"
+              , "  cat \"$BODY\" > \"$NAGARE_TEST_OBJECT\""
+              , "elif [ \"$1\" = s3api ] && [ \"$2\" = create-multipart-upload ]; then"
+              , "  echo upload-001"
+              , "elif [ \"$1\" = s3api ] && [ \"$2\" = upload-part ]; then"
+              , "  shift 2; BODY="
+              , "  while [ \"$#\" -gt 0 ]; do"
+              , "    case \"$1\" in --body) BODY=$2;; esac"
+              , "    shift 2"
+              , "  done"
+              , "  cat \"$BODY\" > \"$NAGARE_TEST_OBJECT.part\""
+              , "  echo '\"testetag\"'"
+              , "elif [ \"$1\" = s3api ] && [ \"$2\" = complete-multipart-upload ]; then"
+              , "  shift 2; CONDITIONAL=0; PARTS="
+              , "  while [ \"$#\" -gt 0 ]; do"
+              , "    case \"$1\" in"
+              , "      --if-none-match) [ \"$2\" = '*' ] || exit 3; CONDITIONAL=1;;"
+              , "      --multipart-upload) PARTS=${2#file://};;"
+              , "    esac"
+              , "    shift 2"
+              , "  done"
+              , "  [ \"$CONDITIONAL\" = 1 ] && [ -f \"$PARTS\" ] || exit 4"
+              , "  grep -q '\"PartNumber\":1' \"$PARTS\" || exit 5"
+              , "  [ ! -e \"$NAGARE_TEST_OBJECT\" ] || exit 47"
+              , "  cat \"$NAGARE_TEST_OBJECT.part\" > \"$NAGARE_TEST_OBJECT\""
+              , "elif [ \"$1\" = s3api ] && [ \"$2\" = abort-multipart-upload ]; then"
+              , "  rm -f \"$NAGARE_TEST_OBJECT.part\""
+              , "elif [ \"$1\" = s3 ] && [ \"$2\" = cp ]; then"
+              , "  cat \"$NAGARE_TEST_OBJECT\""
+              , "else exit 2; fi"
+              ]
+            writeFile fakeDnf "#!/bin/sh\nexit 0\n"
+            mapM_ (`setFileMode` 0o755) [fakeGcloud, fakeGsutil, fakeAws, fakeDnf]
+            parentEnv <- getEnvironment
+            let path = maybe "" id (lookup "PATH" parentEnv)
+                run script destination stored = readCreateProcessWithExitCode
+                  ((proc "/bin/sh" ["-c", script]) {env = Just
+                    ([("PATH", directory <> ":" <> path), ("DEST", destination),
+                      ("NAGARE_TEST_OBJECT", stored)]
+                      <> filter (\(key, _) -> key `notElem`
+                        ["PATH", "DEST", "NAGARE_TEST_OBJECT"]) parentEnv)}) ""
+            forM_ [("GCS", cloudScript, "gs://test/databases/mydb/run-001.sql.gz"),
+                   ("MinIO", localScript, "s3://test/databases/mydb/run-001.sql.gz")]
+              $ \(label, script, destination) -> do
+                let stored = directory </> label <> ".gz"
+                BS.writeFile (dump </> "backup.sql") "first backup payload\n"
+                (created, _, createdError) <- run script destination stored
+                assertBool (label <> " create-only upload failed: " <> createdError)
+                  (created == ExitSuccess)
+                firstBytes <- BS.readFile stored
+                BS.writeFile (dump </> "backup.sql") "changed backup payload\n"
+                (overwrote, _, _) <- run script destination stored
+                case overwrote of
+                  ExitFailure _ -> pure ()
+                  ExitSuccess -> assertFailure (label <> " overwrote an existing backup object")
+                BS.readFile stored >>= (@?= firstBytes)
+            let multipartStored = directory </> "MinIO-multipart.gz"
+                multipartDestination = "s3://test/databases/mydb/run-002.sql.gz"
+            BS.writeFile (dump </> "backup.sql") "multipart first payload\n"
+            (multipartCreated, _, multipartError) <- run localMultipartScript multipartDestination multipartStored
+            assertBool ("MinIO conditional multipart upload failed: " <> multipartError)
+              (multipartCreated == ExitSuccess)
+            multipartFirstBytes <- BS.readFile multipartStored
+            BS.writeFile (dump </> "backup.sql") "multipart changed payload\n"
+            (multipartOverwrote, _, _) <- run localMultipartScript multipartDestination multipartStored
+            case multipartOverwrote of
+              ExitFailure _ -> pure ()
+              ExitSuccess -> assertFailure "MinIO multipart upload overwrote an existing backup object"
+            BS.readFile multipartStored >>= (@?= multipartFirstBytes)
+            abandonedPart <- doesFileExist (multipartStored <> ".part")
+            assertBool "failed multipart upload left an uncommitted part" (not abandonedPart)
       , testCase "backup Jobs wait for the server and retry" $ do
           let y = TE.decodeUtf8 (renderBackupJob backupJobInputsPg)
           assertBool "waits for the server before the dump" ("until pg_isready -q -h mydb" `T.isInfixOf` y)

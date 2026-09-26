@@ -41,6 +41,7 @@ module Nagare.Cluster.GcsJob
   , storeObjectUrl
   , storePrefixUrl
   , storeCpFromStdin
+  , storeCpCreateOnlyFromFile
   , storeCpToStdout
   , storeLs
   , storeRmStdin
@@ -199,6 +200,68 @@ storeCpFromStdin GcsBackend {} destExpr =
   "gsutil -o GSUtil:parallel_composite_upload_threshold=150M cp - " <> destExpr
 storeCpFromStdin (MinioBackend ref) destExpr =
   "aws s3 cp - " <> destExpr <> " --endpoint-url " <> ref ^. #endpoint
+
+-- | Atomically create one object from a local file. A failed precondition is
+-- deliberately a failed Job: an uncertain upload must not overwrite a prior
+-- backup at the same logical ID. GCS generation zero and S3 If-None-Match '*'
+-- are provider-side checks, unlike an existence probe before an ordinary cp.
+-- S3's single PUT is bounded at 5 GiB, so files of 4 GiB or more use a
+-- conditional multipart completion. The conservative crossover avoids relying
+-- on the service's exact GB/GiB interpretation at the limit.
+storeCpCreateOnlyFromFile :: StoreBackend -> Text -> Text -> Text
+storeCpCreateOnlyFromFile GcsBackend {} sourceExpr destExpr =
+  "gcloud storage cp " <> sourceExpr <> " " <> destExpr <> " --if-generation-match=0"
+storeCpCreateOnlyFromFile (MinioBackend ref) sourceExpr destExpr =
+  "OBJECT_URL="
+    <> destExpr
+    <> "; case \"$OBJECT_URL\" in s3://*/*) ;; *) exit 1 ;; esac"
+    <> "; OBJECT=\"${OBJECT_URL#s3://}\""
+    <> "; BUCKET=\"${OBJECT%%/*}\"; KEY=\"${OBJECT#*/}\""
+    <> "; test -n \"$BUCKET\"; test -n \"$KEY\""
+    <> "; STORE_ENDPOINT="
+    <> shellSingleQuote (ref ^. #endpoint)
+    <> "; SOURCE="
+    <> shellSingleQuote sourceExpr
+    <> "; SIZE=$(wc -c < \"$SOURCE\")"
+    <> "; if [ \"$SIZE\" -lt 4294967296 ]; then"
+    <> " aws s3api put-object --bucket \"$BUCKET\" --key \"$KEY\""
+    <> " --body \"$SOURCE\" --if-none-match '*' --endpoint-url \"$STORE_ENDPOINT\""
+    <> "; else "
+    <> multipartCreateOnly
+    <> "; fi"
+  where
+    multipartCreateOnly =
+      "PART_FILE=$(mktemp /dump/nagare-backup-part.XXXXXX)"
+        <> "; PARTS_JSON=$(mktemp /dump/nagare-backup-parts.XXXXXX)"
+        <> "; UPLOAD_ID=$(aws s3api create-multipart-upload --bucket \"$BUCKET\""
+        <> " --key \"$KEY\" --endpoint-url \"$STORE_ENDPOINT\" --query UploadId --output text)"
+        <> "; test -n \"$UPLOAD_ID\"; test \"$UPLOAD_ID\" != None"
+        <> "; cleanup() { aws s3api abort-multipart-upload --bucket \"$BUCKET\""
+        <> " --key \"$KEY\" --upload-id \"$UPLOAD_ID\" --endpoint-url \"$STORE_ENDPOINT\""
+        <> " >/dev/null 2>&1 || true; rm -f \"$PART_FILE\" \"$PARTS_JSON\"; }"
+        <> "; trap cleanup EXIT"
+        <> "; printf '{\"Parts\":[' > \"$PARTS_JSON\""
+        <> "; PART_NUMBER=1; OFFSET_MB=0; TOTAL_MB=$(((SIZE+1048575)/1048576))"
+        <> "; while [ \"$OFFSET_MB\" -lt \"$TOTAL_MB\" ]; do"
+        <> " test \"$PART_NUMBER\" -le 10000"
+        <> "; dd if=\"$SOURCE\" of=\"$PART_FILE\" bs=1M skip=\"$OFFSET_MB\""
+        <> " count=512 status=none"
+        <> "; ETAG=$(aws s3api upload-part --bucket \"$BUCKET\" --key \"$KEY\""
+        <> " --upload-id \"$UPLOAD_ID\" --part-number \"$PART_NUMBER\""
+        <> " --body \"$PART_FILE\" --endpoint-url \"$STORE_ENDPOINT\""
+        <> " --query ETag --output text)"
+        <> "; test -n \"$ETAG\"; test \"$ETAG\" != None"
+        <> "; if [ \"$PART_NUMBER\" -gt 1 ]; then printf ',' >> \"$PARTS_JSON\"; fi"
+        <> "; printf '{\"ETag\":%s,\"PartNumber\":%s}' \"$ETAG\" \"$PART_NUMBER\" >> \"$PARTS_JSON\""
+        <> "; PART_NUMBER=$((PART_NUMBER+1)); OFFSET_MB=$((OFFSET_MB+512))"
+        <> "; done; printf ']}' >> \"$PARTS_JSON\""
+        <> "; aws s3api complete-multipart-upload --bucket \"$BUCKET\" --key \"$KEY\""
+        <> " --upload-id \"$UPLOAD_ID\" --multipart-upload \"file://$PARTS_JSON\""
+        <> " --if-none-match '*' --endpoint-url \"$STORE_ENDPOINT\""
+        <> "; trap - EXIT; rm -f \"$PART_FILE\" \"$PARTS_JSON\""
+
+shellSingleQuote :: Text -> Text
+shellSingleQuote value = "'" <> T.replace "'" "'\\''" value <> "'"
 
 -- | Copy the object named by @srcExpr@ to stdout.
 storeCpToStdout :: StoreBackend -> Text -> Text

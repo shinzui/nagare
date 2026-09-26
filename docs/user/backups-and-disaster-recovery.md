@@ -114,7 +114,8 @@ key. An optional `--expires-at YYYY-MM-DDTHH:MM:SSZ` records expiry without
 deleting the object; the default is `retain`. The review pins the source
 StatefulSet and PVC UIDs and apply checks them again before submission. The
 Job reads the stored object back and compares SHA-256 before completion, but
-there is no durable per-object checksum receipt yet. Take a direct backup with
+its upload refuses to replace an existing object at that ID. There is no
+durable per-object checksum receipt yet. Take a direct backup with
 `nagarectl db backup NAME` only before inventory admission; list cloud backups
 with `gsutil ls gs://<backup-bucket>/databases/<name>/`, or inspect local MinIO
 through the cluster when running local mode.

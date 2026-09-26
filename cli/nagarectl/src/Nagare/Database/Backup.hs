@@ -56,6 +56,7 @@ import Nagare.Cluster.GcsJob
   ( DataMovementJob (..)
   , StoreBackend (..)
   , dataMovementJobSpec
+  , storeCpCreateOnlyFromFile
   , storeCpFromStdin
   , storeCpToStdout
   , storeEnv
@@ -221,9 +222,9 @@ dumpContainer i =
     , "volumeMounts" .= toJSON [dumpMount]
     ]
 
--- | The upload main container: the backend's data-movement image, gzip the dump
--- and copy stdin to @$DEST@ (@gsutil@/@aws s3@); when 'selfPrune' it then
--- keeps the last N.
+-- | The upload main container: the backend's data-movement image gzips the
+-- dump and uploads it to @$DEST@. Reviewed fixed-key Jobs create only; reviewed
+-- schedules read the object back; legacy schedules also keep the last N.
 uploadContainer :: BackupJobInputs -> Value
 uploadContainer i =
   object
@@ -305,9 +306,9 @@ dumpShell ClickHouse svc =
     <> "$CH --query \"SHOW TABLES FROM default\" | while read t; do "
     <> "$CH --query \"SELECT * FROM default.\\`$t\\` FORMAT Native\"; done > /dump/backup.native"
 
--- | The upload shell: gzip + a backend copy to @$DEST@. Reviewed schedules
--- read back the exact stored bytes and compare SHA-256; legacy schedules can
--- still use keep-last-N deletion. MinIO uses @aws s3 … --endpoint-url@.
+-- | The upload shell: gzip + a backend copy to @$DEST@. Reviewed Jobs and
+-- schedules read back the exact stored bytes and compare SHA-256; fixed-key
+-- Jobs create only. Legacy schedules can still use keep-last-N deletion.
 uploadShell :: BackupJobInputs -> Text
 uploadShell i =
   base <> if i ^. #selfPrune then "; " <> prune else ""
@@ -326,10 +327,17 @@ uploadShell i =
       MinioBackend {} ->
         "command -v sha256sum >/dev/null 2>&1 || dnf install -y -q coreutils >/dev/null 2>&1; "
           <> "command -v sha256sum >/dev/null 2>&1; "
+    createOnly = case i ^. #destination of
+      BackupDestUrl _ -> not (i ^. #selfPrune)
+      BackupDestStamped -> False
+    uploadVerified =
+      if createOnly
+        then storeCpCreateOnlyFromFile backend "/dump/backup.gz" "\"$DEST\""
+        else storeCpFromStdin backend "\"$DEST\"" <> " < /dump/backup.gz"
     verifiedUpload =
       verifyTools <> "gzip -n -9 -c /dump/backup." <> raw <> " > /dump/backup.gz; "
       <> "EXPECTED=$(sha256sum /dump/backup.gz | cut -d' ' -f1); test ${#EXPECTED} -eq 64; "
-      <> storeCpFromStdin backend "\"$DEST\"" <> " < /dump/backup.gz; "
+      <> uploadVerified <> "; "
       <> "ACTUAL=$(" <> storeCpToStdout backend "\"$DEST\""
       <> " | sha256sum | cut -d' ' -f1); test ${#ACTUAL} -eq 64; "
       <> "test \"$EXPECTED\" = \"$ACTUAL\"; rm -f /dump/backup.gz"

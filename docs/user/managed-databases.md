@@ -372,9 +372,10 @@ and SHA-256 readback policy. Apply checks the source UIDs and accepted native
 bytes again before submitting the Job. A successful Job checked the stored
 bytes, but the inventory does not yet retain the object's checksum as a durable
 receipt. The source checks occur before submission and are not atomic with the
-Job's data read; keep IDs unique because the object-store upload is not yet a
-create-only write. Expiry does not delete the object; reviewed exact pruning
-and restore are still pending.
+Job's data read. A manual Job now uploads with a provider-side create-only
+precondition, so an occupied backup ID fails instead of replacing stored data;
+choose a new ID for another backup. Expiry does not delete the object;
+reviewed exact pruning and restore are still pending.
 
 In an uninitialized legacy context, the CronJob still self-prunes and you can
 take one on demand:
