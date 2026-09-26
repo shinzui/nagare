@@ -57,6 +57,7 @@ refuse 'context replacement' context create guarded --force --project other-proj
 refuse 'named init' init guarded --project other-project --skip-preflight
 refuse 'legacy init' --context guarded init --project other-project --skip-preflight
 refuse 'confirmed cleanup' --context guarded cleanup --confirm
+refuse 'host credential placement' host place-age-key --context guarded --key-file "$fixture_root/missing-age-key"
 test -f "$context_dir/guarded.env"
 test -f "$store_dir/head.json"
 cmp -s "$context_dir/guarded.env" "$fixture_root/profile-before"
@@ -75,4 +76,4 @@ chmod 600 "$store_dir/head.json"
 "$nagarectl_bin" context delete guarded --yes > "$fixture_root/out"
 test ! -e "$context_dir/guarded.env"
 test -f "$store_dir/head.json"
-printf 'inventory entrypoint guards: five admitted refusals, untouched-store delete allowed\n'
+printf 'inventory entrypoint guards: six admitted refusals, untouched-store delete allowed\n'

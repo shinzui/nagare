@@ -4426,6 +4426,7 @@ runHost :: Maybe String -> HostCommand -> IO ()
 runHost globalContext = \case
   HostPlaceAgeKey options -> do
     active <- activeTarget (options ^. #context <|> globalContext)
+    guardLegacyMutationInventory "host place-age-key" active
     let context = active ^. #contextName
         profile = active ^. #profile
     when (profile ^. #mode == Local) $

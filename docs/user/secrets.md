@@ -175,7 +175,8 @@ working tree.
   writes directly to the final path and is therefore interruption-sensitive. If interrupted, rerun
   the new key with `--force`; if new-key decryption fails, restore ciphertext encrypted to the old
   recipient and re-place the backed-up old key with `--force`. Keep both backups until status and
-  Tailscale are healthy.
+  Tailscale are healthy. This direct rotation path is available only before substantive resource
+  inventory history exists; managed contexts await a reviewed host credential operation.
 - **App runtime secrets:** use `nagarectl secret set/delete`.
 - **Cluster bootstrap secrets:** edit the context-owned encrypted file, then
   re-apply the loop above. `nagare observability` resolves the same directory

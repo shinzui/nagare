@@ -69,8 +69,8 @@ regression with a canonical history head proves all four refusals before any
 provider process, confirms profile/history retention, and allows deletion when
 the head is initialized but untouched. The CLI build, targeted Darwin Nix
 entrypoint check, Nix shellcheck gate, Haskell style check, strict user docs,
-and diff check pass.
-The coverage catalogue, user docs, and ADR 22 record the compatibility boundary.
+and diff check pass. The coverage catalogue, user docs, and ADR 22 record the
+compatibility boundary.
 This does not complete M2: these families are explicitly unavailable after
 admission and still need reviewed implementations for full command coverage.
 
@@ -81,6 +81,15 @@ CLI regression covers this fifth refusal, including retention of the profile
 and history; fresh bootstrap remains eligible. The CLI build, targeted Darwin
 Nix entrypoint check, Nix shellcheck gate, Haskell style check, strict user
 documentation, and diff check pass.
+
+2026-09-26: M2 host credential audit found `host place-age-key` still streamed
+private key material to the VM after inventory admission. It now refuses at
+the selected context's history boundary before workspace resolution or key-file
+read. The public CLI regression covers this sixth refusal and exact unchanged
+profile/head bytes. A reviewed host credential operation remains open; the
+legacy path is available only before admission. The CLI build, six-refusal
+public regression, targeted Darwin Nix entrypoint check, Nix shellcheck gate,
+Haskell style check, strict user documentation, and diff check pass.
 
 2026-09-25: M2's compatibility boundary now also refuses legacy `infra apply`
 and `infra destroy` after the selected context has substantive inventory
@@ -345,6 +354,10 @@ cleanup as unavailable once inventory work is admitted. They lack the typed
 review and exact ownership evidence needed for safe operation; an initialized
 but untouched store remains eligible for bootstrap compatibility. Restore their
 availability only through reviewed owner-specific commands, not a raw bypass.
+
+2026-09-26: Apply the same boundary to direct host age-key placement. A private
+credential stream is a host provider effect, and force/idempotence checks alone
+are not a substitute for a reviewed operation and journal receipt.
 
 2026-09-16: Do not advertise a complete authoritative inventory while supported commands or installer scripts bypass its protocol. Partial migration is an explicit development state.
 

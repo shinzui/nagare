@@ -465,9 +465,10 @@ migration. A newly created context may still bootstrap, and `inventory store
 migrate` remains the reviewed way to move its history. An initialized but
 untouched store does not close the compatibility path.
 
-The old confirmed cleanup command also has no exact reviewed ownership proof for
-its preview deletions and release-history rewrites. It refuses after the same
-admission boundary; its dry run remains available. This is an explicit
-unavailable state until each cleanup action has a typed owner and reviewed
-operation. Raw provider tools and older operator binaries cannot be assumed to
-honor this boundary.
+The old confirmed cleanup command has no exact reviewed ownership proof for its
+preview deletions and release-history rewrites. Direct host age-key placement
+also changes remote credential state without a reviewed host operation. Both
+refuse after the same admission boundary; cleanup dry-run remains available.
+This is an explicit unavailable state until each action has a typed owner and
+reviewed operation. Raw provider tools and older operator binaries cannot be
+assumed to honor this boundary.
