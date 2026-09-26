@@ -94,6 +94,11 @@ Per-context builder routing lives at
 `${XDG_STATE_HOME:-$HOME/.local/state}/nagare/<context>/nix-builder/{ssh_config,builders}`. Both use a
 private mode-`0700` directory and mode-`0600` files.
 
+The upgrade and rollback commands below are legacy compatibility for untouched
+contexts. After inventory admission they refuse mutation; the first
+inventory-backed release starts from a fresh context and has no in-place
+platform version upgrade.
+
 | Platform command | Does |
 | --- | --- |
 | `nagarectl platform status [--json]` | Compare CLI, payload, context, host, and cluster release identities. |

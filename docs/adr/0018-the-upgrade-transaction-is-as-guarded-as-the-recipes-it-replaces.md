@@ -126,3 +126,16 @@ still permits the guarded compatibility workflow. Unknown or unreadable store
 state refuses mutation. This is a safety boundary while the component-backed
 upgrade and reviewed teardown protocols are incomplete, not evidence that
 those protocols have shipped.
+
+## Amendment — 2026-09-26: no in-place upgrade in the first inventory release
+
+The first full inventory release accepts fresh contexts only. The operator
+confirmed that the current Nagare contexts and their data can be recreated,
+so converting the coarse transaction into component operations is no longer
+a release gate. The admission guard above remains mandatory: `platform
+upgrade` cannot mutate a context with substantive inventory history. Old
+transactions remain inspectable and may be recovered with their original
+operator payload outside the fresh inventory-backed release claim. A later
+in-place version transition needs a new reviewed design with component
+receipts, host committed-closure proof, and a final context pin decision;
+the old phase journal is not that proof.

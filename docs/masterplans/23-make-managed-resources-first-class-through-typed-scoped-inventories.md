@@ -178,7 +178,7 @@ The architectural objective is to reduce policy scripting through a shared Haske
 
 Desired state, observed state, and execution history remain separate. Logical IDs survive names and ownership transfers; physical identities identify individual incarnations. Resource membership and policy are known before external mutation. Generated values are constrained typed references, not permission to introduce new resources. Data defaults to retention; unknown observations never imply absence. Credentials are private adapter inputs, absent from public review/evidence representations.
 
-The first implementation runs in the operator CLI with private context-owned state, one writer, immutable snapshots, and a durable journal. Pulumi, NixOS, Kubernetes, Helm, storage, and registry tools retain their native responsibilities. This does not add a daemon, distributed coordinator, new provider engine, automatic foreign-resource adoption, generic schema rollback, or production rollout. It does not complete the separate replacement-upgrade initiative. A later controller can implement the same store/adapter protocol; multi-workstation exclusion requires shared coordination and is not claimed by the filesystem implementation. A cloud context may instead keep that state in its state bucket, beside its Pulumi state. That store refuses a second writer from another machine through conditional writes and needs an explicit operator takeover to resume someone else's work; it still has no lease or liveness detection and is not a distributed coordinator.
+The first implementation runs in the operator CLI with private context-owned state, one writer, immutable snapshots, and a durable journal. Its release claim begins with fresh inventory-backed contexts; existing contexts and their data are disposable for this first release. Pulumi, NixOS, Kubernetes, Helm, storage, and registry tools retain their native responsibilities. This does not add a daemon, distributed coordinator, new provider engine, automatic foreign-resource adoption, generic schema rollback, in-place platform version upgrade of an admitted context, or production rollout. It does not complete the separate replacement-upgrade initiative. A later controller can implement the same store/adapter protocol; multi-workstation exclusion requires shared coordination and is not claimed by the filesystem implementation. A cloud context may instead keep that state in its state bucket, beside its Pulumi state. That store refuses a second writer from another machine through conditional writes and needs an explicit operator takeover to resume someone else's work; it still has no lease or liveness detection and is not a distributed coordinator.
 
 
 ## Decomposition Strategy
@@ -241,7 +241,7 @@ The pipeline is compile, observationRequirements, observe, planChanges, prepareR
 
 **Lifecycle and observation semantics — owned by EP-149, consumed by EP-146–148/150.** Lifecycle.hs, Migration.hs, Status.hs, and Explain.hs own drift categories, adoption/transfer proofs, retained resources, incarnation-aware migration, and collection decisions. EP-149 validates proposals into LifecycleDecisions against the same CompositionCandidate the planner sees; it does not plan on its own, does not redefine RetirementIntent, and its proposals do not restate what a declaration already fixes. A stable ResourceId can have active/candidate/retained physical incarnations. Every deletion is bound to exact identity/history; restore/schema migration/write admission have explicit data recovery contracts. Existing Replacement/Cutover semantics remain specialized.
 
-**CLI routing and compatibility — initial compile command owned by EP-144, generic command service by EP-145, domain registrations by EP-146–149, final upgrade integration by EP-150.** app/Main.hs and justfile remain shared registration surfaces. Move behavior into named modules, coordinate registrations, and do not reintroduce separate orchestration in these files. Existing version/context/project/cluster guards remain until their authoritative replacements are proven. Preserve old receipts without converting unproven success into new proof.
+**CLI routing and compatibility — initial compile command owned by EP-144, generic command service by EP-145, domain registrations by EP-146–149, fresh platform bootstrap and legacy-upgrade confinement by EP-150.** app/Main.hs and justfile remain shared registration surfaces. Move behavior into named modules, coordinate registrations, and do not reintroduce separate orchestration in these files. Existing version/context/project/cluster guards remain until their authoritative replacements are proven. Preserve old receipts without converting unproven success into new proof. No admitted context may change platform payload version through the coarse upgrade runner.
 
 **Coverage and tests — format owned by EP-146, contributions by EP-147/148, completeness owned by EP-150.** docs/architecture/managed-resource-coverage.md records each supported mutation family, owner scope, declaration compiler, executor, test evidence, delegation, and legacy disposition. A child running earlier may create the file using that format; later children preserve its entries. This is a traceability aid, not a second resource authority. Shared Cabal/Spec.hs/Nix test registrations must preserve each other's modules. Pure cases use existing Haskell tests; provider behavior retains focused integration checks.
 
@@ -256,12 +256,14 @@ These ownership, identity, review, storage, migration, and controller-delegation
 
 2026-09-26: EP-150 has active early integration and release-publisher work,
 including a platform-only candidate boundary, but no milestone is complete.
-The user explicitly requested this early work and targets the full release
-claim. EP-148 remains an unmet hard
-dependency for command coverage; EP-150's component upgrade transaction,
-disposable local/GCP convergence, complete coverage, and immutable inventory
-release evidence remain acceptance gates. Early EP-150 work does not waive
-that dependency or establish adoption readiness.
+The operator confirmed all existing contexts and their data are disposable for
+the first release. The full release claim now requires fresh component-backed
+bootstrap and refusal of legacy mutation after inventory admission, rather
+than an in-place platform upgrade command or old-transaction conversion.
+EP-148 remains an unmet hard dependency for command coverage; disposable
+local/GCP convergence, complete coverage, and immutable inventory release
+evidence remain EP-150 gates. This scope change does not establish adoption
+readiness or authorize destruction of existing resources.
 
 - [x] (2026-09-22) EP-144 M1: Typed identities, policies, references, and opaque boundaries.
 - [x] (2026-09-22) EP-144 M2: Deterministic composition and wire validation.
@@ -366,7 +368,7 @@ EP-148 implementation evidence is in its child plan and commits. Its four milest
 - [ ] EP-148 M2: Shared contributions, env/secret intent, and publication.
 - [ ] EP-148 M3: Operational/data command coverage.
 - [ ] EP-148 M4: Removed alternate paths and scope isolation.
-- [ ] EP-150 M1: Platform/legacy transaction integration.
+- [ ] EP-150 M1: Fresh platform bootstrap and legacy upgrade confinement.
 - [ ] EP-150 M2: Packaging and complete mutation audit.
 - [ ] EP-150 M3: Deterministic and real disposable-context proof.
 - [ ] EP-150 M4: Immutable release evidence, docs, and ADR distillation.
@@ -451,6 +453,17 @@ One question is open and is the operator's to decide. ADR 13 moved tan-nb-exp's 
 
 ## Decision Log
 
+2026-09-26: The first full release claim targets fresh inventory-backed
+contexts because the operator confirmed every existing context and its data
+can be discarded. EP-150 proves a complete reviewed first bootstrap and
+legacy mutation refusal; it does not need a dedicated in-place upgrade
+command or translation of old coarse transaction evidence. Old bundles stay
+inspectable. A future platform version transition requires a separately
+reviewed design before an admitted context changes payload version. EP-148's
+scope command migration and all local/GCP, coverage, and immutable evidence
+gates remain in force. This narrows the first release claim without weakening
+its ownership and recovery protocol.
+
 2026-09-24: Mark EP-149 Complete at its explicitly provider-independent boundary: exact adoption and retirement routes have native proof where implemented, and migration is proved by command-path and stage-aware recording adapters while production provider stages still refuse. EP-148 and EP-150 remain responsible for application command migration and real provider/integrated coverage; completion of this child does not authorize unproved migration or collection. ADR 22 records the durable two-incarnation and recovery constraints.
 
 2026-09-24: Keep immutable replacement distinct from configuration drift at the shared observation boundary. An adapter may report replacement required, but the generic planner must refuse an ordinary update until EP-149 provides a reviewed replacement or migration contract. ADR 22 records this durable rule.
@@ -491,7 +504,18 @@ One question is open and is the operator's to decide. ADR 13 moved tan-nb-exp's 
 
 ## Outcomes & Retrospective
 
-EP-144, EP-145, EP-146, EP-147, EP-149, and EP-151 are complete as of 2026-09-24; EP-148/EP-150 remain. Cloud, host, artifact, and cluster bootstrap scopes have production adapters behind typed composition, digest-bound review, lock-scoped admission, durable receipt, and recovery. EP-148 can now consume EP-147's database/shared-owner interfaces and EP-149's lifecycle decisions. Completion still requires all eight child outcomes, IR-24's full verification set, independent-scope isolation, complete declaration/execution parity, removed compatibility paths, legacy recovery compatibility, and EP-150's integrated release evidence. The disposable EP-147 bootstrap proves local component convergence; it does not substitute for EP-150's cloud and upgrade rehearsal. EP-149's recording migration proof does not authorize a native provider migration.
+EP-144, EP-145, EP-146, EP-147, EP-149, and EP-151 are complete as of
+2026-09-24; EP-148/EP-150 remain. Cloud, host, artifact, and cluster
+bootstrap scopes have production adapters behind typed composition,
+digest-bound review, lock-scoped admission, durable receipt, and recovery.
+EP-148 can now consume EP-147's database/shared-owner interfaces and
+EP-149's lifecycle decisions. Completion still requires all eight child
+outcomes, IR-24's full verification set, independent-scope isolation,
+complete declaration/execution parity, closed legacy mutation paths, and
+EP-150's integrated release evidence. The disposable EP-147 bootstrap proves
+local component convergence; it does not substitute for EP-150's full fresh
+local/GCP rehearsal. EP-149's recording migration proof does not authorize a
+native provider migration.
 
 At completion, compare these outcomes with IR-24, update its status only with evidence, and distill durable lessons into ADR 22 and affected existing ADRs. Do not publish a release or modify existing operator deployments as a side effect of updating plan status.
 

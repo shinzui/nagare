@@ -46,34 +46,47 @@ This ExecPlan is a living document. Keep its living sections current and promote
 
 ## Purpose / Big Picture
 
-The shipped Nagare operator can render a complete context inventory, review a change, apply it, recover interruption, and explain final ownership across cloud, host, cluster, data, credentials, artifacts, and control metadata. Application and platform scopes remain independently deployable. A disposable-context rehearsal proves convergence, a no-op rerun, and policy-correct component removal.
+The shipped Nagare operator can create a fresh inventory-backed context,
+render its complete inventory, review a change, apply it, recover interruption,
+and explain final ownership across cloud, host, cluster, data, credentials,
+artifacts, and control metadata. Application and platform scopes have separate
+ownership. A disposable-context rehearsal proves convergence, a no-op rerun,
+and policy-correct component removal. The first release does not promise an
+in-place platform version change for an admitted context.
 
 Release evidence archives the inventory, review, receipts, and final observations under one immutable payload identity. Complete coverage and removal of obsolete policy paths are release acceptance conditions.
 
 
 ## Progress
 
-- [ ] M1: Integrate component transactions into platform upgrades and legacy recovery.
+- [ ] M1: Converge a fresh platform context and confine legacy upgrade paths.
 - [ ] M2: Package contracts and audit all supported mutation paths.
 - [ ] M3: Run deterministic and disposable-context convergence/recovery scenarios.
 - [ ] M4: Archive release evidence, document recovery, and finish ADR distillation.
 
+2026-09-26: The operator confirmed every existing Nagare context and its data
+can be discarded and recreated for the first release. M1 no longer requires a
+new in-place `platform upgrade` transaction or conversion of old phase
+journals. First-release acceptance is a fresh context selected from one
+immutable payload, reviewed component bootstrap, receipt-backed recovery,
+final marker verification, and refusal of legacy mutation after inventory
+admission. The old transaction remains inspectable; the original payload is
+the recovery path for a legacy context kept outside this release claim.
+In-place platform version changes for an admitted context are deferred and
+must be designed before the next version transition. M2-M4 coverage, live
+local/GCP evidence, and immutable release evidence remain required.
+
 2026-09-26: Extracted the complete platform bootstrap candidate builder so it
 accepts explicit payload paths and a retained workspace. The bootstrap command
-continues to use the selected payload; the same builder can now compile a
-target release against a full accepted context snapshot. Final composition
+uses the selected payload. Final composition
 rejects any application, standalone, or publication scope change, preserves
 their accepted generations, and uses the shared graph validator to refuse a
 target platform that breaks their dependencies. The focused inventory suite
 passed 192 tests, including changed-application and broken-platform-dependency
-refusals; the CLI built and Haskell style passed. Host adapter construction now
-accepts an explicit flake root, allowing the future upgrade path to evaluate
-its staged target without moving the committed root before verification. The
-builder checks payload and retained workspace identity before compilation.
-This is preparation for M1, not a component-backed upgrade transaction:
-cloud/host production declarations,
-target-workspace adapter binding, reviewed component receipts, legacy
-transaction recovery, and final pin verification remain open.
+refusals; the CLI built and Haskell style passed. The builder checks payload
+and retained workspace identity before compilation. This is preparation for
+fresh-context M1, not full bootstrap acceptance: production cloud/host
+declarations and live receipt-backed convergence remain open.
 
 2026-09-26: M2 audit found two unscoped mutation families beyond the earlier
 Pulumi guard: confirmed `cleanup` could delete stale preview Services and rewrite
@@ -366,6 +379,16 @@ would overstate the run's receipt evidence.
 
 ## Decision Log
 
+2026-09-26: First-release admission starts with fresh inventory-backed
+contexts because the operator confirmed all existing context resources and
+data are disposable. A dedicated in-place `platform upgrade` command and old
+transaction conversion are not acceptance gates for this release. Preserve
+read-only historical inspection and the current refusal after inventory
+admission. Require a separately reviewed platform transition before any
+admitted context changes payload version later. This supersedes the 2026-09-16
+context-pin and 2026-09-25 component-upgrade implementation choices below for
+the first release, while preserving their historical rationale.
+
 2026-09-26: Treat context profile replacement/removal and confirmed legacy
 cleanup as unavailable once inventory work is admitted. They lack the typed
 review and exact ownership evidence needed for safe operation; an initialized
@@ -438,15 +461,39 @@ cli/nagarectl/src/Nagare/Platform/Upgrade.hs and app/Main.hs:upgradeOps currentl
 
 ## Plan of Work
 
-### M1 — Platform transaction integration
+### M1 — Fresh platform bootstrap and legacy boundary
 
-Refactor upgradeOps to submit target platform scope replacements against the full stored context snapshot. Keep application declarations and revisions unchanged, but validate their capability dependencies against the target platform. If the platform changes an incompatible exported capability, refuse or require an explicit coordinated multi-scope migration. Do not silently upgrade applications.
+Create the first inventory-backed context from one selected immutable payload.
+The context pin is set during creation and must match that payload. Compile
+cloud, host, cluster, cache, credential, artifact, and control declarations
+before external mutation. Review and apply through EP-145's component journal
+and EP-146/147's production adapters. Apply the cluster version marker only
+after required component receipts and readiness checks verify. The marker
+binds the accepted inventory digest and revisions to the payload identity;
+status must distinguish partial bootstrap from completion. A repeat of the
+same declared intent must plan no unintended writes.
 
-Retain the public upgrade transaction identity and reporting surface while representing work as EP-145 component operations. Preserve native Pulumi review binding and proven-success skips. Replace the unconditional Kubernetes bootstrap replay with per-component receipts and specific readiness conditions. A completed host phase must use EP-146 committed-closure evidence rather than matching a local version string. Apply the cluster version marker only after required components verify, then advance the context pin as the final commit. Stamp inventory digest/revision bindings alongside the release identity.
+The platform candidate composes against the full context snapshot, permits
+only platform-owned scope changes, and preserves all application, standalone,
+and publication revisions. It validates their dependencies even though the
+first release accepts only a fresh platform version. A changed payload or
+context pin after inventory admission refuses platform mutation until a
+separately reviewed in-place version transition exists. Application-only
+changes never advance the platform pin.
 
-Define wire-format migration explicitly. Old transactions remain readable. Where existing Pulumi review/receipt evidence can be verified, bridge it without rerunning the provider. Legacy success text without adequate proof still requires existing guarded recovery or a new review. Never fabricate component receipts for historical coarse bootstrap success. If a pending legacy transaction cannot be safely resumed with the new protocol, preserve its bundle and explain use of the original payload/recovery path; do not convert it in place.
+Keep old upgrade transaction bundles inspectable without translating their
+phase text into component receipts. The coarse `platform upgrade` path and
+other legacy platform writers refuse after inventory admission. Untouched
+legacy contexts remain an explicit compatibility surface outside the fresh
+inventory-backed release claim; recovery of an old transaction uses its
+original operator payload. No first-release acceptance test requires an
+in-place upgrade of those disposable contexts.
 
-Record minimum supported inventory/wire versions in compatibility metadata. Unsupported newer schemas refuse mutation but remain discoverable as unsupported state. Older CLIs cannot be assumed to honor a new lock; the migration boundary must explicitly require upgrading supported operator entry points and identify old/raw tools as outside enforcement. Context adoption writes no optimistic success marker.
+Record minimum supported inventory/wire versions in compatibility metadata.
+Unsupported newer schemas refuse mutation but remain discoverable as
+unsupported state. Older CLIs and raw provider tools do not honor the new
+inventory boundary and are outside supported inventory-backed mutation.
+Context creation writes no optimistic bootstrap success marker.
 
 ### M2 — Packaging, coverage, and obsolete-path removal
 
@@ -517,17 +564,35 @@ The launcher must print the reviewed identities and evidence location, fail nonz
 
 The seven verification cases in IR-24 are all covered: cross-provider/logical collisions before mutation; reviewed adoption; ordered data-preserving rename; component resume; distinct drift categories; real disposable convergence/no-op/removal; and immutable release evidence. Additionally prove app-only revisions preserve platform/other apps, shared contributions do not clobber peers, unknown secret reads never rotate credentials, and compiled resource membership equals actual executor coverage.
 
-All supported entry points are accounted for and superseded policy scripts are removed. Both installed clone-free packages and source workflows use the same model. No schema decoder or public constructor can bypass the reviewed execution boundary. Inventory store backup/restore, journal corruption, concurrent writer, stale review, and secret redaction tests pass. Do not report complete if live rehearsals, native-system evidence, or legacy recovery compatibility remain missing.
+All supported entry points are accounted for and superseded policy scripts are
+removed. Both installed clone-free packages and source workflows use the same
+model. No schema decoder or public constructor can bypass the reviewed
+execution boundary. Inventory store backup/restore, journal corruption,
+concurrent writer, stale review, and secret redaction tests pass. Do not
+report complete if live rehearsals, native-system evidence, legacy mutation
+refusal, or fresh-context component recovery evidence remain missing.
 
 
 ## Idempotence and Recovery
 
-Never mutate immutable release attachments or old transaction evidence. A failed rehearsal retains its private journal and reviewed resources for resume or explicit cleanup. Cleanup uses the same inventory policy and cannot target a context root/provider project broadly. A failed upgrade leaves the old context pin with truthful partial component progress. Return to an old release only where existing compatibility and data policy permit it; otherwise use planned forward recovery.
+Never mutate immutable release attachments or old transaction evidence. A
+failed rehearsal retains its private journal and reviewed resources for resume
+or explicit cleanup. Cleanup uses the same inventory policy and cannot target
+a context root/provider project broadly. A failed fresh bootstrap retains its
+selected context pin and reports truthful partial component progress; the
+cluster marker cannot claim completion until all required components verify.
 
 
 ## Interfaces and Dependencies
 
-This plan integrates, rather than redefines, the EP-144 resource schema, EP-145 journal, EP-146 native adapters, EP-147 cluster declarations, EP-148 scope commands, and EP-149 lifecycle decisions. It owns upgrade compatibility glue, coverage completion, packaged evidence manifests, and final release checks. The shared review/evidence format includes an explicit schemaVersion and immutable member digests; release metadata references it without duplicating its fields as a second authority.
+This plan integrates, rather than redefines, the EP-144 resource schema,
+EP-145 journal, EP-146 native adapters, EP-147 cluster declarations, EP-148
+scope commands, and EP-149 lifecycle decisions. It owns fresh-context
+platform integration, legacy upgrade confinement, coverage completion,
+packaged evidence manifests, and final release checks. The shared
+review/evidence format includes an explicit schemaVersion and immutable
+member digests; release metadata references it without duplicating its fields
+as a second authority.
 
 It also owns the GitHubRelease adapter and publication-only durable provider envelope. That envelope consumes the same review/receipt types but has explicit draft-to-published recovery semantics; it is not permission to put ordinary context inventory history in release assets. EP-145 remains the owner of general transaction types.
 

@@ -272,7 +272,7 @@ import Nagare.Inventory.Adapters.Pulumi (mkPulumiAdapter)
 import Nagare.Inventory.Adapters.PulumiRuntime
 import Nagare.Inventory.Artifact qualified as InventoryArtifact
 import Nagare.Inventory.Artifact (ArtifactDeclarationBundle (..), ArtifactExecutionSpec (..), ArtifactKind (..), ArtifactResourceSpec (..))
-import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapStamp, compileBootstrapWithAuthAndScopes)
+import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapStamp, compileBootstrapWithAuthAndScopes, composePlatformChanges)
 import Nagare.Inventory.Cloud qualified as InventoryCloud
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), compileContributedNamespaces)
 import Nagare.Inventory.BackendMap (compileContributedBackendMaps, compileContributedShomeiSettings)
@@ -297,7 +297,6 @@ import Nagare.Inventory.HelmReview (helmSpecsFromReview)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
 import Nagare.Inventory.KubernetesSources (loadKubernetesSources, validateSuppliedKubernetesMembers)
 import Nagare.Inventory.Plan qualified as InventoryPlan
-import Nagare.Inventory.PlatformUpgrade (composePlatformUpgrade)
 import Nagare.Inventory.Status qualified as InventoryStatus
 import Nagare.Inventory.Store qualified as InventoryStore
 import Nagare.Ops.Cleanup
@@ -4773,8 +4772,8 @@ runPlatformBootstrapPlan mctx output = do
   Inventory.planInventoryCandidateWith (inventoryPlanRegistryWithNative active workspace native)
     active candidate output
 
--- Keep the payload paths explicit so an upgrade can compile the target
--- release from its retained workspace against the accepted full context.
+-- Keep payload paths explicit so a fresh context compiles one immutable
+-- release against the complete selected inventory snapshot.
 buildPlatformCandidate
   :: ActiveTarget -> PlatformPaths -> PlatformWorkspace
   -> ResourceInventory.ScopeSnapshot
@@ -4920,7 +4919,7 @@ buildPlatformCandidate active paths workspace snapshot = do
   (stampScope, stampNative) <- either (dieT . T.pack . show) pure
     (compileBootstrapStamp cluster (clusterMarkerValue (identityFromPayload manifest) installedAt) candidate)
   stamped <- either (dieT . T.pack . show) pure
-    (composePlatformUpgrade snapshot (ResourceInventory.candidateChanges candidate
+    (composePlatformChanges snapshot (ResourceInventory.candidateChanges candidate
       <> (ResourceInventory.ReplaceScope stampScope NE.:| [])))
   let completeNative = Map.union native stampNative
   unless (Map.size completeNative == Map.size native + Map.size stampNative)
@@ -5817,14 +5816,8 @@ inventoryArtifactAdapter active workspace specs =
 
 inventoryHostAdapter :: ActiveTarget -> PlatformWorkspace -> (Resource.ContentDigest, Resource.ContentDigest) -> IO InventoryAdapter.Adapter
 inventoryHostAdapter active workspace (configurationDigest, lockDigest) = do
-  hostRoot <- hostConfigDir (active ^. #contextName)
-  inventoryHostAdapterAt active workspace hostRoot (configurationDigest, lockDigest)
-
--- A platform upgrade evaluates and activates the staged target flake. The
--- ordinary inventory commands keep using the context's committed host root.
-inventoryHostAdapterAt :: ActiveTarget -> PlatformWorkspace -> FilePath -> (Resource.ContentDigest, Resource.ContentDigest) -> IO InventoryAdapter.Adapter
-inventoryHostAdapterAt active workspace hostRoot (configurationDigest, lockDigest) = do
   hostName <- readContextHostName (active ^. #contextName) >>= either dieT pure
+  hostRoot <- hostConfigDir (active ^. #contextName)
   context <- either dieT pure (Resource.mkContextId (contextNameText (active ^. #contextName)))
   attribute <- either dieT pure (Resource.mkName hostName)
   let profile = active ^. #profile

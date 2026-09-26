@@ -121,3 +121,21 @@ instead of guessing whether cloud state changed. A successful legacy journal wit
 stops. In either case, the operator must inspect the selected stack and record `applied` or `retry`
 through the guarded `platform upgrade recover-pulumi` command. Context commit remains the final
 write, and a completed transaction remains a no-op.
+
+## Amendment — 2026-09-26: fresh inventory contexts for the first release
+
+The first inventory-backed release starts with fresh contexts because the
+operator confirmed that existing Nagare contexts and their data can be
+discarded for this release. Context creation selects the immutable payload
+version before bootstrap; the reviewed component journal records partial
+progress, and the cluster marker follows verified component completion. A
+failed bootstrap leaves the selected context pin as intent without claiming a
+completed installation.
+
+This release does not provide an in-place platform version transition for an
+admitted inventory context. A payload or context version change after
+admission refuses platform mutation until a separately reviewed transition
+has been implemented. The older transaction and its guarded recovery rules
+remain historical compatibility for untouched legacy contexts; existing
+bundles stay inspectable and must not be converted into invented component
+receipts. Read-only version status remains useful for both generations.

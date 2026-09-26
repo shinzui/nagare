@@ -11,7 +11,9 @@ generated:
 
 # Upgrades
 
-> **Status:** Supported only before a context has reviewed resource inventory history. Inventory-backed platform upgrades are still being integrated.
+> **Status:** The first inventory-backed release starts from a fresh context.
+> There is no in-place platform version upgrade after inventory admission.
+> The legacy procedure below applies only to untouched older contexts.
 
 Nagare treats the CLI, immutable platform payload, context, generated host
 flake, and cluster marker as one versioned release. `platform status` compares
@@ -24,9 +26,11 @@ It refuses planning or applying when the selected context has substantive
 resource inventory history, because those phases do not record component
 receipts and could overwrite independently revised scopes. Keep the old
 context pin and transaction bundle for recovery with its original operator
-payload; do not rerun the coarse upgrade against managed scopes. The reviewed
-component upgrade procedure will replace this restriction when its integration
-and recovery checks are complete.
+payload; do not rerun the coarse upgrade against managed scopes. Existing
+Nagare contexts and their data are disposable for the first inventory-backed
+release, so create a new context from its selected immutable payload and use
+the reviewed bootstrap. A later in-place version transition requires its own
+reviewed component protocol.
 
 Release metadata declares the minimum inventory and upgrade-transaction wire
 schemas required by its payload. The current operator supports version 1 of
@@ -162,7 +166,7 @@ compatibility result has these meanings:
 | --- | --- |
 | `exact` | Every identity reports the payload version. |
 | `patch-skew` | A patch differs; inspection and compatible mutation remain available. |
-| `minor-upgrade-required` | Run the explicit upgrade workflow before platform mutation. |
+| `minor-upgrade-required` | An untouched legacy context may use the guarded upgrade workflow. An inventory-backed context has no in-place version transition in this release. |
 | `major-incompatible` | Platform mutation is blocked until a compatible CLI and release are selected. |
 | `legacy-unknown` | At least one identity is absent, old, or unreachable; inspect it before adoption or upgrade. |
 

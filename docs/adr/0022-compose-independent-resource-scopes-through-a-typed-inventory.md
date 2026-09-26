@@ -472,3 +472,21 @@ refuse after the same admission boundary; cleanup dry-run remains available.
 This is an explicit unavailable state until each action has a typed owner and
 reviewed operation. Raw provider tools and older operator binaries cannot be
 assumed to honor this boundary.
+
+## Amendment — 2026-09-26: first release starts from fresh contexts
+
+The operator confirmed that every existing Nagare context and its data can be
+recreated for the first inventory-backed release. The release claim therefore
+requires complete reviewed bootstrap of a fresh context, not conversion of
+historical coarse upgrade transactions or an in-place platform version
+change. The initial context pin names the selected immutable payload; the
+component journal and final cluster marker distinguish partial work from
+completed bootstrap. Old transaction bundles remain inspectable, and their
+runner refuses an admitted inventory context.
+
+Independent application and platform scope ownership still requires the
+composer to preserve unselected revisions and validate cross-scope
+dependencies. A later payload version transition must introduce its own
+reviewed component protocol before changing an admitted context's pin. This
+scope decision does not relax application command cutover, complete resource
+coverage, live local/GCP convergence, or immutable release evidence.

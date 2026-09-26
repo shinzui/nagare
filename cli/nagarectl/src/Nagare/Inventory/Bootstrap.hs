@@ -9,6 +9,7 @@ module Nagare.Inventory.Bootstrap
   , compileBootstrapWithAuth
   , compileBootstrapWithAuthAndScopes
   , compileBootstrapStamp
+  , composePlatformChanges
   ) where
 
 import Data.ByteString (ByteString)
@@ -16,6 +17,7 @@ import Data.Aeson (Value)
 import Data.Generics.Labels ()
 import Data.List (sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -41,6 +43,32 @@ data BootstrapInput = BootstrapInput
   , bootstrapUpstream :: ![UpstreamInput]
   , bootstrapAdditionalScopes :: ![ScopeDeclaration]
   }
+
+-- | A platform bootstrap cannot revise application, standalone, or
+-- publication scopes. Composition still validates their dependencies against
+-- the complete accepted context before a review can be saved.
+composePlatformChanges
+  :: ScopeSnapshot
+  -> NonEmpty ScopeChange
+  -> Either (NonEmpty InventoryError) CompositionCandidate
+composePlatformChanges snapshot changes = do
+  case [change | change <- NE.toList changes, not (platformChange change)] of
+    [] -> pure ()
+    _ -> Left (inventoryError "platform-scope"
+      "platform bootstrap may change only platform scopes" :| [])
+  candidate <- composeInventory snapshot changes
+  let unchanged scopes = Map.filterWithKey (\owner _ -> scopeKind owner /= Platform) scopes
+      accepted = snapshotScopes snapshot
+      desired = inventoryScopes (candidateInventory candidate)
+  if unchanged desired == unchanged (fmap snd accepted)
+      && unchanged (candidateGenerations candidate) == unchanged (fmap fst accepted)
+    then Right candidate
+    else Left (inventoryError "platform-scope-preservation"
+      "platform bootstrap changed an independently owned scope" :| [])
+  where
+    platformChange (ReplaceScope scope) = scopeKind (scopeId scope) == Platform
+    platformChange (RetireScope owner _) = scopeKind owner == Platform
+    platformChange (CollectRetained _) = False
 
 -- | The release marker is a reviewed direct object whose creation waits for
 -- every bootstrap resource and declared operation to verify. Its timestamp is

@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-26
+* **Update**: Scope the first inventory-backed release to fresh contexts; label platform upgrade and rollback as legacy compatibility unavailable after inventory admission.
 * **Fix**: Refuse direct aggregate app deploy after inventory history is initialized; use reviewed image publication and deployment even for a newly named app.
 * **Update**: Document that direct host age-key placement and rotation close after resource inventory admission until a reviewed credential operation exists.
 * **Fix**: Clarify that unnamed init also refuses cloud bootstrap for an explicitly selected context with admitted inventory history.
