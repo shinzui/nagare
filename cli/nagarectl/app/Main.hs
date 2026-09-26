@@ -3086,7 +3086,7 @@ main = do
     PlatformGuard -> runPlatformGuard mctx
     PlatformStamp -> runPlatformStamp mctx
     PlatformBootstrapPlan output -> runPlatformBootstrapPlan mctx output
-    PlatformBootstrapApply review yes -> runInventoryApply mctx review yes
+    PlatformBootstrapApply review yes -> runPlatformBootstrapApply mctx review yes
     PlatformAdopt version yes asJson -> runPlatformAdopt mctx version yes asJson
     PlatformRepin version yes -> runPlatformRepin mctx version yes
     PlatformUpgrade options -> runPlatformUpgrade mctx options
@@ -4776,8 +4776,19 @@ runPlatformBootstrapPlan mctx output = do
   (paths, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   snapshot <- Inventory.loadTargetSnapshot active
   (candidate, native) <- buildPlatformCandidate active paths workspace snapshot
-  Inventory.planInventoryCandidateWith (inventoryPlanRegistryWithNative active workspace native)
-    active candidate output
+  manifest <- readPayloadManifest paths >>= either (dieT . renderWorkspaceError) pure
+  Inventory.planInventoryCandidateWithPayloadIdentity
+    (inventoryPlanRegistryWithNative active workspace native)
+    ("nagare-bootstrap:" <> manifest ^. #payloadId) active candidate output
+
+runPlatformBootstrapApply :: Maybe String -> FilePath -> Bool -> IO ()
+runPlatformBootstrapApply mctx reviewDirectory yes = do
+  active <- activeTarget mctx
+  Inventory.applyInventoryWithFactory (\bundle -> do
+    unless ("nagare-bootstrap:" `T.isPrefixOf`
+        InventoryPlan.reviewPayloadIdentity (InventoryPlan.reviewBundleDocument bundle))
+      (dieT "platform bootstrap apply requires a payload-bound bootstrap review")
+    inventoryExecutionRegistry mctx bundle) active reviewDirectory yes
 
 -- Keep payload paths explicit so a fresh context compiles one immutable
 -- release against the complete selected inventory snapshot.
@@ -5495,6 +5506,16 @@ inventoryExecutionRegistry mctx bundle = do
           InventoryAdapter.plannedExecutor operation == executor,
           resource <- NE.toList (InventoryAdapter.plannedResources operation)]
       declarations = [declaration | scopeDeclaration <- scopes, resourceBundle <- ResourceInventory.scopeBundles scopeDeclaration, declaration <- ResourceInventory.declarations resourceBundle]
+  forM_ (T.stripPrefix "nagare-bootstrap:" (InventoryPlan.reviewPayloadIdentity document)) $ \reviewedPayloadId -> do
+    active <- activeTarget mctx
+    (paths, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+    manifest <- readPayloadManifest paths >>= either (dieT . renderWorkspaceError) pure
+    unless (not (T.null reviewedPayloadId)
+        && reviewedPayloadId == manifest ^. #payloadId
+        && manifest ^. #payloadId == workspace ^. #payloadId
+        && manifest ^. #platformVersion == workspace ^. #platformVersion
+        && active ^. #profile . #platformVersion == Just (manifest ^. #platformVersion))
+      (dieT "reviewed bootstrap stage requires the selected immutable payload and context pin")
   allRegistrations <- either dieT pure (InventoryCloud.registrationsFromDeclarations declarations)
   let registrations = filter (\registration -> Set.member
         (InventoryCloud.registrationResource registration)

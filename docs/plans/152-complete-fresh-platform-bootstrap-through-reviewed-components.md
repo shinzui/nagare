@@ -47,6 +47,8 @@ Inherited baseline: commits `9c308390`, `28e05b72`, and `09d83188` supplied expl
 
 2026-09-26 handoff: The marker also binds the exact desired platform scope generations and canonical digests, excluding its own scope so the value is stable. Unrelated application scopes cannot change its vector or dependencies. Pulumi preview, saved-plan apply, and convergence checks now target the reviewed resource URN; a preview containing another mutating resource is refused. Focused inventory tests and the CLI build passed. M1 still needs the actual cloud, artifact, host, and local prerequisite declarations and public stage dispatch; M2 still needs public interruption fixtures and native marker proof.
 
+2026-09-26 handoff: Bootstrap reviews now record `nagare-bootstrap:<payloadId>` in the immutable review document. Public bootstrap apply requires that review class, and generic inventory resume/recovery also checks a bootstrap review against the currently selected payload and context pin before adapters are created. This protects prerequisite-only stages that have no final marker. The public planning path still needs real prerequisite stages before the Kubernetes version read.
+
 
 ## Surprises & Discoveries
 
@@ -54,6 +56,8 @@ Inherited baseline: commits `9c308390`, `28e05b72`, and `09d83188` supplied expl
 2026-09-26: A published inventory review preserves exact native bytes, but the generic apply/resume route did not compare a bootstrap marker's retained payload identity with the operator's current selection. The marker previously omitted `payloadId`, so distinct immutable payloads with the same version and source revision could not be distinguished at execution. The marker now records that ID and the execution factory refuses a mismatch before adapter construction. This does not yet bind prerequisite-only reviews; their stage contract remains to be built in M1.
 
 2026-09-26: The Pulumi adapter previously prepared a whole-stack saved plan for each resource operation. A single operation could therefore execute changes assigned to several journal operations before those operations had receipts. Targeted Pulumi preview and apply are supported by the registered CLI source; the adapter now targets each operation's declared URN and refuses additional mutations. Cloud stage assembly must still order prerequisite resources so every targeted preview can be prepared from the current physical state.
+
+2026-09-26: Generic inventory reviews used a constant `operator-cli` payload identity, which left prerequisite-only bootstrap stages without a payload binding. The planner now accepts a bootstrap-specific identity, and execution checks it before loading provider contracts. No prerequisite-only stage is yet publicly plannable because cloud/local foundation assembly remains outstanding.
 
 
 ## Decision Log

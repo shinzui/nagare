@@ -11,6 +11,7 @@ module Nagare.Inventory.Command
   , planInventoryWithRetirements
   , planInventoryCandidateWithRetirements
   , planInventoryCandidateWith
+  , planInventoryCandidateWithPayloadIdentity
   , convergeInventoryCandidateWith
   , planInventoryCandidateAdoptionWith
   , planInventoryAdoptionWith
@@ -350,12 +351,28 @@ planInventoryCandidateWith :: (CompositionCandidate -> InventoryHistory -> IO Ad
 planInventoryCandidateWith registryFor =
   planInventoryCandidateWithDecider registryFor (\_ _ -> Right noLifecycleDecisions)
 
+-- | Bootstrap stages record their immutable selected payload even when the
+-- current review has no final cluster marker yet.
+planInventoryCandidateWithPayloadIdentity
+  :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry)
+  -> T.Text -> ActiveTarget -> CompositionCandidate -> FilePath -> IO ()
+planInventoryCandidateWithPayloadIdentity registryFor payloadIdentity =
+  planInventoryCandidateWithDeciderPayload registryFor
+    (\_ _ -> Right noLifecycleDecisions) payloadIdentity
+
 planInventoryCandidateWithDecider
   :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry)
   -> (InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) LifecycleDecisions)
   -> ActiveTarget -> CompositionCandidate -> FilePath -> IO ()
 planInventoryCandidateWithDecider registryFor decide target candidate output = do
-  (_, bundle, digest) <- prepareInventoryCandidateWithDecider registryFor decide target candidate
+  planInventoryCandidateWithDeciderPayload registryFor decide "operator-cli" target candidate output
+
+planInventoryCandidateWithDeciderPayload
+  :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry)
+  -> (InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) LifecycleDecisions)
+  -> T.Text -> ActiveTarget -> CompositionCandidate -> FilePath -> IO ()
+planInventoryCandidateWithDeciderPayload registryFor decide payloadIdentity target candidate output = do
+  (_, bundle, digest) <- prepareInventoryCandidateWithDeciderPayload registryFor decide payloadIdentity target candidate
   _ <- writeReviewBundle output bundle >>= either dieText pure
   TIO.putStrLn (digestText digest)
 
@@ -388,6 +405,13 @@ prepareInventoryCandidateWithDecider
   -> (InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) LifecycleDecisions)
   -> ActiveTarget -> CompositionCandidate -> IO (InventoryStore, ReviewBundle, ContentDigest)
 prepareInventoryCandidateWithDecider registryFor decide target candidate = do
+  prepareInventoryCandidateWithDeciderPayload registryFor decide "operator-cli" target candidate
+
+prepareInventoryCandidateWithDeciderPayload
+  :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry)
+  -> (InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) LifecycleDecisions)
+  -> T.Text -> ActiveTarget -> CompositionCandidate -> IO (InventoryStore, ReviewBundle, ContentDigest)
+prepareInventoryCandidateWithDeciderPayload registryFor decide payloadIdentity target candidate = do
   rejectReentry
   validateTarget target candidate
   store <- openTargetStore target
@@ -401,7 +425,8 @@ prepareInventoryCandidateWithDecider registryFor decide target candidate = do
   decisions <- either (dieText . showText . NE.toList) pure (decide history observations)
   proposal <- either (dieText . showText . NE.toList) pure (planChanges candidate decisions history observations)
   snapshot <- readStoreSnapshot store >>= either (dieText . showText) pure
-  bundle <- prepareReview registry snapshot proposal >>= either (dieText . showText . NE.toList) pure
+  bundle <- prepareReviewWithPayloadIdentity payloadIdentity registry snapshot proposal
+    >>= either (dieText . showText . NE.toList) pure
   digest <- publishReview store bundle >>= either (dieText . showText) pure
   pure (store, bundle, digest)
 

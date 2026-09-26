@@ -41,6 +41,7 @@ module Nagare.Inventory.Plan
   , reviewedDocument
   , reviewedNativeBundles
   , prepareReview
+  , prepareReviewWithPayloadIdentity
   , reviewDigest
   , encodeReviewDocument
   , publishReview
@@ -1189,7 +1190,10 @@ instance FromJSON ReviewDocument where
         pure (Map.fromList entries)
 
 prepareReview :: AdapterRegistry -> StoreSnapshot -> ChangeProposal -> IO (Either (NonEmpty PrepareError) ReviewBundle)
-prepareReview registry snapshot proposal = do
+prepareReview = prepareReviewWithPayloadIdentity "operator-cli"
+
+prepareReviewWithPayloadIdentity :: Text -> AdapterRegistry -> StoreSnapshot -> ChangeProposal -> IO (Either (NonEmpty PrepareError) ReviewBundle)
+prepareReviewWithPayloadIdentity payloadIdentity registry snapshot proposal = do
   prepared <- traverse prepareOne (proposalOperations proposal)
   let (errors, successes) = partitionEithers prepared
   case errors of
@@ -1208,7 +1212,7 @@ prepareReview registry snapshot proposal = do
               , reviewBaseRevisions = proposalBase proposal
               , reviewDesiredRevisions = proposalDesired proposal
               , reviewCandidateDigest = proposalCandidateDigest proposal
-              , reviewPayloadIdentity = "operator-cli"
+              , reviewPayloadIdentity = payloadIdentity
               , reviewPolicyVersion = if Map.null (proposalMigrations proposal)
                   then "inventory-policy-v1" else "inventory-policy-v2-migration"
               , reviewOperations = operations

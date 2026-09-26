@@ -43,7 +43,25 @@ inventoryTransactionTests :: TestTree
 inventoryTransactionTests =
   testGroup
     "inventory transactions"
-    [ testCase "conditional store contract is identical in memory and on disk" $ do
+    [ testCase "published bootstrap review retains its selected payload identity" $ do
+        let owner = ok (mkScopeId Platform "bootstrap-foundation")
+            scope = ok (mkScopeDeclaration owner [])
+            snapshot = ok (mkScopeSnapshot fixtureBinding Map.empty Map.empty)
+            candidate = ok (composeInventory snapshot (ReplaceScope scope :| []))
+            registry = ok (mkAdapterRegistry [])
+            observations = ok (observationSet [])
+        store <- newMemoryStore
+        _ <- initializeStore store fixtureBinding "bootstrap-payload-test" >>= expectRight
+        history <- loadInventoryHistory store >>= expectRight
+        proposal <- expectRight (planChanges candidate noLifecycleDecisions history observations)
+        before <- readStoreSnapshot store >>= expectRight
+        review <- prepareReviewWithPayloadIdentity "nagare-bootstrap:payload-a"
+          registry before proposal >>= expectRight
+        reviewPayloadIdentity (reviewBundleDocument review) @?= "nagare-bootstrap:payload-a"
+        digest <- publishReview store review >>= expectRight
+        retained <- loadPublishedReview store digest >>= expectRight
+        reviewPayloadIdentity (reviewBundleDocument retained) @?= "nagare-bootstrap:payload-a"
+    , testCase "conditional store contract is identical in memory and on disk" $ do
         memory <- newMemoryStore
         exerciseStore memory
         withSystemTempDirectory "inventory-store" $ \root -> do
