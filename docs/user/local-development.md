@@ -11,10 +11,10 @@ generated:
 
 # Local development
 
-> **Status:** 🟢 Local mode is complete. The local cluster, the local
-> deploy/build target, local data services, MinIO-backed backups, the optional
-> auth plane with locally-trusted TLS, and the `just local-smoke` end-to-end
-> regression test all run with no GCP account (MasterPlan 16, EP-82–EP-86).
+> **Status:** 🟡 The local cluster, deploy/build target, data services,
+> MinIO-backed backups, and optional auth plane have prior native proof with no
+> GCP account (MasterPlan 16, EP-82–EP-86). The reviewed `just local-smoke`
+> command needs a fresh native run against a current platform profile.
 
 Local mode runs Nagare on your laptop with no GCP account and no cloud resources.
 It replaces the cloud substrate with local equivalents:

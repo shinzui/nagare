@@ -63,7 +63,7 @@ The mapping to the implementation plans (`docs/plans/`) and their current state:
 | Managed databases (Postgres/Redis/ClickHouse) | MP-9 (EP-43–48), MP-16 EP-84 | 🟡 Built; cloud GCS and local MinIO backup paths implemented |
 | Scheduled tasks (`nagarectl task`) | MP-10 (EP-49–53) | 🟡 Built; live run pending |
 | Multi-workload apps (`nagarectl app deploy`) + worker liveness | MP-14 (EP-72–74), MP-16 EP-83 | 🟡 Built; target-aware image builds |
-| Local development and testing | MP-16 (EP-82–86) | 🟢 Complete and live-verified — local cluster, deploy path, data services, MinIO backups, auth plane + local TLS, and `nagare local-smoke` |
+| Local development and testing | MP-16 (EP-82–86) | 🟡 Underlying local cluster, data services, MinIO, and auth have prior native proof; reviewed `nagare local-smoke` needs a new native run |
 | Target contexts | MP-17 (EP-87–92) | ✅ Working — named cloud/local contexts, `--context`, `NAGARE_CONTEXT`, per-context Pulumi state, and context-rendered bootstrap paths |
 | Bounded one-shot Jobs | MP-18 EP-95 | 🟢 Complete — typed model, hardened renderer, two-slot quota, example, and local acceptance; no `nagarectl job` command yet |
 | Platform security and reliability hardening | MP-19 (EP-97–103) | 🟡 Guardrail and auth fixes shipped; infrastructure protection is implemented but awaits live apply; resource, alerting, CLI, and host follow-ups remain |

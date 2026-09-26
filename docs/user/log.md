@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-26
+* **Update**: Distinguish earlier direct local smoke proof from the reviewed smoke script, which still needs a current native run and scratch-volume sentinel readback.
 * **Change**: Route the local and cloud smoke examples through reviewed image publication, deployment, volume backup, and scratch restore. The local database drill also saves and applies backup and restore reviews. Keep accepted resources and review files for explicit collection and recovery after the run.
 * **Change**: Route `just deploy-hello` through reviewed standalone Service deployment with an accepted context-registry image and explicit tag; update the example's deployment and retirement instructions.
 * **Change**: Save reviewed scratch volume restores from accepted snapshot receipts; recheck current archive and receipt bytes before extracting into a separate PVC, and remove direct restore effects.
