@@ -47,6 +47,47 @@ cluster phase from the candidate payload's pinned image. Review Attic schema com
 the apply: a rollback that crosses an incompatible migration also requires the matching PostgreSQL
 backup, not merely the previous server image.
 
+## Managed resource rehearsal
+
+The development rehearsal launcher runs the shipped typed inventory commands
+against one explicitly selected context. It saves the declared inventory and
+review before apply, then checks a newly compiled candidate for a no-op rerun.
+Use a separate disposable context and inspect `candidate.json` and
+`review/review.json` in the private evidence directory before `--yes`.
+
+For a local context, set the exact Kubernetes cluster name from that context's
+kubeconfig and use these three separate invocations:
+
+```bash
+NAGARE_TEST_CONTEXT=ep150-local
+NAGARE_TEST_CLUSTER=ep150-local-cluster
+NAGARE_TEST_CANDIDATE=/private/path/to/compiled-candidate
+NAGARE_TEST_EVIDENCE=.tmp/managed-resource-rehearsal-local
+bash scripts/rehearse-managed-resources.sh --phase plan --mode local \
+  --context "$NAGARE_TEST_CONTEXT" --expected-cluster "$NAGARE_TEST_CLUSTER" \
+  --candidate "$NAGARE_TEST_CANDIDATE" --evidence-dir "$NAGARE_TEST_EVIDENCE"
+bash scripts/rehearse-managed-resources.sh --phase apply --mode local \
+  --context "$NAGARE_TEST_CONTEXT" --expected-cluster "$NAGARE_TEST_CLUSTER" \
+  --evidence-dir "$NAGARE_TEST_EVIDENCE" --yes
+# Recompile the same desired intent against the accepted post-apply snapshot.
+NAGARE_TEST_FRESH_CANDIDATE=/private/path/to/post-apply-candidate
+bash scripts/rehearse-managed-resources.sh --phase verify --mode local \
+  --context "$NAGARE_TEST_CONTEXT" --expected-cluster "$NAGARE_TEST_CLUSTER" \
+  --candidate "$NAGARE_TEST_FRESH_CANDIDATE" --evidence-dir "$NAGARE_TEST_EVIDENCE"
+```
+
+For a cloud context, change `--mode local` to `--mode cloud` in each command and
+add `--expected-project "$NAGARE_TEST_PROJECT"`, set to the context's exact GCP
+project. The launcher requires the selected context and Kubernetes cluster to
+match, and cloud mode also requires the operator project guard to agree. An
+existing evidence directory is never replaced during planning; failed steps
+retain their review and private observations for inspection and recovery. An
+interrupted apply remains marked `applying`; inspect `inventory status` and
+use the transaction's reviewed `inventory resume` path before attempting a
+fresh rehearsal. A
+successful no-op review alone does not establish full resource coverage or a
+production-shaped provider rehearsal.
+
 ## Release publication and retry
 
 The release workflow assembles its native outputs into seven exact attachments,

@@ -112,6 +112,18 @@ resume without duplicate effects; the unchanged review is a no-op, and retiring
 one application retains its resource while other accepted revisions remain
 fixed. The provider-backed local and GCP scenarios remain open.
 
+2026-09-25: Added `scripts/rehearse-managed-resources.sh` with separate plan,
+apply, and verify phases. It requires exact context/cluster identity, checks
+the cloud project through the operator guard in cloud mode, retains the public
+candidate and review before `--yes`, and requires a fresh post-apply candidate
+whose review has zero operations. Local mode makes no cloud preflight call. Its
+fake-CLI test covers successful phases, existing-evidence refusal, missing
+confirmation, wrong cluster/project, and non-no-op refusal; shell syntax,
+strict user docs, and diff checks pass. An interrupted apply remains marked
+`applying` and refuses a blind second apply; the operator must inspect/resume
+the transaction. This is launcher preparation, not a
+provider-backed disposable rehearsal, so M3 remains open.
+
 2026-09-25: Distilled the durable provider-draft, physical-asset verification,
 and completion-observation rules into ADR 7. This records the publication
 boundary without treating the pending inventory release evidence as shipped.
@@ -273,6 +285,12 @@ version header; never decode their unknown phases into executable records.
 Current payload compatibility minima are both version 1, with an absent field
 in older payloads interpreted as 1. A future payload requiring more is refused
 before planning or applying the coarse legacy transaction.
+
+2026-09-25: The live rehearsal has distinct plan, apply, and verify invocations.
+The first compiled candidate carries the pre-apply snapshot, so no-op proof
+requires recompiling the same desired intent against the accepted post-apply
+snapshot. Keep the original evidence directory and reviewed bytes across all
+three invocations rather than silently regenerating a changed apply review.
 
 
 ## Outcomes & Retrospective
