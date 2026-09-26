@@ -157,6 +157,11 @@ provenance:
       at: 2026-09-26T19:16:30Z
       mode: "implement"
       note: "Remove duplicate standalone database and broker create and restart effects"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-26T19:32:00Z
+      mode: "implement"
+      note: "Extend signed webhook proof harness to a disposable native Knative context and audit its startup failure"
 ---
 
 # Route application and data lifecycles through independent resource scopes
@@ -200,6 +205,8 @@ App stop and restart require an accepted Service scope in every context; app del
 The `nagared` webhook runner requires a named context and initialized shared inventory history. For a signed delivery it selects the exact accepted commit-tagged OCI image publication and, for previews, the four accepted environment stores, then invokes the reviewed `nagarectl site` command. The command revalidates those inputs against current history. The old direct static and server site effect functions are removed; their pure renderers still feed the inventory compiler. A local signed-webhook regression checks refusal before initialization and checkout after initialization with unchanged inventory bytes. In-cluster deployment and native provider execution remain open in M4.
 
 A disposable local webhook transaction now creates a Git fixture, seeds an accepted image and four environment stores, and sends a signed push followed by a signed same-repository pull request. The actual `nagared` runner invokes the built `nagarectl` twice, and the reviewed inventory transaction converges against a recording Kubernetes provider. The production Service and release history are present, the preview Service has exactly the four accepted Runtime/Preview references, and unrelated accepted scope revisions do not advance. This is a local recording-provider roundtrip; an in-cluster runner and native Knative provider proof remain open.
+
+The same harness has an optional disposable native Knative mode with a real registry image, exact kubeconfig, and provider cleanup. On `k3d-nagare-inventory-ep147`, its first saved review reached Kubernetes create, but admission returned `no endpoints available` for `webhook.knative-serving.svc`. A second run stalled in API reads while the Knative webhook restarted. The webhook's previous logs show a timed-out read of its own `config-logging` ConfigMap through `10.43.0.1:443`; its Deployment had no available replica. The cluster was stopped after the probe. This is an unhealthy disposable control plane, not a completed native provider proof. The harness now checks the webhook Deployment before submitting a signed delivery, so a later native run fails before publishing a review if admission is unavailable.
 
 Standalone database and broker live create and restart now always select their reviewed scopes. `db delete` and `broker delete` require `--save-plan` and submit the same retained-scope retirement as the explicit `retire` commands; the direct native deletion modules are removed. Offline create and restart dry runs retain their renderers. Full native collection and other data actions remain M3/M4 work.
 
@@ -283,6 +290,8 @@ Critical path from completed M1 to final acceptance, in execution order:
 - [ ] M4: Cut over remaining direct app render/apply entry points to the reviewed compiler and publication path.
 
 ## Surprises & Discoveries
+
+2026-09-26: The local Knative test cluster's CRDs and namespace were present, but its admission webhook had no ready endpoint when the signed reviewed site transaction attempted a Service create. The next run showed sustained API latency and a crash-looping webhook whose startup timed out reading `config-logging` through the cluster service IP. The live harness preserves the exact provider command diagnostics and checks webhook rollout before attempting delivery; no native site success is claimed. The recording-provider production and preview test still passes, and the disposable cluster was stopped.
 
 2026-09-26: The live database and broker CLI had already moved to reviewed scope planning, but the earlier create/restart library modules still contained complete imperative Kubernetes mutations reachable from a direct library call. Restricting those modules to dry-run rendering closes that second effect path. Credential observation classification and create-only decision logic remain as adapter-independent helpers; the legacy provider shell-outs are gone.
 

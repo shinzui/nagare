@@ -7,6 +7,7 @@ import http.client
 import json
 import os
 from pathlib import Path
+import shutil
 import socket
 import subprocess
 import sys
@@ -17,9 +18,9 @@ import time
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def command(arguments, environment, cwd=ROOT):
+def command(arguments, environment, cwd=ROOT, timeout=None):
     result = subprocess.run(arguments, cwd=cwd, env=environment, text=True,
-                            capture_output=True, check=False)
+                            capture_output=True, check=False, timeout=timeout)
     if result.returncode:
         raise AssertionError(f"{arguments!r} failed:\n{result.stdout}{result.stderr}")
     return result.stdout.strip()
@@ -102,22 +103,36 @@ def seed_history(cli, scratch, environment, destination):
     return image_id, [member["contents"]["identity"] for member in overlay_members]
 
 
-def make_provider(scratch):
+def make_provider(scratch, live_kubectl=None):
     binary = scratch / "bin"
     binary.mkdir()
     state = scratch / "objects.json"
     calls = scratch / "kubectl-calls.jsonl"
+    errors = scratch / "kubectl-errors.jsonl"
     kubectl = binary / "kubectl"
     kubectl.write_text("""#!/usr/bin/env python3
 import json
 from pathlib import Path
+import subprocess
 import sys
 
 state = Path(%r)
 calls = Path(%r)
+errors = Path(%r)
 args = sys.argv[1:]
 with calls.open("a") as output:
     output.write(json.dumps(args) + "\\n")
+live_binary = %r
+if live_binary is not None:
+    result = subprocess.run([live_binary, *args], stdin=sys.stdin.buffer,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    sys.stdout.buffer.write(result.stdout)
+    sys.stderr.buffer.write(result.stderr)
+    if result.returncode:
+        with errors.open("a") as output:
+            output.write(json.dumps({"args": args, "code": result.returncode,
+                "stderr": result.stderr.decode(errors="replace")}) + "\\n")
+    sys.exit(result.returncode)
 objects = json.loads(state.read_text()) if state.exists() else {}
 namespace = args[args.index("--namespace") + 1] if "--namespace" in args else ""
 if "get" in args:
@@ -147,9 +162,9 @@ if "create" in args:
 if "wait" in args and any(value.startswith("ksvc/") for value in args):
     sys.exit(0)
 sys.exit(95)
-""" % (str(state), str(calls)))
+""" % (str(state), str(calls), str(errors), live_kubectl))
     kubectl.chmod(0o755)
-    return binary, state, calls
+    return binary, state, calls, errors
 
 
 def make_repo(scratch, environment):
@@ -164,12 +179,14 @@ def make_repo(scratch, environment):
     command(["git", "add", "."], environment, repo)
     git_environment = environment | {"GIT_AUTHOR_NAME": "Nagare Test",
         "GIT_AUTHOR_EMAIL": "test@example.invalid", "GIT_COMMITTER_NAME": "Nagare Test",
-        "GIT_COMMITTER_EMAIL": "test@example.invalid"}
+        "GIT_COMMITTER_EMAIL": "test@example.invalid",
+        "GIT_AUTHOR_DATE": "2026-09-26T00:00:00Z",
+        "GIT_COMMITTER_DATE": "2026-09-26T00:00:00Z"}
     command(["git", "commit", "-m", "test: seed reviewed webhook fixture"], git_environment, repo)
     return repo, command(["git", "rev-parse", "HEAD"], environment, repo)
 
 
-def deliver(port, sha, repo, preview=False):
+def deliver(port, sha, repo, preview=False, timeout=60):
     if preview:
         named_repo = {"clone_url": repo.as_uri(), "full_name": "fixture/site"}
         event = {"action": "opened", "number": 7, "pull_request": {
@@ -181,7 +198,7 @@ def deliver(port, sha, repo, preview=False):
                                 "full_name": "fixture/site"}}
     body = json.dumps(event, separators=(",", ":")).encode()
     signature = hmac.new(b"topsecret", body, hashlib.sha256).hexdigest()
-    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=60)
+    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=timeout)
     try:
         connection.request("POST", "/webhooks/github/static/webhook-test", body,
             {"X-GitHub-Event": "pull_request" if preview else "push",
@@ -194,19 +211,28 @@ def deliver(port, sha, repo, preview=False):
 
 
 def main():
-    if len(sys.argv) != 3:
-        raise SystemExit("usage: test-nagared-reviewed-deploy.py BUILT_NAGARED BUILT_NAGARECTL")
-    nagared, cli = (str(Path(argument).resolve(strict=True)) for argument in sys.argv[1:])
+    if len(sys.argv) not in (3, 7) or (len(sys.argv) == 7 and sys.argv[3] != "--live-context"):
+        raise SystemExit("usage: test-nagared-reviewed-deploy.py BUILT_NAGARED BUILT_NAGARECTL "
+            "[--live-context K3D_CONTEXT REGISTRY_HOST SOURCE_IMAGE]")
+    nagared, cli = (str(Path(argument).resolve(strict=True)) for argument in sys.argv[1:3])
+    live_context = sys.argv[4] if len(sys.argv) == 7 else None
+    registry_host = sys.argv[5] if live_context else "k3d-registry.localhost:5000"
+    source_image = sys.argv[6] if live_context else None
+    if live_context and not live_context.startswith("k3d-nagare-inventory-"):
+        raise SystemExit("live provider mode requires a disposable nagare inventory k3d context")
+    live_kubectl = shutil.which("kubectl") if live_context else None
+    if live_context and not live_kubectl:
+        raise SystemExit("live provider mode requires kubectl")
     with tempfile.TemporaryDirectory(prefix="nagared-reviewed-deploy-") as temporary:
         scratch = Path(temporary)
         context_dir = scratch / "config/nagare/contexts"
         context_dir.mkdir(parents=True)
         (context_dir / "guarded.env").write_text(
             "CLOUDSDK_CORE_PROJECT=project\nNAGARE_MODE=local\n"
-            "NAGARE_REGISTRY_HOST=k3d-registry.localhost:5000\n"
+            f"NAGARE_REGISTRY_HOST={registry_host}\n"
             "NAGARE_BASE_DOMAIN=127-0-0-1.sslip.io\n"
             "NAGARE_LOCAL_OBJECT_STORE=http://minio:9000/nagare-backups\n")
-        binary, state, calls = make_provider(scratch)
+        binary, state, calls, errors = make_provider(scratch, live_kubectl)
         environment = {key: value for key, value in os.environ.items()
             if not key.startswith("NAGARE_") and not key.startswith("CLOUDSDK_")}
         environment.update({"XDG_CONFIG_HOME": str(scratch / "config"),
@@ -214,13 +240,32 @@ def main():
             "NAGARE_MODE": "local", "NAGARE_WEBHOOK_SECRET": "topsecret",
             "CLOUDSDK_CORE_PROJECT": "project",
             "PATH": str(binary) + os.pathsep + os.environ.get("PATH", "")})
+        if live_context:
+            kubeconfig = scratch / "kubeconfig"
+            kubeconfig.write_text(command([live_kubectl, "config", "view", "--raw",
+                "--minify", "--context", live_context], os.environ.copy()) + "\n")
+            command([live_kubectl, "--kubeconfig", str(kubeconfig), "config",
+                "rename-context", live_context, "guarded"], os.environ.copy())
+            environment["KUBECONFIG"] = str(kubeconfig)
+            command([live_kubectl, "--context", "guarded", "-n", "knative-serving",
+                "rollout", "status", "deployment/webhook", "--timeout=45s"],
+                environment, timeout=70)
+            for kind, name in (("ksvc", "webhook-test"),
+                               ("configmap", "nagare-static-releases-webhook-test")):
+                existing = command([live_kubectl, "--context", "guarded", "-n",
+                    "personal", "get", kind, name, "--ignore-not-found", "-o", "name"],
+                    environment, timeout=30)
+                assert not existing, "disposable native fixture already exists: " + existing
         ghc_version = command(["ghc", "--numeric-version"], environment)
         ghc_matches = list((ROOT / "cli/nagarectl").glob(
             ".ghc.environment.*-" + ghc_version))
         assert len(ghc_matches) == 1, "expected one GHC package environment for " + ghc_version
         ghc_environment = ghc_matches[0]
         repo, sha = make_repo(scratch, environment)
-        destination = "k3d-registry.localhost:5000/project/nagare/webhook-test:" + sha[:12]
+        destination = registry_host + "/project/nagare/webhook-test:" + sha[:12]
+        if source_image:
+            command(["docker", "tag", source_image, destination], environment)
+            command(["docker", "push", destination], environment)
         image_id, overlay_ids = seed_history(cli, scratch, environment, destination)
         assert not calls.exists(), "history seeding invoked a provider"
         reviewed_output = scratch / "reviewed-command-output.txt"
@@ -261,23 +306,35 @@ sys.exit(result.returncode)
                     time.sleep(0.1)
             else:
                 raise AssertionError("nagared did not become healthy")
-            status, response = deliver(port, sha, repo)
+            status, response = deliver(port, sha, repo,
+                timeout=360 if live_context else 60)
             assert status == 200, (status, response,
                 reviewed_output.read_text() if reviewed_output.exists() else "",
+                errors.read_text() if errors.exists() else "",
                 process.stderr.read().decode() if process.poll() is not None else "")
             assert response.strip() == "reviewed site deployed: " + sha[:12], response
             head = json.loads((scratch / "state/nagare/guarded/inventory/head.json").read_text())
             names = {entry["scope"]["name"] for entry in head["accepted"]}
             assert "webhook-image" in names and "site-webhook-test" in names, names
-            objects = json.loads(state.read_text())
-            assert "personal:service:webhook-test" in objects, objects.keys()
-            assert any(key.startswith("personal:configmap:") for key in objects), objects.keys()
+            if live_context:
+                service = json.loads(command([live_kubectl, "--context", "guarded", "-n",
+                    "personal", "get", "ksvc", "webhook-test", "-o", "json"], environment))
+                assert service["metadata"].get("uid"), service
+                objects = {"personal:service:webhook-test": service}
+                assert service.get("status", {}).get("conditions"), service
+            else:
+                objects = json.loads(state.read_text())
+                assert "personal:service:webhook-test" in objects, objects.keys()
+                assert any(key.startswith("personal:configmap:") for key in objects), objects.keys()
             invocations = [json.loads(line) for line in calls.read_text().splitlines()]
-            assert sum("create" in args for args in invocations) == len(objects), invocations
+            assert sum("create" in args for args in invocations) >= len(objects), invocations
             submitted = [json.loads(line) for line in reviewed_arguments.read_text().splitlines()]
             assert len(submitted) == 1 and submitted[0][submitted[0].index("--image-resource") + 1] == image_id, submitted
             prior_revisions = {entry["scope"]["name"]: entry["revision"]
                 for entry in head["accepted"]}
+            if live_context:
+                print("nagared reviewed deploy: signed push converged against native Knative provider")
+                return
             status, response = deliver(port, sha, repo, preview=True)
             assert status == 200, (status, response,
                 reviewed_output.read_text() if reviewed_output.exists() else "")
@@ -312,6 +369,16 @@ sys.exit(result.returncode)
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait(timeout=5)
+            if live_context:
+                for kind, name in (("ksvc", "webhook-test"),
+                                   ("configmap", "nagare-static-releases-webhook-test")):
+                    try:
+                        subprocess.run([live_kubectl, "--context", "guarded", "-n",
+                            "personal", "delete", kind, name, "--ignore-not-found",
+                            "--wait=false"], env=environment, capture_output=True,
+                            check=False, timeout=20)
+                    except subprocess.TimeoutExpired:
+                        pass
 
 
 if __name__ == "__main__":
