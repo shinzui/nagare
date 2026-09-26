@@ -64,7 +64,8 @@ head's schema and digest as `unsupported-schema` without decoding ownership or
 executor claims. The full store reader still refuses the newer head for
 mutation. A focused store test and CLI build pass. This closes only the
 unsupported-schema discovery slice of M1, not platform integration. Haskell
-style, strict user docs, and diff checks also pass.
+style, strict user docs, and diff checks also pass. The full `nagarectl` suite
+passed all 828 tests after these changes.
 
 2026-09-25: Integration audit found that `runPlatformUpgrade` still applies the
 coarse Pulumi, host, and whole-cluster phases, while EP-148 still has direct
