@@ -140,6 +140,7 @@ library
     Nagare.Inventory.KubernetesReview
     Nagare.Inventory.KubernetesSources
     Nagare.Inventory.Plan
+    Nagare.Inventory.PlatformUpgrade
     Nagare.Inventory.Lifecycle
     Nagare.Inventory.Migration
     Nagare.Inventory.Migration.Types

@@ -17,6 +17,7 @@ import Nagare.Inventory.Execute
 import Nagare.Inventory.Journal (OperationId, operationIdText)
 import Nagare.Inventory.Lifecycle (decideRetirement)
 import Nagare.Inventory.Plan
+import Nagare.Inventory.PlatformUpgrade (composePlatformUpgrade)
 import Nagare.Inventory.Store
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
@@ -172,6 +173,21 @@ runScenario interruptedAt = do
               snapshot
               (ReplaceScope platformScope :| map ReplaceScope [appAScope, appBScope, cacheScope])
           )
+  platformUpgrade <- expectRight (composePlatformUpgrade snapshot (ReplaceScope platformScope :| []))
+  forM_ [appAOwner, appBOwner] $ \owner -> do
+    Map.lookup owner (inventoryScopes (candidateInventory platformUpgrade))
+      @?= Map.lookup owner (fmap snd accepted)
+    Map.lookup owner (candidateGenerations platformUpgrade)
+      @?= Map.lookup owner (fmap fst accepted)
+  case composePlatformUpgrade snapshot (ReplaceScope appAScope :| []) of
+    Left _ -> pure ()
+    Right _ -> assertFailure "platform upgrade accepted an application change"
+  case composePlatformUpgrade snapshot (CollectRetained (declarationId appA) :| []) of
+    Left _ -> pure ()
+    Right _ -> assertFailure "platform upgrade collected an application resource"
+  case composePlatformUpgrade snapshot (RetireScope platformOwner RetainResources :| []) of
+    Left _ -> pure ()
+    Right _ -> assertFailure "platform upgrade severed accepted application dependencies"
   unchangedObservations <- observe unchanged converged
   noOp <- expectRight (planChanges unchanged noLifecycleDecisions converged unchangedObservations)
   proposalOperations noOp @?= []

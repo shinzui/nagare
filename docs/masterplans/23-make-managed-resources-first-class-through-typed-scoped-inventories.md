@@ -156,6 +156,11 @@ provenance:
       at: 2026-09-25T03:02:59Z
       mode: "implement"
       note: "Track EP-148 reviewed one-off Job scope and conditional collection"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-26T03:21:06Z
+      mode: "implement"
+      note: "Track active EP-150 integration and remaining full-release dependency gates"
 ---
 
 # Make managed resources first-class through typed scoped inventories
@@ -199,7 +204,7 @@ Rejected alternatives were isolated platform/application inventories without sha
 | 147 | Compile cluster bootstrap into owned resource components | docs/plans/147-compile-cluster-bootstrap-into-owned-resource-components.md | EP-144, EP-145 | EP-146, EP-149 | Complete |
 | 148 | Route application and data lifecycles through independent resource scopes | docs/plans/148-route-application-and-data-lifecycles-through-independent-resource-scopes.md | EP-146, EP-147, EP-149 | EP-151 | In Progress |
 | 149 | Explain drift and execute reviewed adoption migration and retirement | docs/plans/149-explain-drift-and-execute-reviewed-adoption-migration-and-retirement.md | EP-144, EP-145 | EP-146, EP-147 | Complete |
-| 150 | Integrate resource inventories into upgrades and release verification | docs/plans/150-integrate-resource-inventories-into-upgrades-and-release-verification.md | EP-146, EP-147, EP-148, EP-149, EP-151 | None | Not Started |
+| 150 | Integrate resource inventories into upgrades and release verification | docs/plans/150-integrate-resource-inventories-into-upgrades-and-release-verification.md | EP-146, EP-147, EP-148, EP-149, EP-151 | None | In Progress |
 | 151 | Store inventory history in the context state bucket with conditional writes | docs/plans/151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes.md | EP-145 | EP-146 | Complete |
 
 Hard dependencies must be Complete before starting the dependent child; soft dependencies supply additional real-adapter coverage but allow independent fixture-backed work. Registry status values are Not Started, In Progress, Complete, or Cancelled.
@@ -248,6 +253,15 @@ These ownership, identity, review, storage, migration, and controller-delegation
 
 
 ## Progress
+
+2026-09-26: EP-150 has active early integration and release-publisher work,
+including a platform-only candidate boundary, but no milestone is complete.
+The user explicitly requested this early work and targets the full release
+claim. EP-148 remains an unmet hard
+dependency for command coverage; EP-150's component upgrade transaction,
+disposable local/GCP convergence, complete coverage, and immutable inventory
+release evidence remain acceptance gates. Early EP-150 work does not waive
+that dependency or establish adoption readiness.
 
 - [x] (2026-09-22) EP-144 M1: Typed identities, policies, references, and opaque boundaries.
 - [x] (2026-09-22) EP-144 M2: Deterministic composition and wire validation.

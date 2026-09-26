@@ -297,6 +297,7 @@ import Nagare.Inventory.HelmReview (helmSpecsFromReview)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
 import Nagare.Inventory.KubernetesSources (loadKubernetesSources, validateSuppliedKubernetesMembers)
 import Nagare.Inventory.Plan qualified as InventoryPlan
+import Nagare.Inventory.PlatformUpgrade (composePlatformUpgrade)
 import Nagare.Inventory.Status qualified as InventoryStatus
 import Nagare.Inventory.Store qualified as InventoryStore
 import Nagare.Ops.Cleanup
@@ -4768,6 +4769,22 @@ runPlatformBootstrapPlan mctx output = do
   active <- activeTarget mctx
   (paths, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   snapshot <- Inventory.loadTargetSnapshot active
+  (candidate, native) <- buildPlatformCandidate active paths workspace snapshot
+  Inventory.planInventoryCandidateWith (inventoryPlanRegistryWithNative active workspace native)
+    active candidate output
+
+-- Keep the payload paths explicit so an upgrade can compile the target
+-- release from its retained workspace against the accepted full context.
+buildPlatformCandidate
+  :: ActiveTarget -> PlatformPaths -> PlatformWorkspace
+  -> ResourceInventory.ScopeSnapshot
+  -> IO (ResourceInventory.CompositionCandidate,
+         Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString))
+buildPlatformCandidate active paths workspace snapshot = do
+  manifest <- readPayloadManifest paths >>= either (dieT . renderWorkspaceError) pure
+  unless (manifest ^. #payloadId == workspace ^. #payloadId
+      && manifest ^. #platformVersion == workspace ^. #platformVersion)
+    (dieT "platform candidate payload and retained workspace identities disagree")
   kubeVersion <- readBootstrapKubeVersion active
   let root = workspace ^. #root
       profile = active ^. #profile
@@ -4898,19 +4915,17 @@ runPlatformBootstrapPlan mctx output = do
     [] -> dieT "pinned bootstrap component set is empty"
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory unstampedSnapshot (ResourceInventory.candidateChanges base <> extra))
-  manifest <- readPayloadManifest paths >>= either (dieT . renderWorkspaceError) pure
   installedAt <- acceptedBootstrapInstalledAt active snapshot cluster
     (identityFromPayload manifest) candidate
   (stampScope, stampNative) <- either (dieT . T.pack . show) pure
     (compileBootstrapStamp cluster (clusterMarkerValue (identityFromPayload manifest) installedAt) candidate)
   stamped <- either (dieT . T.pack . show) pure
-    (ResourceInventory.composeInventory snapshot (ResourceInventory.candidateChanges candidate
+    (composePlatformUpgrade snapshot (ResourceInventory.candidateChanges candidate
       <> (ResourceInventory.ReplaceScope stampScope NE.:| [])))
   let completeNative = Map.union native stampNative
   unless (Map.size completeNative == Map.size native + Map.size stampNative)
     (dieT "bootstrap completion marker shares a native identity")
-  Inventory.planInventoryCandidateWith (inventoryPlanRegistryWithNative active workspace completeNative)
-    active stamped output
+  pure (stamped, completeNative)
 
 -- Reuse the recorded install time only when it reconstructs the accepted
 -- marker's exact desired specification. A changed payload gets a new time;
@@ -5802,8 +5817,14 @@ inventoryArtifactAdapter active workspace specs =
 
 inventoryHostAdapter :: ActiveTarget -> PlatformWorkspace -> (Resource.ContentDigest, Resource.ContentDigest) -> IO InventoryAdapter.Adapter
 inventoryHostAdapter active workspace (configurationDigest, lockDigest) = do
-  hostName <- readContextHostName (active ^. #contextName) >>= either dieT pure
   hostRoot <- hostConfigDir (active ^. #contextName)
+  inventoryHostAdapterAt active workspace hostRoot (configurationDigest, lockDigest)
+
+-- A platform upgrade evaluates and activates the staged target flake. The
+-- ordinary inventory commands keep using the context's committed host root.
+inventoryHostAdapterAt :: ActiveTarget -> PlatformWorkspace -> FilePath -> (Resource.ContentDigest, Resource.ContentDigest) -> IO InventoryAdapter.Adapter
+inventoryHostAdapterAt active workspace hostRoot (configurationDigest, lockDigest) = do
+  hostName <- readContextHostName (active ^. #contextName) >>= either dieT pure
   context <- either dieT pure (Resource.mkContextId (contextNameText (active ^. #contextName)))
   attribute <- either dieT pure (Resource.mkName hostName)
   let profile = active ^. #profile

@@ -58,6 +58,23 @@ Release evidence archives the inventory, review, receipts, and final observation
 - [ ] M3: Run deterministic and disposable-context convergence/recovery scenarios.
 - [ ] M4: Archive release evidence, document recovery, and finish ADR distillation.
 
+2026-09-26: Extracted the complete platform bootstrap candidate builder so it
+accepts explicit payload paths and a retained workspace. The bootstrap command
+continues to use the selected payload; the same builder can now compile a
+target release against a full accepted context snapshot. Final composition
+rejects any application, standalone, or publication scope change, preserves
+their accepted generations, and uses the shared graph validator to refuse a
+target platform that breaks their dependencies. The focused inventory suite
+passed 192 tests, including changed-application and broken-platform-dependency
+refusals; the CLI built and Haskell style passed. Host adapter construction now
+accepts an explicit flake root, allowing the future upgrade path to evaluate
+its staged target without moving the committed root before verification. The
+builder checks payload and retained workspace identity before compilation.
+This is preparation for M1, not a component-backed upgrade transaction:
+cloud/host production declarations,
+target-workspace adapter binding, reviewed component receipts, legacy
+transaction recovery, and final pin verification remain open.
+
 2026-09-26: M2 audit found two unscoped mutation families beyond the earlier
 Pulumi guard: confirmed `cleanup` could delete stale preview Services and rewrite
 release-history ConfigMaps, and context replacement/deletion could change or
