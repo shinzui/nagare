@@ -487,12 +487,12 @@ The app identity comes from the loaded config (`-f/--config`, default
 | Command | Does |
 | --- | --- |
 | `nagarectl env list APP [--all]` | List managed env keys/values (runtime scope; `--all` = all scopes). |
-| `nagarectl env set APP KEY VALUE [scope] [--dry-run]` | Set one managed env key in the per-app ConfigMap. |
-| `nagarectl env delete APP KEY [scope] [--dry-run]` | Remove one managed env key. |
-| `nagarectl env sync APP --file FILE [--merge \| --reconcile-exact] [scope] [--dry-run]` | Bulk-import a dotenv file (`--merge` keeps other keys; `--reconcile-exact` replaces the store). |
-| `nagarectl secret set APP KEY [scope] [--dry-run]` | Set one secret (value read from **stdin**, never argv) in the per-app Secret. |
+| `nagarectl env set APP KEY VALUE [scope] [--save-plan DIR]` | Review and set one managed env key in the per-app ConfigMap. |
+| `nagarectl env delete APP KEY [scope] [--save-plan DIR]` | Review and remove one managed env key. |
+| `nagarectl env sync APP --file FILE [--merge \| --reconcile-exact] [scope] [--save-plan DIR]` | Review a dotenv import (`--merge` keeps other keys; `--reconcile-exact` replaces the store). |
+| `nagarectl secret set APP KEY [scope] --version TOKEN [--save-plan DIR]` | Review one Secret write; value comes from **stdin**, never argv. |
 | `nagarectl secret list APP [--all]` | List secret key **names** only (never values). |
-| `nagarectl secret delete APP KEY [scope] [--dry-run]` | Remove one secret key. |
+| `nagarectl secret delete APP KEY [scope] --version TOKEN [--save-plan DIR]` | Review removal of one Secret key. |
 
 Managed values live in `nagare-env-<app>-<scope>` (ConfigMap) and
 `nagare-secret-<app>-<scope>` (Secret); the running Service reads the runtime pair via

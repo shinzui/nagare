@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-26
+* **Change**: Route every live managed Runtime, Build, and Preview environment and versioned Secret write through reviewed channel scopes; remove direct ConfigMap and Secret apply helpers.
 * **Change**: Require saved reviewed Job plans for every live manual database backup and scratch restore; keep the older Job renderers only for read-only dry runs and remove direct apply, wait, and manual pruning effects.
 * **Change**: Route standalone database and broker live create/restart through reviewed scopes in every context; `delete --save-plan` now reviews retained retirement and direct native deletion is removed.
 * **Update**: Require initialized inventory for signed static webhooks, select accepted commit-tagged images and preview environment stores, and submit deployments through reviewed `nagarectl site` commands; remove the duplicate direct site deploy effects.

@@ -12,9 +12,8 @@
 -- base64 is only the Kubernetes Secret wire format. Real protection
 -- (encryption-at-rest, RBAC) is cluster configuration and is OUT OF SCOPE here.
 --
--- The pure layer (reconcile, render, extract) is separated from the thin
--- @kubectl@ IO layer, mirroring "Nagare.Static.Release", so the schema is
--- unit-testable without a cluster.
+-- The pure layer (reconcile, render, extract) is separated from read-only
+-- @kubectl@ observations. Live writes use reviewed inventory channel scopes.
 module Nagare.Env.Store
   ( ReconcileMode (..)
   , reconcile
@@ -26,8 +25,6 @@ module Nagare.Env.Store
   , readEnvStore
   , readSecretStore
   , decodeStoreRead
-  , writeEnvStore
-  , writeSecretStore
   )
 where
 
@@ -49,7 +46,6 @@ import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
-import Nagare.Deploy (applyManifests)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Render (managedConfigMapName, managedSecretName) -- EP-23 IP2
 import Nagare.Dsl.Types (EnvScope (..)) -- EP-23 IP2
@@ -202,11 +198,3 @@ decodeStoreRead kind extract exitCode out = case exitCode of
   ExitFailure _ -> Left ("could not read " <> T.pack kind <> " environment store")
   ExitSuccess | BS.null out -> Right Map.empty
   ExitSuccess -> extract out
-
--- | Persist the ConfigMap-backed store by applying the rendered manifest.
-writeEnvStore :: Text -> Text -> EnvScope -> Map Text Text -> IO ()
-writeEnvStore app ns scope kvs = applyManifests [renderEnvConfigMap app ns scope kvs]
-
--- | Persist the Secret-backed store by applying the rendered manifest.
-writeSecretStore :: Text -> Text -> EnvScope -> Map Text Text -> IO ()
-writeSecretStore app ns scope kvs = applyManifests [renderEnvSecret app ns scope kvs]

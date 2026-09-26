@@ -178,8 +178,8 @@ working tree.
   Tailscale are healthy. This direct rotation path is available only before substantive resource
   inventory history exists; managed contexts await a reviewed host credential operation.
 - **App runtime secrets:** use `nagarectl secret set/delete --version TOKEN`
-  for a reviewed update after inventory initialization. The direct form is
-  available only before that boundary.
+  for a reviewed update in every context. The direct live form is removed;
+  `--dry-run` only renders a redacted preview.
 - **Cluster bootstrap secrets:** edit the context-owned encrypted file, then
   re-apply the loop above. `nagare observability` resolves the same directory
   and fails closed when a required Secret is absent.

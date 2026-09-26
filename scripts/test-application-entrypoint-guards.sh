@@ -93,16 +93,16 @@ refuse 'direct volume snapshot' 'direct storage snapshot is refused' \
   storage snapshot hello --config ../nagare-dsl/test/fixtures/nagare/Config.hs data
 refuse 'direct volume restore' 'direct storage restore is refused' \
   storage restore hello --config ../nagare-dsl/test/fixtures/nagare/Config.hs data backup-identity
-refuse 'direct environment set' 'direct env set is refused' \
+refuse 'environment set without accepted foundation' 'platform foundation scope is absent' \
   env set hello --config ../nagare-dsl/test/fixtures/nagare/Config.hs KEY value
-refuse 'direct environment delete' 'direct env delete is refused' \
+refuse 'environment delete without accepted foundation' 'platform foundation scope is absent' \
   env delete hello --config ../nagare-dsl/test/fixtures/nagare/Config.hs KEY
 printf 'KEY=value\n' > "$fixture_root/vars.env"
-refuse 'direct environment sync' 'direct env sync is refused' \
+refuse 'environment sync without accepted foundation' 'platform foundation scope is absent' \
   env sync hello --config ../nagare-dsl/test/fixtures/nagare/Config.hs --file "$fixture_root/vars.env"
-refuse 'direct Secret set' 'direct secret set is refused' \
+refuse 'Secret set without version' 'reviewed Secret set requires --version' \
   secret set hello --config ../nagare-dsl/test/fixtures/nagare/Config.hs KEY
-refuse 'direct Secret delete' 'direct secret delete is refused' \
+refuse 'Secret delete without version' 'reviewed Secret delete requires --version' \
   secret delete hello --config ../nagare-dsl/test/fixtures/nagare/Config.hs KEY
 refuse 'unaccepted app restart' 'reviewed service action requires one accepted Service scope' \
   app restart fixture
@@ -152,7 +152,29 @@ for operation in backup restore; do
     exit 1
   fi
 done
+if "$nagarectl_bin" --context fresh env set hello \
+    --config ../nagare-dsl/test/fixtures/nagare/Config.hs KEY value \
+    > "$fixture_root/out" 2>&1; then
+  printf 'fresh environment set unexpectedly succeeded\n' >&2
+  exit 1
+fi
+if ! grep -q 'inventory store is not initialized' "$fixture_root/out"; then
+  printf 'fresh environment set refused for the wrong reason:\n' >&2
+  cat "$fixture_root/out" >&2
+  exit 1
+fi
+if "$nagarectl_bin" --context fresh secret delete hello \
+    --config ../nagare-dsl/test/fixtures/nagare/Config.hs KEY --version v1 \
+    > "$fixture_root/out" 2>&1; then
+  printf 'fresh Secret delete unexpectedly succeeded\n' >&2
+  exit 1
+fi
+if ! grep -q 'inventory store is not initialized' "$fixture_root/out"; then
+  printf 'fresh Secret delete refused for the wrong reason:\n' >&2
+  cat "$fixture_root/out" >&2
+  exit 1
+fi
 test ! -e "$XDG_STATE_HOME/nagare/fresh/inventory/head.json"
 
 cmp -s "$store_dir/head.json" "$fixture_root/head-before"
-printf 'application entrypoint guards: thirty-three live refusals and three fresh-context refusals, inventory heads unchanged\n'
+printf 'application entrypoint guards: thirty-three live refusals and five fresh-context refusals, inventory heads unchanged\n'

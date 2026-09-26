@@ -138,8 +138,8 @@ Defaults and rules:
   dropping any key not present. The two are mutually exclusive.
 - **`secret set` reads the value from stdin, never argv** (so it never appears in `ps`,
   `/proc`, or shell history). **`secret list` prints key names only**, never values.
-- **`--dry-run`** on direct env changes prints the exact ConfigMap manifest and
-  touches no cluster. A direct Secret dry-run shows only the Secret name,
+- **`--dry-run`** on legacy env rendering prints the ConfigMap manifest and
+  applies nothing. A Secret dry-run shows only the Secret name,
   namespace, and key names. It is a summary, not an apply-able manifest; neither
   plaintext nor reversible base64 values are printed. Reviewed Secret changes
   keep native values in private review evidence.
@@ -212,14 +212,14 @@ interpolation (`${X}`) is **not** supported.
 - **`--reconcile-exact`**: make the store *exactly* the file's contents, dropping any key
   not present.
 
-Once a context initializes inventory history, every live `env set`, `env delete`,
-or `env sync` needs `--reviewed` or `--save-plan`, even for a newly named app.
-Every live `secret set` or `secret delete` needs `--version TOKEN`; add
-`--save-plan` for a separate apply. Direct read-only `--dry-run` output remains
-available. The direct live forms remain for contexts without initialized history.
+Every live `env set`, `env delete`, and `env sync` uses a reviewed channel in
+every context. `--reviewed` remains an explicit spelling for the same route;
+`--save-plan` saves it for separate apply. Every live `secret set` or
+`secret delete` requires `--version TOKEN`; add `--save-plan` for separate
+apply. Read-only legacy `--dry-run` rendering remains available.
 
-For a Runtime, Build, or Preview ConfigMap owned by inventory history, use
-`--reviewed` to publish and apply the reviewed change in one invocation, or save
+For a Runtime, Build, or Preview ConfigMap, use a live command to publish and
+apply the reviewed change in one invocation, or save
 a review and apply it separately with the shared inventory command. When both
 are supplied, `--save-plan` saves the review without applying it. Each channel has its
 own revision, so a later application scope deployment preserves its keys.
@@ -242,10 +242,10 @@ Runtime channel. The Build ConfigMap feeds the existing image-build argument
 reader; its keys do not enter the running container. Preview overlays read
 their separate ConfigMap after Runtime, so Preview keys win there. One review
 selects exactly one channel. `env set` and `env delete` also accept
-`--reviewed` or `--save-plan DIR` for a reviewed single-key change. Set merges the new value
+`--save-plan DIR` for a reviewed single-key change. Set merges the new value
 with accepted channel history; delete requires the key to exist there. These
 reviewed commands use the same private native evidence and revision binding as
-`env sync --reviewed` and `env sync --save-plan`.
+`env sync` and `env sync --save-plan`.
 
 Runtime, Build, and Preview Secret values also have separate reviewed
 input channels. `secret set` and `secret delete` use `--version TOKEN` to
