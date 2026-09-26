@@ -257,9 +257,9 @@ platform `publicIp` output supplies an IPv4 origin. Set `CF_ACCOUNT_ID` and
 add `--tls-secret-resource RESOURCE-ID` for its accepted Secret in the same
 cluster and namespace. For each runtime Secret reference in a
 server site's environment, add `--env-secret-resource RESOURCE-ID` for the
-accepted Secret in the same cluster and namespace. Build and Preview Secret
-references require separate publication and overlay inputs and currently
-refuse. For each retained server volume, add
+accepted Secret in the same cluster and namespace. Preview-only references do
+not enter the production Service. Build Secret references still require
+separate publication inputs and refuse. For each retained server volume, add
 `--volume-recovery VOLUME=BACKUP:KEY:VERSION` to the reviewed command. The
 review declares the rendered PVC before the Service and keeps the backup/key
 recovery identity with that durable resource. Supported previews and site
@@ -375,12 +375,14 @@ and each present member's exact address, UID, and resourceVersion. Pass
 `--preview-adoption-input FILE` with the saved deploy command. The proposal
 can adopt only unowned members of that preview scope.
 
-The same saved-plan command supports server sites. For each Runtime Secret
-reference in the server config, add `--env-secret-resource RESOURCE-ID` for
-its accepted Secret. A preview volume has its own PVC under the preview
+The same saved-plan command supports server sites. For each Runtime or Preview
+Secret reference in the server config, add `--env-secret-resource RESOURCE-ID`
+for its accepted Secret in the same cluster and namespace. Preview-only inline
+environment entries appear in the preview Service, while production receives
+Runtime entries. A preview volume has its own PVC under the preview
 Service name. Add `--volume-recovery VOLUME=BACKUP:KEY:VERSION` for each
 retained preview volume; a volume marked for deletion needs no recovery input.
-Build and Preview Secret references are not yet supported. Direct preview
+Build Secret references are not yet supported. Direct preview
 deployment still supports static sites only.
 
 To remove a reviewed preview, retire its scope, then review exact collection

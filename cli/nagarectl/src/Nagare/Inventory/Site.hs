@@ -44,7 +44,7 @@ import Data.Yaml qualified as Yaml
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Server.Types (ServerSite (..))
 import Nagare.Dsl.Static.Types (StaticSite (..), siteNameText)
-import Nagare.Dsl.Types (DomainSpec (..), DomainTls (..), EnvScope (Runtime, Preview), EnvVar (..), ScopedEnvVar (..), SecretName, Volume (..), VolumeName, domainText, imageRefText, mkDomains, namespaceText, secretNameText, volumeNameText)
+import Nagare.Dsl.Types (DomainSpec (..), DomainTls (..), EnvScope (Runtime, Build, Preview), EnvVar (..), ScopedEnvVar (..), SecretName, Volume (..), VolumeName, domainText, imageRefText, mkDomains, namespaceText, secretNameText, volumeNameText)
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Dsl.Render (managedConfigMapName, managedSecretName, pvcName)
 import Nagare.Inventory.Digest (contentDigest)
@@ -169,12 +169,14 @@ compileServerSitePreviewScope inputs raw cluster namespaceId imageId stores reco
     (Left (invalid "server preview recovery does not cover exactly its retained volumes"))
   let secretRefs = [(secret, entry ^. #scopes) | entry <- Map.elems (site ^. #env),
         EnvSecretRef secret <- [entry ^. #value]]
-  unless (all ((== Set.singleton Runtime) . snd) secretRefs)
-    (Left (invalid "server preview Build or Preview Secret references need publication inputs"))
-  unless (Map.keysSet envSecrets == Set.fromList (map fst secretRefs))
-    (Left (invalid "server preview Runtime Secret references require exact dependencies"))
+  unless (all (not . Set.member Build . snd) secretRefs)
+    (Left (invalid "server preview Build Secret references need publication inputs"))
+  let activeSecretRefs = [secret | (secret, scopes) <- secretRefs,
+        Set.member Runtime scopes || Set.member Preview scopes]
+  unless (Map.keysSet envSecrets == Set.fromList activeSecretRefs)
+    (Left (invalid "server preview Runtime and Preview Secret references require exact dependencies"))
   secretIds <- traverse (first invalid . siteSecretDependency cluster ns envSecrets)
-    (Set.toAscList (Set.fromList (map fst secretRefs)))
+    (Set.toAscList (Set.fromList activeSecretRefs))
   rendered <- first invalid (Server.serverPreviewManifests inputs raw)
   host <- first invalid (previewDomain name raw (inputs ^. #baseDomain))
   let previewName = rendered ^. #serviceName
@@ -415,12 +417,14 @@ compileServerSiteScopeWith action cdnBinding inputs cluster namespaceId imageId 
     (Left (invalid "server-site recovery does not cover exactly its retained volumes"))
   let secretRefs = [(secret, entry ^. #scopes) | entry <- Map.elems (site ^. #env),
         EnvSecretRef secret <- [entry ^. #value]]
-  unless (all ((== Set.singleton Runtime) . snd) secretRefs)
-    (Left (invalid "server-site Build or Preview Secret references need publication inputs"))
-  unless (Map.keysSet envSecrets == Set.fromList (map fst secretRefs))
+  unless (all (not . Set.member Build . snd) secretRefs)
+    (Left (invalid "server-site Build Secret references need publication inputs"))
+  let runtimeSecretRefs = [secret | (secret, scopes) <- secretRefs,
+        Set.member Runtime scopes]
+  unless (Map.keysSet envSecrets == Set.fromList runtimeSecretRefs)
     (Left (invalid "server-site runtime Secret references require exactly their typed dependencies"))
   secretIds <- traverse (first invalid . siteSecretDependency cluster ns envSecrets)
-    (Set.toAscList (Set.fromList (map fst secretRefs)))
+    (Set.toAscList (Set.fromList runtimeSecretRefs))
   unless (release ^. #releaseId == tag && release ^. #imageTag == tag
       && release ^. #image == imageRefText (site ^. #image)
       && release ^. #siteName == name && release ^. #namespace == ns

@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-26
+* **Update**: Document reviewed server previews with Preview-only inline environment entries and accepted Preview Secret dependencies.
 * **Fix**: Plan and apply an unrelated inventory scope without preparing Pulumi, host, or artifact providers or reopening unchanged Kubernetes sources.
 * **Fix**: Complete reviewed task collection through the CLI using accepted private native bytes and the exact retained CronJob incarnation.
 * **Update**: Save reviewed task deletion as successive CronJob suspension, member retention, and exact collection reviews; each stage requires apply.

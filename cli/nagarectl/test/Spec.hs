@@ -4160,6 +4160,28 @@ staticInventoryTests =
       assertBool "server preview accepted an unbound Runtime Secret"
         (isLeft (compileServerSitePreviewScope (serverInputs {ServerDeploy.site = secretSite})
           "branch" cluster namespaceId imageId deps Map.empty Map.empty source))
+      let previewSecretSite = serverSite & #env .~ Map.singleton
+            (unsafe (mkEnvName "API_KEY"))
+            (unsafe (scopedEnv (Set.singleton Preview) (EnvSecretRef secretName)))
+      (previewSecretScope, _) <- either (fail . show) pure
+        (compileServerSitePreviewScope
+          (serverInputs {ServerDeploy.site = previewSecretSite})
+          "branch" cluster namespaceId imageId deps Map.empty secretBindings source)
+      assertBool "server preview Service lacks Preview Secret ordering"
+        (any (elem (OrderedAfter secretId) . (^. #dependencies))
+          [member | bundle <- scopeBundles previewSecretScope, Managed member <- declarations bundle])
+      assertBool "server preview accepted an unbound Preview Secret"
+        (isLeft (compileServerSitePreviewScope
+          (serverInputs {ServerDeploy.site = previewSecretSite})
+          "branch" cluster namespaceId imageId deps Map.empty Map.empty source))
+      let buildSecretSite = serverSite & #env .~ Map.singleton
+            (unsafe (mkEnvName "API_KEY"))
+            (unsafe (scopedEnv (Set.fromList [Build, Preview])
+              (EnvSecretRef secretName)))
+      assertBool "server preview accepted a Build Secret without publication"
+        (isLeft (compileServerSitePreviewScope
+          (serverInputs {ServerDeploy.site = buildSecretSite})
+          "branch" cluster namespaceId imageId deps Map.empty secretBindings source))
       let volume = Volume
             { name = unsafe (mkVolumeName "data")
             , logicalKey = Nothing
@@ -4304,6 +4326,16 @@ staticInventoryTests =
           cluster namespaceId imageId Map.empty
           (Map.singleton secretName (External secretId wrongAddress [] source))
           Map.empty
+          emptyReleaseLog release source))
+      let previewSecretSite = site & #env .~ Map.singleton
+            (unsafe (mkEnvName "API_KEY"))
+            (unsafe (scopedEnv (Set.singleton Preview) (EnvSecretRef secretName)))
+      _ <- either (fail . show) pure
+        (compileServerSiteScope (inputs {ServerDeploy.site = previewSecretSite})
+          cluster namespaceId imageId Map.empty Map.empty Map.empty emptyReleaseLog release source)
+      assertBool "production accepted an irrelevant Preview Secret binding"
+        (isLeft (compileServerSiteScope (inputs {ServerDeploy.site = previewSecretSite})
+          cluster namespaceId imageId Map.empty secretBindings Map.empty
           emptyReleaseLog release source))
       let volume = Volume
             { name = unsafe (mkVolumeName "data")

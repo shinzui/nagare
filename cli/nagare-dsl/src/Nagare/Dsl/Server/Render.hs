@@ -169,23 +169,23 @@ containerValue site ctx =
       , "ports" .= toJSON [object ["containerPort" .= portN]]
       ]
     optionals =
-      envField (site ^. #env)
+      envField (isJust (ctx ^. #previewName)) (site ^. #env)
         <> envFromField (serviceNameFor site ctx)
         <> resourcesField (site ^. #resources)
         <> volumeMountsField (site ^. #volumes)
 
--- | The inline @env:@ block, restricted to Runtime-scoped entries (see
--- 'Nagare.Dsl.Render.envField' for the rationale). Build/Preview-only entries
--- are excluded from the running container.
-envField :: Map EnvName ScopedEnvVar -> [Pair]
-envField m
-  | null runtimeEntries = []
-  | otherwise = ["env" .= toJSON (map envEntry runtimeEntries)]
+-- | Production receives Runtime entries; previews receive Runtime and Preview
+-- entries. Build-only values stay out of the running container.
+envField :: Bool -> Map EnvName ScopedEnvVar -> [Pair]
+envField isPreview m
+  | null serviceEntries = []
+  | otherwise = ["env" .= toJSON (map envEntry serviceEntries)]
   where
-    runtimeEntries =
+    serviceEntries =
       [ (n, sev ^. #value)
       | (n, sev) <- Map.toAscList m
       , Set.member Runtime (sev ^. #scopes)
+          || (isPreview && Set.member Preview (sev ^. #scopes))
       ]
     envEntry (n, ev) = envEntryValue (envNameText n) ev
 
