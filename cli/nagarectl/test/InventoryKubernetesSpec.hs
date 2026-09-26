@@ -19,7 +19,7 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
-import Nagare.Database.Backup (renderDbBackupCronJob)
+import Nagare.Database.Backup (renderDbBackupCronJob, renderPreviousInventoryDbBackupCronJob)
 import Nagare.Database.Secret (b64decode)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Database (Database (Database), Engine (..), defaultEngineVersion, engineVersionText, mkDatabaseName)
@@ -416,6 +416,8 @@ inventoryKubernetesTests =
         length backupBytes @?= 1
         assertBool "reviewed backup can delete unreviewed objects"
           (all (\bytes -> not (BC.isInfixOf "pruning" bytes) && not (BC.isInfixOf "gsutil -m rm -I" bytes)) backupBytes)
+        assertBool "reviewed backup does not check the stored object"
+          (all (BC.isInfixOf "sha256sum") backupBytes)
         assertBool "legacy backup pruning unexpectedly changed"
           (BC.isInfixOf "pruning" legacy)
         assertBool "backup native member omitted" (any (\(member, _) -> case address member of
@@ -464,6 +466,22 @@ inventoryKubernetesTests =
             (GcsBackend "project" "other-bucket") legacyScope acceptedNative))
         assertBool "backup migration unexpectedly changed the safe schedule"
           (safeBytes == snd (updatedNative Map.! backupId))
+        let previousValue = ok (Yaml.decodeEither'
+              (renderPreviousInventoryDbBackupCronJob "personal" "pg-main" Postgres
+                (engineVersionText (defaultEngineVersion Postgres)) backend 7) :: Either Yaml.ParseException Value)
+            (previousBase, previousBytes) = ok (bindKubernetesObject KubernetesInput
+              { resourceId = backupId, ownerScope = owner, clusterId = cluster
+              , inputObject = previousValue, objectDigest = contentDigest (ok (canonicalValue previousValue))
+              , lifecyclePolicy = lifecycle safeMember, inputDataPolicy = dataPolicy safeMember
+              , inputSensitivity = sensitivity safeMember, sourceLocation = source safeMember })
+            previousMember = previousBase {dependencies = dependencies safeMember}
+            replacePrevious bundle = bundle {declarations = map (\case
+              Managed member | member ^. #identity == backupId -> Managed previousMember
+              existing -> existing) (declarations bundle)}
+            previousScope = ok (mkScopeDeclaration owner (map replacePrevious (scopeBundles safeScope)))
+            previousNative = Map.insert backupId (previousMember, previousBytes) safeNative
+        compileBackupPruneRemovalScope "pg-main" "personal" backend previousScope previousNative
+          @?= Right (safeScope, safeNative)
     , testCase "disposable cluster updates a legacy backup CronJob without recreating it" $ do
         selected <- lookupEnv "NAGARE_EP148_BACKUP_TEST_CONTEXT"
         case selected of
@@ -530,7 +548,9 @@ inventoryKubernetesTests =
               afterUid @?= beforeUid
               (scriptCode, script, _) <- readField ".spec.jobTemplate.spec.template.spec.containers[0].args[0]"
               scriptCode @?= ExitSuccess
-              assertBool "live backup CronJob still prunes" (not ("pruning" `T.isInfixOf` T.pack script)))
+              assertBool "live backup CronJob still prunes" (not ("pruning" `T.isInfixOf` T.pack script))
+              assertBool "live backup CronJob omits stored-byte verification"
+                ("sha256sum" `T.isInfixOf` T.pack script))
               `finally` cleanup
     , testCase "standalone database owns its complete scoped bundle" $ do
         let owner = ok (mkScopeId Standalone "pg-main")

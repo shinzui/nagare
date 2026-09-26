@@ -335,7 +335,11 @@ rendered `deploy` shows, for a Postgres reference:
 For a retained database, `nagarectl db create` includes a **daily backup
 CronJob** that writes to the active object store — GCS in cloud mode, MinIO in
 local mode. A newly compiled inventory-reviewed CronJob does not prune older
-backups. To remove inline pruning from an already accepted schedule, save and
+backups. It compresses the dump to a temporary file, uploads it, reads the exact
+object back, and compares SHA-256 digests before the Job reports success. This
+requires temporary space for the compressed dump as well as the raw dump. The
+Job result is still not a durable per-object backup receipt. To remove inline
+pruning from an already accepted schedule and add readback verification, save and
 apply a focused review:
 
 ```bash
@@ -343,7 +347,7 @@ nagarectl db disable-backup-prune pg-main --save-plan ./pg-main-backup-review
 nagarectl inventory apply ./pg-main-backup-review --yes
 ```
 
-The command accepts only the exact legacy schedule for the current backend and
+The command accepts only a known earlier schedule for the current backend and
 preserves the database's other accepted members. An unfamiliar schedule needs a
 normal database review. Until the saved review is applied, the old CronJob can
 still prune. Jobs already started from the old template can finish and prune

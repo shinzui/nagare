@@ -48,8 +48,8 @@ Most of Nagare is reproduced from Git; only a few things need real backup jobs.
 | SQLite app data | PVC snapshot, or Litestream pattern for hot SQLite | 🟡 |
 | Host Postgres | Restore from disk if data disk survives; use managed DBs for Nagare-owned backup tooling | 🟡 |
 | Whole data disk | Daily GCE snapshot at 08:00 UTC, retained seven days and kept if the source disk is deleted | 🟡 (declared; live apply/verification pending) |
-| App volumes (PVCs) | `nagarectl storage snapshot` → GCS or MinIO (`volumes/<app>/<volume>/`); excluded volumes warned at deploy | ✅ |
-| Managed databases | `nagarectl db backup` / daily CronJob → GCS or MinIO (`databases/<name>/`); keep-last-N; scratch-first restore | ✅ |
+| App volumes (PVCs) | Legacy `nagarectl storage snapshot` → GCS or MinIO (`volumes/<app>/<volume>/`); direct data operations refuse after inventory admission | 🟡 (reviewed snapshot and restore pending) |
+| Managed databases | Daily CronJob → GCS or MinIO (`databases/<name>/`); newly reviewed schedules verify stored bytes and do not prune; manual backup and restore refuse after inventory admission | 🟡 (reviewed backup receipt, pruning, and restore pending) |
 | Attic signing identity and metadata | Managed PostgreSQL `nix-cache` / daily `nagare-dbbackup-nix-cache` CronJob | 🟡 (provider implemented; live restore acceptance pending) |
 | Attic cache chunks | Reproducible producer inputs; optionally export the dedicated GCS bucket before retirement | Rebuildable |
 | Grafana dashboards | **Git** (dashboard JSON under `cluster/observability`) | ✅ |
@@ -78,8 +78,8 @@ comparison before clients resume.
 ### App volumes: backup-included by default, opt out explicitly
 
 A durable volume attached to an app (EP-34/EP-35) is part of the backup story by
-default. `nagarectl storage snapshot APP VOLUME` tars the volume's contents to
-the active object store:
+default. Before inventory admission, `nagarectl storage snapshot APP VOLUME`
+tars the volume's contents to the active object store:
 
 ```text
 cloud: gs://<backup-bucket>/volumes/<app>/<volume>/<timestamp>.tar.gz
@@ -90,7 +90,9 @@ A short-lived in-cluster Job mounts the PVC read-only and streams the archive to
 the store, then keeps the last N snapshots per volume (`--keep`, default 7).
 Restore a snapshot into a disposable scratch PVC — never over live data — with
 `nagarectl storage restore APP VOLUME <ts>` (it restores into a scratch PVC by
-default; pass `--into-live` to target the live PVC).
+default; pass `--into-live` to target the live PVC). These direct data commands
+refuse after inventory admission until reviewed snapshot and restore operations
+are available.
 
 ### Managed databases: backed up by default
 
@@ -100,15 +102,21 @@ See **[Managed databases](managed-databases.md)** for the full guide (declaring 
 from the moment it is created. `db create` provisions a daily
 **CronJob** that runs an engine-appropriate logical dump — `pg_dump` (Postgres),
 an RDB dump (Redis), a native dump (ClickHouse) — gzips it, and uploads it to
-`databases/<name>/<timestamp>.<ext>` in the active object store, keeping the last
-N (`--keep`, default 7). Take one on demand with `nagarectl db backup NAME`; list
-cloud backups with `gsutil ls gs://<backup-bucket>/databases/<name>/`, or inspect
-local MinIO through the cluster when running local mode.
+`databases/<name>/<timestamp>.<ext>` in the active object store. Legacy
+schedules keep the last N; newly reviewed schedules read the stored object back
+and compare SHA-256 before the Job succeeds, but do not prune or record a
+durable per-object receipt. Existing accepted schedules keep their earlier
+scripts until a review updates them. Take one on demand with
+`nagarectl db backup NAME` only before inventory admission; list cloud backups
+with `gsutil ls gs://<backup-bucket>/databases/<name>/`, or inspect local MinIO
+through the cluster when running local mode.
 
-Restore is **scratch-first**: `nagarectl db restore NAME BACKUP_ID` loads the
+Before inventory admission, restore is **scratch-first**: `nagarectl db restore NAME BACKUP_ID` loads the
 chosen dump into a disposable target (`<db>_restore_scratch` for
 Postgres/ClickHouse) so your live database is untouched until you compare and
-promote manually; pass `--into-live` to target the live database directly. A
+promote manually; pass `--into-live` to target the live database directly.
+After inventory admission, direct restore refuses until a reviewed operation
+with write fencing and forward recovery is available. A
 database declared `retention = Delete` is treated as throwaway and gets **no**
 scheduled backup.
 

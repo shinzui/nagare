@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-26
+* **Update**: Make newly reviewed database backup schedules read back and hash the exact stored object before the backup Job succeeds; existing schedules can receive this change through a saved review. Clarify that manual database and volume data commands refuse after inventory admission.
 * **Update**: Add a saved review that removes inline pruning from an accepted legacy database backup CronJob while preserving its other database members.
 * **Fix**: Explain that inventory-reviewed scheduled database backups upload without inline pruning until a reviewed lifecycle action can delete exact backup objects; legacy backup retention remains available only before inventory admission.
 * **Update**: Document reviewed server previews with Preview-only inline environment entries and accepted Preview Secret dependencies.

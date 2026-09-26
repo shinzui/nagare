@@ -1,13 +1,14 @@
 -- | @nagarectl db backup NAME@ and the scheduled-backup CronJob (MasterPlan 9,
 -- EP-47, Integration Point IP6): an engine-appropriate logical dump of a managed
--- database, uploaded to @gs://\<backup-bucket>/databases/\<name\>/\<ts\>.\<ext\>@,
--- with keep-last-N retention reusing EP-36's pure @snapshotsToPrune@.
+-- database, uploaded to @gs://\<backup-bucket>/databases/\<name\>/\<ts\>.\<ext\>@.
+-- Legacy direct operation uses keep-last-N retention; reviewed schedules check
+-- the exact stored bytes and leave pruning to a separate lifecycle decision.
 --
 -- The dump runs in a short-lived in-cluster Job with two containers sharing an
 -- @emptyDir@: an initContainer running the engine's own client image writes the
 -- dump to @\/dump@, and the main container (@google/cloud-sdk:slim@) gzips and
 -- @gsutil cp@s it to GCS. The CronJob wraps the same Job body on a daily schedule
--- and self-prunes inline (no @nagarectl@ at the keyboard). The pure renderers and
+-- and, in legacy contexts, self-prunes inline. The pure renderers and
 -- path/extension helpers are unit-testable without a cluster; the live leg is
 -- deferred to EP-48 (and is additionally gated on the in-pod-ADC routing fix the
 -- MasterPlan records — see EP-43 Surprises).
@@ -28,10 +29,12 @@ module Nagare.Database.Backup
   , BackupJobInputs (..)
   , renderBackupJob
   , backupJobSpecValue
+  , uploadShell
   , BackupCronInputs (..)
   , renderBackupCronJob
   , renderDbBackupCronJob
   , renderInventoryDbBackupCronJob
+  , renderPreviousInventoryDbBackupCronJob
 
     -- * Command driver
   , runDbBackup
@@ -54,6 +57,7 @@ import Nagare.Cluster.GcsJob
   , StoreBackend (..)
   , dataMovementJobSpec
   , storeCpFromStdin
+  , storeCpToStdout
   , storeEnv
   , storeHostAliases
   , storeImage
@@ -156,6 +160,8 @@ data BackupJobInputs = BackupJobInputs
   , keep :: !Int
   , selfPrune :: !Bool
   -- ^ when True (the CronJob), the upload container prunes inline after upload
+  , verifyStored :: !Bool
+  -- ^ when True, a successful Job read back the exact compressed object bytes.
   , backend :: !StoreBackend
   -- ^ the object-store backend (EP-84): GCS in cloud mode, MinIO in local mode.
   -- Drives the upload container's image, env, destination URL, and shell verbs.
@@ -299,9 +305,9 @@ dumpShell ClickHouse svc =
     <> "$CH --query \"SHOW TABLES FROM default\" | while read t; do "
     <> "$CH --query \"SELECT * FROM default.\\`$t\\` FORMAT Native\"; done > /dump/backup.native"
 
--- | The upload shell: gzip + a backend copy from stdin to @$DEST@; with
--- self-prune, keep the last N (backend list + delete). The cloud (@gsutil@)
--- bytes are unchanged; the MinIO path emits @aws s3 … --endpoint-url@.
+-- | The upload shell: gzip + a backend copy to @$DEST@. Reviewed schedules
+-- read back the exact stored bytes and compare SHA-256; legacy schedules can
+-- still use keep-last-N deletion. MinIO uses @aws s3 … --endpoint-url@.
 uploadShell :: BackupJobInputs -> Text
 uploadShell i =
   base <> if i ^. #selfPrune then "; " <> prune else ""
@@ -311,14 +317,22 @@ uploadShell i =
     stamp = case i ^. #destination of
       BackupDestUrl _ -> ""
       BackupDestStamped -> "DEST=\"${PREFIX}$(date -u +%Y%m%dT%H%M%SZ)." <> backupExt (i ^. #engine) <> "\"; "
-    base =
-      "set -e; "
-        <> stamp
-        <> storeShellPreamble backend
-        <> "gzip -9 -c /dump/backup."
-        <> raw
-        <> " | "
-        <> storeCpFromStdin backend "\"$DEST\""
+    base = "set -e; " <> stamp <> storeShellPreamble backend <>
+      if i ^. #verifyStored then verifiedUpload else streamedUpload
+    streamedUpload = "gzip -9 -c /dump/backup." <> raw <> " | "
+      <> storeCpFromStdin backend "\"$DEST\""
+    verifyTools = case backend of
+      GcsBackend {} -> "command -v sha256sum >/dev/null 2>&1; "
+      MinioBackend {} ->
+        "command -v sha256sum >/dev/null 2>&1 || dnf install -y -q coreutils >/dev/null 2>&1; "
+          <> "command -v sha256sum >/dev/null 2>&1; "
+    verifiedUpload =
+      verifyTools <> "gzip -n -9 -c /dump/backup." <> raw <> " > /dump/backup.gz; "
+      <> "EXPECTED=$(sha256sum /dump/backup.gz | cut -d' ' -f1); test ${#EXPECTED} -eq 64; "
+      <> storeCpFromStdin backend "\"$DEST\"" <> " < /dump/backup.gz; "
+      <> "ACTUAL=$(" <> storeCpToStdout backend "\"$DEST\""
+      <> " | sha256sum | cut -d' ' -f1); test ${#ACTUAL} -eq 64; "
+      <> "test \"$EXPECTED\" = \"$ACTUAL\"; rm -f /dump/backup.gz"
     -- keep the last $KEEP objects under $PREFIX (newest sort last with reverse sort)
     prune =
       "echo pruning; "
@@ -338,7 +352,7 @@ data BackupCronInputs = BackupCronInputs
 -- | Render the @batch/v1@ CronJob wrapping the shared backup Job body on a
 -- schedule. Named deterministically @nagare-dbbackup-\<name\>@ (the singleton
 -- schedule), never overlapping (@concurrencyPolicy: Forbid@). The base inputs
--- should have @selfPrune = True@ so the scheduled run prunes itself.
+-- determines its own upload verification and pruning policy.
 renderBackupCronJob :: BackupCronInputs -> ByteString
 renderBackupCronJob i =
   Y.encode $
@@ -359,15 +373,21 @@ renderBackupCronJob i =
 -- | Legacy scheduled backup. Inline keep-last-N deletion is confined to
 -- unadmitted contexts while reviewed pruning remains a separate lifecycle action.
 renderDbBackupCronJob :: Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
-renderDbBackupCronJob = renderDbBackupCronJobWithPrune True
+renderDbBackupCronJob = renderDbBackupCronJobWithOptions True False
 
 -- | A reviewed database may schedule uploads, but the CronJob must not delete
--- older backup objects without a separate reviewed pruning decision.
+-- older backup objects without a separate reviewed pruning decision. The Job
+-- downloads the exact object and checks its SHA-256 before reporting success.
 renderInventoryDbBackupCronJob :: Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
-renderInventoryDbBackupCronJob = renderDbBackupCronJobWithPrune False
+renderInventoryDbBackupCronJob = renderDbBackupCronJobWithOptions False True
 
-renderDbBackupCronJobWithPrune :: Bool -> Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
-renderDbBackupCronJobWithPrune shouldPrune ns name eng version backend keep =
+-- | Native bytes issued before reviewed backup readback verification was added.
+-- Used only to recognize and upgrade an already accepted schedule.
+renderPreviousInventoryDbBackupCronJob :: Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
+renderPreviousInventoryDbBackupCronJob = renderDbBackupCronJobWithOptions False False
+
+renderDbBackupCronJobWithOptions :: Bool -> Bool -> Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
+renderDbBackupCronJobWithOptions shouldPrune shouldVerify ns name eng version backend keep =
   renderBackupCronJob
     BackupCronInputs
       { schedule = defaultBackupSchedule
@@ -384,6 +404,7 @@ renderDbBackupCronJobWithPrune shouldPrune ns name eng version backend keep =
             , prefix = storePrefixUrl backend (dbBackupKeyPrefix name)
             , keep = keep
             , selfPrune = shouldPrune
+            , verifyStored = shouldVerify
             , backend = backend
             }
       }
@@ -426,6 +447,7 @@ runDbBackup ns databaseName backend keep dryRun = do
                 , prefix = prefix
                 , keep = keep
                 , selfPrune = False
+                , verifyStored = False
                 , backend = backend
                 }
             cronInputs =

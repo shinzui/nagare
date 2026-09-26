@@ -114,6 +114,8 @@ import Nagare.Database.Backup
   , renderBackupCronJob
   , renderBackupJob
   , renderDbBackupCronJob
+  , renderInventoryDbBackupCronJob
+  , uploadShell
   )
 import Nagare.Database.Connection (ConnIdentity (..), connectionEnv, mergeConnectionEnvs)
 import Nagare.Database.Create (DbCreateParams (..), buildDatabase, classifyPasswordObservation, ensureCredential, passwordKey)
@@ -426,12 +428,12 @@ import Nagare.Version
 import PlatformCutoverSpec (platformCutoverTests)
 import PlatformSpec (platformTests)
 import System.Directory (createDirectoryIfMissing, createFileLink, getCurrentDirectory, pathIsSymbolicLink, setCurrentDirectory)
-import System.Environment (lookupEnv, setEnv, unsetEnv)
+import System.Environment (getEnvironment, lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (ExitFailure, ExitSuccess), exitWith)
 import System.FilePath ((<.>), (</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Posix.Files (setFileMode)
-import System.Process (readProcess)
+import System.Process (CreateProcess (env), proc, readCreateProcessWithExitCode, readProcess)
 import Test.Tasty
 import Test.Tasty.Golden (goldenVsString)
 import Test.Tasty.HUnit
@@ -4769,6 +4771,7 @@ backupJobInputsPg =
     , prefix = "gs://tan-nb-exp-nagare-backups/databases/mydb/"
     , keep = 7
     , selfPrune = False
+    , verifyStored = False
     , backend = tnbGcsBackend
     }
 
@@ -5017,6 +5020,75 @@ backupRestoreTests =
           assertBool "no scheduled- key prefix" (not ("scheduled-" `T.isInfixOf` y))
           assertBool "no DEST env var" (not ("name: DEST" `T.isInfixOf` y))
           assertBool "listing prefix" ("gs://tan-nb-exp-nagare-backups/databases/en-db/" `T.isInfixOf` y)
+      , testCase "reviewed backup reads back exact stored bytes for both backends" $ do
+          let cloud = TE.decodeUtf8 (renderInventoryDbBackupCronJob "personal" "mydb" Postgres "18" tnbGcsBackend 7)
+              local = TE.decodeUtf8 (renderInventoryDbBackupCronJob "personal" "mydb" Postgres "18" localMinioBackend 7)
+              cloudScript = uploadShell (backupJobInputsPg & #verifyStored .~ True)
+              localScript = uploadShell (backupJobInputsPg & #verifyStored .~ True
+                & #backend .~ localMinioBackend)
+          assertBool "GCS upload has no readback" ("gsutil cp \"$DEST\" - | sha256sum" `T.isInfixOf` cloudScript)
+          assertBool "MinIO upload has no readback" ("aws s3 cp \"$DEST\" - --endpoint-url" `T.isInfixOf` localScript)
+          assertBool "GCS does not compare digests" ("test \"$EXPECTED\" = \"$ACTUAL\"" `T.isInfixOf` cloudScript)
+          assertBool "MinIO does not compare digests" ("test \"$EXPECTED\" = \"$ACTUAL\"" `T.isInfixOf` localScript)
+          assertBool "reviewed backup still prunes" (all (not . T.isInfixOf "pruning") [cloud, local])
+      , testCase "reviewed backup Job fails when stored bytes differ" $
+          withSystemTempDirectory "nagare-backup-verification" $ \directory -> do
+            let dump = directory </> "dump"
+                fakeGsutil = directory </> "gsutil"
+                fakeAws = directory </> "aws"
+                fakeDnf = directory </> "dnf"
+                brokenTools = directory </> "broken-tools"
+                fakeHash = brokenTools </> "sha256sum"
+                stored = directory </> "object.gz"
+                cloudScript = T.unpack (T.replace "/dump" (T.pack dump)
+                  (uploadShell (backupJobInputsPg & #verifyStored .~ True)))
+                localScript = T.unpack (T.replace "/dump" (T.pack dump)
+                  (uploadShell (backupJobInputsPg & #verifyStored .~ True
+                    & #backend .~ localMinioBackend)))
+            createDirectoryIfMissing True dump
+            createDirectoryIfMissing True brokenTools
+            BS.writeFile (dump </> "backup.sql") "verified backup payload\n"
+            writeFile fakeGsutil $ unlines
+              [ "#!/bin/sh"
+              , "set -eu"
+              , "if [ \"$1\" = -o ]; then shift 2; fi"
+              , "[ \"$1\" = cp ] || exit 2"
+              , "if [ \"$2\" = - ]; then cat > \"$NAGARE_TEST_OBJECT\"; exit; fi"
+              , "if [ \"$NAGARE_TEST_CORRUPT\" = 1 ]; then printf corrupt; else cat \"$NAGARE_TEST_OBJECT\"; fi"
+              ]
+            writeFile fakeAws $ unlines
+              [ "#!/bin/sh"
+              , "set -eu"
+              , "[ \"$1\" = s3 ] && [ \"$2\" = cp ] || exit 2"
+              , "if [ \"$3\" = - ]; then cat > \"$NAGARE_TEST_OBJECT\"; exit; fi"
+              , "if [ \"$NAGARE_TEST_CORRUPT\" = 1 ]; then printf corrupt; else cat \"$NAGARE_TEST_OBJECT\"; fi"
+              ]
+            writeFile fakeDnf "#!/bin/sh\nexit 0\n"
+            writeFile fakeHash "#!/bin/sh\nexit 0\n"
+            setFileMode fakeGsutil 0o755
+            setFileMode fakeAws 0o755
+            setFileMode fakeDnf 0o755
+            setFileMode fakeHash 0o755
+            parentEnv <- getEnvironment
+            let path = maybe "" id (lookup "PATH" parentEnv)
+                run script corrupt badHash = readCreateProcessWithExitCode
+                  ((proc "/bin/sh" ["-c", script]) {env = Just
+                    ([("PATH", (if badHash then brokenTools <> ":" else "") <> directory <> ":" <> path),
+                      ("DEST", "gs://test/backup.gz"),
+                      ("NAGARE_TEST_OBJECT", stored), ("NAGARE_TEST_CORRUPT", corrupt)]
+                      <> filter (\(key, _) -> key `notElem`
+                        ["PATH", "DEST", "NAGARE_TEST_OBJECT", "NAGARE_TEST_CORRUPT"]) parentEnv)}) ""
+            forM_ [("GCS", cloudScript), ("MinIO", localScript)] $ \(label, script) -> do
+              (good, _, _) <- run script "0" False
+              good @?= ExitSuccess
+              (bad, _, _) <- run script "1" False
+              case bad of
+                ExitFailure _ -> pure ()
+                ExitSuccess -> assertFailure (label <> " corrupted stored bytes completed the backup Job")
+              (emptyHash, _, _) <- run script "0" True
+              case emptyHash of
+                ExitFailure _ -> pure ()
+                ExitSuccess -> assertFailure (label <> " empty digests completed the backup Job")
       , testCase "backup Jobs wait for the server and retry" $ do
           let y = TE.decodeUtf8 (renderBackupJob backupJobInputsPg)
           assertBool "waits for the server before the dump" ("until pg_isready -q -h mydb" `T.isInfixOf` y)
