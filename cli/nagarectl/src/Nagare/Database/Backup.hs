@@ -381,11 +381,13 @@ uploadShell i =
           <> "; RECEIPT_EXPECTED=$(sha256sum /dump/backup.receipt.json | cut -d' ' -f1)"
           <> "; test ${#RECEIPT_EXPECTED} -eq 64"
           <> "; " <> storeCpCreateOnlyFromFile backend "/dump/backup.receipt.json" "\"$BACKUP_RECEIPT_DEST\""
-          <> "; RECEIPT_ACTUAL=$(" <> storeCpToStdout backend "\"$BACKUP_RECEIPT_DEST\""
-          <> " | sha256sum | cut -d' ' -f1)"
+          <> "; " <> storeCpToStdout backend "\"$BACKUP_RECEIPT_DEST\""
+          <> " > /dump/backup.receipt.readback.json"
+          <> "; RECEIPT_ACTUAL=$(sha256sum /dump/backup.receipt.readback.json | cut -d' ' -f1)"
           <> "; test ${#RECEIPT_ACTUAL} -eq 64"
           <> "; test \"$RECEIPT_EXPECTED\" = \"$RECEIPT_ACTUAL\""
-          <> "; rm -f /dump/backup.receipt.json"
+          <> "; cat /dump/backup.receipt.readback.json > \"${BACKUP_TERMINATION_LOG_PATH:-/dev/termination-log}\""
+          <> "; rm -f /dump/backup.receipt.json /dump/backup.receipt.readback.json"
     -- keep the last $KEEP objects under $PREFIX (newest sort last with reverse sort)
     prune =
       "echo pruning; "

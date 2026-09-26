@@ -377,14 +377,30 @@ UIDs, object and receipt URLs, expiry, and SHA-256 readback policy. Apply
 checks the source UIDs and accepted native bytes again before submitting the
 Job. After checking the stored backup, the Job creates and reads back
 `<backup-object>.receipt.json` with the checksum and pinned source metadata.
-The inventory journal records Job completion but does not yet fetch that
-receipt; live object-store proof remains open. The source checks occur before
+The upload container writes that readback to its Pod termination message.
+The inventory journal completes only after matching the Pod to the Job UID and
+validating the receipt against the reviewed address and metadata; an absent
+Pod receipt leaves the operation unresolved. This is evidence of the Job's
+readback, not a later check that the object still exists. Live object-store
+proof remains open. The source checks occur before
 submission and are not atomic with the Job's data read. Both writes use
 provider-side create-only preconditions, so an occupied backup ID fails
 instead of replacing stored data. If backup creation succeeds but receipt
 creation fails, that ID needs explicit recovery; choose a new ID for another
-backup. Expiry does not delete the object; reviewed exact pruning and restore
-are still pending.
+backup. Expiry does not delete the object; reviewed exact pruning and
+live-target restore are still pending. An accepted PostgreSQL backup can be
+restored into a new scratch database through a separate saved review:
+
+```bash
+nagarectl db restore pg-main manual-20260926 --restore-id restore-001 --save-plan ./pg-main-restore
+nagarectl inventory apply ./pg-main-restore --yes
+```
+
+Planning requires the accepted backup Job's Pod receipt. The restore Job reads
+the current receipt and backup object, checks their pinned SHA-256 values and
+expiry, then creates `<database>_restore_<restore-id>` only if absent. If the
+restore fails after creation, keep the scratch database for explicit forward
+recovery. Reviewed Redis, ClickHouse, and live-target restore remain open.
 
 In an uninitialized legacy context, the CronJob still self-prunes and you can
 take one on demand:

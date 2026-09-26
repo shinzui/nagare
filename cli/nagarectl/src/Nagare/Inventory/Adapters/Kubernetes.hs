@@ -7,6 +7,7 @@ module Nagare.Inventory.Adapters.Kubernetes
   , KubernetesMutation (..)
   , KubernetesAdapterOps (..)
   , mkKubernetesAdapter
+  , mkKubernetesAdapterWithBackupReceipt
   , unstampNative
   )
 where
@@ -24,7 +25,10 @@ import Data.Text.Encoding qualified as TE
 import Data.Aeson.Types (Parser)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
-import Nagare.Inventory.Backup (manualBackupJobSourcePins)
+import Nagare.Inventory.Backup
+  ( BackupReceiptExpectation (..), manualBackupJobReceiptExpectation
+  , manualBackupJobSourcePins, parseBackupReceipt )
+import Nagare.Inventory.Restore (manualRestoreJobTargetPins)
 import Nagare.Inventory.BackendMap (renderBackendMapNative, renderShomeiSettingsNative)
 import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
 import Nagare.Inventory.Digest
@@ -70,7 +74,19 @@ data KubernetesAdapterOps = KubernetesAdapterOps
   }
 
 mkKubernetesAdapter :: Map ResourceId (ManagedResource, ByteString) -> KubernetesAdapterOps -> Adapter
-mkKubernetesAdapter specs ops =
+mkKubernetesAdapter specs ops = mkKubernetesAdapterWithBackupReceipt specs ops
+  (\_ _ -> pure (Left "backup receipt reader is not installed"))
+
+-- | The reader obtains the upload container's terminal copy of the receipt
+-- that it fetched from object storage after writing and checking the backup.
+-- This uses only the reviewed cluster context; restore still needs a fresh
+-- object-store read and checksum before it can use the backup.
+mkKubernetesAdapterWithBackupReceipt
+  :: Map ResourceId (ManagedResource, ByteString)
+  -> KubernetesAdapterOps
+  -> (ResourceId -> PhysicalIdentity -> IO (Either Text ByteString))
+  -> Adapter
+mkKubernetesAdapterWithBackupReceipt specs ops readBackupReceipt =
   Adapter
     { adapterExecutor = KubernetesExecutor
     , adapterIdentity = "kubernetes-conditional-object"
@@ -142,32 +158,58 @@ mkKubernetesAdapter specs ops =
       Right mutation -> do
         current <- kubernetesObserve ops (mutationResource mutation)
         sourceGuard <- verifyBackupSources mutation
-        pure (sourceGuard >> completionProof mutation current)
+        case sourceGuard of
+          Left reason -> pure (Left reason)
+          Right () -> verifiedProof mutation current
     recover operation prepared = case decodeMutation (kubernetesContext ops) specs operation prepared of
       Left reason -> pure (RecoveryUnresolved reason)
       Right mutation -> do
         current <- kubernetesObserve ops (mutationResource mutation)
         sourceGuard <- verifyBackupSources mutation
-        pure $ case sourceGuard of
-          Left reason -> RecoveryUnresolved reason
+        case sourceGuard of
+          Left reason -> pure (RecoveryUnresolved reason)
           Right () -> case completionProof mutation current of
-            Right proof -> RecoveryProvedComplete proof
-            Left _ -> case requireSameBefore mutation current of
+            Right _ -> either RecoveryUnresolved RecoveryProvedComplete
+              <$> verifiedProof mutation current
+            Left _ -> pure $ case requireSameBefore mutation current of
               Right () -> RecoverySafeToRetry
               Left reason -> RecoveryUnresolved reason
+    verifiedProof mutation current = case completionProof mutation current of
+      Left reason -> pure (Left reason)
+      Right jobProof
+        | mutationAction mutation == RetireResource -> pure (Right jobProof)
+        | otherwise -> case Map.lookup (mutationResource mutation) specs of
+            Nothing -> pure (Left "Kubernetes resource has no bound native object")
+            Just (_, native) -> case manualBackupJobReceiptExpectation native of
+              Left reason -> pure (Left reason)
+              Right Nothing -> pure (Right jobProof)
+              Right (Just expectation) -> case current of
+                KubernetesPresent physical _ _ _ -> do
+                  receiptResult <- readBackupReceipt (mutationResource mutation) physical
+                  pure $ do
+                    receiptBytes <- receiptResult
+                    checksum <- parseBackupReceipt expectation (receiptAddress expectation) receiptBytes
+                    contentDigest <$> canonicalValue (object
+                      [ "jobProof" .= jobProof
+                      , "receiptAddress" .= receiptAddress expectation
+                      , "receiptDigest" .= contentDigest receiptBytes
+                      , "backupSha256" .= checksum
+                      ])
+                _ -> pure (Left "manual backup Job has no completed physical identity")
     verifyBackupSources mutation
       | mutationAction mutation `notElem` [CreateResource, RunDeclaredOperation] = pure (Right ())
       | otherwise = case Map.lookup (mutationResource mutation) specs of
           Nothing -> pure (Left "manual backup Job lacks its bound native object")
-          Just (_, native) -> case manualBackupJobSourcePins native of
-            Left reason -> pure (Left reason)
-            Right Nothing -> pure (Right ())
-            Right (Just pins) -> do
-              checked <- traverse checkOne pins
+          Just (_, native) -> case (manualBackupJobSourcePins native,
+            manualRestoreJobTargetPins native) of
+            (Left reason, _) -> pure (Left reason)
+            (_, Left reason) -> pure (Left reason)
+            (Right backupPins, Right restorePins) -> do
+              checked <- traverse checkOne (maybe [] id backupPins <> maybe [] id restorePins)
               pure (sequence_ checked)
       where
         checkOne (resource, expectedUid) = case Map.lookup resource specs of
-          Nothing -> pure (Left "manual backup source lacks accepted native evidence")
+          Nothing -> pure (Left "manual data Job source lacks accepted native evidence")
           Just (_, sourceNative) -> do
             current <- kubernetesObserve ops resource
             pure $ case current of

@@ -50,7 +50,7 @@ Most of Nagare is reproduced from Git; only a few things need real backup jobs.
 | Host Postgres | Restore from disk if data disk survives; use managed DBs for Nagare-owned backup tooling | 🟡 |
 | Whole data disk | Daily GCE snapshot at 08:00 UTC, retained seven days and kept if the source disk is deleted | 🟡 (declared; live apply/verification pending) |
 | App volumes (PVCs) | Legacy `nagarectl storage snapshot` → GCS or MinIO (`volumes/<app>/<volume>/`); direct data operations refuse after inventory admission | 🟡 (reviewed snapshot and restore pending) |
-| Managed databases | Daily CronJob → GCS or MinIO (`databases/<name>/`); newly reviewed schedules verify stored bytes and do not prune; accepted databases can save and apply a reviewed manual backup Job that writes a checksum receipt | 🟡 (live receipt proof, pruning, and restore pending) |
+| Managed databases | Daily CronJob → GCS or MinIO (`databases/<name>/`); reviewed schedules verify stored bytes without pruning; accepted databases can save reviewed manual backup and PostgreSQL scratch restore Jobs | 🟡 (live provider proof, exact pruning, and live-target/other-engine restore pending) |
 | Attic signing identity and metadata | Managed PostgreSQL `nix-cache` / daily `nagare-dbbackup-nix-cache` CronJob | 🟡 (provider implemented; live restore acceptance pending) |
 | Attic cache chunks | Reproducible producer inputs; optionally export the dedicated GCS bucket before retirement | Rebuildable |
 | Grafana dashboards | **Git** (dashboard JSON under `cluster/observability`) | ✅ |
@@ -122,20 +122,38 @@ the backup, it creates and reads back a separate
 StatefulSet/PVC identities, accepted source revision, and expiry choice. If the
 backup upload succeeds but receipt creation fails, the Job fails and that ID
 requires explicit recovery before it can be trusted for restore or pruning.
-Live object-store verification and reviewed receipt consumption are still
-pending. Take a direct backup with
+The upload container also leaves its stored-receipt readback in the completed
+Pod. Apply checks that Pod belongs to the exact Job UID and that the receipt
+matches the reviewed address and metadata before recording completion. If the
+Pod receipt is unavailable, completion remains unresolved. This proves what
+the Job read at completion; restore and pruning still need a fresh object read
+and checksum. Live object-store verification remains pending. Take a direct backup with
 `nagarectl db backup NAME` only before inventory admission; list cloud backups
 with `gsutil ls gs://<backup-bucket>/databases/<name>/`, or inspect local MinIO
 through the cluster when running local mode. List reviewed manual backups
 under `gs://<backup-bucket>/manual-databases/<namespace>/<name>/` in cloud
 mode.
 
+For an accepted PostgreSQL database, save and apply a reviewed restore into a
+new scratch database:
+
+```bash
+nagarectl db restore pg-main run-001 --restore-id restore-001 --save-plan ./pg-main-restore
+nagarectl inventory apply ./pg-main-restore --yes
+```
+
+Planning requires the accepted backup Job and its completed Pod receipt. The
+restore Job checks the current receipt and backup bytes against the saved
+checksums, checks expiry again, and creates
+`<database>_restore_<restore-id>` only if absent. A failed restore leaves that
+scratch database for explicit forward recovery. Reviewed live-target,
+Redis/ClickHouse restore, and exact pruning remain pending.
+
 Before inventory admission, restore is **scratch-first**: `nagarectl db restore NAME BACKUP_ID` loads the
 chosen dump into a disposable target (`<db>_restore_scratch` for
 Postgres/ClickHouse) so your live database is untouched until you compare and
 promote manually; pass `--into-live` to target the live database directly.
-After inventory admission, direct restore refuses until a reviewed operation
-with write fencing and forward recovery is available. A
+Direct restore refuses after inventory admission. A
 database declared `retention = Delete` is treated as throwaway and gets **no**
 scheduled backup.
 

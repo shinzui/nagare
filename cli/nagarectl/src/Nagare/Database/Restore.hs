@@ -13,7 +13,9 @@ module Nagare.Database.Restore
   ( isObjectUrl
   , resolveBackupObject
   , RestoreJobInputs (..)
+  , VerifiedRestoreSource (..)
   , renderRestoreJob
+  , downloadShell
   , runDbRestore
   )
 where
@@ -29,7 +31,7 @@ import Data.Time (getCurrentTime)
 import Data.Yaml qualified as Y
 import Nagare.Cluster.GcsJob
   ( DataMovementJob (..)
-  , StoreBackend
+  , StoreBackend (..)
   , dataMovementJobSpec
   , storeCpToStdout
   , storeEnv
@@ -70,9 +72,21 @@ data RestoreJobInputs = RestoreJobInputs
   , name :: !Text
   , sourceUrl :: !Text
   , liveTarget :: !Bool
+  , verifiedSource :: !(Maybe VerifiedRestoreSource)
   , backend :: !StoreBackend
   -- ^ the object-store backend (EP-84): drives the download container's image,
   -- env, and copy-from-store shell.
+  }
+  deriving stock (Generic, Eq, Show)
+
+-- | A reviewed restore pins the bytes checked by its accepted backup receipt.
+-- The Job rereads both objects before creating its new scratch target.
+data VerifiedRestoreSource = VerifiedRestoreSource
+  { receiptUrl :: !Text
+  , receiptSha256 :: !Text
+  , backupSha256 :: !Text
+  , scratchDatabase :: !Text
+  , expiryEpoch :: !Integer
   }
   deriving stock (Generic, Eq, Show)
 
@@ -116,10 +130,17 @@ downloadContainer i =
     [ "name" .= ("download" :: Text)
     , "image" .= storeImage (i ^. #backend)
     , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
-    , "args" .= toJSON [downloadShell (i ^. #backend) (i ^. #engine)]
+    , "args" .= toJSON [downloadShell (i ^. #backend) (i ^. #engine) (i ^. #verifiedSource)]
     , "env"
         .= toJSON
-          (plainEnv "SRC" (i ^. #sourceUrl) : storeEnv (i ^. #backend))
+          ([plainEnv "SRC" (i ^. #sourceUrl)]
+            <> maybe [] (\source ->
+                 [ plainEnv "RECEIPT_URL" (source ^. #receiptUrl)
+                 , plainEnv "EXPECTED_RECEIPT_SHA256" (source ^. #receiptSha256)
+                 , plainEnv "EXPECTED_BACKUP_SHA256" (source ^. #backupSha256)
+                 , plainEnv "BACKUP_EXPIRY_EPOCH" (T.pack (show (source ^. #expiryEpoch)))
+                 ]) (i ^. #verifiedSource)
+            <> storeEnv (i ^. #backend))
     , "volumeMounts" .= toJSON [dumpMount]
     ]
 
@@ -129,8 +150,12 @@ restoreContainer i =
     [ "name" .= ("restore" :: Text)
     , "image" .= (i ^. #clientImage)
     , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
-    , "args" .= toJSON [restoreShell (i ^. #engine) (i ^. #serviceHost) (i ^. #liveTarget)]
-    , "env" .= toJSON (restoreEnv (i ^. #engine) (i ^. #secretName))
+    , "args" .= toJSON [maybe (restoreShell (i ^. #engine) (i ^. #serviceHost)
+        (i ^. #liveTarget)) (verifiedRestoreShell (i ^. #engine) (i ^. #serviceHost))
+        (i ^. #verifiedSource)]
+    , "env" .= toJSON (restoreEnv (i ^. #engine) (i ^. #secretName)
+        <> maybe [] (\source -> [plainEnv "SCRATCH_DATABASE" (source ^. #scratchDatabase)])
+             (i ^. #verifiedSource))
     , "volumeMounts" .= toJSON [dumpMount]
     ]
 
@@ -156,13 +181,42 @@ restoreEnv ClickHouse secret =
   , secretEnv "CLICKHOUSE_PASSWORD" secret "CLICKHOUSE_PASSWORD"
   ]
 
-downloadShell :: StoreBackend -> Engine -> Text
-downloadShell backend eng =
-  "set -e; "
-    <> storeShellPreamble backend
-    <> storeCpToStdout backend "\"$SRC\""
-    <> " | gunzip > /dump/backup."
-    <> backupRawExt eng
+downloadShell :: StoreBackend -> Engine -> Maybe VerifiedRestoreSource -> Text
+downloadShell backend eng = \case
+  Nothing ->
+    "set -e; "
+      <> storeShellPreamble backend
+      <> storeCpToStdout backend "\"$SRC\""
+      <> " | gunzip > /dump/backup."
+      <> backupRawExt eng
+  Just _ ->
+    "set -e; test \"$BACKUP_EXPIRY_EPOCH\" -eq 0 || test \"$(date -u +%s)\" -lt \"$BACKUP_EXPIRY_EPOCH\"; "
+      <> storeShellPreamble backend <> hashTools
+      <> storeCpToStdout backend "\"$RECEIPT_URL\""
+      <> " > /dump/backup.receipt.json; "
+      <> "test \"$(sha256sum /dump/backup.receipt.json | cut -d' ' -f1)\" = \"$EXPECTED_RECEIPT_SHA256\"; "
+      <> storeCpToStdout backend "\"$SRC\""
+      <> " > /dump/backup.gz; "
+      <> "test \"$(sha256sum /dump/backup.gz | cut -d' ' -f1)\" = \"$EXPECTED_BACKUP_SHA256\"; "
+      <> "gunzip -c /dump/backup.gz > /dump/backup."
+      <> backupRawExt eng
+  where
+    hashTools = case backend of
+      GcsBackend {} -> "command -v sha256sum >/dev/null 2>&1; "
+      MinioBackend {} ->
+        "command -v sha256sum >/dev/null 2>&1 || dnf install -y -q coreutils >/dev/null 2>&1; "
+          <> "command -v sha256sum >/dev/null 2>&1; "
+
+-- | Create a scratch database once. A failed or uncertain restore leaves its
+-- name occupied for explicit recovery; retries cannot drop its contents.
+verifiedRestoreShell :: Engine -> Text -> VerifiedRestoreSource -> Text
+verifiedRestoreShell Postgres svc _ =
+  "set -e; createdb -h " <> svc <> " -U \"$POSTGRES_USER\" \"$SCRATCH_DATABASE\"; "
+    <> "psql -v ON_ERROR_STOP=1 -h " <> svc
+    <> " -U \"$POSTGRES_USER\" -d \"$SCRATCH_DATABASE\" -f /dump/backup.sql; "
+    <> "psql -v ON_ERROR_STOP=1 -h " <> svc
+    <> " -U \"$POSTGRES_USER\" -d \"$SCRATCH_DATABASE\" -c '\\dt'"
+verifiedRestoreShell _ _ _ = "exit 1"
 
 -- | The per-engine restore shell. Scratch-first: Postgres/ClickHouse restore into
 -- @\<db\>_restore_scratch@ unless @live@. Redis restore is whole-instance and is
@@ -236,6 +290,7 @@ runDbRestore ns databaseName backupId live backend dryRun = do
                 , name = databaseName
                 , sourceUrl = src
                 , liveTarget = live
+                , verifiedSource = Nothing
                 , backend = backend
                 }
         if dryRun

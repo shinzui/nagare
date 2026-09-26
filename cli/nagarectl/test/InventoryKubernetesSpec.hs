@@ -31,10 +31,11 @@ import Nagare.Dsl.Task.Render (renderTask)
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes
-import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), cacheClientDataMatches, certificateReady, collectionDeleteRequest, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, credentialDataMatches, deploymentAvailable, deploymentSelectorReplacement, desiredFieldsMatch, generatedCredentialTemplate, jobCompleted, knativeReady, materializeCacheKey, materializeCredential, mkKubernetesRuntimeOps, observeCacheClientOutput, parseObserved, readinessForAddress, statefulSetImmutableReplacement, statefulSetReady, supportedUpdateAddress, withoutCacheClientData)
+import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), backupReceiptFromPodList, cacheClientDataMatches, certificateReady, collectionDeleteRequest, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, credentialDataMatches, deploymentAvailable, deploymentSelectorReplacement, desiredFieldsMatch, generatedCredentialTemplate, jobCompleted, knativeReady, materializeCacheKey, materializeCredential, mkKubernetesRuntimeOps, observeCacheClientOutput, parseObserved, readinessForAddress, statefulSetImmutableReplacement, statefulSetReady, supportedUpdateAddress, withoutCacheClientData)
 import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
 import Nagare.Inventory.Database (compileDatabaseForBackend)
-import Nagare.Inventory.Backup (ManualBackupRequest (..), BackupSourceProof (..), compileManualBackupScope, manualBackupJobSourcePins, manualBackupSourceProof, parseManualBackupReceipt)
+import Nagare.Inventory.Backup (ManualBackupRequest (..), BackupReceiptExpectation (..), BackupSourceProof (..), compileManualBackupScope, manualBackupJobReceiptExpectation, manualBackupJobSourcePins, manualBackupSourceProof, parseBackupReceipt, parseManualBackupReceipt)
+import Nagare.Inventory.Restore (ManualRestoreRequest (..), compileManualRestoreScope, manualRestoreJobTargetPins, manualRestoreTargetProof)
 import Nagare.Inventory.DataService (NativeDataKind (..), compileBackupPruneRemovalScope, compileStandaloneDatabase, compileStatefulSetRestartScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Components.Foundation (compileContributedNamespaces)
@@ -483,6 +484,8 @@ inventoryKubernetesTests =
         assertBool "backup Job does not create a checksum receipt"
           (BC.isInfixOf "BACKUP_RECEIPT_METADATA" bytes
             && BC.isInfixOf "backup.receipt.json" bytes)
+        assertBool "backup Job does not retain its stored receipt readback in the Pod"
+          (BC.isInfixOf "/dev/termination-log" bytes)
         assertBool "backup Job still prunes objects" (not (BC.isInfixOf "pruning" bytes))
         assertBool "backup Job lacks source UID annotation" (BC.isInfixOf "stateful-uid" bytes)
         manualBackupJobSourcePins bytes @?= Right (Just
@@ -492,13 +495,23 @@ inventoryKubernetesTests =
               ok (mkPhysicalIdentity "pvc-uid")) ])
         case eitherDecodeStrict bytes of
           Right (Object root) | Just (Object metadata) <- KM.lookup "metadata" root
-            , Just (Object annotations) <- KM.lookup "annotations" metadata ->
+            , Just (Object annotations) <- KM.lookup "annotations" metadata -> do
               assertBool "Kubernetes backup annotation contains a non-string value"
                 (all (\case String _ -> True; _ -> False) (KM.elems annotations))
+              let withAnnotations selected = ok (canonicalValue (Object
+                    (KM.insert "metadata" (Object (KM.insert "annotations"
+                      (Object selected) metadata)) root)))
+              manualBackupJobReceiptExpectation
+                (withAnnotations (KM.delete "nagare.dev/backup-receipt-metadata-digest" annotations))
+                @?= manualBackupJobReceiptExpectation bytes
+              assertBool "mismatched Job receipt annotation was accepted"
+                (isLeft (manualBackupJobReceiptExpectation (withAnnotations
+                  (KM.insert "nagare.dev/backup-receipt-metadata-digest"
+                    (String (T.replicate 64 "0")) annotations))))
           other -> assertFailure ("backup Job metadata missing: " <> show other)
         case eitherDecodeStrict bytes of
           Right jobValue -> case receiptMetadataValues jobValue of
-            [metadataJson] -> case eitherDecodeStrict (TE.encodeUtf8 metadataJson) of
+            [metadataJson] -> case (eitherDecodeStrict (TE.encodeUtf8 metadataJson) :: Either String Value) of
               Right metadataValue -> do
                 let checksum = T.replicate 64 "a"
                     receiptBody selected = BL.toStrict (encode (object
@@ -508,6 +521,12 @@ inventoryKubernetesTests =
                       _ -> metadataValue
                 parseManualBackupReceipt backupScope receiptAddress (receiptBody metadataValue)
                   @?= Right checksum
+                case manualBackupJobReceiptExpectation bytes of
+                  Right (Just expectation@(BackupReceiptExpectation _ observedAddress _)) -> do
+                    observedAddress @?= receiptAddress
+                    parseBackupReceipt expectation receiptAddress (receiptBody metadataValue)
+                      @?= Right checksum
+                  other -> assertFailure ("bound backup Job has no receipt expectation: " <> show other)
                 assertBool "receipt from another object address was accepted"
                   (isLeft (parseManualBackupReceipt backupScope "gs://bucket/other.receipt.json"
                     (receiptBody metadataValue)))
@@ -535,14 +554,14 @@ inventoryKubernetesTests =
               , (pvcId, sourceState pvcId (ok (mkPhysicalIdentity "pvc-uid"))) ]
         states <- newIORef sourceStates
         writes <- newIORef (0 :: Int)
-        let adapter = mkKubernetesAdapter (Map.union backupNative databaseNative)
-              KubernetesAdapterOps
+        let nativeOps = KubernetesAdapterOps
                 { kubernetesContext = ok (mkContextId "test")
                 , kubernetesObserve = \sourceId -> Map.findWithDefault
                     (KubernetesUnknown "unbound") sourceId <$> readIORef states
                 , kubernetesMutateConditional = \_ -> do
                     modifyIORef' writes (+ 1)
                     pure AdapterEffectCompleted }
+            adapter = mkKubernetesAdapter (Map.union backupNative databaseNative) nativeOps
         prepared <- adapterPrepare adapter backupOperation >>= expectRight
         adapterPreflight adapter backupOperation prepared >>= expectRight
         modifyIORef' states (Map.insert pvcId
@@ -553,6 +572,114 @@ inventoryKubernetesTests =
           >>= (@?= AdapterEffectFailed (KnownNoEffect
             "manual backup source UID, ownership, readiness, or native bytes changed"))
         readIORef writes >>= (@?= 0)
+        let completedPhysical = ok (mkPhysicalIdentity "backup-job-uid")
+            completedJob = KubernetesPresent completedPhysical "2" (Just (job ^. #identity))
+              (contentDigest bytes)
+        modifyIORef' states (Map.insert pvcId
+          (sourceState pvcId (ok (mkPhysicalIdentity "pvc-uid")))
+          . Map.insert (job ^. #identity) completedJob)
+        case eitherDecodeStrict bytes of
+          Right jobValue -> case receiptMetadataValues jobValue of
+            [metadataJson] -> case (eitherDecodeStrict (TE.encodeUtf8 metadataJson) :: Either String Value) of
+              Right metadataValue -> do
+                let checksum = T.replicate 64 "a"
+                    receiptBytes = BL.toStrict (encode (object
+                      ["version" .= (1 :: Int), "sha256" .= checksum,
+                       "backup" .= metadataValue]))
+                    podReceipt = object
+                      [ "metadata" .= object ["ownerReferences" .=
+                          [object ["kind" .= ("Job" :: Text), "uid" .=
+                            ("backup-job-uid" :: Text), "controller" .= True]]]
+                      , "status" .= object
+                          [ "phase" .= ("Succeeded" :: Text)
+                          , "containerStatuses" .=
+                              [object ["name" .= ("upload" :: Text), "state" .= object
+                                ["terminated" .= object ["exitCode" .= (0 :: Int),
+                                  "message" .= TE.decodeUtf8 receiptBytes]]]]]]
+                backupReceiptFromPodList completedPhysical
+                  (object ["items" .= [podReceipt]]) @?= Right receiptBytes
+                assertBool "receipt from another Job UID was accepted"
+                  (isLeft (backupReceiptFromPodList (ok (mkPhysicalIdentity "other-job"))
+                    (object ["items" .= [podReceipt]])))
+                receiptRef <- newIORef (Right receiptBytes)
+                let withReceipt = mkKubernetesAdapterWithBackupReceipt
+                      (Map.union backupNative databaseNative) nativeOps
+                      (\resourceId uid -> do
+                        resourceId @?= job ^. #identity
+                        uid @?= completedPhysical
+                        readIORef receiptRef)
+                _ <- adapterVerify withReceipt backupOperation prepared >>= expectRight
+                adapterVerify adapter backupOperation prepared
+                  >>= (@?= Left "backup receipt reader is not installed")
+                writeIORef receiptRef (Left "receipt unavailable")
+                adapterVerify withReceipt backupOperation prepared
+                  >>= (@?= Left "receipt unavailable")
+                adapterRecover withReceipt backupOperation prepared
+                  >>= (@?= RecoveryUnresolved "receipt unavailable")
+                writeIORef receiptRef (Right (BL.toStrict (encode (object
+                  ["version" .= (1 :: Int), "sha256" .= checksum,
+                   "backup" .= object ["object" .= ("another" :: Text)]]))))
+                failed <- adapterVerify withReceipt backupOperation prepared
+                assertBool "changed receipt metadata completed the operation" (isLeft failed)
+                let restoreRequest = ManualRestoreRequest
+                      { restoreDatabaseName = "pg-main", restoreNamespaceName = "default"
+                      , restoreId = "restore-001", restoreBackupScope = backupScope
+                      , restoreBackupRevision = ScopeRevision (ok (mkScopeGeneration 1))
+                          (contentDigest "accepted-backup")
+                      , restoreReceiptBytes = receiptBytes
+                      , restoreTargetRevision = sourceRevision request
+                      , restoreTargetStatefulUid = sourceStatefulUid request
+                      , restoreTargetPvcUid = sourcePvcUid request
+                      , restoreStorageBackend = backend
+                      , restoreSource = SourceLocation "db restore" "restore-001" }
+                    (restoreScope, restoreNative) = ok (compileManualRestoreScope
+                      restoreRequest databaseScope (Map.union backupNative databaseNative))
+                    (restoreJob, restoreBytes) = case Map.elems restoreNative of
+                      [entry] -> entry
+                      _ -> error "reviewed restore must have one Job"
+                Map.lookup "restore.backup.sha256" (scopeOverrides restoreScope)
+                  @?= Just checksum
+                Map.lookup "restore.target.database" (scopeOverrides restoreScope)
+                  @?= Just "pg-main_restore_restore-001"
+                let restoreBinding = ContextBinding (ok (mkContextId "test"))
+                      (ok (mkName "project"))
+                    restoreSnapshot = ok (mkScopeSnapshot restoreBinding (Map.fromList
+                      [ (scopeId databaseScope, (ok (mkScopeGeneration 3), databaseScope))
+                      , (scopeId backupScope, (ok (mkScopeGeneration 1), backupScope)) ]) Map.empty)
+                assertBool "reviewed restore could not compose with its backup and target"
+                  (not (isLeft (composeInventory restoreSnapshot
+                    (ReplaceScope restoreScope :| []))))
+                assertBool "reviewed restore does not verify both stored objects"
+                  (BC.isInfixOf "EXPECTED_BACKUP_SHA256" restoreBytes
+                    && BC.isInfixOf "EXPECTED_RECEIPT_SHA256" restoreBytes)
+                assertBool "reviewed restore can drop an existing scratch database"
+                  (not (BC.isInfixOf "dropdb" restoreBytes))
+                manualRestoreTargetProof restoreScope @?= Right (Just BackupSourceProof
+                  { sourceScopeName = scopeIdText owner
+                  , sourceScopeGeneration = 3
+                  , sourceScopeDigest = contentDigest "accepted-database"
+                  , sourceStatefulId = statefulId
+                  , sourceStatefulPhysical = ok (mkPhysicalIdentity "stateful-uid")
+                  , sourcePvcId = pvcId
+                  , sourcePvcPhysical = ok (mkPhysicalIdentity "pvc-uid") })
+                manualRestoreJobTargetPins restoreBytes @?= Right (Just
+                  [(statefulId, sourceStatefulUid request),
+                   (pvcId, sourcePvcUid request)])
+                let restoreOperation = createOperation
+                      {plannedResources = restoreJob ^. #identity :| []}
+                    restoreAdapter = mkKubernetesAdapter
+                      (Map.unions [restoreNative, backupNative, databaseNative]) nativeOps
+                modifyIORef' states (Map.insert (restoreJob ^. #identity)
+                  (KubernetesAbsent (contentDigest "restore-absent")))
+                restorePrepared <- adapterPrepare restoreAdapter restoreOperation >>= expectRight
+                adapterPreflight restoreAdapter restoreOperation restorePrepared >>= expectRight
+                modifyIORef' states (Map.insert pvcId
+                  (sourceState pvcId (ok (mkPhysicalIdentity "replacement-pvc"))))
+                assertBool "changed restore target PVC passed preflight"
+                  . isLeft =<< adapterPreflight restoreAdapter restoreOperation restorePrepared
+              other -> assertFailure ("backup receipt metadata is invalid JSON: " <> show other)
+            other -> assertFailure ("backup Job has no unique receipt metadata: " <> show other)
+          other -> assertFailure ("backup Job is invalid JSON: " <> show other)
         selected <- lookupEnv "NAGARE_EP148_BACKUP_TEST_CONTEXT"
         mapM_ (\selectedContext -> do
           assertBool "refusing a non-disposable Kubernetes context"

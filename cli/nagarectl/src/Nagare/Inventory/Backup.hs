@@ -6,8 +6,11 @@
 module Nagare.Inventory.Backup
   ( ManualBackupRequest (..)
   , BackupSourceProof (..)
+  , BackupReceiptExpectation (..)
   , manualBackupSourceProof
   , manualBackupJobSourcePins
+  , manualBackupJobReceiptExpectation
+  , parseBackupReceipt
   , parseManualBackupReceipt
   , compileManualBackupScope
   ) where
@@ -16,6 +19,7 @@ import Data.Aeson (Value (..), eitherDecodeStrict, object, (.=))
 import Data.Aeson.Key qualified as K
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
@@ -24,6 +28,7 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime)
 import Data.Time.Format (defaultTimeLocale, formatTime)
+import Data.Vector qualified as V
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend, storeObjectUrl, storePrefixUrl)
 import Nagare.Database.Backup
@@ -69,6 +74,13 @@ data BackupSourceProof = BackupSourceProof
   }
   deriving stock (Eq, Show)
 
+data BackupReceiptExpectation = BackupReceiptExpectation
+  { receiptObjectAddress :: !T.Text
+  , receiptAddress :: !T.Text
+  , receiptMetadataDigest :: !ContentDigest
+  }
+  deriving stock (Eq, Show)
+
 manualBackupSourceProof :: ScopeDeclaration -> Either T.Text (Maybe BackupSourceProof)
 manualBackupSourceProof scope
   | Map.notMember "backup.id" values = Right Nothing
@@ -111,19 +123,73 @@ manualBackupJobSourcePins bytes = do
           pure (Just [(statefulId, statefulUid), (pvcId, pvcUid)])
     _ -> Right Nothing
 
--- | Validate one receipt fetched from the exact address in an accepted manual
--- backup scope. The returned checksum is useful only after the caller hashes
--- the corresponding backup object and compares its bytes; this function does
--- not claim that a receipt proves the backup object still exists.
-parseManualBackupReceipt :: ScopeDeclaration -> T.Text -> ByteString -> Either T.Text T.Text
-parseManualBackupReceipt scope address bytes = do
-  objectAddress <- required "backup.object"
-  receiptAddress <- required "backup.receipt"
-  unless (receiptAddress == objectAddress <> ".receipt.json")
+-- | The exact receipt address and static metadata pinned by a bound manual
+-- backup Job. Ordinary Jobs have no expectation; partial annotations refuse.
+manualBackupJobReceiptExpectation :: ByteString -> Either T.Text (Maybe BackupReceiptExpectation)
+manualBackupJobReceiptExpectation bytes = do
+  value <- first T.pack (eitherDecodeStrict bytes)
+  case value of
+    Object root | KM.lookup "kind" root == Just (String "Job")
+      , Just (Object metadata) <- KM.lookup "metadata" root
+      , Just (Object annotations) <- KM.lookup "annotations" metadata
+      , Just (String _) <- KM.lookup "nagare.dev/backup-id" annotations -> do
+          let required key = case KM.lookup key annotations of
+                Just (String field) -> Right field
+                _ -> Left ("manual backup Job lacks " <> K.toText key)
+          objectAddress <- required "nagare.dev/backup-object"
+          address <- required "nagare.dev/backup-receipt"
+          dataEnv <- jobEnvText root "DEST"
+          receiptEnv <- jobEnvText root "BACKUP_RECEIPT_DEST"
+          metadataEnv <- jobEnvText root "BACKUP_RECEIPT_METADATA"
+          unless (dataEnv == objectAddress && receiptEnv == address)
+            (Left "manual backup Job receipt environment differs from its annotations")
+          metadataValue <- first T.pack (eitherDecodeStrict (TE.encodeUtf8 metadataEnv))
+          metadataBytes <- canonicalValue metadataValue
+          let metadataDigest = contentDigest metadataBytes
+          case KM.lookup "nagare.dev/backup-receipt-metadata-digest" annotations of
+            Nothing -> pure () -- Accepted Jobs predating the digest annotation retain their exact env.
+            Just (String annotated) -> do
+              pinned <- mkContentDigest annotated
+              unless (pinned == metadataDigest)
+                (Left "manual backup Job receipt metadata digest differs from its environment")
+            _ -> Left "manual backup Job has an invalid receipt metadata digest annotation"
+          pure (Just (BackupReceiptExpectation objectAddress address metadataDigest))
+    _ -> Right Nothing
+  where
+    jobEnvText root key = do
+      spec <- lookupObject "spec" root
+      template <- lookupObject "template" spec
+      podSpec <- lookupObject "spec" template
+      containers <- case KM.lookup "containers" podSpec of
+        Just (Array values) -> Right (V.toList values)
+        _ -> Left "manual backup Job lacks containers"
+      upload <- case [container | Object container <- containers,
+        KM.lookup "name" container == Just (String "upload")] of
+        [container] -> Right container
+        _ -> Left "manual backup Job lacks one upload container"
+      entries <- case KM.lookup "env" upload of
+        Just (Array values) -> Right (V.toList values)
+        _ -> Left "manual backup Job upload container lacks environment"
+      case [value | Object entry <- entries,
+        KM.lookup "name" entry == Just (String key),
+        Just value <- [KM.lookup "value" entry]] of
+        [String field] -> Right field
+        _ -> Left ("manual backup Job lacks one " <> key <> " environment value")
+    lookupObject key root = case KM.lookup key root of
+      Just (Object value) -> Right value
+      _ -> Left ("manual backup Job lacks " <> K.toText key)
+
+-- | Validate receipt bytes against an accepted address and static metadata.
+-- The checksum must still be compared with a fresh read of the backup object
+-- before restore or pruning; a completed Job proves only its earlier readback.
+parseBackupReceipt :: BackupReceiptExpectation -> T.Text -> ByteString -> Either T.Text T.Text
+parseBackupReceipt expectation address bytes = do
+  let objectAddress = receiptObjectAddress expectation
+      expectedAddress = receiptAddress expectation
+  unless (expectedAddress == objectAddress <> ".receipt.json")
     (Left "manual backup receipt address does not match its backup object")
-  unless (address == receiptAddress)
+  unless (address == expectedAddress)
     (Left "observed backup receipt is at another object address")
-  expectedDigest <- required "backup.receipt.metadata.digest" >>= mkContentDigest
   value <- first T.pack (eitherDecodeStrict bytes)
   case value of
     Object root | KM.size root == 3
@@ -133,14 +199,23 @@ parseManualBackupReceipt scope address bytes = do
           unless (T.length checksum == 64 && T.all lowerHex checksum)
             (Left "manual backup receipt has an invalid SHA-256")
           metadataBytes <- canonicalValue metadata
-          unless (contentDigest metadataBytes == expectedDigest)
+          unless (contentDigest metadataBytes == receiptMetadataDigest expectation)
             (Left "manual backup receipt metadata differs from the accepted review")
           pure checksum
     _ -> Left "manual backup receipt has an invalid version or shape"
   where
+    lowerHex c = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')
+
+-- | Validate one receipt fetched from the exact address in an accepted scope.
+parseManualBackupReceipt :: ScopeDeclaration -> T.Text -> ByteString -> Either T.Text T.Text
+parseManualBackupReceipt scope address bytes = do
+  objectAddress <- required "backup.object"
+  receiptAddress <- required "backup.receipt"
+  metadataDigest <- required "backup.receipt.metadata.digest" >>= mkContentDigest
+  parseBackupReceipt (BackupReceiptExpectation objectAddress receiptAddress metadataDigest) address bytes
+  where
     required key = maybe (Left ("manual backup scope lacks " <> key)) Right
       (Map.lookup key (scopeOverrides scope))
-    lowerHex c = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')
 
 compileManualBackupScope
   :: ManualBackupRequest
@@ -217,6 +292,12 @@ compileManualBackupScope request accepted native = do
         , "verification" .= ("sha256-readback" :: T.Text)
         ]
   receiptMetadataBytes <- first invalid (canonicalValue receiptMetadataValue)
+  receiptProbe <- first invalid (canonicalValue (object
+    [ "version" .= (1 :: Int)
+    , "sha256" .= T.replicate 64 "0"
+    , "backup" .= receiptMetadataValue ]))
+  unless (BS.length receiptProbe + 1 <= 4096)
+    (Left (invalid "manual backup receipt exceeds the Kubernetes termination-message limit"))
   let receiptMetadata = TE.decodeUtf8 receiptMetadataBytes
       inputs = BackupJobInputs
         { namespace = ns
@@ -236,7 +317,8 @@ compileManualBackupScope request accepted native = do
         }
   rendered <- first (invalid . T.pack . show)
     (Yaml.decodeEither' (renderBackupJob inputs) :: Either Yaml.ParseException Value)
-  job <- first invalid (annotateJob request accepted pvc stateful objectUrl receiptUrl expiry rendered)
+  job <- first invalid (annotateJob request accepted pvc stateful objectUrl receiptUrl
+    (contentDigest receiptMetadataBytes) expiry rendered)
   canonical <- first invalid (canonicalValue job)
   (bound, bytes) <- first (:| []) (bindKubernetesObject KubernetesInput
     { resourceId = jobId
@@ -314,13 +396,14 @@ metadataText invalid section key value = case value of
 
 annotateJob
   :: ManualBackupRequest -> ScopeDeclaration -> ManagedResource -> ManagedResource
-  -> T.Text -> T.Text -> T.Text -> Value -> Either T.Text Value
-annotateJob request accepted pvc stateful objectUrl receiptUrl expiry = \case
+  -> T.Text -> T.Text -> ContentDigest -> T.Text -> Value -> Either T.Text Value
+annotateJob request accepted pvc stateful objectUrl receiptUrl metadataDigest expiry = \case
   Object root | Just (Object metadata) <- KM.lookup "metadata" root ->
     let annotations = object
           [ "nagare.dev/backup-id" .= backupId request
           , "nagare.dev/backup-object" .= objectUrl
           , "nagare.dev/backup-receipt" .= receiptUrl
+          , "nagare.dev/backup-receipt-metadata-digest" .= digestText metadataDigest
           , "nagare.dev/backup-source-scope" .= scopeIdText (scopeId accepted)
           , "nagare.dev/backup-source-generation" .= T.pack (show (generationNumber
               (revisionGeneration (sourceRevision request))))

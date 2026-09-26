@@ -123,7 +123,7 @@ import Nagare.Database.Backup
 import Nagare.Database.Connection (ConnIdentity (..), connectionEnv, mergeConnectionEnvs)
 import Nagare.Database.Create (DbCreateParams (..), buildDatabase, classifyPasswordObservation, ensureCredential, passwordKey)
 import Nagare.Database.Discover (DbRow (..), dbLabelSelector, extractDbRows, formatDbTable)
-import Nagare.Database.Restore (RestoreJobInputs (..), isObjectUrl, renderRestoreJob, resolveBackupObject)
+import Nagare.Database.Restore (RestoreJobInputs (..), VerifiedRestoreSource (..), downloadShell, isObjectUrl, renderRestoreJob, resolveBackupObject)
 import Nagare.Database.Secret
   ( ConnectionParts (..)
   , b64decode
@@ -4791,6 +4791,7 @@ restoreJobInputsPg =
     , name = "mydb"
     , sourceUrl = "gs://tan-nb-exp-nagare-backups/databases/mydb/20260610T141503Z.sql.gz"
     , liveTarget = False
+    , verifiedSource = Nothing
     , backend = tnbGcsBackend
     }
 
@@ -5221,6 +5222,7 @@ backupRestoreTests =
             let dump = directory </> "dump"
                 dataObject = directory </> "backup.gz"
                 receiptObject = directory </> "backup.gz.receipt.json"
+                terminationLog = directory </> "termination-log"
                 dataUrl = "gs://test/backup.gz"
                 receiptUrl = dataUrl <> ".receipt.json"
                 metadata = "{\"id\":\"run-001\",\"object\":\"gs://test/backup.gz\"}"
@@ -5257,6 +5259,7 @@ backupRestoreTests =
                   [("PATH", directory <> ":" <> path), ("DEST", dataUrl),
                    ("BACKUP_RECEIPT_DEST", receiptUrl),
                    ("BACKUP_RECEIPT_METADATA", metadata),
+                   ("BACKUP_TERMINATION_LOG_PATH", terminationLog),
                    ("NAGARE_TEST_DATA", dataObject),
                    ("NAGARE_TEST_RECEIPT", receiptObject)]
                 run = readCreateProcessWithExitCode
@@ -5267,6 +5270,7 @@ backupRestoreTests =
             assertBool ("backup receipt upload failed: " <> createError) (created == ExitSuccess)
             dataBytes <- BS.readFile dataObject
             receiptBytes <- BS.readFile receiptObject
+            BS.readFile terminationLog >>= (@?= receiptBytes)
             (hashExit, hashOutput, _) <- readCreateProcessWithExitCode
               (proc "sha256sum" [dataObject]) ""
             hashExit @?= ExitSuccess
@@ -5315,6 +5319,72 @@ backupRestoreTests =
           let y = TE.decodeUtf8 (renderRestoreJob (restoreJobInputsPg & #liveTarget .~ True))
           assertBool "live warning" ("LIVE database" `T.isInfixOf` y)
           assertBool "no scratch suffix" (not ("_restore_scratch" `T.isInfixOf` y))
+      , testCase "reviewed scratch restore checks fresh receipt and backup bytes before decompressing" $
+          withSystemTempDirectory "nagare-reviewed-restore" $ \directory -> do
+            let dump = directory </> "dump"
+                source = directory </> "source.sql"
+                storedBackup = directory </> "backup.gz"
+                storedReceipt = directory </> "backup.receipt.json"
+                fakeGsutil = directory </> "gsutil"
+                objectUrl = "gs://test/manual-databases/personal/mydb/run-001.sql.gz"
+                receiptUrl = objectUrl <> ".receipt.json"
+            createDirectoryIfMissing True dump
+            BS.writeFile source "CREATE TABLE restored (id integer);\n"
+            BS.writeFile storedReceipt "{\"version\":1,\"sha256\":\"checked\"}\n"
+            parentEnv <- getEnvironment
+            let path = maybe "" id (lookup "PATH" parentEnv)
+                fixtureEnv =
+                  [ ("PATH", directory <> ":" <> path)
+                  , ("SRC", objectUrl), ("RECEIPT_URL", receiptUrl)
+                  , ("NAGARE_TEST_RAW", source)
+                  , ("NAGARE_TEST_BACKUP", storedBackup)
+                  , ("NAGARE_TEST_RECEIPT", storedReceipt) ]
+                withFixture command = readCreateProcessWithExitCode
+                  ((proc "/bin/sh" ["-c", command]) {env = Just
+                    (fixtureEnv <> filter (\(key, _) -> key `notElem` map fst fixtureEnv) parentEnv)}) ""
+            (gzipCode, _, gzipError) <- withFixture
+              "gzip -n -c \"$NAGARE_TEST_RAW\" > \"$NAGARE_TEST_BACKUP\""
+            assertBool ("could not prepare restore fixture: " <> gzipError)
+              (gzipCode == ExitSuccess)
+            writeFile fakeGsutil $ unlines
+              [ "#!/bin/sh", "set -eu"
+              , "[ \"$1\" = cp ] && [ \"$3\" = - ] || exit 2"
+              , "case \"$2\" in"
+              , "  \"$RECEIPT_URL\") cat \"$NAGARE_TEST_RECEIPT\";;"
+              , "  \"$SRC\") cat \"$NAGARE_TEST_BACKUP\";;"
+              , "  *) exit 3;;"
+              , "esac" ]
+            setFileMode fakeGsutil 0o755
+            let fileHash pathToHash = do
+                  (code, output, _) <- readCreateProcessWithExitCode
+                    (proc "sha256sum" [pathToHash]) ""
+                  code @?= ExitSuccess
+                  pure (T.pack (takeWhile (/= ' ') output))
+            receiptHash <- fileHash storedReceipt
+            backupHash <- fileHash storedBackup
+            let checked = VerifiedRestoreSource
+                  { receiptUrl = T.pack receiptUrl, receiptSha256 = receiptHash
+                  , backupSha256 = backupHash, scratchDatabase = "mydb_restore_run001"
+                  , expiryEpoch = 0 }
+                script selected = T.unpack (T.replace "/dump" (T.pack dump)
+                  (downloadShell tnbGcsBackend Postgres (Just selected)))
+                run selected = readCreateProcessWithExitCode
+                  ((proc "/bin/sh" ["-c", script selected]) {env = Just
+                    ([("EXPECTED_RECEIPT_SHA256", T.unpack (receiptSha256 selected)),
+                      ("EXPECTED_BACKUP_SHA256", T.unpack (backupSha256 selected)),
+                      ("BACKUP_EXPIRY_EPOCH", show (expiryEpoch selected))]
+                      <> fixtureEnv <> filter (\(key, _) -> key `notElem`
+                        ["EXPECTED_RECEIPT_SHA256", "EXPECTED_BACKUP_SHA256", "BACKUP_EXPIRY_EPOCH"]
+                        && key `notElem` map fst fixtureEnv) parentEnv)}) ""
+            (good, _, goodError) <- run checked
+            assertBool ("verified restore download failed: " <> goodError) (good == ExitSuccess)
+            BS.readFile (dump </> "backup.sql") >>= (@?= "CREATE TABLE restored (id integer);\n")
+            (wrongReceipt, _, _) <- run (checked {receiptSha256 = T.replicate 64 "0"})
+            assertBool "changed receipt completed reviewed restore" (wrongReceipt /= ExitSuccess)
+            (wrongBackup, _, _) <- run (checked {backupSha256 = T.replicate 64 "0"})
+            assertBool "changed backup completed reviewed restore" (wrongBackup /= ExitSuccess)
+            (expired, _, _) <- run (checked {expiryEpoch = 1})
+            assertBool "expired backup completed reviewed restore" (expired /= ExitSuccess)
       ]
   ]
 
