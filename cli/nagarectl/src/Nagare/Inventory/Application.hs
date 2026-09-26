@@ -347,8 +347,9 @@ acceptedApplicationImage snapshot imageId taggedImage =
 -- published; a later channel rotation cannot silently change that claim.
 -- The current channel is used only to verify its typed name and address.
 acceptedImageBuildSecrets
-  :: ScopeSnapshot -> ResourceId -> T.Text -> Either T.Text (Set.Set SecretName)
-acceptedImageBuildSecrets snapshot imageId appName = do
+  :: ScopeSnapshot -> ResourceId -> ResourceId -> T.Text -> T.Text
+  -> Either T.Text (Set.Set SecretName)
+acceptedImageBuildSecrets snapshot imageId cluster appName namespaceName = do
   (imageScope, image) <- case
     [(scope, resource) | (_, scope) <- Map.elems (snapshotScopes snapshot),
       bundle <- scopeBundles scope, Managed resource <- declarations bundle,
@@ -379,11 +380,15 @@ acceptedImageBuildSecrets snapshot imageId appName = do
         (scopeOverrides imageScope))
     _ <- mkContentDigest revisionText
     case channel ^. #address of
-      Kubernetes _ "" kind (Just _) name | nameText kind == "secret" ->
+      Kubernetes boundCluster "" kind (Just ns) name
+        | boundCluster == cluster && nameText ns == namespaceName
+        , nameText kind == "secret" ->
         Just <$> mkSecretName (nameText name)
-      Kubernetes _ "" kind (Just _) _ | nameText kind == "configmap" ->
+      Kubernetes boundCluster "" kind (Just ns) _
+        | boundCluster == cluster && nameText ns == namespaceName
+        , nameText kind == "configmap" ->
         Right Nothing
-      _ -> Left "image Build input has an unexpected native address")
+      _ -> Left "image Build input has a different cluster, namespace, or kind")
     (zip inputIds channels)
   pure (Set.fromList [name | Just name <- names])
 

@@ -210,7 +210,7 @@ import Nagare.Gcp.Adc
   , validateAdc
   )
 import Nagare.GhcEnv (findGhcEnvForCompilerIn, findGhcEnvIn)
-import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSitePreviewStoreIds, acceptedSiteSource, compileServerSitePreviewScope, compileServerSiteRollbackScope, compileServerSiteScope, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteScope, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteNativeOwned, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
+import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSitePreviewStoreIds, acceptedSiteSource, compileServerSitePreviewScope, compileServerSitePreviewScopeWithBuild, compileServerSiteRollbackScope, compileServerSiteRollbackScopeWithBuild, compileServerSiteScope, compileServerSiteScopeWithBuild, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteScope, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteNativeOwned, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
 import Nagare.Inventory.Environment (compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel)
 import Nagare.Inventory.Site (compileServerSiteScopeWithCdn, compileServerSiteScopeWithCloudflare, compileServerSiteRollbackScopeWithCloudflare, compileStaticSiteRollbackScopeWithCdn, compileStaticSiteScopeWithCdn, compileStaticSiteScopeWithCloudflare, compileStaticSiteRollbackScopeWithCloudflare)
 import Nagare.Inventory.Application (GoogleCdnBinding (..), CloudflareCdnBinding (..))
@@ -4179,6 +4179,24 @@ staticInventoryTests =
         (isLeft (compileServerSitePreviewScope
           (serverInputs {ServerDeploy.site = buildSecretSite})
           "branch" cluster namespaceId imageId deps Map.empty secretBindings source))
+      let pinnedBuildSite = serverSite & #env .~ Map.singleton
+            (unsafe (mkEnvName "BUILD_TOKEN"))
+            (unsafe (scopedEnv (Set.singleton Build) (EnvSecretRef secretName)))
+          pinnedBuildInputs = serverInputs {ServerDeploy.site = pinnedBuildSite}
+      (_, pinnedBuildNative) <- either (fail . show) pure
+        (compileServerSitePreviewScopeWithBuild (Set.singleton secretName)
+          pinnedBuildInputs "branch" cluster namespaceId imageId deps Map.empty
+          Map.empty source)
+      assertBool "Build Secret leaked into preview native manifests"
+        (all (not . BC.isInfixOf "BUILD_TOKEN" . snd) (Map.elems pinnedBuildNative))
+      assertBool "preview accepted a Build Secret absent from image inputs"
+        (isLeft (compileServerSitePreviewScopeWithBuild Set.empty
+          pinnedBuildInputs "branch" cluster namespaceId imageId deps Map.empty
+          Map.empty source))
+      assertBool "preview accepted a mixed Build/Preview Secret"
+        (isLeft (compileServerSitePreviewScopeWithBuild (Set.singleton secretName)
+          (serverInputs {ServerDeploy.site = buildSecretSite})
+          "branch" cluster namespaceId imageId deps Map.empty secretBindings source))
       let volume = Volume
             { name = unsafe (mkVolumeName "data")
             , logicalKey = Nothing
@@ -4310,6 +4328,35 @@ staticInventoryTests =
             (Just "personal") "external")
           secretBinding = External secretId secretAddress [] source
           secretBindings = Map.singleton secretName secretBinding
+          buildSecretSite = site & #env .~ Map.singleton
+            (unsafe (mkEnvName "BUILD_TOKEN"))
+            (unsafe (scopedEnv (Set.singleton Build) (EnvSecretRef secretName)))
+          buildInputs = inputs {ServerDeploy.site = buildSecretSite}
+      (_, buildNative) <- either (fail . show) pure
+        (compileServerSiteScopeWithBuild (Set.singleton secretName) Nothing buildInputs
+          cluster namespaceId imageId Map.empty Map.empty Map.empty
+          emptyReleaseLog release source)
+      assertBool "Build Secret leaked into production native manifests"
+        (all (not . BC.isInfixOf "BUILD_TOKEN" . snd) (Map.elems buildNative))
+      assertBool "production accepted a Build Secret absent from image inputs"
+        (isLeft (compileServerSiteScopeWithBuild Set.empty Nothing buildInputs
+          cluster namespaceId imageId Map.empty Map.empty Map.empty
+          emptyReleaseLog release source))
+      let mixedBuildSite = site & #env .~ Map.singleton
+            (unsafe (mkEnvName "BUILD_TOKEN"))
+            (unsafe (scopedEnv (Set.fromList [Build, Runtime])
+              (EnvSecretRef secretName)))
+      assertBool "production accepted a mixed Build/Runtime Secret"
+        (isLeft (compileServerSiteScopeWithBuild (Set.singleton secretName) Nothing
+          (inputs {ServerDeploy.site = mixedBuildSite}) cluster namespaceId imageId
+          Map.empty secretBindings Map.empty emptyReleaseLog release source))
+      (_, buildRollbackNative) <- either (fail . show) pure
+        (compileServerSiteRollbackScopeWithBuild (Set.singleton secretName) Nothing
+          (buildInputs & #imageTag .~ "v0") cluster namespaceId imageId
+          Map.empty Map.empty Map.empty oldLog older source)
+      assertBool "Build Secret leaked into rollback native manifests"
+        (all (not . BC.isInfixOf "BUILD_TOKEN" . snd)
+          (Map.elems buildRollbackNative))
       (secretScope, _) <- either (fail . show) pure
         (compileServerSiteScope (inputs {ServerDeploy.site = secretSite})
           cluster namespaceId imageId Map.empty secretBindings Map.empty emptyReleaseLog release source)

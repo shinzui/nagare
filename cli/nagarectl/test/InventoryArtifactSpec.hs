@@ -111,17 +111,20 @@ inventoryArtifactTests =
           (Map.fromList [(scope, (either (error . Text.unpack) id (mkScopeGeneration 1), published))
             , (scopeId buildScope, (either (error . Text.unpack) id (mkScopeGeneration 1), buildScope))])
           Map.empty)
-        acceptedImageBuildSecrets snapshot imageId "kizashi"
+        acceptedImageBuildSecrets snapshot imageId cluster "kizashi" "personal"
           @?= Right (Set.singleton (either (error . Text.unpack) id
             (mkSecretName "nagare-secret-kizashi-build")))
-        case acceptedImageBuildSecrets snapshot imageId "another-app" of
+        case acceptedImageBuildSecrets snapshot imageId cluster "another-app" "personal" of
           Left _ -> pure ()
           Right _ -> assertFailure "image Build input was borrowed by another app"
+        case acceptedImageBuildSecrets snapshot imageId cluster "kizashi" "other" of
+          Left _ -> pure ()
+          Right _ -> assertFailure "image Build input was borrowed by another namespace"
         unpinned <- expectRight (mkScopeSnapshot binding
           (Map.fromList [(scope, (either (error . Text.unpack) id (mkScopeGeneration 1), base))
             , (scopeId buildScope, (either (error . Text.unpack) id (mkScopeGeneration 1), buildScope))])
           Map.empty)
-        case acceptedImageBuildSecrets unpinned imageId "kizashi" of
+        case acceptedImageBuildSecrets unpinned imageId cluster "kizashi" "personal" of
           Left _ -> pure ()
           Right _ -> assertFailure "image dependency without a revision pin was accepted"
     , testCase "matching immutable content resumes without republishing" $ do

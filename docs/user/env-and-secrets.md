@@ -363,8 +363,9 @@ That review binds the accepted channel revisions to the image publication; it
 cannot prove what an external builder consumed. `app deploy` does not read Build
 channels or pass their values to Docker. An aggregate application can name a
 Build-only Secret when its accepted image publication pins that exact channel;
-the Secret stays out of runtime manifests. Standalone Service, worker, and
-server-site Build Secret references still refuse pending their reviewed input
+the Secret stays out of runtime manifests. Server-site production, preview,
+and rollback use the same accepted image input binding. Standalone Service
+and worker Build Secret references still refuse pending their reviewed input
 binding.
 
 Docker build arguments can be recorded in image history. Use a build mechanism

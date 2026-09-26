@@ -11,11 +11,14 @@ module Nagare.Inventory.Site
   , compileServerSiteScope
   , compileServerSiteScopeWithCdn
   , compileServerSiteScopeWithCloudflare
+  , compileServerSiteScopeWithBuild
   , compileServerSiteRollbackScope
   , compileServerSiteRollbackScopeWithCdn
   , compileServerSiteRollbackScopeWithCloudflare
+  , compileServerSiteRollbackScopeWithBuild
   , compileStaticSitePreviewScope
   , compileServerSitePreviewScope
+  , compileServerSitePreviewScopeWithBuild
   , acceptedSiteReleaseLog
   , acceptedSiteSource
   , acceptedSitePreviewDependencies
@@ -62,6 +65,14 @@ import Nagare.Static.Preview (previewDomain)
 import Nagare.Server.Deploy qualified as Server
 import Nagare.Dsl.Server.Render qualified as ServerRender
 import Nagare.Static.Release (StaticRelease (..), StaticReleaseLog (..), addRelease, emptyReleaseLog, extractReleaseLog, findRelease, renderReleaseConfigMap)
+
+-- Build-only Secret references belong to the accepted OCI publication. A
+-- mixed Build/Runtime or Build/Preview scope would place the same value in a
+-- workload and needs a separate explicit binding, so it still refuses.
+reviewedBuildReference :: Set.Set SecretName -> (SecretName, Set.Set EnvScope) -> Bool
+reviewedBuildReference buildSecrets (secret, scopes)
+  | Set.member Build scopes = scopes == Set.singleton Build && Set.member secret buildSecrets
+  | otherwise = True
 
 compileStaticSiteScope
   :: DeployInputs -> ResourceId -> ResourceId -> ResourceId
@@ -158,7 +169,16 @@ compileServerSitePreviewScope
   -> SourceLocation
   -> Either (NonEmpty InventoryError)
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileServerSitePreviewScope inputs raw cluster namespaceId imageId stores recovery envSecrets source = do
+compileServerSitePreviewScope = compileServerSitePreviewScopeWithBuild Set.empty
+
+compileServerSitePreviewScopeWithBuild
+  :: Set.Set SecretName -> Server.ServerDeployInputs -> T.Text
+  -> ResourceId -> ResourceId -> ResourceId
+  -> [Declaration] -> Map VolumeName RecoveryIntent -> Map SecretName Declaration
+  -> SourceLocation
+  -> Either (NonEmpty InventoryError)
+       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileServerSitePreviewScopeWithBuild buildSecrets inputs raw cluster namespaceId imageId stores recovery envSecrets source = do
   let site = inputs ^. #site
       name = siteNameText (site ^. #name)
       ns = namespaceText (site ^. #namespace)
@@ -170,8 +190,8 @@ compileServerSitePreviewScope inputs raw cluster namespaceId imageId stores reco
     (Left (invalid "server preview recovery does not cover exactly its retained volumes"))
   let secretRefs = [(secret, entry ^. #scopes) | entry <- Map.elems (site ^. #env),
         EnvSecretRef secret <- [entry ^. #value]]
-  unless (all (not . Set.member Build . snd) secretRefs)
-    (Left (invalid "server preview Build Secret references need publication inputs"))
+  unless (all (reviewedBuildReference buildSecrets) secretRefs)
+    (Left (invalid "server preview Build Secret references need exact image publication inputs"))
   let activeSecretRefs = [secret | (secret, scopes) <- secretRefs,
         Set.member Runtime scopes || Set.member Preview scopes]
   unless (Map.keysSet envSecrets == Set.fromList activeSecretRefs)
@@ -377,7 +397,7 @@ compileServerSiteScope
   -> StaticReleaseLog -> StaticRelease -> SourceLocation
   -> Either (NonEmpty InventoryError)
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileServerSiteScope = compileServerSiteScopeWith RecordRelease Nothing
+compileServerSiteScope = compileServerSiteScopeWith RecordRelease Nothing Set.empty
 
 compileServerSiteScopeWithCdn
   :: GoogleCdnBinding -> Server.ServerDeployInputs -> ResourceId -> ResourceId -> ResourceId
@@ -385,7 +405,7 @@ compileServerSiteScopeWithCdn
   -> StaticReleaseLog -> StaticRelease -> SourceLocation
   -> Either (NonEmpty InventoryError)
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileServerSiteScopeWithCdn binding = compileServerSiteScopeWith RecordRelease (Just (GoogleCdnBindingFor binding))
+compileServerSiteScopeWithCdn binding = compileServerSiteScopeWith RecordRelease (Just (GoogleCdnBindingFor binding)) Set.empty
 
 compileServerSiteScopeWithCloudflare
   :: CloudflareCdnBinding -> Server.ServerDeployInputs -> ResourceId -> ResourceId -> ResourceId
@@ -394,7 +414,17 @@ compileServerSiteScopeWithCloudflare
   -> Either (NonEmpty InventoryError)
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
 compileServerSiteScopeWithCloudflare binding =
-  compileServerSiteScopeWith RecordRelease (Just (CloudflareCdnBindingFor binding))
+  compileServerSiteScopeWith RecordRelease (Just (CloudflareCdnBindingFor binding)) Set.empty
+
+compileServerSiteScopeWithBuild
+  :: Set.Set SecretName -> Maybe ReviewedCdnBinding
+  -> Server.ServerDeployInputs -> ResourceId -> ResourceId -> ResourceId
+  -> Map VolumeName RecoveryIntent -> Map SecretName Declaration -> Map SecretName Declaration
+  -> StaticReleaseLog -> StaticRelease -> SourceLocation
+  -> Either (NonEmpty InventoryError)
+       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileServerSiteScopeWithBuild buildSecrets cdnBinding =
+  compileServerSiteScopeWith RecordRelease cdnBinding buildSecrets
 
 compileServerSiteRollbackScope
   :: Server.ServerDeployInputs -> ResourceId -> ResourceId -> ResourceId
@@ -402,7 +432,7 @@ compileServerSiteRollbackScope
   -> StaticReleaseLog -> StaticRelease -> SourceLocation
   -> Either (NonEmpty InventoryError)
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileServerSiteRollbackScope = compileServerSiteScopeWith SelectRelease Nothing
+compileServerSiteRollbackScope = compileServerSiteScopeWith SelectRelease Nothing Set.empty
 
 compileServerSiteRollbackScopeWithCdn
   :: GoogleCdnBinding -> Server.ServerDeployInputs -> ResourceId -> ResourceId -> ResourceId
@@ -410,7 +440,7 @@ compileServerSiteRollbackScopeWithCdn
   -> StaticReleaseLog -> StaticRelease -> SourceLocation
   -> Either (NonEmpty InventoryError)
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileServerSiteRollbackScopeWithCdn binding = compileServerSiteScopeWith SelectRelease (Just (GoogleCdnBindingFor binding))
+compileServerSiteRollbackScopeWithCdn binding = compileServerSiteScopeWith SelectRelease (Just (GoogleCdnBindingFor binding)) Set.empty
 
 compileServerSiteRollbackScopeWithCloudflare
   :: CloudflareCdnBinding -> Server.ServerDeployInputs -> ResourceId -> ResourceId -> ResourceId
@@ -419,15 +449,26 @@ compileServerSiteRollbackScopeWithCloudflare
   -> Either (NonEmpty InventoryError)
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
 compileServerSiteRollbackScopeWithCloudflare binding =
-  compileServerSiteScopeWith SelectRelease (Just (CloudflareCdnBindingFor binding))
+  compileServerSiteScopeWith SelectRelease (Just (CloudflareCdnBindingFor binding)) Set.empty
 
-compileServerSiteScopeWith
-  :: SiteReleaseAction -> Maybe ReviewedCdnBinding -> Server.ServerDeployInputs -> ResourceId -> ResourceId -> ResourceId
+compileServerSiteRollbackScopeWithBuild
+  :: Set.Set SecretName -> Maybe ReviewedCdnBinding
+  -> Server.ServerDeployInputs -> ResourceId -> ResourceId -> ResourceId
   -> Map VolumeName RecoveryIntent -> Map SecretName Declaration -> Map SecretName Declaration
   -> StaticReleaseLog -> StaticRelease -> SourceLocation
   -> Either (NonEmpty InventoryError)
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileServerSiteScopeWith action cdnBinding inputs cluster namespaceId imageId recovery envSecrets tlsSecrets prior release source = do
+compileServerSiteRollbackScopeWithBuild buildSecrets cdnBinding =
+  compileServerSiteScopeWith SelectRelease cdnBinding buildSecrets
+
+compileServerSiteScopeWith
+  :: SiteReleaseAction -> Maybe ReviewedCdnBinding -> Set.Set SecretName
+  -> Server.ServerDeployInputs -> ResourceId -> ResourceId -> ResourceId
+  -> Map VolumeName RecoveryIntent -> Map SecretName Declaration -> Map SecretName Declaration
+  -> StaticReleaseLog -> StaticRelease -> SourceLocation
+  -> Either (NonEmpty InventoryError)
+       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileServerSiteScopeWith action cdnBinding buildSecrets inputs cluster namespaceId imageId recovery envSecrets tlsSecrets prior release source = do
   let site = inputs ^. #site
       name = siteNameText (site ^. #name)
       ns = namespaceText (site ^. #namespace)
@@ -441,8 +482,8 @@ compileServerSiteScopeWith action cdnBinding inputs cluster namespaceId imageId 
     (Left (invalid "server-site recovery does not cover exactly its retained volumes"))
   let secretRefs = [(secret, entry ^. #scopes) | entry <- Map.elems (site ^. #env),
         EnvSecretRef secret <- [entry ^. #value]]
-  unless (all (not . Set.member Build . snd) secretRefs)
-    (Left (invalid "server-site Build Secret references need publication inputs"))
+  unless (all (reviewedBuildReference buildSecrets) secretRefs)
+    (Left (invalid "server-site Build Secret references need exact image publication inputs"))
   let runtimeSecretRefs = [secret | (secret, scopes) <- secretRefs,
         Set.member Runtime scopes]
   unless (Map.keysSet envSecrets == Set.fromList runtimeSecretRefs)

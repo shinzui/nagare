@@ -262,7 +262,7 @@ import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Application (ApplicationScopeInput (..), GoogleCdnBinding (..), CloudflareCdnBinding (..), ReviewedCdnBinding (..), DatabaseBinding, ServiceAction (..), acceptedAccessBinding, acceptedApplicationImage, acceptedImageBuildSecrets, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationDeployment, compileServiceActionScope, compileStandaloneServiceWithRelease, compileStandaloneWorkerWithDependencies, databaseRecoveryBindings, hostnameClaimOwned, legacyApplicationReleaseImport, legacyStandaloneReleaseImport, nativeWorkloadOwned, recordReviewedStandaloneOverrides, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
-import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteReleaseLog, acceptedSiteSource, compileServerSitePreviewScope, compileServerSiteRollbackScope, compileServerSiteRollbackScopeWithCdn, compileServerSiteRollbackScopeWithCloudflare, compileServerSiteScope, compileServerSiteScopeWithCdn, compileServerSiteScopeWithCloudflare, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteRollbackScopeWithCdn, compileStaticSiteRollbackScopeWithCloudflare, compileStaticSiteScope, compileStaticSiteScopeWithCdn, compileStaticSiteScopeWithCloudflare, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
+import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteReleaseLog, acceptedSiteSource, compileServerSitePreviewScopeWithBuild, compileServerSiteRollbackScopeWithBuild, compileServerSiteScopeWithBuild, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteRollbackScopeWithCdn, compileStaticSiteRollbackScopeWithCloudflare, compileStaticSiteScope, compileStaticSiteScopeWithCdn, compileStaticSiteScopeWithCloudflare, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
 import Nagare.Inventory.Backup (ManualBackupRequest (..), BackupSourceProof (..), VolumeSnapshotRequest (..), compileManualBackupScope, compileVolumeSnapshotScope, manualBackupSourceProof)
 import Nagare.Inventory.Prune (ManualPruneRequest (..), PruneSourceProof (..), compileManualPruneScope, manualPruneSourceProof)
 import Nagare.Inventory.Restore (ManualRestoreRequest (..), VolumeRestoreRequest (..), compileManualRestoreScope, compileVolumeRestoreScope, manualRestoreTargetProof)
@@ -7499,8 +7499,8 @@ runStaticSiteDeployPlan mctx tp options site bd output = do
       rendered = productionManifests inputs
   runReviewedSiteDeployPlan mctx options
     (siteNameText (site ^. #name)) (namespaceText (site ^. #namespace))
-    (imageRefText (site ^. #image)) (rendered ^. #url) tag (site ^. #cdn)
-    (\cdn _ tls cluster namespaceId imageId ->
+    (imageRefText (site ^. #image)) (rendered ^. #url) tag (site ^. #cdn) False
+    (\cdn _ _ tls cluster namespaceId imageId ->
       case cdn of
         Nothing -> compileStaticSiteScope inputs cluster namespaceId imageId tls
         Just (GoogleCdnBindingFor binding) -> compileStaticSiteScopeWithCdn binding inputs cluster namespaceId imageId tls
@@ -7526,12 +7526,10 @@ runServerSiteDeployPlan mctx tp options original bd output = do
       rendered = serverManifests inputs
   runReviewedSiteDeployPlan mctx options
     (siteNameText (site ^. #name)) (namespaceText (site ^. #namespace))
-    (imageRefText (site ^. #image)) (rendered ^. #url) tag (site ^. #cdn)
-    (\cdn bindings tls cluster namespaceId imageId ->
-      case cdn of
-        Nothing -> compileServerSiteScope inputs cluster namespaceId imageId recovery bindings tls
-        Just (GoogleCdnBindingFor binding) -> compileServerSiteScopeWithCdn binding inputs cluster namespaceId imageId recovery bindings tls
-        Just (CloudflareCdnBindingFor binding) -> compileServerSiteScopeWithCloudflare binding inputs cluster namespaceId imageId recovery bindings tls)
+    (imageRefText (site ^. #image)) (rendered ^. #url) tag (site ^. #cdn) True
+    (\cdn buildSecrets bindings tls cluster namespaceId imageId ->
+      compileServerSiteScopeWithBuild buildSecrets cdn inputs cluster namespaceId
+        imageId recovery bindings tls)
     (legacyServerSiteReleaseImport site) output
 
 reviewedSiteTag :: SiteDeployOpts -> IO Text
@@ -7544,8 +7542,9 @@ reviewedSiteTag options = do
     (pure . T.pack) (options ^. #tag)
 
 runReviewedSiteDeployPlan
-  :: Maybe String -> SiteDeployOpts -> Text -> Text -> Text -> Text -> Text -> Maybe Cdn
+  :: Maybe String -> SiteDeployOpts -> Text -> Text -> Text -> Text -> Text -> Maybe Cdn -> Bool
   -> (Maybe ReviewedCdnBinding
+      -> Set SecretName
       -> Map.Map SecretName ResourceInventory.Declaration
       -> Map.Map SecretName ResourceInventory.Declaration
       -> Resource.ResourceId -> Resource.ResourceId -> Resource.ResourceId
@@ -7555,7 +7554,7 @@ runReviewedSiteDeployPlan
             Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString)))
   -> (Text -> ByteString -> Either Text (StaticReleaseLog, StaticRelease))
   -> Maybe FilePath -> IO ()
-runReviewedSiteDeployPlan mctx options siteName ns imageName url tag cdnIntent compile importLegacy output = do
+runReviewedSiteDeployPlan mctx options siteName ns imageName url tag cdnIntent bindBuildInputs compile importLegacy output = do
   unless (null (options ^. #sitePreviewEnvResources))
     (dieT "production site review has no preview environment resources")
   when (isJust (options ^. #sitePreviewAdoptionInput))
@@ -7584,6 +7583,9 @@ runReviewedSiteDeployPlan mctx options siteName ns imageName url tag cdnIntent c
   (cluster, namespaceId) <- either dieT pure (acceptedFoundationNamespace snapshot ns)
   either dieT pure (acceptedApplicationImage snapshot imageId
     (imageName <> ":" <> tag))
+  buildSecrets <- if bindBuildInputs
+    then either dieT pure (acceptedImageBuildSecrets snapshot imageId cluster siteName ns)
+    else pure Set.empty
   store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
   history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
   acceptedInventory <- either (dieT . T.pack . show) pure
@@ -7619,7 +7621,7 @@ runReviewedSiteDeployPlan mctx options siteName ns imageName url tag cdnIntent c
       pure (oldLog, oldRelease, Just proposal)
     _ -> dieT "site import options are incomplete"
   (scope, native) <- either (dieT . T.pack . show) pure
-    (compile cdnBinding envSecrets tlsSecrets cluster namespaceId imageId prior release source)
+    (compile cdnBinding buildSecrets envSecrets tlsSecrets cluster namespaceId imageId prior release source)
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
   if options ^. #dryRun
@@ -7796,6 +7798,8 @@ runReviewedSiteRollbackPlan mctx tp options config bd rid output = do
         Just (CloudflareCdnBindingFor binding) -> compileStaticSiteRollbackScopeWithCloudflare binding inputs
           cluster namespaceId imageId tlsSecrets prior release source
     Load.SiteServer original -> do
+      buildSecrets <- either dieT pure
+        (acceptedImageBuildSecrets snapshot imageId cluster name ns)
       qualifiedImage <- either dieT pure (qualifyImage tp (original ^. #image))
       let qualified = original & #image .~ qualifiedImage
       recovery <- either dieT pure (siteVolumeRecoveryBindings qualified
@@ -7803,13 +7807,9 @@ runReviewedSiteRollbackPlan mctx tp options config bd rid output = do
       let site = serverSiteWithGeneratedEnvSource (release ^. #source)
             qualified bd (release ^. #imageTag)
           inputs = ServerDeployInputs site (release ^. #imageTag) bd "." True tp
-      either (dieT . T.pack . show) pure $ case cdnBinding of
-        Nothing -> compileServerSiteRollbackScope inputs cluster namespaceId imageId
-          recovery envSecrets tlsSecrets prior release source
-        Just (GoogleCdnBindingFor binding) -> compileServerSiteRollbackScopeWithCdn binding inputs
-          cluster namespaceId imageId recovery envSecrets tlsSecrets prior release source
-        Just (CloudflareCdnBindingFor binding) -> compileServerSiteRollbackScopeWithCloudflare binding inputs
-          cluster namespaceId imageId recovery envSecrets tlsSecrets prior release source
+      either (dieT . T.pack . show) pure
+        (compileServerSiteRollbackScopeWithBuild buildSecrets cdnBinding inputs
+          cluster namespaceId imageId recovery envSecrets tlsSecrets prior release source)
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
   Inventory.planInventoryCandidateWith
@@ -7938,6 +7938,8 @@ runReviewedServerPreviewPlan mctx tp options original bd pname output = do
   (cluster, namespaceId) <- either dieT pure (acceptedFoundationNamespace snapshot ns)
   either dieT pure (acceptedApplicationImage snapshot imageId
     (imageRefText qualifiedImage <> ":" <> tag))
+  buildSecrets <- either dieT pure
+    (acceptedImageBuildSecrets snapshot imageId cluster name ns)
   envIds <- traverse (either dieT pure . Resource.mkResourceId . T.pack)
     (options ^. #sitePreviewEnvResources)
   stores <- either dieT pure
@@ -7948,7 +7950,7 @@ runReviewedServerPreviewPlan mctx tp options original bd pname output = do
   recovery <- either dieT pure (siteVolumeRecoveryBindings site
     (map T.pack (options ^. #siteVolumeRecovery)))
   (scope, native) <- either (dieT . T.pack . show) pure
-    (compileServerSitePreviewScope inputs pname cluster namespaceId imageId
+    (compileServerSitePreviewScopeWithBuild buildSecrets inputs pname cluster namespaceId imageId
       stores recovery runtimeSecrets source)
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
@@ -8174,8 +8176,8 @@ runAppDeployPlan mctx params appOptions output = do
   either dieT pure (acceptedApplicationImage snapshot imageId (rollout ^. #taggedAppImage))
   either dieT pure (reviewedTaskImages (app ^. #tasks)
     (rollout ^. #taggedAppImage) (rollout ^. #effectiveTag))
-  buildSecrets <- either dieT pure (acceptedImageBuildSecrets snapshot imageId
-    (serviceNameText (app ^. #name)))
+  buildSecrets <- either dieT pure (acceptedImageBuildSecrets snapshot imageId cluster
+    (serviceNameText (app ^. #name)) appNamespaceName)
   tlsIds <- traverse (either dieT pure . Resource.mkResourceId . T.pack)
     (appOptions ^. #tlsSecretResources)
   envIds <- traverse (either dieT pure . Resource.mkResourceId . T.pack)
