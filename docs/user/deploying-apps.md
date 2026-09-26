@@ -82,7 +82,11 @@ The typed config may still describe a Dockerfile or Nixpacks build. On the
 reviewed route, Nagare deploys the accepted publication named by
 `--image-resource`; it does not rebuild from the source tree. The published
 destination must match the config's image reference and explicit tag. Build
-path overrides remain available only on the legacy build route.
+path overrides remain available only on the legacy build route. Once the selected
+context has initialized inventory history, `app deploy` without
+`--image-resource` refuses before any build or provider write. Build the image
+locally, publish its archive with `app image-plan`, then use the printed resource
+ID for the reviewed deploy above. A newly named app does not bypass this rule.
 
 To preview the same supported scope without saving or publishing a review, use
 `--dry-run` with the same accepted image and recovery inputs. It reads the
@@ -680,14 +684,17 @@ can be listed and torn down as a unit.
 A worked example — one Service, two Workers binding a managed Postgres, and a
 migration Task, all on one shared image — is
 `cluster/examples/multi-workload-app/nagare/Config.hs` (see its
-[README](../../cluster/examples/multi-workload-app/README.md)). It is deployed
-with **one** command, `nagarectl app deploy`, which builds and pushes the shared
-image once, then rolls the app out in dependency order:
+[README](../../cluster/examples/multi-workload-app/README.md)). On a context
+without initialized inventory history, the legacy command builds and pushes the
+shared image once, then rolls the app out in dependency order:
 
 ```bash
-# Live: build/push once, then roll out in order.
+# Legacy context only: build/push once, then roll out in order.
 nagarectl app deploy -f nagare/Config.hs
 ```
+
+For an inventory-backed context, publish the image and use the reviewed
+`app deploy --image-resource` route described above.
 
 The rollout order is fixed and enforced: **pre-deploy hooks first** (the migration
 Task runs to completion as a one-off Job — a non-zero exit aborts the release

@@ -102,6 +102,11 @@ provenance:
       at: 2026-09-25T19:23:31Z
       mode: "implement"
       note: "Route accepted Service stop and restart through reviewed scope updates"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-26T03:38:24Z
+      mode: "implement"
+      note: "Refuse direct app deploy after inventory initialization"
 ---
 
 # Route application and data lifecycles through independent resource scopes
@@ -150,6 +155,8 @@ The inventory planner now observes only resources selected by a scope change, ef
 A recording transaction now takes that app A candidate through observation, review publication, admission, and apply with only a Kubernetes adapter registered. Its single effect is app A's resource ID; app B and the unrelated Pulumi scope retain their exact accepted revisions. The one-invocation command fixture now seeds both unrelated scopes in private context history and converges a new application with the same Kubernetes-only registry; five focused command tests passed. This proves command-service selection without cloud credentials or adapters; live CLI context selection remains open.
 
 The disposable two-worker native review/resume fixture now also seeds accepted app B and Pulumi scopes. With only a Kubernetes adapter, it reviewed and applied app A, resumed a simulated lost acknowledgement without a duplicate native write, and kept both foreign revisions fixed. Eight focused resume tests passed against `k3d-nagare-inventory-ep148`, and the cluster was stopped afterward. This closes the selected-scope provider isolation check; full application membership and direct-path cutover remain open.
+
+Direct aggregate `app deploy` now refuses in any context with initialized inventory history, including a newly named app. It checks before build or provider effects and directs the operator to publish an OCI archive with `app image-plan` and deploy with `--image-resource`. The executable build, Haskell style check, strict user-documentation validation, and diff check passed. This closes the direct aggregate deployment bypass for initialized contexts; legacy deployment is still available before store initialization, and other direct command families remain M3/M4 work. EP-151 is complete, so its store dependency no longer gates the final cutover.
 
 Accepted application and standalone Knative Services now route `app stop` and `app restart` through a one-invocation reviewed scope replacement. The compiler starts from accepted private native bytes, changes only the selected Service, and records a cluster-local or restart override while retaining the original config digest and sibling declarations. An explicit reviewed deploy compiles a fresh scope without the stop override. Unmanaged legacy Services keep the guarded direct command. The focused stop/restart regression, executable build, 815-test CLI suite, Haskell style check, strict user-documentation validation, and diff check passed. A recording journal test then proved that an interrupted stop resumes without a second write, a repeated stop plans no operation, and an explicit deploy plans the label removal. Live Knative provider validation remains open, so M3 remains incomplete.
 
@@ -326,6 +333,8 @@ Critical path from completed M1 to final acceptance, in execution order:
 
 ## Decision Log
 
+2026-09-26: Treat inventory store initialization as the direct aggregate app deploy boundary. The earlier native-address guard allowed a new app name to perform unreviewed namespace, credential, route, and workload writes in a context already using inventory. The reviewed OCI archive and accepted-image deployment route is available there; keep the legacy route only for contexts without initialized history until build input publication and the other command cutovers close.
+
 2026-09-25: The operator selected offline-only Cloudflare proof because no disposable Cloudflare zone is available. M2 will use a fake HTTP provider and complete reviewed journal transaction for Cloudflare acceptance; live Cloudflare mutation is deferred and will not hold this milestone open. This does not relax the requirement for typed host/zone ownership, stale-state refusal, uncertain-write recovery, and honest documentation of the external-race limit.
 
 2026-09-25: Represent Cloudflare's `http_request_cache_settings` entrypoint as one platform-owned `CloudflareRuleset` resource per zone, derived from granted host contributions. The same platform zone grant fixes a separate origin-TLS setting; the ruleset waits for it. Each workload owns its own `CloudflareDnsRecord` and DomainMapping, and references the shared ruleset. The ruleset declaration and complete sorted rule payload are composed from accepted scopes; a workload cannot submit a replacement whole-zone ruleset. This follows the [provider's guidance to update a whole ruleset in one operation](https://developers.cloudflare.com/ruleset-engine/rulesets-api/). The offline adapter requires old content and physical identity at preflight, but provider serialization, conditional writes, and uncertain-write recovery still need an HTTP transport and proof. This is an architecture choice and offline model, not a claim that the provider mutation is ready.
@@ -471,6 +480,8 @@ DependencyExports contains typed capability witnesses and selected revision/phys
 
 
 ## Revision Notes
+
+2026-09-26: Refused direct aggregate app deployment after inventory initialization, documented the reviewed archive publication route, and recorded EP-151 completion. M4 remains open for the other direct paths and build input integration.
 
 2026-09-25: Added a gated disposable Kubernetes review/apply test for accepted data restart. It verifies initial Secret/StatefulSet creation, selected-only restart membership, exact saved native bytes, and the live StatefulSet annotation before cleanup. A real database/broker pod rollout remains M3 validation.
 

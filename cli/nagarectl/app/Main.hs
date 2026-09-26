@@ -286,7 +286,7 @@ import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.Application (ApplicationScopeInput (..), GoogleCdnBinding (..), CloudflareCdnBinding (..), ReviewedCdnBinding (..), DatabaseBinding, ServiceAction (..), acceptedAccessBinding, acceptedApplicationImage, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationDeployment, compileServiceActionScope, compileStandaloneServiceWithRelease, compileStandaloneWorkerWithDependencies, databaseRecoveryBindings, hostnameClaimOwned, legacyApplicationReleaseImport, legacyStandaloneReleaseImport, nativeWorkloadOwned, recordReviewedStandaloneOverrides, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
+import Nagare.Inventory.Application (ApplicationScopeInput (..), GoogleCdnBinding (..), CloudflareCdnBinding (..), ReviewedCdnBinding (..), DatabaseBinding, ServiceAction (..), acceptedAccessBinding, acceptedApplicationImage, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationDeployment, compileServiceActionScope, compileStandaloneServiceWithRelease, compileStandaloneWorkerWithDependencies, databaseRecoveryBindings, hostnameClaimOwned, legacyApplicationReleaseImport, legacyStandaloneReleaseImport, nativeWorkloadOwned, recordReviewedStandaloneOverrides, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
 import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteReleaseLog, acceptedSiteSource, compileServerSitePreviewScope, compileServerSiteRollbackScope, compileServerSiteRollbackScopeWithCdn, compileServerSiteRollbackScopeWithCloudflare, compileServerSiteScope, compileServerSiteScopeWithCdn, compileServerSiteScopeWithCloudflare, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteRollbackScopeWithCdn, compileStaticSiteRollbackScopeWithCloudflare, compileStaticSiteScope, compileStaticSiteScopeWithCdn, compileStaticSiteScopeWithCloudflare, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteNativeOwned, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
 import Nagare.Inventory.TaskRun (compileTaskRunScope)
 import Nagare.Inventory.Lifecycle qualified as InventoryLifecycle
@@ -9223,25 +9223,13 @@ refuseDirectAccessOwnerIfManaged mctx operation =
     when (authSharedSettingsOwned history)
       (dieT "shared auth settings are owned by accepted or retained inventory; direct access routing is refused")
 
--- | The direct aggregate rollout does not produce a reviewed inventory receipt.
--- Refuse it when either its stable scope or one of its native workloads is
--- already owned, including retained members after retirement.
+-- | Once a context has inventory history, every aggregate rollout must use
+-- the reviewed compiler. A new app name is not authority to bypass that
+-- history: the direct path also writes namespaces, credentials, and routes.
 refuseDirectApplicationDeployIfOwned :: Maybe String -> Application -> IO ()
-refuseDirectApplicationDeployIfOwned mctx app =
-  withAcceptedInventoryHistory mctx "app deploy" $ \history -> do
-    owner <- either dieT pure (ResourceApplication.applicationScopeId app)
-    when (isJust (app ^. #service) && authSharedSettingsOwned history)
-      (dieT "the shared auth backend map is owned by accepted or retained inventory; direct app deploy is refused")
-    let resources = ownedHistoryResources history
-        claimedHostnames =
-          [ domainText (domain ^. #domain)
-          | service <- maybe [] pure (app ^. #service)
-          , domain <- service ^. #domains
-          ]
-    when (Map.member owner (InventoryPlan.historyAccepted history)
-        || applicationNativeOwned app resources
-        || any (\host -> hostnameClaimOwned host (historyHostnameDeclarations history)) claimedHostnames)
-      (dieT "application is owned by accepted or retained inventory history; direct app deploy is refused")
+refuseDirectApplicationDeployIfOwned mctx _ =
+  withAcceptedInventoryHistory mctx "app deploy" $ \_ ->
+    dieT "inventory history is initialized; direct app deploy is refused. Publish the image with app image-plan, then deploy with --image-resource"
 
 refuseDirectCdnHostMutationIfOwned :: Maybe String -> Text -> Text -> IO ()
 refuseDirectCdnHostMutationIfOwned mctx operation host =
