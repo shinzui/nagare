@@ -12,9 +12,11 @@ module Nagare.Inventory.DataService
   , brokerNativeOwned
   , brokerTopicChangeRequiresReview
   , compileStatefulSetRestartScope
+  , compileBackupPruneRemovalScope
   , acceptedFoundationNamespace
   ) where
 
+import Control.Monad (foldM)
 import Data.Aeson (Value (..))
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
@@ -25,9 +27,10 @@ import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend)
+import Nagare.Database.Backup (renderDbBackupCronJob, renderInventoryDbBackupCronJob)
 import Nagare.Dsl.Broker (Broker (..), BrokerProvider (Redpanda), brokerNameText)
 import Nagare.Dsl.Broker.Render (brokerPvcName, renderBroker)
-import Nagare.Dsl.Database (Database (..), dbSecretName)
+import Nagare.Dsl.Database (Database (..), dbSecretName, parseEngine)
 import Nagare.Dsl.Database.Render (dbConfigMapName, dbPvcName)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (databaseNameText, namespaceText)
@@ -42,6 +45,94 @@ import Nagare.Resource.Policy (DataPolicy (..), LifecyclePolicy (..), RecoveryIn
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
+
+-- | Change only an accepted legacy backup schedule. Require its private bytes
+-- to match the old renderer, so unfamiliar schedules need a full database review.
+compileBackupPruneRemovalScope
+  :: T.Text -> T.Text -> StoreBackend -> ScopeDeclaration
+  -> Map ResourceId (ManagedResource, ByteString)
+  -> Either (NonEmpty InventoryError)
+       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileBackupPruneRemovalScope name namespaceName backend accepted native = do
+  let invalid message = inventoryError "invalid-backup-prune-removal" message
+        & #scopes .~ [scopeId accepted] & (:| [])
+      members = [member | bundle <- scopeBundles accepted,
+        Managed member <- declarations bundle]
+      atAddress group kind nativeName member = case member ^. #address of
+        Kubernetes _ api resourceKind (Just ns) addressName ->
+          api == group && nameText resourceKind == kind
+            && nameText ns == namespaceName && nameText addressName == nativeName
+        _ -> False
+      backups = filter (atAddress "batch" "cronjob" ("nagare-dbbackup-" <> name)) members
+      statefuls = filter (atAddress "apps" "statefulset" name) members
+  unless (scopeKind (scopeId accepted) `elem` [Application, Standalone])
+    (Left (invalid "backup schedule requires an accepted database scope"))
+  backup <- case backups of
+    [single] -> Right single
+    _ -> Left (invalid "accepted scope has no unique backup CronJob at the selected address")
+  stateful <- case statefuls of
+    [single] -> Right single
+    _ -> Left (invalid "accepted backup lacks its database StatefulSet")
+  backupBytes <- acceptedBytes invalid backup
+  statefulBytes <- acceptedBytes invalid stateful
+  backupValue <- decode invalid backupBytes
+  statefulValue <- decode invalid statefulBytes
+  backupCanonical <- first invalid (canonicalValue backupValue)
+  statefulCanonical <- first invalid (canonicalValue statefulValue)
+  unless (backup ^. #spec == NativeObject (contentDigest backupCanonical))
+    (Left (invalid "backup CronJob native digest differs from its declaration"))
+  case stateful ^. #spec of
+    StatefulSet _ _ digest | digest == contentDigest statefulCanonical -> pure ()
+    _ -> Left (invalid "database StatefulSet native digest differs from its declaration")
+  engineText <- textAt invalid ["metadata", "labels", "nagare.dev/engine"] statefulValue
+  engine <- maybe (Left (invalid "database engine label is unknown")) Right (parseEngine engineText)
+  version <- textAt invalid ["metadata", "annotations", "nagare.dev/version"] statefulValue
+  let legacy = renderDbBackupCronJob namespaceName name engine version backend 7
+      safe = renderInventoryDbBackupCronJob namespaceName name engine version backend 7
+  legacyCanonical <- decode invalid legacy >>= first invalid . canonicalValue
+  safeValue <- decode invalid safe
+  safeCanonical <- first invalid (canonicalValue safeValue)
+  if backupCanonical == safeCanonical
+    then pure (accepted, native)
+    else do
+      unless (backupCanonical == legacyCanonical)
+        (Left (invalid "accepted backup CronJob does not match the known legacy schedule"))
+      cluster <- case backup ^. #address of
+        Kubernetes clusterId _ _ _ _ -> Right clusterId
+        _ -> Left (invalid "backup CronJob has no Kubernetes address")
+      (rebound, changedBytes) <- first (:| []) (bindKubernetesObject KubernetesInput
+        { resourceId = backup ^. #identity
+        , ownerScope = backup ^. #owner
+        , clusterId = cluster
+        , inputObject = safeValue
+        , objectDigest = contentDigest safeCanonical
+        , lifecyclePolicy = backup ^. #lifecycle
+        , inputDataPolicy = backup ^. #dataPolicy
+        , inputSensitivity = backup ^. #sensitivity
+        , sourceLocation = backup ^. #source
+        })
+      let updated = rebound {dependencies = backup ^. #dependencies}
+      unless ((updated & #spec .~ backup ^. #spec) == backup)
+        (Left (invalid "backup schedule changed outside its native script"))
+      let replace bundle = bundle & #declarations %~ map (\case
+            Managed member | member ^. #identity == backup ^. #identity -> Managed updated
+            declaration -> declaration)
+      base <- mkScopeDeclaration (scopeId accepted) (map replace (scopeBundles accepted))
+      let revised = withScopeOverrides (scopeOverrides accepted) $ case scopeConfigDigest accepted of
+            Nothing -> base
+            Just digest -> withScopeConfigDigest digest base
+      pure (revised, Map.insert (backup ^. #identity) (updated, changedBytes) native)
+  where
+    acceptedBytes invalid member = case Map.lookup (member ^. #identity) native of
+      Just (bound, bytes) | bound == member -> Right bytes
+      _ -> Left (invalid "database member lacks matching accepted private native evidence")
+    decode invalid bytes = first (invalid . T.pack . show)
+      (Yaml.decodeEither' bytes :: Either Yaml.ParseException Value)
+    textAt invalid keys value = case foldM descend value keys of
+      Right (String result) -> Right result
+      _ -> Left (invalid "database native metadata is missing")
+    descend (Object fields) key = maybe (Left ()) Right (KM.lookup key fields)
+    descend _ _ = Left ()
 
 -- | Restart one accepted data workload by changing only its pod template.
 -- The scope's other declarations and private bytes remain those of the

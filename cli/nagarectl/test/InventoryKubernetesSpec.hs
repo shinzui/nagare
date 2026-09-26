@@ -31,7 +31,7 @@ import Nagare.Inventory.Adapters.Kubernetes
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), cacheClientDataMatches, certificateReady, collectionDeleteRequest, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, credentialDataMatches, deploymentAvailable, deploymentSelectorReplacement, desiredFieldsMatch, generatedCredentialTemplate, jobCompleted, knativeReady, materializeCacheKey, materializeCredential, mkKubernetesRuntimeOps, observeCacheClientOutput, parseObserved, readinessForAddress, statefulSetImmutableReplacement, statefulSetReady, supportedUpdateAddress, withoutCacheClientData)
 import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
 import Nagare.Inventory.Database (compileDatabaseForBackend)
-import Nagare.Inventory.DataService (NativeDataKind (..), compileStandaloneDatabase, compileStatefulSetRestartScope, standaloneStatefulSetOwned)
+import Nagare.Inventory.DataService (NativeDataKind (..), compileBackupPruneRemovalScope, compileStandaloneDatabase, compileStatefulSetRestartScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Components.Foundation (compileContributedNamespaces)
 import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
@@ -421,6 +421,117 @@ inventoryKubernetesTests =
         assertBool "backup native member omitted" (any (\(member, _) -> case address member of
           Kubernetes _ "batch" kind _ _ -> nameText kind == "cronjob"
           _ -> False) (Map.elems bound))
+    , testCase "legacy accepted database pruning needs an exact CronJob-only review" $ do
+        let owner = ok (mkScopeId Standalone "database-pg-main")
+            db = Database (ok (mkDatabaseName "pg-main")) Nothing Postgres (defaultEngineVersion Postgres)
+              (ok (Dsl.mkNamespace "personal")) (ok (Dsl.mkQuantity "10Gi")) Nothing Dsl.Retain
+            recovery = RecoveryIntent (ok (mkName "backup"))
+              (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
+            direct = DatabaseDirectInput db owner cluster Nothing recovery (SourceLocation "database" "postgres")
+            backend = GcsBackend "project" "bucket"
+            (safeScope, safeNative) = ok (compileStandaloneDatabase direct backend)
+            backupId = ok (databaseResourceId owner (ok (mkName "backup")) db)
+            (safeMember, safeBytes) = maybe (error "missing backup") id (Map.lookup backupId safeNative)
+            legacyBytes = renderDbBackupCronJob "personal" "pg-main" Postgres
+              (engineVersionText (defaultEngineVersion Postgres)) backend 7
+            legacyValue = ok (Yaml.decodeEither' legacyBytes :: Either Yaml.ParseException Value)
+            canonicalLegacy = ok (canonicalValue legacyValue)
+            (legacyBase, legacyNative) = ok (bindKubernetesObject KubernetesInput
+              { resourceId = backupId, ownerScope = owner, clusterId = cluster
+              , inputObject = legacyValue, objectDigest = contentDigest canonicalLegacy
+              , lifecyclePolicy = lifecycle safeMember, inputDataPolicy = dataPolicy safeMember
+              , inputSensitivity = sensitivity safeMember, sourceLocation = source safeMember })
+            legacyMember = legacyBase {dependencies = dependencies safeMember}
+            replace bundle = bundle {declarations = map (\case
+              Managed member | member ^. #identity == backupId -> Managed legacyMember
+              existing -> existing) (declarations bundle)}
+            legacyScope = ok (mkScopeDeclaration owner (map replace (scopeBundles safeScope)))
+            acceptedNative = Map.insert backupId (legacyMember, legacyNative) safeNative
+            (updated, updatedNative) = ok
+              (compileBackupPruneRemovalScope "pg-main" "personal" backend legacyScope acceptedNative)
+        Map.delete backupId updatedNative @?= Map.delete backupId acceptedNative
+        Map.lookup backupId updatedNative @?= Map.lookup backupId safeNative
+        scopeBundles updated @?= scopeBundles safeScope
+        assertBool "legacy pruning remained in reviewed bytes"
+          (not (BC.isInfixOf "pruning" (snd (updatedNative Map.! backupId))))
+        compileBackupPruneRemovalScope "pg-main" "personal" backend updated updatedNative
+          @?= Right (updated, updatedNative)
+        assertBool "mismatched accepted bytes were accepted"
+          (isLeft (compileBackupPruneRemovalScope "pg-main" "personal" backend
+            legacyScope (Map.insert backupId (legacyMember, BC.pack "{}") acceptedNative)))
+        assertBool "changed object-store binding was accepted"
+          (isLeft (compileBackupPruneRemovalScope "pg-main" "personal"
+            (GcsBackend "project" "other-bucket") legacyScope acceptedNative))
+        assertBool "backup migration unexpectedly changed the safe schedule"
+          (safeBytes == snd (updatedNative Map.! backupId))
+    , testCase "disposable cluster updates a legacy backup CronJob without recreating it" $ do
+        selected <- lookupEnv "NAGARE_EP148_BACKUP_TEST_CONTEXT"
+        case selected of
+          Nothing -> pure ()
+          Just selectedContext -> do
+            assertBool "refusing a non-disposable Kubernetes context"
+              ("k3d-nagare-inventory-" `T.isPrefixOf` T.pack selectedContext)
+            let dbName = "ep148-prune-proof"
+                cronName = "nagare-dbbackup-" <> dbName
+                owner = ok (mkScopeId Standalone "database-ep148-prune-proof")
+                db = Database (ok (mkDatabaseName dbName)) Nothing Postgres (defaultEngineVersion Postgres)
+                  (ok (Dsl.mkNamespace "default")) (ok (Dsl.mkQuantity "1Gi")) Nothing Dsl.Retain
+                recovery = RecoveryIntent (ok (mkName "backup"))
+                  (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
+                direct = DatabaseDirectInput db owner cluster Nothing recovery (SourceLocation "database" "provider-proof")
+                backend = GcsBackend "project" "bucket"
+                (safeScope, safeNative) = ok (compileStandaloneDatabase direct backend)
+                backupId = ok (databaseResourceId owner (ok (mkName "backup")) db)
+                (safeMember, _) = maybe (error "missing backup") id (Map.lookup backupId safeNative)
+                legacyValue = ok (Yaml.decodeEither' (renderDbBackupCronJob "default" dbName Postgres
+                  (engineVersionText (defaultEngineVersion Postgres)) backend 7) :: Either Yaml.ParseException Value)
+                (legacyBase, legacyBytes) = ok (bindKubernetesObject KubernetesInput
+                  { resourceId = backupId, ownerScope = owner, clusterId = cluster
+                  , inputObject = legacyValue, objectDigest = contentDigest (ok (canonicalValue legacyValue))
+                  , lifecyclePolicy = lifecycle safeMember, inputDataPolicy = dataPolicy safeMember
+                  , inputSensitivity = sensitivity safeMember, sourceLocation = source safeMember })
+                legacyMember = legacyBase {dependencies = dependencies safeMember}
+                replace bundle = bundle {declarations = map (\case
+                  Managed member | member ^. #identity == backupId -> Managed legacyMember
+                  existing -> existing) (declarations bundle)}
+                legacyScope = ok (mkScopeDeclaration owner (map replace (scopeBundles safeScope)))
+                acceptedNative = Map.insert backupId (legacyMember, legacyBytes) safeNative
+                (_, revisedNative) = ok (compileBackupPruneRemovalScope dbName "default" backend legacyScope acceptedNative)
+                oldBound = Map.singleton backupId (legacyMember, legacyBytes)
+                newBound = Map.singleton backupId (revisedNative Map.! backupId)
+                config = KubernetesRuntimeConfig (ok (mkContextId "test")) (T.pack selectedContext) (pure (Right ()))
+                oldAdapter = mkKubernetesAdapter oldBound (mkKubernetesRuntimeOps config oldBound)
+                newAdapter = mkKubernetesAdapter newBound (mkKubernetesRuntimeOps config newBound)
+                createOp = createOperation {plannedResources = backupId :| []}
+                updateOp = updateOperation {plannedResources = backupId :| []}
+                readField field = readProcessWithExitCode "kubectl"
+                  ["--context", selectedContext, "get", "cronjob", T.unpack cronName,
+                   "--namespace", "default", "-o", "jsonpath={" <> field <> "}"] ""
+                cleanup = do
+                  _ <- readProcessWithExitCode "kubectl"
+                    ["--context", selectedContext, "delete", "cronjob", T.unpack cronName,
+                     "--namespace", "default", "--ignore-not-found"] ""
+                  pure ()
+            cleanup
+            (do
+              created <- adapterPrepare oldAdapter createOp >>= expectRight
+              adapterPreflight oldAdapter createOp created >>= expectRight
+              adapterExecute oldAdapter createOp created >>= (@?= AdapterEffectCompleted)
+              _ <- adapterVerify oldAdapter createOp created >>= expectRight
+              (uidCode, beforeUid, _) <- readField ".metadata.uid"
+              uidCode @?= ExitSuccess
+              assertBool "legacy CronJob had no UID" (not (null beforeUid))
+              updated <- adapterPrepare newAdapter updateOp >>= expectRight
+              adapterPreflight newAdapter updateOp updated >>= expectRight
+              adapterExecute newAdapter updateOp updated >>= (@?= AdapterEffectCompleted)
+              _ <- adapterVerify newAdapter updateOp updated >>= expectRight
+              (afterCode, afterUid, _) <- readField ".metadata.uid"
+              afterCode @?= ExitSuccess
+              afterUid @?= beforeUid
+              (scriptCode, script, _) <- readField ".spec.jobTemplate.spec.template.spec.containers[0].args[0]"
+              scriptCode @?= ExitSuccess
+              assertBool "live backup CronJob still prunes" (not ("pruning" `T.isInfixOf` T.pack script)))
+              `finally` cleanup
     , testCase "standalone database owns its complete scoped bundle" $ do
         let owner = ok (mkScopeId Standalone "pg-main")
             db = Database (ok (mkDatabaseName "pg-main")) Nothing Postgres (defaultEngineVersion Postgres)

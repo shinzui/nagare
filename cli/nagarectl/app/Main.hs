@@ -291,7 +291,7 @@ import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteRelea
 import Nagare.Inventory.TaskRun (compileTaskRunScope)
 import Nagare.Inventory.TaskLifecycle (compileTaskSuspensionScope, retireSuspendedTaskScope, taskSuspended)
 import Nagare.Inventory.Lifecycle qualified as InventoryLifecycle
-import Nagare.Inventory.DataService (NativeDataKind (..), acceptedFoundationNamespace, brokerNativeOwned, brokerTopicChangeRequiresReview, compileStandaloneBroker, compileStandaloneDatabase, compileStatefulSetRestartScope, dataCommandNativeOwned, databaseNativeOwned, standaloneRetirementScope)
+import Nagare.Inventory.DataService (NativeDataKind (..), acceptedFoundationNamespace, brokerNativeOwned, brokerTopicChangeRequiresReview, compileBackupPruneRemovalScope, compileStandaloneBroker, compileStandaloneDatabase, compileStatefulSetRestartScope, dataCommandNativeOwned, databaseNativeOwned, standaloneRetirementScope)
 import Nagare.Inventory.Environment (acceptedEnvChannelValues, acceptedSecretChannelValues, compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
 import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
@@ -1085,6 +1085,8 @@ data DbCommand
     DbRetire StandaloneRetireOpts
   | -- | nagarectl db backup NAME [-n NS] [--bucket B] [--keep N] [--dry-run] (EP-47)
     DbBackup DbBackupOpts
+  | -- | nagarectl db disable-backup-prune NAME [-n NS] --save-plan DIR
+    DbDisableBackupPrune DbNameOpts FilePath
   | -- | nagarectl db restore NAME BACKUP_ID [--into live] [--dry-run] (EP-47)
     DbRestore DbRestoreOpts
   deriving stock (Generic, Show)
@@ -3000,6 +3002,13 @@ opts =
               ( info
                   (Db . DbBackup <$> dbBackupOptsParser <**> helper)
                   (progDesc "Back up a database to GCS (keep-last-N retention); --dry-run prints the Job/CronJob")
+              )
+            <> command
+              "disable-backup-prune"
+              ( info
+                  (Db <$> (DbDisableBackupPrune <$> dbNameOptsParser
+                    <*> strOption (long "save-plan" <> metavar "DIR" <> help "Save a review that removes legacy inline backup pruning")) <**> helper)
+                  (progDesc "Review removal of inline pruning from an accepted database backup schedule")
               )
             <> command
               "restore"
@@ -9157,6 +9166,8 @@ runDb mctx = \case
       refuseDirectDataMutationIfOwned mctx DatabaseObjects "backup" (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
     backend <- resolveStoreBackend mctx (o ^. #bucket)
     runDbBackup (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) backend (o ^. #keep) (o ^. #dryRun)
+  DbDisableBackupPrune o output ->
+    runDisableBackupPrunePlan mctx (T.pack (o ^. #name)) (nsOf (o ^. #namespace)) output
   DbRestore o -> do
     unless (o ^. #dryRun) $ do
       refuseDirectDataWriteWhenManaged mctx "database restore"
@@ -9165,6 +9176,39 @@ runDb mctx = \case
     runDbRestore (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) (T.pack (o ^. #backupId)) (o ^. #live) backend (o ^. #dryRun)
   where
     nsOf = maybe "personal" T.pack
+
+runDisableBackupPrunePlan :: Maybe String -> Text -> Text -> FilePath -> IO ()
+runDisableBackupPrunePlan mctx name namespaceName output = do
+  active <- activeTarget mctx
+  (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+  snapshot <- Inventory.loadTargetSnapshot active
+  let selected = [scope | (_, scope) <- Map.elems (ResourceInventory.snapshotScopes snapshot),
+        bundle <- ResourceInventory.scopeBundles scope,
+        ResourceInventory.Managed resource <- ResourceInventory.declarations bundle,
+        case resource ^. #address of
+          Resource.Kubernetes _ "batch" resourceKind (Just ns) nativeName ->
+            Resource.nameText resourceKind == "cronjob"
+              && Resource.nameText ns == namespaceName
+              && Resource.nameText nativeName == "nagare-dbbackup-" <> name
+          _ -> False]
+  scope <- case selected of
+    [single] -> pure single
+    _ -> dieT "reviewed backup prune removal requires one accepted database backup CronJob"
+  store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+  history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
+  acceptedInventory <- either (dieT . T.pack . show) pure
+    (ResourceInventory.composeSnapshot snapshot)
+  (acceptedNative, _) <- InventoryStatus.loadAcceptedNative store history acceptedInventory
+    >>= either dieT pure
+  backend <- either dieT pure
+    (storeBackendFor (active ^. #profile) (active ^. #profile . #backupBucket))
+  (revised, native) <- either (dieT . T.pack . show) pure
+    (compileBackupPruneRemovalScope name namespaceName backend scope acceptedNative)
+  candidate <- either (dieT . T.pack . show) pure
+    (ResourceInventory.composeInventory snapshot
+      (ResourceInventory.ReplaceScope revised NE.:| []))
+  Inventory.planInventoryCandidateWith
+    (inventoryPlanRegistryWithNative active workspace native) active candidate output
 
 -- | Accepted data workloads restart from exact private native evidence. A
 -- legacy name can still use the direct command when no companion is claimed.
