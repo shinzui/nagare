@@ -5360,15 +5360,49 @@ runInventoryPlan mctx candidateDirectory retained output = do
   if null retained && null registrations && Map.null artifactSpecs && isNothing hostInputs && null kubernetesResources && null helmResources && Map.null cacheSpecs
     then Inventory.planInventory target candidateDirectory output
     else do
+      resources <- traverse (either dieT pure . Resource.mkResourceId . T.pack) retained
+      let needsInfra required = any (\executor ->
+            not (null (Map.findWithDefault [] executor required)))
+            [ResourceInventory.PulumiExecutor, ResourceInventory.ArtifactExecutor,
+             ResourceInventory.HostExecutor]
+          -- A new store can seed only unchanged base scopes. Its selected
+          -- replacements are enough to decide preflight before seeding.
+          freshNeedsInfra = any (\case
+            ResourceInventory.ReplaceScope scope -> any (\case
+              ResourceInventory.Managed resource -> resource ^. #executor `elem`
+                [ResourceInventory.PulumiExecutor, ResourceInventory.ArtifactExecutor,
+                 ResourceInventory.HostExecutor]
+              _ -> False) [declaration | bundle <- ResourceInventory.scopeBundles scope,
+                declaration <- ResourceInventory.declarations bundle]
+            _ -> False) (NE.toList (ResourceInventory.candidateChanges candidate))
+      -- Keep infrastructure preflight before the planner initializes or seeds
+      -- history; unrelated accepted providers need no preparation.
+      preflightInfra <- Inventory.openTargetStoreReadOnly target >>= \case
+        Left (InventoryStore.StoreConditionFailed "inventory store is not initialized") ->
+          pure freshNeedsInfra
+        Left err -> dieT (T.pack (show err))
+        Right store -> InventoryStore.readHead store >>= \case
+          Left err -> dieT (T.pack (show err))
+          Right Nothing -> pure freshNeedsInfra
+          Right (Just headValue) | not (InventoryStore.hasSubstantiveHistory headValue) ->
+            pure freshNeedsInfra
+          Right (Just _) -> do
+            history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
+            pure (needsInfra (InventoryPlan.requirementsByExecutor
+              (InventoryPlan.observationRequirements candidate history)))
       (active, workspace) <-
-        if null registrations && Map.null artifactSpecs && isNothing hostInputs
-          then do
+        if preflightInfra
+          then prepareInfraMutation mctx
+          else do
             active <- activeTarget mctx
             (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
             pure (active, workspace)
-          else prepareInfraMutation mctx
-      resources <- traverse (either dieT pure . Resource.mkResourceId . T.pack) retained
-      Inventory.planInventoryWithRetirements (inventoryPlanRegistry active workspace)
+      let registryFor selected history = do
+            when (not preflightInfra && needsInfra (InventoryPlan.requirementsByExecutor
+              (InventoryPlan.observationRequirements selected history)))
+              (dieT "selected infrastructure changed since preflight; replan")
+            inventoryPlanRegistry active workspace selected history
+      Inventory.planInventoryWithRetirements registryFor
         target candidateDirectory resources output
 
 runInventoryAdopt :: Maybe String -> FilePath -> FilePath -> IO ()
@@ -5471,6 +5505,12 @@ inventoryExecutionRegistry mctx bundle = do
   let retiredIds = Map.keysSet (InventoryPlan.reviewRetentions (InventoryPlan.reviewBundleDocument bundle))
         `Set.union` Map.keysSet (InventoryPlan.reviewCollections (InventoryPlan.reviewBundleDocument bundle))
       binding = InventoryPlan.reviewContextBinding (InventoryPlan.reviewBundleDocument bundle)
+      activeExecutors = Set.fromList
+        [InventoryAdapter.plannedExecutor (InventoryPlan.reviewPlannedOperation operation)
+        | operation <- InventoryPlan.reviewOperations (InventoryPlan.reviewBundleDocument bundle)]
+      selectedInfra = any (`Set.member` activeExecutors)
+        [ResourceInventory.PulumiExecutor, ResourceInventory.ArtifactExecutor,
+         ResourceInventory.HostExecutor]
   (retiringKubernetesSpecs, retiringHelmSpecs) <- if Set.null retiredIds
     then pure (Map.empty, Map.empty) else do
     active <- activeTarget mctx
@@ -5496,7 +5536,7 @@ inventoryExecutionRegistry mctx bundle = do
     then either dieT pure (InventoryAdapter.mkAdapterRegistry (map Inventory.executionBlockedAdapterFor [ResourceInventory.KubernetesExecutor, ResourceInventory.PulumiExecutor, ResourceInventory.HostExecutor, ResourceInventory.ArtifactExecutor, ResourceInventory.CacheExecutor, ResourceInventory.BrokerExecutor, ResourceInventory.HelmExecutor, ResourceInventory.CdnExecutor]))
     else do
       (active, workspace) <-
-        if null registrations && Map.null artifactSpecs && isNothing hostInputs
+        if not selectedInfra
           then do
             active <- activeTarget mctx
             (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
@@ -5534,6 +5574,12 @@ inventoryPlanRegistryWithNative active workspace suppliedNative candidate histor
   let inventory = ResourceInventory.candidateInventory candidate
       declarations = ResourceInventory.inventoryDeclarations inventory
       scopes = Map.elems (ResourceInventory.inventoryScopes inventory)
+      required = InventoryPlan.requirementsByExecutor
+        (InventoryPlan.observationRequirements candidate history)
+      selectedKubernetes = Set.fromList
+        (Map.findWithDefault [] ResourceInventory.KubernetesExecutor required)
+      selectedHelm = Set.fromList
+        (Map.findWithDefault [] ResourceInventory.HelmExecutor required)
       historical =
         [declaration
         | (_, (_, scope)) <- Map.toAscList (InventoryPlan.historyAccepted history)
@@ -5566,11 +5612,16 @@ inventoryPlanRegistryWithNative active workspace suppliedNative candidate histor
       helmSuppliedNative = Map.filter ((== ResourceInventory.HelmExecutor) . (^. #executor) . fst) allSuppliedNative
       suppliedIds = Map.keysSet kubernetesSuppliedNative
       declaredIds = Set.fromList (map (^. #identity) kubernetesResources)
+      helmSuppliedIds = Map.keysSet helmSuppliedNative
+      declaredHelmIds = Set.fromList (map (^. #identity) helmResources)
   unless (suppliedIds `Set.isSubsetOf` declaredIds) (dieT "generated native members include an undeclared Kubernetes resource")
-  unless (Map.keysSet helmSuppliedNative == Set.fromList (map (^. #identity) helmResources))
-    (dieT "Helm release lacks a captured native contract")
+  unless (helmSuppliedIds `Set.isSubsetOf` declaredHelmIds
+      && (selectedHelm `Set.intersection` declaredHelmIds) `Set.isSubsetOf` helmSuppliedIds)
+    (dieT "selected Helm release lacks a captured native contract")
   either dieT pure (validateSuppliedKubernetesMembers kubernetesResources kubernetesSuppliedNative)
-  let fileBacked = filter (\resource -> Set.notMember (resource ^. #identity) suppliedIds) kubernetesResources
+  let fileBacked = filter (\resource ->
+        Set.member (resource ^. #identity) selectedKubernetes
+          && Set.notMember (resource ^. #identity) suppliedIds) kubernetesResources
   loaded <- if null fileBacked
     then pure Map.empty
     else loadKubernetesSources (workspace ^. #root) fileBacked >>= either dieT pure
