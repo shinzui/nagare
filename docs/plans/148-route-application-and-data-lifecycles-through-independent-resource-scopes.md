@@ -135,6 +135,7 @@ Direct live env set/delete/sync and unversioned Secret set/delete now also refus
 Legacy app stop, restart, and delete and direct site rollback and static preview deletion now refuse in an initialized context if they cannot select an accepted reviewed scope. Accepted app stop/restart, saved app retirement, site rollback, and preview retirement remain available.
 The `nagared` webhook runner now resolves the active context at startup and checks its inventory store for every triggered delivery and again before deploy. It returns HTTP 409 when the store is initialized. A local signed-webhook test initialized the store after the worker started and proved refusal before checkout with unchanged inventory bytes. Reviewed webhook submission remains open in M4.
 Live direct CDN purge/disable and access grant/revoke/portal sync now refuse after inventory initialization, including unclaimed hostnames. Read-only CDN and access commands and CDN dry-runs remain available. Their reviewed operational counterparts are still M3 work. The isolated CLI regression covers thirty-three live refusals with an unchanged inventory head.
+The legacy native-address guard now runs only for live database/broker deletion, database backup/restore, volume restore, and unreviewed env/Secret writes. Their read-only preview branches remain available without requiring an ownership decision or inventory receipt.
 Versioned `secret set`, `secret delete`, and exact `secret sync` now use the same one-invocation review service when no saved review directory is supplied; private native Secret bytes remain in the immutable evidence store. Unversioned direct writes remain guarded legacy routes.
 `env set`, `env delete`, and merged or exact `env sync` can opt into the same one-invocation reviewed path with `--reviewed`; the existing `--save-plan` route shares its compiler. Unreviewed direct env writes remain guarded legacy routes.
 Reviewed aggregate pre-deploy hooks now bind independent per-tag scopes with stable Jobs and typed completion operations. The caller must list every affected resource or assert no data effects; hook Jobs wait for their CronJobs, affected resources, and preceding hooks, and workloads wait for completion. Old hook scopes remain accepted across tags, while a changed hook under the same tag refuses. CDN and remaining command paths stay in M2 through M4.
@@ -501,6 +502,8 @@ DependencyExports contains typed capability witnesses and selected revision/phys
 
 
 ## Revision Notes
+
+2026-09-26: Kept read-only data deletion/backup/restore and env/Secret preview branches outside the live native-address guards.
 
 2026-09-26: Refused direct CDN purge/disable and access grant/revoke/portal sync after inventory admission; extended isolated CLI refusal proof to thirty-three cases.
 

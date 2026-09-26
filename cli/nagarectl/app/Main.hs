@@ -8908,8 +8908,9 @@ runStorage mctx = \case
     runSnapshot dep (T.pack vol) backend keep
   StorageRestore copts vol backupId bucket live dryRun -> do
     dep <- resolveStorageDep copts
-    unless dryRun (refuseDirectDataWriteWhenManaged mctx "storage restore")
-    refuseDirectVolumeMutationIfOwned mctx "restore" dep (T.pack vol)
+    unless dryRun $ do
+      refuseDirectDataWriteWhenManaged mctx "storage restore"
+      refuseDirectVolumeMutationIfOwned mctx "restore" dep (T.pack vol)
     backend <- resolveStoreBackend mctx bucket
     runStorageRestore dep (T.pack vol) (T.pack backupId) live backend dryRun
 
@@ -8953,8 +8954,9 @@ runBroker mctx = \case
       (nsOf (o ^. #namespace)) dryRun output
       (runBrokerRestart (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) dryRun)
   BrokerDelete o -> do
-    when (o ^. #yes && not (o ^. #dryRun)) (refuseDirectDataWriteWhenManaged mctx "broker delete")
-    refuseDirectDataMutationIfOwned mctx BrokerObjects "delete" (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
+    when (o ^. #yes && not (o ^. #dryRun)) $ do
+      refuseDirectDataWriteWhenManaged mctx "broker delete"
+      refuseDirectDataMutationIfOwned mctx BrokerObjects "delete" (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
     runBrokerDelete
       BrokerDeleteParams
         { name = T.pack (o ^. #name)
@@ -9043,8 +9045,9 @@ runDb mctx = \case
       (nsOf (o ^. #namespace)) dry output
       (runDbRestart (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) dry)
   DbDelete o -> do
-    when (o ^. #yes && not (o ^. #dryRun)) (refuseDirectDataWriteWhenManaged mctx "database delete")
-    refuseDirectDataMutationIfOwned mctx DatabaseObjects "delete" (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
+    when (o ^. #yes && not (o ^. #dryRun)) $ do
+      refuseDirectDataWriteWhenManaged mctx "database delete"
+      refuseDirectDataMutationIfOwned mctx DatabaseObjects "delete" (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
     runDbDelete
       DbDeleteParams
         { name = T.pack (o ^. #name)
@@ -9056,13 +9059,15 @@ runDb mctx = \case
     runStandaloneRetirePlan mctx "database" (T.pack (o ^. #name))
       (nsOf (o ^. #namespace)) (T.pack <$> o ^. #scopeKey) (o ^. #savePlan)
   DbBackup o -> do
-    unless (o ^. #dryRun) (refuseDirectDataWriteWhenManaged mctx "database backup")
-    refuseDirectDataMutationIfOwned mctx DatabaseObjects "backup" (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
+    unless (o ^. #dryRun) $ do
+      refuseDirectDataWriteWhenManaged mctx "database backup"
+      refuseDirectDataMutationIfOwned mctx DatabaseObjects "backup" (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
     backend <- resolveStoreBackend mctx (o ^. #bucket)
     runDbBackup (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) backend (o ^. #keep) (o ^. #dryRun)
   DbRestore o -> do
-    unless (o ^. #dryRun) (refuseDirectDataWriteWhenManaged mctx "database restore")
-    refuseDirectDataMutationIfOwned mctx DatabaseObjects "restore" (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
+    unless (o ^. #dryRun) $ do
+      refuseDirectDataWriteWhenManaged mctx "database restore"
+      refuseDirectDataMutationIfOwned mctx DatabaseObjects "restore" (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
     backend <- resolveStoreBackend mctx (o ^. #bucket)
     runDbRestore (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) (T.pack (o ^. #backupId)) (o ^. #live) backend (o ^. #dryRun)
   where
@@ -9672,8 +9677,9 @@ runEnv mctx = \case
       then saveReviewedEnvChange mctx name ns sel dry "env set"
         (Right . Map.insert (T.pack key) (T.pack val)) savePlan
       else do
-        unless dry (refuseDirectStoreWriteWhenManaged mctx "env set" "--reviewed")
-        refuseDirectStoreMutationIfOwned mctx False name ns (selectedScopes sel)
+        unless dry $ do
+          refuseDirectStoreWriteWhenManaged mctx "env set" "--reviewed"
+          refuseDirectStoreMutationIfOwned mctx False name ns (selectedScopes sel)
         forM_ (selectedScopes sel) $ \scope -> do
           existing <- orDie =<< readEnvStore name ns scope
           let desired = reconcile Merge existing (Map.singleton (T.pack key) (T.pack val))
@@ -9687,8 +9693,9 @@ runEnv mctx = \case
           then Right (Map.delete (T.pack key) existing)
           else Left "env key is absent from the accepted channel") savePlan
       else do
-        unless dry (refuseDirectStoreWriteWhenManaged mctx "env delete" "--reviewed")
-        refuseDirectStoreMutationIfOwned mctx False name ns (selectedScopes sel)
+        unless dry $ do
+          refuseDirectStoreWriteWhenManaged mctx "env delete" "--reviewed"
+          refuseDirectStoreMutationIfOwned mctx False name ns (selectedScopes sel)
         forM_ (selectedScopes sel) $ \scope -> do
           existing <- orDie =<< readEnvStore name ns scope
           let desired = reconcile ReconcileExact mempty (Map.delete (T.pack key) existing)
@@ -9703,8 +9710,9 @@ runEnv mctx = \case
           (\existing -> Right (reconcile (if exact then ReconcileExact else Merge)
             existing incoming)) savePlan
       else do
-        unless dry (refuseDirectStoreWriteWhenManaged mctx "env sync" "--reviewed")
-        refuseDirectStoreMutationIfOwned mctx False name ns (selectedScopes sel)
+        unless dry $ do
+          refuseDirectStoreWriteWhenManaged mctx "env sync" "--reviewed"
+          refuseDirectStoreMutationIfOwned mctx False name ns (selectedScopes sel)
         let mode = reconcileModeFrom exact
         forM_ (selectedScopes sel) $ \scope -> do
           existing <- orDie =<< readEnvStore name ns scope
@@ -9768,8 +9776,9 @@ runSecret mctx = \case
         saveReviewedSecretChange mctx name ns sel "secret set" version
           (Right . Map.insert (T.pack key) val) Nothing
       Nothing -> do
-        unless dry (refuseDirectStoreWriteWhenManaged mctx "secret set" "--version")
-        refuseDirectStoreMutationIfOwned mctx True name ns (selectedScopes sel)
+        unless dry $ do
+          refuseDirectStoreWriteWhenManaged mctx "secret set" "--version"
+          refuseDirectStoreMutationIfOwned mctx True name ns (selectedScopes sel)
         val <- readSecretValue
         forM_ (selectedScopes sel) $ \scope -> do
           existing <- orDie =<< readSecretStore name ns scope
@@ -9803,8 +9812,9 @@ runSecret mctx = \case
             then Right (Map.delete (T.pack key) existing)
             else Left "Secret key is absent from the accepted channel") Nothing
       Nothing -> do
-        unless dry (refuseDirectStoreWriteWhenManaged mctx "secret delete" "--version")
-        refuseDirectStoreMutationIfOwned mctx True name ns (selectedScopes sel)
+        unless dry $ do
+          refuseDirectStoreWriteWhenManaged mctx "secret delete" "--version"
+          refuseDirectStoreMutationIfOwned mctx True name ns (selectedScopes sel)
         forM_ (selectedScopes sel) $ \scope -> do
           existing <- orDie =<< readSecretStore name ns scope
           let desired = reconcile ReconcileExact mempty (Map.delete (T.pack key) existing)
