@@ -8,6 +8,7 @@ import Data.Generics.Labels ()
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -34,10 +35,15 @@ kubernetesSpecsFromReview bundle = do
         | Managed resource <- effective
         ]
       context = reviewContextBinding (reviewBundleDocument bundle) ^. #identity
+      collections = Map.keysSet (reviewCollections (reviewBundleDocument bundle))
       operations =
         [ operation
         | operation <- reviewOperations (reviewBundleDocument bundle)
         , plannedExecutor (reviewPlannedOperation operation) == KubernetesExecutor
+        -- Collected members are absent from desired scopes. The execution
+        -- factory loads their exact retained incarnation from history.
+        , not (plannedAction (reviewPlannedOperation operation) == RetireResource
+            && any (`Set.member` collections) (NE.toList (plannedResources (reviewPlannedOperation operation))))
         ]
   entries <- traverse (reconstruct context declarationsById) operations
   let grouped = Map.fromListWith (<>) [(resource, [member]) | (resource, member) <- entries]

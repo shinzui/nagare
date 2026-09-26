@@ -54,11 +54,12 @@ import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
 import Test.Tasty
 import Test.Tasty.HUnit
+import System.Directory (createDirectoryIfMissing)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
-import System.Environment (lookupEnv)
+import System.Environment (getEnvironment, lookupEnv)
 import System.Exit (ExitCode (ExitSuccess))
-import System.Process (readProcessWithExitCode)
+import System.Process (CreateProcess (env), proc, readCreateProcessWithExitCode, readProcessWithExitCode)
 
 collectOne :: String -> (String, Value) -> IO ()
 collectOne selectedContext (kind, value) = do
@@ -1816,6 +1817,7 @@ inventoryKubernetesTests =
               pure ()
               ) `finally` cleanup
     , testCase "disposable reviewed task deletion suspends, retains, then collects" liveTaskDeletionProof
+    , testCase "disposable CLI task deletion saves and applies all three stages" liveTaskDeletionCommandProof
     ]
 
 nativeSiblingCarryForward :: IO ()
@@ -2041,6 +2043,150 @@ liveTaskDeletionProof = lookupEnv "NAGARE_EP148_TEST_CONTEXT" >>= \case
         =<< checkLive "configmap" "ep148-delete-sibling"
       siblingUid >>= (@?= originalSiblingUid)
       ) `finally` cleanup
+
+liveTaskDeletionCommandProof :: IO ()
+liveTaskDeletionCommandProof = lookupEnv "NAGARE_EP148_TEST_CONTEXT" >>= \case
+  Nothing -> pure ()
+  Just selectedContext -> do
+    assertBool "refusing a non-disposable Kubernetes context"
+      ("k3d-nagare-inventory-" `T.isPrefixOf` T.pack selectedContext)
+    cli <- lookupEnv "NAGARE_EP148_TEST_CLI" >>= maybe
+      (assertFailure "set NAGARE_EP148_TEST_CLI to the built nagarectl executable" >> fail "missing CLI") pure
+    withSystemTempDirectory "ep148-task-cli" $ \root -> do
+      let namespace = "ep148-task-cli" :: String
+          taskName = "ep148-delete-cli"
+          cronName = "nagare-task-" <> taskName
+          siblingName = "ep148-delete-cli-sibling"
+          binding = ContextBinding (ok (mkContextId (T.pack selectedContext))) (ok (mkName "project"))
+          foundation = ok (mkScopeId Platform "foundation")
+          owner = ok (mkScopeId Application (T.pack taskName))
+          clusterId = mintResourceId foundation (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+          namespaceId = mintResourceId foundation (ok (mkLogicalKey "foundation"))
+            (ok (mkName (T.pack ("namespace-" <> namespace))))
+          taskId = mintResourceId owner (ok (mkLogicalKey "task")) (ok (mkName "cronjob"))
+          siblingId = mintResourceId owner (ok (mkLogicalKey "sibling")) (ok (mkName "configmap"))
+          source = SourceLocation "fixture" "task-delete-cli"
+          namespaceValue = object
+            ["apiVersion" .= ("v1" :: Text), "kind" .= ("Namespace" :: Text),
+             "metadata" .= object ["name" .= namespace]]
+          task = ok (scheduledTask (T.pack taskName) "0 2 * * *" "busybox" "true")
+            & #namespace .~ ok (Dsl.mkNamespace (T.pack namespace))
+            & #app .~ Just (ok (Dsl.mkServiceName (T.pack taskName)))
+          cronValue = ok (Yaml.decodeEither' (renderTask task))
+          siblingValue = object
+            ["apiVersion" .= ("v1" :: Text), "kind" .= ("ConfigMap" :: Text),
+             "metadata" .= object ["name" .= siblingName, "namespace" .= namespace],
+             "data" .= object ["value" .= ("keep" :: Text)]]
+          bind rid ownerScope lifecycle value = ok (bindKubernetesObject (KubernetesInput rid ownerScope clusterId
+            value (contentDigest (ok (canonicalValue value))) lifecycle Stateless Private source))
+          namespaceMember = bind namespaceId foundation Retain namespaceValue
+          cronMember = bind taskId owner DeleteWhenUnreferenced cronValue
+          siblingMember = bind siblingId owner DeleteWhenUnreferenced siblingValue
+          foundationScope = ok (mkScopeDeclaration foundation
+            [ResourceBundle [Managed (fst namespaceMember)] [] [] [] [] []])
+          taskScope = ok (mkScopeDeclaration owner
+            [ResourceBundle [Managed (fst cronMember), Managed (fst siblingMember)] [] [] [] [] []])
+          config = KubernetesRuntimeConfig (ok (mkContextId (T.pack selectedContext)))
+            (T.pack selectedContext) (pure (Right ()))
+          makeRegistry members = ok (mkAdapterRegistry
+            [mkKubernetesAdapter members (mkKubernetesRuntimeOps config members)])
+          configRoot = root </> "config"
+          stateRoot = root </> "state"
+          storePath = stateRoot </> "nagare" </> selectedContext </> "inventory"
+          contextFile = configRoot </> "nagare" </> "contexts" </> selectedContext <> ".env"
+          cleanup = do
+            _ <- readProcessWithExitCode "kubectl"
+              ["--context", selectedContext, "delete", "namespace", namespace,
+               "--ignore-not-found", "--wait=false"] ""
+            pure ()
+          checkLive kind name = do
+            (status, _, _) <- readProcessWithExitCode "kubectl"
+              ["--context", selectedContext, "-n", namespace, "get", kind, name] ""
+            pure (status == ExitSuccess)
+          siblingUid = do
+            (status, uid, errors) <- readProcessWithExitCode "kubectl"
+              ["--context", selectedContext, "-n", namespace, "get", "configmap",
+               siblingName, "-o", "jsonpath={.metadata.uid}"] ""
+            status @?= ExitSuccess
+            assertBool ("sibling UID is empty: " <> errors) (not (null uid))
+            pure uid
+      createDirectoryIfMissing True (configRoot </> "nagare" </> "contexts")
+      writeFile contextFile "CLOUDSDK_CORE_PROJECT=project\nNAGARE_MODE=local\n"
+      inherited <- getEnvironment
+      let cliEnv = Just
+            (("XDG_CONFIG_HOME", configRoot) : ("XDG_STATE_HOME", stateRoot) :
+             ("CLOUDSDK_CORE_PROJECT", "project") : ("NAGARE_MODE", "local") :
+              filter (\(key, _) -> key `notElem`
+                ["XDG_CONFIG_HOME", "XDG_STATE_HOME", "CLOUDSDK_CORE_PROJECT", "NAGARE_MODE"]) inherited)
+          runCli args = do
+            (status, output, errors) <- readCreateProcessWithExitCode
+              ((proc cli (["--context", selectedContext] <> args)) {env = cliEnv}) ""
+            assertBool ("nagarectl " <> unwords args <> " failed: " <> output <> errors)
+              (status == ExitSuccess)
+          readHistory store = loadInventoryHistory store >>= expectRight
+          acceptedSnapshot history = ok (mkScopeSnapshot binding
+            (Map.map (\(revision, declared) -> (revisionGeneration revision, declared))
+              (historyAccepted history)) (historyReservations history))
+          reviewAndApply store stage candidate members = do
+            history <- readHistory store
+            let registry = makeRegistry members
+            observed <- observeWithRegistry registry
+              (requirementsByExecutor (observationRequirements candidate history))
+              >>= expectRight
+            proposal <- case planChanges candidate noLifecycleDecisions history observed of
+              Left failure -> assertFailure (stage <> ": " <> show failure)
+                >> fail "initial task CLI planning failed"
+              Right value -> pure value
+            before <- readStoreSnapshot store >>= expectRight
+            savedReview <- prepareReview registry before proposal >>= expectRight
+            _ <- publishReview store savedReview >>= expectRight
+            published <- readStoreSnapshot store >>= expectRight
+            reviewed <- expectRight (verifyReview published savedReview)
+            result <- applyReviewed store registry reviewed >>= expectRight
+            case result of
+              Converged _ -> pure ()
+              other -> assertFailure (stage <> " did not converge: " <> show other)
+          nextStage stage = do
+            let reviewPath = root </> stage
+            runCli ["task", "delete", taskName, taskName, "--namespace", namespace,
+              "--save-plan", reviewPath]
+            runCli ["inventory", "apply", reviewPath, "--yes"]
+      cleanup
+      (do
+        store <- openFilesystemStore storePath >>= expectRight
+        _ <- initializeStore store binding "ep148-task-cli" >>= expectRight
+        let foundationCandidate = ok (composeInventory
+              (ok (mkScopeSnapshot binding Map.empty Map.empty))
+              (ReplaceScope foundationScope :| []))
+        reviewAndApply store "foundation" foundationCandidate
+          (Map.singleton namespaceId namespaceMember)
+        foundationHistory <- readHistory store
+        let taskCandidate = ok (composeInventory (acceptedSnapshot foundationHistory)
+              (ReplaceScope taskScope :| []))
+        reviewAndApply store "task" taskCandidate
+          (Map.fromList [(taskId, cronMember), (siblingId, siblingMember)])
+        originalSiblingUid <- siblingUid
+        nextStage "suspend"
+        (status, suspended, errors) <- readProcessWithExitCode "kubectl"
+          ["--context", selectedContext, "-n", namespace, "get", "cronjob",
+           cronName, "-o", "jsonpath={.spec.suspend}"] ""
+        status @?= ExitSuccess
+        assertBool errors (suspended == "true")
+        nextStage "retain"
+        retained <- readHistory store
+        assertBool "CLI retention did not retain the CronJob"
+          (Map.member taskId (historyRetained retained))
+        assertBool "CLI retention deleted the CronJob" =<< checkLive "cronjob" cronName
+        nextStage "collect"
+        collected <- readHistory store
+        assertBool "CLI collection left the CronJob retained"
+          (Map.notMember taskId (historyRetained collected))
+        assertBool "CLI collection left the CronJob live"
+          . not =<< checkLive "cronjob" cronName
+        assertBool "CLI deletion removed the sibling"
+          =<< checkLive "configmap" siblingName
+        siblingUid >>= (@?= originalSiblingUid)
+        ) `finally` cleanup
 
 addProbeAnnotation :: Value -> Value
 addProbeAnnotation (Object root) = case KM.lookup "metadata" root of

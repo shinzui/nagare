@@ -9656,6 +9656,11 @@ runReviewedTaskDeletePlan mctx options output = do
                   (ResourceInventory.candidateInventory candidate)]
         in Map.filterWithKey (\resource _ -> Set.member resource desired)
           (Map.union replacements acceptedNative)
+      nativeAccepted =
+        let desired = Set.fromList [resource ^. #identity
+              | ResourceInventory.Managed resource <- ResourceInventory.inventoryDeclarations
+                  acceptedInventory]
+        in Map.filterWithKey (\resource _ -> Set.member resource desired) acceptedNative
   case (accepted, retained) of
     ([(resource, scope)], []) -> do
       bytes <- nativeBytes resource
@@ -9685,7 +9690,8 @@ runReviewedTaskDeletePlan mctx options output = do
       bytes <- nativeBytes resource
       suspended <- either (dieT . T.pack . show) pure (taskSuspended appLabel resource bytes)
       unless suspended (dieT "retained CronJob was not suspended in accepted intent; refusing collection")
-      Inventory.planInventoryCollectionWith (inventoryPlanRegistry active workspace)
+      Inventory.planInventoryCollectionWith
+        (inventoryPlanRegistryWithNative active workspace nativeAccepted)
         active (resource ^. #identity) output
       TIO.putStrLn "Saved exact CronJob collection review. Apply it to delete the retained schedule."
     _ -> dieT "reviewed task delete found ambiguous CronJob ownership"
