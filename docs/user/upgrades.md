@@ -76,7 +76,8 @@ bash scripts/rehearse-managed-resources.sh --phase apply --mode local \
 NAGARE_TEST_FRESH_CANDIDATE=/private/path/to/post-apply-candidate
 bash scripts/rehearse-managed-resources.sh --phase verify --mode local \
   --context "$NAGARE_TEST_CONTEXT" --expected-cluster "$NAGARE_TEST_CLUSTER" \
-  --candidate "$NAGARE_TEST_FRESH_CANDIDATE" --evidence-dir "$NAGARE_TEST_EVIDENCE"
+  --candidate "$NAGARE_TEST_FRESH_CANDIDATE" --evidence-dir "$NAGARE_TEST_EVIDENCE" \
+  --private-store-export /private/path/outside-public-evidence/inventory-export
 ```
 
 For a cloud context, change `--mode local` to `--mode cloud` in each command and
@@ -91,9 +92,23 @@ fresh rehearsal. A
 successful no-op review alone does not establish full resource coverage or a
 production-shaped provider rehearsal.
 
+The optional export contains private native plans and journal details. Keep it
+outside any public release attachment directory. Once a complete mutation
+coverage result and matching release manifest exist, run
+`scripts/assemble-managed-resource-evidence.sh --help` for the projection
+interface. The launcher records the operator version and source revision at
+review time and refuses a different binary on apply or verify. The projector
+checks that identity against the release manifest, verifies the export, and
+emits a versioned public manifest with
+payload identity, scope revisions, review and component receipt digests, and
+an aggregate final observation. Its fixture and run identities are distinct
+from the shared release payload. This projector alone does not add an
+attachment to a release; release assembly still needs the completed live
+rehearsal and coverage gate.
+
 ## Release publication and retry
 
-The release workflow assembles its native outputs into seven exact attachments,
+The release workflow assembles its native outputs into seven base attachments,
 then invokes the tagged `nagarectl release publish` command. The command
 checks the annotated tag object and commit, manifest identity, `SHA256SUMS`,
 and every candidate byte before creating a draft. The draft body holds the
@@ -106,6 +121,14 @@ to it but do not own it. A successful run writes
 `nagare-publication-observation-vVERSION.json` beside the candidate files,
 recording the verified release and asset IDs; the workflow archives this local
 observation separately from the immutable release attachments.
+
+Release assembly can also accept one projected
+`nagare-inventory-evidence-vVERSION.json` file with
+`--inventory-evidence FILE`. The checked publisher includes it as an eighth
+immutable attachment only when present and verifies that its payload version,
+source revision, and native digest match the release manifest. The current
+workflow does not yet supply this file, so its seven-attachment release is not
+proof of the integrated inventory acceptance scenario.
 
 The candidate files are still required when an upload is missing. If the
 temporary Actions artifacts have expired, reconstruct the exact candidate

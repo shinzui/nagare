@@ -58,6 +58,15 @@ inventoryTests =
         refused <- try (compileInventory "test/fixtures/inventory/collision-service.json" output True) :: IO (Either ExitCode ())
         assertBool "invalid rejected" (isLeft refused)
         doesPathExist output >>= (@?= False)
+    , testCase "legacy platform mutation closes after any inventory admission" $ do
+        let binding = ContextBinding (ok (mkContextId "legacy-guard")) (ok (mkName "project"))
+            emptyHead = HeadManifest 1 0 0 binding "test" Map.empty Map.empty Map.empty Map.empty Nothing Nothing Nothing
+        hasSubstantiveHistory emptyHead @?= False
+        hasSubstantiveHistory (emptyHead {headGeneration = 1}) @?= True
+        hasSubstantiveHistory (emptyHead {headSequence = 1}) @?= True
+        hasSubstantiveHistory (emptyHead {headActiveTransaction = Just "tx"}) @?= True
+        hasSubstantiveHistory (emptyHead {headExecutorClaim = Just (ExecutorClaim "tx" "client" 0 "time")}) @?= True
+        hasSubstantiveHistory (emptyHead {headMigration = Just (MigrationTombstone "other-store" (contentDigest "head"))}) @?= True
     , testCase "Kubernetes declaration binds the exact canonical native object" $ do
         let owner = ok (mkScopeId Platform "foundation")
             rid key = mintResourceId owner (ok (mkLogicalKey key)) (ok (mkName "resource"))

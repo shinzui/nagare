@@ -100,6 +100,34 @@ jq -e '
     and .payloadDigests["aarch64-darwin"] == "sha256-platform-aarch64-darwin"
 ' "$test_root/assembled/nagare-release-${version}.json" >/dev/null
 
+jq -n -S --arg version "$version" \
+  --arg payload "sha256-platform-aarch64-darwin" \
+  --arg run "$(printf 'a%.0s' {1..64})" \
+  '{schemaVersion: 1,
+    payload: {version: $version, sourceRevision: "fixture-revision",
+      system: "aarch64-darwin", digest: $payload},
+    run: {id: $run}, componentReceipts: [{operation: "op-fixture"}],
+    finalObservation: {complete: true}, coverage: {complete: true}}' \
+  > "$test_root/inventory-evidence.json"
+assemble_release --version "$version" --input-root "$test_root/native" \
+  --inventory-evidence "$test_root/inventory-evidence.json" \
+  --output-dir "$test_root/assembled-with-evidence"
+test -s "$test_root/assembled-with-evidence/nagare-inventory-evidence-v${version}.json"
+grep -q "nagare-inventory-evidence-v${version}.json" \
+  "$test_root/assembled-with-evidence/SHA256SUMS"
+jq '.coverage.complete = false' "$test_root/inventory-evidence.json" \
+  > "$test_root/incomplete-inventory-evidence.json"
+expect_failure incomplete-inventory-evidence \
+  assemble_release --version "$version" --input-root "$test_root/native" \
+    --inventory-evidence "$test_root/incomplete-inventory-evidence.json" \
+    --output-dir "$test_root/assembled-incomplete-evidence"
+jq '.payload.digest = "sha256-other-payload"' "$test_root/inventory-evidence.json" \
+  > "$test_root/mismatched-inventory-evidence.json"
+expect_failure mismatched-inventory-evidence \
+  assemble_release --version "$version" --input-root "$test_root/native" \
+    --inventory-evidence "$test_root/mismatched-inventory-evidence.json" \
+    --output-dir "$test_root/assembled-mismatched-evidence"
+
 cp -R "$test_root/native" "$test_root/divergent-native"
 jq '.revision = "different-revision"' \
   "$test_root/divergent-native/x86_64-linux/nagare-release-${version}.json" \
@@ -177,3 +205,4 @@ jq '.sourceRevision = "0123456789abcdef0123456789abcdef01234567"' \
 [[ "$(nagare_release_source_tag "$metadata_fixture")" == "0123456789ab" ]]
 
 printf 'release consistency tests passed\n'
+bash "$repo_root/scripts/test-managed-resource-evidence.sh"

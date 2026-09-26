@@ -6,13 +6,15 @@ usage() {
 Usage: scripts/rehearse-managed-resources.sh --phase plan|apply|verify \
   --mode local|cloud --context NAME --expected-cluster CLUSTER \
   [--expected-project PROJECT] [--candidate COMPILED_DIRECTORY] \
-  --evidence-dir DIRECTORY [--yes]
+  --evidence-dir DIRECTORY [--private-store-export DIRECTORY] [--yes]
 
 Plan and verify require a candidate compiled by nagarectl inventory compile.
 Apply consumes the saved review and requires --yes. Verify requires a fresh
 candidate compiled from the accepted post-apply snapshot and proves that its
 review has no operations. Cloud mode requires an exact expected GCP project;
 local mode refuses one and makes no cloud preflight call.
+The optional private store export is written only during verify. Keep it outside
+the public evidence directory; it may contain credentials and native plans.
 EOF
 }
 
@@ -33,10 +35,11 @@ expected_cluster=""
 expected_project=""
 candidate=""
 evidence_dir=""
+private_store_export=""
 yes=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --phase|--mode|--context|--expected-cluster|--expected-project|--candidate|--evidence-dir)
+    --phase|--mode|--context|--expected-cluster|--expected-project|--candidate|--evidence-dir|--private-store-export)
       [[ $# -ge 2 ]] || die "$1 requires a value"
       case "$1" in
         --phase) phase="$2" ;;
@@ -46,6 +49,7 @@ while [[ $# -gt 0 ]]; do
         --expected-project) expected_project="$2" ;;
         --candidate) candidate="$2" ;;
         --evidence-dir) evidence_dir="$2" ;;
+        --private-store-export) private_store_export="$2" ;;
       esac
       shift 2 ;;
     --yes) yes=true; shift ;;
@@ -67,6 +71,16 @@ if [[ "$phase" == apply ]]; then
 else
   [[ -d "$candidate" && "$yes" == false ]] || die "$phase requires --candidate and refuses --yes"
   [[ -f "$candidate/candidate.json" && -f "$candidate/candidate.sha256" ]] || die "candidate is not a compiled inventory directory"
+fi
+if [[ -n "$private_store_export" ]]; then
+  [[ "$phase" == verify ]] || die "private store export is available only during verify"
+  [[ -d "$(dirname "$private_store_export")" ]] || die "private store export parent does not exist"
+  public_root="$(cd "$evidence_dir" && pwd -P)"
+  private_root="$(cd "$(dirname "$private_store_export")" && pwd -P)/$(basename "$private_store_export")"
+  case "$private_root/" in
+    "$public_root/"*) die "private store export must be outside the public evidence directory" ;;
+  esac
+  [[ ! -e "$private_store_export" ]] || die "private store export already exists"
 fi
 
 cli="${NAGARECTL_BIN:-nagarectl}"
@@ -98,6 +112,7 @@ if [[ "$phase" == plan ]]; then
     '{schemaVersion: 1, context: $context, mode: $mode,
       expectedProject: (if $mode == "cloud" then $project else null end),
       expectedCluster: $cluster}' > "$evidence_dir/target.json"
+  "$cli" version --json | jq -S . > "$evidence_dir/operator-version.json"
   printf '%s\n' "$guard_json" | jq -S . > "$evidence_dir/context-guard.json"
   candidate_digest="$(cat "$candidate/candidate.sha256")"
   [[ "$candidate_digest" == "$(sha256_file "$candidate/candidate.json")" ]] || die "candidate manifest digest differs from candidate.sha256"
@@ -115,6 +130,9 @@ if [[ "$phase" == plan ]]; then
 fi
 
 [[ -f "$evidence_dir/target.json" && -f "$evidence_dir/run.json" ]] || die "evidence directory has no saved target and review"
+[[ -f "$evidence_dir/operator-version.json" ]] || die "evidence directory has no operator identity"
+cmp -s "$evidence_dir/operator-version.json" <("$cli" version --json | jq -S .) \
+  || die "operator version or source revision changed since review"
 jq -e --arg context "$context" --arg mode "$mode" --arg project "$expected_project" --arg cluster "$cluster" \
   '.schemaVersion == 1 and .context == $context and .mode == $mode
     and .expectedProject == (if $mode == "cloud" then $project else null end)
@@ -144,6 +162,9 @@ candidate_digest="$(cat "$candidate/candidate.sha256")"
 jq -e '.operations == []' "$evidence_dir/no-op-review/review.json" >/dev/null \
   || die "unchanged candidate has planned operations; no-op convergence is unproved"
 "$cli" --context "$context" inventory status --json > "$evidence_dir/final-observation.json"
+if [[ -n "$private_store_export" ]]; then
+  "$cli" --context "$context" inventory export --out "$private_store_export"
+fi
 jq -S --arg candidate "$candidate_digest" \
   '.state = "verified" | .verificationCandidateDigest = $candidate | .noOp = true' \
   "$evidence_dir/run.json" > "$evidence_dir/run.tmp"

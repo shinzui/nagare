@@ -103,7 +103,7 @@ private mode-`0700` directory and mode-`0600` files.
 | `nagarectl platform upgrade status [ID] [--json]` | Inspect a selected or latest context-owned transaction. |
 | `nagarectl platform upgrade recover-pulumi ID --outcome applied\|retry --yes` | Record an audited decision for an ambiguous or pre-receipt Pulumi outcome. |
 | `nagarectl platform upgrade rollback ID --yes` | Reverse the release selection only when target metadata permits it. |
-| `nagarectl release publish --repo OWNER/REPO --version VERSION --assets DIR [--yes]` | Review exact tag, commit, release manifest, checksums, and attachment bytes; with `--yes`, recover or publish a GitHub release through its provider-bound draft and verification receipt, then write a local completion observation beside the candidate files. This is a repository-level command and does not select a context. |
+| `nagarectl release publish --repo OWNER/REPO --version VERSION --assets DIR [--yes]` | Review exact tag, commit, release manifest, checksums, and attachment bytes, including a matching optional inventory-evidence attachment; with `--yes`, recover or publish a GitHub release through its provider-bound draft and verification receipt, then write a local completion observation beside the candidate files. This is a repository-level command and does not select a context. |
 | `nagarectl release cleanup-starter --repo OWNER/REPO --version VERSION --assets DIR --release-id ID --asset-id ID --asset-name NAME [--yes]` | Review and, with `--yes`, remove one exact failed upload placeholder from the bound draft. Published or uploaded assets are refused. |
 
 When invoking these platform commands from an immutable release without installing it, use
@@ -198,8 +198,8 @@ transaction's staged host flake, so inherited values from another context cannot
 | `nagarectl context delete NAME --yes` | Delete a context. If it was current, clear the pointer. |
 | `nagarectl infra guard [--allow-replacement]` | Compatibility guard that previews and classifies protected replacements. New apply workflows use the saved-plan commands below. |
 | `nagarectl infra preview --save-plan DIR [--allow-replacement]` | Guard, save, classify, and bind one Pulumi preview as a private immutable bundle. |
-| `nagarectl infra apply --plan DIR --yes [--allow-replacement]` | Re-run guards, verify the bundle and current bindings, then apply exactly its Pulumi plan without a TTY. |
-| `nagarectl infra destroy --yes` | Re-run the platform, ADC, and project guards immediately before deliberate selected-stack teardown. |
+| `nagarectl infra apply --plan DIR --yes [--allow-replacement]` | Apply an inventory review through the shared executor, or re-run guards and apply an older Pulumi plan only while the context has no substantive inventory history. |
+| `nagarectl infra destroy --yes` | Re-run the platform, ADC, and project guards before deliberate selected-stack teardown; refuse once the context has substantive inventory history. |
 | `nagarectl host init [--context NAME] --ssh-public-key-file PATH... --sops-file PATH` | Atomically generate and Nix-evaluate a context-owned host flake. `--dry-run` needs no secrets file; `--force` preserves an existing encrypted file when `--sops-file` is omitted. |
 | `nagarectl host place-age-key [--context NAME] --key-file PATH [--force]` | Validate and SHA-256 hash an operator-held age identity, stream it over context-confined IAP SSH stdin, activate sops-nix, and start Tailscale. Replaying the same key is idempotent; replacing a different key requires interruption-sensitive `--force`. |
 | `nagarectl host show [--context NAME]` | Print the generated public operator module. |

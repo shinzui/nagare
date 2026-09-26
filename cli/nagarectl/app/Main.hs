@@ -24,6 +24,7 @@ import Control.Applicative ((<|>))
 import Control.Exception (IOException, bracket, bracket_, catch, try)
 import Control.Monad (forM, forM_, unless, void)
 import Data.Aeson qualified as Aeson
+import Data.Aeson.Key qualified as AesonKey
 import Data.Aeson.KeyMap qualified as AesonMap
 import Data.Bits ((.&.))
 import Data.ByteString (ByteString)
@@ -3156,6 +3157,11 @@ main = do
 runReleasePublish :: Text -> Text -> FilePath -> Bool -> Maybe (Integer, Integer, Text) -> IO ()
 runReleasePublish repository version directory yes cleanup = do
   _ <- either (dieT . renderVersionError) pure (parsePlatformVersion version)
+  let evidenceName = "nagare-inventory-evidence-v" <> T.unpack version <> ".json"
+  evidenceExists <- doesFileExist (directory </> evidenceName)
+  when evidenceExists $ do
+    linked <- pathIsSymbolicLink (directory </> evidenceName)
+    when linked (dieT "inventory evidence attachment may not be a symbolic link")
   let tag = "v" <> version
       manifestName = "nagare-release-" <> T.unpack version <> ".json"
       notesName = "nagare-" <> T.unpack tag <> ".md"
@@ -3167,7 +3173,7 @@ runReleasePublish repository version directory yes cleanup = do
         , "clone-free-x86_64-linux.json"
         , "clone-free-aarch64-darwin.json"
         , "SHA256SUMS"
-        ]
+        ] <> [evidenceName | evidenceExists]
   tagType <- exactGitObjectType ("refs/tags/" <> T.unpack tag)
   unless (tagType == "tag") (dieT "release requires an annotated Git tag")
   tagObject <- exactGitRevision ("refs/tags/" <> T.unpack tag)
@@ -3198,6 +3204,38 @@ runReleasePublish repository version directory yes cleanup = do
           && AesonMap.lookup "consistent" fields == Just (Aeson.Bool True))
         (dieT "assembled release manifest does not bind this version, tag, and commit")
     _ -> dieT "assembled release manifest is not an object"
+  forM_ (Map.lookup evidenceName byName) $ \evidenceBytes -> do
+    evidence <- either (dieT . ("invalid inventory evidence: " <>) . T.pack) pure
+      (Aeson.eitherDecodeStrict' evidenceBytes :: Either String Aeson.Value)
+    let field key (Aeson.Object fields) = AesonMap.lookup key fields
+        field _ _ = Nothing
+        payload = field "payload" evidence
+        fromPayload key = payload >>= field key
+        system = case fromPayload "system" of
+          Just (Aeson.String systemName) -> Just systemName
+          _ -> Nothing
+        expectedDigest = do
+          Aeson.Object manifestFields <- pure manifest
+          Aeson.Object digests <- AesonMap.lookup "payloadDigests" manifestFields
+          selected <- system
+          AesonMap.lookup (AesonKey.fromText selected) digests
+        validRun = case field "run" evidence >>= field "id" of
+          Just (Aeson.String runToken) -> T.length runToken == 64
+          _ -> False
+        hasReceipts = case field "componentReceipts" evidence of
+          Just (Aeson.Array values) -> not (null values)
+          _ -> False
+        validEvidence =
+          field "schemaVersion" evidence == Just (Aeson.Number 1)
+            && fromPayload "version" == Just (Aeson.String version)
+            && fromPayload "sourceRevision" == Just (Aeson.String commit)
+            && isJust expectedDigest
+            && fromPayload "digest" == expectedDigest
+            && validRun
+            && hasReceipts
+            && (field "coverage" evidence >>= field "complete") == Just (Aeson.Bool True)
+            && (field "finalObservation" evidence >>= field "complete") == Just (Aeson.Bool True)
+    unless validEvidence (dieT "inventory evidence does not bind the complete release candidate")
   sumsText <- either (dieT . T.pack . show) pure (TE.decodeUtf8' sumsBytes)
   listed <- forM (T.lines sumsText) $ \line -> do
     let (digest, suffix) = T.breakOn "  " line
@@ -3694,7 +3732,7 @@ runPlatformUpgrade mctx options = do
   -- accepted inventory history, replaying its Pulumi/host/bootstrap phases
   -- would bypass the reviewed component transaction and could overwrite an
   -- independently revised application scope.
-  guardLegacyUpgradeInventory active
+  guardLegacyPlatformMutationInventory "platform upgrade" active
   if options ^. #apply
     then do
       unless (options ^. #yes) (dieT "refusing to apply an upgrade without --yes")
@@ -3754,29 +3792,22 @@ runPlatformUpgrade mctx options = do
           dieT err
         Right planned -> printUpgradeTransaction (options ^. #json) planned
 
-guardLegacyUpgradeInventory :: ActiveTarget -> IO ()
-guardLegacyUpgradeInventory active = do
+guardLegacyPlatformMutationInventory :: Text -> ActiveTarget -> IO ()
+guardLegacyPlatformMutationInventory operation active = do
   opened <- Inventory.openTargetStoreReadOnly active
   case opened of
     Left (InventoryStore.StoreConditionFailed "inventory store is not initialized") -> pure ()
-    Left err -> dieT ("could not verify inventory history before platform upgrade: " <> T.pack (show err))
+    Left err -> dieT ("could not verify inventory history before " <> operation <> ": " <> T.pack (show err))
     Right store -> do
-      loaded <- InventoryPlan.loadInventoryHistory store
+      loaded <- InventoryStore.readHead store
       case loaded of
-        Left (InventoryStore.StoreConditionFailed "inventory store is not initialized") -> pure ()
-        Left err -> dieT ("could not verify inventory history before platform upgrade: " <> T.pack (show err))
-        Right history -> do
-          let headValue = InventoryPlan.historyHead history
-              hasHistory = InventoryStore.headGeneration headValue > 0
-                || InventoryStore.headSequence headValue > 0
-                || not (Map.null (InventoryPlan.historyAccepted history))
-                || not (Map.null (InventoryPlan.historyRetained history))
-                || not (Map.null (InventoryStore.headCollected headValue))
-                || InventoryStore.headActiveTransaction headValue /= Nothing
-          when hasHistory $
+        Left err -> dieT ("could not verify inventory history before " <> operation <> ": " <> T.pack (show err))
+        Right Nothing -> pure ()
+        Right (Just headValue) ->
+          when (InventoryStore.hasSubstantiveHistory headValue) $
             dieT
-              ( "this context has resource inventory history or transaction state; the legacy platform upgrade phases cannot safely mutate it. "
-                  <> "For a pending legacy transaction, retain its bundle and use the original operator payload for guarded recovery."
+              ( "this context has resource inventory history or transaction state; legacy " <> operation
+                  <> " cannot safely mutate it. Retain any pending legacy transaction bundle and use its original operator payload for guarded recovery."
               )
 
 guardUpgradePayloadCompatibility :: PayloadManifest -> Either Text ()
@@ -4711,6 +4742,8 @@ runInfraApply mctx options = do
       when (options ^. #allowReplacement) (dieT "--allow-replacement belongs to the reviewed lifecycle decision and cannot alter an inventory review")
       runInventoryApply mctx (options ^. #plan) True
     else do
+      selected <- activeTarget mctx
+      guardLegacyPlatformMutationInventory "infra apply" selected
       (active, workspace) <- prepareInfraMutation mctx
       result <- applyReviewedPlan active workspace (options ^. #plan) (options ^. #allowReplacement)
       either dieT TIO.putStr result
@@ -4719,6 +4752,8 @@ runInfraDestroy :: Maybe String -> Bool -> IO ()
 runInfraDestroy mctx yes = do
   unless yes $
     dieT "refusing to destroy the selected context's infrastructure without --yes"
+  selected <- activeTarget mctx
+  guardLegacyPlatformMutationInventory "infra destroy" selected
   (active, workspace) <- prepareInfraMutation mctx
   let stack = T.unpack (contextNameText (active ^. #contextName))
   result <- runExternal [ExitSuccess] "pulumi" ["-C", workspace ^. #pulumiDir, "destroy", "--stack", stack, "--yes", "--non-interactive"] ""

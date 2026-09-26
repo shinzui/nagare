@@ -17,6 +17,10 @@ sha256_file() {
 cat > "$test_root/bin/nagarectl" <<'FAKE_CLI'
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ "${1:-} ${2:-}" == 'version --json' ]]; then
+  printf '{"version":"0.4.0","revision":"%s"}\n' "${NAGARE_TEST_REVISION:-fixture-revision}"
+  exit 0
+fi
 [[ "${1:-}" == --context && "${2:-}" == demo ]] || exit 30
 shift 2
 case "$1 $2" in
@@ -68,6 +72,11 @@ if "$runner" --phase apply "${common[@]}" >/dev/null 2>&1; then
   printf 'apply without --yes was accepted\n' >&2
   exit 1
 fi
+if NAGARE_TEST_REVISION=changed "$runner" --phase apply "${common[@]}" --yes >/dev/null 2>&1; then
+  printf 'changed operator revision was accepted\n' >&2
+  exit 1
+fi
+jq -e '.state == "planned"' "$test_root/evidence/run.json" >/dev/null
 "$runner" --phase apply "${common[@]}" --yes > "$test_root/apply.out"
 jq -e '.state == "applied"' "$test_root/evidence/run.json" >/dev/null
 "$runner" --phase verify "${common[@]}" --candidate "$test_root/candidate" > "$test_root/verify.out"

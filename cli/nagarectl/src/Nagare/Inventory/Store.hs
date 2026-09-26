@@ -11,6 +11,7 @@ module Nagare.Inventory.Store
   , RetainedIncarnation (..)
   , DeletionTombstone (..)
   , HeadManifest (..)
+  , hasSubstantiveHistory
   , StoreSnapshot (..)
   , openFilesystemStore
   , openFilesystemStoreReadOnly
@@ -142,6 +143,22 @@ data HeadManifest = HeadManifest
   , headMigration :: !(Maybe MigrationTombstone)
   }
   deriving stock (Eq, Show, Generic)
+
+-- | Legacy platform mutations have no component receipts and may run only
+-- before this store has accepted or retained any resource work. An initialized
+-- but untouched head is safe for the older path; an admitted transaction is
+-- not, even if no scope revision has committed yet.
+hasSubstantiveHistory :: HeadManifest -> Bool
+hasSubstantiveHistory headValue =
+  headGeneration headValue > 0
+    || headSequence headValue > 0
+    || not (Map.null (headAccepted headValue))
+    || not (Map.null (headConverged headValue))
+    || not (Map.null (headRetained headValue))
+    || not (Map.null (headCollected headValue))
+    || isJust (headActiveTransaction headValue)
+    || isJust (headExecutorClaim headValue)
+    || isJust (headMigration headValue)
 
 data StoreSnapshot = StoreSnapshot
   { storeSnapshotHead :: !HeadManifest

@@ -27,6 +27,11 @@ provenance:
       at: 2026-09-26T00:11:09Z
       mode: "implement"
       note: "Made future upgrade transactions inspectable and declared supported inventory wire minimums"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-26T00:48:01Z
+      mode: "implement"
+      note: "Guarded legacy Pulumi mutations and added redacted inventory evidence projection"
 ---
 
 # Integrate resource inventories into upgrades and release verification
@@ -47,6 +52,28 @@ Release evidence archives the inventory, review, receipts, and final observation
 - [ ] M2: Package contracts and audit all supported mutation paths.
 - [ ] M3: Run deterministic and disposable-context convergence/recovery scenarios.
 - [ ] M4: Archive release evidence, document recovery, and finish ADR distillation.
+
+2026-09-25: M2's compatibility boundary now also refuses legacy `infra apply`
+and `infra destroy` after the selected context has substantive inventory
+history, an executor claim, or a store migration. The common head predicate
+keeps an initialized but untouched store eligible for the old guarded path.
+A focused Haskell test and executable build pass. Direct application/data
+paths and the full command-registration audit remain open. The full 829-test
+`nagarectl` suite, release consistency source Nix check, Haskell style check,
+strict user-documentation validation, and diff check pass.
+
+2026-09-25: M4 has a public evidence projector for a verified disposable
+rehearsal and a separately held private store export. It checks the original
+review and no-op review, accepted/converged vector, committed journal members,
+the exact review transaction's completion receipts, matching operator source
+revision and payload identity, and a
+complete coverage result. Output contains only selected public fields and
+digests; the launcher can export private history outside its public evidence
+directory. The projector's idempotence, redaction, coverage-refusal, and
+tamper tests and the release consistency suite pass. Release assembly and the
+checked publisher can include it as an eighth immutable product, but the
+workflow does not yet require it. Live provider evidence, full coverage, and
+native-system release gates remain open.
 
 2026-09-25: M1 compatibility boundary now reads schema-1 upgrade transactions
 as before and exposes a future transaction's context, ID, target, and schema
@@ -266,6 +293,13 @@ without changing the other three scope revisions. The focused test passes.
 This is deterministic M3 evidence, not the local/live provider rehearsal or
 the remaining upgrade and mutation-path integration.
 
+2026-09-25: A private store export can contain uncommitted journal objects
+beyond the head sequence. The public evidence projector includes only events
+below the committed head sequence and only completed operations for the
+transaction derived from the reviewed document digest. It also requires that
+transaction's committed convergence event; merely counting journal files
+would overstate the run's receipt evidence.
+
 
 ## Decision Log
 
@@ -304,6 +338,13 @@ The first compiled candidate carries the pre-apply snapshot, so no-op proof
 requires recompiling the same desired intent against the accepted post-apply
 snapshot. Keep the original evidence directory and reviewed bytes across all
 three invocations rather than silently regenerating a changed apply review.
+
+2026-09-25: Once a context admits inventory work, the old coarse Pulumi apply
+and destroy paths close alongside the old platform upgrade. A public release
+evidence manifest is a strict projection of a verified run and private export;
+the export remains outside public artifacts. A complete coverage result is an
+input to projection, and the projector is not itself evidence that coverage or
+the live rehearsal has been achieved.
 
 
 ## Outcomes & Retrospective

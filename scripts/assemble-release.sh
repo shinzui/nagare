@@ -4,6 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage: scripts/assemble-release.sh --version VERSION --input-root DIR --output-dir DIR
+  [--inventory-evidence FILE]
 
 Combine native-runner release artifacts into the immutable GitHub release attachment set.
 EOF
@@ -26,6 +27,7 @@ hash_file() {
 version=""
 input_root=""
 output_dir=""
+inventory_evidence=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -44,6 +46,11 @@ while [[ $# -gt 0 ]]; do
       output_dir="$2"
       shift 2
       ;;
+    --inventory-evidence)
+      [[ $# -ge 2 ]] || die "--inventory-evidence requires a value"
+      inventory_evidence="$2"
+      shift 2
+      ;;
     --help|-h)
       usage
       exit 0
@@ -58,6 +65,8 @@ done
   || die "--version must be an unpadded major.minor.patch semantic version"
 [[ -d "$input_root" ]] || die "--input-root is not a directory: $input_root"
 [[ -n "$output_dir" ]] || die "--output-dir is required"
+[[ -z "$inventory_evidence" || ( -f "$inventory_evidence" && ! -L "$inventory_evidence" ) ]] \
+  || die "inventory evidence file is missing or linked"
 
 manifest_name="nagare-release-${version}.json"
 notes_name="nagare-v${version}.md"
@@ -154,12 +163,29 @@ done
 for rehearsal in "${rehearsals[@]}"; do
   cp "$rehearsal" "$output_dir/$(basename "$rehearsal")"
 done
+if [[ -n "$inventory_evidence" ]]; then
+  jq -e --arg version "$version" --arg revision "$(jq -er '.revision' "$base_manifest")" \
+    --argjson payloadDigests "$payload_digests" '
+      .schemaVersion == 1
+      and .payload.version == $version
+      and .payload.sourceRevision == $revision
+      and .payload.digest == $payloadDigests[.payload.system]
+      and (.run.id | type == "string" and length == 64)
+      and (.componentReceipts | type == "array" and length > 0)
+      and .finalObservation.complete == true
+      and .coverage.complete == true' "$inventory_evidence" >/dev/null \
+    || die "inventory evidence does not bind the complete release candidate"
+  cp "$inventory_evidence" "$output_dir/nagare-inventory-evidence-v${version}.json"
+fi
 
 (
   cd "$output_dir"
   for file in "$manifest_name" "$notes_name" nix-output-*.json clone-free-*.json; do
     hash_file "$file"
   done
+  if [[ -n "$inventory_evidence" ]]; then
+    hash_file "nagare-inventory-evidence-v${version}.json"
+  fi
 ) > "$output_dir/SHA256SUMS"
 
 printf 'Assembled Nagare %s release artifacts for %s.\n' \

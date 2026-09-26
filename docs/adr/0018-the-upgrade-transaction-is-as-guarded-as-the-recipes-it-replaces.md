@@ -113,3 +113,16 @@ without another provider call; `retry` permits exactly the next normal resume to
 reviewed plan. Later host and Kubernetes phases also suppress the shared target shell's eager local
 stack selection, keeping a proven-success resume provider-independent without weakening commands
 that actually execute Pulumi.
+
+## Amendment — 2026-09-25: close coarse Pulumi mutation after inventory admission
+
+The version-one platform upgrade, standalone older Pulumi-plan apply, and
+selected-stack destroy do not produce typed component receipts. Before any of
+those mutating paths runs, the operator reads the selected context's inventory
+head. An accepted or converged scope, retained or collected record, advanced
+generation or journal sequence, active executor claim or transaction, or store
+migration marker closes the older path. An uninitialized or untouched store
+still permits the guarded compatibility workflow. Unknown or unreadable store
+state refuses mutation. This is a safety boundary while the component-backed
+upgrade and reviewed teardown protocols are incomplete, not evidence that
+those protocols have shipped.
