@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-26
+* **Update**: Allow explicitly reviewed retention of one removed inventory member while its application scope and siblings remain accepted; collection remains a separate review.
 * **Fix**: Require a named context for `nagared` and a shared inventory store for cloud webhook deployments.
 * **Fix**: Refuse direct live CDN purge/disable and access grant/revoke/portal sync after inventory initialization; keep their read-only inspection paths.
 * **Fix**: Refuse `nagared` webhook deployments after the selected context initializes inventory history, including when admission occurs after the webhook worker starts.

@@ -111,10 +111,9 @@ admit locked registry reviewed = do
               <> [AdmissionError "stale-head" "review was issued against a different head generation or journal sequence" | reviewHeadGeneration document /= headGeneration headValue || reviewHeadSequence document /= headSequence headValue]
               <> [AdmissionError "stale-base" "review base revisions differ from accepted desired state" | reviewBaseRevisions document /= headAccepted headValue]
               <> [AdmissionError "active-transaction" "another transaction is unresolved" | isJust (headActiveTransaction headValue)]
-              <> [AdmissionError "retention-base" "retention proof does not name a removed accepted scope revision"
+              <> [AdmissionError "retention-base" "retention proof does not name the accepted scope revision"
                  | (_, proof) <- Map.toAscList (reviewRetentions document)
-                 , Map.lookup (retentionOwner proof) (headAccepted headValue) /= Just (retentionRevision proof)
-                   || Map.member (retentionOwner proof) (reviewDesiredRevisions document)]
+                 , Map.lookup (retentionOwner proof) (headAccepted headValue) /= Just (retentionRevision proof)]
               <> [AdmissionError "retention-history" "retained resource already has a historical incarnation"
                  | resource <- Map.keys (reviewRetentions document), Map.member resource (headRetained headValue)]
               <> [AdmissionError "migration-base" "migration source differs from the accepted scope revision"

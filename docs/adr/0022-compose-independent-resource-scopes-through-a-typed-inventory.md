@@ -328,6 +328,15 @@ reservations or reintroduces a retained logical identity is refused.
 Observed controller children cannot disappear through this route because their
 derived claims and physical identities do not yet have retained child entries.
 
+A selected `ReplaceScope` may also omit one or more members while keeping the
+scope and its siblings accepted. Each omitted managed member requires an
+explicit `ApproveRetirement` decision in a saved review. Its proof binds the
+old accepted scope revision and observed physical identity; admission checks
+that the proof set exactly matches the removed members and reobserves them
+under the writer lock. The old immutable scope member remains available to
+reconstruct retained history even as a newer revision of that scope is active.
+An ordinary replacement without those decisions still refuses removal.
+
 Retirement performs no provider deletion. Read-only status recovers native
 observation inputs from the retained scope's original immutable review and
 reports whether its exact incarnation is present, drifted, replaced, absent,

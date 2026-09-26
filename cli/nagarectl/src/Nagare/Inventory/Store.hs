@@ -107,7 +107,8 @@ data MigrationTombstone = MigrationTombstone
   }
   deriving stock (Eq, Show, Generic)
 
--- | Historical ownership kept after a scope leaves the accepted vector.
+-- | Historical ownership kept after a scope or one of its members leaves the
+-- accepted vector.
 -- The scope member remains immutable in the store; this record binds the
 -- exact live incarnation and keeps its provider claims reserved.
 data RetainedIncarnation = RetainedIncarnation

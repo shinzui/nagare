@@ -800,7 +800,7 @@ data Command
   | ReleasePublish String String FilePath Bool
   | ReleaseCleanupStarter String String FilePath Integer Integer String Bool
   | InventoryCompile FilePath FilePath Bool
-  | InventoryPlan FilePath FilePath
+  | InventoryPlan FilePath [String] FilePath
   | InventoryAdopt FilePath FilePath
   | InventoryMigrate FilePath FilePath
   | InventoryRetire String FilePath
@@ -2156,7 +2156,11 @@ opts =
                 (info (InventoryCompile <$> strOption (long "input" <> metavar "FILE") <*> strOption (long "out" <> metavar "DIRECTORY") <*> switch (long "json") <**> helper) (progDesc "Compile complete resource scopes without contacting providers"))
                 <> command
                   "plan"
-                  (info (InventoryPlan <$> strOption (long "inventory" <> metavar "DIRECTORY") <*> strOption (long "out" <> metavar "DIRECTORY") <**> helper) (progDesc "Prepare and publish a digest-bound inventory review"))
+                  (info (InventoryPlan <$> strOption (long "inventory" <> metavar "DIRECTORY")
+                    <*> many (strOption (long "retain-resource" <> metavar "RESOURCE_ID"
+                      <> help "Retain one removed member without deleting its live provider object; repeat as needed"))
+                    <*> strOption (long "out" <> metavar "DIRECTORY") <**> helper)
+                    (progDesc "Prepare and publish a digest-bound inventory review"))
                 <> command
                   "adopt"
                   (info (InventoryAdopt <$> strOption (long "input" <> metavar "FILE") <*> strOption (long "out" <> metavar "DIRECTORY") <**> helper) (progDesc "Review exact adoption or known-owner transfer incarnations"))
@@ -3137,7 +3141,7 @@ main = do
     CdnCmd ccmd -> runCdn mctx ccmd
     Cleanup o -> runCleanup mctx o
     InventoryCompile input output json -> Inventory.compileInventory input output json
-    InventoryPlan input output -> runInventoryPlan mctx input output
+    InventoryPlan input retained output -> runInventoryPlan mctx input retained output
     InventoryAdopt input output -> runInventoryAdopt mctx input output
     InventoryMigrate input output -> runInventoryMigrate mctx input output
     InventoryRetire owner output -> runInventoryRetire mctx owner output
@@ -4733,7 +4737,7 @@ runInfraPreview :: Maybe String -> InfraPreviewOpts -> IO ()
 runInfraPreview mctx options = case options ^. #inventory of
   Just candidate -> do
     when (options ^. #allowReplacement) (dieT "--allow-replacement belongs to the reviewed lifecycle decision; it cannot be attached to an inventory preview")
-    runInventoryPlan mctx candidate (options ^. #savePlan)
+    runInventoryPlan mctx candidate [] (options ^. #savePlan)
   Nothing -> do
     (active, workspace) <- prepareInfraMutation mctx
     result <- saveReviewedPlan active workspace (options ^. #savePlan) (options ^. #allowReplacement)
@@ -5337,8 +5341,8 @@ runInventoryStoreMigrate mctx destination dryRun yes = do
       writeContextInventoryStore (active ^. #contextName) kind url >>= either dieT pure
       TIO.putStrLn ("Inventory history migrated to " <> label <> "; reload the context shell")
 
-runInventoryPlan :: Maybe String -> FilePath -> FilePath -> IO ()
-runInventoryPlan mctx candidateDirectory output = do
+runInventoryPlan :: Maybe String -> FilePath -> [String] -> FilePath -> IO ()
+runInventoryPlan mctx candidateDirectory retained output = do
   target <- activeTarget mctx
   candidate <- Inventory.loadCandidate candidateDirectory >>= either dieT pure
   let inventory = ResourceInventory.candidateInventory candidate
@@ -5350,7 +5354,7 @@ runInventoryPlan mctx candidateDirectory output = do
   hostInputs <- either dieT pure (InventoryHost.hostExecutionInputsFromScopes scopes)
   let kubernetesResources = [resource | ResourceInventory.Managed resource <- declarations, resource ^. #executor == ResourceInventory.KubernetesExecutor]
       helmResources = [resource | ResourceInventory.Managed resource <- declarations, resource ^. #executor == ResourceInventory.HelmExecutor]
-  if null registrations && Map.null artifactSpecs && isNothing hostInputs && null kubernetesResources && null helmResources && Map.null cacheSpecs
+  if null retained && null registrations && Map.null artifactSpecs && isNothing hostInputs && null kubernetesResources && null helmResources && Map.null cacheSpecs
     then Inventory.planInventory target candidateDirectory output
     else do
       (active, workspace) <-
@@ -5360,7 +5364,9 @@ runInventoryPlan mctx candidateDirectory output = do
             (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
             pure (active, workspace)
           else prepareInfraMutation mctx
-      Inventory.planInventoryWith (inventoryPlanRegistry active workspace) target candidateDirectory output
+      resources <- traverse (either dieT pure . Resource.mkResourceId . T.pack) retained
+      Inventory.planInventoryWithRetirements (inventoryPlanRegistry active workspace)
+        target candidateDirectory resources output
 
 runInventoryAdopt :: Maybe String -> FilePath -> FilePath -> IO ()
 runInventoryAdopt mctx input output = do

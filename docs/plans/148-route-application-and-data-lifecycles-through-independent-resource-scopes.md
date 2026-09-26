@@ -107,6 +107,11 @@ provenance:
       at: 2026-09-26T03:38:24Z
       mode: "implement"
       note: "Refuse direct app deploy after inventory initialization"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-26T04:30:22Z
+      mode: "implement"
+      note: "Review partial scope member retention without deleting provider objects"
 ---
 
 # Route application and data lifecycles through independent resource scopes
@@ -124,6 +129,8 @@ Every supported application-side mutation is either a desired-scope update, a re
 ## Progress
 
 Implementation evidence is recorded in the commits linked to this plan and in Surprises & Discoveries. Reviewed application, standalone web Service, and standalone worker scopes, standalone brokers with create-only logical topics, accepted topic-bearing workload bindings, accepted auth backend contributions and central routes, database members, OCI publication, and reviewed set/delete/merge/exact Runtime/Build/app-wide Preview environment and versioned Secret channels are working slices. M1 is complete for the reviewed Kubernetes path. M2 has reviewed Google per-host DNS ownership, a Cloudflare host/zone owner with an offline HTTP transport proof, a combined offline application transaction, and typed application/production-site Cloudflare submission. Combined provider proof and remaining publication/input integration are still open. The Cloudflare provider proof is offline only because no disposable zone is available. M3 and M4 still require reviewed operational/data commands and removal of direct mutation paths. Application, standalone web Service, and standalone worker retirement select accepted native identities and preserve retained resources. Final plan acceptance remains open until M2 through M4 close.
+
+A scope replacement can now explicitly retain selected removed members while keeping the scope and siblings accepted. `inventory plan --retain-resource` publishes that decision against the accepted revision and live physical identity; admission checks complete removed-member coverage and reserves the old claim. The focused memory-store transaction and all 830 CLI tests passed; the executable build, Haskell style check, strict user-documentation validation, and diff check also passed. Retention does not stop a live CronJob, so `task delete` remains guarded pending schedule shutdown and separate reviewed collection.
 
 Reviewed application deploy also declares the per-Service release-history ConfigMap, carries forward accepted entries, and offers exact adoption of existing direct-deploy history. Supported static and server production site scopes now declare their Service, domains, release history, server PVCs, accepted runtime Secret dependencies, and supplied TLS Secret dependencies, with exact import of existing direct objects. Site rollback now selects a release from accepted private history and reviews the prior image publication without adding a history entry. Static and server preview deployment has a separate reviewed scope with four accepted overlay stores, exact adoption of existing direct static previews, and reviewed retirement followed by collection. Server previews bind distinct PVCs with explicit recovery for retained volumes. Delete-policy preview PVCs can be conditionally collected after their Service, while durable PVCs remain retained. Manual runs of accepted CronJobs now compile stable Jobs in independent scopes from exact saved native evidence; Job collection uses conditional deletion and background pod cleanup. Reviewed application hooks have per-tag Jobs with explicit affected-resource proofs. Server Build/Preview Secret references and other operational commands remain open.
 
@@ -197,6 +204,8 @@ Critical path from completed M1 to final acceptance, in execution order:
 - [ ] M4: Cut over remaining direct app render/apply entry points to the reviewed compiler and publication path.
 
 ## Surprises & Discoveries
+
+2026-09-26: The existing retention proof and admission coverage already identified every managed member omitted by a scope replacement, but validation allowed a proof only when the entire scope disappeared. A single scheduled task in an application scope therefore could not leave desired intent while its sibling workloads remained accepted. The model now permits an explicit `ApproveRetirement` for that member under `ReplaceScope`; saved reviews and admission still require exact old revision, physical identity, and complete removed-member coverage. It retains the provider object, so this does not yet implement `task delete`.
 
 2026-09-26: `cli/nagarectl/nagared/Main.hs` invokes `deployStaticProduction` and `deployStaticPreview` directly after a webhook checkout. It does not call the CLI dispatcher, so the initialized-store guard on `site deploy` did not protect webhook deployments. The runner now resolves its context and refuses a triggered delivery after inventory initialization before checkout, then rechecks before the direct deploy. M4 still needs reviewed webhook submission before this source of deployments is available to managed contexts.
 
@@ -343,6 +352,8 @@ Critical path from completed M1 to final acceptance, in execution order:
 2026-09-24: The legacy env and Secret store reader had the same failed-read-to-empty behavior. Its JSON extractor also silently dropped any `data` entry whose value was not a string, contrary to its strictness comment. Both stores now accept only a successful empty `--ignore-not-found` response as absence; failed reads, non-object `data`, and non-string values refuse before a merge or exact replacement. Disposable-context reads of absent ConfigMap and Secret names both exited successfully with empty output, and 785 CLI tests pass. The reviewed channels still need complete preview/deploy integration.
 
 ## Decision Log
+
+2026-09-26: Permit explicit member retention under a selected scope replacement without introducing a second scope-change wire variant. The review's lifecycle decision identifies each removed member; the accepted old revision and provider incarnation are rechecked under the writer lock, and the prior immutable scope member preserves its declaration. A plain replacement that omits a member still refuses. Keep actual provider deletion in the separate `CollectRetained` review so a retained CronJob is never reported as deleted.
 
 2026-09-26: Close direct CDN and access operational writes at the initialized-store boundary. Hostname and shared-settings address checks alone could not authorize a newly named host or grant in a context already using inventory; CDN disable also needed to refuse before Pulumi discovery. Reviewed purge, DNS retirement, grants, revocations, and portal synchronization remain outstanding M3 operations.
 
@@ -505,6 +516,8 @@ DependencyExports contains typed capability witnesses and selected revision/phys
 
 
 ## Revision Notes
+
+2026-09-26: Added explicit partial-scope retention review and CLI submission. M3 remains open for schedule shutdown, collection, and other operational/data actions; M2 and M4 remain open.
 
 2026-09-26: Kept read-only data deletion/backup/restore and env/Secret preview branches outside the live native-address guards.
 

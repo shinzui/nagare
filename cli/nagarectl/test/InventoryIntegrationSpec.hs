@@ -35,7 +35,105 @@ inventoryIntegrationTests =
         operationCount <- runScenario Nothing
         assertBool "fixture has several independent component operations" (operationCount >= 4)
         forM_ [1 .. operationCount] (runScenario . Just)
+    , testCase "partial-retirement keeps sibling application members accepted" partialScopeRetirementProof
     ]
+
+partialScopeRetirementProof :: IO ()
+partialScopeRetirementProof = do
+  let binding = ContextBinding (known (mkContextId "partial-retirement"))
+        (known (mkName "project"))
+      owner = known (mkScopeId Application "tasks")
+      cluster = mintResourceId owner (known (mkLogicalKey "cluster"))
+        (known (mkName "cluster"))
+      schedule = member owner cluster "schedule"
+      workload = member owner cluster "workload"
+      scheduleId = declarationId schedule
+      scope declarations = known (mkScopeDeclaration owner
+        [ResourceBundle declarations [] [] [] [] []])
+      initialScope = scope [schedule, workload]
+      remainingScope = scope [workload]
+      emptySnapshot = known (mkScopeSnapshot binding Map.empty Map.empty)
+      firstCandidate = known (composeInventory emptySnapshot
+        (ReplaceScope initialScope :| []))
+      physical resource = known (mkPhysicalIdentity
+        ("uid:" <> resourceIdText resource))
+      absent resource = ConfirmedAbsent
+        (contentDigest (TE.encodeUtf8 ("absent:" <> resourceIdText resource)))
+  present <- newIORef Set.empty
+  writes <- newIORef (0 :: Int)
+  let adapter = Adapter
+        { adapterExecutor = KubernetesExecutor
+        , adapterIdentity = "partial-retirement-recorder"
+        , adapterVersion = "1"
+        , adapterObserve = \resources -> do
+            current <- readIORef present
+            pure (observationSet
+              [(resource, if Set.member resource current
+                then ObservedPresent (physical resource) else absent resource)
+              | resource <- resources])
+        , adapterPrepare = \operation -> pure (Right
+            (PreparedNative (known (canonicalValue (toJSON operation))) "recorder"))
+        , adapterPreflight = \_ _ -> pure (Right ())
+        , adapterExecute = \operation _ -> do
+            modifyIORef' writes (+ 1)
+            modifyIORef' present (Set.union
+              (Set.fromList (NE.toList (plannedResources operation))))
+            pure AdapterEffectCompleted
+        , adapterVerify = \_ _ -> pure (Right (contentDigest "verified"))
+        , adapterRecover = \_ _ -> pure (RecoveryUnresolved "unused")
+        }
+      registry = known (mkAdapterRegistry [adapter])
+      observe candidate history = observeWithRegistry registry
+        (requirementsByExecutor (observationRequirements candidate history))
+        >>= expectRight
+      applyProposal store proposal = do
+        before <- readStoreSnapshot store >>= expectRight
+        bundle <- prepareReview registry before proposal >>= expectRight
+        _ <- publishReview store bundle >>= expectRight
+        published <- readStoreSnapshot store >>= expectRight
+        reviewed <- expectRight (verifyReview published bundle)
+        applyReviewed store registry reviewed >>= expectRight >>= \case
+          Converged _ -> pure bundle
+          other -> assertFailure ("partial retirement did not converge: " <> show other)
+  store <- newMemoryStore
+  _ <- initializeStore store binding "partial-retirement-client" >>= expectRight
+  initialHistory <- loadInventoryHistory store >>= expectRight
+  initialFacts <- observe firstCandidate initialHistory
+  initialPlan <- expectRight (planChanges firstCandidate noLifecycleDecisions
+    initialHistory initialFacts)
+  _ <- applyProposal store initialPlan
+  accepted <- loadInventoryHistory store >>= expectRight
+  let acceptedSnapshot = known (mkScopeSnapshot binding
+        (Map.map (\(revision, declared) -> (revisionGeneration revision, declared))
+          (historyAccepted accepted)) (historyReservations accepted))
+      candidate = known (composeInventory acceptedSnapshot
+        (ReplaceScope remainingScope :| []))
+  observations <- observe candidate accepted
+  case planChanges candidate noLifecycleDecisions accepted observations of
+    Left _ -> pure ()
+    Right _ -> assertFailure "scope replacement removed a member without a retirement decision"
+  let fact = known (observationSet [(scheduleId, ObservedPresent (physical scheduleId))])
+      proposal = LifecycleProposal scheduleId ApproveRetirement
+        (lifecycleObservationDigest binding scheduleId
+          (observationMap fact Map.! scheduleId))
+      workloadId = declarationId workload
+      stillDesired = LifecycleProposal workloadId ApproveRetirement
+        (lifecycleObservationDigest binding workloadId
+          (observationMap observations Map.! workloadId))
+  case validateLifecycleDecisions candidate accepted observations [stillDesired] of
+    Left _ -> pure ()
+    Right _ -> assertFailure "retirement decision selected a still-desired sibling"
+  decisions <- expectRight (validateLifecycleDecisions candidate accepted observations [proposal])
+  retirement <- expectRight (planChanges candidate decisions accepted observations)
+  proposalOperations retirement @?= []
+  beforeWrites <- readIORef writes
+  bundle <- applyProposal store retirement
+  Map.keysSet (reviewRetentions (reviewBundleDocument bundle)) @?= Set.singleton scheduleId
+  readIORef writes >>= (@?= beforeWrites)
+  final <- loadInventoryHistory store >>= expectRight
+  Map.member scheduleId (historyRetained final) @?= True
+  fmap snd (Map.lookup owner (historyAccepted final)) @?= Just remainingScope
+  Map.member (declarationId workload) (historyRetained final) @?= False
 
 -- Each run starts with an empty store. The injected ambiguity happens after
 -- the provider effect, so recovery must prove it without issuing that effect

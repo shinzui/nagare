@@ -480,9 +480,14 @@ validateLifecycleDecisions candidate history observations proposals =
     known = Map.keysSet desired `Set.union` Map.keysSet historical
       `Set.union` Map.keysSet (historyRetained history)
     observed = observationMap observations
-    retirementIntent resource = listToMaybe
-      [intent | RetireScope scope intent <- NE.toList (candidateChanges candidate)
-      , Just (Managed old) <- [Map.lookup resource historical], old ^. #owner == scope]
+    retirementSelected resource = case Map.lookup resource historical of
+      Just (Managed old) -> any (\case
+        RetireScope scope RetainResources -> scope == old ^. #owner
+        RetireScope _ _ -> False
+        ReplaceScope scope -> scopeId scope == old ^. #owner
+          && Map.notMember resource desired
+        CollectRetained _ -> False) (NE.toList (candidateChanges candidate))
+      _ -> False
     decisionError proposal =
       let resource = lifecycleResource proposal
           issue code message = [PlanError code message [resource]]
@@ -512,12 +517,13 @@ validateLifecycleDecisions candidate history observations proposals =
                 , next ^. #delegations == old ^. #delegations
                 , Set.fromList (next ^. #dependencies) == Set.fromList (old ^. #dependencies) -> []
               _ -> issue "invalid-transfer" "transfer needs both selected scopes, a matching owned incarnation, and an unchanged Kubernetes or Helm resource contract"
-            ApproveRetirement -> case (Map.lookup resource desired, Map.lookup resource historical, retirementIntent resource) of
-              (Nothing, Just (Managed old), Just RetainResources)
+            ApproveRetirement -> case (Map.lookup resource desired, Map.lookup resource historical) of
+              (Nothing, Just (Managed old))
                 | Just (ObservedPresent _) <- fact
+                , retirementSelected resource
                 , old ^. #executor `elem` [KubernetesExecutor, HelmExecutor, BrokerExecutor, CdnExecutor]
                 , Map.notMember resource (headRetained (historyHead history)) -> []
-              _ -> issue "invalid-retirement" "retention needs a retired Kubernetes, Helm, broker topic, or CDN declaration, present owned incarnation, and RetainResources intent"
+              _ -> issue "invalid-retirement" "retention needs a selected scope replacement or retirement that removes an owned present Kubernetes, Helm, broker topic, or CDN declaration"
             ApproveCollection -> case (Map.lookup resource desired, Map.lookup resource (historyRetained history), fact) of
               (Nothing, Just (incarnation, old), Just (ObservedPresent physical))
                 | CollectRetained resource `elem` NE.toList (candidateChanges candidate)
@@ -676,13 +682,17 @@ buildRetentionProofs candidate (LifecycleDecisions _ decisions _) history observ
     disappearingChildren =
       [resource | ObservedChild resource _ _ _ _ <- historyDeclarations history,
         Set.notMember resource desired]
-    retiredScopes = Set.fromList
-      [scope | RetireScope scope RetainResources <- NE.toList (candidateChanges candidate)]
+    selectedScopes = Set.fromList
+      [scope | change <- NE.toList (candidateChanges candidate), Just scope <-
+        [case change of
+          RetireScope owner RetainResources -> Just owner
+          ReplaceScope replacement -> Just (scopeId replacement)
+          _ -> Nothing]]
     selected =
       [(resource ^. #identity, resource) | (_, (_, scope)) <- Map.toAscList (historyAccepted history)
       , bundle <- scopeBundles scope, Managed resource <- bundle ^. #declarations
       , Set.notMember (resource ^. #identity) desired
-      , Set.member (resource ^. #owner) retiredScopes]
+      , Set.member (resource ^. #owner) selectedScopes]
     one (resourceId, resource) = case
       (Map.lookup resourceId decisions, Map.lookup resourceId (observationMap observations),
        Map.lookup (resource ^. #owner) (historyAccepted history)) of
@@ -1396,10 +1406,9 @@ verifyActiveReview snapshot transaction bundle =
 
 retentionReviewErrors :: HeadManifest -> ReviewDocument -> [ReviewError]
 retentionReviewErrors headValue document =
-  [ ReviewError "retention-base" "retention proof does not name a removed accepted scope revision"
+  [ ReviewError "retention-base" "retention proof does not name the accepted scope revision"
   | (_, proof) <- Map.toAscList (reviewRetentions document)
   , Map.lookup (retentionOwner proof) (headAccepted headValue) /= Just (retentionRevision proof)
-      || Map.member (retentionOwner proof) (reviewDesiredRevisions document)
   ] <> [ ReviewError "retention-history" "retained resource already exists in the historical catalogue"
        | resource <- Map.keys (reviewRetentions document), Map.member resource (headRetained headValue)]
 

@@ -8,6 +8,7 @@ module Nagare.Inventory.Command
   , migrateTargetStore
   , planInventory
   , planInventoryWith
+  , planInventoryWithRetirements
   , planInventoryCandidateWith
   , convergeInventoryCandidateWith
   , planInventoryCandidateAdoptionWith
@@ -213,6 +214,24 @@ planInventoryWith :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegi
 planInventoryWith registryFor target candidateDirectory output = do
   candidate <- loadCandidate candidateDirectory >>= either dieText pure
   planInventoryCandidateWith registryFor target candidate output
+
+-- | Retain explicitly named members removed by a compiled scope replacement.
+-- A saved review and separate apply are required; collection is a later review.
+planInventoryWithRetirements
+  :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry)
+  -> ActiveTarget -> FilePath -> [ResourceId] -> FilePath -> IO ()
+planInventoryWithRetirements registryFor target candidateDirectory resources output = do
+  when (Set.size (Set.fromList resources) /= length resources)
+    (dieText "retirement resource IDs must be distinct")
+  candidate <- loadCandidate candidateDirectory >>= either dieText pure
+  let decide history observations = do
+        proposals <- traverse (\resource -> case Map.lookup resource (observationMap observations) of
+          Nothing -> Left (PlanError "retirement-observation"
+            "selected resource lacks a fresh provider observation" [resource] :| [])
+          Just fact -> Right (LifecycleProposal resource ApproveRetirement
+            (lifecycleObservationDigest (inventoryBinding (candidateInventory candidate)) resource fact))) resources
+        validateLifecycleDecisions candidate history observations proposals
+  planInventoryCandidateWithDecider registryFor decide target candidate output
 
 -- | Versioned adoption proposals name a compiled candidate and exact
 -- observed incarnations. The decision is validated after fresh observation.

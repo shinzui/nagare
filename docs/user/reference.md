@@ -122,6 +122,17 @@ boundaries.
 history backup. `nagarectl inventory restore --from DIRECTORY` reviews its
 context/project binding; `--yes` restores only into an empty local store.
 
+`nagarectl inventory plan --inventory DIRECTORY --retain-resource RESOURCE_ID
+--out REVIEW` can review a compiled candidate that removes one accepted member
+while keeping its scope and other members. Repeat `--retain-resource` for every
+removed member. The saved review binds each removed member to its accepted scope
+revision and observed provider identity. Apply it with `nagarectl inventory
+apply REVIEW --yes`. This **retains the live resource** and reserves its
+address; it does not stop a CronJob or delete any provider object. For supported
+stateless Kubernetes resources, use a later `inventory collect --resource
+RESOURCE_ID --out REVIEW` and separate reviewed apply after checking that no
+consumer still depends on the retained resource.
+
 ## Cloud context variables (also `nagare.target.env`)
 
 Each context `.env` file uses the same flat schema as the git-ignored
