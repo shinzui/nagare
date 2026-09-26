@@ -205,7 +205,7 @@ import Nagare.Gcp.Adc
   , resolveAdcSource
   , validateAdc
   )
-import Nagare.GhcEnv (findGhcEnvIn)
+import Nagare.GhcEnv (findGhcEnvForCompilerIn, findGhcEnvIn)
 import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteSource, compileServerSitePreviewScope, compileServerSiteRollbackScope, compileServerSiteScope, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteScope, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteNativeOwned, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
 import Nagare.Inventory.Environment (compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel)
 import Nagare.Inventory.Site (compileServerSiteScopeWithCdn, compileServerSiteScopeWithCloudflare, compileServerSiteRollbackScopeWithCloudflare, compileStaticSiteRollbackScopeWithCdn, compileStaticSiteScopeWithCdn, compileStaticSiteScopeWithCloudflare, compileStaticSiteRollbackScopeWithCloudflare)
@@ -4949,6 +4949,15 @@ ghcEnvTests =
         case found of
           Just p -> assertBool "from the second dir" ("haz" `isInfixOf` p)
           Nothing -> assertFailure "expected a hit in the second dir"
+  , testCase "compiler-specific lookup skips a stale package environment" $
+      withSystemTempDirectory "nagare-ghcenv" $ \root -> do
+        writeFile (root </> ".ghc.environment.aarch64-darwin-9.12.3") "stale\n"
+        writeFile (root </> ".ghc.environment.aarch64-darwin-9.12.4") "current\n"
+        found <- findGhcEnvForCompilerIn "9.12.4" [root]
+        case found of
+          Just p -> assertBool "selected the current compiler"
+            (".ghc.environment.aarch64-darwin-9.12.4" `isSuffixOf` p)
+          Nothing -> assertFailure "expected the current GHC environment"
   ]
 
 backupRestoreTests :: [TestTree]

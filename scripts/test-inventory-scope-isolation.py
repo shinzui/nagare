@@ -102,6 +102,9 @@ def main() -> None:
         context_dir.mkdir(parents=True)
         (context_dir / "isolated.env").write_text(
             "CLOUDSDK_CORE_PROJECT=project\nNAGARE_MODE=local\n"
+            "NAGARE_REGISTRY_HOST=k3d-registry.localhost:5000\n"
+            "NAGARE_BASE_DOMAIN=127-0-0-1.sslip.io\n"
+            "NAGARE_LOCAL_OBJECT_STORE=http://minio:9000/nagare-backups\n"
         )
         marker = scratch / "provider-called"
         fake_bin = scratch / "bin"
@@ -196,7 +199,73 @@ def main() -> None:
         calls = marker.read_text().splitlines() if marker.exists() else []
         if not calls or any(Path(call).name != "kubectl" for call in calls):
             raise AssertionError("selected Namespace invoked an unrelated provider: " + repr(calls))
-        print("inventory scope isolation: empty and selected Kubernetes scopes ignored unrelated providers")
+        marker.unlink()
+
+        app_candidate = json.loads(json.dumps(candidate))
+        app_foundation = app_candidate["snapshot"][0]["declaration"]
+        app_foundation["bundles"][0]["declarations"].append({
+            "tag": "Managed", "contents": {
+                "identity": "platform:foundation/foundation/namespace-personal",
+                "owner": app_foundation["scope"],
+                "executor": "KubernetesExecutor",
+                "address": {"tag": "Kubernetes", "contents": [
+                    "platform:foundation/cluster/cluster", "", "namespace", None,
+                    "personal"]},
+                "aliases": [],
+                "spec": {"tag": "NativeObject", "contents": "e" * 64},
+                "lifecycle": "Retain", "dataPolicy": {"tag": "Stateless"},
+                "sensitivity": "Public", "dependencies": [], "delegations": [],
+                "source": {"file": "fixture", "path": "personal"},
+            },
+        })
+        image_owner = {"kind": "Publication", "name": "app-image-isolated"}
+        image_id = "publication:app-image-isolated/isolated/oci-image"
+        image_scope = {"version": 1, "scope": image_owner, "bundles": [bundle([{
+            "tag": "Managed", "contents": {
+                "identity": image_id, "owner": image_owner,
+                "executor": "ArtifactExecutor",
+                "address": {"tag": "Artifact", "contents": ["isolated", "f" * 64]},
+                "aliases": [],
+                "spec": {"tag": "ArtifactPublication", "contents": [
+                    "oci-image", "k3d-registry.localhost:5000/isolated:v1",
+                    "a" * 64, False]},
+                "lifecycle": "Retain", "dataPolicy": {"tag": "Stateless"},
+                "sensitivity": "Private", "dependencies": [], "delegations": [],
+                "source": {"file": "fixture", "path": "image"},
+            },
+        }])]}
+        app_candidate["base"].append({"scope": image_owner, "generation": 1})
+        app_candidate["snapshot"].append({"generation": 1, "declaration": image_scope})
+        app_candidate["changes"] = [{"replace": {
+            "version": 1, "scope": {"kind": "Application", "name": "bootstrap"},
+            "bundles": [bundle([])],
+        }}]
+        app_file = scratch / "app-candidate.json"
+        app_file.write_text(json.dumps(app_candidate))
+        app_compiled = scratch / "app-compiled"
+        app_environment = environment | {"XDG_STATE_HOME": str(scratch / "app-state")}
+        seed_review = scratch / "app-seed-review"
+        run(cli, root, app_environment, ["inventory", "compile", "--input",
+            str(app_file), "--out", str(app_compiled)])
+        run(cli, root, app_environment, ["--context", "isolated", "inventory", "plan",
+            "--inventory", str(app_compiled), "--out", str(seed_review)])
+        run(cli, root, app_environment, ["--context", "isolated", "inventory", "apply",
+            str(seed_review), "--yes"])
+        if marker.exists():
+            raise AssertionError("app fixture seeding invoked a provider: " + marker.read_text())
+        app_review = scratch / "app-review"
+        app_config = root / "cli/nagarectl/test/fixtures/app-scope-isolation/nagare/Config.hs"
+        run(cli, root, app_environment, ["--context", "isolated", "app", "deploy",
+            "--file", str(app_config), "--tag", "v1", "--image-resource", image_id,
+            "--save-plan", str(app_review)])
+        app_operations = json.loads((app_review / "review.json").read_text())["operations"]
+        if not app_operations or any("KubernetesExecutor" not in json.dumps(operation)
+                                     for operation in app_operations):
+            raise AssertionError("reviewed application planned unexpected provider operations")
+        calls = marker.read_text().splitlines() if marker.exists() else []
+        if not calls or any(Path(call).name != "kubectl" for call in calls):
+            raise AssertionError("reviewed application invoked an unrelated provider: " + repr(calls))
+        print("inventory scope isolation: empty, Namespace, and app reviews ignored unrelated providers")
 
 
 if __name__ == "__main__":

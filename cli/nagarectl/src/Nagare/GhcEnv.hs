@@ -14,17 +14,19 @@
 -- This module lets @nagarectl@ find that file itself: 'resolveProjectGhcEnv'
 -- locates the checked-out @cli\/nagarectl@ and @cli\/nagare-dsl@ package directories
 -- (by walking up from the cwd and the executable's path to the repo root) and
--- returns the first @.ghc.environment.*@ it finds, falling back to asking @cabal@.
+-- returns the first environment for the current @ghc@ version, falling back to
+-- asking @cabal@ when only stale files are present.
 -- 'provisionGhcEnv' (in the executables) calls this only when neither @--ghc-env@
 -- nor @NAGARE_GHC_ENVIRONMENT@ is set, so explicit overrides still win.
 module Nagare.GhcEnv
   ( findGhcEnvIn
+  , findGhcEnvForCompilerIn
   , resolveProjectGhcEnv
   )
 where
 
 import Control.Exception (SomeException, try)
-import Data.List (isPrefixOf, nub, sort)
+import Data.List (isPrefixOf, isSuffixOf, nub, sort)
 import Data.Maybe (catMaybes, listToMaybe)
 import Nagare.Dsl.Prelude
 import System.Directory
@@ -43,18 +45,27 @@ import System.Process (readProcessWithExitCode)
 -- as an absolute path, or 'Nothing'. Directories that do not exist (or cannot be
 -- listed) are skipped. This is the testable core of 'resolveProjectGhcEnv'.
 findGhcEnvIn :: [FilePath] -> IO (Maybe FilePath)
-findGhcEnvIn [] = pure Nothing
-findGhcEnvIn (dir : rest) = do
+findGhcEnvIn = findGhcEnvWhere (const True)
+
+-- | Skip stale environment files from another GHC package database. The
+-- architecture and OS prefix may vary, but Cabal ends the filename with the
+-- exact compiler version.
+findGhcEnvForCompilerIn :: String -> [FilePath] -> IO (Maybe FilePath)
+findGhcEnvForCompilerIn version = findGhcEnvWhere (isSuffixOf ("-" <> version))
+
+findGhcEnvWhere :: (FilePath -> Bool) -> [FilePath] -> IO (Maybe FilePath)
+findGhcEnvWhere _ [] = pure Nothing
+findGhcEnvWhere matches (dir : rest) = do
   exists <- doesDirectoryExist dir
   if not exists
-    then findGhcEnvIn rest
+    then findGhcEnvWhere matches rest
     else do
       eentries <- try (listDirectory dir) :: IO (Either SomeException [FilePath])
       let entries = either (const []) id eentries
-          hits = sort [e | e <- entries, ".ghc.environment." `isPrefixOf` e]
+          hits = sort [e | e <- entries, ".ghc.environment." `isPrefixOf` e, matches e]
       case hits of
         (h : _) -> Just <$> makeAbsolute (dir </> h)
-        [] -> findGhcEnvIn rest
+        [] -> findGhcEnvWhere matches rest
 
 -- | Discover the project's GHC package-environment file. Searches the checked-out
 -- @cli\/nagarectl@ and @cli\/nagare-dsl@ package directories (found by locating the
@@ -72,10 +83,17 @@ resolveProjectGhcEnv = do
   let roots = nub (catMaybes [rootFromCwd, rootFromExe])
       pkgDirs = concatMap (\r -> [r </> "cli" </> "nagarectl", r </> "cli" </> "nagare-dsl"]) roots
       cwdAncestors = take 6 (ancestors cwd)
-  found <- findGhcEnvIn (pkgDirs ++ cwdAncestors)
+  compiler <- try (readProcessWithExitCode "ghc" ["--numeric-version"] "") ::
+    IO (Either SomeException (ExitCode, String, String))
+  found <- case compiler of
+    Right (ExitSuccess, version, _) | not (null (trim version)) ->
+      findGhcEnvForCompilerIn (trim version) (pkgDirs ++ cwdAncestors)
+    _ -> pure Nothing
   case found of
     Just f -> pure (Just f)
     Nothing -> cabalFallback roots
+  where
+    trim = reverse . dropWhile (`elem` (" \t\r\n" :: String)) . reverse
 
 -- | Walk up from @start@ (inclusive), returning the first ancestor that contains
 -- @cli\/nagarectl\/cabal.project@ — i.e. the repository root — or 'Nothing'.
