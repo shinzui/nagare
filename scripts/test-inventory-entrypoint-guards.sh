@@ -34,7 +34,7 @@ refuse_image_free_deploy 'image-free Service deploy' deploy --tag v1 -f "$fixtur
 refuse_image_free_deploy 'image-free worker deploy' worker deploy --tag v1 -f "$fixture_root/missing-worker.hs"
 refuse_image_free_deploy 'image-free site deploy' site deploy --tag v1 --skip-build -f "$fixture_root/missing-site.hs"
 refuse_image_free_deploy 'image-free site preview' site preview deploy --name p1 --tag v1 --skip-build -f "$fixture_root/missing-site.hs"
-refuse_unreviewed_site_change() {
+refuse_unreviewed_change() {
   local label="$1"
   shift
   if "$nagarectl_bin" --context guarded "$@" > "$fixture_root/out" 2>&1; then
@@ -47,8 +47,9 @@ refuse_unreviewed_site_change() {
     exit 1
   fi
 }
-refuse_unreviewed_site_change 'unreviewed site rollback' site rollback v1 -f "$fixture_root/missing-site.hs"
-refuse_unreviewed_site_change 'unreviewed preview delete' site preview delete p1 -f "$fixture_root/missing-site.hs"
+refuse_unreviewed_change 'unreviewed site rollback' site rollback v1 -f "$fixture_root/missing-site.hs"
+refuse_unreviewed_change 'unreviewed preview delete' site preview delete p1 -f "$fixture_root/missing-site.hs"
+refuse_unreviewed_change 'unreviewed app delete' app delete app1
 test ! -e "$store_dir/head.json"
 python3 - "$store_dir/head.json" <<'PY'
 import json
@@ -115,4 +116,4 @@ chmod 600 "$store_dir/head.json"
 "$nagarectl_bin" context delete guarded --yes > "$fixture_root/out"
 test ! -e "$context_dir/guarded.env"
 test -f "$store_dir/head.json"
-printf 'inventory entrypoint guards: five image-free deploy refusals, two unreviewed site-change refusals, eleven admitted refusals, untouched-store delete allowed\n'
+printf 'inventory entrypoint guards: five image-free deploy refusals, three unreviewed change refusals, eleven admitted refusals, untouched-store delete allowed\n'

@@ -62,11 +62,9 @@ import Nagare.App
   , LogTarget (..)
   , extractAppSummaries
   , extractAppSummary
-  , extractDomainsFor
   , formatAppList
   , logArgs
   , parseServiceNames
-  , restartPatch
   )
 import Nagare.App.Deployments (appConfigMapName, revisionForTag)
 import Nagare.Broker.Connection
@@ -2986,16 +2984,6 @@ appTests =
                 ]
       ]
   , testGroup
-      "restartPatch"
-      [ testCase "contains the stamp and is valid JSON" $ do
-          let p = restartPatch "20260610-120000"
-          assertBool "stamp present" ("20260610-120000" `T.isInfixOf` p)
-          assertBool "clears visibility label with null" ("\"networking.knative.dev/visibility\":null" `T.isInfixOf` p)
-          case eitherDecodeStrict (TE.encodeUtf8 p) :: Either String Aeson.Value of
-            Right _ -> pure ()
-            Left e -> assertFailure ("restartPatch is not valid JSON: " <> e)
-      ]
-  , testGroup
       "extractAppSummary"
       [ testCase "pulls name/url/ready/revision/image from a ksvc object" $
           extractAppSummary ksvcJSON
@@ -3013,14 +3001,6 @@ appTests =
             Right s -> assertFailure ("expected Left, got: " <> show s)
       , testCase "a list response yields one summary per item" $
           fmap (map (^. #name)) (extractAppSummaries ksvcListJSON) @?= Right ["notes"]
-      ]
-  , testGroup
-      "extractDomainsFor"
-      [ testCase "keeps only mappings whose spec.ref.name matches" $
-          extractDomainsFor "notes" domainMappingListJSON
-            @?= Right ["notes.example.com", "www.example.com"]
-      , testCase "no matches yields empty" $
-          extractDomainsFor "other" domainMappingListJSON @?= Right []
       ]
   , testGroup
       "formatAppList"
@@ -3046,15 +3026,6 @@ appTests =
           ]
     ksvcListJSON =
       BC.pack ("{\"items\":[" <> BC.unpack ksvcJSON <> "]}")
-    domainMappingListJSON =
-      BC.pack $
-        concat
-          [ "{\"items\":["
-          , "{\"metadata\":{\"name\":\"notes.example.com\"},\"spec\":{\"ref\":{\"name\":\"notes\"}}},"
-          , "{\"metadata\":{\"name\":\"www.example.com\"},\"spec\":{\"ref\":{\"name\":\"notes\"}}},"
-          , "{\"metadata\":{\"name\":\"blog.example.com\"},\"spec\":{\"ref\":{\"name\":\"blog\"}}}"
-          , "]}"
-          ]
 
 -- ---------------------------------------------------------------------------
 -- Nagare.Env.PreviewOverlay (EP-27 M2)

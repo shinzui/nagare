@@ -55,15 +55,15 @@ refuse() {
 }
 
 cd "$repo_root/cli/nagarectl"
-refuse 'aggregate app deploy' 'inventory history is initialized' \
-  app deploy --file test/fixtures/app/kizashi/Config.hs
-refuse 'standalone Service deploy' 'inventory history is initialized' \
-  deploy --file missing-config.hs
-refuse 'standalone worker deploy' 'inventory history is initialized' \
-  worker deploy --file ../nagare-dsl/test/fixtures/worker/nagare/Config.hs
-refuse 'static site deploy' 'inventory history is initialized' \
+refuse 'aggregate app deploy without image' 'requires --image-resource' \
+  app deploy --tag v1 --file test/fixtures/app/kizashi/Config.hs
+refuse 'standalone Service deploy without image' 'requires --image-resource' \
+  deploy --tag v1 --file missing-config.hs
+refuse 'standalone worker deploy without image' 'requires --image-resource' \
+  worker deploy --tag v1 --file ../nagare-dsl/test/fixtures/worker/nagare/Config.hs
+refuse 'static site deploy without image' 'requires --image-resource' \
   site deploy --file ../nagare-dsl/test/fixtures/static-site/nagare/Config.hs
-refuse 'static preview deploy' 'inventory history is initialized' \
+refuse 'static preview deploy without image' 'requires --image-resource' \
   site preview deploy --name feature-x \
   --file ../nagare-dsl/test/fixtures/static-site/nagare/Config.hs
 refuse 'timestamped task run' 'direct task run is refused' \
@@ -103,15 +103,15 @@ refuse 'direct Secret set' 'direct secret set is refused' \
   secret set hello --config ../nagare-dsl/test/fixtures/nagare/Config.hs KEY
 refuse 'direct Secret delete' 'direct secret delete is refused' \
   secret delete hello --config ../nagare-dsl/test/fixtures/nagare/Config.hs KEY
-refuse 'direct app restart' 'direct app restart is refused' \
+refuse 'unaccepted app restart' 'reviewed service action requires one accepted Service scope' \
   app restart fixture
-refuse 'direct app stop' 'direct app stop is refused' \
+refuse 'unaccepted app stop' 'reviewed service action requires one accepted Service scope' \
   app stop fixture
-refuse 'direct app deletion' 'direct app delete is refused' \
+refuse 'unreviewed app deletion' 'requires --save-plan' \
   app delete fixture
-refuse 'direct site rollback' 'direct site rollback is refused' \
+refuse 'unreviewed site rollback' 'requires --save-plan' \
   site rollback --file ../nagare-dsl/test/fixtures/static-site/nagare/Config.hs prior-release
-refuse 'direct preview deletion' 'direct site preview delete is refused' \
+refuse 'unreviewed preview deletion' 'requires --save-plan' \
   site preview delete --file ../nagare-dsl/test/fixtures/static-site/nagare/Config.hs feature-x
 refuse 'direct CDN purge' 'direct cdn purge is refused' \
   cdn purge hello.example.com

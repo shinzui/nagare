@@ -59,13 +59,9 @@ import Nagare.Access.Resolve
 import Nagare.App
   ( AppSummary (..)
   , LogTarget (..)
-  , appDomains
-  , deleteApp
   , formatAppList
   , getAppSummary
   , listAppSummaries
-  , restartApp
-  , stopApp
   , streamServiceLogs
   )
 import Nagare.App.Deploy (AppDeployParams (..), RolloutEnv (..), resolveAppRolloutWithBrokerEnv)
@@ -104,7 +100,7 @@ import Nagare.Cluster.Kubeconfig
   , fetchKubeconfig
   , kubeconfigPath
   )
-import Nagare.Cluster.Namespace (NamespacePurpose (..), ensureNamespace)
+import Nagare.Cluster.Namespace (NamespacePurpose (..))
 import Nagare.Database.Backup (runDbBackup)
 import Nagare.Database.Connection (connectionEnv, mergeConnectionEnvs)
 import Nagare.Database.Create (DbCreateParams (..), resolveDatabase, runDbCreateWithGuard)
@@ -115,7 +111,7 @@ import Nagare.Database.List (runDbList)
 import Nagare.Database.Restart (runDbRestart)
 import Nagare.Database.Restore (runDbRestore)
 import Nagare.Database.Shell (runDbShell)
-import Nagare.Deploy (applyManifests, requireWait, serviceUrl, waitForReady)
+import Nagare.Deploy (serviceUrl)
 import Nagare.Deploy.Resolve (resolveTag)
 import Nagare.Dsl.Application (Application (..))
 import Nagare.Dsl.Broker (BrokerProvider (..), brokerNameText)
@@ -745,13 +741,10 @@ data AppNameOpts = AppNameOpts
   }
   deriving stock (Generic, Show)
 
--- | Options for @app delete@: like 'AppNameOpts' plus an optional @--file@ config
--- whose declared domains are deleted (falling back to a cluster query).
+-- | Options for saved review of application or standalone Service retirement.
 data AppDeleteOpts = AppDeleteOpts
   { nameArg :: !String
   , namespace :: !(Maybe String)
-  , file :: !FilePath
-  , ghcEnv :: !(Maybe FilePath)
   , savePlan :: !(Maybe FilePath)
   , scopeKey :: !(Maybe String)
   }
@@ -1807,9 +1800,7 @@ appDeleteOptsParser =
   AppDeleteOpts
     <$> appNameArg
     <*> namespaceOpt
-    <*> fileOpt defaultConfigFile
-    <*> ghcEnvOpt
-    <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed retirement of an accepted application or standalone web Service"))
+    <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Required saved review for application or standalone web Service retirement"))
     <*> optional (strOption (long "scope-key" <> metavar "KEY" <> help "Pin the accepted application logical key"))
 
 depListOptsParser :: Parser DepListOpts
@@ -8459,21 +8450,13 @@ runAppLogs o = do
           }
   streamServiceLogs target
 
--- | @app restart NAME@: roll a fresh revision (also clears the cluster-local
--- label, so a stopped app comes back online), then wait for readiness.
+-- | @app restart NAME@: review a fresh revision, clearing a stopped override.
 runAppRestart :: Maybe String -> AppNameOpts -> IO ()
 runAppRestart mctx o = do
   let ns = appNamespace (o ^. #namespace)
       name = T.pack (o ^. #nameArg)
   stamp <- computeTag
-  reviewed <- acceptedServiceActionExists mctx name ns
-  if reviewed
-    then runReviewedServiceAction mctx name ns (RestartService stamp)
-    else do
-      refuseDirectLegacyOperationWhenManaged mctx "app restart" "the Service needs an accepted scope"
-      refuseDirectServiceMutationIfOwned mctx "app restart" name ns
-      restartApp ns name stamp
-      waitForReady name ns >>= requireWait ("service '" <> name <> "'")
+  runReviewedServiceAction mctx name ns (RestartService stamp)
   TIO.putStrLn ("Restarted: " <> name)
 
 -- | @app stop NAME@: take the app offline recoverably.
@@ -8481,36 +8464,10 @@ runAppStop :: Maybe String -> AppNameOpts -> IO ()
 runAppStop mctx o = do
   let ns = appNamespace (o ^. #namespace)
       name = T.pack (o ^. #nameArg)
-  reviewed <- acceptedServiceActionExists mctx name ns
-  if reviewed
-    then runReviewedServiceAction mctx name ns StopService
-    else do
-      refuseDirectLegacyOperationWhenManaged mctx "app stop" "the Service needs an accepted scope"
-      refuseDirectServiceMutationIfOwned mctx "app stop" name ns
-      stopApp ns name
+  runReviewedServiceAction mctx name ns StopService
   TIO.putStrLn
-    ("Stopped " <> name <> if reviewed
-      then " (run an explicit reviewed deploy or 'nagarectl app restart "
-        <> name <> "' to restore public serving)"
-      else " (run 'nagarectl deploy' or 'nagarectl app restart "
-        <> name <> "' to restore public serving)")
-
-acceptedServiceActionExists :: Maybe String -> Text -> Text -> IO Bool
-acceptedServiceActionExists mctx name namespaceName =
-  withAcceptedInventoryHistoryResult mctx "app service action" False $ \history -> do
-    let selected = [resource | (_, (_, scope)) <- Map.toList (InventoryPlan.historyAccepted history),
-          bundle <- ResourceInventory.scopeBundles scope,
-          ResourceInventory.Managed resource <- ResourceInventory.declarations bundle,
-          case resource ^. #address of
-            Resource.Kubernetes _ "serving.knative.dev" kind (Just ns) nativeName ->
-              Resource.nameText kind == "service"
-                && Resource.nameText ns == namespaceName
-                && Resource.nameText nativeName == name
-            _ -> False]
-    case selected of
-      [] -> pure False
-      [_] -> pure True
-      _ -> dieT "multiple accepted scopes claim the selected Knative Service"
+    ("Stopped " <> name <> " (run an explicit reviewed deploy or 'nagarectl app restart "
+      <> name <> "' to restore public serving)")
 
 runReviewedServiceAction :: Maybe String -> Text -> Text -> ServiceAction -> IO ()
 runReviewedServiceAction mctx name namespaceName serviceAction = do
@@ -8544,45 +8501,20 @@ runReviewedServiceAction mctx name namespaceName serviceAction = do
     (inventoryPlanRegistryWithNative active workspace native)
     (inventoryExecutionRegistry mctx) active candidate
 
--- | @app delete NAME@: remove the Service, its DomainMappings, and its history.
--- Domains come from the config when @--file@ resolves to a 'Deployment',
--- otherwise from a cluster query of DomainMappings pointing at the Service.
+-- | @app delete NAME@: save retirement of the accepted application scope.
 runAppDelete :: Maybe String -> AppDeleteOpts -> IO ()
 runAppDelete mctx o = do
+  output <- maybe (dieT "app delete requires --save-plan for reviewed retirement") pure
+    (o ^. #savePlan)
   let ns = appNamespace (o ^. #namespace)
       name = T.pack (o ^. #nameArg)
-  case o ^. #savePlan of
-    Nothing -> do
-      when (isJust (o ^. #scopeKey)) (dieT "--scope-key requires --save-plan")
-      refuseDirectLegacyOperationWhenManaged mctx "app delete" "use --save-plan for reviewed retirement"
-      refuseDirectServiceMutationIfOwned mctx "app delete" name ns
-      refuseDirectAccessOwnerIfManaged mctx "app delete"
-      domains <- resolveDeleteDomains o ns name
-      deleteApp ns name domains
-      TIO.putStrLn ("Deleted " <> name)
-    Just output -> do
-      active <- activeTarget mctx
-      snapshot <- Inventory.loadTargetSnapshot active
-      owner <- either dieT pure (applicationRetirementScope name ns
-        (T.pack <$> o ^. #scopeKey) snapshot)
-      (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
-      Inventory.planInventoryRetirementWith
-        (inventoryPlanRegistry active workspace) active owner output
-
--- | The DomainMapping hostnames to delete with an app: the config's declared
--- domains when a readable 'Deployment' config is present, else the cluster's
--- DomainMappings that reference the Service.
-resolveDeleteDomains :: AppDeleteOpts -> Text -> Text -> IO [Text]
-resolveDeleteDomains o ns name = do
-  exists <- doesFileExist (o ^. #file)
-  if exists
-    then do
-      provisionGhcEnv (o ^. #ghcEnv)
-      edep <- Load.loadDeployment (o ^. #file)
-      case edep of
-        Right dep -> pure (map (\d -> domainText (d ^. #domain)) (dep ^. #domains))
-        Left _ -> appDomains ns name
-    else appDomains ns name
+  active <- activeTarget mctx
+  snapshot <- Inventory.loadTargetSnapshot active
+  owner <- either dieT pure (applicationRetirementScope name ns
+    (T.pack <$> o ^. #scopeKey) snapshot)
+  (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+  Inventory.planInventoryRetirementWith
+    (inventoryPlanRegistry active workspace) active owner output
 
 -- ---------------------------------------------------------------------------
 -- deployments handlers (EP-31)
@@ -9162,15 +9094,6 @@ cloudflareZoneOwned history = accepted || retained || unresolved
           Resource.CloudflareDnsRecord _ _ -> True
           _ -> False]
     unresolved = isJust (InventoryStore.headActiveTransaction (InventoryPlan.historyHead history))
-
-refuseDirectServiceMutationIfOwned :: Maybe String -> Text -> Text -> Text -> IO ()
-refuseDirectServiceMutationIfOwned mctx operation name namespaceName =
-  withAcceptedInventoryHistory mctx operation $ \history ->
-    when (nativeWorkloadOwned "serving.knative.dev" "service" name namespaceName
-        (ownedHistoryResources history)
-      || nativeWorkloadOwned "" "configmap" (appConfigMapName name) namespaceName
-        (ownedHistoryResources history))
-      (dieT ("Service " <> name <> " is owned by accepted or retained inventory history; direct " <> operation <> " is refused"))
 
 refuseDirectTaskMutationIfOwned :: Maybe String -> Text -> Text -> Text -> IO ()
 refuseDirectTaskMutationIfOwned mctx operation name namespaceName =

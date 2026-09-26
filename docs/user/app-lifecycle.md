@@ -13,11 +13,10 @@ generated:
 
 > **Status:** 🟡 **Built, not yet exercised against the live cluster.**
 >
-> The `app` and `deployments` commands are implemented and unit-tested, and the
-> example config renders end-to-end with `nagarectl deploy --dry-run`. The *live*
-> verbs (`list`/`get`/`logs`/`restart`/`stop`/`delete`) read real
-> Knative state; accepted Services use reviewed stop/restart mutations, while
-> legacy Services use direct patches only before inventory initialization.
+> The `app` and `deployments` commands are implemented and unit-tested. The
+> read commands inspect live Knative state; stop and restart update accepted
+> Service scopes through the inventory journal, and deletion saves a retirement
+> review.
 > Their transcripts below are the intended behaviour until
 > `nagare-01` is back up. The flags and output shapes are exact.
 
@@ -41,7 +40,6 @@ nagarectl app get NAME [-n NS] [-f FILE]              # one app's image, revisio
 nagarectl app logs NAME [--follow] [--tail N] [-n NS] # tail the running container's logs
 nagarectl app restart NAME [-n NS]                    # roll a fresh revision (also un-stops)
 nagarectl app stop NAME [-n NS]                       # take the app offline, recoverably
-nagarectl app delete NAME [-n NS] [-f FILE]           # remove legacy Service, DomainMappings, history
 nagarectl app delete NAME [-n NS] --save-plan DIR     # review accepted application retirement
 
 nagarectl deployments list NAME [-n NS]               # deployment history, newest first
@@ -115,14 +113,12 @@ revision is currently serving; to read a *specific past* deployment's logs, use
 
 ## Restart, stop, delete
 
-After a context initializes inventory history, `app restart` and `app stop`
-require an accepted Service scope. Direct `app delete` refuses; use
-`--save-plan` to review retirement of the accepted application or standalone
-Service. A newly named Service cannot use the legacy mutation path there.
+`app restart` and `app stop` require an accepted application or standalone
+Service scope. `app delete` always requires `--save-plan` to review retirement
+of that accepted scope. A name absent from accepted history refuses.
 
-**`app restart NAME`** rolls a fresh revision by stamping the Service template, then
-waits for the new revision to become Ready. For an accepted application or
-standalone Service, the command publishes and applies a reviewed scope update
+**`app restart NAME`** rolls a fresh revision by stamping the Service template.
+The command publishes and applies a reviewed scope update
 using its accepted private Service bytes. The review clears a stopped Service's
 cluster-local override and records the restart stamp. Interrupted execution
 resumes from the inventory transaction; it does not issue a second direct patch.
@@ -148,16 +144,12 @@ nagarectl app stop lifecycle-demo
 ```
 
 ```text
-Stopped lifecycle-demo (run 'nagarectl deploy' or 'nagarectl app restart lifecycle-demo' to restore public serving)
+Stopped lifecycle-demo (run an explicit reviewed deploy or 'nagarectl app restart lifecycle-demo' to restore public serving)
 ```
 
-For an accepted Service, the command first prints the published review digest
-and operation summaries. Its final line names an explicit reviewed deploy or
-`app restart` as the way to restore public serving.
-
-Bring a legacy app back with `nagarectl deploy` or `nagarectl app restart
-lifecycle-demo`. For an accepted Service, use an explicit reviewed deploy with
-its accepted image resource or `nagarectl app restart lifecycle-demo`. Both
+The command first prints the published review digest and operation summaries.
+Use an explicit reviewed deploy with its accepted image resource or
+`nagarectl app restart lifecycle-demo` to restore public serving. Both
 clear the cluster-local label so the public route returns.
 
 For an inventory-managed application, save a retirement review and apply it
@@ -165,7 +157,7 @@ through the inventory command:
 
 ```bash
 nagarectl app delete lifecycle-demo --save-plan ./app-retirement
-nagarectl inventory apply ./app-retirement
+nagarectl inventory apply ./app-retirement --yes
 ```
 
 The review selects a unique accepted application or standalone web-Service
@@ -175,22 +167,9 @@ volumes and recovery credentials; separate reviewed collection is required to
 delete retained resources. A name or key that does not match accepted history
 refuses before a review is saved.
 
-**Direct `app delete NAME`** is permanent for a legacy app. It removes the Service, each of its
-DomainMappings, and its deployment-history ConfigMap. Domains come from the
-config when a readable `nagare/Config.hs` is in reach (or `-f FILE`); otherwise
-they're discovered by querying the cluster for DomainMappings that point at the
-Service:
-
-```bash
-nagarectl app delete lifecycle-demo
-```
-
-```text
-Deleted lifecycle-demo
-```
-
-Every underlying `kubectl delete` uses `--ignore-not-found`, so re-running
-`app delete` on an already-gone app is a clean no-op.
+Retirement keeps the Service, DomainMappings, deployment history, and durable
+members visible as retained inventory records. Collect each eligible member with
+an exact `inventory collect` review after resolving its dependencies.
 
 ## Deployment history
 
@@ -199,7 +178,8 @@ Every successful `nagarectl deploy` records a deployment in a per-app ConfigMap
 each deploy with provenance using `--source`:
 
 ```bash
-nagarectl deploy --source "$(git rev-parse --short HEAD)"
+nagarectl deploy --tag TAG --image-resource RESOURCE-ID \
+  --source "$(git rev-parse --short HEAD)"
 ```
 
 **`deployments list NAME`** prints the history newest-first, with the live
@@ -252,8 +232,8 @@ explain the behavior:
   `serving.knative.dev/service=<name>` pod label (plus
   `serving.knative.dev/revision=<rev>` when a specific deployment is requested).
 - **History lives in a per-app ConfigMap** named `nagare-app-deployments-<app>`,
-  storing the newest 50 deployments as JSON. `app delete` removes it along with
-  the Service.
+  storing the newest 50 deployments as JSON. Retirement retains that record
+  until a separate exact collection review removes it.
 
 For the platform identifiers and registry path these commands assume, see
 [Reference](reference.md). For the config fields (`healthCheck`, resource limits,

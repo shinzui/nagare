@@ -237,20 +237,23 @@ and verifying the served certificate, then say: `CA trusted, Chrome restarted, a
 portal certificate is issued by nagare-local-ca.` You retain control of password entry
 and native passkey prompts.
 
-### 6. Clean up and remove system trust
+### 6. Retire the portal scope and remove system trust
 
-Remove the portal through its typed config so its access registration and Shomei origin
-are also removed:
+Save and apply retirement of the portal's accepted scope:
 
 ```bash
 (
   cd cluster/examples/auth-portal
   nagarectl --context local app delete auth-portal \
-    --namespace personal --file nagare/Config.hs
+    --namespace personal --save-plan portal-retirement
+  nagarectl --context local inventory apply portal-retirement --yes
 )
 
 unset TEST_PASSWORD TEST_EMAIL NAGARE_EN_URL NAGARE_CONTEXT
 ```
+
+Retirement keeps the Service and route visible until separate exact collection
+reviews remove them. Reviewed portal registration removal is still pending.
 
 Stop the En port-forward with Control-C. Then remove the exact CA identified by the
 exported certificate and stop the local runtime if it was previously stopped:
@@ -358,19 +361,18 @@ https://<protected-host>/_nagare/login?builtin=1
 Use this break-glass URL when the portal is broken. It preserves the old password login
 path but does not provide the portal's branded account or passkey UI.
 
-To unregister and delete the reference portal:
+To retire the reference portal's accepted scope:
 
 ```bash
 cd cluster/examples/auth-portal
-nagarectl app delete auth-portal --namespace personal --file nagare/Config.hs
+nagarectl app delete auth-portal --namespace personal --save-plan portal-retirement
+nagarectl inventory apply portal-retirement --yes
 nagarectl access portal show
 ```
 
-The delete removes the backend entry and enforcer-owned DomainMapping, removes the
-portal origin and public base URL from Shomei, and then deletes the app. Protected hosts
-immediately return to their built-in sign-in and error pages. A repeat delete is a
-no-op.
+Retirement retains the portal's Service, route, and shared auth contributions.
+Inspect their resource IDs with `inventory status` and use separate exact collection
+reviews to remove eligible members. Portal registration removal remains part of the
+reviewed access lifecycle work.
 
-If the app was deleted outside `nagarectl`, restore it and use the command above so the
-registration can be cleaned up safely. Do not hand-edit the backend ConfigMap while the
-resolver can still identify the service.
+Do not hand-edit the backend ConfigMap while its shared contribution is accepted.

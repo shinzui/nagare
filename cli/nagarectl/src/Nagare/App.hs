@@ -1,16 +1,15 @@
 -- | Application lifecycle helpers for the @nagarectl app@ commands (EP-30).
 --
 -- This module owns the shared @kubectl@ plumbing and the pure parse/format
--- helpers behind @app list/get/logs/restart/stop/delete@. The pure parts
--- ('parseServiceNames', 'logArgs', 'restartPatch', 'extractAppSummary',
+-- helpers behind read-only @app list/get/logs@. The pure parts
+-- ('parseServiceNames', 'logArgs', 'extractAppSummary',
 -- 'extractAppSummaries', 'formatAppList') are separated from the @kubectl@ IO so
 -- they are unit-testable without a cluster.
 --
 -- Integration points (MasterPlan 6): 'streamServiceLogs' and 'appIdentityOrDie'
 -- are reused by the sibling @deployments@ commands
 -- (@docs/plans/31-application-deployment-history-and-deployments-commands.md@);
--- 'restartApp'/'stopApp'/'deleteApp' implement the lifecycle semantics fixed in
--- the MasterPlan Decision Log.
+-- mutating lifecycle commands use accepted inventory scopes in @app/Main.hs@.
 module Nagare.App
   ( -- * Identity
     appIdentityOrDie
@@ -29,18 +28,9 @@ module Nagare.App
   , extractAppSummaries
   , parseServiceNames
   , formatAppList
-
-    -- * Lifecycle operations
-  , restartApp
-  , restartPatch
-  , stopApp
-  , deleteApp
-  , appDomains
-  , extractDomainsFor
   )
 where
 
-import Control.Monad (forM_)
 import Cradle
 import Data.Aeson (eitherDecodeStrict)
 import Data.Aeson qualified as Aeson
@@ -52,10 +42,9 @@ import Data.List (find)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Vector qualified as V
-import Nagare.Access.Resolve (kubectlAccessOps, removeServiceAccessWithOps)
 import Nagare.Dsl.Load qualified as Load
 import Nagare.Dsl.Prelude
-import Nagare.Dsl.Types (mkNamespace, mkServiceName, namespaceText, serviceNameText)
+import Nagare.Dsl.Types (namespaceText, serviceNameText)
 import System.Exit (ExitCode (..), exitFailure)
 import System.IO (stderr)
 
@@ -279,96 +268,3 @@ formatAppList apps = T.unlines (header : map row apps)
     boolText True = "True"
     boolText False = "False"
     pad n t = let t' = T.take n t in t' <> T.replicate (max 1 (n - T.length t')) " "
-
--- ---------------------------------------------------------------------------
--- Lifecycle operations
-
--- | A JSON merge patch that forces a fresh Knative revision (by stamping a
--- Nagare-owned @spec.template.metadata.annotations.nagare.dev/restartedAt@) and
--- clears the @networking.knative.dev/visibility@ label (a @null@ value in a merge
--- patch deletes the key), so a restart also brings a stopped app back online.
--- Pure and unit tested.
-restartPatch :: Text -> Text
-restartPatch stamp =
-  "{\"metadata\":{\"labels\":{\"networking.knative.dev/visibility\":null}},"
-    <> "\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"nagare.dev/restartedAt\":\""
-    <> stamp
-    <> "\"}}}}}"
-
--- | Roll a fresh revision for @name@ in @ns@ by applying 'restartPatch' (whose
--- @stamp@ the caller supplies, keeping this clock-free).
-restartApp :: Text -> Text -> Text -> IO ()
-restartApp ns name stamp =
-  run_ $
-    cmd "kubectl"
-      & addArgs
-        ["patch", "ksvc", T.unpack name, "-n", T.unpack ns, "--type=merge", "-p", T.unpack (restartPatch stamp)]
-
--- | Take @name@ offline (recoverably) by labelling its Service
--- @networking.knative.dev/visibility: cluster-local@, which removes the public
--- route. Reversed by 'restartApp' or @nagarectl deploy@.
-stopApp :: Text -> Text -> IO ()
-stopApp ns name =
-  run_ $
-    cmd "kubectl"
-      & addArgs
-        [ "patch"
-        , "ksvc"
-        , T.unpack name
-        , "-n"
-        , T.unpack ns
-        , "--type=merge"
-        , "-p"
-        , "{\"metadata\":{\"labels\":{\"networking.knative.dev/visibility\":\"cluster-local\"}}}"
-        ]
-
--- | Delete an app: its Service, each named DomainMapping, and its
--- deployment-history ConfigMap (@nagare-app-deployments-\<name\>@, owned by EP-31).
--- Every call uses @--ignore-not-found@ so a repeat (or a missing history store) is
--- a clean no-op.
-deleteApp :: Text -> Text -> [Text] -> IO ()
-deleteApp ns name domains = do
-  typedNamespace <- either dieApp pure (mkNamespace ns)
-  typedName <- either dieApp pure (mkServiceName name)
-  _ <- removeServiceAccessWithOps kubectlAccessOps typedNamespace typedName
-  run_ $
-    cmd "kubectl"
-      & addArgs ["delete", "ksvc", T.unpack name, "-n", T.unpack ns, "--ignore-not-found"]
-  forM_ domains $ \d ->
-    run_ $
-      cmd "kubectl"
-        & addArgs ["delete", "domainmapping", T.unpack d, "-n", T.unpack ns, "--ignore-not-found"]
-  run_ $
-    cmd "kubectl"
-      & addArgs
-        ["delete", "configmap", T.unpack ("nagare-app-deployments-" <> name), "-n", T.unpack ns, "--ignore-not-found"]
-
--- | The DomainMapping hostnames pointing at Service @name@ in @ns@, discovered
--- from the cluster via @kubectl get domainmapping -n \<ns\> -o json@ (those whose
--- @.spec.ref.name == name@). Used by @app delete@ when no config file is given.
-appDomains :: Text -> Text -> IO [Text]
-appDomains ns name = do
-  (exitCode, StdoutRaw out) <-
-    run $
-      cmd "kubectl"
-        & addArgs ["get", "domainmapping", "-n", T.unpack ns, "-o", "json"]
-        & silenceStderr
-  pure $ case exitCode of
-    ExitFailure _ -> []
-    ExitSuccess -> either (const []) id (extractDomainsFor name out)
-
--- | The DomainMapping names (@.metadata.name@) whose @.spec.ref.name@ equals
--- @name@, from a @kubectl get domainmapping … -o json@ list. Pure.
-extractDomainsFor :: Text -> ByteString -> Either Text [Text]
-extractDomainsFor name bs =
-  case eitherDecodeStrict bs of
-    Left e -> Left ("could not decode domainmapping list JSON: " <> T.pack e)
-    Right v -> case lookupPath ["items"] v of
-      Just (Aeson.Array items) ->
-        Right
-          [ dn
-          | item <- V.toList items
-          , textAt ["spec", "ref", "name"] item == Just name
-          , Just dn <- [textAt ["metadata", "name"] item]
-          ]
-      _ -> Right []
