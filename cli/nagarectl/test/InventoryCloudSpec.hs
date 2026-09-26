@@ -71,6 +71,22 @@ inventoryCloudTests =
         case validatePulumiPreparation [registration] wrong prepared of
           Left (PulumiActionMismatch _ RetireResource OpCreate) -> pure ()
           other -> assertFailure ("expected action mismatch, got " <> show other)
+    , testCase "a targeted Pulumi operation refuses a second declared mutation" $ do
+        let otherRegistration = registration
+              { registrationResource = resource "platform:cloud/other/bucket"
+              , registrationPulumiName = name "other-bucket"
+              , registrationPulumiUrn = "urn:pulumi:dev::nagare::gcp:storage/bucket:Bucket::other-bucket"
+              }
+            prepared = PulumiPreparation pulumiIdentityFixture
+              (BC.pack ("{\"steps\":[{\"op\":\"create\",\"urn\":\""
+                <> T.unpack (registrationPulumiUrn registration)
+                <> "\",\"replaceReasons\":[]},{\"op\":\"create\",\"urn\":\""
+                <> T.unpack (registrationPulumiUrn otherRegistration)
+                <> "\",\"replaceReasons\":[]}]}"))
+              "plan" [registration, otherRegistration]
+        case validatePulumiPreparation [registration, otherRegistration] operation prepared of
+          Left (PulumiUnexpectedMutation urn) -> urn @?= registrationPulumiUrn otherRegistration
+          other -> assertFailure ("expected unrelated Pulumi mutation refusal, got " <> show other)
     , testCase "Pulumi runtime applies retained plan bytes and verifies convergence" $
         withSystemTempDirectory "pulumi-inventory-runtime" $ \temporary -> do
           let program = temporary </> "program"
@@ -108,6 +124,9 @@ inventoryCloudTests =
             other -> assertFailure ("expected physical Pulumi observation, got " <> show other)
           calls <- readFile logPath
           assertBool "saved plan bytes reached pulumi up" (" up --plan " `isInfixOf` calls)
+          assertBool "Pulumi preview and up did not target the reviewed resource"
+            (all (isInfixOf ("--target " <> T.unpack (registrationPulumiUrn registration)))
+              (filter (\line -> " preview " `isInfixOf` line || " up " `isInfixOf` line) (lines calls)))
           length (filter (isInfixOf "--save-plan") (lines calls)) @?= 1
     ]
 

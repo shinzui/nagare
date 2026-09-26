@@ -45,11 +45,15 @@ Inherited baseline: commits `9c308390`, `28e05b72`, and `09d83188` supplied expl
 
 2026-09-26 handoff: The reviewed marker now includes the immutable payload ID and the execution factory checks its retained native bytes against the selected payload identity and context pin before constructing provider adapters. This covers the marker-bearing review on apply and resume. Focused inventory tests, the CLI build, Haskell style check, and entrypoint guards passed. Both milestones remain open: fresh prerequisite stages, complete cloud/host composition, public-command interruption fixtures, and native marker smoke have not been proved.
 
+2026-09-26 handoff: The marker also binds the exact desired platform scope generations and canonical digests, excluding its own scope so the value is stable. Unrelated application scopes cannot change its vector or dependencies. Pulumi preview, saved-plan apply, and convergence checks now target the reviewed resource URN; a preview containing another mutating resource is refused. Focused inventory tests and the CLI build passed. M1 still needs the actual cloud, artifact, host, and local prerequisite declarations and public stage dispatch; M2 still needs public interruption fixtures and native marker proof.
+
 
 ## Surprises & Discoveries
 
 
 2026-09-26: A published inventory review preserves exact native bytes, but the generic apply/resume route did not compare a bootstrap marker's retained payload identity with the operator's current selection. The marker previously omitted `payloadId`, so distinct immutable payloads with the same version and source revision could not be distinguished at execution. The marker now records that ID and the execution factory refuses a mismatch before adapter construction. This does not yet bind prerequisite-only reviews; their stage contract remains to be built in M1.
+
+2026-09-26: The Pulumi adapter previously prepared a whole-stack saved plan for each resource operation. A single operation could therefore execute changes assigned to several journal operations before those operations had receipts. Targeted Pulumi preview and apply are supported by the registered CLI source; the adapter now targets each operation's declared URN and refuses additional mutations. Cloud stage assembly must still order prerequisite resources so every targeted preview can be prepared from the current physical state.
 
 
 ## Decision Log
@@ -59,11 +63,13 @@ Inherited baseline: commits `9c308390`, `28e05b72`, and `09d83188` supplied expl
 
 2026-09-26: Carry forward completed EP-150 implementation and give this remaining outcome its own acceptance boundary. The split changes ownership and tracking, not the required functionality or proof.
 
+2026-09-26: Bind the final marker to platform scope revisions and payload identity. Application, standalone, and publication revisions remain independently owned; changing one does not alter platform bootstrap completion. The marker scope is excluded from its own digest to avoid a self-reference.
+
 
 ## Outcomes & Retrospective
 
 
-Remaining-work plan created; no new acceptance run has been performed. Inherited capabilities are credited in Progress and must not be presented as newly completed work.
+Implementation remains partial. Marker identity and scope-vector checks and targeted Pulumi operations have focused test and build evidence; no public fresh-bootstrap or native marker acceptance run has been performed. Inherited capabilities are credited in Progress and must not be presented as newly completed work.
 
 
 ## Context and Orientation

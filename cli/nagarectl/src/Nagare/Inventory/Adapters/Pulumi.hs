@@ -80,6 +80,7 @@ data PulumiBundleHeader = PulumiBundleHeader
 data PulumiBundleError
   = PulumiRegistrationParity !(NonEmpty RegistrationParityError)
   | PulumiUnknownMutation !Text
+  | PulumiUnexpectedMutation !Text
   | PulumiResourceNotDeclared !ResourceId
   | PulumiActionMismatch !ResourceId !OperationAction !StepOp
   | PulumiResourceStepMissing !ResourceId
@@ -134,8 +135,13 @@ validatePulumiPreparation declared operation preparation = do
   steps <- first PulumiMalformedBundle (parsePreview (preparationPreview preparation))
   let byResource = Map.fromList [(registrationResource registration, registration) | registration <- declared]
       knownUrns = Set.fromList (map registrationPulumiUrn declared)
+      operationUrns = Set.fromList
+        [registrationPulumiUrn registration
+        | resource <- NE.toList (plannedResources operation)
+        , Just registration <- [Map.lookup resource byResource]]
       mutating = filter (isMutation . op) steps
   forM_ mutating $ \step -> unless (Set.member (urn step) knownUrns) (Left (PulumiUnknownMutation (urn step)))
+  forM_ mutating $ \step -> unless (Set.member (urn step) operationUrns) (Left (PulumiUnexpectedMutation (urn step)))
   forM_ (NE.toList (plannedResources operation)) $ \resource -> do
     registration <- maybe (Left (PulumiResourceNotDeclared resource)) Right (Map.lookup resource byResource)
     let resourceSteps = filter ((== registrationPulumiUrn registration) . urn) steps

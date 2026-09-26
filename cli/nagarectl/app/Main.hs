@@ -247,7 +247,7 @@ import Nagare.Inventory.Adapters.Pulumi (mkPulumiAdapter)
 import Nagare.Inventory.Adapters.PulumiRuntime
 import Nagare.Inventory.Artifact qualified as InventoryArtifact
 import Nagare.Inventory.Artifact (ArtifactDeclarationBundle (..), ArtifactExecutionSpec (..), ArtifactKind (..), ArtifactResourceSpec (..))
-import Nagare.Inventory.Bootstrap (BootstrapInput (..), bootstrapMarkerValue, compileBootstrapStamp, compileBootstrapWithAuthAndScopes, composePlatformChanges, verifyBootstrapStampPayload)
+import Nagare.Inventory.Bootstrap (BootstrapInput (..), bootstrapCandidateScopeVectorDigest, bootstrapMarkerValue, bootstrapScopeVectorDigest, compileBootstrapStamp, compileBootstrapWithAuthAndScopes, composePlatformChanges, verifyBootstrapStampPayload)
 import Nagare.Inventory.Cloud qualified as InventoryCloud
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), compileContributedNamespaces)
 import Nagare.Inventory.BackendMap (compileContributedBackendMaps, compileContributedShomeiSettings)
@@ -4923,10 +4923,11 @@ buildPlatformCandidate active paths workspace snapshot = do
     [] -> dieT "pinned bootstrap component set is empty"
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory unstampedSnapshot (ResourceInventory.candidateChanges base <> extra))
+  vectorDigest <- either dieT pure (bootstrapCandidateScopeVectorDigest candidate)
   installedAt <- acceptedBootstrapInstalledAt active snapshot cluster
-    (manifest ^. #payloadId) (identityFromPayload manifest) candidate
+    (manifest ^. #payloadId) vectorDigest (identityFromPayload manifest) candidate
   (stampScope, stampNative) <- either (dieT . T.pack . show) pure
-    (compileBootstrapStamp cluster (bootstrapMarkerValue (manifest ^. #payloadId) (identityFromPayload manifest) installedAt) candidate)
+    (compileBootstrapStamp cluster (bootstrapMarkerValue (manifest ^. #payloadId) vectorDigest (identityFromPayload manifest) installedAt) candidate)
   stamped <- either (dieT . T.pack . show) pure
     (composePlatformChanges snapshot (ResourceInventory.candidateChanges candidate
       <> (ResourceInventory.ReplaceScope stampScope NE.:| [])))
@@ -4940,8 +4941,8 @@ buildPlatformCandidate active paths workspace snapshot = do
 -- a changed live marker remains visible as drift to the inventory planner.
 acceptedBootstrapInstalledAt
   :: ActiveTarget -> ResourceInventory.ScopeSnapshot -> Resource.ResourceId
-  -> Text -> ReleaseIdentity -> ResourceInventory.CompositionCandidate -> IO Text
-acceptedBootstrapInstalledAt active snapshot cluster payloadId identity candidate = do
+  -> Text -> Resource.ContentDigest -> ReleaseIdentity -> ResourceInventory.CompositionCandidate -> IO Text
+acceptedBootstrapInstalledAt active snapshot cluster payloadId vectorDigest identity candidate = do
   now <- currentTimestamp
   let owner = either (error . T.unpack) (\scope -> scope)
         (Resource.mkScopeId Resource.Platform "bootstrap-stamp")
@@ -4963,7 +4964,7 @@ acceptedBootstrapInstalledAt active snapshot cluster payloadId identity candidat
           Just (Aeson.Object fields) -> case AesonMap.lookup "installedAt" fields of
             Just (Aeson.String installedAt) | not (T.null installedAt) -> do
               let expected = compileBootstrapStamp cluster
-                    (bootstrapMarkerValue payloadId identity installedAt) candidate
+                    (bootstrapMarkerValue payloadId vectorDigest identity installedAt) candidate
               pure $ case expected of
                 Right (_, native) | any ((== acceptedSpec) . (^. #spec) . fst) (Map.elems native) -> installedAt
                 _ -> now
@@ -5525,7 +5526,9 @@ inventoryExecutionRegistry mctx bundle = do
         && manifest ^. #platformVersion == workspace ^. #platformVersion
         && active ^. #profile . #platformVersion == Just (manifest ^. #platformVersion))
       (dieT "reviewed bootstrap marker requires the selected payload and context pin")
-    either dieT pure (verifyBootstrapStampPayload (manifest ^. #payloadId) (identityFromPayload manifest) markerBytes)
+    let vectorDigest = bootstrapScopeVectorDigest (InventoryPlan.reviewDesiredRevisions document)
+    either dieT pure (verifyBootstrapStampPayload (manifest ^. #payloadId)
+      vectorDigest (identityFromPayload manifest) markerBytes)
   helmSpecs <- either dieT pure (helmSpecsFromReview bundle)
   sourceProofs <- forM scopes $ \scopeDeclaration -> do
     backupProof <- either dieT pure (manualBackupSourceProof scopeDeclaration)

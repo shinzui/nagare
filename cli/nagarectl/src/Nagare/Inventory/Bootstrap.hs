@@ -9,13 +9,15 @@ module Nagare.Inventory.Bootstrap
   , compileBootstrapWithAuth
   , compileBootstrapWithAuthAndScopes
   , compileBootstrapStamp
+  , bootstrapCandidateScopeVectorDigest
+  , bootstrapScopeVectorDigest
   , bootstrapMarkerValue
   , verifyBootstrapStampPayload
   , composePlatformChanges
   ) where
 
 import Data.ByteString (ByteString)
-import Data.Aeson (Value (..))
+import Data.Aeson (Value (..), object, (.=))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Generics.Labels ()
@@ -25,7 +27,8 @@ import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
-import Nagare.Dsl.Prelude
+import Data.Text qualified as T
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Cluster.GcsJob (StoreBackend)
 import Nagare.Inventory.Cache
 import Nagare.Inventory.Components.Auth
@@ -33,6 +36,7 @@ import Nagare.Inventory.Components.Foundation
 import Nagare.Inventory.Components.Upstream
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
+import Nagare.Inventory.Store (ScopeRevision (..))
 import Nagare.Platform.Status (ReleaseIdentity, clusterMarkerValue, parseClusterIdentity)
 import Nagare.Resource.Database (DatabaseDirectInput (..))
 import Nagare.Resource.Inventory
@@ -40,7 +44,7 @@ import Nagare.Resource.Kubernetes (KubernetesInput (..))
 import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (Retain), Sensitivity (Public))
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
-import Nagare.Resource.Wire (canonicalValue)
+import Nagare.Resource.Wire (canonicalValue, encodeCanonicalScope)
 
 data BootstrapInput = BootstrapInput
   { bootstrapFoundation :: !FoundationInput
@@ -90,9 +94,11 @@ compileBootstrapStamp cluster marker candidate = do
       input = KubernetesInput resourceId owner cluster marker (contentDigest bytes)
         Retain Stateless Public source
       resources = [resource ^. #identity | Managed resource <- inventoryDeclarations
-        (candidateInventory candidate), resource ^. #identity /= resourceId]
+        (candidateInventory candidate), scopeKind (resource ^. #owner) == Platform,
+        resource ^. #identity /= resourceId]
       operations = [operation ^. #identity | scope <- Map.elems (inventoryScopes
-        (candidateInventory candidate)), bundle <- scopeBundles scope,
+        (candidateInventory candidate)), scopeKind (scopeId scope) == Platform,
+        bundle <- scopeBundles scope,
         operation <- bundle ^. #operations]
   (compiled, bound) <- first (:| []) (bindKubernetesObject input)
   unless (compiled ^. #address == Kubernetes cluster "" (knownName "configmap")
@@ -108,33 +114,65 @@ compileBootstrapStamp cluster marker candidate = do
     knownKey = either (error . show) id . mkLogicalKey
     knownName = either (error . show) id . mkName
 
--- | The reviewed marker also records the immutable payload identifier. The
--- general platform marker format predates payload IDs and remains readable.
-bootstrapMarkerValue :: Text -> ReleaseIdentity -> Text -> Value
-bootstrapMarkerValue payloadId identity installedAt =
+-- | Bind the final marker to every platform revision except its own scope.
+-- ScopeRevision carries both the generation and the canonical declaration
+-- digest; sorting by scope ID makes the vector stable across reruns.
+bootstrapScopeVectorDigest :: Map ScopeId ScopeRevision -> ContentDigest
+bootstrapScopeVectorDigest revisions = contentDigest (either (error . T.unpack) id
+  (canonicalValue (Aeson.toJSON (map entry (Map.toAscList platformRevisions)))))
+  where
+    stampOwner = either (error . T.unpack) id (mkScopeId Platform "bootstrap-stamp")
+    platformRevisions = Map.filterWithKey
+      (\owner _ -> scopeKind owner == Platform && owner /= stampOwner) revisions
+    entry (owner, revision) = object
+      ["scope" .= owner, "generation" .= revisionGeneration revision,
+       "digest" .= revisionDigest revision]
+
+bootstrapCandidateScopeVectorDigest :: CompositionCandidate -> Either Text ContentDigest
+bootstrapCandidateScopeVectorDigest candidate = do
+  let inventory = candidateInventory candidate
+  revisions <- Map.traverseWithKey (revisionFor (candidateGenerations candidate))
+    (inventoryScopes inventory)
+  unless (Map.keysSet revisions == Map.keysSet (candidateGenerations candidate))
+    (Left "bootstrap candidate generations differ from desired scopes")
+  pure (bootstrapScopeVectorDigest revisions)
+  where
+    revisionFor generations owner declaration = do
+      generation <- maybe (Left "bootstrap candidate scope has no generation") Right
+        (Map.lookup owner generations)
+      pure (ScopeRevision generation (contentDigest (encodeCanonicalScope declaration)))
+
+-- | The reviewed marker records the immutable payload and accepted scope
+-- vector. The general platform marker predates these fields and stays readable.
+bootstrapMarkerValue :: Text -> ContentDigest -> ReleaseIdentity -> Text -> Value
+bootstrapMarkerValue payloadId vectorDigest identity installedAt =
   case clusterMarkerValue identity installedAt of
     Object marker -> case KeyMap.lookup "data" marker of
       Just (Object fields) -> Object (KeyMap.insert "data"
-        (Object (KeyMap.insert "payloadId" (String payloadId) fields)) marker)
+        (Object (KeyMap.insert "scopeVectorDigest" (String (digestText vectorDigest))
+          (KeyMap.insert "payloadId" (String payloadId) fields))) marker)
       _ -> error "platform marker has no data object"
     _ -> error "platform marker is not an object"
 
 -- | Check retained bytes before constructing any adapter. An immutable review
 -- does not itself pin the payload currently selected by the operator.
-verifyBootstrapStampPayload :: Text -> ReleaseIdentity -> ByteString -> Either Text ()
-verifyBootstrapStampPayload expectedPayloadId expected native = do
+verifyBootstrapStampPayload :: Text -> ContentDigest -> ReleaseIdentity -> ByteString -> Either Text ()
+verifyBootstrapStampPayload expectedPayloadId expectedVectorDigest expected native = do
   actual <- maybe (Left "reviewed bootstrap marker has no payload identity") Right
     (parseClusterIdentity native)
   let dataField = do
         Object marker <- Aeson.decodeStrict' native
         KeyMap.lookup "data" marker
-  payloadId <- case dataField of
+  (payloadId, vectorDigest) <- case dataField of
     Just (Object fields) -> case KeyMap.lookup "payloadId" fields of
-      Just (String value) -> Right value
+      Just (String value) -> case KeyMap.lookup "scopeVectorDigest" fields of
+        Just (String digest) -> Right (value, digest)
+        _ -> Left "reviewed bootstrap marker has no scope vector digest"
       _ -> Left "reviewed bootstrap marker has no payload ID"
     _ -> Left "reviewed bootstrap marker has no data object"
-  unless (actual == expected && payloadId == expectedPayloadId)
-    (Left "reviewed bootstrap marker payload differs from the selected payload")
+  unless (actual == expected && payloadId == expectedPayloadId
+      && vectorDigest == digestText expectedVectorDigest)
+    (Left "reviewed bootstrap marker differs from the selected payload or scope vector")
 
 -- | Compile the payload's complete pinned operator release set with the
 -- foundation and optional cache. Other context-specific components join this

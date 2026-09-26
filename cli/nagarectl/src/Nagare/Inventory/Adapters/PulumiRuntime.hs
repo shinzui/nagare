@@ -17,6 +17,7 @@ import Data.Aeson.Types (parseEither)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.Foldable (toList)
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -28,7 +29,7 @@ import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Pulumi
 import Nagare.Inventory.Cloud
 import Nagare.Inventory.Digest
-import Nagare.Inventory.Journal (operationIdText)
+import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), operationIdText)
 import Nagare.Resource.Types
 import System.Environment (getEnvironment)
 import System.Exit (ExitCode (..))
@@ -80,10 +81,12 @@ observeResources config resources = do
         Nothing -> (resource, ConfirmedAbsent (contentDigest (TE.encodeUtf8 ("pulumi-absence:" <> urn))))
 
 prepareSavedPlan :: PulumiRuntimeConfig -> PlannedOperation -> IO (Either Text PulumiPreparation)
-prepareSavedPlan config _ =
-  withSystemTempDirectory "nagare-pulumi-inventory-plan" $ \temporary -> do
+prepareSavedPlan config operation = case operationTargets config operation of
+  Left err -> pure (Left err)
+  Right targets -> withSystemTempDirectory "nagare-pulumi-inventory-plan" $ \temporary -> do
     let planPath = temporary </> "pulumi-plan.json"
-    result <- runPulumiWithDeclarations config temporary ["preview", "--json", "--save-plan", planPath, "--stack", T.unpack (runtimeStack config), "--non-interactive"]
+    result <- runPulumiWithDeclarations config temporary
+      (["preview", "--json", "--save-plan", planPath, "--stack", T.unpack (runtimeStack config), "--non-interactive"] <> targets)
     case successful "Pulumi preview" result of
       Left err -> pure (Left err)
       Right nativePreview -> do
@@ -122,19 +125,23 @@ readIdentity config = do
   pure (first (\(err :: IOException) -> "could not capture Pulumi inventory identity: " <> T.pack (show err)) result)
 
 applySavedPlan :: PulumiRuntimeConfig -> PlannedOperation -> ByteString -> IO AdapterExecution
-applySavedPlan config _ planBytes =
-  withSystemTempDirectory "nagare-pulumi-inventory-apply" $ \temporary -> do
+applySavedPlan config operation planBytes = case operationTargets config operation of
+  Left err -> pure (AdapterEffectFailed (KnownNoEffect err))
+  Right targets -> withSystemTempDirectory "nagare-pulumi-inventory-apply" $ \temporary -> do
     let planPath = temporary </> "pulumi-plan.json"
     BS.writeFile planPath planBytes
-    result <- runPulumiWithDeclarations config temporary ["up", "--plan", planPath, "--stack", T.unpack (runtimeStack config), "--yes", "--non-interactive"]
+    result <- runPulumiWithDeclarations config temporary
+      (["up", "--plan", planPath, "--stack", T.unpack (runtimeStack config), "--yes", "--non-interactive"] <> targets)
     pure $ case successful "Pulumi apply" result of
       Left err -> AdapterEffectAmbiguous err
       Right _ -> AdapterEffectCompleted
 
 verifyResources :: PulumiRuntimeConfig -> PlannedOperation -> ByteString -> IO (Either Text ContentDigest)
-verifyResources config operation planBytes =
-  withSystemTempDirectory "nagare-pulumi-inventory-verify" $ \temporary -> do
-    result <- runPulumiWithDeclarations config temporary ["preview", "--json", "--expect-no-changes", "--stack", T.unpack (runtimeStack config), "--non-interactive"]
+verifyResources config operation planBytes = case operationTargets config operation of
+  Left err -> pure (Left err)
+  Right targets -> withSystemTempDirectory "nagare-pulumi-inventory-verify" $ \temporary -> do
+    result <- runPulumiWithDeclarations config temporary
+      (["preview", "--json", "--expect-no-changes", "--stack", T.unpack (runtimeStack config), "--non-interactive"] <> targets)
     pure $ do
       output <- successful "Pulumi convergence preview" result
       pure (contentDigest (planBytes <> TE.encodeUtf8 (operationIdText (plannedOperationId operation)) <> TE.encodeUtf8 (T.pack output)))
@@ -145,6 +152,15 @@ recoverSavedPlan config operation planBytes = do
   pure $ case verified of
     Right proof -> RecoveryProvedComplete proof
     Left err -> RecoveryUnresolved err
+
+operationTargets :: PulumiRuntimeConfig -> PlannedOperation -> Either Text [String]
+operationTargets config operation = concat <$> traverse target (NE.toList (plannedResources operation))
+  where
+    byResource = Map.fromList [(registrationResource registration, registration)
+      | registration <- runtimeRegistrations config]
+    target resource = case Map.lookup resource byResource of
+      Nothing -> Left ("Pulumi operation resource is absent from native registrations: " <> resourceIdText resource)
+      Just registration -> Right ["--target", T.unpack (registrationPulumiUrn registration)]
 
 runPulumiWithDeclarations :: PulumiRuntimeConfig -> FilePath -> [String] -> IO (Either Text (ExitCode, String, String))
 runPulumiWithDeclarations config temporary arguments = do

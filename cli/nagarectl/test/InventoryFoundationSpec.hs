@@ -6,18 +6,19 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Nagare.Dsl.Prelude hiding ((.=))
-import Nagare.Inventory.Bootstrap (bootstrapMarkerValue, compileBootstrapStamp, verifyBootstrapStampPayload)
+import Nagare.Inventory.Bootstrap (bootstrapCandidateScopeVectorDigest, bootstrapMarkerValue, bootstrapScopeVectorDigest, compileBootstrapStamp, verifyBootstrapStampPayload)
 import Nagare.Inventory.Components.Foundation
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.KubernetesSources (validateSuppliedKubernetesMembers)
+import Nagare.Inventory.Store (ScopeRevision (..))
 import Nagare.Platform.Status (ReleaseIdentity (..))
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes
 import Nagare.Resource.Policy (RecoveryClass (Idempotent))
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
-import Nagare.Resource.Wire (canonicalValue)
+import Nagare.Resource.Wire (canonicalValue, encodeCanonicalScope)
 import Test.Tasty
 import Test.Tasty.HUnit
 import System.FilePath ((</>))
@@ -54,15 +55,19 @@ inventoryFoundationTests = testGroup "cluster foundation inventory"
       assertBool "missing quota was accepted" (either (const True) (const False) result)
   , testCase "reviewed bootstrap marker is bound to the selected payload identity" $ do
       let identity = ReleaseIdentity (Just "0.4.0") (Just "source-a") (Just 2)
-          bytes = ok (canonicalValue (bootstrapMarkerValue "payload-a" identity "2026-09-26T00:00:00Z"))
-      verifyBootstrapStampPayload "payload-a" identity bytes @?= Right ()
+          vectorDigest = contentDigest "accepted-scope-vector"
+          bytes = ok (canonicalValue (bootstrapMarkerValue "payload-a" vectorDigest identity "2026-09-26T00:00:00Z"))
+      verifyBootstrapStampPayload "payload-a" vectorDigest identity bytes @?= Right ()
       assertBool "changed source revision was accepted"
         (either (const True) (const False)
-          (verifyBootstrapStampPayload "payload-a" (identity {revision = Just "source-b"}) bytes))
+          (verifyBootstrapStampPayload "payload-a" vectorDigest (identity {revision = Just "source-b"}) bytes))
       assertBool "changed payload ID was accepted"
-        (either (const True) (const False) (verifyBootstrapStampPayload "payload-b" identity bytes))
+        (either (const True) (const False) (verifyBootstrapStampPayload "payload-b" vectorDigest identity bytes))
+      assertBool "changed accepted scope vector was accepted"
+        (either (const True) (const False)
+          (verifyBootstrapStampPayload "payload-a" (contentDigest "other-vector") identity bytes))
       assertBool "missing marker identity was accepted"
-        (either (const True) (const False) (verifyBootstrapStampPayload "payload-a" identity "{}"))
+        (either (const True) (const False) (verifyBootstrapStampPayload "payload-a" vectorDigest identity "{}"))
   , testCase "reviewed release marker waits for every foundation resource and operation" $ do
       (foundationBundle, _) <- compileFoundation foundationInput >>= expectRight
       let quotaId = case [member ^. #identity | Managed member <- declarations foundationBundle,
@@ -81,7 +86,23 @@ inventoryFoundationTests = testGroup "cluster foundation inventory"
               "namespace" .= ("nagare-system" :: Text)],
             "data" .= object ["version" .= ("0.4.0" :: Text),
               "installedAt" .= ("2026-09-22T00:00:00Z" :: Text)]]
+      vectorDigest <- expectRight (bootstrapCandidateScopeVectorDigest base)
+      let revisions = Map.fromList
+            [(fixtureOwner, ScopeRevision (candidateGenerations base Map.! fixtureOwner)
+              (contentDigest (encodeCanonicalScope baseScope)))]
+      bootstrapScopeVectorDigest revisions @?= vectorDigest
+      let appOwner = ok (mkScopeId Application "unrelated")
+      bootstrapScopeVectorDigest (Map.insert appOwner
+        (ScopeRevision (ok (mkScopeGeneration 7)) (contentDigest "unrelated-app")) revisions)
+        @?= vectorDigest
+      assertBool "changed scope generation retained the marker vector digest"
+        (bootstrapScopeVectorDigest (Map.adjust
+          (\revision -> revision {revisionGeneration = ok (mkScopeGeneration 2)}) fixtureOwner revisions)
+          /= vectorDigest)
       (stampScope, native) <- expectRight (compileBootstrapStamp fixtureCluster marker base)
+      bootstrapScopeVectorDigest (Map.insert (scopeId stampScope)
+        (ScopeRevision (ok (mkScopeGeneration 1)) (contentDigest (encodeCanonicalScope stampScope)))
+        revisions) @?= vectorDigest
       let stampMembers = [resource | bundle <- scopeBundles stampScope,
             Managed resource <- declarations bundle]
       case stampMembers of
