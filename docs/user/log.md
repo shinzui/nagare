@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-09-26
+* **Fix**: Explain that context profile replacement, context deletion, and confirmed legacy cleanup refuse after substantive resource inventory admission.
+
 ## 2026-09-25
 * **Update**: Document private inventory export and exact empty-store restore, and reconcile the completed GCS migration rehearsal with ADR 13.
 * **Update**: Allow a separately named Pulumi node service account and opt out of shared project API ownership for an isolated second stack while preserving existing defaults.

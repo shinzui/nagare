@@ -67,7 +67,7 @@ The core fields are:
 | `nagarectl context use NAME` | Set `NAME` as current, select its Pulumi stack, and regenerate its Pulumi config projection. |
 | `nagarectl context show [NAME]` | Print a context bundle as `export VAR=value`; without `NAME`, show the active context. |
 | `nagarectl context create NAME [flags]` | Write a context. Add `--use` to make it current. |
-| `nagarectl context delete NAME --yes` | Delete a context file; deleting the current context clears the pointer. |
+| `nagarectl context delete NAME --yes` | Delete a context file only before it has substantive resource inventory history; deleting the current context clears the pointer. |
 | `nagarectl context guard [--json]` | Refuse unless ADC, the Pulumi stack, the environment and `gcloud` are safe for the active context's project. |
 | `nagarectl context env` | Print the active context's full shell environment as `export` lines, safe to `eval`. |
 
@@ -275,6 +275,12 @@ those versions edit the one line in the context file rather than running this
 command. A changed `NAGARE_BASE_DOMAIN` replaces the Cloud DNS zone, which gets
 new name servers and breaks the parent domain's delegation; `nagarectl infra guard`
 refuses that plan.
+
+This example applies before the context has substantive resource inventory
+history. After admission, `context create --force`, `init NAME` on that
+existing context, and `context delete --yes` refuse. Changing or removing the
+profile could strand the selected history store or break its project binding.
+Use `inventory store migrate` for a reviewed store move.
 
 `NAGARE_ACME_DIRECTORY` accepts `production` (the default), `staging`, or an
 absolute `https://` ACME directory URL. An unrecognized value is an **error**,

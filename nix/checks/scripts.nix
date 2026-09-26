@@ -89,6 +89,17 @@
       touch "$out"
     '';
 
+  inventory-entrypoint-guards = pkgs.runCommand "nagare-inventory-entrypoint-guards-test"
+    {
+      nativeBuildInputs = [ pkgs.bash pkgs.coreutils pkgs.gnugrep pkgs.python3 ];
+      inherit src;
+    }
+    ''
+      cd "$src"
+      bash scripts/test-inventory-entrypoint-guards.sh ${nagarePackages.nagarectl}/bin/nagarectl
+      touch "$out"
+    '';
+
   # MP-22 EP-139 / IR-11: rehearse the complete public GCP bootstrap ordering
   # and its focused refusals without cloud access. The check also locks the
   # truthful boot-disk replacement wording in rendered CLI help and user docs.

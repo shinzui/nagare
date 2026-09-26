@@ -32,6 +32,11 @@ provenance:
       at: 2026-09-26T00:48:01Z
       mode: "implement"
       note: "Guarded legacy Pulumi mutations and added redacted inventory evidence projection"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-26T02:49:40Z
+      mode: "implement"
+      note: "Closed unscoped context profile and cleanup writes after inventory admission"
 ---
 
 # Integrate resource inventories into upgrades and release verification
@@ -52,6 +57,22 @@ Release evidence archives the inventory, review, receipts, and final observation
 - [ ] M2: Package contracts and audit all supported mutation paths.
 - [ ] M3: Run deterministic and disposable-context convergence/recovery scenarios.
 - [ ] M4: Archive release evidence, document recovery, and finish ADR distillation.
+
+2026-09-26: M2 audit found two unscoped mutation families beyond the earlier
+Pulumi guard: confirmed `cleanup` could delete stale preview Services and rewrite
+release-history ConfigMaps, and context replacement/deletion could change or
+remove the profile selecting the inventory store and project. Existing `init
+NAME`, `context create --force`, `context delete --yes`, and `cleanup --confirm`
+now refuse when the old selected context has substantive inventory history.
+Fresh context bootstrap and cleanup dry-run remain available. A public-CLI
+regression with a canonical history head proves all four refusals before any
+provider process, confirms profile/history retention, and allows deletion when
+the head is initialized but untouched. The CLI build, targeted Darwin Nix
+entrypoint check, Nix shellcheck gate, Haskell style check, strict user docs,
+and diff check pass.
+The coverage catalogue, user docs, and ADR 22 record the compatibility boundary.
+This does not complete M2: these families are explicitly unavailable after
+admission and still need reviewed implementations for full command coverage.
 
 2026-09-25: M2's compatibility boundary now also refuses legacy `infra apply`
 and `infra destroy` after the selected context has substantive inventory
@@ -166,6 +187,13 @@ boundary without treating the pending inventory release evidence as shipped.
 
 
 ## Surprises & Discoveries
+
+2026-09-26: The old `cleanup` runner did not inspect inventory history before
+performing confirmed preview deletion and release-log trimming. Context
+replacement and deletion also lacked a guard despite the profile selecting the
+history store. A canonical fixture head with generation 1 reached the public
+CLI and refused all four operations; the first fixture attempt exposed the
+store's private-file mode requirement, so the regression sets head mode 0600.
 
 2026-09-25: The current release workflow still creates a published release
 through `softprops/action-gh-release` after treating any failed `gh release
@@ -303,6 +331,12 @@ would overstate the run's receipt evidence.
 
 
 ## Decision Log
+
+2026-09-26: Treat context profile replacement/removal and confirmed legacy
+cleanup as unavailable once inventory work is admitted. They lack the typed
+review and exact ownership evidence needed for safe operation; an initialized
+but untouched store remains eligible for bootstrap compatibility. Restore their
+availability only through reviewed owner-specific commands, not a raw bypass.
 
 2026-09-16: Do not advertise a complete authoritative inventory while supported commands or installer scripts bypass its protocol. Partial migration is an explicit development state.
 

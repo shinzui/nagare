@@ -453,3 +453,21 @@ recovery. Typed application and production-site compilers bind an accepted
 platform zone grant and origin IPv4, then submit per-host DNS and cache
 contributions. Live Cloudflare validation remains separate from this offline
 contract.
+
+## Amendment — 2026-09-26: close unscoped control and cleanup writers after admission
+
+The context profile chooses the inventory store and supplies its project binding.
+Rewriting or deleting that profile after inventory admission could strand accepted
+history or make subsequent provider work select a different target. Existing
+`init NAME`, `context create --force`, and `context delete --yes` therefore refuse
+once the selected store has substantive history, an executor claim, or a store
+migration. A newly created context may still bootstrap, and `inventory store
+migrate` remains the reviewed way to move its history. An initialized but
+untouched store does not close the compatibility path.
+
+The old confirmed cleanup command also has no exact reviewed ownership proof for
+its preview deletions and release-history rewrites. It refuses after the same
+admission boundary; its dry run remains available. This is an explicit
+unavailable state until each cleanup action has a typed owner and reviewed
+operation. Raw provider tools and older operator binaries cannot be assumed to
+honor this boundary.

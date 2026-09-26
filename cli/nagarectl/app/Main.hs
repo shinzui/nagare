@@ -3732,7 +3732,7 @@ runPlatformUpgrade mctx options = do
   -- accepted inventory history, replaying its Pulumi/host/bootstrap phases
   -- would bypass the reviewed component transaction and could overwrite an
   -- independently revised application scope.
-  guardLegacyPlatformMutationInventory "platform upgrade" active
+  guardLegacyMutationInventory "platform upgrade" active
   if options ^. #apply
     then do
       unless (options ^. #yes) (dieT "refusing to apply an upgrade without --yes")
@@ -3792,8 +3792,8 @@ runPlatformUpgrade mctx options = do
           dieT err
         Right planned -> printUpgradeTransaction (options ^. #json) planned
 
-guardLegacyPlatformMutationInventory :: Text -> ActiveTarget -> IO ()
-guardLegacyPlatformMutationInventory operation active = do
+guardLegacyMutationInventory :: Text -> ActiveTarget -> IO ()
+guardLegacyMutationInventory operation active = do
   opened <- Inventory.openTargetStoreReadOnly active
   case opened of
     Left (InventoryStore.StoreConditionFailed "inventory store is not initialized") -> pure ()
@@ -3807,7 +3807,7 @@ guardLegacyPlatformMutationInventory operation active = do
           when (InventoryStore.hasSubstantiveHistory headValue) $
             dieT
               ( "this context has resource inventory history or transaction state; legacy " <> operation
-                  <> " cannot safely mutate it. Retain any pending legacy transaction bundle and use its original operator payload for guarded recovery."
+                  <> " cannot safely mutate it. Use a reviewed inventory command; retain any pending legacy upgrade bundle for guarded recovery with its original operator payload."
               )
 
 guardUpgradePayloadCompatibility :: PayloadManifest -> Either Text ()
@@ -4743,7 +4743,7 @@ runInfraApply mctx options = do
       runInventoryApply mctx (options ^. #plan) True
     else do
       selected <- activeTarget mctx
-      guardLegacyPlatformMutationInventory "infra apply" selected
+      guardLegacyMutationInventory "infra apply" selected
       (active, workspace) <- prepareInfraMutation mctx
       result <- applyReviewedPlan active workspace (options ^. #plan) (options ^. #allowReplacement)
       either dieT TIO.putStr result
@@ -4753,7 +4753,7 @@ runInfraDestroy mctx yes = do
   unless yes $
     dieT "refusing to destroy the selected context's infrastructure without --yes"
   selected <- activeTarget mctx
-  guardLegacyPlatformMutationInventory "infra destroy" selected
+  guardLegacyMutationInventory "infra destroy" selected
   (active, workspace) <- prepareInfraMutation mctx
   let stack = T.unpack (contextNameText (active ^. #contextName))
   result <- runExternal [ExitSuccess] "pulumi" ["-C", workspace ^. #pulumiDir, "destroy", "--stack", stack, "--yes", "--non-interactive"] ""
@@ -6187,6 +6187,7 @@ runInit mctx o = case o ^. #contextName of
 -- of a newly created context.
 runNamedInit :: InitOpts -> ContextName -> IO ()
 runNamedInit o contextName = do
+  guardExistingContextMutation "init NAME" contextName
   base <- either dieT pure =<< resolveInitBase contextName (o ^. #force)
   let preliminaryProfile = profileFromContextMap (initContextMap base (initFlagPairs o) "")
   preflightInitTools o (effectivePulumiBackend preliminaryProfile)
@@ -6567,6 +6568,7 @@ runContext mctx = \case
     exists <- contextExists name
     when (exists && not (o ^. #force)) $
       dieT ("context '" <> contextNameText name <> "' already exists; pass --force to change the given fields")
+    when exists (guardExistingContextMutation "context create --force" name)
     -- EP-112: validate the ACME identity BEFORE a context file exists, so a typo
     -- is reported here rather than at `nagare cluster-bootstrap`. The contact is
     -- OPTIONAL here (unlike `init`): this is the low-level writer that also
@@ -6614,10 +6616,21 @@ runContext mctx = \case
         if not yes
           then dieT ("refusing to delete '" <> contextNameText name <> "' without --yes")
           else do
+            guardExistingContextMutation "context delete" name
             deleteContext name
             cur <- readCurrentContext
             when (cur == Just name) clearCurrentContext
             TIO.putStrLn ("Deleted context '" <> contextNameText name <> "'")
+
+-- Existing context profiles select the inventory store and bind its project.
+-- Replacing or deleting one outside a reviewed store migration can strand the
+-- accepted history or point subsequent provider work at the wrong project.
+guardExistingContextMutation :: Text -> ContextName -> IO ()
+guardExistingContextMutation operation name = do
+  exists <- contextExists name
+  when exists $ do
+    profile <- readContextProfile name >>= either dieT pure
+    guardLegacyMutationInventory operation (ActiveTarget name profile)
 
 -- | @nagarectl context env@ (EP-113). Print the active context's shell environment
 -- as @export K=V@ lines and nothing else, so the packaged @nagare@ launcher can
@@ -7068,6 +7081,7 @@ runCdnDisable mctx o = do
 runCleanup :: Maybe String -> CleanupOpts -> IO ()
 runCleanup mctx o = do
   active <- activeTarget mctx
+  when (o ^. #confirm) (guardLegacyMutationInventory "cleanup --confirm" active)
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   report <- executeCleanup (workspace ^. #scriptsDir </> "iap-ssh.sh") (active ^. #profile . #instanceName) o
   TIO.putStr (formatCleanupReport report)
