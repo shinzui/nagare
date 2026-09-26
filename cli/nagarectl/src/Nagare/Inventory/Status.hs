@@ -353,40 +353,70 @@ loadNativeFor retainedOnly store history inventory = do
         helm <- agree (concatMap snd entries)
         pure (kubernetes, helm)
   where
-    accepted = fmap fst (historyAccepted history)
+    -- A scope replacement need not republish native bytes for unchanged
+    -- members. Digest-bound native bytes can still be recovered from an older
+    -- immutable review and rebound to the current accepted declaration.
+    acceptedMembers = Map.fromList
+      [ (member ^. #identity, member)
+      | (_, (_, scope)) <- Map.toList (historyAccepted history)
+      , bundle <- scopeBundles scope
+      , Managed member <- declarations bundle
+      ]
     desired = Map.fromList
       [ (resource ^. #identity, resource)
       | Managed resource <- inventoryDeclarations inventory
       ]
     collect bundle = do
-      let revisions = reviewDesiredRevisions (reviewBundleDocument bundle)
-          current member = if retainedOnly then retainedCurrent member else
-            activeCurrent member || (retainedCurrent member
-              && Map.notMember (member ^. #identity) desired)
-          activeCurrent member =
-            Map.lookup (member ^. #owner) revisions == Map.lookup (member ^. #owner) accepted
-              && case Map.lookup (member ^. #identity) desired of
-                   Just resource -> resource ^. #address == member ^. #address
-                     && resource ^. #spec == member ^. #spec
-                   Nothing -> False
+      let current member = if retainedOnly then retainedCurrent member else
+            case activeCurrent member of
+              Just acceptedMember -> Just acceptedMember
+              Nothing | Map.notMember (member ^. #identity) desired -> retainedCurrent member
+              Nothing -> Nothing
+          activeCurrent member = case
+            (Map.lookup (member ^. #identity) acceptedMembers,
+             Map.lookup (member ^. #identity) desired) of
+            (Just acceptedMember, Just wanted)
+              | acceptedMember == wanted && sameNativeBinding member acceptedMember ->
+                  Just acceptedMember
+            _ -> Nothing
           retainedCurrent member = case Map.lookup (member ^. #identity) (historyRetained history) of
-            Just (incarnation, old) ->
-              Map.lookup (retainedOwner incarnation) revisions == Just (retainedRevision incarnation)
-                && member ^. #owner == retainedOwner incarnation
-                && member ^. #address == old ^. #address
-                && member ^. #spec == old ^. #spec
-            Nothing -> False
+            Just (_, old) | sameNativeBinding member old -> Just old
+            _ -> Nothing
       kubernetes <- kubernetesSpecsFromReview bundle
       helm <- helmSpecsFromReview bundle
       pure
-        ([(resource, native) | (resource, native@(member, _)) <- Map.toList kubernetes, current member]
-        ,[(resource, native) | (resource, native@(member, _)) <- Map.toList helm, current member])
+        ([(resource, (acceptedMember, bytes)) | (resource, (member, bytes)) <- Map.toList kubernetes,
+           Just acceptedMember <- [current member]]
+        ,[(resource, (acceptedMember, bytes)) | (resource, (member, bytes)) <- Map.toList helm,
+           Just acceptedMember <- [current member]])
     agree entries = traverse one (Map.fromListWith (<>)
       [(resource, [native]) | (resource, native) <- entries])
     one [] = Left "accepted resource has an empty native evidence group"
     one values@(firstValue : _)
       | all (== firstValue) values = Right firstValue
       | otherwise = Left "accepted reviews disagree on a resource's native bytes"
+
+-- A digest in the desired specification binds the provider bytes even when
+-- provenance, dependency order, or lifecycle metadata changes without a new
+-- provider operation. A generated object without such a digest needs exact
+-- declaration equality; otherwise its bytes could have changed invisibly.
+sameNativeBinding :: ManagedResource -> ManagedResource -> Bool
+sameNativeBinding earlier current = earlier == current ||
+  nativeHasDigest (current ^. #spec)
+    && earlier ^. #identity == current ^. #identity
+    && earlier ^. #owner == current ^. #owner
+    && earlier ^. #executor == current ^. #executor
+    && earlier ^. #address == current ^. #address
+    && earlier ^. #spec == current ^. #spec
+  where
+    nativeHasDigest = \case
+      NativeObject _ -> True
+      KnativeService _ -> True
+      Certificate _ _ -> True
+      StatefulSet _ _ _ -> True
+      HelmRelease _ _ -> True
+      NamespaceSpec (Just _) -> True
+      _ -> False
 
 data DriftCategory
   = Converged

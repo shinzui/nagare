@@ -23,6 +23,8 @@ import Nagare.Database.Backup (renderDbBackupCronJob)
 import Nagare.Database.Secret (b64decode)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Database (Database (Database), Engine (..), defaultEngineVersion, engineVersionText, mkDatabaseName)
+import Nagare.Dsl.Task (scheduledTask)
+import Nagare.Dsl.Task.Render (renderTask)
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes
@@ -39,7 +41,8 @@ import Nagare.Inventory.KubernetesSources (loadKubernetesSources)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
 import Nagare.Inventory.Lifecycle (decideCollection, decideRetirement)
 import Nagare.Inventory.Plan
-import Nagare.Inventory.Status (DriftCategory (ImmutableReplacementRequired), classifyDrift, findingCategory, loadAcceptedNative)
+import Nagare.Inventory.Status (DriftCategory (ImmutableReplacementRequired), classifyDrift, findingCategory, loadAcceptedNative, loadRetainedNative)
+import Nagare.Inventory.TaskLifecycle (compileTaskSuspensionScope, retireSuspendedTaskScope, taskSuspended)
 import Nagare.Inventory.Store
 import Nagare.Resource.Inventory hiding (cluster)
 import Nagare.Resource.Inventory qualified as ResourceInventory
@@ -769,7 +772,10 @@ inventoryKubernetesTests =
         retainedHistory <- loadInventoryHistory store >>= expectRight
         (native, _) <- loadAcceptedNative store retainedHistory (candidateInventory retirement) >>= expectRight
         Map.lookup resource native @?= Map.lookup resource specs
+        (retainedNative, _) <- loadRetainedNative store retainedHistory (candidateInventory retirement) >>= expectRight
+        Map.lookup resource retainedNative @?= Map.lookup resource specs
         readIORef calls >>= (@?= 1)
+    , testCase "unchanged native sibling survives an accepted scope revision" nativeSiblingCarryForward
     , testCase "reviewed stateless collection records a tombstone after exact absence" $ do
         let value = object
               ["apiVersion" .= ("v1" :: Text), "kind" .= ("ConfigMap" :: Text),
@@ -1809,7 +1815,232 @@ inventoryKubernetesTests =
                 pure ()) ["pvc", "backup"]
               pure ()
               ) `finally` cleanup
+    , testCase "disposable reviewed task deletion suspends, retains, then collects" liveTaskDeletionProof
     ]
+
+nativeSiblingCarryForward :: IO ()
+nativeSiblingCarryForward = do
+  let binding = ContextBinding (ok (mkContextId "native-carry-forward"))
+        (ok (mkName "project"))
+      siblingId = mintResourceId scope (ok (mkLogicalKey "sibling")) (ok (mkName "resource"))
+      siblingValue = object
+        ["apiVersion" .= ("v1" :: Text), "kind" .= ("ConfigMap" :: Text),
+         "metadata" .= object ["name" .= ("native-sibling" :: Text),
+                               "namespace" .= ("personal" :: Text)]]
+      siblingBytes = ok (canonicalValue siblingValue)
+      sibling = ok (bindKubernetesObject (input
+        {resourceId = siblingId, inputObject = siblingValue,
+         objectDigest = contentDigest siblingBytes}))
+      initialNative = Map.insert siblingId sibling specs
+      initialScope = ok (mkScopeDeclaration scope
+        [ResourceBundle [Managed declaration, Managed (fst sibling)] [] [] [] [] []])
+      initial = ok (composeInventory (ok (mkScopeSnapshot binding Map.empty Map.empty))
+        (ReplaceScope initialScope :| []))
+      physicalFor rid = ok (mkPhysicalIdentity (if rid == resource then "uid-service" else "uid-sibling"))
+      absentFor rid = contentDigest (TE.encodeUtf8 ("absent:" <> resourceIdText rid))
+  states <- newIORef Map.empty
+  let registryFor native = ok (mkAdapterRegistry [mkKubernetesAdapter native
+        KubernetesAdapterOps
+          { kubernetesContext = ok (mkContextId "native-carry-forward")
+          , kubernetesObserve = \rid -> do
+              present <- readIORef states
+              pure (Map.findWithDefault (KubernetesAbsent (absentFor rid)) rid present)
+          , kubernetesMutateConditional = \mutation -> do
+              present <- readIORef states
+              let rid = mutationResource mutation
+                  before = Map.findWithDefault (KubernetesAbsent (absentFor rid)) rid present
+              if before /= mutationBefore mutation
+                then pure (AdapterEffectFailed (KnownNoEffect "stale native observation"))
+                else do
+                  modifyIORef' states (Map.insert rid (KubernetesPresent
+                    (physicalFor rid) "7" (Just rid) (mutationNativeDigest mutation)))
+                  pure AdapterEffectCompleted
+          }])
+      converge store candidate native = do
+        history <- loadInventoryHistory store >>= expectRight
+        let registry = registryFor native
+        observed <- observeWithRegistry registry
+          (requirementsByExecutor (observationRequirements candidate history))
+          >>= expectRight
+        proposal <- expectRight (planChanges candidate noLifecycleDecisions history observed)
+        before <- readStoreSnapshot store >>= expectRight
+        reviewBundle <- prepareReview registry before proposal >>= expectRight
+        _ <- publishReview store reviewBundle >>= expectRight
+        published <- readStoreSnapshot store >>= expectRight
+        reviewed <- expectRight (verifyReview published reviewBundle)
+        result <- applyReviewed store registry reviewed >>= expectRight
+        case result of
+          Converged _ -> pure reviewBundle
+          other -> assertFailure ("native carry-forward did not converge: " <> show other)
+  store <- newMemoryStore
+  _ <- initializeStore store binding "native-carry-forward" >>= expectRight
+  _ <- converge store initial initialNative
+  firstHistory <- loadInventoryHistory store >>= expectRight
+  let changedValue = case nativeObject of
+        Object root -> Object (KM.insert "metadata" (object
+          ["name" .= ("cache" :: Text), "namespace" .= ("personal" :: Text),
+           "labels" .= object ["revision" .= ("two" :: Text)]]) root)
+        _ -> error "native fixture is not an object"
+      changedBytes = ok (canonicalValue changedValue)
+      changedMember = ok (bindKubernetesObject (input
+        {inputObject = changedValue, objectDigest = contentDigest changedBytes}))
+      changedNative = Map.insert resource changedMember initialNative
+      changedScope = ok (mkScopeDeclaration scope
+        [ResourceBundle [Managed (fst changedMember), Managed (fst sibling)] [] [] [] [] []])
+      accepted = Map.map (\(revision, declared) ->
+        (revisionGeneration revision, declared)) (historyAccepted firstHistory)
+      updated = ok (composeInventory (ok (mkScopeSnapshot binding accepted Map.empty))
+        (ReplaceScope changedScope :| []))
+  _ <- converge store updated changedNative
+  finalHistory <- loadInventoryHistory store >>= expectRight
+  (reloaded, _) <- loadAcceptedNative store finalHistory (candidateInventory updated)
+    >>= expectRight
+  Map.lookup siblingId reloaded @?= Just sibling
+  Map.lookup resource reloaded @?= Just changedMember
+  let sourcedMember = fst changedMember & #source .~ SourceLocation "moved/Config.hs" "document[1]"
+      sourcedNative = Map.insert resource (sourcedMember, snd changedMember) changedNative
+      sourcedScope = ok (mkScopeDeclaration scope
+        [ResourceBundle [Managed sourcedMember, Managed (fst sibling)] [] [] [] [] []])
+      nextAccepted = Map.map (\(revision, declared) ->
+        (revisionGeneration revision, declared)) (historyAccepted finalHistory)
+      sourceOnly = ok (composeInventory (ok (mkScopeSnapshot binding nextAccepted Map.empty))
+        (ReplaceScope sourcedScope :| []))
+  _ <- converge store sourceOnly sourcedNative
+  sourcedHistory <- loadInventoryHistory store >>= expectRight
+  (sourcedReload, _) <- loadAcceptedNative store sourcedHistory (candidateInventory sourceOnly)
+    >>= expectRight
+  Map.lookup resource sourcedReload @?= Just (sourcedMember, snd changedMember)
+  Map.lookup siblingId sourcedReload @?= Just sibling
+
+liveTaskDeletionProof :: IO ()
+liveTaskDeletionProof = lookupEnv "NAGARE_EP148_TEST_CONTEXT" >>= \case
+  Nothing -> pure ()
+  Just selectedContext -> do
+    assertBool "refusing a non-disposable Kubernetes context"
+      ("k3d-nagare-inventory-" `T.isPrefixOf` T.pack selectedContext)
+    let binding = ContextBinding (ok (mkContextId "ep148-task-delete"))
+          (ok (mkName "project"))
+        owner = ok (mkScopeId Application "ep148-task-delete")
+        foundation = ok (mkScopeId Platform "ep148-task-delete-foundation")
+        clusterId = mintResourceId foundation (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+        taskId = mintResourceId owner (ok (mkLogicalKey "ep148-delete")) (ok (mkName "cronjob"))
+        siblingId = mintResourceId owner (ok (mkLogicalKey "sibling")) (ok (mkName "configmap"))
+        source = SourceLocation "fixture" "task-delete"
+        task = ok (scheduledTask "ep148-delete" "0 2 * * *" "busybox" "true")
+          & #namespace .~ ok (Dsl.mkNamespace "default")
+          & #app .~ Just (ok (Dsl.mkServiceName "ep148-delete"))
+        cronValue = ok (Yaml.decodeEither' (renderTask task))
+        siblingValue = object
+          ["apiVersion" .= ("v1" :: Text), "kind" .= ("ConfigMap" :: Text),
+           "metadata" .= object ["name" .= ("ep148-delete-sibling" :: Text),
+                                 "namespace" .= ("default" :: Text)],
+           "data" .= object ["value" .= ("keep" :: Text)]]
+        bind rid value = ok (bindKubernetesObject (KubernetesInput rid owner clusterId
+          value (contentDigest (ok (canonicalValue value))) DeleteWhenUnreferenced
+          Stateless Private source))
+        cron@(cronMember, _) = bind taskId cronValue
+        sibling@(siblingMember, _) = bind siblingId siblingValue
+        initialNative = Map.fromList [(taskId, cron), (siblingId, sibling)]
+        initialScope = ok (mkScopeDeclaration owner
+          [ResourceBundle [Managed cronMember, Managed siblingMember] [] [] [] [] []])
+        config = KubernetesRuntimeConfig (ok (mkContextId "ep148-task-delete"))
+          (T.pack selectedContext) (pure (Right ()))
+        makeRegistry members = ok (mkAdapterRegistry
+          [mkKubernetesAdapter members (mkKubernetesRuntimeOps config members)])
+        acceptedSnapshot history = ok (mkScopeSnapshot binding
+          (Map.map (\(revision, declared) -> (revisionGeneration revision, declared))
+            (historyAccepted history)) (historyReservations history))
+        cleanup = mapM_ (\(kind, name) -> do
+          _ <- readProcessWithExitCode "kubectl"
+            ["--context", selectedContext, "-n", "default", "delete", kind, name,
+             "--ignore-not-found", "--wait=false"] ""
+          pure ()) [("cronjob", "nagare-task-ep148-delete"),
+                     ("configmap", "ep148-delete-sibling")]
+        checkLive kind name = do
+          (status, _, _) <- readProcessWithExitCode "kubectl"
+            ["--context", selectedContext, "-n", "default", "get", kind, name] ""
+          pure (status == ExitSuccess)
+        siblingUid = do
+          (status, uid, errors) <- readProcessWithExitCode "kubectl"
+            ["--context", selectedContext, "-n", "default", "get", "configmap",
+             "ep148-delete-sibling", "-o", "jsonpath={.metadata.uid}"] ""
+          status @?= ExitSuccess
+          assertBool ("sibling UID is empty: " <> errors) (not (null uid))
+          pure uid
+    cleanup
+    (do
+      store <- newMemoryStore
+      _ <- initializeStore store binding "ep148-task-delete" >>= expectRight
+      let reviewAndApply stage candidate members decide = do
+            history <- loadInventoryHistory store >>= expectRight
+            let registry = makeRegistry members
+            observed <- observeWithRegistry registry
+              (requirementsByExecutor (observationRequirements candidate history))
+              >>= expectRight
+            decisions <- expectRight (decide candidate history observed)
+            proposal <- case planChanges candidate decisions history observed of
+              Left failure -> assertFailure (stage <> ": " <> show failure <> "; facts: " <> show observed)
+                >> fail "task deletion planning failed"
+              Right value -> pure value
+            before <- readStoreSnapshot store >>= expectRight
+            review <- prepareReview registry before proposal >>= expectRight
+            _ <- publishReview store review >>= expectRight
+            published <- readStoreSnapshot store >>= expectRight
+            reviewed <- expectRight (verifyReview published review)
+            result <- applyReviewed store registry reviewed >>= expectRight
+            case result of
+              Converged _ -> pure ()
+              other -> assertFailure ("task deletion review did not converge: " <> show other)
+          noDecision _ _ _ = Right noLifecycleDecisions
+      let initial = ok (composeInventory (ok (mkScopeSnapshot binding Map.empty Map.empty))
+            (ReplaceScope initialScope :| []))
+      reviewAndApply "initial" initial initialNative noDecision
+      originalSiblingUid <- siblingUid
+      initialHistory <- loadInventoryHistory store >>= expectRight
+      (acceptedNative, _) <- loadAcceptedNative store initialHistory (candidateInventory initial)
+        >>= expectRight
+      (suspendedScope, suspendedNative) <- expectRight
+        (compileTaskSuspensionScope (Just "ep148-delete") cronMember initialScope acceptedNative)
+      let suspension = ok (composeInventory (acceptedSnapshot initialHistory)
+            (ReplaceScope suspendedScope :| []))
+      reviewAndApply "suspend" suspension suspendedNative noDecision
+      (code, liveSuspended, _) <- readProcessWithExitCode "kubectl"
+        ["--context", selectedContext, "-n", "default", "get", "cronjob",
+         "nagare-task-ep148-delete", "-o", "jsonpath={.spec.suspend}"] ""
+      code @?= ExitSuccess
+      liveSuspended @?= "true"
+      suspendedHistory <- loadInventoryHistory store >>= expectRight
+      (reloadedNative, _) <- loadAcceptedNative store suspendedHistory (candidateInventory suspension)
+        >>= expectRight
+      (acceptedCron, acceptedBytes) <- maybe (assertFailure "suspended CronJob was not saved" >> fail "missing CronJob")
+        pure (Map.lookup taskId reloadedNative)
+      taskSuspended (Just "ep148-delete") acceptedCron acceptedBytes @?= Right True
+      retiredScope <- expectRight
+        (retireSuspendedTaskScope (Just "ep148-delete") acceptedCron suspendedScope reloadedNative)
+      let retirement = ok (composeInventory (acceptedSnapshot suspendedHistory)
+            (ReplaceScope retiredScope :| []))
+          decideMemberRetirement candidate history observations = do
+            fact <- maybe (Left (PlanError "task-observation" "CronJob observation is missing" [taskId] :| []))
+              Right (Map.lookup taskId (observationMap observations))
+            validateLifecycleDecisions candidate history observations
+              [LifecycleProposal taskId ApproveRetirement
+                (lifecycleObservationDigest binding taskId fact)]
+      reviewAndApply "retain" retirement reloadedNative decideMemberRetirement
+      afterRetention <- loadInventoryHistory store >>= expectRight
+      assertBool "CronJob was not retained" (Map.member taskId (historyRetained afterRetention))
+      assertBool "retention deleted the live CronJob"
+        =<< checkLive "cronjob" "nagare-task-ep148-delete"
+      let collection = ok (composeInventory (acceptedSnapshot afterRetention)
+            (CollectRetained taskId :| []))
+      reviewAndApply "collect" collection (Map.singleton taskId (acceptedCron, acceptedBytes)) decideCollection
+      afterCollection <- loadInventoryHistory store >>= expectRight
+      assertBool "CronJob is still retained" (Map.notMember taskId (historyRetained afterCollection))
+      assertBool "collection left the live CronJob"
+        . not =<< checkLive "cronjob" "nagare-task-ep148-delete"
+      assertBool "task deletion changed its sibling ConfigMap"
+        =<< checkLive "configmap" "ep148-delete-sibling"
+      siblingUid >>= (@?= originalSiblingUid)
+      ) `finally` cleanup
 
 addProbeAnnotation :: Value -> Value
 addProbeAnnotation (Object root) = case KM.lookup "metadata" root of

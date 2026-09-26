@@ -134,6 +134,8 @@ A scope replacement can now explicitly retain selected removed members while kee
 
 `task delete --save-plan` now selects three successive saved reviews for an accepted task: suspend the exact CronJob from accepted private native bytes, retain that suspended member while preserving sibling declarations, then collect its exact retained incarnation. Each stage must be applied before planning the next. Direct `--yes` remains guarded in initialized contexts, and legacy run-history ConfigMaps are outside this CronJob-only sequence. The 831-test CLI suite, executable build, Haskell style, strict user-documentation validation, and isolated direct-delete guard passed. A complete CLI/provider replay and the remaining M3 operations are still open.
 
+A disposable Kubernetes review transaction now exercises all three task-deletion stages against a live CronJob and sibling ConfigMap. It exposed native evidence reconstruction that dropped an unchanged sibling after a scope revision; lookup now rebinds digest-identified native bytes from an earlier immutable review to the current accepted declaration. The offline carry-forward regression also covers source-only revisions. The live deletion transaction passes and preserves the sibling's physical UID; the cluster was stopped afterward. All 833 CLI tests, the executable build, Haskell style, strict user-documentation validation, and diff check pass. The complete CLI command path and the rest of M3 remain open.
+
 Reviewed application deploy also declares the per-Service release-history ConfigMap, carries forward accepted entries, and offers exact adoption of existing direct-deploy history. Supported static and server production site scopes now declare their Service, domains, release history, server PVCs, accepted runtime Secret dependencies, and supplied TLS Secret dependencies, with exact import of existing direct objects. Site rollback now selects a release from accepted private history and reviews the prior image publication without adding a history entry. Static and server preview deployment has a separate reviewed scope with four accepted overlay stores, exact adoption of existing direct static previews, and reviewed retirement followed by collection. Server previews bind distinct PVCs with explicit recovery for retained volumes. Delete-policy preview PVCs can be conditionally collected after their Service, while durable PVCs remain retained. Manual runs of accepted CronJobs now compile stable Jobs in independent scopes from exact saved native evidence; Job collection uses conditional deletion and background pod cleanup. Reviewed application hooks have per-tag Jobs with explicit affected-resource proofs. Server Build/Preview Secret references and other operational commands remain open.
 
 Stable-ID `task run` now publishes, reloads, and applies its reviewed Job in one invocation; `--save-plan` remains available for separate inspection and apply. The direct timestamped route remains for tasks outside accepted inventory.
@@ -206,6 +208,8 @@ Critical path from completed M1 to final acceptance, in execution order:
 - [ ] M4: Cut over remaining direct app render/apply entry points to the reviewed compiler and publication path.
 
 ## Surprises & Discoveries
+
+2026-09-26: The first disposable task-deletion transaction failed while planning retirement because `loadAcceptedNative` required every member's bytes to come from the latest accepted scope revision. A scope update publishes private bytes only for changed members; an unchanged sibling still has exact bytes in its earlier immutable review. The loader now selects the current accepted or retained member, rebinds older bytes only when a digest-bearing spec and native identity match, and keeps exact declaration equality for generated objects without a content digest. A focused memory-store regression proves sibling and source-only carry-forward; the disposable Kubernetes transaction then suspended, retained, and collected the CronJob without replacing its sibling.
 
 2026-09-26: Retaining a removed CronJob does not stop its schedule. Reviewed task deletion therefore first changes `spec.suspend` in the accepted native CronJob, then removes that member under an explicit retention decision, then conditionally collects the retained incarnation. The command selects the next stage from accepted history and saves one review per invocation. Existing Jobs and legacy run-history ConfigMaps are separate objects, and dependent reviewed Job scopes may block schedule retirement. A full CLI/provider replay remains open. The broad legacy-entrypoint script could not reach its Task case in this shell because dynamic config loading failed on a stale GHC environment; an isolated Task guard invocation proved refusal with unchanged inventory head.
 
@@ -356,6 +360,8 @@ Critical path from completed M1 to final acceptance, in execution order:
 2026-09-24: The legacy env and Secret store reader had the same failed-read-to-empty behavior. Its JSON extractor also silently dropped any `data` entry whose value was not a string, contrary to its strictness comment. Both stores now accept only a successful empty `--ignore-not-found` response as absence; failed reads, non-object `data`, and non-string values refuse before a merge or exact replacement. Disposable-context reads of absent ConfigMap and Secret names both exited successfully with empty output, and 785 CLI tests pass. The reviewed channels still need complete preview/deploy integration.
 
 ## Decision Log
+
+2026-09-26: Recover digest-bound native bytes across published immutable reviews by checking resource identity, owner, executor, address, and desired spec, then rebind them to the current accepted or retained declaration. An unchanged member does not need its bytes republished because a sibling or source location changed. Generated native objects without a content digest require exact declaration equality so an earlier payload cannot silently stand in for a changed contribution. The accepted inventory and retention record remain the authority for membership.
 
 2026-09-26: Save each task-deletion transition as a separate review because schedule shutdown is an accepted desired update, removal is a retention decision, and provider deletion is a collection decision. A generic `--yes` cannot combine or skip these proofs. Only exact accepted native bytes authorize the shutdown, and collection refuses a retained CronJob whose accepted native intent was not suspended.
 
@@ -522,6 +528,8 @@ DependencyExports contains typed capability witnesses and selected revision/phys
 
 
 ## Revision Notes
+
+2026-09-26: Recovered digest-bound native evidence across sibling and source-only scope revisions; added offline and disposable Kubernetes task-deletion replay. The complete CLI submission path and the rest of M3 remain open.
 
 2026-09-26: Added staged reviewed task deletion from accepted CronJob suspension through partial member retention and exact collection. Full CLI/provider replay and the rest of M3 remain open.
 
