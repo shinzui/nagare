@@ -14,36 +14,33 @@ no Dockerfile, `nginx.conf`, or Kubernetes YAML to write by hand.
 
 ## Dry run
 
-A dry run renders the generated artifacts without touching Docker or the
-cluster. The config loader runs the config with `runghc`, which needs to resolve
-the `nagare-dsl` package, so run it from `cli/nagarectl/` (which has a
-`.ghc.environment.*`) and point `--file` at this example:
+A dry run prints the canonical public site scope after checking the selected
+context's accepted image publication and Namespace. The config loader needs to
+resolve `nagare-dsl`, so run from `cli/nagarectl/` and point `--file` at this
+example:
 
 ```bash
 cd cli/nagarectl
-cabal run nagarectl -- site deploy --dry-run \
+cabal run nagarectl -- site deploy --skip-build --tag TAG \
+  --image-resource RESOURCE-ID --dry-run \
   --file ../../cluster/examples/static-site/nagare/Config.hs
 ```
 
-This prints the generated `nginx.conf`, the Knative Service manifest (Nginx
-image on container port 8080), and the URL that would be deployed
-(`https://static-site.personal.<base-domain>`, since this example sets no custom
-domain).
+The scope lists the Service, release history, and their dependencies without
+printing private native manifests.
 
 ## Real deploy
 
-On a machine with Docker, `gcloud`, and cluster access (and the project's
-`tan-nb-exp` GCP context), from this directory:
+Publish the exact Nginx image archive with `app image-plan` first. With the
+accepted resource ID, submit the reviewed site from this directory:
 
 ```bash
-nagarectl site deploy --skip-build \
+nagarectl site deploy --skip-build --tag TAG --image-resource RESOURCE-ID \
   --ghc-env /path/to/.ghc.environment.<arch>-<ghc>
 ```
 
-`--skip-build` is used because `NoBuild` sites have no build command; the
-`public/` directory is packaged directly. The command builds the Nginx image,
-pushes it to Artifact Registry, applies the Knative Service, waits for it to
-become Ready, and prints `Deployed static site: <url>`. Verify with:
+The command publishes an immutable review and applies its declared Service
+and release history. Verify with:
 
 ```bash
 kubectl get ksvc -n personal

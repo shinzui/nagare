@@ -1,15 +1,12 @@
 # static-cdn-site — a static site fronted by Cloudflare (MasterPlan 11, EP-59)
 
-> 🟡 **Built and tested offline; live edge deploy pending `nagare-01`.** The
-> `--dry-run` below works today; the live `CF-Cache-Status: HIT` curl is deferred
-> until the VM is powered on and `blog.apps.example.com` is delegated to a
-> Cloudflare zone with a scoped `CF_API_TOKEN`.
+> 🟡 **Reviewed compilation and offline provider tests passed.** A live
+> Cloudflare zone and delegated host are still needed for edge verification.
 
 This is the `static-site` example plus **one new field** — `cdn = Just …` in
-`nagare/Config.hs`. The same `nagarectl site deploy` builds and applies the Nginx
-Service and the DomainMapping exactly as before, and then — because `cdn` is set —
-provisions a Cloudflare edge in front of `blog.apps.example.com`: a proxied DNS
-record at Cloudflare's edge, the origin-TLS mode, and the declared cache rules.
+`nagare/Config.hs`. The reviewed `nagarectl site deploy` declares the Nginx
+Service and DomainMapping, plus a proxied Cloudflare DNS record and typed
+cache contribution authorized by an accepted platform zone grant.
 
 The CDN declaration (see `nagare/Config.hs`):
 
@@ -26,32 +23,19 @@ That reads: front the site with Cloudflare, a 1-hour default edge TTL, cache
 `/assets/` for a year, and never cache `/api/`. `withCacheRule` validates the
 per-path TTL so it is threaded in the `Either` do-block; `withDefaultTtl` is total.
 
-## Dry-run (works offline today)
+## Reviewed dry run
 
-From `cli/nagarectl/` (which carries the `.ghc.environment.*` the loader needs):
+Set `CF_ZONE_ID` to an accepted platform zone grant and publish the exact site
+image archive with `app image-plan`. The dry run then prints the canonical public
+scope for the site, host DNS claim, and cache contribution without mutating the
+provider:
 
 ```bash
 cd cli/nagarectl
-cabal run nagarectl -- site deploy --dry-run \
+cabal run nagarectl -- site deploy --skip-build --tag TAG \
+  --image-resource RESOURCE-ID --dry-run \
   --file ../../cluster/examples/static-cdn-site/nagare/Config.hs
 ```
-
-After the rendered Nginx config, Knative Service, and the `blog.apps.example.com`
-DomainMapping, it prints the planned CDN changes (no cloud side effects):
-
-```text
---- CDN plan (Cloudflare) ---
-DNS: blog.apps.example.com -> <publicIp> (proxied)
-Origin TLS: Flexible
-Cache: /assets/ -> 31536000s
-Cache: /api/ -> never
-Cache: (static assets) -> 31536000s
-Cache: (default) -> 3600s
-```
-
-(`<publicIp>` is the VM's reserved IP — the real value is substituted from the
-`publicIp` Pulumi stack output when the stack is available.)
-
 ## End-to-end validation (live legs DEFERRED until `nagare-01` is up)
 
 A scoped Cloudflare API token is required — **Zone › DNS › Edit**, **Zone › Cache
@@ -59,9 +43,11 @@ Rules › Edit**, the **cache-purge** capability, and **Zone › Zone Settings �
 restricted to the one zone. Never the account-global key.
 
 ```bash
-# 1. Provision the edge + deploy.
+# 1. Use the accepted platform zone and image publication, then deploy.
 export CF_API_TOKEN='<scoped-token>'
-nagarectl site deploy --skip-build           # the files in public/ are served as-is
+export CF_ZONE_ID='<accepted-zone-id>'
+export CF_ACCOUNT_ID='<zone-account-id>'
+nagarectl site deploy --skip-build --tag TAG --image-resource RESOURCE-ID
 
 # 2. Inspect the edge.
 nagarectl cdn status blog.apps.example.com   # provider, DNS target, cache, readiness

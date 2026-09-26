@@ -20,35 +20,33 @@ into a Node image; it never builds inside the image.
 
 ## Dry run
 
-A dry run renders the generated artifacts without touching Docker or the cluster.
-Run it from `cli/nagarectl/` (which has a `.ghc.environment.*` so the config
-loader's `runghc` can resolve `nagare-dsl`) and point `--file` at this example:
+A dry run prints the canonical public site scope using an accepted image
+publication and Namespace. Run it from `cli/nagarectl/` so the config loader
+can resolve `nagare-dsl`:
 
 ```bash
 cd cli/nagarectl
-cabal run nagarectl -- site deploy --dry-run \
+cabal run nagarectl -- site deploy --skip-build --tag TAG \
+  --image-resource RESOURCE-ID --dry-run \
   --file ../../cluster/examples/tanstack-start/nagare/Config.hs
 ```
 
-This prints the generated Dockerfile (`FROM node:22-alpine` … `CMD ["node",
-".output/server/index.mjs"]`), the Knative Service manifest (Node image,
-container port 8080, the env map, scale-to-zero), any DomainMappings, and the URL
-that would be deployed (`https://tanstack-start.personal.<base-domain>`).
+The scope lists the Service, release history, and their dependencies without
+printing private native manifests.
 
 ## Real deploy
 
-On a machine with Docker, `gcloud`, and cluster access, from this directory:
+Build the server output and publish its exact image archive with
+`app image-plan` first. From this directory:
 
 ```bash
-npm ci && npm run build        # produces .output
-nagarectl site deploy \
+npm ci && npm run build        # produces .output for image preparation
+nagarectl site deploy --skip-build --tag TAG --image-resource RESOURCE-ID \
   --ghc-env /path/to/.ghc.environment.<arch>-<ghc>
 ```
 
-The command builds the app (or use `--skip-build` if `.output` already exists),
-packages `.output` into a Node image, pushes it to Artifact Registry, applies the
-Knative Service, waits for it to become Ready, records a release, and prints
-`Deployed server site: <url>`. Verify with:
+The command publishes an immutable review and applies its declared Service
+and release history. Verify with:
 
 ```bash
 kubectl get ksvc -n personal

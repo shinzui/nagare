@@ -82,13 +82,8 @@ import Nagare.Broker.List (runBrokerList)
 import Nagare.Broker.Restart (runBrokerRestart)
 import Nagare.Cdn.Cloudflare (cfRequestWithStatus, loadCloudflareCreds, purgeHostname)
 import Nagare.Cdn.Provision
-  ( CdnResult (..)
-  , CdnTarget (..)
-  , GcpStackRefs (..)
+  ( GcpStackRefs (..)
   , googleCdnHostname
-  , planCdn
-  , provisionCdn
-  , renderCdnPlan
   , verifyGcpDnsReference
   )
 import Nagare.Cdn.Status
@@ -109,7 +104,7 @@ import Nagare.Cluster.Kubeconfig
   , fetchKubeconfig
   , kubeconfigPath
   )
-import Nagare.Cluster.Namespace (NamespacePurpose (..), ensureNamespace, renderNamespace)
+import Nagare.Cluster.Namespace (NamespacePurpose (..), ensureNamespace)
 import Nagare.Database.Backup (runDbBackup)
 import Nagare.Database.Connection (connectionEnv, mergeConnectionEnvs)
 import Nagare.Database.Create (DbCreateParams (..), resolveDatabase, runDbCreateWithGuard)
@@ -122,11 +117,6 @@ import Nagare.Database.Restore (runDbRestore)
 import Nagare.Database.Shell (runDbShell)
 import Nagare.Deploy (applyManifests, requireWait, serviceUrl, waitForReady)
 import Nagare.Deploy.Resolve (resolveTag)
-import Nagare.Domain.Binding
-  ( BindingTarget (..)
-  , renderBindingTarget
-  )
-import Nagare.Domain.Tls (renderDomainTlsCheck)
 import Nagare.Dsl.Application (Application (..))
 import Nagare.Dsl.Broker (BrokerProvider (..), brokerNameText)
 import Nagare.Dsl.Build (resolveImageTag)
@@ -416,16 +406,12 @@ import Nagare.Resource.Wire qualified as ResourceWire
 import Nagare.Server.Deploy
   ( ServerDeployInputs (..)
   , ServerManifests (..)
-  , deployServerProduction
   , serverManifests
   , serverUrl
   )
 import Nagare.Static.Deploy
   ( DeployInputs (..)
   , StaticManifests (..)
-  , deployStaticPreview
-  , deployStaticProduction
-  , previewManifests
   , productionManifests
   )
 import Nagare.Static.Preview (deletePreview, listPreviews, previewDomain, previewServiceName)
@@ -2627,7 +2613,7 @@ opts =
     siteDeployCmd =
       info
         (SiteDeploy <$> siteDeployOptsParser defaultConfigFile <**> helper)
-        (fullDesc <> progDesc "Deploy a static or server site directly, or save a reviewed production plan")
+        (fullDesc <> progDesc "Deploy or inspect a reviewed static or server site using an accepted image")
     siteReleasesCmd =
       info
         (SiteReleases <$> siteCommonOptsParser defaultConfigFile <**> helper)
@@ -7355,13 +7341,6 @@ runCleanup mctx o = do
   report <- executeCleanup (workspace ^. #scriptsDir </> "iap-ssh.sh") (active ^. #profile . #instanceName) o
   TIO.putStr (formatCleanupReport report)
 
--- | Print the exact convergent Namespace action used by live workload deploys.
-printNamespaceAction :: Text -> IO ()
-printNamespaceAction namespace = do
-  manifest <- orDie (renderNamespace ApplicationNamespace namespace)
-  BC.putStrLn "--- Namespace manifest ---"
-  BC.putStrLn manifest
-
 runDeploy :: Maybe String -> DeployOpts -> IO ()
 runDeploy mctx dopts = runDeployPlan mctx dopts
   (fromMaybe "" (dopts ^. #savePlan))
@@ -7530,6 +7509,8 @@ runDeployPlan mctx options output = do
 -- the same CLI options and record a release on success.
 runSiteDeploy :: Maybe String -> SiteDeployOpts -> IO ()
 runSiteDeploy mctx sopts = do
+  when (isNothing (sopts ^. #imageResource))
+    (dieT "reviewed site deployment requires --image-resource")
   bd <- resolveBaseDomain mctx (sopts ^. #baseDomain)
   provisionGhcEnv (sopts ^. #ghcEnv)
   tp <- activeProfile mctx
@@ -7542,54 +7523,13 @@ runSiteDeploy mctx sopts = do
     Right (Load.SiteStatic s) -> do
       case qualifyImage tp (s ^. #image) of
         Left e -> dieT ("nagarectl deploy: " <> e)
-        Right qimg ->
-          if isJust (sopts ^. #savePlan) || isJust (sopts ^. #imageResource)
-            then runStaticSiteDeployPlan mctx tp sopts
-              (s & #image %~ const qimg) bd (sopts ^. #savePlan)
-            else do
-              when (not (null (sopts ^. #siteVolumeRecovery))
-                  || isJust (sopts ^. #cdnBackendResource)
-                  || not (null (sopts ^. #siteEnvSecretResources))
-                  || not (null (sopts ^. #siteTlsSecretResources))
-                  || not (null (sopts ^. #sitePreviewEnvResources))
-                  || isJust (sopts ^. #sitePreviewAdoptionInput)
-                  || isJust (sopts ^. #legacyReleaseImport)
-                  || isJust (sopts ^. #releaseAdoptionInput))
-                (dieT "static-site inventory options require --image-resource or --save-plan")
-              unless (sopts ^. #dryRun) (refuseDirectDeploymentWhenManaged mctx "site deploy")
-              unless (sopts ^. #dryRun) $ do
-                refuseDirectSiteMutationIfOwned mctx "site deploy"
-                  (siteNameText (s ^. #name)) (namespaceText (s ^. #namespace))
-                  (siteHostnames (s ^. #domains)) [] True
-                when (hasCloudflareCdn (s ^. #cdn))
-                  (refuseDirectCloudflareZoneMutationIfOwned mctx "site deploy")
-              deployStatic mctx tp sopts (s & #image %~ const qimg) bd
+        Right qimg -> runStaticSiteDeployPlan mctx tp sopts
+          (s & #image %~ const qimg) bd (sopts ^. #savePlan)
     Right (Load.SiteServer s) -> do
       case qualifyImage tp (s ^. #image) of
         Left e -> dieT ("nagarectl deploy: " <> e)
-        Right qimg ->
-          if isJust (sopts ^. #savePlan) || isJust (sopts ^. #imageResource)
-            then runServerSiteDeployPlan mctx tp sopts
-              (s & #image %~ const qimg) bd (sopts ^. #savePlan)
-            else do
-              when (not (null (sopts ^. #siteVolumeRecovery))
-                  || isJust (sopts ^. #cdnBackendResource)
-                  || not (null (sopts ^. #siteEnvSecretResources))
-                  || not (null (sopts ^. #siteTlsSecretResources))
-                  || not (null (sopts ^. #sitePreviewEnvResources))
-                  || isJust (sopts ^. #sitePreviewAdoptionInput)
-                  || isJust (sopts ^. #legacyReleaseImport)
-                  || isJust (sopts ^. #releaseAdoptionInput))
-                (dieT "server-site inventory options require --image-resource or --save-plan")
-              unless (sopts ^. #dryRun) (refuseDirectDeploymentWhenManaged mctx "site deploy")
-              unless (sopts ^. #dryRun) $ do
-                refuseDirectSiteMutationIfOwned mctx "site deploy"
-                  (siteNameText (s ^. #name)) (namespaceText (s ^. #namespace))
-                  (siteHostnames (s ^. #domains))
-                  (map (volumeNameText . (^. #name)) (s ^. #volumes)) True
-                when (hasCloudflareCdn (s ^. #cdn))
-                  (refuseDirectCloudflareZoneMutationIfOwned mctx "site deploy")
-              deployServer mctx tp sopts (s & #image %~ const qimg) bd
+        Right qimg -> runServerSiteDeployPlan mctx tp sopts
+          (s & #image %~ const qimg) bd (sopts ^. #savePlan)
 
 runStaticSiteDeployPlan
   :: Maybe String -> TargetProfile -> SiteDeployOpts -> StaticSite -> Text -> Maybe FilePath -> IO ()
@@ -7617,7 +7557,8 @@ runServerSiteDeployPlan mctx tp options original bd output = do
   tag <- reviewedSiteTag options
   recovery <- either dieT pure (siteVolumeRecoveryBindings original
     (map T.pack (options ^. #siteVolumeRecovery)))
-  let site = serverSiteWithGeneratedEnv options original bd tag
+  let site = serverSiteWithGeneratedEnvSource
+        (T.pack <$> options ^. #source) original bd tag
       inputs = ServerDeployInputs
         { site = site
         , imageTag = tag
@@ -7639,8 +7580,10 @@ runServerSiteDeployPlan mctx tp options original bd output = do
 
 reviewedSiteTag :: SiteDeployOpts -> IO Text
 reviewedSiteTag options = do
-  when (options ^. #dryRun || not (options ^. #skipBuild))
-    (dieT "reviewed site deployment requires --skip-build and no --dry-run")
+  unless (options ^. #skipBuild)
+    (dieT "reviewed site deployment requires --skip-build")
+  when (options ^. #dryRun && isJust (options ^. #savePlan))
+    (dieT "reviewed site deployment cannot combine --dry-run with --save-plan")
   maybe (dieT "reviewed site deployment requires --tag")
     (pure . T.pack) (options ^. #tag)
 
@@ -7723,95 +7666,20 @@ runReviewedSiteDeployPlan mctx options siteName ns imageName url tag cdnIntent c
     (compile cdnBinding envSecrets tlsSecrets cluster namespaceId imageId prior release source)
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
-  case (adoption, output) of
-    (Nothing, Nothing) -> Inventory.convergeInventoryCandidateWith
-      (inventoryPlanRegistryWithNative active workspace native)
-      (inventoryExecutionRegistry mctx) active candidate
-    (Nothing, Just directory) -> Inventory.planInventoryCandidateWith
-      (inventoryPlanRegistryWithNative active workspace native) active candidate directory
-    (Just proposal, Just directory) -> do
-      validateInlineReleaseAdoption scope ("nagare-static-releases-" <> siteName) proposal
-      Inventory.planInventoryCandidateAdoptionWith
+  if options ^. #dryRun
+    then BC.putStrLn (ResourceWire.encodeCanonicalScope scope)
+    else case (adoption, output) of
+      (Nothing, Nothing) -> Inventory.convergeInventoryCandidateWith
         (inventoryPlanRegistryWithNative active workspace native)
-        active candidate proposal directory
-    (Just _, Nothing) -> dieT "site adoption requires --save-plan"
-
--- | The static (Nginx) deploy path.
---
--- NOTE (EP-26): static sites have no env field and serve files via Nginx, so the
--- generated NAGARE_* runtime variables do not apply here and are intentionally not
--- injected. See docs/plans/26-generated-and-predefined-environment-variables.md.
-deployStatic :: Maybe String -> TargetProfile -> SiteDeployOpts -> StaticSite -> Text -> IO ()
-deployStatic mctx tp sopts site bd = do
-  imageTag <- resolveTag (sopts ^. #tag)
-  let inputs = siteDeployInputs tp sopts site imageTag bd
-      m = productionManifests inputs
-      cdnHosts = siteHostnames (site ^. #domains)
-      cdnNs = namespaceText (site ^. #namespace)
-      cdnSvc = siteNameText (site ^. #name)
-  if sopts ^. #dryRun
-    then do
-      printNamespaceAction cdnNs
-      printStaticArtifacts (m ^. #nginxConf) (m ^. #service) (m ^. #domainMappings) (m ^. #url)
-      printBindingChecks (siteBindingTargets (site ^. #domains) cdnNs cdnSvc)
-      printTlsChecks (site ^. #domains)
-      TIO.putStrLn ("Release: " <> imageTag)
-      cdnDeployStep mctx True (site ^. #cdn) cdnHosts cdnNs cdnSvc
-    else do
-      result <- deployStaticProduction inputs (T.pack <$> sopts ^. #source)
-      case result of
-        Left err -> dieT err
-        Right u -> do
-          TIO.putStrLn ("Deployed static site: " <> u)
-          cdnDeployStep mctx False (site ^. #cdn) cdnHosts cdnNs cdnSvc
-
--- | The server (Node) deploy path.
-deployServer :: Maybe String -> TargetProfile -> SiteDeployOpts -> ServerSite -> Text -> IO ()
-deployServer mctx tp sopts site0 bd = do
-  imageTag <- resolveTag (sopts ^. #tag)
-  let site = serverSiteWithGeneratedEnv sopts site0 bd imageTag
-      inputs =
-        ServerDeployInputs
-          { site = site
-          , imageTag = imageTag
-          , baseDomain = bd
-          , projectDir = sopts ^. #projectDir
-          , skipBuild = sopts ^. #skipBuild
-          , targetProfile = tp
-          }
-      m = serverManifests inputs
-  if sopts ^. #dryRun
-    then do
-      printNamespaceAction (namespaceText (site ^. #namespace))
-      BC.putStrLn "--- Generated Dockerfile ---"
-      TIO.putStr (m ^. #dockerfile)
-      BC.putStrLn "--- Knative Service manifest ---"
-      BC.putStr (m ^. #service)
-      forM_ (m ^. #domainMappings) $ \dm -> do
-        BC.putStrLn "--- DomainMapping manifest ---"
-        BC.putStr dm
-      printBindingChecks
-        ( siteBindingTargets
-            (site ^. #domains)
-            (namespaceText (site ^. #namespace))
-            (siteNameText (site ^. #name))
-        )
-      printTlsChecks (site ^. #domains)
-      TIO.putStrLn ("URL: " <> (m ^. #url))
-      TIO.putStrLn ("Release: " <> imageTag)
-      cdnDeployStep mctx True (site ^. #cdn) (siteHostnames (site ^. #domains)) (namespaceText (site ^. #namespace)) (siteNameText (site ^. #name))
-    else do
-      result <- deployServerProduction inputs (T.pack <$> sopts ^. #source)
-      case result of
-        Left err -> dieT err
-        Right u -> do
-          TIO.putStrLn ("Deployed server site: " <> u)
-          cdnDeployStep mctx False (site ^. #cdn) (siteHostnames (site ^. #domains)) (namespaceText (site ^. #namespace)) (siteNameText (site ^. #name))
-
--- | Direct and reviewed server deploys render the same generated identity env.
-serverSiteWithGeneratedEnv :: SiteDeployOpts -> ServerSite -> Text -> Text -> ServerSite
-serverSiteWithGeneratedEnv options site bd tag =
-  serverSiteWithGeneratedEnvSource (T.pack <$> options ^. #source) site bd tag
+        (inventoryExecutionRegistry mctx) active candidate
+      (Nothing, Just directory) -> Inventory.planInventoryCandidateWith
+        (inventoryPlanRegistryWithNative active workspace native) active candidate directory
+      (Just proposal, Just directory) -> do
+        validateInlineReleaseAdoption scope ("nagare-static-releases-" <> siteName) proposal
+        Inventory.planInventoryCandidateAdoptionWith
+          (inventoryPlanRegistryWithNative active workspace native)
+          active candidate proposal directory
+      (Just _, Nothing) -> dieT "site adoption requires --save-plan"
 
 serverSiteWithGeneratedEnvSource :: Maybe Text -> ServerSite -> Text -> Text -> ServerSite
 serverSiteWithGeneratedEnvSource source site bd tag =
@@ -7830,39 +7698,6 @@ serverSiteWithGeneratedEnvFor serviceName targetUrl source site bd tag =
         , Gen.source = source
         }
   in site & #env %~ mergeGenerated (generatedEnv context)
-
--- | MasterPlan 11 / EP-58: the CDN provisioning step, run as the last step of a
--- deploy (after the origin is Ready) or printed under @--dry-run@. A 'Nothing'
--- CDN is a no-op, so a non-CDN deploy is byte-for-byte unchanged. In the live
--- branch a provisioning failure is reported to stderr and never fails the
--- already-successful origin deploy. The reusable @deploy*Production@ effects and
--- the @nagared@ webhook stay free of CDN/Pulumi coupling — orchestration lives
--- here in the CLI handler, where @--dry-run@ already lives.
-cdnDeployStep :: Maybe String -> Bool -> Maybe Cdn -> [Text] -> Text -> Text -> IO ()
-cdnDeployStep _ _ Nothing _ _ _ = pure ()
-cdnDeployStep mctx dry (Just c) hostnames ns service = do
-  unless dry $ forM_ hostnames (refuseDirectCdnHostMutationIfOwned mctx "CDN provision")
-  unless dry $ when (hasCloudflareCdn (Just c))
-    (refuseDirectCloudflareZoneMutationIfOwned mctx "CDN provision")
-  (_, workspace) <- ensurePulumiForActiveContext mctx
-  originIp <- fromMaybe "<publicIp>" <$> stackOutput (workspace ^. #pulumiDir) "publicIp"
-  tp <- activeProfile mctx
-  refs <- gatherGcpStackRefs (workspace ^. #pulumiDir) tp
-  let target =
-        CdnTarget
-          { hostnames = hostnames
-          , originIp = originIp
-          , namespace = ns
-          , service = service
-          , baseDomain = tp ^. #baseDomain
-          }
-  if dry
-    then either dieT (TIO.putStr . renderCdnPlan) (planCdn c target refs)
-    else do
-      res <- provisionCdn c target refs
-      case res of
-        Left e -> TIO.hPutStrLn stderr ("nagarectl: CDN provisioning failed (origin is up): " <> e)
-        Right r -> TIO.putStrLn (r ^. #summary)
 
 -- | Read the four EP-56 Google stack outputs, with a clear placeholder when an
 -- output is absent (the CDN load balancer is disabled, or Pulumi is unavailable).
@@ -7933,24 +7768,6 @@ reviewedCdnBinding active workspace snapshot intent rawBackend = case intent of
 -- a CDN fronts.
 siteHostnames :: [DomainSpec] -> [Text]
 siteHostnames = map (domainText . (^. #domain))
-
-siteBindingTargets :: [DomainSpec] -> Text -> Text -> [BindingTarget]
-siteBindingTargets domains namespace service =
-  [ BindingTarget
-      { host = domainText (domainSpec ^. #domain)
-      , namespace = namespace
-      , service = service
-      }
-  | domainSpec <- domains
-  ]
-
-printBindingChecks :: [BindingTarget] -> IO ()
-printBindingChecks =
-  mapM_ (TIO.putStrLn . ("Would check domain binding: " <>) . renderBindingTarget)
-
-printTlsChecks :: [DomainSpec] -> IO ()
-printTlsChecks =
-  mapM_ (TIO.putStrLn . ("Would check domain TLS: " <>) . renderDomainTlsCheck)
 
 -- | @site releases@: print the recorded release history. Kind-agnostic — works
 -- for both static and server sites (the release record is runtime-agnostic).
@@ -8101,11 +7918,13 @@ rollbackManifests tp (Load.SiteServer s) bd tag =
   let m = serverManifests (ServerDeployInputs s tag bd "." True tp)
    in (m ^. #service, m ^. #domainMappings)
 
--- | @site preview deploy --name NAME@: deploy the current build as an isolated
+-- | @site preview deploy --name NAME@: deploy the accepted image as an isolated
 -- preview Service under a derived name and domain. Previews are not recorded in
 -- the production release history.
 runPreviewDeploy :: Maybe String -> SiteDeployOpts -> Text -> IO ()
 runPreviewDeploy mctx sopts pname = do
+  when (isNothing (sopts ^. #imageResource))
+    (dieT "reviewed site preview requires --image-resource")
   when (not (null (sopts ^. #siteTlsSecretResources))
       || isJust (sopts ^. #cdnBackendResource)
       || isJust (sopts ^. #legacyReleaseImport)
@@ -8122,38 +7941,9 @@ runPreviewDeploy mctx sopts pname = do
         (dieT "static preview has no volume recovery inputs")
       unless (null (sopts ^. #siteEnvSecretResources))
         (dieT "static preview has no runtime Secret references")
-      if isJust (sopts ^. #savePlan) || isJust (sopts ^. #imageResource)
-        then runReviewedStaticPreviewPlan mctx tp sopts site bd pname (sopts ^. #savePlan)
-        else runDirectStaticPreview mctx tp sopts site bd pname
+      runReviewedStaticPreviewPlan mctx tp sopts site bd pname (sopts ^. #savePlan)
     Right (Load.SiteServer site) ->
-      if isJust (sopts ^. #savePlan) || isJust (sopts ^. #imageResource)
-        then runReviewedServerPreviewPlan mctx tp sopts site bd pname (sopts ^. #savePlan)
-        else dieT "server previews require a prepublished --image-resource"
-
-runDirectStaticPreview :: Maybe String -> TargetProfile -> SiteDeployOpts
-  -> StaticSite -> Text -> Text -> IO ()
-runDirectStaticPreview mctx tp sopts site bd pname = do
-  unless (sopts ^. #dryRun) (refuseDirectDeploymentWhenManaged mctx "site preview deploy")
-  when (not (null (sopts ^. #sitePreviewEnvResources))
-      || isJust (sopts ^. #sitePreviewAdoptionInput))
-    (dieT "site preview inventory resources require --image-resource or --save-plan")
-  imageTag <- resolveTag (sopts ^. #tag)
-  let inputs = siteDeployInputs tp sopts site imageTag bd
-  m <- orDie (previewManifests inputs pname)
-  pdomText <- orDie (previewDomain (siteNameText (site ^. #name)) pname bd)
-  unless (sopts ^. #dryRun) $ refuseDirectSiteMutationIfOwned mctx "site preview deploy"
-    (m ^. #serviceName) (namespaceText (site ^. #namespace))
-    [pdomText] [] False
-  if sopts ^. #dryRun
-    then do
-      printNamespaceAction (namespaceText (site ^. #namespace))
-      printStaticArtifacts (m ^. #nginxConf) (m ^. #service) (m ^. #domainMappings) (m ^. #url)
-      TIO.putStrLn ("Preview service: " <> (m ^. #serviceName))
-    else do
-      result <- deployStaticPreview inputs pname
-      case result of
-        Left err -> dieT err
-        Right u -> TIO.putStrLn ("Deployed preview: " <> u)
+      runReviewedServerPreviewPlan mctx tp sopts site bd pname (sopts ^. #savePlan)
 
 runReviewedStaticPreviewPlan
   :: Maybe String -> TargetProfile -> SiteDeployOpts -> StaticSite
@@ -8188,23 +7978,25 @@ runReviewedStaticPreviewPlan mctx tp options original bd pname output = do
       dependencies source)
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
-  case (options ^. #sitePreviewAdoptionInput, output) of
-    (Nothing, Nothing) -> Inventory.convergeInventoryCandidateWith
-      (inventoryPlanRegistryWithNative active workspace native)
-      (inventoryExecutionRegistry mctx) active candidate
-    (Nothing, Just directory) -> Inventory.planInventoryCandidateWith
-      (inventoryPlanRegistryWithNative active workspace native) active candidate directory
-    (Just proposalFile, Just directory) -> do
-      proposalBytes <- (try (BS.readFile proposalFile) :: IO (Either IOException ByteString))
-        >>= either (dieT . T.pack . show) pure
-      proposal <- either dieT pure (InventoryLifecycle.decodeAdoptionInput proposalBytes)
-      unless (InventoryLifecycle.adoptionCandidateDirectory proposal == ".")
-        (dieT "inline preview adoption requires candidate '.' in its proposal")
-      validateInlinePreviewAdoption scope proposal
-      Inventory.planInventoryCandidateAdoptionWith
+  if options ^. #dryRun
+    then BC.putStrLn (ResourceWire.encodeCanonicalScope scope)
+    else case (options ^. #sitePreviewAdoptionInput, output) of
+      (Nothing, Nothing) -> Inventory.convergeInventoryCandidateWith
         (inventoryPlanRegistryWithNative active workspace native)
-        active candidate proposal directory
-    (Just _, Nothing) -> dieT "preview adoption requires --save-plan"
+        (inventoryExecutionRegistry mctx) active candidate
+      (Nothing, Just directory) -> Inventory.planInventoryCandidateWith
+        (inventoryPlanRegistryWithNative active workspace native) active candidate directory
+      (Just proposalFile, Just directory) -> do
+        proposalBytes <- (try (BS.readFile proposalFile) :: IO (Either IOException ByteString))
+          >>= either (dieT . T.pack . show) pure
+        proposal <- either dieT pure (InventoryLifecycle.decodeAdoptionInput proposalBytes)
+        unless (InventoryLifecycle.adoptionCandidateDirectory proposal == ".")
+          (dieT "inline preview adoption requires candidate '.' in its proposal")
+        validateInlinePreviewAdoption scope proposal
+        Inventory.planInventoryCandidateAdoptionWith
+          (inventoryPlanRegistryWithNative active workspace native)
+          active candidate proposal directory
+      (Just _, Nothing) -> dieT "preview adoption requires --save-plan"
 
 runReviewedServerPreviewPlan
   :: Maybe String -> TargetProfile -> SiteDeployOpts -> ServerSite
@@ -8248,23 +8040,25 @@ runReviewedServerPreviewPlan mctx tp options original bd pname output = do
       stores recovery runtimeSecrets source)
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
-  case (options ^. #sitePreviewAdoptionInput, output) of
-    (Nothing, Nothing) -> Inventory.convergeInventoryCandidateWith
-      (inventoryPlanRegistryWithNative active workspace native)
-      (inventoryExecutionRegistry mctx) active candidate
-    (Nothing, Just directory) -> Inventory.planInventoryCandidateWith
-      (inventoryPlanRegistryWithNative active workspace native) active candidate directory
-    (Just proposalFile, Just directory) -> do
-      proposalBytes <- (try (BS.readFile proposalFile) :: IO (Either IOException ByteString))
-        >>= either (dieT . T.pack . show) pure
-      proposal <- either dieT pure (InventoryLifecycle.decodeAdoptionInput proposalBytes)
-      unless (InventoryLifecycle.adoptionCandidateDirectory proposal == ".")
-        (dieT "inline preview adoption requires candidate '.' in its proposal")
-      validateInlinePreviewAdoption scope proposal
-      Inventory.planInventoryCandidateAdoptionWith
+  if options ^. #dryRun
+    then BC.putStrLn (ResourceWire.encodeCanonicalScope scope)
+    else case (options ^. #sitePreviewAdoptionInput, output) of
+      (Nothing, Nothing) -> Inventory.convergeInventoryCandidateWith
         (inventoryPlanRegistryWithNative active workspace native)
-        active candidate proposal directory
-    (Just _, Nothing) -> dieT "preview adoption requires --save-plan"
+        (inventoryExecutionRegistry mctx) active candidate
+      (Nothing, Just directory) -> Inventory.planInventoryCandidateWith
+        (inventoryPlanRegistryWithNative active workspace native) active candidate directory
+      (Just proposalFile, Just directory) -> do
+        proposalBytes <- (try (BS.readFile proposalFile) :: IO (Either IOException ByteString))
+          >>= either (dieT . T.pack . show) pure
+        proposal <- either dieT pure (InventoryLifecycle.decodeAdoptionInput proposalBytes)
+        unless (InventoryLifecycle.adoptionCandidateDirectory proposal == ".")
+          (dieT "inline preview adoption requires candidate '.' in its proposal")
+        validateInlinePreviewAdoption scope proposal
+        Inventory.planInventoryCandidateAdoptionWith
+          (inventoryPlanRegistryWithNative active workspace native)
+          active candidate proposal directory
+      (Just _, Nothing) -> dieT "preview adoption requires --save-plan"
 
 -- | @site preview list@: list the site's preview Service names.
 runPreviewList :: SiteCommonOpts -> IO ()
@@ -9385,12 +9179,6 @@ refuseDirectAccessOwnerIfManaged mctx operation =
     when (authSharedSettingsOwned history)
       (dieT "shared auth settings are owned by accepted or retained inventory; direct access routing is refused")
 
-refuseDirectDeploymentWhenManaged :: Maybe String -> Text -> IO ()
-refuseDirectDeploymentWhenManaged mctx operation =
-  withAcceptedInventoryHistory mctx operation $ \_ ->
-    dieT ("inventory history is initialized; direct " <> operation
-      <> " is refused. Publish the image with app image-plan, then deploy with --image-resource")
-
 refuseDirectLegacyOperationWhenManaged :: Maybe String -> Text -> Text -> IO ()
 refuseDirectLegacyOperationWhenManaged mctx operation remedy =
   withAcceptedInventoryHistory mctx operation $ \_ ->
@@ -9410,9 +9198,6 @@ refuseDirectCloudflareZoneMutationIfOwned mctx operation =
     when (cloudflareZoneOwned history)
       (dieT ("direct " <> operation
         <> " is refused while Cloudflare zone ownership is accepted or retained, or an inventory transaction is active"))
-
-hasCloudflareCdn :: Maybe Cdn -> Bool
-hasCloudflareCdn = maybe False ((== CloudflareCdn) . (^. #provider))
 
 cloudflareZoneOwned :: InventoryPlan.InventoryHistory -> Bool
 cloudflareZoneOwned history = accepted || retained || unresolved
@@ -10403,17 +10188,6 @@ siteDeployInputs tp sopts site imageTag bd =
     , skipBuild = sopts ^. #skipBuild
     , targetProfile = tp
     }
-
-printStaticArtifacts :: ByteString -> ByteString -> [ByteString] -> Text -> IO ()
-printStaticArtifacts nginxBytes svcBytes dmBytes url = do
-  BC.putStrLn "--- Generated nginx.conf ---"
-  BC.putStr nginxBytes
-  BC.putStrLn "--- Knative Service manifest ---"
-  BC.putStr svcBytes
-  forM_ dmBytes $ \dm -> do
-    BC.putStrLn "--- DomainMapping manifest ---"
-    BC.putStr dm
-  TIO.putStrLn ("URL: " <> url)
 
 -- | Exit with a one-line error from a pure @Either Text@ validation.
 orDie :: Either Text a -> IO a

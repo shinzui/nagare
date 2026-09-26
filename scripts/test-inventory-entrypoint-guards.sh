@@ -32,6 +32,8 @@ refuse_image_free_deploy() {
 refuse_image_free_deploy 'image-free app deploy' app deploy --tag v1 -f "$fixture_root/missing-app.hs"
 refuse_image_free_deploy 'image-free Service deploy' deploy --tag v1 -f "$fixture_root/missing-service.hs"
 refuse_image_free_deploy 'image-free worker deploy' worker deploy --tag v1 -f "$fixture_root/missing-worker.hs"
+refuse_image_free_deploy 'image-free site deploy' site deploy --tag v1 --skip-build -f "$fixture_root/missing-site.hs"
+refuse_image_free_deploy 'image-free site preview' site preview deploy --name p1 --tag v1 --skip-build -f "$fixture_root/missing-site.hs"
 test ! -e "$store_dir/head.json"
 python3 - "$store_dir/head.json" <<'PY'
 import json
@@ -98,4 +100,4 @@ chmod 600 "$store_dir/head.json"
 "$nagarectl_bin" context delete guarded --yes > "$fixture_root/out"
 test ! -e "$context_dir/guarded.env"
 test -f "$store_dir/head.json"
-printf 'inventory entrypoint guards: three image-free deploy refusals, eleven admitted refusals, untouched-store delete allowed\n'
+printf 'inventory entrypoint guards: five image-free deploy refusals, eleven admitted refusals, untouched-store delete allowed\n'

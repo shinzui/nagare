@@ -1,14 +1,11 @@
 # tanstack-start-cdn — TanStack Start fronted by Google Cloud CDN (MasterPlan 11, EP-59)
 
-> 🟡 **Built and tested offline; live edge deploy pending `nagare-01`.** The
-> `--dry-run` below works today; the live cache-`Age:` curl is deferred until the
-> VM is powered on, `app.apps.example.com` is delegated, and the Google Cloud CDN
-> load balancer is provisioned.
+> 🟡 **Reviewed DNS compilation and disposable-zone provider proof passed.** A
+> full site and edge transaction in its target context remains to be verified.
 
 This is the `tanstack-start` example plus **one new field** — `cdn = Just …` in
-`nagare/Config.hs`. The same `nagarectl site deploy` builds the Node image and
-applies the Service/DomainMapping as before, and then provisions Google Cloud CDN:
-a **more-specific** Cloud DNS `A` record for `app.apps.example.com` pointing at the
+`nagare/Config.hs`. The reviewed `nagarectl site deploy` declares the Service,
+DomainMapping, and a **more-specific** Cloud DNS `A` record for `app.apps.example.com` pointing at the
 load balancer's global **anycast** IP (which beats the broad `*.apps.example.com`
 wildcard that points at the VM). The backend cache policy is shared and owned
 by Pulumi; application deploys cannot change it.
@@ -29,32 +26,24 @@ pulumi -C infra/pulumi config set nagare:enableCdn true
 pulumi -C infra/pulumi up
 ```
 
-## Dry-run (works offline today)
+## Reviewed dry run
 
-From `cli/nagarectl/`:
+Publish the exact site image archive with `app image-plan`, and select the
+accepted platform BackendService. The dry run prints the canonical public site
+scope, including its DomainMapping and reviewed DNS record claim:
 
 ```bash
 cd cli/nagarectl
-cabal run nagarectl -- site deploy --dry-run \
-  --file ../../cluster/examples/tanstack-start-cdn/nagare/Config.hs
+cabal run nagarectl -- site deploy --skip-build --tag TAG \
+  --image-resource RESOURCE-ID --cdn-backend-resource BACKEND-ID \
+  --dry-run --file ../../cluster/examples/tanstack-start-cdn/nagare/Config.hs
 ```
-
-After the generated Dockerfile, the Knative Service, and the `app.apps.example.com`
-DomainMapping, it prints the planned DNS change (no cloud side effects):
-
-```text
---- CDN plan (GcpCloudCdn) ---
-DNS: app.apps.example.com -> <cdnGlobalIp> (Cloud DNS A-record)
-```
-
-(`<cdnGlobalIp>` is the standing Pulumi stack output; the real value is
-substituted when the stack is available.)
-
 ## End-to-end validation (live legs DEFERRED until `nagare-01` is up)
 
 ```bash
-# 1. Stand up the load balancer (above), then deploy.
-nagarectl site deploy
+# 1. Use the accepted platform backend and image publication, then deploy.
+nagarectl site deploy --skip-build --tag TAG \
+  --image-resource RESOURCE-ID --cdn-backend-resource BACKEND-ID
 
 # 2. Inspect the edge.
 nagarectl cdn status app.apps.example.com

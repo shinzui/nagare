@@ -11,14 +11,10 @@ generated:
 
 # Static & full-stack site hosting
 
-> **Status:** 🟡 **Built and tested offline; cloud and local deploy targets are supported.**
->
-> The typed model, renderers, CLI, and the webhook runner (`nagared`) exist and
-> are tested: `nagarectl site deploy --dry-run` loads a typed config and prints
-> the exact generated Nginx config / Dockerfile and Knative manifests offline
-> today. The live leg is the same target-aware build → push → apply → wait → URL
-> path as [Deploying apps](deploying-apps.md): Artifact Registry in cloud mode,
-> the local k3d registry in local mode.
+> **Status:** 🟡 **Reviewed production and preview deployment is available.**
+> The typed site model and inventory compilers produce public dry-run scopes,
+> saved reviews, and journaled execution. Full native application integration
+> and reviewed webhook submission remain open.
 
 This page is for **app developers** who want to host a website on Nagare the way
 Cloudflare Pages hosts one: push a project, get an HTTPS URL, with previews,
@@ -27,11 +23,11 @@ write. It replaces the static portion of Cloudflare Pages **and** its full-stack
 story (server-side rendering, server functions, API routes) for personal
 projects, staying entirely inside Nagare's single-node Knative cluster.
 
-On a context without initialized inventory history, the legacy deploy is one
-command:
+Publish the exact site image archive with `app image-plan`, then deploy with its
+accepted image resource and an explicit tag:
 
 ```bash
-nagarectl site deploy
+nagarectl site deploy --skip-build --tag TAG --image-resource RESOURCE-ID
 ```
 
 What you write is **not YAML** — it is a small, *typed* `nagare/Config.hs` that
@@ -130,89 +126,27 @@ header name with whitespace, control characters, or a colon.
 
 ### Dry run
 
-A dry run renders the two generated artifacts (the Nginx config and the Knative
-manifests) with **no** Docker or cluster side effects:
+A dry run compiles the same reviewed site scope used by planning and execution.
+It needs an accepted image publication, explicit tag, `--skip-build`, and the
+selected context's inventory store. It prints the canonical public scope without
+saving a review or contacting a mutation adapter:
 
 ```bash
-cd cluster/examples/static-site
-nagarectl site deploy --dry-run
+nagarectl site deploy --skip-build --tag TAG \
+  --image-resource RESOURCE-ID --dry-run
 ```
 
-If the binary cannot resolve `nagare-dsl` from the example directory, point it at
-a package environment (the same mechanism as `nagarectl deploy`):
-
-```bash
-nagarectl site deploy --dry-run --ghc-env /path/to/.ghc.environment.<arch>-<ghc>
-```
-
-The output starts with the generated Nginx config and the Knative Service, and
-ends with the URL and the release id that *would* be used:
-
-```text
---- Generated nginx.conf ---
-server {
-    listen 8080;
-    server_name _;
-    root /usr/share/nginx/html;
-    index index.html;
-
-    # redirect /old-home -> / (301)
-    location = /old-home {
-        return 301 /;
-    }
-
-    location /assets/ {
-        add_header X-Content-Type-Options "nosniff" always;
-        try_files $uri $uri/ =404;
-    }
-
-    # immutable fingerprinted assets
-    location ~* \.(?:js|css|woff2?|png|jpe?g|gif|svg|ico|webp|avif)$ {
-        add_header Cache-Control "public, max-age=31536000, immutable" always;
-        try_files $uri =404;
-    }
-    ...
-}
---- Knative Service manifest ---
-apiVersion: serving.knative.dev/v1
-kind: Service
-metadata:
-  name: static-site
-  namespace: personal
-spec:
-  template:
-    spec:
-      containers:
-      - image: us-west1-docker.pkg.dev/tan-nb-exp/nagare/static-site:20260609-225143
-        ports:
-        - containerPort: 8080
-URL: https://static-site.personal.apps.example.com
-Release: 20260609-225143
-```
+Use `--ghc-env FILE` if the binary cannot resolve `nagare-dsl` from the
+example directory. The public scope lists identities, addresses, dependencies,
+and operations; it excludes private native manifests and Secret bytes.
 
 ### Live deploy
 
-On a machine with Docker, `gcloud`, and cluster access (and your cloud target
-context active), drop `--dry-run`. For a `NoBuild` site, add `--skip-build` (there is no
-build command to run):
-
-```bash
-nagarectl site deploy --skip-build
-```
-
-Nagare runs the build (if any), packages the output into the generated Nginx
-image, pushes it to Artifact Registry, applies the Knative Service and any
-DomainMappings, waits for readiness, records a release, and prints
-`Deployed static site: <url>`. Verify:
-
-```bash
-kubectl get ksvc -n personal
-```
-
-The image contract (you never write it): an `nginx:1.27-alpine` image listening
-on container port 8080, serving `/usr/share/nginx/html`, with the generated
-config copied over Nginx's `default.conf`.
-
+Prepare and publish the image archive first with `app image-plan`. The site
+command verifies that accepted publication and applies its immutable review
+through the inventory journal. Static and server sites use the same reviewed
+command shape below. A site with existing direct objects needs a separate exact
+adoption review before ordinary deployment.
 ### Reviewed static-site deployment
 
 For a site with an already accepted OCI image publication, save a resource
@@ -235,15 +169,13 @@ nagarectl site deploy --skip-build --tag TAG --image-resource RESOURCE-ID
 This works for supported static and server sites. The command prints the
 published review digest and public operations before applying them. Existing
 direct site objects still require the separate exact adoption review below.
-Once inventory history is initialized in the selected context, live production
-and static preview deployment require a prepublished image and this reviewed
-route, even for a new site. Image-free `--dry-run` remains available for
-rendering. The reviewed preview command is shown below.
+All production and preview deployments require the accepted image and reviewed
+route, even for a new site. The reviewed preview command is shown below.
 
 The publication must have the exact tagged image reference in the active
 context registry; `nagarectl app image-plan` can review publication from a
 Docker archive. The Namespace must already be accepted. Static and server site
-reviews use the same renderers as direct deployment, check the image and release
+reviews use the shared site member renderers, check the image and release
 tag, and keep earlier history from accepted private evidence. They currently
 support automatic or supplied TLS. Google CDN production hosts join the review
 when `--cdn-backend-resource RESOURCE-ID` names the accepted platform Pulumi
@@ -263,9 +195,7 @@ separate publication inputs and refuse. For each retained server volume, add
 `--volume-recovery VOLUME=BACKUP:KEY:VERSION` to the reviewed command. The
 review declares the rendered PVC before the Service and keeps the backup/key
 recovery identity with that durable resource. Supported previews and site
-rollback can also be saved for review as described below. Direct server deploy
-refuses a PVC address held in accepted or retained inventory history, even if
-its Service has already been collected.
+rollback can also be saved for review as described below.
 
 For a site created by the direct deploy path, save the full legacy release
 ConfigMap JSON to a private file. Prepare a versioned adoption proposal using
@@ -365,7 +295,8 @@ nagarectl inventory apply preview-review --yes
 For a standard preview create or update, omit `--save-plan` with the same
 accepted image and environment-store inputs. The command publishes and applies
 the reviewed preview scope in one invocation. Adoption still requires a saved
-review.
+review. Add `--dry-run` instead to print its canonical public scope without
+publishing or applying the review.
 
 The review owns the preview Service and DomainMapping in a separate scope. It
 refuses missing or differently addressed stores, an unaccepted image, and a
@@ -382,8 +313,7 @@ environment entries appear in the preview Service, while production receives
 Runtime entries. A preview volume has its own PVC under the preview
 Service name. Add `--volume-recovery VOLUME=BACKUP:KEY:VERSION` for each
 retained preview volume; a volume marked for deletion needs no recovery input.
-Build Secret references are not yet supported. Direct preview
-deployment still supports static sites only.
+Build Secret references are not yet supported.
 
 To remove a reviewed preview, retire its scope, then review exact collection
 in dependency order. Collect the DomainMapping first, then the Service:
@@ -471,9 +401,9 @@ Release: 20260609-233748
 There is no `ENV PORT=` line — Knative injects `PORT=8080` to match the container
 port, and Nitro/Next/SvelteKit read it. Make sure the server binds `0.0.0.0`
 (Nitro and SvelteKit do by default; Next.js may need `HOSTNAME=0.0.0.0`, set
-through the env map as above). The live path is the same as static: it builds the
-app, copies the self-contained output (`.output`) into the Node image, pushes,
-applies, waits, records a release, and prints `Deployed server site: <url>`.
+through the env map as above). Prepare the server image archive separately,
+publish it with `app image-plan`, then use the reviewed `site deploy` command
+with the accepted image resource and tag.
 
 ---
 
@@ -526,21 +456,23 @@ for inventory-backed contexts.
 ## CLI reference
 
 ```text
-nagarectl site deploy [--dry-run] [--skip-build] [--file FILE] [--tag TAG]
+nagarectl site deploy --skip-build --tag TAG --image-resource RESOURCE-ID
+                      [--dry-run | --save-plan DIR] [--file FILE]
                       [--base-domain DOMAIN] [--project-dir DIR] [--source REF]
                       [--ghc-env FILE]
 nagarectl site releases
 nagarectl site rollback RELEASE_ID
-nagarectl site preview deploy --name NAME [build options as above]
+nagarectl site preview deploy --name NAME --skip-build --tag TAG
+                                    --image-resource RESOURCE-ID
+                                    [--dry-run | --save-plan DIR]
 nagarectl site preview list
 nagarectl site preview delete NAME
 ```
 
-`--file` defaults to `nagare/Config.hs`. `--tag` defaults to a UTC timestamp
-`YYYYMMDD-HHMMSS`. `--base-domain` defaults to `NAGARE_BASE_DOMAIN`, then
-`apps.example.com`. `--project-dir` (default `.`) is where the build runs and the
-output directory is resolved. `--source` records provenance (e.g. a git SHA) with
-the release.
+`--file` defaults to `nagare/Config.hs`. `--base-domain` defaults to
+`NAGARE_BASE_DOMAIN`, then `apps.example.com`. `--project-dir` (default `.`)
+resolves source paths while compiling the typed site. `--source` records
+provenance (e.g. a git SHA) with the release.
 
 ---
 
