@@ -291,6 +291,7 @@ import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Application (ApplicationScopeInput (..), GoogleCdnBinding (..), CloudflareCdnBinding (..), ReviewedCdnBinding (..), DatabaseBinding, ServiceAction (..), acceptedAccessBinding, acceptedApplicationImage, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationDeployment, compileServiceActionScope, compileStandaloneServiceWithRelease, compileStandaloneWorkerWithDependencies, databaseRecoveryBindings, hostnameClaimOwned, legacyApplicationReleaseImport, legacyStandaloneReleaseImport, nativeWorkloadOwned, recordReviewedStandaloneOverrides, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
 import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteReleaseLog, acceptedSiteSource, compileServerSitePreviewScope, compileServerSiteRollbackScope, compileServerSiteRollbackScopeWithCdn, compileServerSiteRollbackScopeWithCloudflare, compileServerSiteScope, compileServerSiteScopeWithCdn, compileServerSiteScopeWithCloudflare, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteRollbackScopeWithCdn, compileStaticSiteRollbackScopeWithCloudflare, compileStaticSiteScope, compileStaticSiteScopeWithCdn, compileStaticSiteScopeWithCloudflare, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteNativeOwned, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
 import Nagare.Inventory.Backup (ManualBackupRequest (..), BackupSourceProof (..), compileManualBackupScope, manualBackupSourceProof)
+import Nagare.Inventory.Prune (ManualPruneRequest (..), PruneSourceProof (..), compileManualPruneScope, manualPruneSourceProof)
 import Nagare.Inventory.Restore (ManualRestoreRequest (..), compileManualRestoreScope, manualRestoreTargetProof)
 import Nagare.Inventory.TaskRun (compileTaskRunScope)
 import Nagare.Inventory.TaskLifecycle (compileTaskSuspensionScope, retireSuspendedTaskScope, taskSuspended)
@@ -1089,6 +1090,7 @@ data DbCommand
     DbRetire StandaloneRetireOpts
   | -- | nagarectl db backup NAME [-n NS] [--bucket B] [--keep N] [--dry-run] (EP-47)
     DbBackup DbBackupOpts
+  | DbPruneBackup DbPruneBackupOpts
   | -- | nagarectl db disable-backup-prune NAME [-n NS] --save-plan DIR
     DbDisableBackupPrune DbNameOpts FilePath
   | -- | nagarectl db restore NAME BACKUP_ID [--into live] [--dry-run] (EP-47)
@@ -1221,6 +1223,15 @@ data DbBackupOpts = DbBackupOpts
   , backupId :: !(Maybe String)
   , expiresAt :: !(Maybe String)
   , savePlan :: !(Maybe FilePath)
+  }
+  deriving stock (Generic, Show)
+
+data DbPruneBackupOpts = DbPruneBackupOpts
+  { name :: !String
+  , backupId :: !String
+  , namespace :: !(Maybe String)
+  , bucket :: !(Maybe String)
+  , savePlan :: !FilePath
   }
   deriving stock (Generic, Show)
 
@@ -2052,6 +2063,15 @@ dbRestoreOptsParser =
     <*> dryRunOpt
     <*> optional (strOption (long "restore-id" <> metavar "ID" <> help "Stable ID for a reviewed scratch restore"))
     <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed scratch restore plan for separate apply"))
+
+dbPruneBackupOptsParser :: Parser DbPruneBackupOpts
+dbPruneBackupOptsParser =
+  DbPruneBackupOpts
+    <$> dbNameArg
+    <*> strArgument (metavar "BACKUP_ID" <> help "Accepted manual backup ID to prune after expiry")
+    <*> namespaceOpt
+    <*> dbBackupBucketOpt
+    <*> strOption (long "save-plan" <> metavar "DIR" <> help "Save the exact backup pruning review")
 
 scopeSelectionParser :: Parser ScopeSelection
 scopeSelectionParser =
@@ -3017,6 +3037,12 @@ opts =
               ( info
                   (Db . DbBackup <$> dbBackupOptsParser <**> helper)
                   (progDesc "Review a manual backup with --backup-id and --save-plan, or use legacy direct backup before inventory initialization")
+              )
+            <> command
+              "prune-backup"
+              ( info
+                  (Db . DbPruneBackup <$> dbPruneBackupOptsParser <**> helper)
+                  (progDesc "Review deletion of one expired manual backup and its exact receipt")
               )
             <> command
               "disable-backup-prune"
@@ -5542,25 +5568,34 @@ inventoryExecutionRegistry mctx bundle = do
     else either dieT pure (InventoryHost.hostExecutionInputsFromScopes scopes)
   reviewedKubernetesSpecs <- either dieT pure (kubernetesSpecsFromReview bundle)
   helmSpecs <- either dieT pure (helmSpecsFromReview bundle)
-  backupProofs <- fmap concat $ forM scopes $ \scopeDeclaration -> do
+  sourceProofs <- forM scopes $ \scopeDeclaration -> do
     backupProof <- either dieT pure (manualBackupSourceProof scopeDeclaration)
     restoreProof <- either dieT pure (manualRestoreTargetProof scopeDeclaration)
+    pruneProof <- either dieT pure (manualPruneSourceProof scopeDeclaration)
     let jobIds = [member ^. #identity
           | resourceBundle <- ResourceInventory.scopeBundles scopeDeclaration
           , ResourceInventory.Managed member <- ResourceInventory.declarations resourceBundle
           , case member ^. #address of
               Resource.Kubernetes _ "batch" kind _ _ -> Resource.nameText kind == "job"
               _ -> False]
-        creating = any (\operation ->
-          InventoryAdapter.plannedAction operation == InventoryAdapter.CreateResource
+        selectedJob = any (\operation ->
+          InventoryAdapter.plannedAction operation `elem`
+            [InventoryAdapter.CreateResource, InventoryAdapter.RunDeclaredOperation]
             && any (`elem` jobIds) (NE.toList (InventoryAdapter.plannedResources operation))) operations
-    pure (if creating then catMaybes [backupProof, restoreProof] else [])
+    pure (if selectedJob then (catMaybes [backupProof, restoreProof], maybe [] (: []) pruneProof)
+      else ([], []))
+  let backupProofs = concatMap fst sourceProofs
+      pruneProofs = concatMap snd sourceProofs
   backupSourceNative <- loadReviewedBackupSourceNative mctx
     document backupProofs
+  pruneSourceNative <- loadReviewedPruneSourceNative mctx document pruneProofs
+  let sourceNative = Map.union backupSourceNative pruneSourceNative
+  unless (Map.size sourceNative == Map.size backupSourceNative + Map.size pruneSourceNative)
+    (dieT "manual data source native evidence overlaps")
   unless (all (\(resource, member) ->
-      maybe True (== member) (Map.lookup resource backupSourceNative))
+      maybe True (== member) (Map.lookup resource sourceNative))
       (Map.toAscList reviewedKubernetesSpecs))
-    (dieT "manual backup source native evidence differs from the saved review")
+    (dieT "manual data source native evidence differs from the saved review")
   let retiredIds = Map.keysSet (InventoryPlan.reviewRetentions document)
         `Set.union` Map.keysSet (InventoryPlan.reviewCollections document)
       binding = InventoryPlan.reviewContextBinding document
@@ -5589,9 +5624,9 @@ inventoryExecutionRegistry mctx bundle = do
       (dieT "retirement review lacks accepted immutable native evidence")
     pure (selectedKubernetes, selectedHelm)
   let kubernetesSpecs = Map.restrictKeys
-        (Map.unions [reviewedKubernetesSpecs, retiringKubernetesSpecs, backupSourceNative])
+        (Map.unions [reviewedKubernetesSpecs, retiringKubernetesSpecs, sourceNative])
         (Set.union (selected ResourceInventory.KubernetesExecutor)
-          (Map.keysSet backupSourceNative))
+          (Map.keysSet sourceNative))
       allHelmSpecs = Map.restrictKeys (Map.union helmSpecs retiringHelmSpecs)
         (selected ResourceInventory.HelmExecutor)
   if null registrations && Map.null artifactSpecs && isNothing hostInputs && Map.null kubernetesSpecs && Map.null cacheSpecs && Map.null topicSpecs && Map.null dnsSpecs && Map.null cloudflareSpecs && Map.null allHelmSpecs
@@ -5677,6 +5712,47 @@ loadReviewedBackupSourceNative mctx document proofs = do
       selected = Map.restrictKeys acceptedNative wanted
   unless (Map.keysSet selected == wanted)
     (dieT "manual backup source lacks accepted private native evidence")
+  pure selected
+
+-- A saved prune review may execute only while the same backup scope and Job
+-- remain accepted. The Kubernetes adapter checks the Job's observed UID and
+-- exact native bytes again before submitting or verifying the prune Job.
+loadReviewedPruneSourceNative
+  :: Maybe String -> InventoryPlan.ReviewDocument -> [PruneSourceProof]
+  -> IO (Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString))
+loadReviewedPruneSourceNative _ _ [] = pure Map.empty
+loadReviewedPruneSourceNative mctx document proofs = do
+  active <- activeTarget mctx
+  store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+  history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
+  forM_ proofs $ \proof -> do
+    let matches = [(owner, revision, scope) | (owner, (revision, scope)) <-
+          Map.toAscList (InventoryPlan.historyAccepted history),
+          Resource.scopeIdText owner == pruneSourceScope proof]
+    (owner, revision, scope) <- case matches of
+      [single] -> pure single
+      _ -> dieT "manual prune backup scope is no longer uniquely accepted"
+    unless (InventoryStore.revisionDigest revision == pruneSourceRevision proof
+        && Map.lookup owner (InventoryPlan.reviewDesiredRevisions document) == Just revision
+        && any (\bundle -> any (\case
+          ResourceInventory.Managed member -> member ^. #identity == pruneSourceJob proof
+          _ -> False) (ResourceInventory.declarations bundle))
+          (ResourceInventory.scopeBundles scope))
+      (dieT "manual prune backup scope or Job changed after review")
+  acceptedSnapshot <- either (dieT . T.pack . show) pure
+    (ResourceInventory.mkScopeSnapshot (InventoryPlan.reviewContextBinding document)
+      (Map.map (\(revision, scope) ->
+        (InventoryStore.revisionGeneration revision, scope))
+        (InventoryPlan.historyAccepted history))
+      (InventoryPlan.historyReservations history))
+  acceptedInventory <- either (dieT . T.pack . show) pure
+    (ResourceInventory.composeSnapshot acceptedSnapshot)
+  (acceptedNative, _) <- InventoryStatus.loadAcceptedNative store history acceptedInventory
+    >>= either dieT pure
+  let wanted = Set.fromList (map pruneSourceJob proofs)
+      selected = Map.restrictKeys acceptedNative wanted
+  unless (Map.keysSet selected == wanted)
+    (dieT "manual prune backup Job lacks accepted private native evidence")
   pure selected
 
 inventoryPlanRegistry :: ActiveTarget -> PlatformWorkspace -> ResourceInventory.CompositionCandidate -> InventoryPlan.InventoryHistory -> IO InventoryAdapter.AdapterRegistry
@@ -9266,6 +9342,9 @@ runDb mctx = \case
         runDbBackup (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) backend
           (fromMaybe 7 (o ^. #keep)) (o ^. #dryRun)
       _ -> dieT "reviewed database backup requires both --backup-id and --save-plan"
+  DbPruneBackup o -> runReviewedDbPruneBackupPlan mctx (T.pack (o ^. #name))
+    (nsOf (o ^. #namespace)) (T.pack (o ^. #backupId))
+    (o ^. #bucket) (o ^. #savePlan)
   DbDisableBackupPrune o output ->
     runDisableBackupPrunePlan mctx (T.pack (o ^. #name)) (nsOf (o ^. #namespace)) output
   DbRestore o -> do
@@ -10057,6 +10136,93 @@ runReviewedDbBackupPlan mctx database namespaceName bucketArg backupId expiryArg
       (Map.union backupNative sourceNative)) active candidate output
   TIO.putStrLn "Saved manual backup review. Apply it to submit the fixed Job and verify stored bytes."
 
+runReviewedDbPruneBackupPlan
+  :: Maybe String -> Text -> Text -> Text -> Maybe String -> FilePath -> IO ()
+runReviewedDbPruneBackupPlan mctx database namespaceName backupId bucketArg output = do
+  active <- activeTarget mctx
+  (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+  snapshot <- Inventory.loadTargetSnapshot active
+  backupOwner <- either dieT pure (Resource.mkScopeId Resource.Standalone
+    ("database-backup-" <> namespaceName <> "-" <> database <> "-" <> backupId))
+  backupScope <- case Map.lookup backupOwner (ResourceInventory.snapshotScopes snapshot) of
+    Just (_, accepted) -> pure accepted
+    Nothing -> dieT "exact manual backup scope is not accepted"
+  let backupJobs = [member | bundle <- ResourceInventory.scopeBundles backupScope,
+        ResourceInventory.Managed member <- ResourceInventory.declarations bundle,
+        case member ^. #address of
+          Resource.Kubernetes _ "batch" kind (Just ns) _ ->
+            Resource.nameText kind == "job" && Resource.nameText ns == namespaceName
+          _ -> False]
+  backupJob <- case backupJobs of
+    [single] -> pure single
+    _ -> dieT "accepted manual backup has no unique Job"
+  pruneOwner <- either dieT pure (Resource.mkScopeId Resource.Standalone
+    ("database-prune-" <> namespaceName <> "-" <> database <> "-" <> backupId))
+  let users = [Resource.scopeIdText (ResourceInventory.scopeId scope)
+        | (_, scope) <- Map.elems (ResourceInventory.snapshotScopes snapshot)
+        , ResourceInventory.scopeId scope /= backupOwner
+        , ResourceInventory.scopeId scope /= pruneOwner
+        , Map.lookup "restore.backup.scope" (ResourceInventory.scopeOverrides scope)
+            == Just (Resource.scopeIdText backupOwner)
+          || any (\bundle -> any (\case
+            ResourceInventory.Managed member ->
+              ResourceReference.OrderedAfter (backupJob ^. #identity)
+                `elem` (member ^. #dependencies)
+            _ -> False) (ResourceInventory.declarations bundle))
+            (ResourceInventory.scopeBundles scope)]
+  unless (null users)
+    (dieT ("accepted restore scopes still depend on this backup: " <> T.intercalate ", " users))
+  store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+  history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
+  backupRevision <- case Map.lookup backupOwner (InventoryPlan.historyAccepted history) of
+    Just (revision, accepted) | accepted == backupScope -> pure revision
+    _ -> dieT "manual backup scope differs from accepted history"
+  acceptedInventory <- either (dieT . T.pack . show) pure
+    (ResourceInventory.composeSnapshot snapshot)
+  (acceptedNative, _) <- InventoryStatus.loadAcceptedNative store history acceptedInventory
+    >>= either dieT pure
+  backupNative <- case Map.lookup (backupJob ^. #identity) acceptedNative of
+    Just pair | fst pair == backupJob -> pure (Map.singleton (backupJob ^. #identity) pair)
+    _ -> dieT "accepted manual backup Job lacks exact private native evidence"
+  context <- either dieT pure (Resource.mkContextId
+    (contextNameText (active ^. #contextName)))
+  let config = KubernetesRuntimeConfig context
+        (contextNameText (active ^. #contextName))
+        (fmap (fmap (const ())) (guardKubernetesContext active))
+      ops = mkKubernetesRuntimeOpsWithCacheKey config
+        (\_ -> pure (Left "backup Job observation does not use a cache key")) backupNative
+  state <- kubernetesObserve ops (backupJob ^. #identity)
+  backupUid <- case (state, Map.lookup (backupJob ^. #identity) backupNative) of
+    (KubernetesPresent uid _ (Just owner) digest, Just (_, bytes))
+      | owner == backupJob ^. #identity
+        && digest == InventoryDigest.contentDigest bytes -> pure uid
+    _ -> dieT "accepted backup Job is absent, incomplete, foreign, or drifted"
+  receiptBytes <- readBackupReceiptFromCompletedPod config backupNative
+    (backupJob ^. #identity) backupUid >>= either dieT pure
+  backend <- resolveStoreBackend mctx bucketArg
+  now <- getCurrentTime
+  let request = ManualPruneRequest
+        { pruneDatabaseName = database, pruneNamespaceName = namespaceName
+        , pruneBackupId = backupId, pruneBackupRevision = backupRevision
+        , pruneBackupUid = backupUid
+        , pruneReceiptBytes = receiptBytes, pruneNow = now
+        , pruneStorageBackend = backend
+        , pruneSource = Resource.SourceLocation ("db prune-backup/" <> database) backupId }
+  (pruneScope, pruneNative) <- either (dieT . T.pack . show) pure
+    (compileManualPruneScope request backupScope backupNative)
+  case Map.lookup (ResourceInventory.scopeId pruneScope)
+    (ResourceInventory.snapshotScopes snapshot) of
+    Just (_, prior) | prior /= pruneScope ->
+      dieT "prune review under this backup ID has different accepted intent"
+    _ -> pure ()
+  candidate <- either (dieT . T.pack . show) pure
+    (ResourceInventory.composeInventory snapshot
+      (ResourceInventory.ReplaceScope pruneScope NE.:| []))
+  Inventory.planInventoryCandidateWith
+    (inventoryPlanRegistryWithNative active workspace
+      (Map.union pruneNative backupNative)) active candidate output
+  TIO.putStrLn "Saved exact backup pruning review. Apply it after inspecting the object and receipt identities."
+
 runReviewedDbRestorePlan
   :: Maybe String -> Text -> Text -> Text -> Text -> Maybe String -> FilePath -> IO ()
 runReviewedDbRestorePlan mctx database namespaceName backupId restoreKey bucketArg output = do
@@ -10102,6 +10268,12 @@ runReviewedDbRestorePlan mctx database namespaceName backupId restoreKey bucketA
   backupScope <- case backups of
     [single] -> pure single
     _ -> dieT "reviewed restore requires one accepted manual backup with the selected ID"
+  let pruned = [scope | (_, scope) <- Map.elems
+        (ResourceInventory.snapshotScopes snapshot),
+        Map.lookup "prune.backup.scope" (ResourceInventory.scopeOverrides scope)
+          == Just (Resource.scopeIdText (ResourceInventory.scopeId backupScope))]
+  unless (null pruned)
+    (dieT "selected manual backup has an accepted prune operation")
   let backupJobs = [member | bundle <- ResourceInventory.scopeBundles backupScope,
         ResourceInventory.Managed member <- ResourceInventory.declarations bundle,
         case member ^. #address of

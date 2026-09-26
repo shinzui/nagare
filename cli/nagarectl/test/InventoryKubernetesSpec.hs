@@ -35,6 +35,7 @@ import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..)
 import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
 import Nagare.Inventory.Database (compileDatabaseForBackend)
 import Nagare.Inventory.Backup (ManualBackupRequest (..), BackupReceiptExpectation (..), BackupSourceProof (..), compileManualBackupScope, manualBackupJobReceiptExpectation, manualBackupJobSourcePins, manualBackupSourceProof, parseBackupReceipt, parseManualBackupReceipt)
+import Nagare.Inventory.Prune (ManualPruneRequest (..), PruneSourceProof (..), compileManualPruneScope, manualPruneJobBackupPin, manualPruneSourceProof)
 import Nagare.Inventory.Restore (ManualRestoreRequest (..), compileManualRestoreScope, manualRestoreJobTargetPins, manualRestoreTargetProof)
 import Nagare.Inventory.DataService (NativeDataKind (..), compileBackupPruneRemovalScope, compileStandaloneDatabase, compileStatefulSetRestartScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Digest
@@ -533,6 +534,72 @@ inventoryKubernetesTests =
                 assertBool "receipt with another source PVC was accepted"
                   (isLeft (parseManualBackupReceipt backupScope receiptAddress
                     (receiptBody changedMetadata)))
+                let now = maybe (error "invalid prune test time") id
+                      (parseTimeM True defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ"
+                        "2028-01-01T00:00:00Z" :: Maybe UTCTime)
+                    pruneRequest = ManualPruneRequest
+                      { pruneDatabaseName = "pg-main", pruneNamespaceName = "default"
+                      , pruneBackupId = "run-001"
+                      , pruneBackupRevision = ScopeRevision
+                          (ok (mkScopeGeneration 1)) (contentDigest "accepted-backup")
+                      , pruneBackupUid = ok (mkPhysicalIdentity "backup-job-uid")
+                      , pruneReceiptBytes = receiptBody metadataValue
+                      , pruneNow = now, pruneStorageBackend = backend
+                      , pruneSource = SourceLocation "db prune-backup" "run-001" }
+                    (pruneScope, pruneNative) = ok (compileManualPruneScope
+                      pruneRequest backupScope backupNative)
+                    (pruneJob, pruneBytes) = case Map.elems pruneNative of
+                      [entry] -> entry
+                      _ -> error "manual prune scope must have one Job"
+                case [pruneOperation | bundle <- scopeBundles pruneScope,
+                  pruneOperation <- bundle ^. #operations] of
+                  [pruneOperation] -> do
+                    operationKind pruneOperation @?= PruneData
+                    affects pruneOperation @?= (pruneJob ^. #identity :| [])
+                  other -> assertFailure ("manual prune operation missing: " <> show other)
+                manualPruneJobBackupPin pruneBytes @?= Right (Just
+                  (job ^. #identity, ok (mkPhysicalIdentity "backup-job-uid")))
+                case manualPruneSourceProof pruneScope of
+                  Right (Just proof) -> do
+                    pruneSourceScope proof @?= scopeIdText (scopeId backupScope)
+                    pruneSourceJob proof @?= job ^. #identity
+                    pruneSourceUid proof @?= ok (mkPhysicalIdentity "backup-job-uid")
+                  other -> assertFailure ("manual prune source proof missing: " <> show other)
+                assertBool "unexpired backup could be pruned"
+                  (isLeft (compileManualPruneScope
+                    (pruneRequest {pruneNow = maybe (error "invalid pre-expiry time") id
+                      (parseTimeM True defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ"
+                        "2026-01-01T00:00:00Z" :: Maybe UTCTime)}) backupScope backupNative))
+                assertBool "another receipt could be pruned"
+                  (isLeft (compileManualPruneScope
+                    (pruneRequest {pruneReceiptBytes = receiptBody changedMetadata})
+                    backupScope backupNative))
+                pruneStates <- newIORef (Map.fromList
+                  [ (pruneJob ^. #identity, KubernetesAbsent (contentDigest "absent"))
+                  , (job ^. #identity, KubernetesPresent
+                      (ok (mkPhysicalIdentity "backup-job-uid")) "1"
+                      (Just (job ^. #identity)) (contentDigest bytes)) ])
+                let pruneAdapter = mkKubernetesAdapter (Map.union pruneNative backupNative)
+                      KubernetesAdapterOps
+                        { kubernetesContext = ok (mkContextId "test")
+                        , kubernetesObserve = \resource -> Map.findWithDefault
+                            (KubernetesUnknown "unbound") resource <$> readIORef pruneStates
+                        , kubernetesMutateConditional = \_ -> pure AdapterEffectCompleted }
+                    pruneCreate = createOperation
+                      { plannedResources = pruneJob ^. #identity :| [] }
+                preparedPrune <- adapterPrepare pruneAdapter pruneCreate >>= \case
+                  Right selected -> pure selected
+                  Left reason -> assertFailure ("exact prune source was refused: " <> show reason)
+                    >> fail "missing prepared prune"
+                adapterPreflight pruneAdapter pruneCreate preparedPrune >>= \case
+                  Right () -> pure ()
+                  Left reason -> assertFailure ("exact prune preflight refused: " <> show reason)
+                modifyIORef' pruneStates (Map.insert (job ^. #identity)
+                  (KubernetesPresent (ok (mkPhysicalIdentity "changed-backup-job")) "2"
+                    (Just (job ^. #identity)) (contentDigest bytes)))
+                adapterPreflight pruneAdapter pruneCreate preparedPrune >>= \case
+                  Left _ -> pure ()
+                  Right _ -> assertFailure "changed backup Job UID passed prune preflight"
               other -> assertFailure ("backup receipt metadata is invalid JSON: " <> show other)
             other -> assertFailure ("backup Job has no unique receipt metadata: " <> show other)
           other -> assertFailure ("backup Job is invalid JSON: " <> show other)

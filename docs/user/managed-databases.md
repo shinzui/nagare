@@ -353,8 +353,8 @@ preserves the database's other accepted members. An unfamiliar schedule needs a
 normal database review. Until the saved review is applied, the old CronJob can
 still prune. Jobs already started from the old template can finish and prune
 after the review is applied; inspect active backup Jobs before relying on the
-new policy. Exact backup pruning is not available yet; monitor
-object-store usage and preserve those backups until it exists. A database with
+new policy. Scheduled backups still have no per-object receipt or reviewed
+pruning route; monitor their object-store usage. A database with
 `retention = Delete` is throwaway and has no scheduled
 backup. For an accepted database, save and apply a manual backup review:
 
@@ -387,8 +387,27 @@ submission and are not atomic with the Job's data read. Both writes use
 provider-side create-only preconditions, so an occupied backup ID fails
 instead of replacing stored data. If backup creation succeeds but receipt
 creation fails, that ID needs explicit recovery; choose a new ID for another
-backup. Expiry does not delete the object; reviewed exact pruning and
-live-target restore are still pending. An accepted PostgreSQL backup can be
+backup. Expiry does not delete the object. After a manual backup's finite UTC
+expiry, save a separate exact pruning review:
+
+```bash
+nagarectl db prune-backup pg-main manual-20260926 --save-plan ./pg-main-prune
+nagarectl inventory apply ./pg-main-prune --yes
+```
+
+Planning requires the completed backup Job and its Pod receipt, and refuses
+while an accepted restore scope depends on that backup. The pruning Job reads
+the current object and receipt by provider version, checks both SHA-256 values,
+and deletes those exact versions. Local mode also checks that no older version
+became visible at either key. It has no automatic retry. A failed or
+uncertain deletion needs explicit recovery; an accepted prune scope prevents
+new reviewed restores even if its Job has not completed. Local MinIO backups
+enable bucket versioning before their create-only upload; older local objects
+without version IDs cannot be pruned by this command. Scheduled backups and
+backups recorded with `retain` remain outside this pruning route. Live
+object-store proof remains open.
+
+An accepted PostgreSQL backup can be
 restored into a new scratch database through a separate saved review:
 
 ```bash

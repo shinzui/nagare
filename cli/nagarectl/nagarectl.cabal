@@ -60,6 +60,7 @@ library
     Nagare.Cluster.Kubeconfig
     Nagare.Cluster.Namespace
     Nagare.Database.Backup
+    Nagare.Database.Prune
     Nagare.Database.Connection
     Nagare.Database.Create
     Nagare.Database.Delete
@@ -128,6 +129,7 @@ library
     Nagare.Inventory.Database
     Nagare.Inventory.DataService
     Nagare.Inventory.Backup
+    Nagare.Inventory.Prune
     Nagare.Inventory.Restore
     Nagare.Inventory.Environment
     Nagare.Inventory.Application

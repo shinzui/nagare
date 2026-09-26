@@ -120,6 +120,7 @@ import Nagare.Database.Backup
   , renderInventoryDbBackupCronJob
   , uploadShell
   )
+import Nagare.Database.Prune (PruneJobInputs (PruneJobInputs), pruneShell, renderPruneJob)
 import Nagare.Database.Connection (ConnIdentity (..), connectionEnv, mergeConnectionEnvs)
 import Nagare.Database.Create (DbCreateParams (..), buildDatabase, classifyPasswordObservation, ensureCredential, passwordKey)
 import Nagare.Database.Discover (DbRow (..), dbLabelSelector, extractDbRows, formatDbTable)
@@ -5119,12 +5120,12 @@ backupRestoreTests =
                     & #destination .~ BackupDestUrl "gs://test/manual-databases/personal/mydb/run-001.sql.gz")))
                 localScript = T.unpack (T.replace "/dump" (T.pack dump)
                   (uploadShell (backupJobInputsPg & #verifyStored .~ True
-                    & #destination .~ BackupDestUrl "s3://test/manual-databases/personal/mydb/run-001.sql.gz"
+                    & #destination .~ BackupDestUrl "s3://nagare-backups/manual-databases/personal/mydb/run-001.sql.gz"
                     & #backend .~ localMinioBackend)))
                 localMultipartScript = T.unpack (T.replace "4294967296" "1"
                   (T.replace "/dump" (T.pack dump)
                     (uploadShell (backupJobInputsPg & #verifyStored .~ True
-                      & #destination .~ BackupDestUrl "s3://test/manual-databases/personal/mydb/run-002.sql.gz"
+                      & #destination .~ BackupDestUrl "s3://nagare-backups/manual-databases/personal/mydb/run-002.sql.gz"
                       & #backend .~ localMinioBackend))))
             createDirectoryIfMissing True dump
             writeFile fakeGcloud $ unlines
@@ -5136,7 +5137,10 @@ backupRestoreTests =
             writeFile fakeGsutil "#!/bin/sh\nset -eu\n[ \"$1\" = cp ] || exit 2\ncat \"$NAGARE_TEST_OBJECT\"\n"
             writeFile fakeAws $ unlines
               [ "#!/bin/sh", "set -eu"
-              , "if [ \"$1\" = s3api ] && [ \"$2\" = put-object ]; then"
+              , "if [ \"$1\" = s3api ] && [ \"$2\" = put-bucket-versioning ]; then"
+              , "  [ \"$3\" = --bucket ] && [ \"$4\" = nagare-backups ] || exit 4"
+              , "  [ \"$5\" = --versioning-configuration ] && [ \"$6\" = Status=Enabled ] || exit 4"
+              , "elif [ \"$1\" = s3api ] && [ \"$2\" = put-object ]; then"
               , "  shift 2; BODY=; CONDITIONAL=0; BUCKET=; KEY="
               , "  while [ \"$#\" -gt 0 ]; do"
               , "    case \"$1\" in"
@@ -5145,7 +5149,7 @@ backupRestoreTests =
               , "    esac"
               , "    shift 2"
               , "  done"
-              , "  [ \"$CONDITIONAL\" = 1 ] && [ \"$BUCKET\" = test ] && [ -n \"$KEY\" ] || exit 4"
+              , "  [ \"$CONDITIONAL\" = 1 ] && [ \"$BUCKET\" = nagare-backups ] && [ -n \"$KEY\" ] || exit 4"
               , "  [ ! -e \"$NAGARE_TEST_OBJECT\" ] || exit 47"
               , "  cat \"$BODY\" > \"$NAGARE_TEST_OBJECT\""
               , "elif [ \"$1\" = s3api ] && [ \"$2\" = create-multipart-upload ]; then"
@@ -5188,7 +5192,7 @@ backupRestoreTests =
                       <> filter (\(key, _) -> key `notElem`
                         ["PATH", "DEST", "NAGARE_TEST_OBJECT"]) parentEnv)}) ""
             forM_ [("GCS", cloudScript, "gs://test/manual-databases/personal/mydb/run-001.sql.gz"),
-                   ("MinIO", localScript, "s3://test/manual-databases/personal/mydb/run-001.sql.gz")]
+                   ("MinIO", localScript, "s3://nagare-backups/manual-databases/personal/mydb/run-001.sql.gz")]
               $ \(label, script, destination) -> do
                 let stored = directory </> label <> ".gz"
                 BS.writeFile (dump </> "backup.sql") "first backup payload\n"
@@ -5203,7 +5207,7 @@ backupRestoreTests =
                   ExitSuccess -> assertFailure (label <> " overwrote an existing backup object")
                 BS.readFile stored >>= (@?= firstBytes)
             let multipartStored = directory </> "MinIO-multipart.gz"
-                multipartDestination = "s3://test/manual-databases/personal/mydb/run-002.sql.gz"
+                multipartDestination = "s3://nagare-backups/manual-databases/personal/mydb/run-002.sql.gz"
             BS.writeFile (dump </> "backup.sql") "multipart first payload\n"
             (multipartCreated, _, multipartError) <- run localMultipartScript multipartDestination multipartStored
             assertBool ("MinIO conditional multipart upload failed: " <> multipartError)
@@ -5299,6 +5303,186 @@ backupRestoreTests =
           assertBool "on-demand keeps its fixed DEST" ("value: gs://tan-nb-exp-nagare-backups/databases/mydb/20260610T141503Z.sql.gz" `T.isInfixOf` y)
       , testCase "restore Jobs still never retry" $
           assertBool "backoffLimit 0" ("backoffLimit: 0" `T.isInfixOf` TE.decodeUtf8 (renderRestoreJob restoreJobInputsPg))
+      , testCase "reviewed prune deletes only verified GCS generations" $
+          withSystemTempDirectory "nagare-reviewed-prune" $ \directory -> do
+            let object = directory </> "backup.gz"
+                receipt = directory </> "backup.gz.receipt.json"
+                fakeGcloud = directory </> "gcloud"
+                objectUrl = "gs://test/manual-databases/personal/mydb/run-001.sql.gz"
+                receiptUrl = objectUrl <> ".receipt.json"
+            BS.writeFile object "verified backup bytes"
+            BS.writeFile receipt "verified receipt bytes"
+            let fileHash pathToHash = do
+                  (code, output, _) <- readCreateProcessWithExitCode
+                    (proc "sha256sum" [pathToHash]) ""
+                  code @?= ExitSuccess
+                  pure (T.pack (takeWhile (/= ' ') output))
+            objectHash <- fileHash object
+            receiptHash <- fileHash receipt
+            let inputs = PruneJobInputs "personal" "nagare-dbprune-mydb-run-001"
+                  (T.pack objectUrl) (T.pack receiptUrl) objectHash receiptHash 0
+                  (GcsBackend "project" "test")
+                rendered = TE.decodeUtf8 (renderPruneJob inputs)
+            assertBool "prune Job may retry an uncertain delete"
+              ("backoffLimit: 0" `T.isInfixOf` rendered)
+            writeFile fakeGcloud $ unlines
+              [ "#!/bin/sh", "set -eu"
+              , "[ \"$1\" = storage ] || exit 2; shift"
+              , "case \"$1\" in"
+              , "  objects)"
+              , "    [ \"$2\" = describe ] || exit 2"
+              , "    case \"$3\" in"
+              , "      \"$OBJECT\") echo 7;;"
+              , "      \"$RECEIPT\") echo 9;;"
+              , "      *) exit 2;;"
+              , "    esac;;"
+              , "  cp)"
+              , "    [ \"$3\" = - ] || exit 2"
+              , "    case \"$2\" in"
+              , "      \"$OBJECT#7\") cat \"$NAGARE_TEST_DATA\";;"
+              , "      \"$RECEIPT#9\") cat \"$NAGARE_TEST_RECEIPT\";;"
+              , "      *) exit 2;;"
+              , "    esac;;"
+              , "  rm)"
+              , "    case \"$2:$3\" in"
+              , "      \"$OBJECT:--if-generation-match=7\") rm \"$NAGARE_TEST_DATA\";;"
+              , "      \"$RECEIPT:--if-generation-match=9\") rm \"$NAGARE_TEST_RECEIPT\";;"
+              , "      *) exit 2;;"
+              , "    esac;;"
+              , "  *) exit 2;;"
+              , "esac"
+              ]
+            setFileMode fakeGcloud 0o755
+            parentEnv <- getEnvironment
+            let path = maybe "" id (lookup "PATH" parentEnv)
+                variables =
+                  [("PATH", directory <> ":" <> path), ("OBJECT", objectUrl),
+                   ("RECEIPT", receiptUrl), ("NAGARE_TEST_DATA", object),
+                   ("NAGARE_TEST_RECEIPT", receipt),
+                   ("EXPECTED_OBJECT_SHA256", T.unpack objectHash),
+                   ("EXPECTED_RECEIPT_SHA256", T.unpack receiptHash),
+                   ("EXPIRY_EPOCH", "0")]
+                run = readCreateProcessWithExitCode
+                  ((proc "/bin/sh" ["-c", T.unpack (pruneShell inputs)])
+                    {env = Just (variables <>
+                      filter (\(key, _) -> key `notElem` map fst variables) parentEnv)}) ""
+            BS.writeFile object "changed backup bytes"
+            (changed, _, _) <- run
+            assertBool "changed data was pruned" (changed /= ExitSuccess)
+            doesFileExist object >>= (@?= True)
+            doesFileExist receipt >>= (@?= True)
+            BS.writeFile object "verified backup bytes"
+            (deleted, _, diagnostic) <- run
+            assertBool ("exact prune failed: " <> diagnostic) (deleted == ExitSuccess)
+            doesFileExist object >>= (@?= False)
+            doesFileExist receipt >>= (@?= False)
+      , testCase "reviewed local prune refuses unversioned MinIO objects" $
+          withSystemTempDirectory "nagare-unversioned-prune" $ \directory -> do
+            let fakeAws = directory </> "aws"
+                fakeDnf = directory </> "dnf"
+                marker = directory </> "delete-called"
+                objectUrl = "s3://nagare-backups/manual-databases/personal/mydb/run-001.sql.gz"
+                inputs = PruneJobInputs "personal" "nagare-dbprune-mydb-run-001"
+                  objectUrl (objectUrl <> ".receipt.json") (T.replicate 64 "a")
+                  (T.replicate 64 "b") 0 localMinioBackend
+            writeFile fakeAws $ unlines
+              [ "#!/bin/sh", "set -eu"
+              , "if [ \"$1\" = s3api ] && [ \"$2\" = head-object ]; then"
+              , "  echo None"
+              , "else touch \"$NAGARE_TEST_MARKER\"; exit 99; fi"
+              ]
+            writeFile fakeDnf "#!/bin/sh\nexit 0\n"
+            mapM_ (`setFileMode` 0o755) [fakeAws, fakeDnf]
+            parentEnv <- getEnvironment
+            let path = maybe "" id (lookup "PATH" parentEnv)
+                variables =
+                  [("PATH", directory <> ":" <> path),
+                   ("OBJECT", T.unpack objectUrl),
+                   ("RECEIPT", T.unpack (objectUrl <> ".receipt.json")),
+                   ("EXPIRY_EPOCH", "0"), ("NAGARE_TEST_MARKER", marker)]
+            (result, _, _) <- readCreateProcessWithExitCode
+              ((proc "/bin/sh" ["-c", T.unpack (pruneShell inputs)])
+                {env = Just (variables <>
+                  filter (\(key, _) -> key `notElem` map fst variables) parentEnv)}) ""
+            assertBool "unversioned local backup was pruned" (result /= ExitSuccess)
+            doesFileExist marker >>= (@?= False)
+      , testCase "reviewed MinIO prune deletes selected versions and refuses an exposed older version" $
+          withSystemTempDirectory "nagare-versioned-prune" $ \directory -> do
+            let fakeAws = directory </> "aws"
+                fakeDnf = directory </> "dnf"
+                object = directory </> "backup.gz"
+                receipt = directory </> "backup.gz.receipt.json"
+                objectUrl = "s3://nagare-backups/manual-databases/personal/mydb/run-001.sql.gz"
+                objectKey = "manual-databases/personal/mydb/run-001.sql.gz"
+            writeFile fakeAws $ unlines
+              [ "#!/bin/sh", "set -eu"
+              , "[ \"$1\" = s3api ] || exit 2; ACTION=$2; shift 2"
+              , "KEY=; VERSION=; PREFIX=; OUT="
+              , "while [ \"$#\" -gt 0 ]; do"
+              , "  case \"$1\" in"
+              , "    --key) KEY=$2; shift 2;;"
+              , "    --version-id) VERSION=$2; shift 2;;"
+              , "    --prefix) PREFIX=$2; shift 2;;"
+              , "    --bucket|--query|--output|--endpoint-url) shift 2;;"
+              , "    *) OUT=$1; shift;;"
+              , "  esac"
+              , "done"
+              , "case \"$KEY$PREFIX\" in"
+              , "  \"$NAGARE_TEST_KEY\") TARGET=$NAGARE_TEST_DATA; EXPECTED=v1;;"
+              , "  \"$NAGARE_TEST_KEY.receipt.json\") TARGET=$NAGARE_TEST_RECEIPT; EXPECTED=v2;;"
+              , "  *) exit 3;;"
+              , "esac"
+              , "case \"$ACTION\" in"
+              , "  head-object) [ -f \"$TARGET\" ] || exit 4; echo \"$EXPECTED\";;"
+              , "  get-object) [ \"$VERSION\" = \"$EXPECTED\" ] || exit 5;"
+              , "    cat \"$TARGET\" > \"$OUT\"; echo '{}' ;;"
+              , "  delete-object) [ \"$VERSION\" = \"$EXPECTED\" ] || exit 6;"
+              , "    if [ \"$NAGARE_TEST_OLDER\" != 1 ] || [ \"$KEY\" != \"$NAGARE_TEST_KEY\" ]; then"
+              , "      rm \"$TARGET\""
+              , "    fi; echo '{}' ;;"
+              , "  list-objects-v2) if [ -f \"$TARGET\" ]; then echo \"$KEY$PREFIX\"; else echo None; fi;;"
+              , "  *) exit 7;;"
+              , "esac"
+              ]
+            writeFile fakeDnf "#!/bin/sh\nexit 0\n"
+            mapM_ (`setFileMode` 0o755) [fakeAws, fakeDnf]
+            parentEnv <- getEnvironment
+            let fileHash pathToHash = do
+                  (code, output, _) <- readCreateProcessWithExitCode
+                    (proc "sha256sum" [pathToHash]) ""
+                  code @?= ExitSuccess
+                  pure (T.pack (takeWhile (/= ' ') output))
+                path = maybe "" id (lookup "PATH" parentEnv)
+                run older dataHash selectedReceiptHash inputs = do
+                  let variables =
+                        [("PATH", directory <> ":" <> path),
+                         ("OBJECT", T.unpack objectUrl),
+                         ("RECEIPT", T.unpack (objectUrl <> ".receipt.json")),
+                         ("EXPIRY_EPOCH", "0"),
+                         ("EXPECTED_OBJECT_SHA256", T.unpack dataHash),
+                         ("EXPECTED_RECEIPT_SHA256", T.unpack selectedReceiptHash),
+                         ("NAGARE_TEST_DATA", object), ("NAGARE_TEST_RECEIPT", receipt),
+                         ("NAGARE_TEST_KEY", objectKey),
+                         ("NAGARE_TEST_OLDER", if older then "1" else "0")]
+                  readCreateProcessWithExitCode
+                    ((proc "/bin/sh" ["-c", T.unpack (pruneShell inputs)])
+                      {env = Just (variables <>
+                        filter (\(key, _) -> key `notElem` map fst variables) parentEnv)}) ""
+            BS.writeFile object "versioned backup bytes"
+            BS.writeFile receipt "versioned receipt bytes"
+            objectHash <- fileHash object
+            receiptHash <- fileHash receipt
+            let inputs = PruneJobInputs "personal" "nagare-dbprune-mydb-run-001"
+                  objectUrl (objectUrl <> ".receipt.json") objectHash receiptHash 0
+                  localMinioBackend
+            (exposed, _, _) <- run True objectHash receiptHash inputs
+            assertBool "older local version was treated as absent" (exposed /= ExitSuccess)
+            doesFileExist receipt >>= (@?= True)
+            (deleted, _, diagnostic) <- run False objectHash receiptHash inputs
+            assertBool ("versioned local prune failed: " <> diagnostic)
+              (deleted == ExitSuccess)
+            doesFileExist object >>= (@?= False)
+            doesFileExist receipt >>= (@?= False)
       ]
   , testGroup
       "restore"

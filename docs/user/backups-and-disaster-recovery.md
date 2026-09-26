@@ -50,7 +50,7 @@ Most of Nagare is reproduced from Git; only a few things need real backup jobs.
 | Host Postgres | Restore from disk if data disk survives; use managed DBs for Nagare-owned backup tooling | 🟡 |
 | Whole data disk | Daily GCE snapshot at 08:00 UTC, retained seven days and kept if the source disk is deleted | 🟡 (declared; live apply/verification pending) |
 | App volumes (PVCs) | Legacy `nagarectl storage snapshot` → GCS or MinIO (`volumes/<app>/<volume>/`); direct data operations refuse after inventory admission | 🟡 (reviewed snapshot and restore pending) |
-| Managed databases | Daily CronJob → GCS or MinIO (`databases/<name>/`); reviewed schedules verify stored bytes without pruning; accepted databases can save reviewed manual backup and PostgreSQL scratch restore Jobs | 🟡 (live provider proof, exact pruning, and live-target/other-engine restore pending) |
+| Managed databases | Daily CronJob → GCS or MinIO (`databases/<name>/`); reviewed schedules verify stored bytes without pruning; accepted databases can save reviewed manual backup, expired manual pruning, and PostgreSQL scratch restore Jobs | 🟡 (live provider proof, scheduled pruning, and live-target/other-engine restore pending) |
 | Attic signing identity and metadata | Managed PostgreSQL `nix-cache` / daily `nagare-dbbackup-nix-cache` CronJob | 🟡 (provider implemented; live restore acceptance pending) |
 | Attic cache chunks | Reproducible producer inputs; optionally export the dedicated GCS bucket before retirement | Rebuildable |
 | Grafana dashboards | **Git** (dashboard JSON under `cluster/observability`) | ✅ |
@@ -130,7 +130,13 @@ the Job read at completion; restore and pruning still need a fresh object read
 and checksum. Live object-store verification remains pending. Take a direct backup with
 `nagarectl db backup NAME` only before inventory admission; list cloud backups
 with `gsutil ls gs://<backup-bucket>/databases/<name>/`, or inspect local MinIO
-through the cluster when running local mode. List reviewed manual backups
+through the cluster when running local mode. Expired reviewed manual backups
+can be pruned with `nagarectl db prune-backup NAME BACKUP_ID --save-plan DIR`
+and a separate `inventory apply DIR --yes`. The Job checks the exact receipt
+and data hashes before version-specific deletion. Accepted restore scopes
+block pruning; accepted prune scopes block new restores. Local MinIO backups
+enable versioning on upload, and older unversioned objects refuse pruning.
+List reviewed manual backups
 under `gs://<backup-bucket>/manual-databases/<namespace>/<name>/` in cloud
 mode.
 
@@ -147,7 +153,7 @@ restore Job checks the current receipt and backup bytes against the saved
 checksums, checks expiry again, and creates
 `<database>_restore_<restore-id>` only if absent. A failed restore leaves that
 scratch database for explicit forward recovery. Reviewed live-target,
-Redis/ClickHouse restore, and exact pruning remain pending.
+Redis/ClickHouse restore, scheduled-backup pruning, and live provider proof remain pending.
 
 Before inventory admission, restore is **scratch-first**: `nagarectl db restore NAME BACKUP_ID` loads the
 chosen dump into a disposable target (`<db>_restore_scratch` for

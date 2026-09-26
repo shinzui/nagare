@@ -362,8 +362,16 @@ uploadShell i =
       BackupDestStamped -> False
     uploadVerified =
       if createOnly
-        then storeCpCreateOnlyFromFile backend "/dump/backup.gz" "\"$DEST\""
+        then versionedLocalBucket <> storeCpCreateOnlyFromFile backend "/dump/backup.gz" "\"$DEST\""
         else storeCpFromStdin backend "\"$DEST\"" <> " < /dump/backup.gz"
+    -- Reviewed local backups need a provider version ID for a later exact
+    -- object deletion. Existing unversioned objects are never silently pruned.
+    versionedLocalBucket = case backend of
+      GcsBackend {} -> ""
+      MinioBackend ref ->
+        "aws s3api put-bucket-versioning --bucket " <> ref ^. #bucket
+          <> " --versioning-configuration Status=Enabled --endpoint-url "
+          <> ref ^. #endpoint <> "; "
     verifiedUpload =
       verifyTools <> "gzip -n -9 -c /dump/backup." <> raw <> " > /dump/backup.gz; "
       <> "EXPECTED=$(sha256sum /dump/backup.gz | cut -d' ' -f1); test ${#EXPECTED} -eq 64; "
