@@ -16,6 +16,8 @@ module Nagare.Database.Backup
   ( -- * Pure object-key / extension helpers
     dbBackupObjectPath
   , dbBackupKeyPrefix
+  , manualBackupKeyPrefix
+  , manualBackupObjectPath
   , manualBackupJobName
   , manualDatabaseJobName
   , backupExt
@@ -26,6 +28,7 @@ module Nagare.Database.Backup
 
     -- * Job / CronJob rendering (pure)
   , BackupDest (..)
+  , BackupReceipt (..)
   , BackupJobInputs (..)
   , renderBackupJob
   , backupJobSpecValue
@@ -97,6 +100,18 @@ dbBackupObjectPath name timestamp ext =
 dbBackupKeyPrefix :: Text -> Text
 dbBackupKeyPrefix name = "databases/" <> name <> "/"
 
+-- | Reviewed manual backups must stay outside the legacy scheduler's broad
+-- @databases/<name>/@ pruning prefix, including while an older accepted
+-- CronJob still runs. The namespace also separates same-named databases.
+manualBackupKeyPrefix :: Text -> Text -> Text
+manualBackupKeyPrefix namespaceName name =
+  "manual-databases/" <> namespaceName <> "/" <> name <> "/"
+
+-- | Exact reviewed manual object key, retained in its independent scope.
+manualBackupObjectPath :: Text -> Text -> Text -> Text -> Text
+manualBackupObjectPath name namespaceName backupId ext =
+  manualBackupKeyPrefix namespaceName name <> backupId <> "." <> ext
+
 -- | Keep the timestamp in a one-off Job's native name even when the database
 -- name is long. A digest of the full database name distinguishes equal prefixes.
 manualBackupJobName :: Text -> Text -> Text
@@ -145,6 +160,15 @@ data BackupDest
     BackupDestStamped
   deriving stock (Generic, Eq, Show)
 
+-- | The immutable receipt that a reviewed fixed-key Job writes only after it
+-- has read back and checked the exact compressed backup object. The static
+-- metadata is a JSON object; the Job adds the observed SHA-256 to it.
+data BackupReceipt = BackupReceipt
+  { destination :: !Text
+  , metadataJson :: !Text
+  }
+  deriving stock (Generic, Eq, Show)
+
 data BackupJobInputs = BackupJobInputs
   { namespace :: !Text
   , jobName :: !Text
@@ -163,6 +187,8 @@ data BackupJobInputs = BackupJobInputs
   -- ^ when True (the CronJob), the upload container prunes inline after upload
   , verifyStored :: !Bool
   -- ^ when True, a successful Job read back the exact compressed object bytes.
+  , receipt :: !(Maybe BackupReceipt)
+  -- ^ an optional create-only per-object receipt for reviewed manual backups.
   , backend :: !StoreBackend
   -- ^ the object-store backend (EP-84): GCS in cloud mode, MinIO in local mode.
   -- Drives the upload container's image, env, destination URL, and shell verbs.
@@ -238,6 +264,10 @@ uploadContainer i =
               ++ [ plainEnv "PREFIX" (i ^. #prefix)
                  , plainEnv "KEEP" (T.pack (show (i ^. #keep)))
                  ]
+              ++ maybe [] (\r ->
+                   [ plainEnv "BACKUP_RECEIPT_DEST" (r ^. #destination)
+                   , plainEnv "BACKUP_RECEIPT_METADATA" (r ^. #metadataJson)
+                   ]) (i ^. #receipt)
               ++ storeEnv (i ^. #backend)
           )
     , "volumeMounts" .= toJSON [dumpMount]
@@ -340,7 +370,22 @@ uploadShell i =
       <> uploadVerified <> "; "
       <> "ACTUAL=$(" <> storeCpToStdout backend "\"$DEST\""
       <> " | sha256sum | cut -d' ' -f1); test ${#ACTUAL} -eq 64; "
-      <> "test \"$EXPECTED\" = \"$ACTUAL\"; rm -f /dump/backup.gz"
+      <> "test \"$EXPECTED\" = \"$ACTUAL\""
+      <> receiptUpload
+      <> "; rm -f /dump/backup.gz"
+    receiptUpload = case i ^. #receipt of
+      Nothing -> ""
+      Just _ ->
+        "; printf '{\"version\":1,\"sha256\":\"%s\",\"backup\":%s}\\n'"
+          <> " \"$EXPECTED\" \"$BACKUP_RECEIPT_METADATA\" > /dump/backup.receipt.json"
+          <> "; RECEIPT_EXPECTED=$(sha256sum /dump/backup.receipt.json | cut -d' ' -f1)"
+          <> "; test ${#RECEIPT_EXPECTED} -eq 64"
+          <> "; " <> storeCpCreateOnlyFromFile backend "/dump/backup.receipt.json" "\"$BACKUP_RECEIPT_DEST\""
+          <> "; RECEIPT_ACTUAL=$(" <> storeCpToStdout backend "\"$BACKUP_RECEIPT_DEST\""
+          <> " | sha256sum | cut -d' ' -f1)"
+          <> "; test ${#RECEIPT_ACTUAL} -eq 64"
+          <> "; test \"$RECEIPT_EXPECTED\" = \"$RECEIPT_ACTUAL\""
+          <> "; rm -f /dump/backup.receipt.json"
     -- keep the last $KEEP objects under $PREFIX (newest sort last with reverse sort)
     prune =
       "echo pruning; "
@@ -413,6 +458,7 @@ renderDbBackupCronJobWithOptions shouldPrune shouldVerify ns name eng version ba
             , keep = keep
             , selfPrune = shouldPrune
             , verifyStored = shouldVerify
+            , receipt = Nothing
             , backend = backend
             }
       }
@@ -456,6 +502,7 @@ runDbBackup ns databaseName backend keep dryRun = do
                 , keep = keep
                 , selfPrune = False
                 , verifyStored = False
+                , receipt = Nothing
                 , backend = backend
                 }
             cronInputs =

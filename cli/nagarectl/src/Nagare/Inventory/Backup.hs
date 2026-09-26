@@ -1,12 +1,14 @@
 -- | Compile one reviewed manual database backup as an independent Job scope.
 -- The accepted database revision and observed source UIDs are part of its
 -- immutable intent. Job completion alone is not a durable object receipt;
--- the upload script checks the exact stored bytes before completion.
+-- the upload script checks exact stored bytes and creates a checksum receipt
+-- before completion.
 module Nagare.Inventory.Backup
   ( ManualBackupRequest (..)
   , BackupSourceProof (..)
   , manualBackupSourceProof
   , manualBackupJobSourcePins
+  , parseManualBackupReceipt
   , compileManualBackupScope
   ) where
 
@@ -19,13 +21,14 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime)
 import Data.Time.Format (defaultTimeLocale, formatTime)
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend, storeObjectUrl, storePrefixUrl)
 import Nagare.Database.Backup
-  ( BackupDest (..), BackupJobInputs (..), backupExt, dbBackupKeyPrefix
-  , dbBackupObjectPath, manualBackupJobName, renderBackupJob )
+  ( BackupDest (..), BackupJobInputs (..), BackupReceipt (..), backupExt
+  , manualBackupJobName, manualBackupKeyPrefix, manualBackupObjectPath, renderBackupJob )
 import Nagare.Dsl.Database (dbSecretName, engineImage, parseEngine)
 import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude hiding ((.=))
@@ -108,6 +111,37 @@ manualBackupJobSourcePins bytes = do
           pure (Just [(statefulId, statefulUid), (pvcId, pvcUid)])
     _ -> Right Nothing
 
+-- | Validate one receipt fetched from the exact address in an accepted manual
+-- backup scope. The returned checksum is useful only after the caller hashes
+-- the corresponding backup object and compares its bytes; this function does
+-- not claim that a receipt proves the backup object still exists.
+parseManualBackupReceipt :: ScopeDeclaration -> T.Text -> ByteString -> Either T.Text T.Text
+parseManualBackupReceipt scope address bytes = do
+  objectAddress <- required "backup.object"
+  receiptAddress <- required "backup.receipt"
+  unless (receiptAddress == objectAddress <> ".receipt.json")
+    (Left "manual backup receipt address does not match its backup object")
+  unless (address == receiptAddress)
+    (Left "observed backup receipt is at another object address")
+  expectedDigest <- required "backup.receipt.metadata.digest" >>= mkContentDigest
+  value <- first T.pack (eitherDecodeStrict bytes)
+  case value of
+    Object root | KM.size root == 3
+      , KM.lookup "version" root == Just (Number 1)
+      , Just (String checksum) <- KM.lookup "sha256" root
+      , Just metadata <- KM.lookup "backup" root -> do
+          unless (T.length checksum == 64 && T.all lowerHex checksum)
+            (Left "manual backup receipt has an invalid SHA-256")
+          metadataBytes <- canonicalValue metadata
+          unless (contentDigest metadataBytes == expectedDigest)
+            (Left "manual backup receipt metadata differs from the accepted review")
+          pure checksum
+    _ -> Left "manual backup receipt has an invalid version or shape"
+  where
+    required key = maybe (Left ("manual backup scope lacks " <> key)) Right
+      (Map.lookup key (scopeOverrides scope))
+    lowerHex c = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')
+
 compileManualBackupScope
   :: ManualBackupRequest
   -> ScopeDeclaration
@@ -162,9 +196,28 @@ compileManualBackupScope request accepted native = do
       proofId = mintResourceId owner key proofRole
       jobName = manualBackupJobName database (backupId request)
       objectUrl = storeObjectUrl (storageBackend request)
-        (dbBackupObjectPath database (backupId request) (backupExt engine))
+        (manualBackupObjectPath database ns (backupId request) (backupExt engine))
+      receiptUrl = objectUrl <> ".receipt.json"
       expiry = maybe "retain" (T.pack . formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ")
         (expiresAt request)
+      receiptMetadataValue = object
+        [ "id" .= backupId request
+        , "database" .= database
+        , "namespace" .= ns
+        , "engine" .= engineName
+        , "object" .= objectUrl
+        , "expiry" .= expiry
+        , "sourceScope" .= scopeIdText (scopeId accepted)
+        , "sourceGeneration" .= generationNumber (revisionGeneration (sourceRevision request))
+        , "sourceRevision" .= digestText (revisionDigest (sourceRevision request))
+        , "sourceStatefulSet" .= resourceIdText (stateful ^. #identity)
+        , "sourceStatefulSetUid" .= physicalIdentityText (sourceStatefulUid request)
+        , "sourcePvc" .= resourceIdText (pvc ^. #identity)
+        , "sourcePvcUid" .= physicalIdentityText (sourcePvcUid request)
+        , "verification" .= ("sha256-readback" :: T.Text)
+        ]
+  receiptMetadataBytes <- first invalid (canonicalValue receiptMetadataValue)
+  let receiptMetadata = TE.decodeUtf8 receiptMetadataBytes
       inputs = BackupJobInputs
         { namespace = ns
         , jobName = jobName
@@ -174,15 +227,16 @@ compileManualBackupScope request accepted native = do
         , secretName = dbSecretName database
         , name = database
         , destination = BackupDestUrl objectUrl
-        , prefix = storePrefixUrl (storageBackend request) (dbBackupKeyPrefix database)
+        , prefix = storePrefixUrl (storageBackend request) (manualBackupKeyPrefix ns database)
         , keep = 0
         , selfPrune = False
         , verifyStored = True
+        , receipt = Just (BackupReceipt receiptUrl receiptMetadata)
         , backend = storageBackend request
         }
   rendered <- first (invalid . T.pack . show)
     (Yaml.decodeEither' (renderBackupJob inputs) :: Either Yaml.ParseException Value)
-  job <- first invalid (annotateJob request accepted pvc stateful objectUrl expiry rendered)
+  job <- first invalid (annotateJob request accepted pvc stateful objectUrl receiptUrl expiry rendered)
   canonical <- first invalid (canonicalValue job)
   (bound, bytes) <- first (:| []) (bindKubernetesObject KubernetesInput
     { resourceId = jobId
@@ -205,6 +259,8 @@ compileManualBackupScope request accepted native = do
       overrides = Map.fromList
         [ ("backup.id", backupId request)
         , ("backup.object", objectUrl)
+        , ("backup.receipt", receiptUrl)
+        , ("backup.receipt.metadata.digest", digestText (contentDigest receiptMetadataBytes))
         , ("backup.source.scope", scopeIdText (scopeId accepted))
         , ("backup.source.generation", T.pack (show (generationNumber
             (revisionGeneration (sourceRevision request)))))
@@ -258,12 +314,13 @@ metadataText invalid section key value = case value of
 
 annotateJob
   :: ManualBackupRequest -> ScopeDeclaration -> ManagedResource -> ManagedResource
-  -> T.Text -> T.Text -> Value -> Either T.Text Value
-annotateJob request accepted pvc stateful objectUrl expiry = \case
+  -> T.Text -> T.Text -> T.Text -> Value -> Either T.Text Value
+annotateJob request accepted pvc stateful objectUrl receiptUrl expiry = \case
   Object root | Just (Object metadata) <- KM.lookup "metadata" root ->
     let annotations = object
           [ "nagare.dev/backup-id" .= backupId request
           , "nagare.dev/backup-object" .= objectUrl
+          , "nagare.dev/backup-receipt" .= receiptUrl
           , "nagare.dev/backup-source-scope" .= scopeIdText (scopeId accepted)
           , "nagare.dev/backup-source-generation" .= T.pack (show (generationNumber
               (revisionGeneration (sourceRevision request))))

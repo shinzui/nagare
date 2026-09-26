@@ -50,7 +50,7 @@ Most of Nagare is reproduced from Git; only a few things need real backup jobs.
 | Host Postgres | Restore from disk if data disk survives; use managed DBs for Nagare-owned backup tooling | 🟡 |
 | Whole data disk | Daily GCE snapshot at 08:00 UTC, retained seven days and kept if the source disk is deleted | 🟡 (declared; live apply/verification pending) |
 | App volumes (PVCs) | Legacy `nagarectl storage snapshot` → GCS or MinIO (`volumes/<app>/<volume>/`); direct data operations refuse after inventory admission | 🟡 (reviewed snapshot and restore pending) |
-| Managed databases | Daily CronJob → GCS or MinIO (`databases/<name>/`); newly reviewed schedules verify stored bytes and do not prune; accepted databases can save and apply a reviewed manual backup Job | 🟡 (durable per-object receipt, pruning, and restore pending) |
+| Managed databases | Daily CronJob → GCS or MinIO (`databases/<name>/`); newly reviewed schedules verify stored bytes and do not prune; accepted databases can save and apply a reviewed manual backup Job that writes a checksum receipt | 🟡 (live receipt proof, pruning, and restore pending) |
 | Attic signing identity and metadata | Managed PostgreSQL `nix-cache` / daily `nagare-dbbackup-nix-cache` CronJob | 🟡 (provider implemented; live restore acceptance pending) |
 | Attic cache chunks | Reproducible producer inputs; optionally export the dedicated GCS bucket before retirement | Rebuildable |
 | Grafana dashboards | **Git** (dashboard JSON under `cluster/observability`) | ✅ |
@@ -110,15 +110,25 @@ durable per-object receipt. Existing accepted schedules keep their earlier
 scripts until a review updates them. For an accepted database, save a manual
 backup review with `nagarectl db backup NAME --backup-id ID --save-plan DIR`,
 then run `nagarectl inventory apply DIR --yes`. The ID fixes the Job and object
-key. An optional `--expires-at YYYY-MM-DDTHH:MM:SSZ` records expiry without
+key under `manual-databases/<namespace>/<name>/<id>.<ext>`, outside the
+legacy schedule's broad pruning prefix and separate from other namespaces. An optional
+`--expires-at YYYY-MM-DDTHH:MM:SSZ` records expiry without
 deleting the object; the default is `retain`. The review pins the source
 StatefulSet and PVC UIDs and apply checks them again before submission. The
 Job reads the stored object back and compares SHA-256 before completion, but
-its upload refuses to replace an existing object at that ID. There is no
-durable per-object checksum receipt yet. Take a direct backup with
+its upload refuses to replace an existing object at that ID. After verifying
+the backup, it creates and reads back a separate
+`<backup-object>.receipt.json` containing the checked checksum, source
+StatefulSet/PVC identities, accepted source revision, and expiry choice. If the
+backup upload succeeds but receipt creation fails, the Job fails and that ID
+requires explicit recovery before it can be trusted for restore or pruning.
+Live object-store verification and reviewed receipt consumption are still
+pending. Take a direct backup with
 `nagarectl db backup NAME` only before inventory admission; list cloud backups
 with `gsutil ls gs://<backup-bucket>/databases/<name>/`, or inspect local MinIO
-through the cluster when running local mode.
+through the cluster when running local mode. List reviewed manual backups
+under `gs://<backup-bucket>/manual-databases/<namespace>/<name>/` in cloud
+mode.
 
 Before inventory admission, restore is **scratch-first**: `nagarectl db restore NAME BACKUP_ID` loads the
 chosen dump into a disposable target (`<db>_restore_scratch` for

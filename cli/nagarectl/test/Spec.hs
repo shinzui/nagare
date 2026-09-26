@@ -104,12 +104,15 @@ import Nagare.Database.Backup
   ( BackupCronInputs (..)
   , BackupDest (..)
   , BackupJobInputs (..)
+  , BackupReceipt (..)
   , backupExt
   , backupRawExt
   , dbBackupKeyPrefix
   , dbBackupObjectPath
   , defaultBackupSchedule
   , manualBackupJobName
+  , manualBackupKeyPrefix
+  , manualBackupObjectPath
   , manualDatabaseJobName
   , renderBackupCronJob
   , renderBackupJob
@@ -4772,6 +4775,7 @@ backupJobInputsPg =
     , keep = 7
     , selfPrune = False
     , verifyStored = False
+    , receipt = Nothing
     , backend = tnbGcsBackend
     }
 
@@ -4971,6 +4975,16 @@ backupRestoreTests =
           dbBackupObjectPath "mydb" "20260610T141503Z" "sql.gz" @?= "databases/mydb/20260610T141503Z.sql.gz"
       , testCase "dbBackupKeyPrefix builds databases/<name>/" $
           dbBackupKeyPrefix "mydb" @?= "databases/mydb/"
+      , testCase "manual backup keys separate namespaces and schedules" $ do
+          manualBackupKeyPrefix "personal" "mydb"
+            @?= "manual-databases/personal/mydb/"
+          manualBackupObjectPath "mydb" "personal" "run-001" "sql.gz"
+            @?= "manual-databases/personal/mydb/run-001.sql.gz"
+          manualBackupObjectPath "mydb" "other" "run-001" "sql.gz"
+            @?= "manual-databases/other/mydb/run-001.sql.gz"
+          assertBool "legacy schedule pruning can list a manual backup"
+            (not (dbBackupKeyPrefix "mydb" `T.isPrefixOf`
+              manualBackupObjectPath "mydb" "personal" "run-001" "sql.gz"))
       , testCase "manual backup Job keeps database and timestamp identities" $ do
           manualBackupJobName "mydb" "20260610T141503Z"
             @?= "nagare-dbbackup-mydb-20260610t141503z"
@@ -5100,15 +5114,16 @@ backupRestoreTests =
                 fakeAws = directory </> "aws"
                 fakeDnf = directory </> "dnf"
                 cloudScript = T.unpack (T.replace "/dump" (T.pack dump)
-                  (uploadShell (backupJobInputsPg & #verifyStored .~ True)))
+                  (uploadShell (backupJobInputsPg & #verifyStored .~ True
+                    & #destination .~ BackupDestUrl "gs://test/manual-databases/personal/mydb/run-001.sql.gz")))
                 localScript = T.unpack (T.replace "/dump" (T.pack dump)
                   (uploadShell (backupJobInputsPg & #verifyStored .~ True
-                    & #destination .~ BackupDestUrl "s3://test/databases/mydb/run-001.sql.gz"
+                    & #destination .~ BackupDestUrl "s3://test/manual-databases/personal/mydb/run-001.sql.gz"
                     & #backend .~ localMinioBackend)))
                 localMultipartScript = T.unpack (T.replace "4294967296" "1"
                   (T.replace "/dump" (T.pack dump)
                     (uploadShell (backupJobInputsPg & #verifyStored .~ True
-                      & #destination .~ BackupDestUrl "s3://test/databases/mydb/run-002.sql.gz"
+                      & #destination .~ BackupDestUrl "s3://test/manual-databases/personal/mydb/run-002.sql.gz"
                       & #backend .~ localMinioBackend))))
             createDirectoryIfMissing True dump
             writeFile fakeGcloud $ unlines
@@ -5171,8 +5186,8 @@ backupRestoreTests =
                       ("NAGARE_TEST_OBJECT", stored)]
                       <> filter (\(key, _) -> key `notElem`
                         ["PATH", "DEST", "NAGARE_TEST_OBJECT"]) parentEnv)}) ""
-            forM_ [("GCS", cloudScript, "gs://test/databases/mydb/run-001.sql.gz"),
-                   ("MinIO", localScript, "s3://test/databases/mydb/run-001.sql.gz")]
+            forM_ [("GCS", cloudScript, "gs://test/manual-databases/personal/mydb/run-001.sql.gz"),
+                   ("MinIO", localScript, "s3://test/manual-databases/personal/mydb/run-001.sql.gz")]
               $ \(label, script, destination) -> do
                 let stored = directory </> label <> ".gz"
                 BS.writeFile (dump </> "backup.sql") "first backup payload\n"
@@ -5187,7 +5202,7 @@ backupRestoreTests =
                   ExitSuccess -> assertFailure (label <> " overwrote an existing backup object")
                 BS.readFile stored >>= (@?= firstBytes)
             let multipartStored = directory </> "MinIO-multipart.gz"
-                multipartDestination = "s3://test/databases/mydb/run-002.sql.gz"
+                multipartDestination = "s3://test/manual-databases/personal/mydb/run-002.sql.gz"
             BS.writeFile (dump </> "backup.sql") "multipart first payload\n"
             (multipartCreated, _, multipartError) <- run localMultipartScript multipartDestination multipartStored
             assertBool ("MinIO conditional multipart upload failed: " <> multipartError)
@@ -5201,6 +5216,78 @@ backupRestoreTests =
             BS.readFile multipartStored >>= (@?= multipartFirstBytes)
             abandonedPart <- doesFileExist (multipartStored <> ".part")
             assertBool "failed multipart upload left an uncommitted part" (not abandonedPart)
+      , testCase "reviewed backup writes a verified create-only receipt" $
+          withSystemTempDirectory "nagare-backup-receipt" $ \directory -> do
+            let dump = directory </> "dump"
+                dataObject = directory </> "backup.gz"
+                receiptObject = directory </> "backup.gz.receipt.json"
+                dataUrl = "gs://test/backup.gz"
+                receiptUrl = dataUrl <> ".receipt.json"
+                metadata = "{\"id\":\"run-001\",\"object\":\"gs://test/backup.gz\"}"
+                script = T.unpack (T.replace "/dump" (T.pack dump)
+                  (uploadShell (backupJobInputsPg & #verifyStored .~ True
+                    & #receipt .~ Just (BackupReceipt (T.pack receiptUrl) (T.pack metadata)))))
+                fakeGcloud = directory </> "gcloud"
+                fakeGsutil = directory </> "gsutil"
+            createDirectoryIfMissing True dump
+            writeFile fakeGcloud $ unlines
+              [ "#!/bin/sh", "set -eu"
+              , "[ \"$1\" = storage ] && [ \"$2\" = cp ] && [ \"$5\" = --if-generation-match=0 ] || exit 2"
+              , "case \"$4\" in"
+              , "  \"$DEST\") TARGET=$NAGARE_TEST_DATA;;"
+              , "  \"$BACKUP_RECEIPT_DEST\") TARGET=$NAGARE_TEST_RECEIPT;;"
+              , "  *) exit 3;;"
+              , "esac"
+              , "[ ! -e \"$TARGET\" ] || exit 47"
+              , "cat \"$3\" > \"$TARGET\""
+              ]
+            writeFile fakeGsutil $ unlines
+              [ "#!/bin/sh", "set -eu"
+              , "[ \"$1\" = cp ] && [ \"$3\" = - ] || exit 2"
+              , "case \"$2\" in"
+              , "  \"$DEST\") cat \"$NAGARE_TEST_DATA\";;"
+              , "  \"$BACKUP_RECEIPT_DEST\") cat \"$NAGARE_TEST_RECEIPT\";;"
+              , "  *) exit 3;;"
+              , "esac"
+              ]
+            mapM_ (`setFileMode` 0o755) [fakeGcloud, fakeGsutil]
+            parentEnv <- getEnvironment
+            let path = maybe "" id (lookup "PATH" parentEnv)
+                receiptEnv =
+                  [("PATH", directory <> ":" <> path), ("DEST", dataUrl),
+                   ("BACKUP_RECEIPT_DEST", receiptUrl),
+                   ("BACKUP_RECEIPT_METADATA", metadata),
+                   ("NAGARE_TEST_DATA", dataObject),
+                   ("NAGARE_TEST_RECEIPT", receiptObject)]
+                run = readCreateProcessWithExitCode
+                  ((proc "/bin/sh" ["-c", script]) {env = Just
+                    (receiptEnv <> filter (\(key, _) -> key `notElem` map fst receiptEnv) parentEnv)}) ""
+            BS.writeFile (dump </> "backup.sql") "verified receipt source\n"
+            (created, _, createError) <- run
+            assertBool ("backup receipt upload failed: " <> createError) (created == ExitSuccess)
+            dataBytes <- BS.readFile dataObject
+            receiptBytes <- BS.readFile receiptObject
+            (hashExit, hashOutput, _) <- readCreateProcessWithExitCode
+              (proc "sha256sum" [dataObject]) ""
+            hashExit @?= ExitSuccess
+            case eitherDecodeStrict receiptBytes of
+              Right (Aeson.Object root) -> do
+                KeyMap.lookup "version" root @?= Just (Aeson.Number 1)
+                KeyMap.lookup "sha256" root @?=
+                  Just (Aeson.String (T.pack (takeWhile (/= ' ') hashOutput)))
+                case KeyMap.lookup "backup" root of
+                  Just (Aeson.Object backup) -> do
+                    KeyMap.lookup "id" backup @?= Just (Aeson.String "run-001")
+                    KeyMap.lookup "object" backup @?= Just (Aeson.String (T.pack dataUrl))
+                  other -> assertFailure ("receipt backup metadata missing: " <> show other)
+              other -> assertFailure ("backup receipt JSON invalid: " <> show other)
+            BS.writeFile (dump </> "backup.sql") "different receipt source\n"
+            (duplicate, _, _) <- run
+            case duplicate of
+              ExitFailure _ -> pure ()
+              ExitSuccess -> assertFailure "duplicate backup replaced an object"
+            BS.readFile dataObject >>= (@?= dataBytes)
+            BS.readFile receiptObject >>= (@?= receiptBytes)
       , testCase "backup Jobs wait for the server and retry" $ do
           let y = TE.decodeUtf8 (renderBackupJob backupJobInputsPg)
           assertBool "waits for the server before the dump" ("until pg_isready -q -h mydb" `T.isInfixOf` y)

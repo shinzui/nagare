@@ -8,6 +8,7 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
 import Data.ByteString.Lazy qualified as BL
 import Data.Either (isLeft)
+import Data.Foldable (toList)
 import Data.Generics.Labels ()
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
@@ -33,7 +34,7 @@ import Nagare.Inventory.Adapters.Kubernetes
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), cacheClientDataMatches, certificateReady, collectionDeleteRequest, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, credentialDataMatches, deploymentAvailable, deploymentSelectorReplacement, desiredFieldsMatch, generatedCredentialTemplate, jobCompleted, knativeReady, materializeCacheKey, materializeCredential, mkKubernetesRuntimeOps, observeCacheClientOutput, parseObserved, readinessForAddress, statefulSetImmutableReplacement, statefulSetReady, supportedUpdateAddress, withoutCacheClientData)
 import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
 import Nagare.Inventory.Database (compileDatabaseForBackend)
-import Nagare.Inventory.Backup (ManualBackupRequest (..), BackupSourceProof (..), compileManualBackupScope, manualBackupJobSourcePins, manualBackupSourceProof)
+import Nagare.Inventory.Backup (ManualBackupRequest (..), BackupSourceProof (..), compileManualBackupScope, manualBackupJobSourcePins, manualBackupSourceProof, parseManualBackupReceipt)
 import Nagare.Inventory.DataService (NativeDataKind (..), compileBackupPruneRemovalScope, compileStandaloneDatabase, compileStatefulSetRestartScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Components.Foundation (compileContributedNamespaces)
@@ -450,10 +451,19 @@ inventoryKubernetesTests =
               [entry] -> entry
               _ -> error "manual backup scope must have one Job"
             pinned = compileManualBackupScope request databaseScope databaseNative
+            receiptAddress = "gs://bucket/manual-databases/default/pg-main/run-001.sql.gz.receipt.json"
+            receiptMetadataValues (Object fields) =
+              [value | KM.lookup "name" fields == Just (String "BACKUP_RECEIPT_METADATA"),
+                Just (String value) <- [KM.lookup "value" fields]]
+                <> concatMap receiptMetadataValues (KM.elems fields)
+            receiptMetadataValues (Array values) = concatMap receiptMetadataValues (toList values)
+            receiptMetadataValues _ = []
         pinned @?= Right (backupScope, backupNative)
         scopeId backupScope @?= ok (mkScopeId Standalone "database-backup-default-pg-main-run-001")
         Map.lookup "backup.object" (scopeOverrides backupScope)
-          @?= Just "gs://bucket/databases/pg-main/run-001.sql.gz"
+          @?= Just "gs://bucket/manual-databases/default/pg-main/run-001.sql.gz"
+        Map.lookup "backup.receipt" (scopeOverrides backupScope)
+          @?= Just receiptAddress
         Map.lookup "backup.source.pvc.uid" (scopeOverrides backupScope) @?= Just "pvc-uid"
         Map.lookup "backup.expiry" (scopeOverrides backupScope) @?= Just "2027-01-01T00:00:00Z"
         case [snapshotOperation | bundle <- scopeBundles backupScope,
@@ -470,6 +480,9 @@ inventoryKubernetesTests =
             sourcePvcPhysical proof @?= ok (mkPhysicalIdentity "pvc-uid")
           other -> assertFailure ("manual backup source proof missing: " <> show other)
         assertBool "backup Job does not verify stored bytes" (BC.isInfixOf "sha256sum" bytes)
+        assertBool "backup Job does not create a checksum receipt"
+          (BC.isInfixOf "BACKUP_RECEIPT_METADATA" bytes
+            && BC.isInfixOf "backup.receipt.json" bytes)
         assertBool "backup Job still prunes objects" (not (BC.isInfixOf "pruning" bytes))
         assertBool "backup Job lacks source UID annotation" (BC.isInfixOf "stateful-uid" bytes)
         manualBackupJobSourcePins bytes @?= Right (Just
@@ -483,6 +496,27 @@ inventoryKubernetesTests =
               assertBool "Kubernetes backup annotation contains a non-string value"
                 (all (\case String _ -> True; _ -> False) (KM.elems annotations))
           other -> assertFailure ("backup Job metadata missing: " <> show other)
+        case eitherDecodeStrict bytes of
+          Right jobValue -> case receiptMetadataValues jobValue of
+            [metadataJson] -> case eitherDecodeStrict (TE.encodeUtf8 metadataJson) of
+              Right metadataValue -> do
+                let checksum = T.replicate 64 "a"
+                    receiptBody selected = BL.toStrict (encode (object
+                      ["version" .= (1 :: Int), "sha256" .= checksum, "backup" .= selected]))
+                    changedMetadata = case metadataValue of
+                      Object fields -> Object (KM.insert "sourcePvcUid" (String "different-uid") fields)
+                      _ -> metadataValue
+                parseManualBackupReceipt backupScope receiptAddress (receiptBody metadataValue)
+                  @?= Right checksum
+                assertBool "receipt from another object address was accepted"
+                  (isLeft (parseManualBackupReceipt backupScope "gs://bucket/other.receipt.json"
+                    (receiptBody metadataValue)))
+                assertBool "receipt with another source PVC was accepted"
+                  (isLeft (parseManualBackupReceipt backupScope receiptAddress
+                    (receiptBody changedMetadata)))
+              other -> assertFailure ("backup receipt metadata is invalid JSON: " <> show other)
+            other -> assertFailure ("backup Job has no unique receipt metadata: " <> show other)
+          other -> assertFailure ("backup Job is invalid JSON: " <> show other)
         assertBool "backup Job has no PVC dependency" (length (dependencies job) == 3)
         assertBool "different PVC incarnation retained the same Job intent"
           (compileManualBackupScope (request {sourcePvcUid = ok (mkPhysicalIdentity "replacement-pvc")})

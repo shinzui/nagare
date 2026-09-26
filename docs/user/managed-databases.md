@@ -366,16 +366,25 @@ nagarectl inventory apply ./pg-main-manual-backup --yes
 Add `--expires-at 2027-01-01T00:00:00Z` to record a UTC expiry; without it,
 the review records `retain`. The backup ID is stable and at most 20 lowercase
 letters, digits, or hyphens. It fixes the Job name and exact object key, so a
-repeated review cannot silently create a second Job. The saved scope records
-the accepted database revision, StatefulSet and PVC UIDs, object URL, expiry,
-and SHA-256 readback policy. Apply checks the source UIDs and accepted native
-bytes again before submitting the Job. A successful Job checked the stored
-bytes, but the inventory does not yet retain the object's checksum as a durable
-receipt. The source checks occur before submission and are not atomic with the
-Job's data read. A manual Job now uploads with a provider-side create-only
-precondition, so an occupied backup ID fails instead of replacing stored data;
-choose a new ID for another backup. Expiry does not delete the object;
-reviewed exact pruning and restore are still pending.
+repeated review cannot silently create a second Job. The object lives at
+`manual-databases/<namespace>/<name>/<id>.<ext>` outside the legacy
+schedule's broad pruning prefix. It also separates same-named databases in
+different namespaces.
+An already accepted manual backup ID keeps its earlier saved Job and object
+address; use a new ID for the namespace-specific layout.
+The saved scope records the accepted database revision, StatefulSet and PVC
+UIDs, object and receipt URLs, expiry, and SHA-256 readback policy. Apply
+checks the source UIDs and accepted native bytes again before submitting the
+Job. After checking the stored backup, the Job creates and reads back
+`<backup-object>.receipt.json` with the checksum and pinned source metadata.
+The inventory journal records Job completion but does not yet fetch that
+receipt; live object-store proof remains open. The source checks occur before
+submission and are not atomic with the Job's data read. Both writes use
+provider-side create-only preconditions, so an occupied backup ID fails
+instead of replacing stored data. If backup creation succeeds but receipt
+creation fails, that ID needs explicit recovery; choose a new ID for another
+backup. Expiry does not delete the object; reviewed exact pruning and restore
+are still pending.
 
 In an uninitialized legacy context, the CronJob still self-prunes and you can
 take one on demand:
