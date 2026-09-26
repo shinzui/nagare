@@ -574,3 +574,21 @@ The remaining EP-148 feature work is assigned to EP-158 (access/CDN), EP-159 (sc
 EP-160 owns one durable data-fence protocol in the existing inventory store/journal. It binds the accepted target and physical incarnation, affected writers, recovery references, exclusion proof, and recovery/release phases. The CLI writer lock alone is not data-write exclusion. Restore and maintenance must establish and observe appropriate provider controls before changing data. EP-161 owns client/session lifetime and uses that same protocol; it does not add a second maintenance lock, session store, timeout unlock, or automatic replay. A surviving remote client or ambiguous data effect retains its recovery obligation after operator-process death. These are required design contracts, not claims that fencing is already implemented.
 
 EP-159 owns a compatible extension of the existing backup receipt contract for delegated scheduled runs and exact retention selection. Restore consumes verified receipts; an object listing alone grants neither restore nor deletion authority. All feature outcomes and native integration gates remain mandatory together under MasterPlan 23.
+
+
+## Amendment — 2026-09-26: command coverage is candidate-bound release evidence
+
+An executable finite registry classifies the typed CLI constructors, packaged
+recipes, and production calls into the inventory command service. Each
+effectful command and recipe maps to the detailed managed-resource coverage
+catalogue, which names its owner, compiler, executor, proof, and older-route
+disposition. Adding an unregistered constructor or recipe fails the audit. This
+registry records migration progress; it does not grant an effect or replace the
+reviewed inventory, retained native plan, and journal receipt.
+
+The release coverage result is complete only when no promised route, recipe, or
+catalogue row remains pending and the audited tree is clean. The release
+evidence assembler requires the result's source revision to equal the release
+manifest revision. A standalone `complete: true` flag or a passing guard test
+cannot establish command coverage. Further operation families must extend the
+registry and behavioral proof before a release may claim completion.

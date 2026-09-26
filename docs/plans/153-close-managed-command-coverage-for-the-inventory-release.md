@@ -61,7 +61,7 @@ The release evidence assembler formerly accepted a bare `{schemaVersion: 1, comp
 
 2026-09-26: Carry forward completed EP-150 implementation and give this remaining outcome its own acceptance boundary. The split changes ownership and tracking, not the required functionality or proof.
 
-2026-09-26: Bind the generated coverage result to the release source revision and require concrete registration counts and zero unresolved rows. A manually written complete flag cannot serve as command-coverage proof.
+2026-09-26: Bind the generated coverage result to the release source revision and require concrete registration counts and zero unresolved rows. A manually written complete flag cannot serve as command-coverage proof. [ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md) now records this durable release-evidence boundary.
 
 2026-09-26: Reforecast M2 after the finite audit exposed separate VM power, builder lifecycle, host credential, profile migration, and cleanup protocols. These require reviewed operation identities and recovery behavior; a transport child marker alone does not make their public recipes inventory-backed. Keep them in this plan's platform cutover boundary and do not count refusal tests as working replacements.
 
