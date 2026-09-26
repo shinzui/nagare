@@ -217,7 +217,7 @@ $ nagarectl task list -n personal
 
 `nagarectl task run APP TASK` fires the task once, right now: it creates a Job from
 the deployed CronJob, waits for it to finish, and reports. `--dry-run` prints the
-exact command and contacts no cluster:
+exact command without creating a Job:
 
 For a CronJob already accepted in the resource inventory, run it with a stable ID.
 The command saves an immutable review in the context's inventory store, displays
@@ -244,10 +244,13 @@ unaccepted or differently labeled task. Pass `-` as `APP` only when the accepted
 CronJob has no app label. The review binds creation and waits for
 Job completion; an uncertain effect needs inventory recovery before retry.
 `--dry-run` cannot be combined with `--run-id` or `--save-plan`; use
-`--save-plan` to inspect a reviewed run. Pre-deploy migration hooks are not
-supported yet.
+`--save-plan` to inspect a reviewed run. Pre-deploy migration hooks use
+independent per-tag reviewed Jobs as described in [Deploying apps](deploying-apps.md).
 
-The direct route below remains for tasks outside accepted inventory:
+The direct route below remains for tasks outside accepted inventory in contexts
+whose inventory history is not initialized. In an initialized context, a live
+run requires `--run-id` and an accepted CronJob; the timestamped direct run
+refuses even if that task name is new. Image-free `--dry-run` remains available.
 
 ```text
 $ nagarectl task run notes cleanup --dry-run
@@ -267,7 +270,8 @@ Task cleanup completed (nagare-task-cleanup-manual-20260610174500).
 ```
 
 `nagarectl task delete APP TASK` (without `--yes`) prints the deletion plan and
-deletes nothing; with `--yes` it removes the CronJob idempotently:
+deletes nothing. On a context without initialized inventory history, `--yes`
+removes the CronJob idempotently:
 
 ```text
 $ nagarectl task delete notes cleanup
@@ -278,6 +282,10 @@ Would delete (run again with --yes):
 $ nagarectl task delete notes cleanup --yes
 Deleted task cleanup
 ```
+
+In an initialized inventory context, direct `task delete --yes` refuses until
+reviewed schedule retirement is available. The plan-only form and `--dry-run`
+remain read-only.
 
 
 ## Running in an app's world

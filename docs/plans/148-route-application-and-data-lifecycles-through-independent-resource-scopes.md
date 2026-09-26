@@ -128,6 +128,8 @@ Implementation evidence is recorded in the commits linked to this plan and in Su
 Reviewed application deploy also declares the per-Service release-history ConfigMap, carries forward accepted entries, and offers exact adoption of existing direct-deploy history. Supported static and server production site scopes now declare their Service, domains, release history, server PVCs, accepted runtime Secret dependencies, and supplied TLS Secret dependencies, with exact import of existing direct objects. Site rollback now selects a release from accepted private history and reviews the prior image publication without adding a history entry. Static and server preview deployment has a separate reviewed scope with four accepted overlay stores, exact adoption of existing direct static previews, and reviewed retirement followed by collection. Server previews bind distinct PVCs with explicit recovery for retained volumes. Delete-policy preview PVCs can be conditionally collected after their Service, while durable PVCs remain retained. Manual runs of accepted CronJobs now compile stable Jobs in independent scopes from exact saved native evidence; Job collection uses conditional deletion and background pod cleanup. Reviewed application hooks have per-tag Jobs with explicit affected-resource proofs. Server Build/Preview Secret references and other operational commands remain open.
 
 Stable-ID `task run` now publishes, reloads, and applies its reviewed Job in one invocation; `--save-plan` remains available for separate inspection and apply. The direct timestamped route remains for tasks outside accepted inventory.
+In initialized inventory contexts, live `task run` now requires that stable-ID reviewed route, even for a newly named CronJob. Direct `task delete --yes` refuses there until schedule retirement has an exact reviewed operation. The read-only run/delete previews remain available; uninitialized contexts retain the legacy commands.
+An isolated CLI regression exercised seven live application and Task refusals against an initialized context and verified that its inventory head remained byte-for-byte unchanged.
 Versioned `secret set`, `secret delete`, and exact `secret sync` now use the same one-invocation review service when no saved review directory is supplied; private native Secret bytes remain in the immutable evidence store. Unversioned direct writes remain guarded legacy routes.
 `env set`, `env delete`, and merged or exact `env sync` can opt into the same one-invocation reviewed path with `--reviewed`; the existing `--save-plan` route shares its compiler. Unreviewed direct env writes remain guarded legacy routes.
 Reviewed aggregate pre-deploy hooks now bind independent per-tag scopes with stable Jobs and typed completion operations. The caller must list every affected resource or assert no data effects; hook Jobs wait for their CronJobs, affected resources, and preceding hooks, and workloads wait for completion. Old hook scopes remain accepted across tags, while a changed hook under the same tag refuses. CDN and remaining command paths stay in M2 through M4.
@@ -335,6 +337,8 @@ Critical path from completed M1 to final acceptance, in execution order:
 
 ## Decision Log
 
+2026-09-26: Use inventory initialization as the boundary for direct Task Job submission and schedule deletion. A timestamped manual run has no stable retry identity, and direct CronJob deletion has no reviewed lifecycle decision. Require the accepted-CronJob `--run-id` route for live runs; refuse live deletion until schedule retirement is implemented. Plan-only and dry-run output remain available.
+
 2026-09-26: Treat inventory store initialization as the direct application, Service, worker, and site deploy boundary. The earlier native-address guards allowed a new name to perform unreviewed namespace, credential, route, and workload writes in a context already using inventory. The reviewed OCI archive and accepted-image deployment route is available there; keep live legacy deployment only for contexts without initialized history until build input publication and the other command cutovers close. Read-only offline dry-runs remain available.
 
 2026-09-25: The operator selected offline-only Cloudflare proof because no disposable Cloudflare zone is available. M2 will use a fake HTTP provider and complete reviewed journal transaction for Cloudflare acceptance; live Cloudflare mutation is deferred and will not hold this milestone open. This does not relax the requirement for typed host/zone ownership, stale-state refusal, uncertain-write recovery, and honest documentation of the external-race limit.
@@ -482,6 +486,8 @@ DependencyExports contains typed capability witnesses and selected revision/phys
 
 
 ## Revision Notes
+
+2026-09-26: Closed direct live Task run/delete after inventory initialization. Reviewed stable-ID manual runs remain available; reviewed schedule retirement is still M3 work.
 
 2026-09-26: Refused direct aggregate app deployment after inventory initialization, then applied the same live deploy boundary to standalone Service, worker, production site, and static preview routes. Documented the reviewed archive publication route and recorded EP-151 completion. M4 remains open for the other direct paths and build input integration.
 

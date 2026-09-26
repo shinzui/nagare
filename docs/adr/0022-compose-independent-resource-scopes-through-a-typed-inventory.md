@@ -508,3 +508,9 @@ The `nagared` webhook executable still invokes direct static deploy functions
 without selecting an inventory context. It must gain reviewed context-bound
 submission or refuse managed-context targets before inventory coverage can be
 claimed for webhook deployment. The CLI guard alone does not protect that path.
+
+The same initialized-store boundary applies to live Task commands. Manual
+execution requires an accepted CronJob and a stable `--run-id`, which gives its
+Job a reviewed identity and retry receipt. Direct schedule deletion has no
+reviewed retirement operation yet, so it refuses. Plan-only and dry-run Task
+output remain available; an uninitialized context retains the legacy commands.

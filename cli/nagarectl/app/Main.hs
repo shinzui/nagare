@@ -9509,7 +9509,10 @@ runTask mctx = \case
       Just output -> runReviewedTaskRunPlan mctx o (Just output)
       Nothing | isJust (o ^. #runId) -> runReviewedTaskRunPlan mctx o Nothing
       Nothing -> do
-        refuseDirectTaskMutationIfOwned mctx "run" (T.pack (o ^. #task)) (nsOf (o ^. #namespace))
+        unless (o ^. #dryRun) $ do
+          withAcceptedInventoryHistory mctx "task run" $ \_ ->
+            dieT "inventory history is initialized; direct task run is refused. Use --run-id for a reviewed Job"
+          refuseDirectTaskMutationIfOwned mctx "run" (T.pack (o ^. #task)) (nsOf (o ^. #namespace))
         runTaskRun
           TaskRunParams
             { app = T.pack (o ^. #app)
@@ -9528,7 +9531,10 @@ runTask mctx = \case
         , tail = o ^. #tail
         }
   TaskDelete o -> do
-    refuseDirectTaskMutationIfOwned mctx "delete" (T.pack (o ^. #task)) (nsOf (o ^. #namespace))
+    when (o ^. #yes && not (o ^. #dryRun)) $ do
+      withAcceptedInventoryHistory mctx "task delete" $ \_ ->
+        dieT "inventory history is initialized; direct task delete is refused until reviewed schedule retirement is available"
+      refuseDirectTaskMutationIfOwned mctx "delete" (T.pack (o ^. #task)) (nsOf (o ^. #namespace))
     runTaskDelete
       TaskDeleteParams
         { name = T.pack (o ^. #task)
