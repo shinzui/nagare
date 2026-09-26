@@ -152,6 +152,11 @@ while IFS=$'\t' read -r member digest; do
 done < <(jq -r '.members[] | [.path, .digest] | @tsv' "$private_store_export/backup.json")
 [[ -n "$head_digest" ]] || die "private export has no head"
 [[ "$(jq -r 'length' <<<"$receipts")" -gt 0 ]] || die "private export has no completed component receipt"
+jq -e --argjson receipts "$receipts" '
+  ([.operations[].operation.id] | sort) == ([$receipts[].operation] | sort)
+    and ($receipts | all(.receiptDigest | type == "string" and test("^[0-9a-f]{64}$")))' \
+  "$rehearsal_dir/review/review.json" >/dev/null \
+  || die "completed component receipts do not match the reviewed operations"
 [[ "$converged" == true ]] || die "private export has no committed convergence event for the reviewed transaction"
 jq -e --slurpfile reviewed "$rehearsal_dir/review/review.json" \
   --slurpfile final "$rehearsal_dir/final-observation.json" \

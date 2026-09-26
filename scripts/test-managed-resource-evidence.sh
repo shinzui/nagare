@@ -19,8 +19,13 @@ archive() {
     --coverage-result "$test_root/coverage.json" --output "$test_root/public/evidence.json"
 }
 expect_refusal() {
+  local expected="$1"
   if archive >"$test_root/refusal.out" 2>"$test_root/refusal.err"; then
     printf 'expected evidence refusal\n' >&2
+    exit 1
+  fi
+  if ! grep -q "$expected" "$test_root/refusal.err"; then
+    printf 'unexpected evidence refusal: %s\n' "$(cat "$test_root/refusal.err")" >&2
     exit 1
   fi
 }
@@ -41,7 +46,8 @@ receipt_digest="$(printf 'b%.0s' {1..64})"
 jq -nS --arg candidate "$candidate_digest" \
   '{version: 1, context: {identity: "fixture", project: "project"},
     candidateDigest: $candidate, desiredRevisions: [{scope: {kind: "Platform", name: "fixture"},
-      revision: {generation: 1, digest: $candidate}}], operations: [{summary: "created fixture"}]}' \
+      revision: {generation: 1, digest: $candidate}}],
+    operations: [{operation: {id: "op-fixture"}, summary: "created fixture"}]}' \
   > "$test_root/rehearsal/review/review.json"
 review_digest="$(sha256_file "$test_root/rehearsal/review/review.json")"
 printf '%s\n' "$review_digest" > "$test_root/rehearsal/review/review.sha256"
@@ -95,8 +101,17 @@ fi
 archive
 
 jq -nS '{schemaVersion: 1, complete: false}' > "$test_root/coverage.json"
-expect_refusal
+expect_refusal 'mutation coverage is incomplete'
 jq -nS '{schemaVersion: 1, complete: true}' > "$test_root/coverage.json"
+sed 's/op-fixture/op-other/' "$test_root/private-store/journal/00000000000000000000.json" \
+  > "$test_root/private-store/journal/changed.json"
+mv "$test_root/private-store/journal/changed.json" \
+  "$test_root/private-store/journal/00000000000000000000.json"
+jq -S --arg digest "$(sha256_file "$test_root/private-store/journal/00000000000000000000.json")" \
+  '.members |= map(if .path == "journal/00000000000000000000.json" then .digest = $digest else . end)' \
+  "$test_root/private-store/backup.json" > "$test_root/private-store/changed.json"
+mv "$test_root/private-store/changed.json" "$test_root/private-store/backup.json"
+expect_refusal 'completed component receipts do not match the reviewed operations'
 printf '\n' >> "$test_root/private-store/journal/00000000000000000000.json"
-expect_refusal
+expect_refusal 'private export member changed'
 printf 'managed-resource evidence tests passed\n'

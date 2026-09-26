@@ -65,7 +65,8 @@ strict user-documentation validation, and diff check pass.
 2026-09-25: M4 has a public evidence projector for a verified disposable
 rehearsal and a separately held private store export. It checks the original
 review and no-op review, accepted/converged vector, committed journal members,
-the exact review transaction's completion receipts, matching operator source
+the exact review transaction's completion receipts for every reviewed
+operation, matching operator source
 revision and payload identity, and a
 complete coverage result. Output contains only selected public fields and
 digests; the launcher can export private history outside its public evidence
