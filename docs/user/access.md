@@ -156,9 +156,10 @@ history or a different base domain refuses planning. Supplied origin TLS and
 CDN intent are not yet supported by this reviewed route. Existing direct
 access routes need an explicit ownership transition before a reviewed plan can
 claim their live DomainMapping.
-Once the auth backend map has accepted or retained inventory ownership, direct `deploy`,
-direct `app deploy`, and direct `app delete` refuse their legacy access resolver;
-use the reviewed deployment or retirement path for those scopes.
+`app deploy` always uses the reviewed route. Once the auth backend map has
+accepted or retained inventory ownership, direct `deploy` and direct
+`app delete` refuse their legacy access resolver; use the reviewed deployment
+or retirement path for those scopes.
 Retirement retains the central DomainMapping. Its later removal is a separate
 `inventory collect --resource` review with an exact UID and resource version;
 the route is never deleted by a name-only command.

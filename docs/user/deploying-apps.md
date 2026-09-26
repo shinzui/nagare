@@ -26,7 +26,7 @@ BackendService. Cloudflare CDN joins when `CF_ZONE_ID` names exactly one
 accepted platform zone grant and its `publicIp` stack output is an IPv4 origin;
 set `CF_ACCOUNT_ID` and `CF_API_TOKEN` for provider observation and apply.
 Each host contributes cache intent to the platform ruleset and owns its proxied
-A record. Build inputs still refuse in this reviewed route.
+A record. Build inputs stay in the separate image publication step.
 Its config still goes through
 the typed `Application` loader. Use the exact resource ID of the accepted OCI
 publication, and an explicit tag that resolves to that publication's destination:
@@ -78,15 +78,14 @@ replacement, and resource retirement still require separate review decisions;
 the one-invocation route refuses them. It also requires the selected context's
 inventory store and accepted image publication.
 
-The typed config may still describe a Dockerfile or Nixpacks build. On the
-reviewed route, Nagare deploys the accepted publication named by
-`--image-resource`; it does not rebuild from the source tree. The published
-destination must match the config's image reference and explicit tag. Build
-path overrides remain available only on the legacy build route. Once the selected
-context has initialized inventory history, `app deploy` without
-`--image-resource` refuses before any build or provider write. Build the image
-locally, publish its archive with `app image-plan`, then use the printed resource
-ID for the reviewed deploy above. A newly named app does not bypass this rule.
+The typed config may still describe a Dockerfile or Nixpacks build. Build the
+image separately, export a Docker archive, and publish it with `app image-plan`.
+`app deploy` deploys the accepted publication named by `--image-resource`; it
+does not rebuild from the source tree. The published destination must match the
+config's image reference and explicit tag. Every live `app deploy` requires the
+accepted image resource and an initialized inventory store, including a newly
+named app in a context with no prior application history. Build path overrides
+are unavailable on this command; apply them while preparing the archive.
 
 To preview the same supported scope without saving or publishing a review, use
 `--dry-run` with the same accepted image and recovery inputs. It reads the
@@ -688,26 +687,14 @@ can be listed and torn down as a unit.
 A worked example — one Service, two Workers binding a managed Postgres, and a
 migration Task, all on one shared image — is
 `cluster/examples/multi-workload-app/nagare/Config.hs` (see its
-[README](../../cluster/examples/multi-workload-app/README.md)). On a context
-without initialized inventory history, the legacy command builds and pushes the
-shared image once, then rolls the app out in dependency order:
+[README](../../cluster/examples/multi-workload-app/README.md)). Publish its
+shared image with `app image-plan`, then use the reviewed
+`app deploy --image-resource` command shown above.
 
-```bash
-# Legacy context only: build/push once, then roll out in order.
-nagarectl app deploy -f nagare/Config.hs
-```
-
-For an inventory-backed context, publish the image and use the reviewed
-`app deploy --image-resource` route described above.
-
-The rollout order is fixed and enforced: **pre-deploy hooks first** (the migration
-Task runs to completion as a one-off Job — a non-zero exit aborts the release
-**before any Service or Worker is applied**), **then** the managed databases are
-ensured (idempotent), **then** the Knative Service and every Worker are applied
-and waited on. So "run migrations before the new code boots" is a platform
-guarantee, not a runbook step. Because the migration is re-run on every deploy,
-it must be idempotent at the SQL level (the standard "migrations tracked in a
-table" discipline) — an already-applied migration must be a no-op.
+Each declared pre-deploy Task becomes a separate reviewed Job scope with its
+stated data effects and completion proof. The application workload waits for
+that proof. Database, Service, and worker members follow their declared
+inventory dependencies.
 
 The inventory-backed `--dry-run --json` path requires an accepted image, an explicit
 tag, any required recovery bindings, and a declared effect set for each aggregate

@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-26
+* **Change**: Require a published image resource and an explicit tag for every `app deploy`; the command now uses reviewed inventory execution in both fresh and admitted contexts, and the legacy direct rollout is removed.
 * **Update**: Add saved reviews for exact expiry-gated manual backup pruning, with object-version checks and restore dependency guards; scheduled backup pruning remains unavailable.
 * **Update**: Make newly reviewed database backup schedules read back and hash the exact stored object before the backup Job succeeds; existing schedules can receive this change through a saved review. Clarify that manual database and volume data commands refuse after inventory admission.
 * **Update**: Add a saved review that removes inline pruning from an accepted legacy database backup CronJob while preserving its other database members.

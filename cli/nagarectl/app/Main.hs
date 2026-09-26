@@ -69,7 +69,7 @@ import Nagare.App
   , stopApp
   , streamServiceLogs
   )
-import Nagare.App.Deploy (AppDeployParams (..), RolloutEnv (..), resolveAppRolloutWithBrokerEnv, runAppDeployWithGuard)
+import Nagare.App.Deploy (AppDeployParams (..), RolloutEnv (..), resolveAppRolloutWithBrokerEnv)
 import Nagare.App.Deployments
   ( appConfigMapName
   , formatDeploymentsTable
@@ -3156,22 +3156,8 @@ main = do
     AppDeploy o -> do
       provisionGhcEnv (o ^. #ghcEnv)
       tp <- activeProfile mctx
-      case o ^. #savePlan of
-        Nothing -> do
-          if o ^. #dryRun
-            then runAppDeployPlan mctx (toAppDeployParams tp o) o ""
-            else if isJust (o ^. #imageResource)
-              then runAppDeployPlan mctx (toAppDeployParams tp o) o ""
-            else do
-              when (not (null (o ^. #databaseRecovery))
-                  || not (null (o ^. #tlsSecretResources)) || not (null (o ^. #envSecretResources))
-                  || not (null (o ^. #serviceVolumeRecovery)) || not (null (o ^. #workerVolumeRecovery))
-                  || not (null (o ^. #hookAffects)) || not (null (o ^. #hookNoDataEffects))
-                  || o ^. #requestNamespace || isJust (o ^. #legacyReleaseImport)
-                  || isJust (o ^. #releaseAdoptionInput))
-                (dieT "inventory resource and recovery options require --image-resource, --save-plan, or --dry-run")
-              runAppDeployWithGuard (refuseDirectApplicationDeployIfOwned mctx) (toAppDeployParams tp o)
-        Just output -> runAppDeployPlan mctx (toAppDeployParams tp o) o output
+      runAppDeployPlan mctx (toAppDeployParams tp o) o
+        (fromMaybe "" (o ^. #savePlan))
     AppImagePlan o -> runAppImagePlan mctx o
     DeploymentsList o -> runDeploymentsList o
     DeploymentsLogs o -> runDeploymentsLogs o
@@ -9589,13 +9575,6 @@ refuseDirectAccessOwnerIfManaged mctx operation =
   withAcceptedInventoryHistory mctx operation $ \history ->
     when (authSharedSettingsOwned history)
       (dieT "shared auth settings are owned by accepted or retained inventory; direct access routing is refused")
-
--- | Once a context has inventory history, every aggregate rollout must use
--- the reviewed compiler. A new app name is not authority to bypass that
--- history: the direct path also writes namespaces, credentials, and routes.
-refuseDirectApplicationDeployIfOwned :: Maybe String -> Application -> IO ()
-refuseDirectApplicationDeployIfOwned mctx _ =
-  refuseDirectDeploymentWhenManaged mctx "app deploy"
 
 refuseDirectDeploymentWhenManaged :: Maybe String -> Text -> IO ()
 refuseDirectDeploymentWhenManaged mctx operation =

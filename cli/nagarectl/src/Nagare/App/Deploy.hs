@@ -1,27 +1,16 @@
--- | @nagarectl app deploy@ (MasterPlan 14, EP-2): deploy a whole multi-workload
--- 'Application' — an optional web Service, background Workers, managed Databases,
--- and pre-deploy migration Tasks — with ONE command, in dependency order, under
--- one shared identity.
+-- | Shared rendering and rollout identity for a reviewed multi-workload
+-- 'Application'. The inventory compiler owns execution and journals its effects.
 --
--- This module is the orchestration layer above the per-kind deploy paths. It
--- loads an 'Application' (EP-1's 'loadApplication'), qualifies the shared image
--- once, flows the shared env down onto every workload, renders each workload with
--- its EXISTING per-kind renderer, and stamps the shared @nagare.dev/app: \<name\>@
--- label onto every rendered object (the contract the kotei backend reconciles on).
--- The rollout is sequenced into fixed phases — pre-deploy hooks → databases →
--- service → workers — so "migrate before the new code boots" is enforced, not a
--- runbook step (see 'planPhases' / 'runPhases').
+-- This module qualifies the shared image, flows the shared env down onto every
+-- workload, renders each workload with its per-kind renderer, and stamps the
+-- shared @nagare.dev/app: \<name\>@ label. The inventory compiler consumes
+-- these per-member renders and supplies reviewed dependency ordering.
 --
 -- It is a /library/ module: it never imports the @nagarectl@ executable. The
--- deploy resolvers it needs were extracted into "Nagare.Deploy.Resolve" (EP-2 M0)
--- for exactly that reason; @Main@ provisions @GHC_ENVIRONMENT@ before calling
--- 'runAppDeploy'.
+-- deploy resolvers it needs were extracted into "Nagare.Deploy.Resolve" (EP-2 M0).
 module Nagare.App.Deploy
-  ( -- * Params and entry point
+  ( -- * Reviewed rollout inputs
     AppDeployParams (..)
-  , runAppDeploy
-  , runAppDeployWithGuard
-  , resolveAppRollout
   , resolveAppRolloutWithBrokerEnv
 
     -- * Rollout phases (EP-2 M2)
@@ -48,34 +37,24 @@ module Nagare.App.Deploy
   )
 where
 
-import Control.Monad (forM_, when)
-import Cradle (StdoutUntrimmed (..), addArgs, cmd, run, run_, silenceStderr, (&))
-import Data.Aeson (ToJSON (..), Value (Object, String), encode, object, (.=))
+import Data.Aeson (ToJSON (..), Value (Object, String), object, (.=))
 import Data.Aeson.Key qualified as K
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
-import Data.ByteString.Char8 qualified as BC
-import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
-import Data.Time (getCurrentTime)
 import Data.Yaml qualified as Yaml
-import Nagare.Access.Resolve (resolveDeploymentAccess)
-import Nagare.Build (addBuildArgs, performBuild)
-import Nagare.Cluster.Namespace (NamespacePurpose (..), ensureNamespace, renderNamespace)
-import Nagare.Database.Create (DbCreateParams (..), runDbCreate)
+import Nagare.Cluster.Namespace (NamespacePurpose (..), renderNamespace)
 import Nagare.Database.Backup (renderDbBackupCronJob)
-import Nagare.Deploy (applyManifests, waitForReady, waitForWorkerRollout)
-import Nagare.Deploy.Resolve (resolveBrokerEnv, resolveBuildSpec, resolveTag)
+import Nagare.Deploy.Resolve (resolveTag)
 import Nagare.Dsl.Application (Application (..))
-import Nagare.Dsl.Build (BuildSpec, requiresBuild, resolveImageTag)
+import Nagare.Dsl.Build (BuildSpec, resolveImageTag)
 import Nagare.Dsl.Database (Database (..), engineVersionText)
 import Nagare.Dsl.Database.Render (databaseCredentialTemplate, renderDatabase)
-import Nagare.Dsl.Load (loadApplication, renderLoadError)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Render (renderDomainMappings, renderService, renderVolumeClaims)
 import Nagare.Dsl.Task (Task)
@@ -88,18 +67,14 @@ import Nagare.Dsl.Types
   , databaseNameText
   , imageRefText
   , namespaceText
-  , quantityText
   , serviceNameText
   )
 import Nagare.Dsl.Worker (Worker)
 import Nagare.Dsl.Worker.Render (renderWorker)
-import Nagare.Env.BuildArgs (gatherBuildArgs, printBuildArgWarnings)
 import Nagare.Env.Generated (mergeGenerated)
-import Nagare.Image (configureDockerAuthFor, pushImage, qualifyImage, taggedImageRef)
+import Nagare.Image (qualifyImage)
 import Nagare.Target (TargetProfile (..), storeBackendFor)
 import Nagare.Task.Resolve (predefinedTaskEnv, renderResolvedTask)
-import Nagare.Task.Run (oneOffJobName, runArgs)
-import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..), exitFailure)
 import System.IO (stderr)
 
@@ -120,9 +95,7 @@ data AppDeployParams = AppDeployParams
   deriving stock (Generic, Show)
 
 -- | The resolved deploy-time context every workload renders against: the app's
--- shared identity, its qualified image, the resolved tags, the shared env to flow
--- down, and the namespace/base-domain. Built once in 'runAppDeploy' so every
--- workload renders the SAME image and tag.
+-- shared identity, qualified image, resolved tags, shared env, and namespace.
 data RolloutEnv = RolloutEnv
   { appName :: !Text
   -- ^ the @nagare.dev/app@ value (the 'Application' name).
@@ -444,49 +417,7 @@ toRenderedObject ph bs =
       _ -> ""
 
 -- ---------------------------------------------------------------------------
--- Entry point
-
--- | Run @app deploy@. M1: load the 'Application', qualify the shared image once,
--- and (on @--dry-run@) print every rendered object — each carrying the shared
--- @nagare.dev/app@ label — in rollout order. The live apply path lands in M2/M4.
-runAppDeploy :: AppDeployParams -> IO ()
-runAppDeploy = runAppDeployWithGuard (const (pure ()))
-
--- | Check ownership of the loaded aggregate before resolving runtime inputs or
--- performing any provider mutation. The command layer supplies the guard.
-runAppDeployWithGuard :: (Application -> IO ()) -> AppDeployParams -> IO ()
-runAppDeployWithGuard ownershipGuard p = do
-  transaction <- lookupEnv "NAGARE_INVENTORY_TRANSACTION"
-  when (isJust transaction) $
-    dieT "app deploy cannot run inside a reviewed inventory transaction"
-  eapp <- loadApplication (p ^. #configPath)
-  app <- case eapp of
-    Left err -> dieT (renderLoadError err)
-    Right a -> pure a
-  ownershipGuard app
-  env <- resolveAppRollout p app
-  let tp = p ^. #targetProfile
-  if p ^. #dryRun
-    then
-      if p ^. #json
-        then do
-          -- The machine-readable plan: a single JSON document on stdout, nothing else.
-          plan <- requireRendered (renderPlan env app)
-          LBS.putStr (encode plan) >> BC.putStrLn ""
-        else do
-          objects <- requireRendered (renderAppObjects env app)
-          forM_ objects $ \(ph, bs) -> do
-            TIO.putStrLn ("--- " <> ph <> " manifest ---")
-            BC.putStr bs
-          TIO.putStrLn (summaryLine app env)
-    else liveDeploy p tp env app
-
--- | Resolve the rollout identity once for direct rendering and reviewed scope
--- compilation. A reviewed caller checks unsupported broker effects first.
-resolveAppRollout :: AppDeployParams -> Application -> IO RolloutEnv
-resolveAppRollout p app = do
-  brokerEnv <- resolveBrokerEnv (app ^. #namespace) (app ^. #brokers)
-  resolveAppRolloutWithBrokerEnv p app brokerEnv
+-- Reviewed rollout resolution
 
 -- | Reviewed planning supplies broker environment derived from accepted
 -- inventory history, avoiding a live discovery result outside the review.
@@ -512,151 +443,6 @@ resolveAppRolloutWithBrokerEnv p app brokerEnv = do
   where
     tp = p ^. #targetProfile
 
--- | The live (non-dry-run) rollout (EP-2 M4): build and push the shared image
--- ONCE, then run the phases in order with the live executor. A failed pre-deploy
--- hook aborts the release before any Service or Worker is applied.
---
--- NOTE: live acceptance is deferred while @nagare-01@ is @TERMINATED@; this path
--- is exercised structurally by the 'runPhases' unit tests (sequencing + hook
--- gating). Per-database connection-env and the generated @NAGARE_*@ vars that the
--- single-Service @deploy@ injects are a documented follow-up for the live path
--- (they need a cluster to resolve); the dry-run and live paths render identically.
-liveDeploy :: AppDeployParams -> TargetProfile -> RolloutEnv -> Application -> IO ()
-liveDeploy p tp env app = do
-  ensureNamespace ApplicationNamespace (env ^. #namespace) >>= requireRendered
-  buildAndPushShared p tp env app
-  result <- runPhases (livePhaseExec env) (planPhases app)
-  case result of
-    PhaseFailed msg -> dieT ("nagarectl app deploy: " <> msg)
-    PhaseOk -> do
-      reportPVCsNote
-      TIO.putStrLn ("Deployed app '" <> env ^. #appName <> "' to namespace " <> env ^. #namespace <> ".")
-  where
-    reportPVCsNote = pure ()
-
--- | Build and push the shared image once (skipped for a prebuilt image), using
--- the same build half as @deploy@/@worker deploy@: the app's Build-scoped env
--- becomes @--build-arg@s. The image is built against the build spec of the
--- workload that owns it ('buildForTag').
-buildAndPushShared :: AppDeployParams -> TargetProfile -> RolloutEnv -> Application -> IO ()
-buildAndPushShared p tp env app =
-  case buildForTag app of
-    Nothing -> TIO.putStrLn "Skipping build/push: app declares a prebuilt image."
-    Just b0 -> do
-      spec <- resolveBuildSpec (p ^. #contextOverride) (p ^. #dockerfileOverride) b0
-      if requiresBuild spec
-        then do
-          let ref = taggedImageRef (env ^. #qualifiedImage) (env ^. #effectiveTag)
-          (bargs, warns) <- gatherBuildArgs (env ^. #appName) (env ^. #namespace) (app ^. #env)
-          printBuildArgWarnings warns
-          configureDockerAuthFor tp
-          performBuild (tp ^. #targetPlatform) (addBuildArgs bargs spec) ref
-          pushImage ref
-        else TIO.putStrLn "Skipping build/push: app declares a prebuilt image."
-
--- | Execute one rollout phase against the cluster, returning 'PhaseFailed' on a
--- failed pre-deploy hook so 'runPhases' aborts before any later phase.
-livePhaseExec :: RolloutEnv -> PhaseExec
-livePhaseExec env = \case
-  PhaseHooks ts -> runHooks env ts
-  PhaseDatabases dbs -> mapM_ (ensureDatabase env) dbs >> pure PhaseOk
-  PhaseService svc -> applyServicePhase env svc
-  PhaseWorkers ws -> runWorkers ws
-  where
-    runWorkers [] = pure PhaseOk
-    runWorkers (w : rest) = do
-      result <- applyWorkerPhase env w
-      case result of
-        PhaseOk -> runWorkers rest
-        failed -> pure failed
-
--- | Run each pre-deploy hook Task to completion. Apply its CronJob (so a Job can
--- be created from it), create a one-off Job, and wait for it to complete. The
--- FIRST non-zero exit returns 'PhaseFailed', so no database/service/worker phase
--- runs after a failed migration.
-runHooks :: RolloutEnv -> [Task] -> IO PhaseResult
-runHooks env = go
-  where
-    go [] = pure PhaseOk
-    go (t : rest) = do
-      objects <- requireRendered (renderTaskObjects env t)
-      applyManifests (map snd objects)
-      now <- getCurrentTime
-      let task = serviceNameText (t ^. #name)
-          ns = env ^. #namespace
-          name = oneOffJobName task now
-      TIO.putStrLn ("Running pre-deploy hook '" <> task <> "' (" <> name <> ") ...")
-      run_ $ cmd "kubectl" & addArgs (runArgs ns task name)
-      code <- waitForJobComplete ns name
-      case code of
-        ExitSuccess -> TIO.putStrLn ("Hook '" <> task <> "' completed.") >> go rest
-        ExitFailure _ -> do
-          run_ $ cmd "kubectl" & addArgs ["logs", "job/" <> T.unpack name, "-n", T.unpack ns, "--tail", "50"]
-          pure (PhaseFailed ("pre-deploy hook '" <> task <> "' did not complete (" <> name <> ")"))
-
--- | Wait for a Job to reach @condition=complete@; returns its exit code.
-waitForJobComplete :: Text -> Text -> IO ExitCode
-waitForJobComplete ns name = do
-  (code, _ :: StdoutUntrimmed) <-
-    run $
-      cmd "kubectl"
-        & addArgs
-          [ "wait"
-          , "--for=condition=complete"
-          , "--timeout=600s"
-          , "job/" <> T.unpack name
-          , "-n"
-          , T.unpack ns
-          ]
-        & silenceStderr
-  pure code
-
--- | Ensure a managed database exists (idempotent), reconstructing the create
--- params from its full spec. @runDbCreate@ applies the PVC/StatefulSet/Service
--- and waits for the StatefulSet rollout.
-ensureDatabase :: RolloutEnv -> Database -> IO ()
-ensureDatabase env db =
-  runDbCreate
-    (db ^. #engine)
-    (databaseNameText (db ^. #name))
-    DbCreateParams
-      { namespace = namespaceText (db ^. #namespace)
-      , namespacePurpose = ApplicationNamespace
-      , version = Just (engineVersionText (db ^. #version))
-      , size = Just (quantityText (db ^. #size))
-      , cpu = fmap quantityText (db ^. #resources >>= (^. #cpuLimit))
-      , memory = fmap quantityText (db ^. #resources >>= (^. #memoryLimit))
-      , config = Nothing
-      , dryRun = False
-      , targetProfile = env ^. #targetProfile
-      }
-
--- | Apply the web Service (PVCs first, then the Service and DomainMappings) and
--- wait for it to become Ready.
-applyServicePhase :: RolloutEnv -> Deployment -> IO PhaseResult
-applyServicePhase env svc = do
-  objects <- requireRendered (renderServiceObjects env svc)
-  applyManifests (map snd objects)
-  let name = serviceNameText (svc ^. #name)
-  code <- waitForReady name (env ^. #namespace)
-  case waitResult ("service '" <> name <> "'") code of
-    PhaseOk -> resolveDeploymentAccess (env ^. #baseDomain) svc >> pure PhaseOk
-    failed -> pure failed
-
--- | Apply one Worker (PVCs first, then the Deployment) and wait for the rollout.
-applyWorkerPhase :: RolloutEnv -> Worker -> IO PhaseResult
-applyWorkerPhase env w = do
-  objects <- requireRendered (renderWorkerObjects env w)
-  applyManifests (map snd objects)
-  let name = serviceNameText (w ^. #name)
-  code <- waitForWorkerRollout (env ^. #namespace) name
-  pure (waitResult ("worker '" <> name <> "'") code)
-
--- | Turn a pure rendering/stamping failure into the command's normal one-line
--- error at the IO boundary.
-requireRendered :: Either Text a -> IO a
-requireRendered = either (dieT . ("nagarectl app deploy: " <>)) pure
-
 -- | The build spec the shared image's effective tag is resolved against — the
 -- service's when the app has a web service, else the first worker's, else
 -- 'Nothing' (a prebuilt image, tagged with the bare deploy tag).
@@ -667,24 +453,6 @@ buildForTag app =
     Nothing -> case app ^. #workers of
       (w : _) -> Just (w ^. #build)
       [] -> Nothing
-
--- | A one-line human summary of what would be deployed.
-summaryLine :: Application -> RolloutEnv -> Text
-summaryLine app env =
-  "Would deploy app '"
-    <> env ^. #appName
-    <> "' ("
-    <> count (length (maybe [] (: []) (app ^. #service))) "service"
-    <> ", "
-    <> count (length (app ^. #workers)) "worker"
-    <> ", "
-    <> count (length (app ^. #databases)) "database"
-    <> ", "
-    <> count (length (app ^. #tasks)) "hook"
-    <> ") to namespace "
-    <> env ^. #namespace
-  where
-    count n noun = T.pack (show n) <> " " <> noun <> (if n == 1 then "" else "s")
 
 dieT :: Text -> IO a
 dieT msg = do
