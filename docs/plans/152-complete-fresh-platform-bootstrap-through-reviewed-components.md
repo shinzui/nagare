@@ -17,6 +17,11 @@ provenance:
       at: 2026-09-26T22:23:39Z
       mode: "update"
       note: "Cascade EP-148 decomposition: assign remaining feature, cutover, and proof ownership without weakening release acceptance"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-26T23:30:57Z
+      mode: "implement"
+      note: "Bind reviewed bootstrap marker to selected immutable payload during execution"
 ---
 
 # Complete fresh platform bootstrap through reviewed components
@@ -38,11 +43,13 @@ A fresh context selected from one immutable payload can be planned, applied, res
 
 Inherited baseline: commits `9c308390`, `28e05b72`, and `09d83188` supplied explicit payload/workspace composition, fresh-context policy, and eleven legacy entrypoint refusals. These are not new work. Remaining production cloud/host assembly and final-marker proof are the acceptance gap.
 
+2026-09-26 handoff: The reviewed marker now includes the immutable payload ID and the execution factory checks its retained native bytes against the selected payload identity and context pin before constructing provider adapters. This covers the marker-bearing review on apply and resume. Focused inventory tests, the CLI build, Haskell style check, and entrypoint guards passed. Both milestones remain open: fresh prerequisite stages, complete cloud/host composition, public-command interruption fixtures, and native marker smoke have not been proved.
+
 
 ## Surprises & Discoveries
 
 
-No new implementation findings in this successor plan. Inherited evidence and known gaps are identified below.
+2026-09-26: A published inventory review preserves exact native bytes, but the generic apply/resume route did not compare a bootstrap marker's retained payload identity with the operator's current selection. The marker previously omitted `payloadId`, so distinct immutable payloads with the same version and source revision could not be distinguished at execution. The marker now records that ID and the execution factory refuses a mismatch before adapter construction. This does not yet bind prerequisite-only reviews; their stage contract remains to be built in M1.
 
 
 ## Decision Log

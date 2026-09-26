@@ -6,11 +6,12 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Nagare.Dsl.Prelude hiding ((.=))
-import Nagare.Inventory.Bootstrap (compileBootstrapStamp)
+import Nagare.Inventory.Bootstrap (bootstrapMarkerValue, compileBootstrapStamp, verifyBootstrapStampPayload)
 import Nagare.Inventory.Components.Foundation
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.KubernetesSources (validateSuppliedKubernetesMembers)
+import Nagare.Platform.Status (ReleaseIdentity (..))
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes
 import Nagare.Resource.Policy (RecoveryClass (Idempotent))
@@ -51,6 +52,17 @@ inventoryFoundationTests = testGroup "cluster foundation inventory"
   , testCase "missing quota source refuses before any native mutation" $ do
       result <- compileFoundation (foundationInput {foundationQuotaPath = "../../cluster/bootstrap/missing-quota.yaml"})
       assertBool "missing quota was accepted" (either (const True) (const False) result)
+  , testCase "reviewed bootstrap marker is bound to the selected payload identity" $ do
+      let identity = ReleaseIdentity (Just "0.4.0") (Just "source-a") (Just 2)
+          bytes = ok (canonicalValue (bootstrapMarkerValue "payload-a" identity "2026-09-26T00:00:00Z"))
+      verifyBootstrapStampPayload "payload-a" identity bytes @?= Right ()
+      assertBool "changed source revision was accepted"
+        (either (const True) (const False)
+          (verifyBootstrapStampPayload "payload-a" (identity {revision = Just "source-b"}) bytes))
+      assertBool "changed payload ID was accepted"
+        (either (const True) (const False) (verifyBootstrapStampPayload "payload-b" identity bytes))
+      assertBool "missing marker identity was accepted"
+        (either (const True) (const False) (verifyBootstrapStampPayload "payload-a" identity "{}"))
   , testCase "reviewed release marker waits for every foundation resource and operation" $ do
       (foundationBundle, _) <- compileFoundation foundationInput >>= expectRight
       let quotaId = case [member ^. #identity | Managed member <- declarations foundationBundle,

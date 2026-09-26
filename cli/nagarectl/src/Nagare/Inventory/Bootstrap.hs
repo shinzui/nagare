@@ -9,11 +9,15 @@ module Nagare.Inventory.Bootstrap
   , compileBootstrapWithAuth
   , compileBootstrapWithAuthAndScopes
   , compileBootstrapStamp
+  , bootstrapMarkerValue
+  , verifyBootstrapStampPayload
   , composePlatformChanges
   ) where
 
 import Data.ByteString (ByteString)
-import Data.Aeson (Value)
+import Data.Aeson (Value (..))
+import Data.Aeson qualified as Aeson
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Generics.Labels ()
 import Data.List (sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
@@ -29,6 +33,7 @@ import Nagare.Inventory.Components.Foundation
 import Nagare.Inventory.Components.Upstream
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
+import Nagare.Platform.Status (ReleaseIdentity, clusterMarkerValue, parseClusterIdentity)
 import Nagare.Resource.Database (DatabaseDirectInput (..))
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
@@ -102,6 +107,34 @@ compileBootstrapStamp cluster marker candidate = do
     knownScope = either (error . show) id . mkScopeId Platform
     knownKey = either (error . show) id . mkLogicalKey
     knownName = either (error . show) id . mkName
+
+-- | The reviewed marker also records the immutable payload identifier. The
+-- general platform marker format predates payload IDs and remains readable.
+bootstrapMarkerValue :: Text -> ReleaseIdentity -> Text -> Value
+bootstrapMarkerValue payloadId identity installedAt =
+  case clusterMarkerValue identity installedAt of
+    Object marker -> case KeyMap.lookup "data" marker of
+      Just (Object fields) -> Object (KeyMap.insert "data"
+        (Object (KeyMap.insert "payloadId" (String payloadId) fields)) marker)
+      _ -> error "platform marker has no data object"
+    _ -> error "platform marker is not an object"
+
+-- | Check retained bytes before constructing any adapter. An immutable review
+-- does not itself pin the payload currently selected by the operator.
+verifyBootstrapStampPayload :: Text -> ReleaseIdentity -> ByteString -> Either Text ()
+verifyBootstrapStampPayload expectedPayloadId expected native = do
+  actual <- maybe (Left "reviewed bootstrap marker has no payload identity") Right
+    (parseClusterIdentity native)
+  let dataField = do
+        Object marker <- Aeson.decodeStrict' native
+        KeyMap.lookup "data" marker
+  payloadId <- case dataField of
+    Just (Object fields) -> case KeyMap.lookup "payloadId" fields of
+      Just (String value) -> Right value
+      _ -> Left "reviewed bootstrap marker has no payload ID"
+    _ -> Left "reviewed bootstrap marker has no data object"
+  unless (actual == expected && payloadId == expectedPayloadId)
+    (Left "reviewed bootstrap marker payload differs from the selected payload")
 
 -- | Compile the payload's complete pinned operator release set with the
 -- foundation and optional cache. Other context-specific components join this
