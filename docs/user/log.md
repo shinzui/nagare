@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-26
+* **Change**: Require saved reviewed Job plans for every live manual database backup and scratch restore; keep the older Job renderers only for read-only dry runs and remove direct apply, wait, and manual pruning effects.
 * **Change**: Route standalone database and broker live create/restart through reviewed scopes in every context; `delete --save-plan` now reviews retained retirement and direct native deletion is removed.
 * **Update**: Require initialized inventory for signed static webhooks, select accepted commit-tagged images and preview environment stores, and submit deployments through reviewed `nagarectl site` commands; remove the duplicate direct site deploy effects.
 * **Change**: Route every app stop and restart through an accepted Service scope and require a saved review for app deletion; remove their direct CLI mutations.

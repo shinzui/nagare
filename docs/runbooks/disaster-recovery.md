@@ -76,9 +76,9 @@ Secrets ................... sops-encrypted in the operator's private repo
 SQLite app data ........... Litestream replica in
                             gcs://<backupBucket>/litestream/          -> litestream restore (scratch)
 App volume data ........... tar.gz snapshots in
-                            gcs://<backupBucket>/volumes/<app>/<volume>/ -> nagarectl storage restore <app> <volume> <id> (scratch)
+                            gcs://<backupBucket>/volumes/<app>/<volume>/ -> reviewed restore pending after inventory admission
 Managed database data ..... pg_dump/.rdb/.native logical dumps in
-                            gcs://<backupBucket>/databases/<name>/      -> nagarectl db restore <name> <id> (scratch)
+                            gcs://<backupBucket>/manual-databases/<ns>/<name>/ -> reviewed PostgreSQL scratch restore from accepted receipt
 Grafana dashboards ........ Git (cluster/observability/grafana/
                             dashboards/)                              -> provisioned by EP-5 sidecar
 Victoria metrics/logs/traces  NOT backed up (non-critical;
@@ -223,18 +223,20 @@ litestream restore -o /tmp/restore-app.db gcs://$BACKUP_BUCKET/litestream/<app-d
 sqlite3 /tmp/restore-app.db "SELECT count(*) FROM notes;"
 # Managed database (EP-47) into a SCRATCH target, compare, then promote manually.
 # The removed host-side Postgres helpers are no longer a supported restore path.
-nagarectl db restore <name> "$(gsutil ls gs://$BACKUP_BUCKET/databases/<name>/ | tail -1)"
+# A reviewed PostgreSQL restore requires an accepted manual backup receipt.
+nagarectl db restore <name> <accepted-backup-id> --restore-id recovery-001 --save-plan ./db-restore
+nagarectl inventory apply ./db-restore --yes
 # App volume (EP-36) into a SCRATCH PVC, eyeball the restored tree, then promote:
-nagarectl storage restore <app> <volume> <latest-id> --config <path-to-Config.hs>
+# The direct storage restore command is unavailable after inventory admission.
+# Use a separately reviewed volume recovery procedure when it is available.
 ```
 
 Observe: the scratch row counts (or, for an app volume, the restored file tree
 the Job logs print) match the source at backup time. Only after comparing do you
 promote (copy the scratch SQLite file to `/var/lib/nagare/sqlite/`, rename the
 scratch Postgres db, or copy the scratch PVC's files into the live volume). The
-`nagarectl` restore verbs only ever write to a scratch target by default
-(`--into-live` is the sole, loudly-announced destructive path), so a botched
-restore can never clobber live data.
+The reviewed PostgreSQL restore writes only to a newly named scratch database.
+It checks the accepted backup receipt and current object bytes before execution.
 
 **App-volume snapshots are file-level, point-in-time copies** (`tar` of the
 mounted volume → `gs://<backupBucket>/volumes/<app>/<volume>/<ts>.tar.gz`, taken
@@ -246,16 +248,15 @@ stopped app's DB snapshot cleanly. Volumes declared with `retention = Delete` ar
 treated as throwaway and are **excluded** from backups (and `nagarectl deploy`
 warns about them).
 
-**Managed databases (EP-47) are backed up by default.** Each `nagarectl db
-create` provisions a daily, self-pruning **CronJob** that runs an
+**Managed databases (EP-47) are backed up by default.** Each reviewed `nagarectl db
+create` provisions a daily **CronJob** that runs an
 engine-appropriate logical dump (`pg_dump` for Postgres, an RDB dump for Redis, a
 native dump for ClickHouse), gzips it, and uploads it to
-`gs://<backupBucket>/databases/<name>/<ts>.<ext>` (keep-last-N, default 7). Take
-one on demand with `nagarectl db backup <name>`; list them with `gsutil ls
-gs://<backupBucket>/databases/<name>/`. **Restore is scratch-first**: `nagarectl
-db restore <name> <backup-id>` loads the dump into a disposable target
-(`<db>_restore_scratch` for Postgres/ClickHouse) so live data is untouched until
-you promote manually; pass `--into-live` to target the live database. A database
+`gs://<backupBucket>/databases/<name>/<ts>.<ext>`. Reviewed schedules do not
+prune. Take a manual backup with `nagarectl db backup <name> --backup-id ID
+--save-plan DIR` and apply that review. A reviewed PostgreSQL restore needs the
+accepted manual backup ID and a separate `--restore-id ID --save-plan DIR` review;
+it creates a new scratch database. Live-target restore is unavailable. A database
 declared `retention = Delete` is treated as throwaway and gets **no** scheduled
 backup.
 
@@ -264,13 +265,21 @@ without risking live data — run on the VM (`scripts/iap-ssh.sh`) or through a
 forwarded kube-API port (IAP forwards only SSH/22):
 
 ```bash
-nagarectl db create postgres drilldb
+nagarectl db create postgres drilldb \
+  --recovery-backup drilldb-backup --recovery-key-version v1
 # write a known row, then:
-nagarectl db backup drilldb
-nagarectl db restore drilldb "$(gsutil ls gs://$BACKUP_BUCKET/databases/drilldb/ | tail -1)"
+nagarectl db backup drilldb --backup-id drill-001 --save-plan ./drill-backup
+nagarectl inventory apply ./drill-backup --yes
+nagarectl db restore drilldb drill-001 --restore-id drill-restore-001 --save-plan ./drill-restore
+nagarectl inventory apply ./drill-restore --yes
 # the restore Job's logs print the scratch db's table list / row count to compare
-nagarectl db delete drilldb --yes
+nagarectl db delete drilldb --save-plan ./drill-retire
+nagarectl inventory apply ./drill-retire --yes
 ```
+
+The retirement review retains the drill database's provider resources. Collect
+them through separate exact reviews when native database collection is supported;
+do not reuse the drill name while retained addresses remain claimed.
 
 > **In-pod GCS auth (fixed 2026-06-10):** in-pod GCS upload was blocked because
 > k3s/flannel's IPv4LL `169.254.0.0/16` addresses hijacked the GCE metadata IP

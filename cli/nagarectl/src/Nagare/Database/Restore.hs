@@ -1,14 +1,12 @@
--- | @nagarectl db restore NAME BACKUP_ID@ (MasterPlan 9, EP-47): restore a chosen
--- GCS backup into a database, scratch-first. By default the restore lands in a
--- disposable target (a @\<db\>_restore_scratch@ database for Postgres/ClickHouse)
--- so live data is never clobbered; @--into live@ targets the live database with a
--- loud warning. The restore runs in a two-container Job: an initContainer
+-- | Restore Job renderers (MasterPlan 9, EP-47). The legacy preview is
+-- scratch-first by default; @--into-live@ changes only its read-only output.
+-- Reviewed live scratch restore binds an accepted backup receipt in the
+-- inventory compiler. A restore Job has two containers: an initContainer
 -- (@google/cloud-sdk:slim@) downloads + gunzips the object into a shared
 -- @emptyDir@, and the main container (the engine client image) loads it.
 --
 -- Pure helpers (@resolveBackupObject@, @isGsUrl@, @renderRestoreJob@) are
--- unit-testable without a cluster; the live restore drill is deferred to EP-48
--- (and gated on the in-pod-ADC routing fix the MasterPlan records).
+-- unit-testable without a cluster.
 module Nagare.Database.Restore
   ( isObjectUrl
   , resolveBackupObject
@@ -16,11 +14,10 @@ module Nagare.Database.Restore
   , VerifiedRestoreSource (..)
   , renderRestoreJob
   , downloadShell
-  , runDbRestore
+  , previewDbRestore
   )
 where
 
-import Cradle
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
@@ -45,10 +42,8 @@ import Nagare.Database.Discover (DbRow (..), getDatabase)
 import Nagare.Dsl.Database (Engine (..), dbSecretName, engineImage, parseEngine)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Storage.Snapshot (snapshotTimestamp)
-import System.Exit (ExitCode (..), exitFailure)
-import System.Environment (lookupEnv)
-import System.IO (hClose, stderr)
-import System.IO.Temp (withSystemTempFile)
+import System.Exit (exitFailure)
+import System.IO (stderr)
 
 -- | Is the BACKUP_ID already a full object URL (@gs://@ in cloud mode or
 -- @s3://@ in local mode)?
@@ -263,11 +258,10 @@ warn :: Bool -> Text
 warn True = "echo 'WARNING: restoring into the LIVE database'; "
 warn False = ""
 
--- | Run @db restore NAME BACKUP_ID@.
-runDbRestore :: Text -> Text -> Text -> Bool -> StoreBackend -> Bool -> IO ()
-runDbRestore ns databaseName backupId live backend dryRun = do
-  transaction <- lookupEnv "NAGARE_INVENTORY_TRANSACTION"
-  when (isJust transaction) (die "db restore cannot run inside a reviewed inventory transaction")
+-- | Render the old restore Job without submitting it to Kubernetes. Live
+-- scratch restores use accepted backup receipts and reviewed Job scopes.
+previewDbRestore :: Text -> Text -> Text -> Bool -> StoreBackend -> IO ()
+previewDbRestore ns databaseName backupId live backend = do
   erow <- getDatabase ns databaseName
   case erow of
     Left err -> die err
@@ -276,55 +270,22 @@ runDbRestore ns databaseName backupId live backend dryRun = do
       Just eng -> do
         now <- getCurrentTime
         let ts = snapshotTimestamp now
-            src = resolveBackupObject backend databaseName (backupExt eng) backupId
-            image = engineImage eng <> ":" <> r ^. #version
-            jobName = manualDatabaseJobName "nagare-dbrestore-" databaseName ts
             inputs =
               RestoreJobInputs
                 { namespace = ns
-                , jobName = jobName
+                , jobName = manualDatabaseJobName "nagare-dbrestore-" databaseName ts
                 , engine = eng
-                , clientImage = image
+                , clientImage = engineImage eng <> ":" <> r ^. #version
                 , serviceHost = databaseName
                 , secretName = dbSecretName databaseName
                 , name = databaseName
-                , sourceUrl = src
+                , sourceUrl = resolveBackupObject backend databaseName (backupExt eng) backupId
                 , liveTarget = live
                 , verifiedSource = Nothing
                 , backend = backend
                 }
-        if dryRun
-          then do
-            TIO.putStrLn "--- Restore Job manifest ---"
-            BS.putStr (renderRestoreJob inputs)
-          else do
-            applyJob (renderRestoreJob inputs)
-            waitForJob ns jobName
-            run_ $ cmd "kubectl" & addArgs ["logs", "job/" <> T.unpack jobName, "-n", T.unpack ns, "--tail", "50"]
-            run_ $ cmd "kubectl" & addArgs ["delete", "job", T.unpack jobName, "-n", T.unpack ns, "--ignore-not-found"]
-            if live
-              then TIO.putStrLn ("Restored " <> databaseName <> " from " <> src)
-              else TIO.putStrLn ("Restored " <> databaseName <> " into a scratch target from " <> src <> " — compare, then promote manually.")
-
-applyJob :: ByteString -> IO ()
-applyJob manifest = withSystemTempFile "nagare-dbrestore-job.yaml" $ \fp h -> do
-  BS.hPut h manifest
-  hClose h
-  run_ $ cmd "kubectl" & addArgs ["apply", "-f", fp]
-
-waitForJob :: Text -> Text -> IO ()
-waitForJob ns name = do
-  (code, _ :: StdoutUntrimmed) <-
-    run $
-      cmd "kubectl"
-        & addArgs ["wait", "--for=condition=complete", "--timeout=600s", "job/" <> T.unpack name, "-n", T.unpack ns]
-        & silenceStderr
-  case code of
-    ExitSuccess -> pure ()
-    ExitFailure _ -> do
-      TIO.hPutStrLn stderr ("nagarectl: restore job " <> name <> " did not complete; recent logs:")
-      run_ $ cmd "kubectl" & addArgs ["logs", "job/" <> T.unpack name, "-n", T.unpack ns, "--tail", "50"]
-      exitFailure
+        TIO.putStrLn "--- Restore Job manifest ---"
+        BS.putStr (renderRestoreJob inputs)
 
 die :: Text -> IO a
 die msg = do

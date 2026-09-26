@@ -83,9 +83,9 @@ refuse 'database deletion without review' 'save-plan' \
   db delete fixture
 refuse 'broker deletion without review' 'save-plan' \
   broker delete fixture
-refuse 'direct database backup' 'direct database backup is refused' \
+refuse 'manual database backup without review' 'live database backup requires --backup-id and --save-plan' \
   db backup fixture
-refuse 'direct database restore' 'direct database restore is refused' \
+refuse 'manual database restore without review' 'live database restore requires --restore-id and --save-plan' \
   db restore fixture backup-identity
 refuse 'direct database shell' 'direct database shell is refused' \
   db shell fixture
@@ -134,7 +134,25 @@ if ! grep -q 'inventory store is not initialized' "$fixture_root/out"; then
   cat "$fixture_root/out" >&2
   exit 1
 fi
+for operation in backup restore; do
+  if [ "$operation" = backup ]; then
+    args=(db backup fixture)
+    expected='live database backup requires --backup-id and --save-plan'
+  else
+    args=(db restore fixture backup-identity)
+    expected='live database restore requires --restore-id and --save-plan'
+  fi
+  if "$nagarectl_bin" --context fresh "${args[@]}" > "$fixture_root/out" 2>&1; then
+    printf 'fresh database %s unexpectedly succeeded\n' "$operation" >&2
+    exit 1
+  fi
+  if ! grep -q "$expected" "$fixture_root/out"; then
+    printf 'fresh database %s refused for the wrong reason:\n' "$operation" >&2
+    cat "$fixture_root/out" >&2
+    exit 1
+  fi
+done
 test ! -e "$XDG_STATE_HOME/nagare/fresh/inventory/head.json"
 
 cmp -s "$store_dir/head.json" "$fixture_root/head-before"
-printf 'application entrypoint guards: thirty-three live refusals and fresh restart refusal, inventory heads unchanged\n'
+printf 'application entrypoint guards: thirty-three live refusals and three fresh-context refusals, inventory heads unchanged\n'

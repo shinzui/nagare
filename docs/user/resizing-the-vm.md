@@ -125,7 +125,8 @@ is the cost-optimized family; `n2`/`n2d` cost more but perform more predictably.
    so you have a known-good restore point regardless:
 
    ```bash
-   nagarectl db backup <name>     # see Managed databases
+   nagarectl db backup <name> --backup-id pre-resize-001 --save-plan ./pre-resize-backup
+   nagarectl inventory apply ./pre-resize-backup --yes
    ```
 
 4. **Apply.** This stops the VM, changes the machine type, and restarts it:

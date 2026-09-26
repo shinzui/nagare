@@ -24,13 +24,13 @@ The guiding principle: **the machine is disposable.** Recovery is `pulumi up`,
 `nixos-rebuild switch`, bootstrap the cluster, restore data, deploy apps. Nagare
 is successful only if rebuilding it is *boring*.
 
-In a context with initialized resource inventory history, direct live `db backup`,
-`db restore`, `storage snapshot`, and `storage restore` refuse. An accepted
-database can use `db backup NAME --backup-id ID --save-plan DIR` followed by
-`inventory apply DIR --yes`; the other reviewed data operations remain pending.
-Scheduled database backup declarations remain part of reviewed database scopes.
-The direct commands below describe the legacy path in contexts without initialized
-history; dry-run output is available without submitting a Job.
+Live `db backup` and `db restore` require saved reviews in every context. An
+accepted database can use `db backup NAME --backup-id ID --save-plan DIR` or a
+PostgreSQL scratch restore with `--restore-id ID --save-plan DIR`, followed by
+`inventory apply DIR --yes`. Direct `storage snapshot` and `storage restore`
+refuse after inventory initialization; their reviewed routes remain pending.
+Scheduled database backups remain part of reviewed database scopes. The older
+database Job renderers remain available only through `--dry-run`.
 
 ---
 
@@ -127,8 +127,7 @@ Pod. Apply checks that Pod belongs to the exact Job UID and that the receipt
 matches the reviewed address and metadata before recording completion. If the
 Pod receipt is unavailable, completion remains unresolved. This proves what
 the Job read at completion; restore and pruning still need a fresh object read
-and checksum. Live object-store verification remains pending. Take a direct backup with
-`nagarectl db backup NAME` only before inventory admission; list cloud backups
+and checksum. Live object-store verification remains pending. List cloud backups
 with `gsutil ls gs://<backup-bucket>/databases/<name>/`, or inspect local MinIO
 through the cluster when running local mode. Expired reviewed manual backups
 can be pruned with `nagarectl db prune-backup NAME BACKUP_ID --save-plan DIR`
@@ -155,11 +154,9 @@ checksums, checks expiry again, and creates
 scratch database for explicit forward recovery. Reviewed live-target,
 Redis/ClickHouse restore, scheduled-backup pruning, and live provider proof remain pending.
 
-Before inventory admission, restore is **scratch-first**: `nagarectl db restore NAME BACKUP_ID` loads the
-chosen dump into a disposable target (`<db>_restore_scratch` for
-Postgres/ClickHouse) so your live database is untouched until you compare and
-promote manually; pass `--into-live` to target the live database directly.
-Direct restore refuses after inventory admission. A
+Live restore requires an accepted backup and saved scratch review in every
+context. The old `db restore NAME BACKUP_ID --dry-run` output renders a Job but
+does not submit it; `--into-live` has no reviewed live execution path. A
 database declared `retention = Delete` is treated as throwaway and gets **no**
 scheduled backup.
 

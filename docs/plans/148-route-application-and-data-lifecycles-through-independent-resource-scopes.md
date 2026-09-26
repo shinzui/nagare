@@ -132,6 +132,11 @@ provenance:
       at: 2026-09-26T18:36:00Z
       mode: "implement"
       note: "Cut over standalone database and broker live create, restart, and delete entry points"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-26T18:42:53Z
+      mode: "implement"
+      note: "Cut over manual database backup and restore live entry points to reviewed Jobs"
 ---
 
 # Route application and data lifecycles through independent resource scopes
@@ -175,6 +180,8 @@ App stop and restart require an accepted Service scope in every context; app del
 The `nagared` webhook runner requires a named context and initialized shared inventory history. For a signed delivery it selects the exact accepted commit-tagged OCI image publication and, for previews, the four accepted environment stores, then invokes the reviewed `nagarectl site` command. The command revalidates those inputs against current history. The old direct static and server site effect functions are removed; their pure renderers still feed the inventory compiler. A local signed-webhook regression checks refusal before initialization and checkout after initialization with unchanged inventory bytes. In-cluster deployment and a successful signed end-to-end webhook against a provider remain open in M4.
 
 Standalone database and broker live create and restart now always select their reviewed scopes. `db delete` and `broker delete` require `--save-plan` and submit the same retained-scope retirement as the explicit `retire` commands; the direct native deletion modules are removed. Offline create and restart dry runs retain their renderers. Full native collection and other data actions remain M3/M4 work.
+
+Manual database backup and PostgreSQL scratch restore now require their accepted Job scopes and saved reviews for live execution in every context. The former direct Job apply/wait/prune branches are removed; their older renderers remain available only for read-only `--dry-run` output. Live-target and other-engine restore, provider proof, and volume data operations remain open.
 The runner also requires a named context at startup and a shared GCS inventory store for cloud deliveries, so an implicit/default context or machine-private cloud history cannot be mistaken for evidence that the target is unmanaged. The example in-cluster Service needs a context and store configuration before it can deploy again.
 Live direct CDN purge/disable and access grant/revoke/portal sync now refuse after inventory initialization, including unclaimed hostnames. Read-only CDN and access commands and CDN dry-runs remain available. Their reviewed operational counterparts are still M3 work. The isolated CLI regression covers thirty-three live refusals with an unchanged inventory head.
 The legacy native-address guard now runs only for live database/broker deletion, database backup/restore, volume restore, and unreviewed env/Secret writes. Their read-only preview branches remain available without requiring an ownership decision or inventory receipt.
@@ -238,7 +245,8 @@ Critical path from completed M1 to final acceptance, in execution order:
 - [x] M2 CDN/DNS ownership (2026-09-25): Google application and production-site host records have reviewed claims, an exact platform BackendService reference, and disposable-zone provider proof. Cloudflare has separate host claims, platform rules/TLS owners, typed application/site submission, a context-bound reviewed HTTP transport, CLI review/apply/status dispatch, and nine focused offline provider tests. The Decision Log accepts offline Cloudflare proof because no disposable zone is available; no live Cloudflare mutation is claimed.
 - [ ] Prove review and execution membership for a full application including a preview, CDN, broker topic, and Secret references against a disposable provider context. One disposable in-memory provider context passed the complete journal and apply flow, including independent scope generations after an app update; native broker/preview/provider integration remains.
 - [x] M4 webhook submission (2026-09-26): Signed static webhooks require initialized history and submit the exact accepted image and preview stores through reviewed site commands; direct site effect functions are removed. A successful signed provider round-trip and in-cluster runner configuration remain separate acceptance work.
-- [x] M3/M4 standalone data command cutover (2026-09-26): Live database and broker create/restart use reviewed scopes in every context; delete saves a retained retirement review. Direct native delete modules are removed. Backup, restore, interactive maintenance, collection, and live provider proof remain.
+- [x] M3/M4 standalone data command cutover (2026-09-26): Live database and broker create/restart use reviewed scopes in every context; delete saves a retained retirement review. Direct native delete modules are removed. Manual data actions, interactive maintenance, collection, and live provider proof remained for subsequent work.
+- [x] M3/M4 manual database data cutover (2026-09-26): Live manual backup and scratch restore require saved reviewed Job plans in every context; direct Job submission and broad inline manual pruning are removed. Volume snapshot/restore, live-target and other-engine restore, provider proof, and exact collection remain.
 - [ ] M4: Cut over remaining direct app render/apply entry points to the reviewed compiler and publication path.
 
 ## Surprises & Discoveries
@@ -404,6 +412,8 @@ Critical path from completed M1 to final acceptance, in execution order:
 2026-09-26: The first executable `app deploy --save-plan` isolation probe reached `runghc` but selected a stale `.ghc.environment` for GHC 9.12.3 before the current 9.12.4 file. The config loader then refused a valid local app before inventory planning. Auto-discovery now asks `ghc --numeric-version` and chooses only a matching project environment, falling back to Cabal if no match exists. The subsequent reviewed app probe produced Kubernetes-only operations without calling unrelated Pulumi, host, artifact, or cloud executables.
 
 ## Decision Log
+
+2026-09-26: Require a stable backup/restore ID and saved review for every live manual database backup or restore. Preserve the older Job renderer only for read-only `--dry-run`. Remove its direct Kubernetes apply/wait and manual broad pruning helpers, so no fresh context can bypass receipt, checksum, and scratch-target preconditions. Live-target restore remains unsupported until write fencing and forward-recovery semantics are reviewed.
 
 2026-09-26: Use one reviewed standalone data path for live database and broker create/restart in every context. Require explicit recovery inputs for live create; keep legacy rendering only for read-only dry runs. Make `db delete` and `broker delete` saved-retirement aliases that retain native members, since a broad direct deletion cannot prove consumer and recovery preconditions. Provider collection remains a separate exact review.
 
@@ -592,6 +602,8 @@ DependencyExports contains typed capability witnesses and selected revision/phys
 
 
 ## Revision Notes
+
+2026-09-26: Manual `db backup` and `db restore` now require `--backup-id` or `--restore-id` with `--save-plan` for every live invocation. Their legacy Job drivers are reduced to read-only previews; direct apply, wait, and manual prefix pruning are removed. The executable build, full CLI suite, strict user docs, Haskell style, and the isolated entrypoint regression passed, including three fresh-context refusals without inventory creation. Provider proof and other data actions remain open.
 
 2026-09-26: Standalone database and broker create/restart no longer fall back to direct live commands in fresh contexts. `db delete` and `broker delete` now require saved retirement reviews and no longer invoke direct Kubernetes deletion. The direct delete modules were removed. The executable build, full CLI suite, Haskell style, strict user docs, and the isolated 33-command entrypoint regression passed; a fresh restart also refused without creating inventory history. Offline create/restart dry runs remain; reviewed collection, backup/restore cutover, maintenance fencing, and live provider proof remain open.
 

@@ -150,9 +150,8 @@ nagarectl db get NAME              # detail: engine, version, host, retention, r
 nagarectl db shell NAME            # interactive psql / redis-cli / clickhouse-client inside the pod
 nagarectl db restart NAME          # roll the StatefulSet pod and wait for ready
 nagarectl db delete NAME --save-plan DIR  # save a reviewed retirement; retain provider resources
-nagarectl db backup NAME           # legacy direct logical dump before inventory admission
 nagarectl db backup NAME --backup-id ID --save-plan DIR  # reviewed manual Job
-nagarectl db restore NAME BACKUP_ID  # restore a backup, scratch-first
+nagarectl db restore NAME BACKUP_ID --restore-id ID --save-plan DIR  # reviewed scratch restore
 ```
 
 To review a standalone database before changing the cluster, save an inventory
@@ -420,37 +419,30 @@ expiry, then creates `<database>_restore_<restore-id>` only if absent. If the
 restore fails after creation, keep the scratch database for explicit forward
 recovery. Reviewed Redis, ClickHouse, and live-target restore remain open.
 
-In an uninitialized legacy context, the CronJob still self-prunes and you can
-take one on demand:
+An uninitialized legacy context can still have a scheduled CronJob that
+self-prunes. Inspect its cloud backup objects with:
 
 ```bash
-nagarectl db backup pg-main
 gsutil ls gs://tan-nb-exp-nagare-backups/databases/pg-main/   # cloud mode
 ```
 
 The dump is an engine-appropriate logical export (`pg_dump` for Postgres, an RDB
 dump for Redis, a native dump for ClickHouse), gzipped, at
-`databases/<name>/<timestamp>.<ext>` in the active store. Legacy scheduled
-backups keep the newest seven; `--keep` controls pruning after a manual cloud
-backup, while a manual local backup does not prune. Scheduled backups in
-reviewed inventory do not prune. Direct manual backup and restore commands
-refuse after inventory admission; the reviewed manual backup route above is
-available for accepted databases. The dump waits up to five minutes for the
+`databases/<name>/<timestamp>.<ext>` in the active store for legacy schedules.
+Legacy scheduled backups keep the newest seven. Reviewed schedules do not
+prune; reviewed manual backups use stable IDs and separate exact pruning
+reviews. Live manual backup and restore require saved reviews in every context;
+`--dry-run` only renders the older Job shape. The dump waits up to five minutes for the
 database to accept connections, and a failed backup Job is retried twice. This
 gives a backup scheduled after a VM start time to survive DNS or server startup
 delays. In cloud mode that key is under
 `gs://<backup-bucket>/`; in local mode it is under `s3://nagare-backups/` on
 MinIO.
 
-In an uninitialized legacy context, restore is **scratch-first**: by default
-the dump is loaded into a disposable target (`<db>_restore_scratch` for
-Postgres/ClickHouse) so live data is untouched
-until you compare and promote manually. Pass `--into-live` to target the live
-database.
-
-```bash
-nagarectl db restore pg-main "$(gsutil ls gs://tan-nb-exp-nagare-backups/databases/pg-main/ | tail -1)"
-```
+Reviewed PostgreSQL restore is **scratch-first** and uses the accepted backup
+receipt and exact object checks shown above. Live-target restore, Redis, and
+ClickHouse require a separate reviewed operation contract. `--into-live` is
+available only in read-only legacy Job preview output.
 
 See [Backups and disaster recovery](backups-and-disaster-recovery.md) and the
 [disaster-recovery runbook](../runbooks/disaster-recovery.md) for the full restore

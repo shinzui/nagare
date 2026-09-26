@@ -151,10 +151,11 @@ PVC-backed app volumes are ordinary Kubernetes objects, so they run on the local
 cluster. The backup path switches automatically:
 
 ```bash
-nagarectl db create postgres pg-main
-nagarectl db backup pg-main
+nagarectl db create postgres pg-main \
+  --recovery-backup postgres-backup --recovery-key-version v1
+nagarectl db backup pg-main --backup-id local-001 --save-plan ./local-backup
+nagarectl inventory apply ./local-backup --yes
 
-nagarectl storage snapshot notes data
 ```
 
 In cloud mode these Jobs use `google/cloud-sdk:slim` and write `gs://...`. In
@@ -165,12 +166,14 @@ local mode they use the AWS CLI image, MinIO credentials from the
 Restore commands are also local-mode aware:
 
 ```bash
-nagarectl db restore pg-main <backup-id>
-nagarectl storage restore notes data <snapshot-id>
+nagarectl db restore pg-main local-001 --restore-id local-restore-001 --save-plan ./local-restore
+nagarectl inventory apply ./local-restore --yes
 ```
 
-Restores stay scratch-first by default; pass `--into-live` only when you intend
-to overwrite live data.
+The reviewed PostgreSQL restore creates a new scratch database. Direct volume
+snapshot and restore remain available only before inventory initialization;
+the reviewed volume data route is still pending. Live-target database restore
+is not supported by the reviewed command.
 
 ## Optional: the auth plane
 

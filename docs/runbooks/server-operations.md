@@ -306,7 +306,7 @@ shell (`nix develop` / `direnv allow`), with `kubectl` pointed at k3s per
    component and prints its remediation command — `kubectl rollout status deploy/<name> -n
    <ns>; consult cluster/bootstrap/<component>/README.md` for a control plane,
    `gcloud auth configure-docker us-west1-docker.pkg.dev` for registry auth,
-   `nagarectl db backup <name>` for stale managed-database backups, `nagarectl cleanup`
+   a reviewed `nagarectl db backup <name> --backup-id ID --save-plan DIR` followed by `inventory apply DIR --yes` for stale managed-database backups, `nagarectl cleanup`
    for a full disk. Copy-paste each fix and re-run until the summary reads `0 failed`.
 
 5. **Confirm domains resolve.** `nagarectl server status` is all `OK` (modulo the expected

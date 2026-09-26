@@ -1,17 +1,16 @@
 -- | @nagarectl db backup NAME@ and the scheduled-backup CronJob (MasterPlan 9,
 -- EP-47, Integration Point IP6): an engine-appropriate logical dump of a managed
 -- database, uploaded to @gs://\<backup-bucket>/databases/\<name\>/\<ts\>.\<ext\>@.
--- Legacy direct operation uses keep-last-N retention; reviewed schedules check
--- the exact stored bytes and leave pruning to a separate lifecycle decision.
+-- Reviewed schedules check the exact stored bytes and leave pruning to a
+-- separate lifecycle decision. The old Job renderer remains for dry-run output.
 --
 -- The dump runs in a short-lived in-cluster Job with two containers sharing an
 -- @emptyDir@: an initContainer running the engine's own client image writes the
 -- dump to @\/dump@, and the main container (@google/cloud-sdk:slim@) gzips and
 -- @gsutil cp@s it to GCS. The CronJob wraps the same Job body on a daily schedule
 -- and, in legacy contexts, self-prunes inline. The pure renderers and
--- path/extension helpers are unit-testable without a cluster; the live leg is
--- deferred to EP-48 (and is additionally gated on the in-pod-ADC routing fix the
--- MasterPlan records — see EP-43 Surprises).
+-- path/extension helpers also support read-only legacy Job previews; reviewed
+-- manual backup execution is owned by the inventory compiler and adapter.
 module Nagare.Database.Backup
   ( -- * Pure object-key / extension helpers
     dbBackupObjectPath
@@ -39,13 +38,11 @@ module Nagare.Database.Backup
   , renderInventoryDbBackupCronJob
   , renderPreviousInventoryDbBackupCronJob
 
-    -- * Command driver
-  , runDbBackup
+    -- * Read-only legacy preview
+  , previewDbBackup
   )
 where
 
-import Control.Monad (forM_)
-import Cradle
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
@@ -76,11 +73,9 @@ import Nagare.Dsl.Database (Engine (..), dbSecretName, engineImage, parseEngine)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Resource.Canonical (contentDigest)
 import Nagare.Resource.Types (digestText)
-import Nagare.Storage.Snapshot (snapshotTimestamp, snapshotsToPrune)
-import System.Exit (ExitCode (..), exitFailure)
-import System.Environment (lookupEnv)
-import System.IO (hClose, stderr)
-import System.IO.Temp (withSystemTempFile)
+import Nagare.Storage.Snapshot (snapshotTimestamp)
+import System.Exit (exitFailure)
+import System.IO (stderr)
 
 -- ---------------------------------------------------------------------------
 -- Pure object-key / extension helpers
@@ -476,14 +471,10 @@ renderDbBackupCronJobWithOptions shouldPrune shouldVerify ns name eng version ba
 -- ---------------------------------------------------------------------------
 -- Command driver
 
--- | Run @db backup NAME@: resolve the database from the cluster, render and apply
--- the one-shot backup Job, wait for completion, prune to keep-last-N (reusing
--- 'snapshotsToPrune'), and (unless @--dry-run@) report the destination. With
--- @--dry-run@, print the Job (and the CronJob) manifests and apply nothing.
-runDbBackup :: Text -> Text -> StoreBackend -> Int -> Bool -> IO ()
-runDbBackup ns databaseName backend keep dryRun = do
-  transaction <- lookupEnv "NAGARE_INVENTORY_TRANSACTION"
-  when (isJust transaction) (die "db backup cannot run inside a reviewed inventory transaction")
+-- | Render the old backup Job and CronJob without submitting either to Kubernetes.
+-- This preview is read-only; live manual backups use reviewed Job scopes.
+previewDbBackup :: Text -> Text -> StoreBackend -> Int -> IO ()
+previewDbBackup ns databaseName backend keep = do
   erow <- getDatabase ns databaseName
   case erow of
     Left err -> die err
@@ -492,23 +483,19 @@ runDbBackup ns databaseName backend keep dryRun = do
       Just eng -> do
         now <- getCurrentTime
         let ts = snapshotTimestamp now
-            ext = backupExt eng
             image = engineImage eng <> ":" <> r ^. #version
-            secret = dbSecretName databaseName
-            dest = storeObjectUrl backend (dbBackupObjectPath databaseName ts ext)
-            prefix = storePrefixUrl backend (dbBackupKeyPrefix databaseName)
-            jobName = manualBackupJobName databaseName ts
+            dest = storeObjectUrl backend (dbBackupObjectPath databaseName ts (backupExt eng))
             jobInputs =
               BackupJobInputs
                 { namespace = ns
-                , jobName = jobName
+                , jobName = manualBackupJobName databaseName ts
                 , engine = eng
                 , clientImage = image
                 , serviceHost = databaseName
-                , secretName = secret
+                , secretName = dbSecretName databaseName
                 , name = databaseName
                 , destination = BackupDestUrl dest
-                , prefix = prefix
+                , prefix = storePrefixUrl backend (dbBackupKeyPrefix databaseName)
                 , keep = keep
                 , selfPrune = False
                 , verifyStored = False
@@ -517,64 +504,18 @@ runDbBackup ns databaseName backend keep dryRun = do
                 }
             cronInputs =
               BackupCronInputs
-                  { schedule = defaultBackupSchedule
-                  , base =
-                      jobInputs
-                      & #jobName .~ "nagare-dbbackup-" <> databaseName
-                      & #destination .~ BackupDestStamped
-                      & #selfPrune .~ True
+                { schedule = defaultBackupSchedule
+                , base =
+                    jobInputs
+                    & #jobName .~ "nagare-dbbackup-" <> databaseName
+                    & #destination .~ BackupDestStamped
+                    & #selfPrune .~ True
                 }
-        if dryRun
-          then do
-            TIO.putStrLn "--- Backup Job manifest ---"
-            BS.putStr (renderBackupJob jobInputs)
-            TIO.putStrLn ""
-            TIO.putStrLn "--- Backup CronJob manifest ---"
-            BS.putStr (renderBackupCronJob cronInputs)
-          else do
-            applyJob (renderBackupJob jobInputs)
-            waitForJob ns jobName
-            run_ $ cmd "kubectl" & addArgs ["delete", "job", T.unpack jobName, "-n", T.unpack ns, "--ignore-not-found"]
-            -- Laptop-side prune uses @gsutil@ and the cloud bucket; in local mode
-            -- the MinIO Service is in-cluster (unreachable from the laptop), so the
-            -- on-demand prune is skipped and retention is left to the in-pod
-            -- self-prune (the CronJob) — EP-84 Decision Log.
-            case backend of
-              GcsBackend {} -> pruneBackups prefix keep
-              MinioBackend {} -> pure ()
-            TIO.putStrLn ("Backup written: " <> dest)
-
-applyJob :: ByteString -> IO ()
-applyJob manifest = withSystemTempFile "nagare-dbbackup-job.yaml" $ \fp h -> do
-  BS.hPut h manifest
-  hClose h
-  run_ $ cmd "kubectl" & addArgs ["apply", "-f", fp]
-
-waitForJob :: Text -> Text -> IO ()
-waitForJob ns name = do
-  (code, _ :: StdoutUntrimmed) <-
-    run $
-      cmd "kubectl"
-        & addArgs ["wait", "--for=condition=complete", "--timeout=600s", "job/" <> T.unpack name, "-n", T.unpack ns]
-        & silenceStderr
-  case code of
-    ExitSuccess -> pure ()
-    ExitFailure _ -> do
-      TIO.hPutStrLn stderr ("nagarectl: backup job " <> name <> " did not complete; recent logs:")
-      run_ $ cmd "kubectl" & addArgs ["logs", "job/" <> T.unpack name, "-n", T.unpack ns, "--tail", "50"]
-      exitFailure
-
--- | List the database's backups and delete all but the newest @keep@, reusing
--- the pure 'snapshotsToPrune' (IP6).
-pruneBackups :: Text -> Int -> IO ()
-pruneBackups prefix keep = do
-  (code, StdoutUntrimmed out) <- run $ cmd "gsutil" & addArgs ["ls", T.unpack prefix] & silenceStderr
-  case code of
-    ExitFailure _ -> pure ()
-    ExitSuccess -> do
-      let objs = filter (not . T.null) (map T.strip (T.lines out))
-          surplus = snapshotsToPrune keep objs
-      forM_ surplus $ \o -> run_ $ cmd "gsutil" & addArgs ["rm", T.unpack o]
+        TIO.putStrLn "--- Backup Job manifest ---"
+        BS.putStr (renderBackupJob jobInputs)
+        TIO.putStrLn ""
+        TIO.putStrLn "--- Backup CronJob manifest ---"
+        BS.putStr (renderBackupCronJob cronInputs)
 
 die :: Text -> IO a
 die msg = do

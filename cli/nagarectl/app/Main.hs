@@ -100,14 +100,14 @@ import Nagare.Cluster.Kubeconfig
   , kubeconfigPath
   )
 import Nagare.Cluster.Namespace (NamespacePurpose (..))
-import Nagare.Database.Backup (runDbBackup)
+import Nagare.Database.Backup (previewDbBackup)
 import Nagare.Database.Connection (connectionEnv, mergeConnectionEnvs)
 import Nagare.Database.Create (DbCreateParams (..), resolveDatabase, runDbCreateWithGuard)
 import Nagare.Database.Discover (lookupConnection)
 import Nagare.Database.Get (runDbGet)
 import Nagare.Database.List (runDbList)
 import Nagare.Database.Restart (runDbRestart)
-import Nagare.Database.Restore (runDbRestore)
+import Nagare.Database.Restore (previewDbRestore)
 import Nagare.Database.Shell (runDbShell)
 import Nagare.Deploy (serviceUrl)
 import Nagare.Deploy.Resolve (resolveTag)
@@ -2966,7 +2966,7 @@ opts =
               "backup"
               ( info
                   (Db . DbBackup <$> dbBackupOptsParser <**> helper)
-                  (progDesc "Review a manual backup with --backup-id and --save-plan, or use legacy direct backup before inventory initialization")
+                  (progDesc "Save a reviewed manual backup with --backup-id and --save-plan; --dry-run previews legacy Job rendering")
               )
             <> command
               "prune-backup"
@@ -2985,7 +2985,7 @@ opts =
               "restore"
               ( info
                   (Db . DbRestore <$> dbRestoreOptsParser <**> helper)
-                  (progDesc "Restore a backup into a scratch target (or --into-live); --dry-run prints the Job")
+                  (progDesc "Save a reviewed scratch restore with --restore-id and --save-plan; --dry-run previews legacy Job rendering")
               )
         )
     taskCmd =
@@ -8743,15 +8743,13 @@ runDb mctx = \case
         runReviewedDbBackupPlan mctx (T.pack (o ^. #name))
           (nsOf (o ^. #namespace)) (o ^. #bucket) (T.pack backupId)
           (T.pack <$> o ^. #expiresAt) output
-      (Nothing, Nothing) -> do
+      (Nothing, Nothing) | o ^. #dryRun -> do
         when (isJust (o ^. #expiresAt))
           (dieT "--expires-at requires --backup-id and --save-plan")
-        unless (o ^. #dryRun) $ do
-          refuseDirectDataWriteWhenManaged mctx "database backup"
-          refuseDirectDataMutationIfOwned mctx DatabaseObjects "backup" (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
         backend <- resolveStoreBackend mctx (o ^. #bucket)
-        runDbBackup (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) backend
-          (fromMaybe 7 (o ^. #keep)) (o ^. #dryRun)
+        previewDbBackup (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) backend
+          (fromMaybe 7 (o ^. #keep))
+      (Nothing, Nothing) -> dieT "live database backup requires --backup-id and --save-plan"
       _ -> dieT "reviewed database backup requires both --backup-id and --save-plan"
   DbPruneBackup o -> runReviewedDbPruneBackupPlan mctx (T.pack (o ^. #name))
     (nsOf (o ^. #namespace)) (T.pack (o ^. #backupId))
@@ -8766,12 +8764,10 @@ runDb mctx = \case
         runReviewedDbRestorePlan mctx (T.pack (o ^. #name))
           (nsOf (o ^. #namespace)) (T.pack (o ^. #backupId))
           (T.pack restoreKey) (o ^. #bucket) output
-      (Nothing, Nothing) -> do
-        unless (o ^. #dryRun) $ do
-          refuseDirectDataWriteWhenManaged mctx "database restore"
-          refuseDirectDataMutationIfOwned mctx DatabaseObjects "restore" (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
+      (Nothing, Nothing) | o ^. #dryRun -> do
         backend <- resolveStoreBackend mctx (o ^. #bucket)
-        runDbRestore (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) (T.pack (o ^. #backupId)) (o ^. #live) backend (o ^. #dryRun)
+        previewDbRestore (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) (T.pack (o ^. #backupId)) (o ^. #live) backend
+      (Nothing, Nothing) -> dieT "live database restore requires --restore-id and --save-plan"
       _ -> dieT "reviewed database restore requires both --restore-id and --save-plan"
   where
     nsOf = maybe "personal" T.pack
@@ -9711,7 +9707,7 @@ resolveBackupBucket mctx Nothing = (^. #backupBucket) <$> activeProfile mctx
 -- the cloud GCS backend (project + 'resolveBackupBucket') in cloud mode, the
 -- in-cluster MinIO backend (from @NAGARE_LOCAL_OBJECT_STORE@) in local mode. The
 -- backend is constructed __once__ here from 'mode' ('storeBackendFor') and
--- threaded into 'runDbBackup'/'runDbRestore'/'runSnapshot'/'runStorageRestore'.
+-- threaded into the database Job previews and direct volume data commands.
 resolveStoreBackend :: Maybe String -> Maybe String -> IO StoreBackend
 resolveStoreBackend mctx bucketArg = do
   tp <- activeProfile mctx

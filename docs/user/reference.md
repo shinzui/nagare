@@ -534,15 +534,16 @@ the labels `nagare.dev/managed-by: nagarectl` + `nagare.dev/database=<name>` +
 | Command | Does |
 | --- | --- |
 | `nagarectl db list [-n NS]` | Table of managed databases: name, engine, version, size, status, host. |
-| `nagarectl db create ENGINE NAME [--version V] [--size Q] [--memory Q] [--config F]` | With backup and key-version recovery options, publish and apply a reviewed database; `--save-plan` saves the review. Without recovery options, use the legacy direct provisioner. |
+| `nagarectl db create ENGINE NAME [--version V] [--size Q] [--memory Q] [--config F] --recovery-backup B --recovery-key-version V` | Publish and apply a reviewed database; `--save-plan` saves the review. |
 | `nagarectl db get NAME` | Detail: engine, version, size, in-cluster host, retention, ready, Secret key names. |
 | `nagarectl db shell NAME` | Interactive `psql`/`redis-cli`/`clickhouse-client` inside the pod. |
 | `nagarectl db restart NAME` | Roll the StatefulSet and wait for ready. |
-| `nagarectl db delete NAME --yes` | Delete, honoring `RetentionPolicy` (guarded by `--yes`). |
-| `nagarectl db backup NAME [--bucket B] [--keep N]` | Logical dump to GCS or local MinIO; keep-last-N retention. |
-| `nagarectl db restore NAME BACKUP_ID [--into-live]` | Restore a backup, scratch-first (or into the live DB). |
+| `nagarectl db delete NAME --save-plan DIR` | Save a reviewed retirement that retains provider resources; apply separately. |
+| `nagarectl db backup NAME --backup-id ID --save-plan DIR` | Save a reviewed manual backup Job and apply separately. |
+| `nagarectl db restore NAME BACKUP_ID --restore-id ID --save-plan DIR` | Save a reviewed PostgreSQL scratch restore Job and apply separately. |
 
-All mutating commands support `--dry-run`. An app references a database by name
+Database create/backup/restore have read-only legacy Job rendering under
+`--dry-run`; reviewed plans show the actual live operations. An app references a database by name
 (the `databases` field on `Deployment`) and receives the per-engine connection
 env at deploy time. Backups land at
 `gs://<backup-bucket>/databases/<name>/<timestamp>.<ext>` in cloud mode or
