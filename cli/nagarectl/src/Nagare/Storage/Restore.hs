@@ -160,6 +160,7 @@ data ReviewedVolumeRestoreInputs = ReviewedVolumeRestoreInputs
   , sourceReceiptUrl :: !Text
   , expectedReceiptSha256 :: !Text
   , expectedArchiveSha256 :: !Text
+  , expiresAtEpoch :: !(Maybe Integer)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -184,7 +185,9 @@ renderReviewedVolumeRestoreJob input = Y.encode $ object
               ([ plainEnv "SRC" (job ^. #sourceUrl)
                , plainEnv "RECEIPT" (input ^. #sourceReceiptUrl)
                , plainEnv "RECEIPT_SHA256" (input ^. #expectedReceiptSha256)
-               , plainEnv "ARCHIVE_SHA256" (input ^. #expectedArchiveSha256) ]
+               , plainEnv "ARCHIVE_SHA256" (input ^. #expectedArchiveSha256)
+               , plainEnv "EXPIRY_EPOCH" (maybe "0" (T.pack . show)
+                   (input ^. #expiresAtEpoch)) ]
                 <> storeEnv backend)
           , "volumeMounts" .= toJSON
               [object ["name" .= ("restore" :: Text), "mountPath" .= ("/restore" :: Text)]
@@ -206,6 +209,7 @@ renderReviewedVolumeRestoreJob input = Y.encode $ object
           <> "command -v sha256sum >/dev/null 2>&1; "
     shell =
       "set -e; " <> storeShellPreamble backend <> verifyTools
+      <> "test \"$EXPIRY_EPOCH\" = 0 || test \"$(date -u +%s)\" -lt \"$EXPIRY_EPOCH\"; "
       <> storeCpToStdout backend "\"$RECEIPT\"" <> " > /dump/receipt.json; "
       <> "test \"$(sha256sum /dump/receipt.json | cut -d' ' -f1)\" = \"$RECEIPT_SHA256\"; "
       <> storeCpToStdout backend "\"$SRC\"" <> " > /dump/archive.tar.gz; "

@@ -100,6 +100,20 @@ ID only if the key is empty, then reads back and hashes the stored bytes. It
 creates a separate `.receipt.json` object and checks its readback. Apply
 rechecks the PVC identity before submitting and accepting the Job. There is no
 automatic pruning; an occupied ID or partial upload needs explicit recovery.
+Snapshots default to `retain`. To permit later pruning, add a future
+`--expires-at YYYY-MM-DDTHH:MM:SSZ` when planning the snapshot. Once it
+expires, save and apply an exact prune review:
+
+```bash
+nagarectl storage prune-snapshot APP VOLUME BACKUP_ID --save-plan DIR
+nagarectl inventory apply DIR --yes
+```
+
+Pruning refuses retained or unexpired snapshots and accepted restore
+dependencies. The fixed Job rereads both exact objects, checks their hashes
+and provider versions, then deletes only those versions. A partial deletion
+needs explicit recovery. A finite-expiry snapshot cannot be restored after
+expiry; the restore Job checks the deadline again before reading it.
 Restore an accepted snapshot into a separate scratch PVC:
 
 ```bash

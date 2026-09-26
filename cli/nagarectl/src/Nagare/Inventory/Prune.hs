@@ -59,17 +59,26 @@ data PruneSourceProof = PruneSourceProof
   , pruneSourceRevision :: !ContentDigest
   , pruneSourceJob :: !ResourceId
   , pruneSourceUid :: !PhysicalIdentity
+  , pruneSourceCredential :: !(Maybe (ResourceId, PhysicalIdentity))
   }
   deriving stock (Eq, Show)
 
 manualPruneSourceProof :: ScopeDeclaration -> Either Text (Maybe PruneSourceProof)
 manualPruneSourceProof scope
   | Map.notMember "prune.backup.scope" values = Right Nothing
-  | otherwise = Just <$> (PruneSourceProof
-      <$> required "prune.backup.scope"
-      <*> (required "prune.backup.revision" >>= mkContentDigest)
-      <*> (required "prune.backup.job" >>= mkResourceId)
-      <*> (required "prune.backup.job.uid" >>= mkPhysicalIdentity))
+  | otherwise = Just <$> do
+      credential <- case (Map.lookup "prune.credential" values,
+          Map.lookup "prune.credential.uid" values) of
+        (Nothing, Nothing) -> Right Nothing
+        (Just resource, Just uid) ->
+          Just <$> ((,) <$> mkResourceId resource <*> mkPhysicalIdentity uid)
+        _ -> Left "manual prune scope has incomplete credential pins"
+      PruneSourceProof
+        <$> required "prune.backup.scope"
+        <*> (required "prune.backup.revision" >>= mkContentDigest)
+        <*> (required "prune.backup.job" >>= mkResourceId)
+        <*> (required "prune.backup.job.uid" >>= mkPhysicalIdentity)
+        <*> pure credential
   where
     values = scopeOverrides scope
     required key = maybe (Left ("manual prune scope lacks " <> key)) Right

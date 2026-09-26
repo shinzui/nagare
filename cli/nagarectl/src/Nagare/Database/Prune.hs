@@ -5,10 +5,12 @@
 module Nagare.Database.Prune
   ( PruneJobInputs (..)
   , renderPruneJob
+  , renderVolumePruneJob
   , pruneShell
   ) where
 
 import Data.Aeson (Value, object, toJSON, (.=))
+import Data.Aeson.Key qualified as K
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
 import Data.Text (Text)
@@ -33,7 +35,13 @@ data PruneJobInputs = PruneJobInputs
   deriving stock (Generic, Eq, Show)
 
 renderPruneJob :: PruneJobInputs -> ByteString
-renderPruneJob inputs = Y.encode $ object
+renderPruneJob = renderPruneJobWithLabel "nagare.dev/database-prune"
+
+renderVolumePruneJob :: PruneJobInputs -> ByteString
+renderVolumePruneJob = renderPruneJobWithLabel "nagare.dev/volume-prune"
+
+renderPruneJobWithLabel :: Text -> PruneJobInputs -> ByteString
+renderPruneJobWithLabel label inputs = Y.encode $ object
   [ "apiVersion" .= ("batch/v1" :: Text)
   , "kind" .= ("Job" :: Text)
   , "metadata" .= object
@@ -65,7 +73,7 @@ renderPruneJob inputs = Y.encode $ object
   where
     labels = object
       [ "nagare.dev/managed-by" .= ("nagarectl" :: Text)
-      , "nagare.dev/database-prune" .= ("reviewed" :: Text)
+      , K.fromText label .= ("reviewed" :: Text)
       ]
 
 plainEnv :: Text -> Text -> Value

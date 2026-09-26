@@ -459,6 +459,7 @@ data VolumeSnapshotRequest = VolumeSnapshotRequest
   , volumeName :: !T.Text
   , volumeNamespace :: !T.Text
   , volumeBackupId :: !T.Text
+  , volumeExpiresAt :: !(Maybe UTCTime)
   , volumeSourceRevision :: !ScopeRevision
   , volumeSourcePvcUid :: !PhysicalIdentity
   , volumeStorageBackend :: !StoreBackend
@@ -525,11 +526,13 @@ compileVolumeSnapshotScope request accepted native = do
       objectUrl = storeObjectUrl (volumeStorageBackend request)
         ("manual-volumes/" <> ns <> "/" <> app <> "/" <> volume <> "/" <> backupId <> ".tar.gz")
       receiptUrl = objectUrl <> ".receipt.json"
+      expiry = maybe "retain" (T.pack . formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ")
+        (volumeExpiresAt request)
   unless (T.length jobName <= 63)
     (Left (invalid "volume snapshot Job name exceeds 63 characters"))
   let receiptMetadataValue = object
         [ "id" .= backupId, "app" .= app, "volume" .= volume, "namespace" .= ns
-        , "object" .= objectUrl, "expiry" .= ("retain" :: T.Text)
+        , "object" .= objectUrl, "expiry" .= expiry
         , "sourceScope" .= scopeIdText (scopeId accepted)
         , "sourceGeneration" .= generationNumber (revisionGeneration (volumeSourceRevision request))
         , "sourceRevision" .= digestText (revisionDigest (volumeSourceRevision request))
@@ -592,7 +595,7 @@ compileVolumeSnapshotScope request accepted native = do
             (revisionDigest (volumeSourceRevision request)))
         , ("volume-backup.source.pvc", resourceIdText (pvc ^. #identity))
         , ("volume-backup.source.pvc.uid", physicalIdentityText (volumeSourcePvcUid request))
-        , ("volume-backup.expiry", "retain")
+        , ("volume-backup.expiry", expiry)
         , ("volume-backup.verification", "sha256-readback")
         ]
   base <- mkScopeDeclaration owner [ResourceBundle [Managed member] [] [] [] [proof] []]

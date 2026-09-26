@@ -329,6 +329,7 @@ data VolumeRestoreRequest = VolumeRestoreRequest
   , volumeRestoreBackupRevision :: !ScopeRevision
   , volumeRestoreBackupJobUid :: !PhysicalIdentity
   , volumeRestoreReceiptBytes :: !ByteString
+  , volumeRestoreNow :: !UTCTime
   , volumeRestoreTargetRevision :: !ScopeRevision
   , volumeRestoreTargetPvcUid :: !PhysicalIdentity
   , volumeRestoreBackend :: !StoreBackend
@@ -434,8 +435,14 @@ compileVolumeRestoreScope request target native = do
   objectUrl <- required "volume-backup.object"
   receiptUrl <- required "volume-backup.receipt"
   expiry <- required "volume-backup.expiry"
-  unless (expiry == "retain")
-    (Left (invalid "volume backup expiry policy is unsupported"))
+  expiryEpoch <- if expiry == "retain" then Right Nothing else
+    case parseTimeM True defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ"
+        (T.unpack expiry) :: Maybe UTCTime of
+      Nothing -> Left (invalid "volume backup expiry policy is invalid")
+      Just selected -> do
+        unless (selected > volumeRestoreNow request)
+          (Left (invalid "volume backup has expired"))
+        Right (Just (floor (utcTimeToPOSIXSeconds selected)))
   unless (objectUrl == storeObjectUrl (volumeRestoreBackend request)
       ("manual-volumes/" <> ns <> "/" <> app <> "/" <> volume <> "/"
         <> backupId <> ".tar.gz") && receiptUrl == objectUrl <> ".receipt.json")
@@ -504,7 +511,7 @@ compileVolumeRestoreScope request target native = do
   let jobInputs = Volume.StorageRestoreJobInputs ns jobName scratchName objectUrl
         "/restore" (volumeRestoreBackend request)
       reviewed = Volume.ReviewedVolumeRestoreInputs jobInputs receiptUrl
-        (digestText (contentDigest (volumeRestoreReceiptBytes request))) checksum
+        (digestText (contentDigest (volumeRestoreReceiptBytes request))) checksum expiryEpoch
   rendered <- first (invalid . T.pack . show)
     (Yaml.decodeEither' (Volume.renderReviewedVolumeRestoreJob reviewed)
       :: Either Yaml.ParseException Value)

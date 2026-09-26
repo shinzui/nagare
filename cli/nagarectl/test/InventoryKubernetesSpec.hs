@@ -21,7 +21,7 @@ import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime)
 import Data.Time.Format (defaultTimeLocale, parseTimeM)
 import Data.Yaml qualified as Yaml
-import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
+import Nagare.Cluster.GcsJob (MinioRef (..), StoreBackend (GcsBackend, MinioBackend))
 import Nagare.Database.Backup (renderDbBackupCronJob, renderPreviousInventoryDbBackupCronJob)
 import Nagare.Database.Secret (b64decode)
 import Nagare.Dsl.Prelude hiding ((.=))
@@ -36,6 +36,7 @@ import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
 import Nagare.Inventory.Database (compileDatabaseForBackend)
 import Nagare.Inventory.Backup (ManualBackupRequest (..), BackupReceiptExpectation (..), BackupSourceProof (..), VolumeSnapshotRequest (..), compileManualBackupScope, compileVolumeSnapshotScope, manualBackupJobReceiptExpectation, manualBackupJobSourcePins, manualBackupSourceProof, parseBackupReceipt, parseManualBackupReceipt, volumeSnapshotJobSourcePins)
 import Nagare.Inventory.Prune (ManualPruneRequest (..), PruneSourceProof (..), compileManualPruneScope, manualPruneJobBackupPin, manualPruneSourceProof)
+import Nagare.Inventory.VolumePrune (VolumePruneRequest (..), compileVolumePruneScope, volumePruneJobCredentialPin)
 import Nagare.Inventory.Restore (ManualRestoreRequest (..), VolumeRestoreRequest (..), compileManualRestoreScope, compileVolumeRestoreScope, manualRestoreJobTargetPins, manualRestoreTargetProof, volumeRestoreJobSourcePins)
 import Nagare.Inventory.DataService (NativeDataKind (..), compileBackupPruneRemovalScope, compileStandaloneDatabase, compileStatefulSetRestartScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Digest
@@ -455,7 +456,7 @@ inventoryKubernetesTests =
             sourceNative = Map.singleton pvcId (pvc, nativeBytes)
             request = VolumeSnapshotRequest
               { volumeApp = "notes", volumeName = "data", volumeNamespace = "default"
-              , volumeBackupId = "run-001"
+              , volumeBackupId = "run-001", volumeExpiresAt = Nothing
               , volumeSourceRevision = ScopeRevision
                   (ok (mkScopeGeneration 2)) (contentDigest "accepted-volume")
               , volumeSourcePvcUid = ok (mkPhysicalIdentity "pvc-uid")
@@ -529,6 +530,9 @@ inventoryKubernetesTests =
                   (ok (mkScopeGeneration 1)) (contentDigest "accepted-backup")
               , volumeRestoreBackupJobUid = ok (mkPhysicalIdentity "backup-job-uid")
               , volumeRestoreReceiptBytes = receiptBytes
+              , volumeRestoreNow = maybe (error "invalid restore time") id
+                  (parseTimeM True defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ"
+                    "2026-01-01T00:00:00Z" :: Maybe UTCTime)
               , volumeRestoreTargetRevision = ScopeRevision
                   (ok (mkScopeGeneration 2)) (contentDigest "accepted-volume")
               , volumeRestoreTargetPvcUid = ok (mkPhysicalIdentity "pvc-uid")
@@ -585,6 +589,178 @@ inventoryKubernetesTests =
           AdapterEffectFailed {} -> pure ()
           other -> assertFailure ("changed backup Job reached provider: " <> show other)
         readIORef restoreWrites >>= (@?= 0)
+        let finiteExpiry = maybe (error "invalid volume expiry") id
+              (parseTimeM True defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ"
+                "2027-01-01T00:00:00Z" :: Maybe UTCTime)
+            afterExpiry = maybe (error "invalid volume prune time") id
+              (parseTimeM True defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ"
+                "2027-01-02T00:00:00Z" :: Maybe UTCTime)
+            (finiteScope, finiteNative) = ok (compileVolumeSnapshotScope
+              (request {volumeExpiresAt = Just finiteExpiry}) sourceScope sourceNative)
+            (finiteJob, finiteBytes) = case Map.elems finiteNative of
+              [entry] -> entry
+              _ -> error "finite volume snapshot must bind one Job"
+            finiteMetadata = case ok (eitherDecodeStrict finiteBytes) of
+              value -> case receiptMetadataValues value of
+                [selected] -> selected
+                _ -> error "finite volume snapshot lacks receipt metadata"
+            finiteReceipt = BL.toStrict (encode (object
+              [ "version" .= (1 :: Int), "sha256" .= checksum
+              , "backup" .= (ok (eitherDecodeStrict (TE.encodeUtf8 finiteMetadata)) :: Value) ]))
+            pruneRequest = VolumePruneRequest
+              { pruneVolumeApp = "notes", pruneVolumeName = "data"
+              , pruneVolumeNamespace = "default", pruneVolumeBackupId = "run-001"
+              , pruneVolumeBackupRevision = ScopeRevision
+                  (ok (mkScopeGeneration 1)) (contentDigest "accepted-finite-backup")
+              , pruneVolumeBackupUid = ok (mkPhysicalIdentity "backup-job-uid")
+              , pruneVolumeReceiptBytes = finiteReceipt
+              , pruneVolumeNow = afterExpiry
+              , pruneVolumeBackend = GcsBackend "project" "bucket"
+              , pruneVolumeCredential = Nothing
+              , pruneVolumeSource = SourceLocation "storage prune-snapshot" "run-001" }
+            (pruneScope, pruneNative) = ok
+              (compileVolumePruneScope pruneRequest finiteScope finiteNative)
+            (pruneJob, pruneBytes) = case Map.elems pruneNative of
+              [entry] -> entry
+              _ -> error "volume prune must bind one Job"
+            finiteRestore = restoreRequest
+              { volumeRestoreBackup = finiteScope
+              , volumeRestoreReceiptBytes = finiteReceipt }
+        Map.lookup "volume-backup.expiry" (scopeOverrides finiteScope)
+          @?= Just "2027-01-01T00:00:00Z"
+        assertBool "unexpired volume snapshot was prunable"
+          (isLeft (compileVolumePruneScope
+            (pruneRequest {pruneVolumeNow = volumeRestoreNow restoreRequest})
+            finiteScope finiteNative))
+        assertBool "retained volume snapshot was prunable"
+          (isLeft (compileVolumePruneScope pruneRequest backupScope backupNative))
+        assertBool "tampered volume receipt was prunable"
+          (isLeft (compileVolumePruneScope
+            (pruneRequest {pruneVolumeReceiptBytes = "{}"}) finiteScope finiteNative))
+        manualPruneSourceProof pruneScope @?= Right (Just (PruneSourceProof
+          (scopeIdText (scopeId finiteScope))
+          (revisionDigest (pruneVolumeBackupRevision pruneRequest))
+          (finiteJob ^. #identity) (pruneVolumeBackupUid pruneRequest) Nothing))
+        manualPruneJobBackupPin pruneBytes @?= Right
+          (Just (finiteJob ^. #identity, pruneVolumeBackupUid pruneRequest))
+        volumePruneJobCredentialPin pruneBytes @?= Right Nothing
+        pruneJob ^. #dependencies @?= [OrderedAfter (finiteJob ^. #identity)]
+        assertBool "volume pruning lacks exact version and hash checks"
+          (BC.isInfixOf "--if-generation-match" pruneBytes
+            && BC.isInfixOf "EXPECTED_RECEIPT_SHA256" pruneBytes
+            && BC.isInfixOf "EXPECTED_OBJECT_SHA256" pruneBytes)
+        pruneStates <- newIORef (Map.fromList
+          [ (pruneJob ^. #identity, KubernetesAbsent absence)
+          , (finiteJob ^. #identity, KubernetesPresent
+              (pruneVolumeBackupUid pruneRequest) "1"
+              (Just (finiteJob ^. #identity)) (contentDigest finiteBytes)) ])
+        pruneWrites <- newIORef (0 :: Int)
+        let pruneAdapter = mkKubernetesAdapter (Map.union pruneNative finiteNative)
+              KubernetesAdapterOps
+                { kubernetesContext = ok (mkContextId "test")
+                , kubernetesObserve = \selected -> Map.findWithDefault
+                    (KubernetesUnknown "unbound") selected <$> readIORef pruneStates
+                , kubernetesMutateConditional = \_ -> modifyIORef' pruneWrites (+ 1)
+                    >> pure AdapterEffectCompleted }
+            pruneCreate = createOperation
+              {plannedResources = pruneJob ^. #identity :| []}
+        preparedPrune <- adapterPrepare pruneAdapter pruneCreate >>= expectRight
+        adapterPreflight pruneAdapter pruneCreate preparedPrune >>= expectRight
+        modifyIORef' pruneStates (Map.insert (finiteJob ^. #identity)
+          (KubernetesPresent (ok (mkPhysicalIdentity "changed-backup-job"))
+            "2" (Just (finiteJob ^. #identity)) (contentDigest finiteBytes)))
+        assertBool "changed snapshot Job UID passed volume prune preflight"
+          . isLeft =<< adapterPreflight pruneAdapter pruneCreate preparedPrune
+        adapterExecute pruneAdapter pruneCreate preparedPrune >>= \case
+          AdapterEffectFailed {} -> pure ()
+          other -> assertFailure ("changed snapshot Job reached prune provider: " <> show other)
+        readIORef pruneWrites >>= (@?= 0)
+        assertBool "finite restore refused before expiry"
+          (not (isLeft (compileVolumeRestoreScope finiteRestore sourceScope
+            (Map.union finiteNative sourceNative))))
+        assertBool "expired volume restore was accepted"
+          (isLeft (compileVolumeRestoreScope
+            (finiteRestore {volumeRestoreNow = afterExpiry}) sourceScope
+            (Map.union finiteNative sourceNative)))
+        let secretOwner = ok (mkScopeId Platform "local-store")
+            secretId = mintResourceId secretOwner (ok (mkLogicalKey "store"))
+              (ok (mkName "secret"))
+            secretValue = object
+              [ "apiVersion" .= ("v1" :: Text), "kind" .= ("Secret" :: Text)
+              , "metadata" .= object
+                  ["name" .= ("minio-credentials" :: Text), "namespace" .= ("default" :: Text)]
+              , "type" .= ("Opaque" :: Text)
+              , "data" .= object ["AWS_ACCESS_KEY_ID" .= ("ZHVtbXk=" :: Text)] ]
+            secretCanonical = ok (canonicalValue secretValue)
+            (storeSecret, storeSecretBytes) = ok (bindKubernetesObject KubernetesInput
+              { resourceId = secretId, ownerScope = secretOwner, clusterId = cluster
+              , inputObject = secretValue, objectDigest = contentDigest secretCanonical
+              , lifecyclePolicy = Retain, inputDataPolicy = Stateless
+              , inputSensitivity = Secret, sourceLocation = SourceLocation "local" "store" })
+            secretNative = Map.singleton secretId (storeSecret, storeSecretBytes)
+            secretUid = ok (mkPhysicalIdentity "store-secret-uid")
+            localBackend = MinioBackend (MinioRef "http://minio:9000" "bucket" "minio-credentials")
+            localRequest = request
+              { volumeStorageBackend = localBackend
+              , volumeStoreCredential = Just (storeSecret, secretUid)
+              , volumeExpiresAt = Just finiteExpiry }
+            (localScope, localNative) = ok (compileVolumeSnapshotScope localRequest
+              sourceScope (Map.union secretNative sourceNative))
+            (localJob, localBytes) = case Map.elems localNative of
+              [entry] -> entry
+              _ -> error "local volume snapshot must bind one Job"
+            localMetadata = case receiptMetadataValues (ok (eitherDecodeStrict localBytes)) of
+              [selected] -> selected
+              _ -> error "local volume snapshot lacks receipt metadata"
+            localReceipt = BL.toStrict (encode (object
+              [ "version" .= (1 :: Int), "sha256" .= checksum
+              , "backup" .= (ok (eitherDecodeStrict (TE.encodeUtf8 localMetadata)) :: Value) ]))
+            localPruneRequest = pruneRequest
+              { pruneVolumeBackend = localBackend
+              , pruneVolumeCredential = Just (storeSecret, secretUid)
+              , pruneVolumeReceiptBytes = localReceipt }
+            (localPruneScope, localPruneNative) = ok (compileVolumePruneScope
+              localPruneRequest localScope (Map.union localNative secretNative))
+            (localPruneJob, localPruneBytes) = case Map.elems localPruneNative of
+              [entry] -> entry
+              _ -> error "local volume prune must bind one Job"
+        volumePruneJobCredentialPin localPruneBytes @?= Right (Just (secretId, secretUid))
+        case manualPruneSourceProof localPruneScope of
+          Right (Just proof) -> pruneSourceCredential proof @?= Just (secretId, secretUid)
+          other -> assertFailure ("local prune credential proof missing: " <> show other)
+        localPruneJob ^. #dependencies @?=
+          [OrderedAfter (localJob ^. #identity), OrderedAfter secretId]
+        assertBool "local prune did not select version-specific deletion"
+          (BC.isInfixOf "--version-id" localPruneBytes)
+        localStates <- newIORef (Map.fromList
+          [ (localPruneJob ^. #identity, KubernetesAbsent absence)
+          , (localJob ^. #identity, KubernetesPresent
+              (pruneVolumeBackupUid localPruneRequest) "1"
+              (Just (localJob ^. #identity)) (contentDigest localBytes))
+          , (secretId, KubernetesPresent secretUid "1"
+              (Just secretId) (contentDigest storeSecretBytes)) ])
+        localWrites <- newIORef (0 :: Int)
+        let localAdapter = mkKubernetesAdapter
+              (Map.unions [localPruneNative, localNative, secretNative])
+              KubernetesAdapterOps
+                { kubernetesContext = ok (mkContextId "test")
+                , kubernetesObserve = \selected -> Map.findWithDefault
+                    (KubernetesUnknown "unbound") selected <$> readIORef localStates
+                , kubernetesMutateConditional = \_ -> modifyIORef' localWrites (+ 1)
+                    >> pure AdapterEffectCompleted }
+            localCreate = createOperation
+              {plannedResources = localPruneJob ^. #identity :| []}
+        preparedLocal <- adapterPrepare localAdapter localCreate >>= expectRight
+        adapterPreflight localAdapter localCreate preparedLocal >>= expectRight
+        modifyIORef' localStates (Map.insert secretId
+          (KubernetesPresent (ok (mkPhysicalIdentity "replacement-secret"))
+            "2" (Just secretId) (contentDigest storeSecretBytes)))
+        assertBool "changed local credential UID passed prune preflight"
+          . isLeft =<< adapterPreflight localAdapter localCreate preparedLocal
+        adapterExecute localAdapter localCreate preparedLocal >>= \case
+          AdapterEffectFailed {} -> pure ()
+          other -> assertFailure ("changed local credential reached prune provider: " <> show other)
+        readIORef localWrites >>= (@?= 0)
     , testCase "manual database backup binds object and source incarnation into its own Job scope" $ do
         let owner = ok (mkScopeId Standalone "database-pg-main")
             db = Database (ok (mkDatabaseName "pg-main")) Nothing Postgres (defaultEngineVersion Postgres)

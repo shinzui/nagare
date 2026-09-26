@@ -217,6 +217,20 @@ nagarectl storage snapshot notes data --snapshot-id run-001 --save-plan ./volume
 nagarectl inventory apply ./volume-review --yes
 ```
 
+Snapshots default to `retain`. Add `--expires-at YYYY-MM-DDTHH:MM:SSZ` when
+creating a snapshot that may later be pruned. After that time, an accepted
+snapshot with no accepted restore or other dependent resource can be removed
+through a separate review:
+
+```bash
+nagarectl storage prune-snapshot notes data run-001 --save-plan ./volume-prune-review
+nagarectl inventory apply ./volume-prune-review --yes
+```
+
+The prune Job rechecks the completed snapshot receipt, current object and
+receipt hashes, and exact provider versions before deleting. It cannot prune
+a retained or unexpired snapshot. Partial deletion requires explicit recovery.
+
 
 ## Backup ownership and the deploy-time warning
 
@@ -230,7 +244,7 @@ deploy time**, so no volume is ever silently unprotected:
   in the active store. In cloud mode
   that is `gs://<backup-bucket>/...`; in local mode it is
   `s3://nagare-backups/...` on MinIO. The Job verifies stored bytes and a
-  separate receipt. Snapshot deletion needs a separate reviewed action.
+  separate receipt. Expiring snapshots use the separate reviewed pruning action.
 - `retention = Delete` ⇒ **backup-excluded**: `nagarectl deploy` prints, to
   stderr, `warning: volume '<vol>' on app '<app>' is NOT backed up (backup
   excluded in config)`.

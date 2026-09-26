@@ -508,8 +508,9 @@ volume *before* the Service.
 | --- | --- |
 | `nagarectl storage list APP` | List the app's volumes: volume name, PVC name, size, bound status, node path (`MISSING` if a declared volume has no PVC yet). |
 | `nagarectl storage inspect APP VOLUME` | `kubectl describe` the volume's PVC in detail. |
-| `nagarectl storage snapshot APP VOLUME --snapshot-id ID --save-plan DIR [--bucket B]` | Save a reviewed, create-only archive and checksum receipt Job for an accepted PVC. Apply with `inventory apply DIR --yes`. `--dry-run` prints a read-only legacy Job preview. |
-| `nagarectl storage restore APP VOLUME BACKUP_ID --restore-id ID --save-plan DIR [--bucket B]` | Save a reviewed scratch PVC and Job from an accepted snapshot receipt. Apply with `inventory apply DIR --yes`. Live `--into-live` is unavailable; `--dry-run` prints the older read-only preview. |
+| `nagarectl storage snapshot APP VOLUME --snapshot-id ID --save-plan DIR [--expires-at UTC] [--bucket B]` | Save a reviewed, create-only archive and checksum receipt Job for an accepted PVC. The default expiry policy is `retain`; `--expires-at` uses `YYYY-MM-DDTHH:MM:SSZ`. Apply with `inventory apply DIR --yes`. `--dry-run` prints a read-only legacy Job preview. |
+| `nagarectl storage restore APP VOLUME BACKUP_ID --restore-id ID --save-plan DIR [--bucket B]` | Save a reviewed scratch PVC and Job from an accepted, unexpired snapshot receipt. Apply with `inventory apply DIR --yes`. Live `--into-live` is unavailable; `--dry-run` prints the older read-only preview. |
+| `nagarectl storage prune-snapshot APP VOLUME BACKUP_ID --save-plan DIR [--bucket B]` | Save a separate expiry-gated review to delete one accepted snapshot archive and receipt after checking their current hashes and versions. Accepted restore dependencies refuse pruning. Apply with `inventory apply DIR --yes`. |
 
 PVCs are named deterministically `nagare-vol-<app>-<volume>` and labelled
 `nagare.dev/managed-by: nagarectl` + `nagare.dev/app=<app>` + `nagare.dev/volume=<volume>`
