@@ -177,7 +177,9 @@ working tree.
   recipient and re-place the backed-up old key with `--force`. Keep both backups until status and
   Tailscale are healthy. This direct rotation path is available only before substantive resource
   inventory history exists; managed contexts await a reviewed host credential operation.
-- **App runtime secrets:** use `nagarectl secret set/delete`.
+- **App runtime secrets:** use `nagarectl secret set/delete --version TOKEN`
+  for a reviewed update after inventory initialization. The direct form is
+  available only before that boundary.
 - **Cluster bootstrap secrets:** edit the context-owned encrypted file, then
   re-apply the loop above. `nagare observability` resolves the same directory
   and fails closed when a required Secret is absent.

@@ -522,3 +522,9 @@ app-volume snapshot and restore also refuse live direct execution. Reviewed
 create, restart, and retention-preserving retirement remain available; the
 remaining operations need explicit receipts and recovery policy before M3 can
 close. Read-only dry-run forms remain available where the command supports them.
+
+Initialized contexts also require reviewed Runtime, Build, or Preview env
+channel writes and versioned Secret channel writes. A newly named store cannot
+enter through the direct command merely because no accepted native address
+exists yet. The old direct forms remain for uninitialized contexts and their
+dry-run output remains read-only.

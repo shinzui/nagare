@@ -130,7 +130,8 @@ Reviewed application deploy also declares the per-Service release-history Config
 Stable-ID `task run` now publishes, reloads, and applies its reviewed Job in one invocation; `--save-plan` remains available for separate inspection and apply. The direct timestamped route remains for tasks outside accepted inventory.
 In initialized inventory contexts, live `task run` now requires that stable-ID reviewed route, even for a newly named CronJob. Direct `task delete --yes` refuses there until schedule retirement has an exact reviewed operation. The read-only run/delete previews remain available; uninitialized contexts retain the legacy commands.
 An isolated CLI regression exercised the live application and Task refusals against an initialized context and verified that its inventory head remained byte-for-byte unchanged.
-The same boundary now refuses direct live database and broker creation, deletion, and restart for new names. Reviewed create, restart, and retirement remain available. Direct database shell, backup, and restore and app-volume snapshot and restore also refuse after initialization while their reviewed operational forms are still pending. The CLI regression now covers eighteen live refusals; its inventory head remained unchanged.
+The same boundary now refuses direct live database and broker creation, deletion, and restart for new names. Reviewed create, restart, and retirement remain available. Direct database shell, backup, and restore and app-volume snapshot and restore also refuse after initialization while their reviewed operational forms are still pending.
+Direct live env set/delete/sync and unversioned Secret set/delete now also refuse after initialization, including a newly named app. Reviewed env changes use `--reviewed` or a saved review; Secret changes bind a version. The isolated CLI regression now covers twenty-three refusals without changing its inventory head.
 Versioned `secret set`, `secret delete`, and exact `secret sync` now use the same one-invocation review service when no saved review directory is supplied; private native Secret bytes remain in the immutable evidence store. Unversioned direct writes remain guarded legacy routes.
 `env set`, `env delete`, and merged or exact `env sync` can opt into the same one-invocation reviewed path with `--reviewed`; the existing `--save-plan` route shares its compiler. Unreviewed direct env writes remain guarded legacy routes.
 Reviewed aggregate pre-deploy hooks now bind independent per-tag scopes with stable Jobs and typed completion operations. The caller must list every affected resource or assert no data effects; hook Jobs wait for their CronJobs, affected resources, and preceding hooks, and workloads wait for completion. Old hook scopes remain accepted across tags, while a changed hook under the same tag refuses. CDN and remaining command paths stay in M2 through M4.
@@ -338,6 +339,8 @@ Critical path from completed M1 to final acceptance, in execution order:
 
 ## Decision Log
 
+2026-09-26: Require the reviewed environment and versioned Secret channels for every live write after inventory initialization. The previous native-address guard protected accepted stores but let a newly named store bypass the channel revision, private Secret evidence, and review journal. Keep direct dry-run output and the legacy uninitialized-context route.
+
 2026-09-26: Extend the initialized-store cutover to data command fallbacks. A native-address check cannot authorize a new, unreviewed StatefulSet, backup Job, maintenance shell, or snapshot in a context already using inventory. Keep direct commands for uninitialized contexts and read-only dry-run forms where provided. Manual backup, restore, maintenance, and deletion still require reviewed operations; this refusal is an intermediate safety boundary, not M3 completion.
 
 2026-09-26: Use inventory initialization as the boundary for direct Task Job submission and schedule deletion. A timestamped manual run has no stable retry identity, and direct CronJob deletion has no reviewed lifecycle decision. Require the accepted-CronJob `--run-id` route for live runs; refuse live deletion until schedule retirement is implemented. Plan-only and dry-run output remain available.
@@ -489,6 +492,8 @@ DependencyExports contains typed capability witnesses and selected revision/phys
 
 
 ## Revision Notes
+
+2026-09-26: Closed unreviewed live env and Secret writes after inventory admission and extended the isolated CLI refusal proof to twenty-three cases.
 
 2026-09-26: Refused direct live data operations in initialized inventory contexts and documented the remaining reviewed operation gaps. Expanded the isolated CLI refusal regression to eighteen cases.
 

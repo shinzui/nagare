@@ -9333,6 +9333,12 @@ refuseDirectTaskMutationIfOwned mctx operation name namespaceName =
     in when (cronjob || historyMap)
       (dieT ("task " <> name <> " is owned by accepted or retained inventory history; direct " <> operation <> " is refused"))
 
+refuseDirectStoreWriteWhenManaged :: Maybe String -> Text -> Text -> IO ()
+refuseDirectStoreWriteWhenManaged mctx operation reviewedFlag =
+  withAcceptedInventoryHistory mctx operation $ \_ ->
+    dieT ("inventory history is initialized; direct " <> operation
+      <> " is refused. Use " <> reviewedFlag <> " for a reviewed channel update")
+
 refuseDirectStoreMutationIfOwned :: Maybe String -> Bool -> Text -> Text -> [EnvScope] -> IO ()
 refuseDirectStoreMutationIfOwned mctx secret appName namespaceName scopes =
   withAcceptedInventoryHistory mctx (if secret then "secret write" else "env write") $ \history -> do
@@ -9649,6 +9655,7 @@ runEnv mctx = \case
       then saveReviewedEnvChange mctx name ns sel dry "env set"
         (Right . Map.insert (T.pack key) (T.pack val)) savePlan
       else do
+        unless dry (refuseDirectStoreWriteWhenManaged mctx "env set" "--reviewed")
         refuseDirectStoreMutationIfOwned mctx False name ns (selectedScopes sel)
         forM_ (selectedScopes sel) $ \scope -> do
           existing <- orDie =<< readEnvStore name ns scope
@@ -9663,6 +9670,7 @@ runEnv mctx = \case
           then Right (Map.delete (T.pack key) existing)
           else Left "env key is absent from the accepted channel") savePlan
       else do
+        unless dry (refuseDirectStoreWriteWhenManaged mctx "env delete" "--reviewed")
         refuseDirectStoreMutationIfOwned mctx False name ns (selectedScopes sel)
         forM_ (selectedScopes sel) $ \scope -> do
           existing <- orDie =<< readEnvStore name ns scope
@@ -9678,6 +9686,7 @@ runEnv mctx = \case
           (\existing -> Right (reconcile (if exact then ReconcileExact else Merge)
             existing incoming)) savePlan
       else do
+        unless dry (refuseDirectStoreWriteWhenManaged mctx "env sync" "--reviewed")
         refuseDirectStoreMutationIfOwned mctx False name ns (selectedScopes sel)
         let mode = reconcileModeFrom exact
         forM_ (selectedScopes sel) $ \scope -> do
@@ -9742,6 +9751,7 @@ runSecret mctx = \case
         saveReviewedSecretChange mctx name ns sel "secret set" version
           (Right . Map.insert (T.pack key) val) Nothing
       Nothing -> do
+        unless dry (refuseDirectStoreWriteWhenManaged mctx "secret set" "--version")
         refuseDirectStoreMutationIfOwned mctx True name ns (selectedScopes sel)
         val <- readSecretValue
         forM_ (selectedScopes sel) $ \scope -> do
@@ -9776,6 +9786,7 @@ runSecret mctx = \case
             then Right (Map.delete (T.pack key) existing)
             else Left "Secret key is absent from the accepted channel") Nothing
       Nothing -> do
+        unless dry (refuseDirectStoreWriteWhenManaged mctx "secret delete" "--version")
         refuseDirectStoreMutationIfOwned mctx True name ns (selectedScopes sel)
         forM_ (selectedScopes sel) $ \scope -> do
           existing <- orDie =<< readSecretStore name ns scope

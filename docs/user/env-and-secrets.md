@@ -15,8 +15,8 @@ generated:
 >
 > The scoped env model, the `nagarectl env`/`secret` CLI, the generated `NAGARE_*`
 > variables, and build/preview application all exist and are tested. Every command on
-> this page can be rendered or reviewed without changing a cluster, and direct
-> live writes use whichever Kubernetes target your current kubeconfig points at.
+> this page can be rendered or reviewed without changing a cluster. Direct
+> live writes are available only before a context initializes inventory history.
 
 ## What this page is
 
@@ -211,6 +211,12 @@ interpolation (`${X}`) is **not** supported.
   collision.
 - **`--reconcile-exact`**: make the store *exactly* the file's contents, dropping any key
   not present.
+
+Once a context initializes inventory history, every live `env set`, `env delete`,
+or `env sync` needs `--reviewed` or `--save-plan`, even for a newly named app.
+Every live `secret set` or `secret delete` needs `--version TOKEN`; add
+`--save-plan` for a separate apply. Direct read-only `--dry-run` output remains
+available. The direct live forms remain for contexts without initialized history.
 
 For a Runtime, Build, or Preview ConfigMap owned by inventory history, use
 `--reviewed` to publish and apply the reviewed change in one invocation, or save

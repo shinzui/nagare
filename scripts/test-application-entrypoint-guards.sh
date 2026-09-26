@@ -92,6 +92,17 @@ refuse 'direct volume snapshot' 'direct storage snapshot is refused' \
   storage snapshot hello --config ../nagare-dsl/test/fixtures/nagare/Config.hs data
 refuse 'direct volume restore' 'direct storage restore is refused' \
   storage restore hello --config ../nagare-dsl/test/fixtures/nagare/Config.hs data backup-identity
+refuse 'direct environment set' 'direct env set is refused' \
+  env set hello --config ../nagare-dsl/test/fixtures/nagare/Config.hs KEY value
+refuse 'direct environment delete' 'direct env delete is refused' \
+  env delete hello --config ../nagare-dsl/test/fixtures/nagare/Config.hs KEY
+printf 'KEY=value\n' > "$fixture_root/vars.env"
+refuse 'direct environment sync' 'direct env sync is refused' \
+  env sync hello --config ../nagare-dsl/test/fixtures/nagare/Config.hs --file "$fixture_root/vars.env"
+refuse 'direct Secret set' 'direct secret set is refused' \
+  secret set hello --config ../nagare-dsl/test/fixtures/nagare/Config.hs KEY
+refuse 'direct Secret delete' 'direct secret delete is refused' \
+  secret delete hello --config ../nagare-dsl/test/fixtures/nagare/Config.hs KEY
 
 cmp -s "$store_dir/head.json" "$fixture_root/head-before"
-printf 'application entrypoint guards: eighteen live refusals, inventory head unchanged\n'
+printf 'application entrypoint guards: twenty-three live refusals, inventory head unchanged\n'
