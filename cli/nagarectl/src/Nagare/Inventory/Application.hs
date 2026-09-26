@@ -20,6 +20,7 @@ module Nagare.Inventory.Application
   , nativeWorkloadOwned
   , hostnameClaimOwned
   , acceptedApplicationImage
+  , acceptedImageResourceForDestination
   , reviewedTaskImages
   , databaseRecoveryBindings
   , acceptedSecretBindings
@@ -338,6 +339,24 @@ acceptedApplicationImage snapshot imageId taggedImage =
         | nameText kind == "oci-image" && destination == taggedImage -> Right ()
       _ -> Left "accepted image resource is not the requested OCI publication"
     _ -> Left "image resource is absent or ambiguous in accepted inventory"
+
+-- | Select the one accepted OCI publication for an exact tagged destination.
+-- The caller still passes its ID to the reviewed command, which rechecks the
+-- accepted declaration against the loaded site before planning any mutation.
+acceptedImageResourceForDestination :: ScopeSnapshot -> T.Text -> Either T.Text ResourceId
+acceptedImageResourceForDestination snapshot taggedImage =
+  case [resource ^. #identity
+       | (_, scope) <- Map.elems (snapshotScopes snapshot)
+       , bundle <- scopeBundles scope
+       , Managed resource <- declarations bundle
+       , resource ^. #executor == ArtifactExecutor
+       , case (resource ^. #address, resource ^. #spec) of
+           (Artifact _ _, ArtifactPublication kind destination _ _)
+             -> nameText kind == "oci-image" && destination == taggedImage
+           _ -> False] of
+    [imageId] -> Right imageId
+    [] -> Left "no accepted OCI publication matches the webhook image tag"
+    _ -> Left "multiple accepted OCI publications match the webhook image tag"
 
 -- | A scheduled CronJob may join a reviewed application rollout only when
 -- its resolved image is the publication already accepted for that rollout.

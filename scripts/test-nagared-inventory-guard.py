@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""An already running webhook worker must refuse a newly initialized context."""
+"""A webhook worker requires initialized history before checkout."""
 
 import hashlib
 import hmac
@@ -76,6 +76,37 @@ def main():
             else:
                 raise AssertionError("nagared did not become healthy")
 
+            body = json.dumps(
+                {
+                    "ref": "refs/heads/main",
+                    "after": "deadbeef",
+                    "repository": {
+                        "clone_url": "file:///nonexistent/nagared-test.git",
+                        "full_name": "fixture/site",
+                    },
+                },
+                separators=(",", ":"),
+            ).encode()
+            signature = hmac.new(b"topsecret", body, hashlib.sha256).hexdigest()
+
+            def deliver():
+                return request(
+                    port,
+                    "POST",
+                    "/webhooks/github/static/site",
+                    body,
+                    {
+                        "X-GitHub-Event": "push",
+                        "X-Hub-Signature-256": "sha256=" + signature,
+                        "Content-Type": "application/json",
+                    },
+                )
+
+            status, response = deliver()
+            assert status == 409, (status, response)
+            assert "requires initialized inventory history" in response, response
+            assert not workspace.exists(), "webhook checked out before history existed"
+
             store_dir = root / "state" / "nagare" / "guarded" / "inventory"
             store_dir.mkdir(parents=True)
             head = {
@@ -94,34 +125,11 @@ def main():
             head_path.write_bytes(original_head)
             head_path.chmod(0o600)
 
-            body = json.dumps(
-                {
-                    "ref": "refs/heads/main",
-                    "after": "deadbeef",
-                    "repository": {
-                        "clone_url": "file:///nonexistent/nagared-test.git",
-                        "full_name": "fixture/site",
-                    },
-                },
-                separators=(",", ":"),
-            ).encode()
-            signature = hmac.new(b"topsecret", body, hashlib.sha256).hexdigest()
-            status, response = request(
-                port,
-                "POST",
-                "/webhooks/github/static/site",
-                body,
-                {
-                    "X-GitHub-Event": "push",
-                    "X-Hub-Signature-256": "sha256=" + signature,
-                    "Content-Type": "application/json",
-                },
-            )
-            assert status == 409, (status, response)
-            assert "inventory history is initialized" in response, response
+            status, response = deliver()
+            assert status == 500, (status, response)
+            assert "checkout failed" in response, response
             assert head_path.read_bytes() == original_head
-            assert not workspace.exists(), "webhook checked out a repository before refusal"
-            print("nagared inventory guard: post-start initialization refused before checkout")
+            print("nagared inventory guard: initialized history permits checkout without changing head")
         finally:
             process.terminate()
             try:

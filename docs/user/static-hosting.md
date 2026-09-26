@@ -428,19 +428,16 @@ worker. Configure the GitHub webhook with:
 - **Secret**: the value in the `nagared` Kubernetes Secret
 - **Events**: push (production) and pull requests (previews)
 
-`nagared`'s deploy path shells out to `docker`, `git`, and `kubectl` and loads the
-typed config with `runghc`, so its image must provide those; on a single-node box
-it is often simplest to run it on the host. The manifests in
-`cluster/bootstrap/nagared/` are the starting point.
-
-The webhook runner still uses the direct static deploy functions. It requires
-a named active context when it starts and checks that context's inventory store on
-every triggered delivery and again just before deployment. Once the store is
-initialized, it returns HTTP 409 without checking out or deploying the site.
-Cloud webhooks also refuse when that context uses a private local inventory
-store; select a shared GCS store to make history observable to the runner.
-Reviewed webhook submission remains M4 work; use the reviewed CLI site route
-for inventory-backed contexts.
+`nagared` requires `git`, `nagarectl`, and `runghc` with the typed config's GHC
+environment. It requires a named active context and initialized inventory
+history. Before delivery, publish and accept the exact site image tagged with
+the first 12 characters of the pushed commit SHA. A preview additionally needs
+the four accepted Runtime and Preview environment stores. The runner selects
+their resource IDs from the accepted snapshot and submits `site deploy` or
+`site preview deploy` with `--skip-build`; the reviewed CLI rechecks them. Cloud
+webhooks require a shared GCS inventory store. The manifests in
+`cluster/bootstrap/nagared/` need the context, store, CLI binary, and provider
+permissions configured before deployment.
 
 > HMAC verification proves that GitHub delivered the event; it does not make a
 > fork's code trusted. Fork rejection happens before checkout or config

@@ -1,17 +1,9 @@
--- | The server-site deploy effects (EP-18), parallel to 'Nagare.Static.Deploy'.
---
--- Build → package into a Node image → push → apply the Knative Service +
--- DomainMappings → wait → record a release. The release record is the
--- runtime-agnostic one EP-15 defines ('Nagare.Static.Release.recordReleaseFor'),
--- so server releases list and roll back through the same history as static ones.
--- Rendering ('serverManifests') is split from the effect so the CLI dry-run and
--- the real deploy derive identical artifacts.
+-- | Pure server-site renderers used by the reviewed inventory compiler.
 module Nagare.Server.Deploy
   ( ServerDeployInputs (..)
   , ServerManifests (..)
   , serverManifests
   , serverPreviewManifests
-  , deployServerProduction
   , serverUrl
   )
 where
@@ -19,10 +11,6 @@ where
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
 import Data.Text (Text)
-import Nagare.Cluster.Namespace (NamespacePurpose (..), ensureNamespace)
-import Nagare.Deploy (applyManifests, requireWait, waitForReady)
-import Nagare.Domain.Binding (BindingTarget (..), preflightDomainBindings, waitForDomainBindings)
-import Nagare.Domain.Tls (preflightDomainTls, verifyDomainTlsReady)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Server.Render
   ( ServerDeployContext (..)
@@ -32,13 +20,9 @@ import Nagare.Dsl.Server.Render
   )
 import Nagare.Dsl.Server.Types (ServerSite)
 import Nagare.Dsl.Static.Types (siteNameText)
-import Nagare.Dsl.Types (canonicalDomain, domainText, imageRefText, mkDomains, namespaceText)
+import Nagare.Dsl.Types (canonicalDomain, domainText, mkDomains, namespaceText)
 import Nagare.Env.PreviewOverlay (withPreviewEnvFrom)
-import Nagare.Image (buildImage, configureDockerAuthFor, pushImage, taggedImageRef)
-import Nagare.Server.Build (prepareServerOutput)
-import Nagare.Server.Image (withServerImageContext)
 import Nagare.Static.Preview (previewDomain, previewServiceName)
-import Nagare.Static.Release (recordReleaseFor)
 import Nagare.Target (TargetProfile)
 
 -- | The CLI-independent inputs to a server deploy.
@@ -96,57 +80,6 @@ serverPreviewManifests inputs raw = do
     , serviceName = svcName
     }
 
--- | Production deploy: prepare the output, package and push the Node image,
--- apply the Service + DomainMappings, wait for readiness, and record a release.
--- Returns the live URL, or a 'Left' for a build-prep failure or an unrecordable
--- release history.
-deployServerProduction :: ServerDeployInputs -> Maybe Text -> IO (Either Text Text)
-deployServerProduction inputs src = do
-  let s = inputs ^. #site
-      m = serverManifests inputs
-      ref = taggedImageRef (s ^. #image) (inputs ^. #imageTag)
-      ns = namespaceText (s ^. #namespace)
-  namespaceReady <- ensureNamespace ApplicationNamespace ns
-  case namespaceReady of
-    Left err -> pure (Left err)
-    Right () -> do
-      prep <- prepareServerOutput (inputs ^. #skipBuild) s (inputs ^. #projectDir)
-      case prep of
-        Left err -> pure (Left err)
-        Right out -> do
-          configureDockerAuthFor (inputs ^. #targetProfile)
-          withServerImageContext s out (buildImage ref)
-          pushImage ref
-          let targets = bindingTargets s (m ^. #serviceName) ns
-          checked <- preflightDomainBindings targets
-          case checked of
-            Left err -> pure (Left err)
-            Right () -> do
-              tlsChecked <- preflightDomainTls (inputs ^. #targetProfile) (inputs ^. #baseDomain) ns (s ^. #domains)
-              case tlsChecked of
-                Left err -> pure (Left err)
-                Right () -> do
-                  applyManifests (m ^. #service : m ^. #domainMappings)
-                  waitForReady (m ^. #serviceName) ns
-                    >>= requireWait ("server '" <> (m ^. #serviceName) <> "'")
-                  domainsReady <- waitForDomainBindings 300 targets
-                  case domainsReady of
-                    Left err -> pure (Left err)
-                    Right () -> do
-                      tlsReady <- verifyDomainTlsReady (inputs ^. #targetProfile) (inputs ^. #baseDomain) ns (s ^. #domains)
-                      case tlsReady of
-                        Left err -> pure (Left err)
-                        Right () -> do
-                          recorded <-
-                            recordReleaseFor
-                              (imageRefText (s ^. #image))
-                              (inputs ^. #imageTag)
-                              (m ^. #url)
-                              (m ^. #serviceName)
-                              ns
-                              src
-                          pure (m ^. #url <$ recorded)
-
 -- | The server site's public URL: the explicitly canonical custom domain if any,
 -- otherwise the Knative wildcard @https://\<site\>.\<namespace\>.\<baseDomain\>@.
 serverUrl :: ServerSite -> Text -> Text
@@ -160,13 +93,3 @@ serverUrl s baseDomain =
         <> namespaceText (s ^. #namespace)
         <> "."
         <> baseDomain
-
-bindingTargets :: ServerSite -> Text -> Text -> [BindingTarget]
-bindingTargets site serviceName namespace =
-  [ BindingTarget
-      { host = domainText (domainSpec ^. #domain)
-      , namespace = namespace
-      , service = serviceName
-      }
-  | domainSpec <- site ^. #domains
-  ]

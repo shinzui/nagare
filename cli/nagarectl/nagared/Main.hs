@@ -1,10 +1,10 @@
 -- | @nagared@ — the Nagare webhook runner (EP-16).
 --
 -- A small HTTP service that receives GitHub webhooks, verifies their HMAC-SHA256
--- signature, checks out the named commit, and drives the *same* static deploy
--- path as @nagarectl site deploy@ (it imports 'Nagare.Static.Deploy', not a
--- second engine). A push to the configured production branch triggers a
--- production deploy; a pull-request open/sync triggers a preview deploy.
+-- signature, checks out the named commit, selects its accepted OCI publication,
+-- and invokes the reviewed @nagarectl site@ command. A push to the configured
+-- production branch triggers production; a pull-request open/sync triggers a
+-- preview when its four environment stores are accepted.
 --
 -- Routes:
 --
@@ -12,12 +12,11 @@
 -- > POST /webhooks/github/static/<site>        -> verify, checkout, deploy
 --
 -- The signature is checked before the body is parsed or any deploy runs, so an
--- unsigned or mis-signed request never reaches Docker or the cluster. The
--- selected context's inventory store is checked on every triggered delivery;
--- direct webhook deployment refuses once that store is initialized.
+-- unsigned or mis-signed request never reaches the reviewed command. The
+-- selected context's initialized inventory store is checked on every delivery.
 --
--- handling is idempotent: a retried delivery for the same commit re-resets the
--- checkout and re-records the same release id (deduped), so no duplicate work.
+-- A retried delivery for the same commit repeats the reviewed submission;
+-- inventory journal replay handles an interrupted apply.
 module Main (main) where
 
 import Control.Exception (SomeException, try)
@@ -36,21 +35,24 @@ import Nagare.Dsl.Load
   , renderLoadError
   )
 import Nagare.Dsl.Prelude
+import Nagare.Dsl.Static.Types (StaticSite, siteNameText)
+import Nagare.Dsl.Types (imageRefText, namespaceText)
 import Nagare.GhcEnv (resolveProjectGhcEnv)
+import Nagare.Image (qualifyImage)
+import Nagare.Inventory.Application (acceptedImageResourceForDestination)
 import Nagare.Inventory.Command qualified as Inventory
+import Nagare.Inventory.DataService (acceptedFoundationNamespace)
+import Nagare.Inventory.Site (acceptedSitePreviewStoreIds)
 import Nagare.Inventory.Store (StoreError (..))
+import Nagare.Resource.Types (resourceIdText)
 import Nagare.Static.Checkout (checkoutRepo)
-import Nagare.Static.Deploy
-  ( DeployInputs (..)
-  , deployStaticPreview
-  , deployStaticProduction
-  )
 import Nagare.Static.Webhook
   ( CheckoutSpec (..)
   , DeployAction (..)
   , WebhookConfig (..)
   , WebhookOutcome (..)
   , decideWebhook
+  , reviewedSiteArgs
   )
 import Nagare.Target
   ( ActiveTarget
@@ -84,8 +86,10 @@ import Network.Wai.Handler.Warp (run)
 import Options.Applicative
 import System.Directory (makeAbsolute)
 import System.Environment (lookupEnv, setEnv)
+import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.IO (BufferMode (LineBuffering), hSetBuffering, hSetEncoding, stderr, stdout, utf8)
+import System.Process (proc, readCreateProcessWithExitCode)
 
 -- ---------------------------------------------------------------------------
 -- Options / environment
@@ -97,6 +101,7 @@ data Options = Options
   , baseDomain :: !Text
   , workspace :: !FilePath
   , ghcEnv :: !(Maybe FilePath)
+  , nagarectlBin :: !FilePath
   , configTimeout :: !Int
   }
   deriving stock (Generic, Show)
@@ -110,6 +115,7 @@ optionsParser =
     <*> strOption (long "base-domain" <> metavar "DOMAIN" <> value "apps.example.com" <> showDefault <> help "Apps base domain")
     <*> strOption (long "workspace" <> metavar "DIR" <> value "/var/lib/nagare/webhook-workspaces" <> showDefault <> help "Repository checkout workspace root")
     <*> optional (strOption (long "ghc-env" <> metavar "FILE" <> help "GHC package-environment file for the config loader's runghc"))
+    <*> strOption (long "nagarectl-bin" <> metavar "FILE" <> value "nagarectl" <> showDefault <> help "Reviewed site command executable")
     <*> option
       positiveInt
       ( long "config-timeout"
@@ -136,6 +142,7 @@ data Env = Env
   , workspace :: !FilePath
   , targetProfile :: !TargetProfile
   , activeTarget :: !ActiveTarget
+  , nagarectlBin :: !FilePath
   , configTimeout :: !ConfigTimeout
   }
   deriving stock (Generic, Show)
@@ -154,7 +161,7 @@ main = do
   provisionGhcEnv (o ^. #ghcEnv)
   active <- resolveActiveTarget Nothing
   when (contextNameText (active ^. #contextName) == "default") $
-    ioError (userError "nagared requires a named Nagare context before direct webhook deployment")
+    ioError (userError "nagared requires a named Nagare context before reviewed webhook deployment")
   let env =
         Env
           { secret = secret
@@ -163,6 +170,7 @@ main = do
           , workspace = o ^. #workspace
           , targetProfile = active ^. #profile
           , activeTarget = active
+          , nagarectlBin = o ^. #nagarectlBin
           , configTimeout = ConfigTimeout (o ^. #configTimeout)
           }
   putStrLn ("nagared listening on :" <> show (o ^. #port))
@@ -243,7 +251,7 @@ describeAction = \case
   DeployPreview name spec -> "preview '" <> name <> "' of " <> spec ^. #repoFullName <> "@" <> T.take 12 (spec ^. #sha)
 
 runAction :: Env -> Text -> DeployAction -> IO Response
-runAction env _site act = do
+runAction env site act = do
   gate <- webhookInventoryGate (env ^. #activeTarget)
   case gate of
     Left (status, reason) -> pure (textResponse status reason)
@@ -261,23 +269,15 @@ runAction env _site act = do
               case gateBeforeDeploy of
                 Left (status, reason) -> pure (textResponse status reason)
                 Right () -> do
-                  let inputs =
-                        DeployInputs
-                          { site = s
-                          , imageTag = T.take 12 (spec ^. #sha)
-                          , baseDomain = env ^. #baseDomain
-                          , projectDir = dir
-                          , skipBuild = False
-                          , targetProfile = env ^. #targetProfile
-                          }
-                  outcome <- try (deployFor inputs act) :: IO (Either SomeException (Either Text Text))
+                  outcome <- try (submitReviewedSite env site dir s act)
+                    :: IO (Either SomeException (Either (Status, Text) Text))
                   pure $ case outcome of
-                    Left ex -> textResponse status500 ("deploy raised: " <> T.pack (show ex))
-                    Right (Left e) -> textResponse status500 e
-                    Right (Right url) -> textResponse status200 ("deployed: " <> url)
+                    Left _ -> textResponse status500 "reviewed submission failed"
+                    Right (Left (status, reason)) -> textResponse status reason
+                    Right (Right tag) -> textResponse status200 ("reviewed site deployed: " <> tag)
 
--- | Webhooks have no reviewed image or site submission. Check the selected
--- context on every delivery, including a retry handled by a long-lived runner.
+-- | Require the shared history that makes a webhook image and site review
+-- possible. Check on every delivery, including a retry on a long-lived runner.
 webhookInventoryGate :: ActiveTarget -> IO (Either (Status, Text) ())
 webhookInventoryGate active
   | active ^. #profile . #mode == Cloud
@@ -286,15 +286,50 @@ webhookInventoryGate active
 webhookInventoryGate active = do
   opened <- Inventory.openTargetStoreReadOnly active
   pure $ case opened of
-    Left (StoreConditionFailed "inventory store is not initialized") -> Right ()
-    Left (StoreConditionFailed "inventory object prefix is not initialized") -> Right ()
+    Left (StoreConditionFailed "inventory store is not initialized") ->
+      Left (status409, "reviewed webhook requires initialized inventory history")
+    Left (StoreConditionFailed "inventory object prefix is not initialized") ->
+      Left (status409, "reviewed webhook requires initialized inventory history")
     Left err -> Left (status500, "cannot verify inventory history before webhook deploy: " <> T.pack (show err))
-    Right _ -> Left (status409, "inventory history is initialized; direct webhook deploy is refused")
+    Right _ -> Right ()
 
-deployFor :: DeployInputs -> DeployAction -> IO (Either Text Text)
-deployFor inputs = \case
-  DeployProduction spec -> deployStaticProduction inputs (Just (spec ^. #sha))
-  DeployPreview name _ -> deployStaticPreview inputs name
+submitReviewedSite
+  :: Env -> Text -> FilePath -> StaticSite -> DeployAction
+  -> IO (Either (Status, Text) Text)
+submitReviewedSite env routeSite dir site action =
+  case qualifyImage (env ^. #targetProfile) (site ^. #image) of
+    Left reason -> pure (Left (status400, reason))
+    Right qualifiedImage
+      | siteNameText (site ^. #name) /= routeSite ->
+          pure (Left (status400, "webhook route does not match the checked-out site"))
+      | otherwise -> do
+          let tag = T.take 12 (actionCheckout action ^. #sha)
+              destination = imageRefText qualifiedImage <> ":" <> tag
+              name = siteNameText (site ^. #name)
+              ns = namespaceText (site ^. #namespace)
+          snapshot <- Inventory.loadTargetSnapshot (env ^. #activeTarget)
+          case acceptedImageResourceForDestination snapshot destination of
+            Left reason -> pure (Left (status409, reason))
+            Right imageId -> do
+              previewIds <- case action of
+                DeployProduction _ -> pure (Right [])
+                DeployPreview _ _ -> pure $ do
+                  (cluster, _) <- acceptedFoundationNamespace snapshot ns
+                  acceptedSitePreviewStoreIds snapshot cluster name ns
+              case previewIds of
+                Left reason -> pure (Left (status409, reason))
+                Right stores -> do
+                  let args = reviewedSiteArgs
+                        (contextNameText (env ^. #activeTarget . #contextName))
+                        (dir </> "nagare" </> "Config.hs") dir (env ^. #baseDomain)
+                        (resourceIdText imageId) (map resourceIdText stores) action
+                  (exitCode, _, _) <- readCreateProcessWithExitCode
+                    (proc (env ^. #nagarectlBin) args) ""
+                  case exitCode of
+                    ExitSuccess -> pure (Right tag)
+                    ExitFailure code -> do
+                      putStrLn ("reviewed site command failed with exit " <> show code)
+                      pure (Left (status409, "reviewed site submission refused; inspect nagared logs"))
 
 actionCheckout :: DeployAction -> CheckoutSpec
 actionCheckout (DeployProduction spec) = spec

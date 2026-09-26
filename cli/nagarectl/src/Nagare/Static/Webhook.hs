@@ -4,9 +4,8 @@
 --
 -- The @nagared@ service (the executable) reads the HTTP request, calls
 -- 'decideWebhook' to get a 'WebhookOutcome', and — only for 'Triggered' — checks
--- out the repository and invokes the shared deploy path
--- ('Nagare.Static.Deploy'). An unsigned or mis-signed request never reaches the
--- deploy path.
+-- out the repository and submits its accepted image through the reviewed site
+-- command. An unsigned or mis-signed request never reaches that command.
 --
 -- Pull requests from *forks* are ignored by design. GitHub delivers a fork's
 -- @pull_request@ event to the base repository's webhook signed with the base
@@ -28,6 +27,7 @@ module Nagare.Static.Webhook
   , DeployAction (..)
   , routeEvent
   , previewNameForPr
+  , reviewedSiteArgs
 
     -- * Top-level decision
   , WebhookOutcome (..)
@@ -73,6 +73,28 @@ data CheckoutSpec = CheckoutSpec
   , repoFullName :: !Text
   }
   deriving stock (Generic, Eq, Show)
+
+-- | Build the exact CLI submission used by the webhook worker. The caller
+-- selects accepted image and preview-store IDs before constructing these args;
+-- the CLI validates them again against current inventory history.
+reviewedSiteArgs
+  :: Text -> FilePath -> FilePath -> Text -> Text -> [Text] -> DeployAction -> [String]
+reviewedSiteArgs context file projectDir baseDomain imageResource previewStores action =
+  ["--context", T.unpack context, "site"]
+    <> command
+    <> [ "--file", file
+       , "--project-dir", projectDir
+       , "--base-domain", T.unpack baseDomain
+       , "--skip-build"
+       , "--tag", T.unpack (T.take 12 (spec ^. #sha))
+       , "--image-resource", T.unpack imageResource
+       , "--source", T.unpack (spec ^. #sha)
+       ]
+    <> concatMap (\resourceId -> ["--preview-env-resource", T.unpack resourceId]) previewStores
+  where
+    (command, spec) = case action of
+      DeployProduction checkout -> (["deploy"], checkout)
+      DeployPreview name checkout -> (["preview", "deploy", "--name", T.unpack name], checkout)
 
 -- | The GitHub events @nagared@ cares about. Anything else is 'OtherEvent'.
 data GitHubEvent

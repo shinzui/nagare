@@ -1,7 +1,6 @@
 # nagared as an always-on Knative Service (EP-16).
 #
-# min-scale 1 disables scale-to-zero so an in-progress deploy (docker build +
-# push, which exceeds a webhook's request window) is never killed mid-flight;
+# min-scale 1 disables scale-to-zero while a reviewed submission runs;
 # the existing Kourier ingress + cert-manager give it a TLS endpoint, and the
 # DomainMapping below gives it a stable hook URL. GitHub's 10s webhook timeout
 # will mark the delivery failed for a slow deploy, but the deploy still
@@ -9,12 +8,12 @@
 #
 # RUNTIME REQUIREMENTS (the image must provide these; this manifest is the
 # starting point, not a turnkey deploy — see README.md):
-#   * docker (build/push) — needs a Docker daemon, e.g. the host socket mounted,
-#     or a rootless/buildkit alternative;
-#   * kubectl — uses the mounted ServiceAccount token (RBAC in rbac.yaml);
+#   * nagarectl — submits the reviewed site scope against a named context;
+#   * kubectl — used by the reviewed native provider with suitable RBAC;
 #   * git — for repository checkout;
 #   * a GHC package environment so the config loader's runghc resolves nagare-dsl
 #     (pass --ghc-env).
+#   * access to initialized shared inventory history (GCS in cloud mode).
 apiVersion: serving.knative.dev/v1
 kind: Service
 metadata:
@@ -30,11 +29,10 @@ spec:
       serviceAccountName: nagared
       containers:
         - image: ${NAGARE_REGISTRY_PREFIX}/nagared:${NAGARE_AUTH_TAG}
-          # Largest bounds in the auth plane: a deploy runs git checkout +
-          # runghc (GHC interpreting the app's Config.hs against nagare-dsl —
-          # the dominant in-pod memory cost) + kubectl. The docker build itself
-          # runs in the Docker daemon over the mounted socket, OUTSIDE this
-          # cgroup. The 1Gi limit means a runaway config evaluation OOM-kills
+          # A submission runs git checkout,
+          # runghc (GHC interpreting the app's Config.hs against nagare-dsl)
+          # and reviewed inventory execution. The 1Gi limit means a runaway
+          # config evaluation OOM-kills
           # this pod (min-scale 1 restarts it) instead of the node.
           resources:
             requests:

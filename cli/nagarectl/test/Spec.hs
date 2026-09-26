@@ -210,7 +210,7 @@ import Nagare.Gcp.Adc
   , validateAdc
   )
 import Nagare.GhcEnv (findGhcEnvForCompilerIn, findGhcEnvIn)
-import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteSource, compileServerSitePreviewScope, compileServerSiteRollbackScope, compileServerSiteScope, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteScope, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteNativeOwned, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
+import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSitePreviewStoreIds, acceptedSiteSource, compileServerSitePreviewScope, compileServerSiteRollbackScope, compileServerSiteScope, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteScope, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, siteNativeOwned, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
 import Nagare.Inventory.Environment (compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel)
 import Nagare.Inventory.Site (compileServerSiteScopeWithCdn, compileServerSiteScopeWithCloudflare, compileServerSiteRollbackScopeWithCloudflare, compileStaticSiteRollbackScopeWithCdn, compileStaticSiteScopeWithCdn, compileStaticSiteScopeWithCloudflare, compileStaticSiteRollbackScopeWithCloudflare)
 import Nagare.Inventory.Application (GoogleCdnBinding (..), CloudflareCdnBinding (..))
@@ -3698,6 +3698,21 @@ webhookTests =
       parseGitHubEvent "issues" "{}" @?= Right (OtherEvent "issues")
   , testCase "previewNameForPr is pr-<n>" $
       previewNameForPr 42 @?= "pr-42"
+  , testCase "webhook submits production and preview through reviewed site CLI options" $ do
+      let checkout = CheckoutSpec "https://example.test/site.git" "main"
+            "0123456789abcdef" "owner/site"
+          common = ["--file", "/work/nagare/Config.hs", "--project-dir", "/work",
+            "--base-domain", "example.test", "--skip-build", "--tag", "0123456789ab",
+            "--image-resource", "publication:image", "--source", "0123456789abcdef"]
+      reviewedSiteArgs "local" "/work/nagare/Config.hs" "/work" "example.test"
+        "publication:image" [] (DeployProduction checkout)
+        @?= ["--context", "local", "site", "deploy"] <> common
+      reviewedSiteArgs "local" "/work/nagare/Config.hs" "/work" "example.test"
+        "publication:image" ["runtime", "runtime-secret", "preview", "preview-secret"]
+        (DeployPreview "pr-7" checkout)
+        @?= ["--context", "local", "site", "preview", "deploy", "--name", "pr-7"]
+          <> common <> concatMap (\resourceId -> ["--preview-env-resource", resourceId])
+            ["runtime", "runtime-secret", "preview", "preview-secret"]
   , -- The fork gate. GitHub delivers a fork's pull_request event to the base
     -- repository's webhook signed with the BASE repository's secret, so the
     -- HMAC check passes and cannot help here. Everything below pins the
@@ -4065,6 +4080,11 @@ staticInventoryTests =
       deps <- either (fail . T.unpack) pure
         (acceptedSitePreviewDependencies snapshot cluster "demo" "personal" storeIds)
       length deps @?= 4
+      selectedIds <- either (fail . T.unpack) pure
+        (acceptedSitePreviewStoreIds snapshot cluster "demo" "personal")
+      Set.fromList selectedIds @?= Set.fromList storeIds
+      assertBool "webhook selected another site's preview stores"
+        (isLeft (acceptedSitePreviewStoreIds snapshot cluster "other" "personal"))
       assertBool "preview accepted a missing store"
         (isLeft (acceptedSitePreviewDependencies snapshot cluster "demo" "personal"
           (take 3 storeIds)))

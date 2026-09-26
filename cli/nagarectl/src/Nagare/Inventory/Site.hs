@@ -19,6 +19,7 @@ module Nagare.Inventory.Site
   , acceptedSiteReleaseLog
   , acceptedSiteSource
   , acceptedSitePreviewDependencies
+  , acceptedSitePreviewStoreIds
   , sitePreviewRetirementScope
   , legacyServerSiteReleaseImport
   , legacyStaticSiteReleaseImport
@@ -264,6 +265,29 @@ acceptedSitePreviewDependencies snapshot cluster name ns ids = do
     resolve resourceId = case filter ((== resourceId) . (^. #identity)) resources of
       [resource] -> Right (Managed resource)
       _ -> Left "site preview environment resource is absent or ambiguous in accepted inventory"
+
+-- | Discover the four accepted environment stores rendered into a static
+-- preview. Webhook submissions use their exact IDs and the CLI verifies them
+-- again against the current accepted snapshot.
+acceptedSitePreviewStoreIds
+  :: ScopeSnapshot -> ResourceId -> T.Text -> T.Text -> Either T.Text [ResourceId]
+acceptedSitePreviewStoreIds snapshot cluster name ns = do
+  addresses <- traverse (\(kind, nativeName) ->
+      kubernetesAddress cluster "v1" kind (Just ns) nativeName)
+    [("ConfigMap", managedConfigMapName name Runtime),
+     ("Secret", managedSecretName name Runtime),
+     ("ConfigMap", managedConfigMapName name Preview),
+     ("Secret", managedSecretName name Preview)]
+  ids <- traverse select addresses
+  _ <- acceptedSitePreviewDependencies snapshot cluster name ns ids
+  pure ids
+  where
+    members = [resource | (_, scope) <- Map.elems (snapshotScopes snapshot),
+      bundle <- scopeBundles scope, Managed resource <- declarations bundle]
+    select address = case [resource ^. #identity | resource <- members,
+        resource ^. #address == address] of
+      [resourceId] -> Right resourceId
+      _ -> Left "site preview requires one accepted resource for each rendered environment store"
 
 -- | Select only the exact reviewed preview scope requested by a delete
 -- command. Retirement retains its native members for later collection.

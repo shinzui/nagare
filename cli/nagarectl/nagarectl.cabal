@@ -255,6 +255,7 @@ executable nagared
     nagare-dsl,
     nagarectl,
     optparse-applicative,
+    process,
     text,
     wai,
     warp,

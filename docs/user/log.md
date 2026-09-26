@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-26
+* **Update**: Require initialized inventory for signed static webhooks, select accepted commit-tagged images and preview environment stores, and submit deployments through reviewed `nagarectl site` commands; remove the duplicate direct site deploy effects.
 * **Change**: Route every app stop and restart through an accepted Service scope and require a saved review for app deletion; remove their direct CLI mutations.
 * **Change**: Require a saved review for every site rollback and preview deletion; remove both direct CLI mutation paths.
 * **Change**: Route production and preview site deployments through reviewed inventory execution in every context; require an accepted image and explicit tag, and make `--dry-run` print their public scopes.

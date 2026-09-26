@@ -1,22 +1,20 @@
 # nagared — Git webhook runner (EP-16)
 
 `nagared` deploys static sites automatically from GitHub events. It verifies the
-webhook HMAC-SHA256 signature, checks out the named commit, and runs the **same**
-deploy path as `nagarectl site deploy` (it imports `Nagare.Static.Deploy`, not a
-second engine):
+webhook HMAC-SHA256 signature, checks out the named commit, selects its accepted
+OCI image publication, and invokes the reviewed `nagarectl site` command:
 
 - a push to the configured production branch → production deploy + release record;
 - a pull request `opened`/`synchronize`/`reopened` → preview deploy named `pr-<number>`.
 
-The runner requires a named active context at startup and rechecks that context's
-inventory store on every triggered delivery. An initialized store makes the
-direct webhook route return HTTP 409 before checkout or deployment. Use the
-reviewed `nagarectl site` commands for inventory-backed contexts; reviewed
-webhook submission is still pending. In cloud mode, the runner also refuses
-when the selected context uses a private local inventory store; configure a
-shared GCS store so it can observe the context's history. The example in-cluster
-Service manifest has no named context mounted and therefore cannot deploy until
-its context and store are configured.
+The runner requires a named active context and initialized inventory history.
+The exact `<image>:<first-12-SHA>` tag must already be an accepted OCI publication;
+the runner does not build or push it. Pull-request previews also require the
+four accepted Runtime and Preview ConfigMap/Secret stores. It rechecks store
+availability before submitting the reviewed command, and the command validates
+accepted dependencies again. In cloud mode the context must use a shared GCS
+inventory store. The example in-cluster Service manifest has no named context
+mounted and therefore cannot deploy until its context and store are configured.
 
 ## Routes
 
@@ -27,15 +25,14 @@ POST /webhooks/github/static/<site>    -> verify signature, checkout, deploy
 
 An unsigned or mis-signed request is rejected with 401 **before** the body is
 parsed or any deploy runs. A push to a non-production branch or a non-deploy PR
-action returns 200 with a no-op message. Handling is idempotent: a retried
-delivery for the same commit re-resets the checkout and re-records the same
-release id (deduped by `Nagare.Static.Release.addRelease`).
+action returns 200 with a no-op message. An interrupted reviewed apply resumes
+through the inventory journal.
 
 ## Local run
 
 ```bash
 cd cli/nagarectl
-NAGARE_WEBHOOK_SECRET=dev-secret cabal run nagared -- --port 8088 --production-branch main
+NAGARE_CONTEXT=my-context NAGARE_WEBHOOK_SECRET=dev-secret cabal run nagared -- --port 8088 --production-branch main
 # health check
 curl -s localhost:8088/healthz            # -> ok
 # signed ping (GitHub-compatible HMAC):
@@ -47,12 +44,11 @@ curl -s -XPOST localhost:8088/webhooks/github/static/demo \
 
 ## Cluster deploy
 
-`service.yaml` runs nagared as an always-on Knative Service (`min-scale: 1` so a
-long deploy is never scaled away mid-build), exposed through the existing Kourier
-ingress + cert-manager, with a stable hook URL via the DomainMapping. `rbac.yaml`
-grants exactly the verbs the deploy path needs in `personal` (Knative Services,
-DomainMappings, release ConfigMaps). `secret.example.yaml` is the webhook-secret
-template.
+`service.yaml` runs nagared as an always-on Knative Service, exposed through
+Kourier and cert-manager with a stable hook URL via the DomainMapping.
+`secret.example.yaml` is the webhook-secret template. The example `rbac.yaml`
+is a starting point; reviewed scope execution needs permissions for every
+resource type in the submitted site scope.
 
 ```bash
 kubectl apply -f cluster/bootstrap/nagared/rbac.yaml
@@ -63,14 +59,13 @@ cluster/bootstrap/render-context-template.sh cluster/bootstrap/nagared/service.y
 
 ### Runtime requirements (not turnkey)
 
-The deploy path shells out to `docker`, `kubectl`, and `git`, and loads the typed
-config with `runghc`. The `nagared` image must therefore provide a Docker daemon
-(or a rootless/buildkit equivalent), `git`, and a GHC package environment for the
-loader (`--ghc-env`); `kubectl` uses the mounted ServiceAccount token. On a
-single-node personal PaaS it is often simpler to run `nagared` on the host (where
-the Docker daemon and toolchain already live) and expose it through Kourier with
-an ExternalName/Ingress, rather than in a privileged pod. The manifests here are
-the starting point.
+The runner needs `git`, `nagarectl` (or `--nagarectl-bin`), `runghc`, and a GHC
+package environment for the config loader (`--ghc-env`). The reviewed command
+also needs access to the selected inventory store and its Kubernetes provider.
+Publish the exact commit-tagged OCI image with `app image-plan` and apply its
+review before the webhook arrives. Supply a named context and shared GCS store
+configuration to an in-cluster runner. The manifests here are a starting point;
+they do not provision the binary, context, store credentials, or complete RBAC.
 
 ## Configure the GitHub webhook
 

@@ -11,7 +11,7 @@ import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Artifact
 import Nagare.Inventory.Adapters.ArtifactRuntime
 import Nagare.Inventory.Artifact
-import Nagare.Inventory.Application (acceptedApplicationImage)
+import Nagare.Inventory.Application (acceptedApplicationImage, acceptedImageResourceForDestination)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Journal
 import Nagare.Resource.Inventory
@@ -65,6 +65,11 @@ inventoryArtifactTests =
         snapshot <- expectRight (mkScopeSnapshot binding
           (Map.singleton scope (either (error . Text.unpack) id (mkScopeGeneration 1), declared)) Map.empty)
         acceptedApplicationImage snapshot imageId "registry.example/app:v1" @?= Right ()
+        acceptedImageResourceForDestination snapshot "registry.example/app:v1"
+          @?= Right imageId
+        case acceptedImageResourceForDestination snapshot "registry.example/app:v2" of
+          Left _ -> pure ()
+          Right _ -> assertFailure "webhook selected an unrelated image publication"
         case acceptedApplicationImage snapshot imageId "registry.example/app:v2" of
           Left _ -> pure ()
           Right () -> assertFailure "a different image tag was accepted"

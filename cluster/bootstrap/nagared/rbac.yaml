@@ -1,9 +1,8 @@
 # RBAC for the nagared webhook runner (EP-16).
 #
-# nagared drives the same deploy path as `nagarectl site deploy`: it applies
-# Knative Services and DomainMappings and reads/writes the per-site release
-# ConfigMaps in the application namespace. This Role grants exactly those verbs
-# in `personal` and nothing cluster-wide.
+# nagared invokes the reviewed `nagarectl site` command. This example grants
+# native Service, DomainMapping, and release-history ConfigMap permissions in
+# `personal`. Additional accepted site members may require more permissions.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
