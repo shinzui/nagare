@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise selected empty and Kubernetes scopes beside unrelated cloud owners."""
+"""Exercise reviewed app planning and apply beside unrelated provider owners."""
 
 import json
 import os
@@ -107,20 +107,62 @@ def main() -> None:
             "NAGARE_LOCAL_OBJECT_STORE=http://minio:9000/nagare-backups\n"
         )
         marker = scratch / "provider-called"
+        kubectl_calls = scratch / "kubectl-calls.jsonl"
+        kubectl_state = scratch / "kubectl-state.json"
         fake_bin = scratch / "bin"
         fake_bin.mkdir()
-        for executable in ("npm", "pulumi", "gcloud", "kubectl"):
+        for executable in ("npm", "pulumi", "gcloud"):
             fake = fake_bin / executable
-            body = (
+            fake.write_text(
                 "#!/bin/sh\nprintf '%s\\n' \"$0\" >> "
-                + shlex.quote(str(marker)) + "\n"
+                + shlex.quote(str(marker)) + "\nexit 95\n"
             )
-            if executable == "kubectl":
-                body += "case \" $* \" in *' get '*) exit 0;; *) exit 95;; esac\n"
-            else:
-                body += "exit 95\n"
-            fake.write_text(body)
             fake.chmod(0o755)
+        kubectl = fake_bin / "kubectl"
+        kubectl.write_text("""#!/usr/bin/env python3
+import json
+import sys
+from pathlib import Path
+
+marker = Path(%r)
+calls = Path(%r)
+state_file = Path(%r)
+with marker.open("a") as output:
+    output.write(sys.argv[0] + "\\n")
+with calls.open("a") as output:
+    output.write(json.dumps(sys.argv[1:]) + "\\n")
+args = sys.argv[1:]
+objects = json.loads(state_file.read_text()) if state_file.exists() else {}
+namespace = args[args.index("--namespace") + 1] if "--namespace" in args else ""
+if "get" in args:
+    position = args.index("get")
+    kind = args[position + 1].split(".", 1)[0].lower()
+    name = args[position + 2]
+    existing = objects.get(f"{namespace}:{kind}:{name}")
+    if existing is not None:
+        print(json.dumps(existing, separators=(",", ":")))
+    sys.exit(0)
+if "create" in args:
+    native = json.load(sys.stdin)
+    metadata = native.setdefault("metadata", {})
+    kind = native["kind"].lower()
+    name = metadata["name"]
+    key = f"{metadata.get('namespace', '')}:{kind}:{name}"
+    if key in objects:
+        sys.exit(1)
+    metadata["uid"] = "recorded-" + kind + "-" + name
+    metadata["resourceVersion"] = "1"
+    if native.get("apiVersion") == "serving.knative.dev/v1" and kind == "service":
+        native["status"] = {"conditions": [{"type": "Ready", "status": "True"}]}
+    objects[key] = native
+    state_file.write_text(json.dumps(objects, sort_keys=True))
+    print(json.dumps(native, separators=(",", ":")))
+    sys.exit(0)
+if "wait" in args and any(value.startswith("ksvc/") for value in args):
+    sys.exit(0)
+sys.exit(95)
+""" % (str(marker), str(kubectl_calls), str(kubectl_state)))
+        kubectl.chmod(0o755)
         environment = {key: value for key, value in os.environ.items()
             if not key.startswith("NAGARE_") and not key.startswith("CLOUDSDK_")}
         environment.update({
@@ -265,7 +307,35 @@ def main() -> None:
         calls = marker.read_text().splitlines() if marker.exists() else []
         if not calls or any(Path(call).name != "kubectl" for call in calls):
             raise AssertionError("reviewed application invoked an unrelated provider: " + repr(calls))
-        print("inventory scope isolation: empty, Namespace, and app reviews ignored unrelated providers")
+        marker.unlink()
+        kubectl_calls.unlink()
+        app_head = scratch / "app-state/nagare/isolated/inventory/head.json"
+        before_app_apply = json.loads(app_head.read_text())
+        run(cli, root, app_environment, ["--context", "isolated", "inventory", "apply",
+            str(app_review), "--yes"])
+        after_app_apply = json.loads(app_head.read_text())
+        old_revisions = {entry["scope"]["name"]: entry["revision"]
+            for entry in before_app_apply["accepted"]}
+        new_revisions = {entry["scope"]["name"]: entry["revision"]
+            for entry in after_app_apply["accepted"]}
+        if any(old_revisions[name] != new_revisions.get(name)
+               for name in ("cloud", "foundation", "unrelated-host", "app-image-isolated")):
+            raise AssertionError("reviewed app apply changed an unrelated accepted revision")
+        if "isolated-app" not in new_revisions:
+            raise AssertionError("reviewed app apply did not accept the application scope")
+        provider_objects = json.loads(kubectl_state.read_text()) if kubectl_state.exists() else {}
+        expected_objects = {"personal:service:isolated-app",
+            "personal:configmap:nagare-app-deployments-isolated-app"}
+        if set(provider_objects) != expected_objects:
+            raise AssertionError("reviewed app apply wrote unexpected native objects: "
+                + repr(sorted(provider_objects)))
+        apply_calls = [json.loads(line) for line in kubectl_calls.read_text().splitlines()]
+        if sum("create" in call for call in apply_calls) != 2:
+            raise AssertionError("reviewed app apply did not create each native member once")
+        calls = marker.read_text().splitlines() if marker.exists() else []
+        if not calls or any(Path(call).name != "kubectl" for call in calls):
+            raise AssertionError("reviewed app apply invoked an unrelated provider: " + repr(calls))
+        print("inventory scope isolation: reviewed app planned and applied without unrelated providers")
 
 
 if __name__ == "__main__":
