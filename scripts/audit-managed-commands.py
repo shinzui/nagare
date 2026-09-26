@@ -94,8 +94,8 @@ ROUTES = {
 # and library callers cannot disappear from the review unnoticed.
 ENTRYPOINTS = {
     "cli/nagarectl/nagared/Main.hs": ("reviewedSiteArgs", "submitReviewedSite"),
-    "scripts/local-smoke.sh": ("nagarectl deploy", "nagarectl storage snapshot", "nagarectl storage restore"),
-    "scripts/live-smoke.sh": ("nagarectl deploy", "nagarectl storage snapshot", "nagarectl storage restore"),
+    "scripts/local-smoke.sh": ("nagarectl app image-plan", "--image-resource", "nagarectl storage snapshot", "--snapshot-id", "nagarectl storage restore", "--restore-id", "nagarectl inventory apply"),
+    "scripts/live-smoke.sh": ("nagarectl app image-plan", "--image-resource", "nagarectl storage snapshot", "--snapshot-id", "nagarectl storage restore", "--restore-id", "nagarectl inventory apply"),
     "scripts/run-reviewed-bootstrap.sh": ("platform bootstrap plan", "platform bootstrap apply"),
     "scripts/host-switch.sh": ("NAGARE_INVENTORY_ADAPTER_CHILD",),
     "scripts/upload-images.sh": ("NAGARE_INVENTORY_ADAPTER_CHILD",),
@@ -106,6 +106,13 @@ ENTRYPOINTS = {
     "scripts/inventory-cache-transport.sh": ("NAGARE_INVENTORY",),
     "justfile": ("vm-stop:", "vm-start:", "host-switch:", "cluster-bootstrap:", "local-bootstrap:", "smoke:", "local-smoke:"),
 }
+
+SMOKE_BYPASS_PATTERNS = (
+    r"\bkubectl\b[^\n]*\bdelete\s+pvc\b",
+    r"\bgsutil\s+rm\b",
+    r"\bmc\s+rm\b",
+    r"\bnagarectl\s+app\s+delete\b[^\n]*--yes\b",
+)
 
 RECIPE_SCRIPTS = {
     "scripts/check-haskell-style.sh",
@@ -253,6 +260,10 @@ def audit(source: str) -> tuple[list[str], dict[str, dict[str, str]]]:
         for marker in markers:
             if marker not in body:
                 errors.append(f"registered entrypoint changed: {relative}: {marker}")
+        if relative in {"scripts/local-smoke.sh", "scripts/live-smoke.sh"}:
+            for pattern in SMOKE_BYPASS_PATTERNS:
+                if re.search(pattern, body):
+                    errors.append(f"smoke consumer has direct cleanup bypass: {relative}: {pattern}")
 
     recipe_source = (ROOT / "justfile").read_text()
     actual_recipes = set(re.findall(r"(?m)^([a-z][a-z0-9-]*)(?: [^\n:]*)?:", recipe_source))

@@ -170,10 +170,9 @@ nagarectl db restore pg-main local-001 --restore-id local-restore-001 --save-pla
 nagarectl inventory apply ./local-restore --yes
 ```
 
-The reviewed PostgreSQL restore creates a new scratch database. Direct volume
-snapshot and restore remain available only before inventory initialization;
-the reviewed volume data route is still pending. Live-target database restore
-is not supported by the reviewed command.
+The reviewed PostgreSQL restore creates a new scratch database. Reviewed volume
+snapshot and scratch restore also require saved reviews and an accepted source
+PVC. Live-target database and volume restore are not supported by these commands.
 
 ## Optional: the auth plane
 
@@ -212,7 +211,7 @@ instant change.
 
 `just local-smoke` is the zero-cloud twin of the cloud `just smoke`: it runs the
 same scenario — deploy → write a sentinel into a volume → snapshot → restore →
-HTTP 200 → teardown — entirely on the local cluster, with **no gcloud, no IAP, and
+HTTP 200 → retain accepted evidence — entirely on the local cluster, with **no gcloud, no IAP, and
 no GCS**. It is the fastest way to confirm local mode is healthy end to end.
 
 ```bash
@@ -221,9 +220,14 @@ just local-smoke
 
 It deploys the shipped `cluster/examples/uploads-volume` example, snapshots its
 `/uploads` volume to local MinIO (an `s3://nagare-backups/...` object, never
-`gs://`), restores it and confirms the sentinel round-trips, and asserts HTTP 200.
-A teardown trap deletes the app, the MinIO snapshot object, and any restore-scratch
-PVC on every exit (including Ctrl-C). If the cluster is down it runs `just
+`gs://`), verifies the accepted archive in a scratch restore, checks a database
+sentinel in its scratch restore, and asserts HTTP 200. The volume sentinel is
+read from the live source before the snapshot; the script does not yet read it
+back from the scratch PVC.
+A teardown trap closes the local port-forward and prints the review directory.
+Accepted app, backup, and scratch resources remain for exact inspection and
+reviewed retirement or collection; `just local-down` removes the disposable
+local cluster when the drill is finished. If the cluster is down it runs `just
 local-up` + `local-bootstrap` + `local-minio` first. A green run ends with:
 
 ```text
@@ -231,6 +235,7 @@ local-up` + `local-bootstrap` + `local-minio` first. A green run ends with:
   HTTP 200 OK
 local smoke: OK
 == teardown ==
+  accepted resources retained; reviews: /tmp/nagare-local-smoke.XXXXXX
 == teardown done ==
 ```
 

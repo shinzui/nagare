@@ -252,12 +252,12 @@ Shell recipes use `NAGARE_CONTEXT=NAME just <recipe>`.
 | `just local-bootstrap` | Install Knative/Kourier locally with the `nagare-local-ca` TLS issuer | MP-16 EP-82 / EP-85 |
 | `just local-minio` | Install local MinIO backup object store | MP-16 EP-84 |
 | `just local-down` | Delete the local k3d cluster and registry | MP-16 EP-82 |
-| `nagare local-smoke` (`just local-smoke` in a checkout) | Local zero-cloud smoke: deploy → volume/database backup+restore (MinIO) → HTTP 200 → teardown | MP-16 EP-86 / MP-19 EP-101 |
+| `nagare local-smoke` (`just local-smoke` in a checkout) | Local zero-cloud smoke: reviewed image/deploy → reviewed volume/database backup+restore (MinIO) → HTTP 200; accepted resources remain for review | MP-16 EP-86 / MP-19 EP-101 |
 | `nagare observability` (`just observability` in a checkout) | Guard the selected cluster, then install the Victoria stack + Grafana via Helm using context-owned encrypted Secrets | EP-5 / MP-19 EP-101 / MP-22 EP-134 |
 | `just deploy-hello IMAGE_RESOURCE TAG` | Guard the selected cluster, then deploy the typed hello example through a reviewed Service scope. `IMAGE_RESOURCE` must name an accepted publication of the exact context-registry `hello:TAG` image. | EP-153 |
 | `just status` | `kubectl get pods -A` + `kubectl get ksvc -A` | — |
 | `just live-test` | Open an IAP/SSH-forwarded kube connection and print the `KUBECONFIG` to use | MP-8 EP-70 |
-| `just smoke` | Run the cloud deploy, GCS volume round-trip, HTTP check, and teardown smoke test | EP-69 |
+| `just smoke` | Run the cloud reviewed image/deploy, GCS volume round-trip, and HTTP check; accepted resources remain for review | EP-69 |
 
 ## Pulumi config keys (`infra/pulumi/Pulumi.<context>.yaml`)
 
@@ -366,8 +366,8 @@ it. Only Traefik is disabled.
 | `live-test.sh` | Open the IAP + SSH kube-apiserver forward, fetch/rewrite kubeconfig, and print the environment to use. |
 | `vm-power.sh` | Context-guarded VM `start`/`stop` implementation used by the `just` recipes. |
 | `migrate-pulumi-backend.sh` | Export/import one context's state between its local file backend and opt-in GCS backend. |
-| `live-smoke.sh` | Cloud deploy + GCS-backed volume snapshot/restore + HTTP + teardown acceptance path. |
-| `local-smoke.sh` | Zero-cloud k3d/MinIO equivalent of the live smoke path. |
+| `live-smoke.sh` | Cloud reviewed deploy + GCS-backed volume snapshot/restore + HTTP acceptance path; retains accepted resources. |
+| `local-smoke.sh` | Zero-cloud k3d/MinIO equivalent of the reviewed live smoke path; retains accepted resources. |
 
 ### `nagarectl init` (onboarding)
 

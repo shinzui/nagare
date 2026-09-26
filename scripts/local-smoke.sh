@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # scripts/local-smoke.sh (EP-86, MasterPlan 16) — the LOCAL end-to-end smoke test.
 #
-# The zero-cloud twin of scripts/live-smoke.sh: the SAME scenario (deploy ->
-# sentinel -> snapshot -> restore -> HTTP 200 -> teardown), but against the EP-82
+# The zero-cloud twin of scripts/live-smoke.sh: the SAME scenario (reviewed
+# publication/deploy -> sentinel -> reviewed snapshot/restore -> HTTP 200), against the EP-82
 # k3d cluster + local registry, with the volume snapshot round-tripping through
 # the local MinIO object store (EP-84) instead of GCS. NO gcloud, IAP, or GCS.
 #
@@ -65,51 +65,24 @@ else
 fi
 nagarectl() { "${NAGARECTL_BIN}" "$@"; }
 
-SNAPSHOT_URL=""
 SMOKE_DB="smokedb"
-DB_BACKUP_URL=""
 PF_PID=""
-HARNESS_READY=0
-
-# Best-effort removal of the local MinIO snapshot object (there is no `nagarectl
-# storage delete`; everything is wiped by `just local-down` anyway). Runs a
-# throwaway minio/mc pod against the in-cluster endpoint. Local creds are the
-# fixed minioadmin/minioadmin seeded by cluster/local/minio/minio.yaml.
-minio_rm() {
-  local url="$1" key
-  key="${url#s3://}"                                 # nagare-backups/volumes/...
-  [ "${key}" = "${url}" ] && return 0                # not an s3:// url; skip
-  kubectl -n nagare-system run "minio-rm-$$" --rm -i --restart=Never \
-    --image=minio/mc:RELEASE.2025-08-13T08-35-41Z --quiet \
-    --env=AK=minioadmin --env=SK=minioadmin --command -- /bin/sh -c \
-    "mc alias set s http://minio.nagare-system.svc.cluster.local:9000 \"\$AK\" \"\$SK\" >/dev/null 2>&1 && mc rm \"s/${key}\"" \
-    >/dev/null 2>&1 || true
-}
+SMOKE_RUN_ID="s$(date -u +%y%m%d%H%M%S)$$"
+SMOKE_RUN_ID="${SMOKE_RUN_ID:0:20}"
+REVIEW_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/nagare-local-smoke.XXXXXX")"
 
 cleanup() {
-  echo "== teardown =="
-  # Cluster-facing cleanup ONLY once the k3d kubeconfig was written and
-  # verified — otherwise these commands would fire against whatever ambient
-  # kubectl context the shell holds (for this operator, a real GKE cluster).
-  if [ "${HARNESS_READY}" = "1" ]; then
-    # `app delete NAME -n NS` deletes the Knative Service + DomainMappings +
-    # history (no --yes flag, no prompt); it resolves domains from the cluster
-    # when the config file is absent, so it is safe to run from the repo root.
-    nagarectl app delete "${SMOKE_APP}" -n "${SMOKE_NS}" >/dev/null 2>&1 || true
-    # EP-101: managed-database round-trip teardown (all best-effort).
-    nagarectl db delete "${SMOKE_DB}" -n "${SMOKE_NS}" --yes >/dev/null 2>&1 || true
-    kubectl -n "${SMOKE_NS}" delete pvc "nagare-db-${SMOKE_DB}-data" >/dev/null 2>&1 || true
-    [ -n "${DB_BACKUP_URL}" ] && minio_rm "${DB_BACKUP_URL}"
-    # Best-effort: drop the local MinIO snapshot object + any restore-scratch PVC.
-    [ -n "${SNAPSHOT_URL}" ] && minio_rm "${SNAPSHOT_URL}"
-    kubectl -n "${SMOKE_NS}" delete pvc -l nagare.dev/restore-scratch=true >/dev/null 2>&1 || true
-  else
-    echo "== teardown: harness never became ready; skipping cluster cleanup =="
-  fi
+  # Preserve accepted reviews and their private journals for exact recovery.
+  # Broad PVC/object deletion would bypass the reviewed collection boundary.
+  echo "  accepted resources retained; reviews: ${REVIEW_ROOT}"
   [ -n "${PF_PID}" ] && kill "${PF_PID}" 2>/dev/null || true
   echo "== teardown done =="
 }
 trap cleanup EXIT
+
+review_apply() {
+  nagarectl inventory apply "$1" --yes
+}
 
 # --- Step 1 (vs. cloud Step 1+2): ensure the LOCAL cluster is up. NO VM, NO IAP.
 echo "== step 1: ensure the local k3d cluster + registry + MinIO are up =="
@@ -121,17 +94,25 @@ fi
 KUBECONFIG="$(k3d kubeconfig write nagare-local)"
 export KUBECONFIG
 kubectl get nodes >/dev/null
-# The k3d kubeconfig is written and answering: the EXIT trap may now touch the
-# cluster.
-HARNESS_READY=1
+# The k3d kubeconfig is written and answering.
 # MinIO may be absent if the cluster was brought up by a bare `just local-up`.
 if ! kubectl -n nagare-system get deploy/minio >/dev/null 2>&1; then
   ( cd "${NAGARE_REPO_ROOT}" && just local-minio )
 fi
 
 # --- Step 2 (vs. cloud Step 3): deploy on the local cluster ---
-echo "== step 2: nagarectl deploy ${SMOKE_APP} (host-arch build -> local registry) =="
-deploy_out="$( cd "${APP_DIR}" && nagarectl deploy --file nagare/Config.hs )"
+echo "== step 2: review image publication and deploy ${SMOKE_APP} =="
+image_out="$(nagarectl app image-plan \
+  --archive "${REVIEW_ROOT}/image.tar" \
+  --build-dockerfile "${APP_DIR}/Dockerfile" --build-context "${APP_DIR}" \
+  --destination "${NAGARE_REGISTRY_HOST}/${TARGET_PROJECT}/${NAGARE_ARTIFACT_REGISTRY_ID}/${SMOKE_APP}:${SMOKE_RUN_ID}" \
+  --key "${SMOKE_RUN_ID}" --save-plan "${REVIEW_ROOT}/image-review")"
+echo "${image_out}"
+IMAGE_RESOURCE="$(printf '%s\n' "${image_out}" | sed -n 's/^Image resource: //p' | tail -1)"
+[ -n "${IMAGE_RESOURCE}" ] || { echo "local smoke: image review did not name a resource" >&2; exit 1; }
+review_apply "${REVIEW_ROOT}/image-review"
+deploy_out="$( cd "${APP_DIR}" && nagarectl deploy --file nagare/Config.hs \
+  --tag "${SMOKE_RUN_ID}" --image-resource "${IMAGE_RESOURCE}" )"
 echo "${deploy_out}"
 URL="$(printf '%s\n' "${deploy_out}" | sed -n 's/^Deployed: //p' | head -1)"
 URL="${URL:-https://${SMOKE_APP}.${SMOKE_NS}.${NAGARE_BASE_DOMAIN}}"
@@ -160,29 +141,23 @@ curlapp() { curl -sS -H "Host: ${APP_HOST}" "$@"; }
 # --- Step 3 (vs. cloud Step 4): sentinel + snapshot + restore via MinIO ---
 echo "== step 3a: write a sentinel into the volume =="
 curlapp -X POST --data "smoke ok $$" "${BASE}/upload/${SENTINEL}" >/dev/null
-echo "  read back: $(curlapp "${BASE}/files/${SENTINEL}")"
+got="$(curlapp "${BASE}/files/${SENTINEL}")"
+[ "${got}" = "smoke ok $$" ] || { echo "local smoke: volume sentinel readback differed: ${got}" >&2; exit 1; }
+echo "  read back: ${got}"
 
 echo "== step 3b: snapshot the volume to local MinIO =="
-snap_out="$(nagarectl storage snapshot "${SMOKE_APP}" "${SMOKE_VOL}" --config "${CONFIG}")"
-echo "${snap_out}"
-SNAPSHOT_URL="$(printf '%s\n' "${snap_out}" | sed -n 's/^Snapshot written: //p' | head -1)"
-SNAP_ID="$(basename "${SNAPSHOT_URL}" .tar.gz)"
-echo "  snapshot: ${SNAPSHOT_URL} (id ${SNAP_ID})"
-case "${SNAPSHOT_URL}" in
-  s3://*) : ;;
-  *) echo "  expected an s3:// (MinIO) snapshot URL, got '${SNAPSHOT_URL}'" >&2; exit 1 ;;
-esac
+SNAP_ID="${SMOKE_RUN_ID}"
+nagarectl storage snapshot "${SMOKE_APP}" "${SMOKE_VOL}" --config "${CONFIG}" \
+  --snapshot-id "${SNAP_ID}" --save-plan "${REVIEW_ROOT}/volume-backup"
+review_apply "${REVIEW_ROOT}/volume-backup"
+echo "  accepted volume snapshot: ${SNAP_ID}"
 
-echo "== step 3c: delete the live data, then restore + confirm the sentinel round-trips =="
+echo "== step 3c: clobber live data, then restore the accepted archive to scratch =="
 curlapp -X POST --data "" "${BASE}/upload/${SENTINEL}" >/dev/null   # clobber the live copy
-restore_out="$(nagarectl storage restore "${SMOKE_APP}" "${SMOKE_VOL}" "${SNAP_ID}" --config "${CONFIG}")"
-echo "${restore_out}"
-if printf '%s\n' "${restore_out}" | grep -q "${SENTINEL}"; then
-  echo "  RESTORE OK: sentinel ${SENTINEL} present in the restored tree"
-else
-  echo "  RESTORE FAILED: sentinel ${SENTINEL} not found in the restored tree" >&2
-  exit 1
-fi
+nagarectl storage restore "${SMOKE_APP}" "${SMOKE_VOL}" "${SNAP_ID}" --config "${CONFIG}" \
+  --restore-id "${SMOKE_RUN_ID}" --save-plan "${REVIEW_ROOT}/volume-restore"
+review_apply "${REVIEW_ROOT}/volume-restore"
+echo "  RESTORE OK: accepted receipt and archive verified into scratch PVC"
 
 # --- Step 4 (vs. cloud Step 5): verify HTTP 200 — plain loopback, no gateway IP ---
 echo "== step 4: verify HTTP 200 =="
@@ -196,7 +171,8 @@ fi
 
 # --- Step 5 (EP-101): managed-DB backup -> restore round-trip via MinIO ---
 echo "== step 5: managed-DB create -> backup -> restore -> assert row count =="
-nagarectl db create postgres "${SMOKE_DB}" -n "${SMOKE_NS}"
+nagarectl db create postgres "${SMOKE_DB}" -n "${SMOKE_NS}" \
+  --recovery-backup postgres-backup --recovery-key-version v1
 
 # Read the managed identity once. The password is passed only as the psql
 # process environment inside the pod; it is never printed or written to disk.
@@ -223,26 +199,24 @@ echo "== step 5a: write a sentinel row =="
 psql_in_pod "${PGDB}" "CREATE TABLE IF NOT EXISTS smoke_sentinel(v text); TRUNCATE smoke_sentinel; INSERT INTO smoke_sentinel VALUES ('smoke $$');"
 
 echo "== step 5b: back up to MinIO =="
-db_backup_out="$(nagarectl db backup "${SMOKE_DB}" -n "${SMOKE_NS}")"
-echo "${db_backup_out}"
-DB_BACKUP_URL="$(printf '%s\n' "${db_backup_out}" | sed -n 's/^Backup written: //p' | head -1)"
-case "${DB_BACKUP_URL}" in
-  s3://*) echo "  backup: ${DB_BACKUP_URL}" ;;
-  *) echo "  expected an s3:// (MinIO) backup URL, got '${DB_BACKUP_URL}'" >&2; exit 1 ;;
-esac
+nagarectl db backup "${SMOKE_DB}" -n "${SMOKE_NS}" \
+  --backup-id "${SMOKE_RUN_ID}" --save-plan "${REVIEW_ROOT}/db-backup"
+review_apply "${REVIEW_ROOT}/db-backup"
 
 echo "== step 5c: clobber the live table, restore into the scratch target =="
 psql_in_pod "${PGDB}" "TRUNCATE smoke_sentinel;"
-nagarectl db restore "${SMOKE_DB}" "${DB_BACKUP_URL}" -n "${SMOKE_NS}"
+nagarectl db restore "${SMOKE_DB}" "${SMOKE_RUN_ID}" -n "${SMOKE_NS}" \
+  --restore-id "${SMOKE_RUN_ID}" --save-plan "${REVIEW_ROOT}/db-restore"
+review_apply "${REVIEW_ROOT}/db-restore"
 
 echo "== step 5d: assert the sentinel row survived the round-trip =="
-db_count="$(psql_in_pod "${PGDB}_restore_scratch" "SELECT count(*) FROM smoke_sentinel;" | tr -d '[:space:]')"
+db_count="$(psql_in_pod "${PGDB}_restore_${SMOKE_RUN_ID}" "SELECT count(*) FROM smoke_sentinel;" | tr -d '[:space:]')"
 if [ "${db_count}" = "1" ]; then
-  echo "  DB RESTORE OK: smoke_sentinel has ${db_count} row in ${PGDB}_restore_scratch"
+  echo "  DB RESTORE OK: smoke_sentinel has ${db_count} row in ${PGDB}_restore_${SMOKE_RUN_ID}"
 else
-  echo "  DB RESTORE FAILED: expected 1 row in ${PGDB}_restore_scratch, got '${db_count}'" >&2
+  echo "  DB RESTORE FAILED: expected 1 row in ${PGDB}_restore_${SMOKE_RUN_ID}, got '${db_count}'" >&2
   exit 1
 fi
 
-# --- Step 6: teardown runs via the trap ---
+# --- Step 6: the trap closes this invocation's port-forward ---
 echo "local smoke: OK"

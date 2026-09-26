@@ -22,6 +22,11 @@ provenance:
       at: 2026-09-26T22:44:03Z
       mode: "implement"
       note: "Implement finite command registration audit and record remaining release gaps"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-26T23:17:08Z
+      mode: "implement"
+      note: "Cut over local and live smoke consumers to reviewed image, deploy, backup, and restore routes; retain recovery evidence"
 ---
 
 # Close managed command coverage for the inventory release
@@ -43,6 +48,8 @@ Every supported mutation command and shipped recipe is mapped to its owner, revi
 
 M2 handoff (2026-09-26): `just deploy-hello` now uses the typed `nagarectl deploy` path and requires an accepted image resource and explicit tag; historical direct `kubectl apply` effects were removed from that recipe. The example config now names `hello` under the selected context registry, and the example/user instructions describe reviewed publication and retirement. `just --dry-run deploy-hello ...`, the command audit, the focused inventory Cabal suite, both entrypoint guard scripts, and strict `docs/user` validation passed. The remaining seven pending recipes and eleven pending CLI routes are still open, as are platform cleanup/profile/credential protocols and native smoke/consumer proof.
 
+M2 handoff (2026-09-26): `scripts/local-smoke.sh` and `scripts/live-smoke.sh` now publish a Docker archive through `app image-plan`, deploy with its accepted image resource and explicit tag, and save/apply volume snapshot and scratch restore reviews. The local database drill also saves/applies reviewed backup and restore Jobs and checks the scratch database sentinel. Both scripts retain accepted resources and private reviews for exact recovery instead of deleting PVCs or object keys by broad selectors. `bash -n` for both scripts, `bash scripts/test-managed-command-audit.sh`, and strict `docs/user` validation passed. These are source-level checks; native smoke execution and a scratch-volume sentinel readback remain open. The workstation's `local` profile is pinned to platform 0.1.0 while the current selected payload is 0.4.0, and the `nagare-local` k3d cluster is absent, so this session did not claim a native run against that stale target. The live harness still starts the VM directly, and all seven recipes remain pending in the audit.
+
 Inherited baseline: legacy upgrade/Pulumi/context/cleanup/host-credential guards, eleven CLI refusal assertions, and the coverage catalogue already exist. Several guarded operations remain unavailable after admission; their guards are not evidence of a working replacement.
 
 
@@ -52,6 +59,8 @@ Inherited baseline: legacy upgrade/Pulumi/context/cleanup/host-credential guards
 The registration audit found eight packaged recipes still classified as pending, including direct VM power, image publication, host switch, raw hello deployment, both smoke scripts, and infra destroy. The existing catalogue also still has 30 incomplete rows, some owned by EP-155/158–161. A passing registration audit therefore cannot be treated as a complete release coverage result.
 
 The release evidence assembler formerly accepted a bare `{schemaVersion: 1, complete: true}` coverage stub. It now checks a non-dirty audit with registered route/recipe/library counts, empty pending and error lists, a candidate source digest, and a `sourceRevision` equal to the release manifest revision. `bash scripts/test-managed-resource-evidence.sh` proves a mismatched revision is refused.
+
+The reviewed volume restore Job verifies the accepted receipt and archive hashes and extracts to a separate scratch PVC, but its normal output only reports verification completion. The smoke scripts therefore no longer claim they read the file sentinel back from that PVC; EP-155's native recovery proof must exercise that readback before treating the volume round-trip as complete.
 
 
 ## Decision Log
@@ -69,7 +78,7 @@ The release evidence assembler formerly accepted a bare `{schemaVersion: 1, comp
 ## Outcomes & Retrospective
 
 
-Remaining-work plan created; no new acceptance run has been performed. Inherited capabilities are credited in Progress and must not be presented as newly completed work.
+M1 is complete. M2 has a reviewed hello recipe and source-level smoke consumer cutover, but the native smoke runs, platform profile/credential/cleanup protocols, VM and host recipes, and dependent feature plans remain open. A registration audit pass is evidence that the finite catalogue has no omissions; it is not a complete release-coverage result while its pending lists remain populated.
 
 
 ## Context and Orientation

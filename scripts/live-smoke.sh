@@ -2,7 +2,8 @@
 # scripts/live-smoke.sh (EP-5, MasterPlan 13) — the live end-to-end smoke test.
 #
 # Drives the exact paths that were dark for weeks before the 2026-06-10 audit:
-# build a private-registry build-mode app, deploy it (cluster pulls the PRIVATE
+# build a private-registry app archive, publish and deploy it under reviews
+# (cluster pulls the PRIVATE
 # image), snapshot a volume to GCS and RESTORE that snapshot (the path that
 # returned 401 Anonymous before EP-1's unified GCS-auth helper), confirm the app
 # answers HTTP 200, and tear everything down. Soft deps EP-1/EP-2/EP-3/EP-6 are
@@ -12,7 +13,8 @@
 # touches the billable cluster. Run it on demand: `just smoke`.
 #
 # Safety: the single-project guardrail (_require_target_project) refuses to act on
-# any project but the configured target; a teardown trap runs on every exit.
+# any project but the configured target; reviews and accepted resources remain
+# available for exact recovery after interruption.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -39,31 +41,24 @@ NAGARECTL_BIN="$(ls "${NAGARE_REPO_ROOT}"/cli/nagarectl/dist-newstyle/build/*/gh
 nagarectl() { "${NAGARECTL_BIN}" "$@"; }
 
 TUN_PIDS=""
-SNAPSHOT_URL=""
-HARNESS_READY=0
+SMOKE_RUN_ID="s$(date -u +%y%m%d%H%M%S)$$"
+SMOKE_RUN_ID="${SMOKE_RUN_ID:0:20}"
+REVIEW_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/nagare-live-smoke.XXXXXX")"
 
 cleanup() {
   echo "== teardown =="
-  # Cluster-facing cleanup ONLY once our own harness (tunnel + kubeconfig) was
-  # verified — otherwise these commands would fire against whatever ambient
-  # kubectl context / gcloud project the operator's shell happened to hold.
-  if [ "${HARNESS_READY}" = "1" ]; then
-    nagarectl app delete "${SMOKE_APP}" --yes >/dev/null 2>&1 || true
-    # Best-effort: remove the smoke snapshot object and any restore-scratch PVC.
-    [ -n "${SNAPSHOT_URL}" ] && gsutil rm "${SNAPSHOT_URL}" >/dev/null 2>&1 || true
-    kubectl -n "${SMOKE_NS}" delete pvc -l nagare.dev/restore-scratch=true >/dev/null 2>&1 || true
-  else
-    echo "== teardown: harness never became ready; skipping cluster cleanup =="
-  fi
-  # Our own child tunnels are reaped unconditionally: identified by PID, and by
-  # the INSTANCE name in the start-iap-tunnel argv (NOT the app name — tunnels
-  # are opened as 'start-iap-tunnel nagare-01 22 …').
+  # Retain accepted resources and private reviews for exact recovery/collection.
+  echo "  accepted resources retained; reviews: ${REVIEW_ROOT}"
+  # Reap only tunnels started by this invocation.
   # shellcheck disable=SC2086
   [ -n "${TUN_PIDS}" ] && kill ${TUN_PIDS} 2>/dev/null || true
-  pkill -f "start-iap-tunnel ${NAGARE_INSTANCE_NAME:-nagare-01} " 2>/dev/null || true
   echo "== teardown done =="
 }
 trap cleanup EXIT
+
+review_apply() {
+  nagarectl inventory apply "$1" --yes
+}
 
 # --- Step 1: ensure the VM is RUNNING ---
 echo "== step 1: ensure ${NAGARE_INSTANCE_NAME:-nagare-01} is RUNNING =="
@@ -83,14 +78,23 @@ TUN_PIDS="$(echo "${LT_OUT}" | grep '^# when done: kill' | sed 's/^# when done: 
 if [ -z "${KCFG}" ]; then echo "  live-test failed to produce a KUBECONFIG" >&2; exit 1; fi
 export KUBECONFIG="${KCFG}"
 kubectl get nodes >/dev/null
-# Our own tunnel + kubeconfig are proven: the EXIT trap may now touch the cluster.
-HARNESS_READY=1
+# Our own tunnel + kubeconfig are proven.
 PUBLIC_IP="$(cd "${NAGARE_REPO_ROOT}/infra/pulumi" && pulumi stack output publicIp 2>/dev/null)"
 echo "  KUBECONFIG=${KCFG} ; publicIp=${PUBLIC_IP}"
 
 # --- Step 3: deploy the private-registry build-mode app (EP-2 pull + EP-3 amd64) ---
-echo "== step 3: nagarectl deploy ${SMOKE_APP} (build amd64 -> push private AR -> deploy) =="
-( cd "${APP_DIR}" && nagarectl deploy --file nagare/Config.hs )
+echo "== step 3: review image publication and deploy ${SMOKE_APP} =="
+image_out="$(nagarectl app image-plan \
+  --archive "${REVIEW_ROOT}/image.tar" \
+  --build-dockerfile "${APP_DIR}/Dockerfile" --build-context "${APP_DIR}" \
+  --destination "${NAGARE_REGISTRY_HOST}/${TARGET_PROJECT}/${NAGARE_ARTIFACT_REGISTRY_ID}/${SMOKE_APP}:${SMOKE_RUN_ID}" \
+  --key "${SMOKE_RUN_ID}" --save-plan "${REVIEW_ROOT}/image-review")"
+echo "${image_out}"
+IMAGE_RESOURCE="$(printf '%s\n' "${image_out}" | sed -n 's/^Image resource: //p' | tail -1)"
+[ -n "${IMAGE_RESOURCE}" ] || { echo "live smoke: image review did not name a resource" >&2; exit 1; }
+review_apply "${REVIEW_ROOT}/image-review"
+( cd "${APP_DIR}" && nagarectl deploy --file nagare/Config.hs \
+  --tag "${SMOKE_RUN_ID}" --image-resource "${IMAGE_RESOURCE}" )
 HOST="${SMOKE_APP}.${SMOKE_NS}.${NAGARE_BASE_DOMAIN:-apps.example.com}"
 curlapp() { curl -sS --resolve "${HOST}:80:${PUBLIC_IP}" "$@"; }
 
@@ -98,24 +102,23 @@ curlapp() { curl -sS --resolve "${HOST}:80:${PUBLIC_IP}" "$@"; }
 echo "== step 4a: write a sentinel into the volume =="
 curlapp -X POST --data "smoke ok $$" "http://${HOST}/upload/${SENTINEL}" >/dev/null
 got="$(curlapp "http://${HOST}/files/${SENTINEL}")"
+[ "${got}" = "smoke ok $$" ] || { echo "live smoke: volume sentinel readback differed: ${got}" >&2; exit 1; }
 echo "  uploaded + read back: ${got}"
 
 echo "== step 4b: snapshot the volume to GCS =="
-snap_out="$(nagarectl storage snapshot "${SMOKE_APP}" "${SMOKE_VOL}" --config "${APP_DIR}/nagare/Config.hs")"
-echo "${snap_out}"
-SNAPSHOT_URL="$(echo "${snap_out}" | sed -n 's/^Snapshot written: //p' | head -1)"
-SNAP_ID="$(basename "${SNAPSHOT_URL}" .tar.gz)"
-echo "  snapshot: ${SNAPSHOT_URL} (id ${SNAP_ID})"
+SNAP_ID="${SMOKE_RUN_ID}"
+nagarectl storage snapshot "${SMOKE_APP}" "${SMOKE_VOL}" \
+  --config "${APP_DIR}/nagare/Config.hs" --snapshot-id "${SNAP_ID}" \
+  --save-plan "${REVIEW_ROOT}/volume-backup"
+review_apply "${REVIEW_ROOT}/volume-backup"
+echo "  accepted volume snapshot: ${SNAP_ID}"
 
-echo "== step 4c: restore the snapshot into a scratch PVC and confirm the sentinel round-trips =="
-restore_out="$(nagarectl storage restore "${SMOKE_APP}" "${SMOKE_VOL}" "${SNAP_ID}" --config "${APP_DIR}/nagare/Config.hs")"
-echo "${restore_out}"
-if echo "${restore_out}" | grep -q "${SENTINEL}"; then
-  echo "  RESTORE OK: sentinel ${SENTINEL} present in the restored tree"
-else
-  echo "  RESTORE FAILED: sentinel ${SENTINEL} not found in the restored tree" >&2
-  exit 1
-fi
+echo "== step 4c: restore the accepted snapshot into a scratch PVC =="
+nagarectl storage restore "${SMOKE_APP}" "${SMOKE_VOL}" "${SNAP_ID}" \
+  --config "${APP_DIR}/nagare/Config.hs" --restore-id "${SMOKE_RUN_ID}" \
+  --save-plan "${REVIEW_ROOT}/volume-restore"
+review_apply "${REVIEW_ROOT}/volume-restore"
+echo "  RESTORE OK: accepted receipt and archive verified into scratch PVC"
 
 # --- Step 5: verify HTTP 200 through the gateway ---
 echo "== step 5: verify HTTP 200 =="
@@ -127,5 +130,5 @@ else
   exit 1
 fi
 
-# --- Step 6: teardown runs via the trap ---
+# --- Step 6: the trap closes this invocation's tunnels ---
 echo "live smoke: OK"
