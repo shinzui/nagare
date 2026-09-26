@@ -278,7 +278,8 @@ refuses that plan.
 
 This example applies before the context has substantive resource inventory
 history. After admission, `context create --force`, `init NAME` on that
-existing context, and `context delete --yes` refuse. Changing or removing the
+existing context, unnamed `init` with that context selected, and `context
+delete --yes` refuse. Changing or removing the
 profile could strand the selected history store or break its project binding.
 Use `inventory store migrate` for a reviewed store move.
 

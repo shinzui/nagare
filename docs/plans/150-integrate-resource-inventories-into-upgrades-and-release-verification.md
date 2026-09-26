@@ -74,6 +74,14 @@ The coverage catalogue, user docs, and ADR 22 record the compatibility boundary.
 This does not complete M2: these families are explicitly unavailable after
 admission and still need reviewed implementations for full command coverage.
 
+2026-09-26: The same audit found unnamed `init` could still write a checkout
+profile and enable project APIs under an explicitly selected admitted context.
+It now checks that context's old inventory store before preflight. The public
+CLI regression covers this fifth refusal, including retention of the profile
+and history; fresh bootstrap remains eligible. The CLI build, targeted Darwin
+Nix entrypoint check, Nix shellcheck gate, Haskell style check, strict user
+documentation, and diff check pass.
+
 2026-09-25: M2's compatibility boundary now also refuses legacy `infra apply`
 and `infra destroy` after the selected context has substantive inventory
 history, an executor claim, or a store migration. The common head predicate

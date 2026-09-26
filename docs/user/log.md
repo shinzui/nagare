@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-26
+* **Fix**: Clarify that unnamed init also refuses cloud bootstrap for an explicitly selected context with admitted inventory history.
 * **Fix**: Explain that context profile replacement, context deletion, and confirmed legacy cleanup refuse after substantive resource inventory admission.
 
 ## 2026-09-25

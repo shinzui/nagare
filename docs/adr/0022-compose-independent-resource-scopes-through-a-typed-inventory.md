@@ -459,7 +459,7 @@ contract.
 The context profile chooses the inventory store and supplies its project binding.
 Rewriting or deleting that profile after inventory admission could strand accepted
 history or make subsequent provider work select a different target. Existing
-`init NAME`, `context create --force`, and `context delete --yes` therefore refuse
+named or unnamed `init`, `context create --force`, and `context delete --yes` therefore refuse
 once the selected store has substantive history, an executor claim, or a store
 migration. A newly created context may still bootstrap, and `inventory store
 migrate` remains the reviewed way to move its history. An initialized but

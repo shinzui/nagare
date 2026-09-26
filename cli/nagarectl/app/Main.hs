@@ -6320,6 +6320,8 @@ printPreflightWarnings = mapM_ (TIO.putStrLn . ("  warning: " <>))
 -- resolver and writes @./nagare.target.env@.
 runLegacyInit :: Maybe String -> InitOpts -> IO ()
 runLegacyInit mctx o = do
+  active <- activeTarget mctx
+  guardLegacyMutationInventory "init without NAME" active
   preflightInitTools o (parsePulumiBackendKind (o ^. #pulumiBackend))
   -- Defaults for prompts come from the current resolved profile, so re-running
   -- shows the operator their existing values.

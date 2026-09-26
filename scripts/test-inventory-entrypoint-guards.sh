@@ -53,6 +53,7 @@ refuse() {
 refuse 'context delete' context delete guarded --yes
 refuse 'context replacement' context create guarded --force --project other-project
 refuse 'named init' init guarded --project other-project --skip-preflight
+refuse 'legacy init' --context guarded init --project other-project --skip-preflight
 refuse 'confirmed cleanup' --context guarded cleanup --confirm
 test -f "$context_dir/guarded.env"
 test -f "$store_dir/head.json"
@@ -70,4 +71,4 @@ chmod 600 "$store_dir/head.json"
 "$nagarectl_bin" context delete guarded --yes > "$fixture_root/out"
 test ! -e "$context_dir/guarded.env"
 test -f "$store_dir/head.json"
-printf 'inventory entrypoint guards: four admitted refusals, untouched-store delete allowed\n'
+printf 'inventory entrypoint guards: five admitted refusals, untouched-store delete allowed\n'

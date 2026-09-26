@@ -366,6 +366,8 @@ prompted for, and a non-interactive run without it exits non-zero naming the
 flag. With `NAME`, it preflights gcloud auth + the six operator IAM roles,
 writes a named context, sets it current, runs `enable-apis.sh`, and seeds that
 context's Pulumi keys. Without `NAME`, it writes the legacy `nagare.target.env`.
+Both forms refuse before preflight or provider writes when the selected existing
+context has substantive resource inventory history.
 See
 [Bring-your-own-project onboarding](onboarding-bring-your-own-project.md).
 
