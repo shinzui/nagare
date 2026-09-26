@@ -36,14 +36,17 @@ Redpanda is the v1 provider. Tansu is reserved as a future provider; see
 
 ## Provision a broker
 
-The smallest useful broker:
+The smallest reviewed broker includes explicit recovery intent:
 
 ```bash
 nagarectl broker create redpanda events \
   --namespace personal \
   --topic jobs \
   --topic-partitions 1 \
-  --topic-retention-ms 86400000
+  --topic-retention-ms 86400000 \
+  --recovery-backup redpanda-backup \
+  --recovery-key broker-key \
+  --recovery-key-version v1
 ```
 
 This creates a single-replica StatefulSet, a ClusterIP Service, a durable
@@ -82,10 +85,11 @@ the broker was created with a pinned logical key different from its current
 name. The accepted StatefulSet name and namespace are checked before planning.
 Applying this retirement review preserves the broker and its topics and records
 their identities as retained history. Reviewed Kubernetes deletion is not yet
-supported for these resources; `broker delete --yes` is a separate direct
-workflow available only before the context's inventory history is initialized.
-Direct broker operations refuse accepted or retained StatefulSet, Service, or
-PVC addresses, including when the StatefulSet has already been collected.
+supported for these resources. `broker delete` is an alias for this saved
+retirement review and also requires `--save-plan`; neither command deletes the
+provider resources.
+The offline `broker create --dry-run` renderer refuses accepted or retained
+StatefulSet, Service, or PVC addresses, including after StatefulSet collection.
 
 The recovery options identify the durable broker and topic recovery policy and
 key reference. The plan requires an accepted platform Namespace bound to the
@@ -114,25 +118,17 @@ Useful commands:
 nagarectl broker list [--namespace personal]
 nagarectl broker get NAME [--namespace personal]
 nagarectl broker restart NAME [--namespace personal]
-nagarectl broker delete NAME [--namespace personal] [--yes]
+nagarectl broker delete NAME [--namespace personal] --save-plan DIR
 ```
 
 For an accepted broker, `broker restart` reviews and applies a pod template
 update while preserving its PVC, Service, and topic claims. To inspect before
 apply, run `nagarectl broker restart events --save-plan ./events-restart`, then
 `nagarectl inventory apply ./events-restart --yes`. An accepted broker refuses
-`--dry-run`; legacy brokers keep the direct restart behavior before inventory
-history is initialized. In an initialized context, direct live create,
-restart, and delete refuse even for an unclaimed broker. Use the reviewed
-create, restart, and retirement routes above; reviewed deletion is pending.
-
-`broker delete` removes the StatefulSet and Service but keeps the PVC by default
-so data is not destroyed accidentally. Delete the PVC only when you intend to
-lose broker data:
-
-```bash
-kubectl delete pvc nagare-broker-events-data -n personal
-```
+`--dry-run`; an unaccepted broker has no reviewed restart authority. Live
+create and restart use reviewed scopes in every context. `broker delete` saves
+the same retirement review as `broker retire`; exact collection of the retained
+provider members requires a separate reviewed operation when supported.
 
 ## Typed broker config
 

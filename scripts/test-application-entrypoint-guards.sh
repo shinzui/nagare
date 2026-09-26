@@ -18,6 +18,7 @@ cat > "$context_dir/guarded.env" <<'EOF'
 CLOUDSDK_CORE_PROJECT=project
 NAGARE_MODE=local
 EOF
+cp "$context_dir/guarded.env" "$context_dir/fresh.env"
 python3 - "$store_dir/head.json" <<'PY'
 import json
 import sys
@@ -70,18 +71,18 @@ refuse 'timestamped task run' 'direct task run is refused' \
   task run notes cleanup
 refuse 'direct task deletion' 'direct task delete is refused' \
   task delete notes cleanup --yes
-refuse 'direct database create' 'direct database create is refused' \
+refuse 'database create without recovery' 'reviewed database create requires --recovery-backup' \
   db create postgres fixture
-refuse 'direct broker create' 'direct broker create is refused' \
+refuse 'broker create without recovery' 'reviewed broker create requires --recovery-backup' \
   broker create redpanda fixture
-refuse 'direct database restart' 'direct data restart is refused' \
+refuse 'unaccepted database restart' 'reviewed data restart requires one accepted StatefulSet scope' \
   db restart fixture
-refuse 'direct broker restart' 'direct data restart is refused' \
+refuse 'unaccepted broker restart' 'reviewed data restart requires one accepted StatefulSet scope' \
   broker restart fixture
-refuse 'direct database deletion' 'direct database delete is refused' \
-  db delete fixture --yes
-refuse 'direct broker deletion' 'direct broker delete is refused' \
-  broker delete fixture --yes
+refuse 'database deletion without review' 'save-plan' \
+  db delete fixture
+refuse 'broker deletion without review' 'save-plan' \
+  broker delete fixture
 refuse 'direct database backup' 'direct database backup is refused' \
   db backup fixture
 refuse 'direct database restore' 'direct database restore is refused' \
@@ -124,5 +125,16 @@ refuse 'direct access revoke' 'direct access revoke is refused' \
 refuse 'direct portal sync' 'direct access portal sync is refused' \
   access portal sync
 
+if "$nagarectl_bin" --context fresh db restart fixture > "$fixture_root/out" 2>&1; then
+  printf 'fresh database restart unexpectedly succeeded\n' >&2
+  exit 1
+fi
+if ! grep -q 'inventory store is not initialized' "$fixture_root/out"; then
+  printf 'fresh database restart refused for the wrong reason:\n' >&2
+  cat "$fixture_root/out" >&2
+  exit 1
+fi
+test ! -e "$XDG_STATE_HOME/nagare/fresh/inventory/head.json"
+
 cmp -s "$store_dir/head.json" "$fixture_root/head-before"
-printf 'application entrypoint guards: thirty-three live refusals, inventory head unchanged\n'
+printf 'application entrypoint guards: thirty-three live refusals and fresh restart refusal, inventory heads unchanged\n'

@@ -31,11 +31,12 @@ command group.
 ```bash
 # Provision a Postgres database (generates a password, a Secret, a PVC, a
 # StatefulSet, a ClusterIP Service, and a daily backup CronJob):
-nagarectl db create postgres pg-main --size 10Gi
+nagarectl db create postgres pg-main --size 10Gi \
+  --recovery-backup postgres-backup --recovery-key-version v1
 
 # In your app's nagare/Config.hs, reference it by name (databases = ["pg-main"]).
-# Then deploy — the app receives DATABASE_URL (a Secret reference) automatically:
-nagarectl deploy -f nagare/Config.hs
+# A reviewed app deploy binds the accepted database and supplies DATABASE_URL
+# through its credential Secret reference.
 ```
 
 Your app reads `process.env.DATABASE_URL` (or `os.environ["DATABASE_URL"]`) and
@@ -105,7 +106,7 @@ database = do
       , namespace = defaultNamespace          -- "personal"
       , size      = size'
       , resources = Nothing                   -- set memory limits for ClickHouse
-      , retention = Retain                     -- keep the data disk on `db delete`
+      , retention = Retain                     -- keep the data disk through reviewed retirement
       }
 
 main :: IO ()
@@ -135,7 +136,8 @@ The platform defaults to **modern engine majors**, all verified on the cluster:
   becomes a `local-path` `ReadWriteOnce` volume on the node's data disk.
 - `resources` (optional) sets CPU/memory requests and limits on the engine
   container. **For ClickHouse, set a memory limit** (see the constraint above).
-- `retention` is `Retain` (keep the disk on `db delete`) or `Delete` (remove it).
+- `retention` is `Retain` (keep the disk for recovery) or `Delete` (permit deletion
+  through a separate reviewed collection after consumers retire).
   object-store backups are a separate mechanism.
 
 
@@ -147,7 +149,7 @@ nagarectl db create ENGINE NAME    # generate creds + provision Secret, PVC, Sta
 nagarectl db get NAME              # detail: engine, version, host, retention, ready, Secret key names
 nagarectl db shell NAME            # interactive psql / redis-cli / clickhouse-client inside the pod
 nagarectl db restart NAME          # roll the StatefulSet pod and wait for ready
-nagarectl db delete NAME --yes     # delete, honoring RetentionPolicy (guarded by --yes)
+nagarectl db delete NAME --save-plan DIR  # save a reviewed retirement; retain provider resources
 nagarectl db backup NAME           # legacy direct logical dump before inventory admission
 nagarectl db backup NAME --backup-id ID --save-plan DIR  # reviewed manual Job
 nagarectl db restore NAME BACKUP_ID  # restore a backup, scratch-first
@@ -185,8 +187,7 @@ nagarectl inventory apply ./pg-main-restart --yes
 ```
 
 An accepted database refuses `db restart --dry-run`; use `--save-plan` to inspect
-the actual update. A legacy database still uses the direct restart command only
-before the context's inventory history is initialized.
+the actual update. An unaccepted database has no reviewed restart authority.
 
 To retire a database already accepted into a standalone inventory scope, review
 the retirement separately:
@@ -201,13 +202,11 @@ If the database has a pinned logical key different from its current name, pass
 namespace before planning. Applying this retirement review preserves every
 provider resource, including the workload, Service, credential, and PVC. It
 records their identities as retained history. Reviewed Kubernetes deletion is
-not yet supported for these resources. Direct `db delete --yes` is available
-only before the context's inventory history is initialized.
-Direct database operations refuse accepted or retained workload, Service,
-credential, backup, configuration, or PVC addresses, including when the
-StatefulSet has already been collected. The direct create check includes a
-retained backup or configuration object even if the new config changes its
-retention or database engine.
+not yet supported for these resources. `db delete` saves the same retirement
+review and requires `--save-plan`; neither command deletes provider resources.
+The offline create renderer refuses accepted or retained workload, Service,
+credential, backup, configuration, or PVC addresses, including after the
+StatefulSet is collected.
 
 Planning uses the typed database input from the flags or `--config`, binds the
 credential template and all database objects to the standalone scope, and
@@ -215,14 +214,13 @@ includes the scheduled backup for retained data. The recovery options identify
 the backup policy and credential key version used by that scope. The plan
 requires the platform's accepted Namespace declaration bound to the selected
 cluster identity. A `--config` database must match the command's engine and
-name. The older `db create` form without recovery options still uses the direct
-create path only before the context's inventory history is initialized.
+name. Live `db create` requires both recovery options in every context.
 
-In an initialized inventory context, direct live database create, shell,
-delete, backup, and restore refuse even for an unclaimed name. Create, restart,
-and retirement have reviewed routes above. Manual backup, restore, interactive
-maintenance, and deletion still need reviewed operations. Read-only output remains available
-where the command provides `--dry-run` or a plan-only form.
+Live create, restart, and retirement use reviewed scopes in every context.
+Direct shell, legacy backup, and legacy restore refuse after inventory
+initialization; reviewed manual backup and scratch restore have saved-plan
+routes below. Interactive maintenance and live-target restore still need
+reviewed operation contracts. Offline `--dry-run` output remains available.
 
 `db create` generates the `nagare-db-<name>` Secret, then applies the PVC,
 ClickHouse memory ConfigMap (ClickHouse only), Service, and StatefulSet, then
@@ -279,9 +277,10 @@ spec:
 Would create database pg-main (postgres) at pg-main.personal.svc.cluster.local
 ```
 
-`db delete NAME` (without `--yes`) prints the deletion plan and the retention note
-and deletes nothing; with `--yes` it removes the StatefulSet, Service, Secret, and
-ConfigMap, and — only when `retention = Delete` — the data PVC.
+`db delete NAME --save-plan DIR` saves a reviewed scope retirement. Applying
+that review retains the StatefulSet, Service, Secret, ConfigMap, and PVC in
+inventory for separate conditional collection. `--yes` no longer deletes them
+through this command.
 
 
 ## Connecting an app to a database

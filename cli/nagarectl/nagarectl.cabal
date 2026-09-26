@@ -43,7 +43,6 @@ library
     Nagare.App.Deployments
     Nagare.Broker.Connection
     Nagare.Broker.Create
-    Nagare.Broker.Delete
     Nagare.Broker.Discover
     Nagare.Broker.Get
     Nagare.Broker.Health
@@ -63,7 +62,6 @@ library
     Nagare.Database.Prune
     Nagare.Database.Connection
     Nagare.Database.Create
-    Nagare.Database.Delete
     Nagare.Database.Discover
     Nagare.Database.Get
     Nagare.Database.List

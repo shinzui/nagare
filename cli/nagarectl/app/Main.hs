@@ -72,7 +72,6 @@ import Nagare.App.Deployments
   , resolveRevisionForTag
   )
 import Nagare.Broker.Create (BrokerCreateParams (..), resolveBroker, runBrokerCreateWithGuard)
-import Nagare.Broker.Delete (BrokerDeleteParams (..), runBrokerDelete)
 import Nagare.Broker.Get (runBrokerGet)
 import Nagare.Broker.List (runBrokerList)
 import Nagare.Broker.Restart (runBrokerRestart)
@@ -104,7 +103,6 @@ import Nagare.Cluster.Namespace (NamespacePurpose (..))
 import Nagare.Database.Backup (runDbBackup)
 import Nagare.Database.Connection (connectionEnv, mergeConnectionEnvs)
 import Nagare.Database.Create (DbCreateParams (..), resolveDatabase, runDbCreateWithGuard)
-import Nagare.Database.Delete (DbDeleteParams (..), runDbDelete)
 import Nagare.Database.Discover (lookupConnection)
 import Nagare.Database.Get (runDbGet)
 import Nagare.Database.List (runDbList)
@@ -1052,8 +1050,8 @@ data DbCommand
     DbShell DbNameOpts
   | -- | nagarectl db restart NAME [-n NS] [--dry-run]
     DbRestart DbNameOpts Bool (Maybe FilePath)
-  | -- | nagarectl db delete NAME [-n NS] [--yes] [--dry-run]
-    DbDelete DbDeleteOpts
+  | -- | nagarectl db delete NAME [-n NS] --save-plan DIR
+    DbDelete StandaloneRetireOpts
   | -- | nagarectl db retire NAME [-n NS] --save-plan DIR
     DbRetire StandaloneRetireOpts
   | -- | nagarectl db backup NAME [-n NS] [--bucket B] [--keep N] [--dry-run] (EP-47)
@@ -1075,8 +1073,8 @@ data BrokerCommand
     BrokerGet BrokerNameOpts
   | -- | nagarectl broker restart NAME [-n NS] [--dry-run]
     BrokerRestart BrokerNameOpts Bool (Maybe FilePath)
-  | -- | nagarectl broker delete NAME [-n NS] [--yes] [--dry-run]
-    BrokerDelete BrokerDeleteOpts
+  | -- | nagarectl broker delete NAME [-n NS] --save-plan DIR
+    BrokerDelete StandaloneRetireOpts
   | -- | nagarectl broker retire NAME [-n NS] --save-plan DIR
     BrokerRetire StandaloneRetireOpts
   deriving stock (Generic, Show)
@@ -1161,15 +1159,6 @@ data DbCreateOpts = DbCreateOpts
   }
   deriving stock (Generic, Show)
 
--- | Options for @db delete NAME@: namespace, the --yes guard, and --dry-run.
-data DbDeleteOpts = DbDeleteOpts
-  { name :: !String
-  , namespace :: !(Maybe String)
-  , yes :: !Bool
-  , dryRun :: !Bool
-  }
-  deriving stock (Generic, Show)
-
 -- | Retiring an accepted scope preserves its provider resources and records
 -- their identities for later review and collection.
 data StandaloneRetireOpts = StandaloneRetireOpts
@@ -1246,15 +1235,6 @@ data BrokerCreateOpts = BrokerCreateOpts
   , recoveryBackup :: !(Maybe String)
   , recoveryKey :: !(Maybe String)
   , recoveryKeyVersion :: !(Maybe String)
-  }
-  deriving stock (Generic, Show)
-
--- | Options for @broker delete NAME@: namespace, the --yes guard, and --dry-run.
-data BrokerDeleteOpts = BrokerDeleteOpts
-  { name :: !String
-  , namespace :: !(Maybe String)
-  , yes :: !Bool
-  , dryRun :: !Bool
   }
   deriving stock (Generic, Show)
 
@@ -1942,14 +1922,6 @@ dbCreateOptsParser =
     <*> optional (strOption (long "recovery-backup" <> metavar "NAME" <> help "Recovery backup policy for reviewed database creation"))
     <*> optional (strOption (long "recovery-key-version" <> metavar "VERSION" <> help "Credential recovery key version for reviewed database creation"))
 
-dbDeleteOptsParser :: Parser DbDeleteOpts
-dbDeleteOptsParser =
-  DbDeleteOpts
-    <$> dbNameArg
-    <*> namespaceOpt
-    <*> switch (long "yes" <> help "Confirm deletion (without it, prints the plan and deletes nothing)")
-    <*> dryRunOpt
-
 standaloneRetireOptsParser :: Parser String -> Parser StandaloneRetireOpts
 standaloneRetireOptsParser nameParser =
   StandaloneRetireOpts
@@ -1987,14 +1959,6 @@ brokerCreateOptsParser =
     <*> optional (strOption (long "recovery-backup" <> metavar "NAME" <> help "Recovery backup policy for a reviewed broker"))
     <*> optional (strOption (long "recovery-key" <> metavar "NAME" <> help "Recovery key name for a reviewed broker"))
     <*> optional (strOption (long "recovery-key-version" <> metavar "VERSION" <> help "Recovery key version for a reviewed broker"))
-
-brokerDeleteOptsParser :: Parser BrokerDeleteOpts
-brokerDeleteOptsParser =
-  BrokerDeleteOpts
-    <$> brokerNameArg
-    <*> namespaceOpt
-    <*> switch (long "yes" <> help "Confirm deletion (without it, prints the plan and deletes nothing)")
-    <*> dryRunOpt
 
 dbBackupBucketOpt :: Parser (Maybe String)
 dbBackupBucketOpt =
@@ -2936,8 +2900,8 @@ opts =
             <> command
               "delete"
               ( info
-                  (Broker . BrokerDelete <$> brokerDeleteOptsParser <**> helper)
-                  (progDesc "Delete a broker (guarded by --yes)")
+                  (Broker . BrokerDelete <$> standaloneRetireOptsParser brokerNameArg <**> helper)
+                  (progDesc "Save a reviewed broker retirement; provider resources remain retained")
               )
             <> command
               "retire"
@@ -2989,8 +2953,8 @@ opts =
             <> command
               "delete"
               ( info
-                  (Db . DbDelete <$> dbDeleteOptsParser <**> helper)
-                  (progDesc "Delete a database, honoring its retention policy (guarded by --yes)")
+                  (Db . DbDelete <$> standaloneRetireOptsParser dbNameArg <**> helper)
+                  (progDesc "Save a reviewed database retirement; provider resources remain retained")
               )
             <> command
               "retire"
@@ -8670,35 +8634,24 @@ runBroker mctx = \case
           , topicPartitions = o ^. #topicPartitions
           , topicRetentionMs = o ^. #topicRetentionMs
           }
-    if isJust (o ^. #savePlan)
-        || any isJust [o ^. #recoveryBackup, o ^. #recoveryKey, o ^. #recoveryKeyVersion]
+    if o ^. #dryRun
       then do
-        when (o ^. #dryRun) (dieT "reviewed broker create cannot combine with --dry-run")
-        runBrokerCreatePlan mctx provider (T.pack name) params
-          (o ^. #recoveryBackup) (o ^. #recoveryKey)
-          (o ^. #recoveryKeyVersion) (o ^. #savePlan)
-      else do
-        unless (o ^. #dryRun) (refuseDirectDataWriteWhenManaged mctx "broker create")
+        when (isJust (o ^. #savePlan)) (dieT "broker create --dry-run cannot save a review")
         runBrokerCreateWithGuard provider (T.pack name) params $ \broker ->
           withAcceptedInventoryHistory mctx "broker create" $ \history ->
             when (brokerNativeOwned broker (ownedHistoryResources history))
               (dieT "broker objects are owned by accepted or retained inventory history; direct create is refused")
+      else runBrokerCreatePlan mctx provider (T.pack name) params
+        (o ^. #recoveryBackup) (o ^. #recoveryKey)
+        (o ^. #recoveryKeyVersion) (o ^. #savePlan)
   BrokerGet o -> runBrokerGet (nsOf (o ^. #namespace)) (T.pack (o ^. #name))
   BrokerRestart o dryRun output ->
     runDataRestart mctx BrokerObjects (T.pack (o ^. #name))
       (nsOf (o ^. #namespace)) dryRun output
       (runBrokerRestart (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) dryRun)
-  BrokerDelete o -> do
-    when (o ^. #yes && not (o ^. #dryRun)) $ do
-      refuseDirectDataWriteWhenManaged mctx "broker delete"
-      refuseDirectDataMutationIfOwned mctx BrokerObjects "delete" (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
-    runBrokerDelete
-      BrokerDeleteParams
-        { name = T.pack (o ^. #name)
-        , namespace = nsOf (o ^. #namespace)
-        , yes = o ^. #yes
-        , dryRun = o ^. #dryRun
-        }
+  BrokerDelete o ->
+    runStandaloneRetirePlan mctx "broker" (T.pack (o ^. #name))
+      (nsOf (o ^. #namespace)) (T.pack <$> o ^. #scopeKey) (o ^. #savePlan)
   BrokerRetire o ->
     runStandaloneRetirePlan mctx "broker" (T.pack (o ^. #name))
       (nsOf (o ^. #namespace)) (T.pack <$> o ^. #scopeKey) (o ^. #savePlan)
@@ -8758,18 +8711,15 @@ runDb mctx = \case
           , dryRun = o ^. #dryRun
           , targetProfile = tp
           }
-    if isJust (o ^. #savePlan)
-        || isJust (o ^. #recoveryBackup) || isJust (o ^. #recoveryKeyVersion)
+    if o ^. #dryRun
       then do
-        when (o ^. #dryRun) (dieT "reviewed database create cannot combine with --dry-run")
-        runDbCreatePlan mctx eng (T.pack name) params
-          (o ^. #recoveryBackup) (o ^. #recoveryKeyVersion) (o ^. #savePlan)
-      else do
-        unless (o ^. #dryRun) (refuseDirectDataWriteWhenManaged mctx "database create")
+        when (isJust (o ^. #savePlan)) (dieT "database create --dry-run cannot save a review")
         runDbCreateWithGuard eng (T.pack name) params $ \database ->
           withAcceptedInventoryHistory mctx "database create" $ \history ->
             when (databaseNativeOwned database (ownedHistoryResources history))
               (dieT "database objects are owned by accepted or retained inventory history; direct create is refused")
+      else runDbCreatePlan mctx eng (T.pack name) params
+        (o ^. #recoveryBackup) (o ^. #recoveryKeyVersion) (o ^. #savePlan)
   DbGet o -> runDbGet (nsOf (o ^. #namespace)) (T.pack (o ^. #name))
   DbShell o -> do
     refuseDirectDataWriteWhenManaged mctx "database shell"
@@ -8779,17 +8729,9 @@ runDb mctx = \case
     runDataRestart mctx DatabaseObjects (T.pack (o ^. #name))
       (nsOf (o ^. #namespace)) dry output
       (runDbRestart (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) dry)
-  DbDelete o -> do
-    when (o ^. #yes && not (o ^. #dryRun)) $ do
-      refuseDirectDataWriteWhenManaged mctx "database delete"
-      refuseDirectDataMutationIfOwned mctx DatabaseObjects "delete" (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
-    runDbDelete
-      DbDeleteParams
-        { name = T.pack (o ^. #name)
-        , namespace = nsOf (o ^. #namespace)
-        , yes = o ^. #yes
-        , dryRun = o ^. #dryRun
-        }
+  DbDelete o ->
+    runStandaloneRetirePlan mctx "database" (T.pack (o ^. #name))
+      (nsOf (o ^. #namespace)) (T.pack <$> o ^. #scopeKey) (o ^. #savePlan)
   DbRetire o ->
     runStandaloneRetirePlan mctx "database" (T.pack (o ^. #name))
       (nsOf (o ^. #namespace)) (T.pack <$> o ^. #scopeKey) (o ^. #savePlan)
@@ -8867,19 +8809,20 @@ runDisableBackupPrunePlan mctx name namespaceName output = do
   Inventory.planInventoryCandidateWith
     (inventoryPlanRegistryWithNative active workspace native) active candidate output
 
--- | Accepted data workloads restart from exact private native evidence. A
--- legacy name can still use the direct command when no companion is claimed.
+-- | Accepted data workloads restart from exact private native evidence. The
+-- legacy renderer remains available only for a read-only dry run.
 runDataRestart :: Maybe String -> NativeDataKind -> Text -> Text -> Bool
   -> Maybe FilePath -> IO () -> IO ()
 runDataRestart mctx kind name namespaceName dryRun output legacy = do
   owned <- withAcceptedInventoryHistoryResult mctx "data restart" False $ \history ->
     pure (dataCommandNativeOwned kind name namespaceName
       (ownedHistoryResources history))
-  if owned || isJust output
+  if owned || isJust output || not dryRun
     then do
       when dryRun (dieT "accepted data restart requires a review; use --save-plan to inspect it")
       active <- activeTarget mctx
       (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+      store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
       snapshot <- Inventory.loadTargetSnapshot active
       let selected = [scope | (_, scope) <- Map.elems (ResourceInventory.snapshotScopes snapshot),
             bundle <- ResourceInventory.scopeBundles scope,
@@ -8893,7 +8836,6 @@ runDataRestart mctx kind name namespaceName dryRun output legacy = do
       scope <- case selected of
         [single] -> pure single
         _ -> dieT "reviewed data restart requires one accepted StatefulSet scope"
-      store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
       history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
       acceptedInventory <- either (dieT . T.pack . show) pure
         (ResourceInventory.composeSnapshot snapshot)
@@ -8911,9 +8853,7 @@ runDataRestart mctx kind name namespaceName dryRun output legacy = do
           (inventoryExecutionRegistry mctx) active candidate
         Just directory -> Inventory.planInventoryCandidateWith
           (inventoryPlanRegistryWithNative active workspace native) active candidate directory
-    else do
-      unless dryRun (refuseDirectDataWriteWhenManaged mctx "data restart")
-      legacy
+    else legacy
 
 runDbCreatePlan :: Maybe String -> Engine -> Text -> DbCreateParams
   -> Maybe String -> Maybe String -> Maybe FilePath -> IO ()
