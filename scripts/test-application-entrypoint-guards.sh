@@ -113,6 +113,16 @@ refuse 'direct site rollback' 'direct site rollback is refused' \
   site rollback --file ../nagare-dsl/test/fixtures/static-site/nagare/Config.hs prior-release
 refuse 'direct preview deletion' 'direct site preview delete is refused' \
   site preview delete --file ../nagare-dsl/test/fixtures/static-site/nagare/Config.hs feature-x
+refuse 'direct CDN purge' 'direct cdn purge is refused' \
+  cdn purge hello.example.com
+refuse 'direct CDN disable' 'direct cdn disable is refused' \
+  cdn disable hello.example.com
+refuse 'direct access grant' 'direct access grant is refused' \
+  access grant --host hello.example.com --user fixture
+refuse 'direct access revoke' 'direct access revoke is refused' \
+  access revoke --host hello.example.com --user fixture
+refuse 'direct portal sync' 'direct access portal sync is refused' \
+  access portal sync
 
 cmp -s "$store_dir/head.json" "$fixture_root/head-before"
-printf 'application entrypoint guards: twenty-eight live refusals, inventory head unchanged\n'
+printf 'application entrypoint guards: thirty-three live refusals, inventory head unchanged\n'

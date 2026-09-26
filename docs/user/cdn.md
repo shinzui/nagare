@@ -202,7 +202,10 @@ nagarectl cdn disable blog.example.com   # tear the CDN down and route DNS back 
 ```
 
 `purge` and `disable` accept `--dry-run` and print the planned action without
-making it. (Live `cdn list`/`status` discovery reads the cluster and the cloud
+making it. Once a context initializes inventory history, their live direct
+forms refuse even for a new hostname; reviewed purge and DNS retirement
+operations are pending. Read-only `list`, `status`, and `--dry-run` remain
+available. (Live `cdn list`/`status` discovery reads the cluster and the cloud
 provider, so it is part of the deferred live legs while the VM is off.)
 
 ## DNS + origin-TLS runbook

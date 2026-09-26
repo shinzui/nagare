@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-26
+* **Fix**: Refuse direct live CDN purge/disable and access grant/revoke/portal sync after inventory initialization; keep their read-only inspection paths.
 * **Fix**: Refuse `nagared` webhook deployments after the selected context initializes inventory history, including when admission occurs after the webhook worker starts.
 * **Fix**: Require accepted reviewed scopes for live app stop/restart and saved reviews for app deletion, site rollback, and preview deletion after inventory initialization.
 * **Fix**: Require reviewed env and versioned Secret writes after inventory initialization, including newly named application stores.

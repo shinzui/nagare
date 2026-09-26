@@ -219,6 +219,11 @@ export NAGARE_EN_API_KEY="$(kubectl -n nagare-system get secret nagare-en-api-ke
   -o jsonpath='{.data.read-write}' | base64 -d)"
 ```
 
+Live `access grant`, `access revoke`, and `access portal sync` are direct
+operations available only before the context initializes inventory history.
+Reviewed grant, revocation, and portal synchronization operations are pending;
+read-only `access list` and `access portal show` remain available afterward.
+
 ## Request behavior
 
 For a protected host:

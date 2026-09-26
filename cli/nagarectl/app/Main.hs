@@ -7044,6 +7044,7 @@ runCdnPurge mctx o = do
   if o ^. #dryRun
     then TIO.putStrLn ("Would purge Cloudflare edge cache for " <> host <> " (paths: " <> pathsDesc <> ")")
     else do
+      refuseDirectLegacyOperationWhenManaged mctx "cdn purge" "a reviewed purge operation is not yet available"
       refuseDirectCdnHostMutationIfOwned mctx "cdn purge" host
       refuseDirectCloudflareZoneMutationIfOwned mctx "cdn purge"
       ecreds <- loadCloudflareCreds
@@ -7062,6 +7063,8 @@ runCdnPurge mctx o = do
 runCdnDisable :: Maybe String -> CdnDisableOpts -> IO ()
 runCdnDisable mctx o = do
   let host = T.pack (o ^. #host)
+  unless (o ^. #dryRun) $
+    refuseDirectLegacyOperationWhenManaged mctx "cdn disable" "a reviewed DNS retirement is not yet available"
   (_, workspace) <- ensurePulumiForActiveContext mctx
   tp <- activeProfile mctx
   base <- resolveDomainsBaseAt mctx workspace Nothing
@@ -9495,7 +9498,8 @@ runWorkerPlan mctx options output = do
 
 runAccess :: Maybe String -> AccessCommand -> IO ()
 runAccess mctx = \case
-  AccessGrant o ->
+  AccessGrant o -> do
+    refuseDirectLegacyOperationWhenManaged mctx "access grant" "a reviewed access grant is not yet available"
     runAccessGrant
       AccessGrantParams
         { enUrl = T.pack <$> o ^. #enUrl
@@ -9503,7 +9507,8 @@ runAccess mctx = \case
         , host = T.pack (o ^. #host)
         , user = T.pack (o ^. #user)
         }
-  AccessRevoke o ->
+  AccessRevoke o -> do
+    refuseDirectLegacyOperationWhenManaged mctx "access revoke" "a reviewed access revocation is not yet available"
     runAccessRevoke
       AccessGrantParams
         { enUrl = T.pack <$> o ^. #enUrl
@@ -9526,6 +9531,7 @@ runAccess mctx = \case
       Just (portalHost, entry) ->
         TIO.putStrLn ("portal: " <> publicHostText portalHost <> " -> " <> entry ^. #upstream)
   AccessPortal PortalSync -> do
+    refuseDirectLegacyOperationWhenManaged mctx "access portal sync" "a reviewed portal synchronization is not yet available"
     backends <- kubectlAccessOps ^. #loadBackends
     case portalRegistration backends of
       Nothing -> TIO.putStrLn "no portal registered"

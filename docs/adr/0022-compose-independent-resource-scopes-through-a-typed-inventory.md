@@ -537,3 +537,9 @@ already have reviewed scope updates; app deletion needs a saved retirement
 review. Static and server site rollback needs a saved reviewed release change,
 and static preview deletion needs reviewed retirement. These checks prevent a
 new native name from bypassing the context journal.
+
+Direct CDN purge and disable and access grant, revoke, and portal sync are also
+legacy operational writes. They refuse once the context inventory is
+initialized, including for a new hostname. Their reviewed operations and
+recovery policy remain M3 work; read-only inspection and CDN dry-runs remain
+available.
