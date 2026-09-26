@@ -1,26 +1,18 @@
--- | @nagarectl storage restore APP VOLUME BACKUP_ID [--into-live]@ (MasterPlan 13,
--- EP-1): restore a @tar.gz@ volume snapshot from GCS, scratch-first. By default
--- the archive is untarred into a disposable @\<pvc\>-restore-scratch@ PVC so live
--- data is never clobbered; @--into-live@ targets the live PVC with a loud
--- warning. This is the typed replacement for the deleted
--- @scripts/restore-volume.sh@; it gives volume restore the same scratch-first
--- safety @nagarectl db restore@ already has.
+-- | Pure legacy preview and reviewed scratch volume restore renderers.
 --
--- The restore runs in a one-container Job (@google/cloud-sdk:slim@) that streams
--- the object from GCS and untars it into the target PVC, then lists the restored
--- tree for comparison. The whole pod @.spec@ — including the
--- @metadata.google.internal@ @hostAliases@ that the 2026-06-10 audit found
--- missing here — comes from the shared 'Nagare.Cluster.GcsJob.dataMovementJobSpec',
--- so this renderer cannot drift from the other GCS data-movement Jobs.
+-- The reviewed Job rereads the accepted receipt and archive, checks both
+-- hashes, and extracts only into its separate scratch PVC. Both renderers use
+-- the shared 'Nagare.Cluster.GcsJob.dataMovementJobSpec' pod scaffolding.
 module Nagare.Storage.Restore
   ( StorageRestoreJobInputs (..)
   , renderStorageRestoreJob
   , renderScratchPvc
-  , runStorageRestore
+  , ReviewedVolumeRestoreInputs (..)
+  , renderReviewedVolumeRestoreJob
+  , previewStorageRestore
   )
 where
 
-import Cradle
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
@@ -31,7 +23,7 @@ import Data.Time (getCurrentTime)
 import Data.Yaml qualified as Y
 import Nagare.Cluster.GcsJob
   ( DataMovementJob (..)
-  , StoreBackend
+  , StoreBackend (..)
   , dataMovementJobSpec
   , storeCpToStdout
   , storeEnv
@@ -52,10 +44,8 @@ import Nagare.Dsl.Types
   )
 import Nagare.Storage.Discover (pvcName)
 import Nagare.Storage.Snapshot (snapshotObjectPath, snapshotTimestamp)
-import System.Exit (ExitCode (..), exitFailure)
-import System.Environment (lookupEnv)
-import System.IO (hClose, stderr)
-import System.IO.Temp (withSystemTempFile)
+import System.Exit (exitFailure)
+import System.IO (stderr)
 
 -- | Inputs to 'renderStorageRestoreJob'.
 data StorageRestoreJobInputs = StorageRestoreJobInputs
@@ -162,18 +152,75 @@ renderScratchPvc ns name size =
             ]
       ]
 
--- ---------------------------------------------------------------------------
--- Command driver
+-- | A reviewed restore checks the current receipt and archive bytes before
+-- extracting into a separate scratch PVC. The inventory compiler supplies
+-- accepted source and physical-identity annotations.
+data ReviewedVolumeRestoreInputs = ReviewedVolumeRestoreInputs
+  { restoreJob :: !StorageRestoreJobInputs
+  , sourceReceiptUrl :: !Text
+  , expectedReceiptSha256 :: !Text
+  , expectedArchiveSha256 :: !Text
+  }
+  deriving stock (Generic, Eq, Show)
 
--- | Run @storage restore APP VOLUME BACKUP_ID@. Scratch-first: unless @live@, the
--- archive lands in a disposable @\<pvc\>-restore-scratch@ PVC and the live volume
--- is never mounted. @BACKUP_ID@ is a bare snapshot timestamp (composed against the
--- bucket\/app\/volume) or a full @gs://@ URL. With @dryRun@, print the manifests
--- and apply nothing.
-runStorageRestore :: Deployment -> Text -> Text -> Bool -> StoreBackend -> Bool -> IO ()
-runStorageRestore dep volume backupId live backend dryRun = do
-  transaction <- lookupEnv "NAGARE_INVENTORY_TRANSACTION"
-  when (isJust transaction) (die "storage restore cannot run inside a reviewed inventory transaction")
+renderReviewedVolumeRestoreJob :: ReviewedVolumeRestoreInputs -> ByteString
+renderReviewedVolumeRestoreJob input = Y.encode $ object
+  [ "apiVersion" .= ("batch/v1" :: Text)
+  , "kind" .= ("Job" :: Text)
+  , "metadata" .= object
+      [ "name" .= (job ^. #jobName), "namespace" .= (job ^. #namespace)
+      , "labels" .= object ["nagare.dev/managed-by" .= ("nagarectl" :: Text)] ]
+  , "spec" .= dataMovementJobSpec DataMovementJob
+      { templateLabels = Nothing
+      , backoffLimit = 0
+      , hostAliases = storeHostAliases backend
+      , initContainers = []
+      , containers = [object
+          [ "name" .= ("restore" :: Text)
+          , "image" .= storeImage backend
+          , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
+          , "args" .= toJSON [shell]
+          , "env" .= toJSON
+              ([ plainEnv "SRC" (job ^. #sourceUrl)
+               , plainEnv "RECEIPT" (input ^. #sourceReceiptUrl)
+               , plainEnv "RECEIPT_SHA256" (input ^. #expectedReceiptSha256)
+               , plainEnv "ARCHIVE_SHA256" (input ^. #expectedArchiveSha256) ]
+                <> storeEnv backend)
+          , "volumeMounts" .= toJSON
+              [object ["name" .= ("restore" :: Text), "mountPath" .= ("/restore" :: Text)]
+              ,object ["name" .= ("dump" :: Text), "mountPath" .= ("/dump" :: Text)]]
+          ]]
+      , volumes =
+          [ object ["name" .= ("restore" :: Text), "persistentVolumeClaim" .=
+              object ["claimName" .= (job ^. #claimName)]]
+          , object ["name" .= ("dump" :: Text), "emptyDir" .= object []] ]
+      }
+  ]
+  where
+    job = input ^. #restoreJob
+    backend = job ^. #backend
+    verifyTools = case backend of
+      GcsBackend {} -> "command -v sha256sum >/dev/null 2>&1; "
+      MinioBackend {} ->
+        "command -v sha256sum >/dev/null 2>&1 || dnf install -y -q coreutils >/dev/null 2>&1; "
+          <> "command -v sha256sum >/dev/null 2>&1; "
+    shell =
+      "set -e; " <> storeShellPreamble backend <> verifyTools
+      <> storeCpToStdout backend "\"$RECEIPT\"" <> " > /dump/receipt.json; "
+      <> "test \"$(sha256sum /dump/receipt.json | cut -d' ' -f1)\" = \"$RECEIPT_SHA256\"; "
+      <> storeCpToStdout backend "\"$SRC\"" <> " > /dump/archive.tar.gz; "
+      <> "test \"$(sha256sum /dump/archive.tar.gz | cut -d' ' -f1)\" = \"$ARCHIVE_SHA256\"; "
+      <> "tar -tzf /dump/archive.tar.gz > /dev/null; "
+      <> "tar -C /restore -xzf /dump/archive.tar.gz; "
+      <> "echo 'verified scratch restore complete'"
+
+-- ---------------------------------------------------------------------------
+-- Read-only preview
+
+-- | Print the older restore manifests without submitting them. @BACKUP_ID@ is
+-- a timestamp in the legacy prefix or a full object URL for this preview.
+previewStorageRestore :: Deployment -> Text -> Text -> Bool -> StoreBackend -> IO ()
+previewStorageRestore dep volume backupId live backend = do
   let app = serviceNameText (dep ^. #name)
       ns = namespaceText (dep ^. #namespace)
       vols = dep ^. #volumes
@@ -198,36 +245,12 @@ runStorageRestore dep volume backupId live backend dryRun = do
               , mountPath = "/restore"
               , backend = backend
               }
-      if dryRun
-        then do
-          if live
-            then pure ()
-            else do
-              TIO.putStrLn "--- Scratch PVC manifest ---"
-              BS.putStr (renderScratchPvc ns scratchPvc size)
-              TIO.putStrLn ""
-          TIO.putStrLn "--- Restore Job manifest ---"
-          BS.putStr (renderStorageRestoreJob job)
-        else do
-          if live
-            then pure ()
-            else applyManifest "nagare-volrestore-pvc.yaml" (renderScratchPvc ns scratchPvc size)
-          applyManifest "nagare-volrestore-job.yaml" (renderStorageRestoreJob job)
-          waitForJob ns name
-          run_ $ cmd "kubectl" & addArgs ["logs", "job/" <> T.unpack name, "-n", T.unpack ns, "--tail", "60"]
-          run_ $ cmd "kubectl" & addArgs ["delete", "job", T.unpack name, "-n", T.unpack ns, "--ignore-not-found"]
-          if live
-            then TIO.putStrLn ("Restored " <> app <> "/" <> volume <> " into the LIVE PVC '" <> livePvc <> "'.")
-            else
-              TIO.putStrLn
-                ( "Restored "
-                    <> app
-                    <> "/"
-                    <> volume
-                    <> " into scratch PVC '"
-                    <> scratchPvc
-                    <> "' — compare the listing above, then promote manually."
-                )
+      unless live $ do
+        TIO.putStrLn "--- Scratch PVC manifest ---"
+        BS.putStr (renderScratchPvc ns scratchPvc size)
+        TIO.putStrLn ""
+      TIO.putStrLn "--- Restore Job manifest ---"
+      BS.putStr (renderStorageRestoreJob job)
 
 -- | The scratch PVC's requested size: the declared volume's own size, so the
 -- scratch claim can always hold the live volume's contents.
@@ -236,26 +259,6 @@ scratchSize volume vols =
   case [v | v <- vols, volumeNameText (v ^. #name) == volume] of
     (v : _) -> quantityText (v ^. #size)
     [] -> "5Gi"
-
-applyManifest :: String -> ByteString -> IO ()
-applyManifest tmpl manifest = withSystemTempFile tmpl $ \fp h -> do
-  BS.hPut h manifest
-  hClose h
-  run_ $ cmd "kubectl" & addArgs ["apply", "-f", fp]
-
-waitForJob :: Text -> Text -> IO ()
-waitForJob ns name = do
-  (code, _ :: StdoutUntrimmed) <-
-    run $
-      cmd "kubectl"
-        & addArgs ["wait", "--for=condition=complete", "--timeout=600s", "job/" <> T.unpack name, "-n", T.unpack ns]
-        & silenceStderr
-  case code of
-    ExitSuccess -> pure ()
-    ExitFailure _ -> do
-      TIO.hPutStrLn stderr ("nagarectl: restore job " <> name <> " did not complete; recent logs:")
-      run_ $ cmd "kubectl" & addArgs ["logs", "job/" <> T.unpack name, "-n", T.unpack ns, "--tail", "50"]
-      exitFailure
 
 die :: Text -> IO a
 die msg = do

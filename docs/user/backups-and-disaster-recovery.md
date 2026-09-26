@@ -11,7 +11,7 @@ generated:
 
 # Backups and disaster recovery
 
-> **Status:** 🟡 Database backups and app-volume snapshot planning support
+> **Status:** 🟡 Database backups and app-volume snapshot and scratch restore planning support
 > cloud mode (GCS) and local mode (MinIO). The previous direct local smoke
 > script has not yet been migrated to reviewed data commands. Full host
 > disaster-recovery drills and some app-specific backup patterns, such as
@@ -28,8 +28,9 @@ accepted database can use `db backup NAME --backup-id ID --save-plan DIR` or a
 PostgreSQL scratch restore with `--restore-id ID --save-plan DIR`, followed by
 `inventory apply DIR --yes`. An accepted app PVC can use
 `storage snapshot APP VOLUME --snapshot-id ID --save-plan DIR`, followed by
-`inventory apply DIR --yes`. Direct `storage restore` refuses after inventory
-initialization; its reviewed route remains pending.
+`inventory apply DIR --yes`. Restore an accepted snapshot into a separate PVC
+with `storage restore APP VOLUME BACKUP_ID --restore-id ID --save-plan DIR` and
+then apply that review. Live PVC restore remains unavailable.
 Scheduled database backups remain part of reviewed database scopes. The older
 database Job renderers remain available only through `--dry-run`.
 
@@ -50,7 +51,7 @@ Most of Nagare is reproduced from Git; only a few things need real backup jobs.
 | SQLite app data | PVC snapshot, or Litestream pattern for hot SQLite | 🟡 |
 | Host Postgres | Restore from disk if data disk survives; use managed DBs for Nagare-owned backup tooling | 🟡 |
 | Whole data disk | Daily GCE snapshot at 08:00 UTC, retained seven days and kept if the source disk is deleted | 🟡 (declared; live apply/verification pending) |
-| App volumes (PVCs) | Reviewed fixed-key snapshot Job → GCS or MinIO (`manual-volumes/<namespace>/<app>/<volume>/`); direct restore refuses after inventory admission | 🟡 (reviewed restore and live provider proof pending) |
+| App volumes (PVCs) | Reviewed fixed-key snapshot and separate scratch restore Jobs → GCS or MinIO (`manual-volumes/<namespace>/<app>/<volume>/`) | 🟡 (live provider proof, exact pruning, and live-target recovery pending) |
 | Managed databases | Daily CronJob → GCS or MinIO (`databases/<name>/`); reviewed schedules verify stored bytes without pruning; accepted databases can save reviewed manual backup, expired manual pruning, and PostgreSQL scratch restore Jobs | 🟡 (live provider proof, scheduled pruning, and live-target/other-engine restore pending) |
 | Attic signing identity and metadata | Managed PostgreSQL `nix-cache` / daily `nagare-dbbackup-nix-cache` CronJob | 🟡 (provider implemented; live restore acceptance pending) |
 | Attic cache chunks | Reproducible producer inputs; optionally export the dedicated GCS bucket before retirement | Rebuildable |
@@ -99,11 +100,20 @@ ID only if the key is empty, then reads back and hashes the stored bytes. It
 creates a separate `.receipt.json` object and checks its readback. Apply
 rechecks the PVC identity before submitting and accepting the Job. There is no
 automatic pruning; an occupied ID or partial upload needs explicit recovery.
-Restore a snapshot into a disposable scratch PVC — never over live data — with
-`nagarectl storage restore APP VOLUME <ts>` (it restores into a scratch PVC by
-default; pass `--into-live` to target the live PVC). Direct restore
-refuses after inventory admission until reviewed restore is available. The
-older snapshot renderer is available with `--dry-run` only.
+Restore an accepted snapshot into a separate scratch PVC:
+
+```bash
+nagarectl storage restore APP VOLUME BACKUP_ID --restore-id RESTORE_ID --save-plan DIR
+nagarectl inventory apply DIR --yes
+```
+
+Planning reads the completed backup Job's UID-bound Pod receipt. Apply
+rechecks that Job, the current target PVC, and the local store credential
+where applicable. The restore Job rereads both object-store objects and
+checks their hashes before extracting into the new scratch PVC. An uncertain
+partial restore needs explicit recovery; `--into-live` is unavailable for live
+execution. The older snapshot and restore renderers are read-only `--dry-run`
+previews.
 
 ### Managed databases: backed up by default
 

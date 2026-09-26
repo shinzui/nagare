@@ -248,17 +248,17 @@ Retention controls the *local disk* on app deletion; an object-store snapshot is
 
 ## Restoring
 
-Restores are **scratch-first**: restore a snapshot into a *disposable* PVC,
-compare its contents, then promote — never restore directly over a live volume.
+Restores are **scratch-first**: restore an accepted snapshot into a separate PVC,
+compare its contents, then promote through an explicit procedure.
 The full step-by-step is in
 [Backups & disaster recovery](backups-and-disaster-recovery.md#app-volumes-backup-included-by-default-opt-out-explicitly)
-and the [disaster-recovery runbook](../runbooks/disaster-recovery.md); the verb
-is `nagarectl storage restore APP VOLUME <timestamp>` (scratch-first by default;
-`--into-live` targets the live PVC).
+and the [disaster-recovery runbook](../runbooks/disaster-recovery.md); save and
+apply a review with `nagarectl storage restore APP VOLUME BACKUP_ID --restore-id ID
+--save-plan DIR` and `nagarectl inventory apply DIR --yes`. Live PVC restore is
+unavailable.
 
-Live `storage snapshot` requires an accepted PVC and saved review in every
-context. Direct `storage restore` refuses after inventory initialization.
-`storage restore --dry-run` remains
+Live snapshot and scratch restore require an accepted PVC and saved reviews in
+every context. `storage restore --dry-run` remains
 available to inspect the rendered operation without changing the cluster.
 
 

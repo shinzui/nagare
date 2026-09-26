@@ -91,7 +91,7 @@ refuse 'direct database shell' 'direct database shell is refused' \
   db shell fixture
 refuse 'volume snapshot without review' 'live storage snapshot requires --snapshot-id ID and --save-plan DIR' \
   storage snapshot hello --config ../nagare-dsl/test/fixtures/nagare/Config.hs data
-refuse 'direct volume restore' 'direct storage restore is refused' \
+refuse 'volume restore without review' 'live storage restore requires --restore-id ID and --save-plan DIR' \
   storage restore hello --config ../nagare-dsl/test/fixtures/nagare/Config.hs data backup-identity
 refuse 'environment set without accepted foundation' 'platform foundation scope is absent' \
   env set hello --config ../nagare-dsl/test/fixtures/nagare/Config.hs KEY value

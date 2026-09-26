@@ -36,7 +36,7 @@ import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
 import Nagare.Inventory.Database (compileDatabaseForBackend)
 import Nagare.Inventory.Backup (ManualBackupRequest (..), BackupReceiptExpectation (..), BackupSourceProof (..), VolumeSnapshotRequest (..), compileManualBackupScope, compileVolumeSnapshotScope, manualBackupJobReceiptExpectation, manualBackupJobSourcePins, manualBackupSourceProof, parseBackupReceipt, parseManualBackupReceipt, volumeSnapshotJobSourcePins)
 import Nagare.Inventory.Prune (ManualPruneRequest (..), PruneSourceProof (..), compileManualPruneScope, manualPruneJobBackupPin, manualPruneSourceProof)
-import Nagare.Inventory.Restore (ManualRestoreRequest (..), compileManualRestoreScope, manualRestoreJobTargetPins, manualRestoreTargetProof)
+import Nagare.Inventory.Restore (ManualRestoreRequest (..), VolumeRestoreRequest (..), compileManualRestoreScope, compileVolumeRestoreScope, manualRestoreJobTargetPins, manualRestoreTargetProof, volumeRestoreJobSourcePins)
 import Nagare.Inventory.DataService (NativeDataKind (..), compileBackupPruneRemovalScope, compileStandaloneDatabase, compileStatefulSetRestartScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Components.Foundation (compileContributedNamespaces)
@@ -439,6 +439,7 @@ inventoryKubernetesTests =
               , "metadata" .= object
                   ["name" .= pvcName "notes" "data", "namespace" .= ("default" :: Text)]
               , "spec" .= object ["accessModes" .= ["ReadWriteOnce" :: Text]
+                  , "storageClassName" .= ("local-path" :: Text)
                   , "resources" .= object ["requests" .= object ["storage" .= ("1Gi" :: Text)]]]
               ]
             pvcBytes = ok (canonicalValue pvcValue)
@@ -470,6 +471,12 @@ inventoryKubernetesTests =
             sourceState uid = KubernetesPresent uid "1" (Just pvcId)
               (contentDigest nativeBytes)
             create = createOperation {plannedResources = jobId :| []}
+            receiptMetadataValues (Object fields) =
+              [selected | KM.lookup "name" fields == Just (String "BACKUP_RECEIPT_METADATA"),
+                Just (String selected) <- [KM.lookup "value" fields]]
+                <> concatMap receiptMetadataValues (KM.elems fields)
+            receiptMetadataValues (Array values) = concatMap receiptMetadataValues (toList values)
+            receiptMetadataValues _ = []
         Map.lookup "volume-backup.object" (scopeOverrides backupScope)
           @?= Just "gs://bucket/manual-volumes/default/notes/data/run-001.tar.gz"
         volumeSnapshotJobSourcePins jobBytes @?= Right (Just
@@ -505,6 +512,79 @@ inventoryKubernetesTests =
           AdapterEffectFailed {} -> pure ()
           other -> assertFailure ("changed PVC UID reached provider: " <> show other)
         readIORef writes >>= (@?= 0)
+        metadata <- case eitherDecodeStrict jobBytes of
+          Right value -> case receiptMetadataValues value of
+            [selected] -> pure selected
+            _ -> assertFailure "snapshot lacks one receipt metadata value" >> fail "metadata"
+          Left reason -> assertFailure reason >> fail "metadata"
+        let checksum = T.replicate 64 "a"
+            receiptBytes = BL.toStrict (encode (object
+              [ "version" .= (1 :: Int), "sha256" .= checksum
+              , "backup" .= (ok (eitherDecodeStrict (TE.encodeUtf8 metadata)) :: Value) ]))
+            restoreRequest = VolumeRestoreRequest
+              { volumeRestoreApp = "notes", volumeRestoreName = "data"
+              , volumeRestoreNamespace = "default", volumeRestoreId = "restore-001"
+              , volumeRestoreBackup = backupScope
+              , volumeRestoreBackupRevision = ScopeRevision
+                  (ok (mkScopeGeneration 1)) (contentDigest "accepted-backup")
+              , volumeRestoreBackupJobUid = ok (mkPhysicalIdentity "backup-job-uid")
+              , volumeRestoreReceiptBytes = receiptBytes
+              , volumeRestoreTargetRevision = ScopeRevision
+                  (ok (mkScopeGeneration 2)) (contentDigest "accepted-volume")
+              , volumeRestoreTargetPvcUid = ok (mkPhysicalIdentity "pvc-uid")
+              , volumeRestoreBackend = GcsBackend "project" "bucket"
+              , volumeRestoreCredential = Nothing
+              , volumeRestoreSource = SourceLocation "storage restore" "restore-001" }
+            accepted = Map.union backupNative sourceNative
+            (restoreScope, restoreNative) = ok
+              (compileVolumeRestoreScope restoreRequest sourceScope accepted)
+            restoreJobs = [(member, bytes) | (member, bytes) <- Map.elems restoreNative,
+              case member ^. #address of
+                Kubernetes _ "batch" kind _ _ -> nameText kind == "job"
+                _ -> False]
+            (restoreJob, restoreBytes) = case restoreJobs of
+              [entry] -> entry
+              _ -> error "reviewed volume restore must bind one Job"
+        Map.size restoreNative @?= 2
+        Map.lookup "volume-restore.backup.sha256" (scopeOverrides restoreScope)
+          @?= Just checksum
+        volumeRestoreJobSourcePins restoreBytes @?= Right (Just
+          [(jobId, ok (mkPhysicalIdentity "backup-job-uid"))
+          ,(pvcId, ok (mkPhysicalIdentity "pvc-uid"))])
+        assertBool "restore does not verify both current objects before scratch extraction"
+          (BC.isInfixOf "RECEIPT_SHA256" restoreBytes
+            && BC.isInfixOf "ARCHIVE_SHA256" restoreBytes
+            && BC.isInfixOf "tar -C /restore -xzf" restoreBytes
+            && not (BC.isInfixOf (TE.encodeUtf8 (pvcName "notes" "data")) restoreBytes))
+        assertBool "changed receipt metadata passed restore compilation"
+          (isLeft (compileVolumeRestoreScope
+            (restoreRequest {volumeRestoreReceiptBytes = "{}"}) sourceScope accepted))
+        restoreStates <- newIORef (Map.fromList
+          [ (restoreJob ^. #identity, KubernetesAbsent absence)
+          , (pvcId, sourceState (ok (mkPhysicalIdentity "pvc-uid")))
+          , (jobId, KubernetesPresent (ok (mkPhysicalIdentity "backup-job-uid"))
+              "1" (Just jobId) (contentDigest jobBytes)) ])
+        restoreWrites <- newIORef (0 :: Int)
+        let restoreAdapter = mkKubernetesAdapter (Map.union restoreNative accepted)
+              KubernetesAdapterOps
+                { kubernetesContext = ok (mkContextId "test")
+                , kubernetesObserve = \selected -> Map.findWithDefault
+                    (KubernetesUnknown "unbound") selected <$> readIORef restoreStates
+                , kubernetesMutateConditional = \_ -> modifyIORef' restoreWrites (+ 1)
+                    >> pure AdapterEffectCompleted }
+            restoreCreate = createOperation
+              {plannedResources = restoreJob ^. #identity :| []}
+        preparedRestore <- adapterPrepare restoreAdapter restoreCreate >>= expectRight
+        adapterPreflight restoreAdapter restoreCreate preparedRestore >>= expectRight
+        modifyIORef' restoreStates (Map.insert jobId
+          (KubernetesPresent (ok (mkPhysicalIdentity "changed-backup-job"))
+            "2" (Just jobId) (contentDigest jobBytes)))
+        assertBool "changed backup Job UID passed restore preflight"
+          . isLeft =<< adapterPreflight restoreAdapter restoreCreate preparedRestore
+        adapterExecute restoreAdapter restoreCreate preparedRestore >>= \case
+          AdapterEffectFailed {} -> pure ()
+          other -> assertFailure ("changed backup Job reached provider: " <> show other)
+        readIORef restoreWrites >>= (@?= 0)
     , testCase "manual database backup binds object and source incarnation into its own Job scope" $ do
         let owner = ok (mkScopeId Standalone "database-pg-main")
             db = Database (ok (mkDatabaseName "pg-main")) Nothing Postgres (defaultEngineVersion Postgres)

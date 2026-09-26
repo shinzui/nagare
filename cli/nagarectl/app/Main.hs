@@ -265,7 +265,7 @@ import Nagare.Inventory.Application (ApplicationScopeInput (..), GoogleCdnBindin
 import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteReleaseLog, acceptedSiteSource, compileServerSitePreviewScope, compileServerSiteRollbackScope, compileServerSiteRollbackScopeWithCdn, compileServerSiteRollbackScopeWithCloudflare, compileServerSiteScope, compileServerSiteScopeWithCdn, compileServerSiteScopeWithCloudflare, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteRollbackScopeWithCdn, compileStaticSiteRollbackScopeWithCloudflare, compileStaticSiteScope, compileStaticSiteScopeWithCdn, compileStaticSiteScopeWithCloudflare, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
 import Nagare.Inventory.Backup (ManualBackupRequest (..), BackupSourceProof (..), VolumeSnapshotRequest (..), compileManualBackupScope, compileVolumeSnapshotScope, manualBackupSourceProof)
 import Nagare.Inventory.Prune (ManualPruneRequest (..), PruneSourceProof (..), compileManualPruneScope, manualPruneSourceProof)
-import Nagare.Inventory.Restore (ManualRestoreRequest (..), compileManualRestoreScope, manualRestoreTargetProof)
+import Nagare.Inventory.Restore (ManualRestoreRequest (..), VolumeRestoreRequest (..), compileManualRestoreScope, compileVolumeRestoreScope, manualRestoreTargetProof)
 import Nagare.Inventory.TaskRun (compileTaskRunScope)
 import Nagare.Inventory.TaskLifecycle (compileTaskSuspensionScope, retireSuspendedTaskScope, taskSuspended)
 import Nagare.Inventory.Lifecycle qualified as InventoryLifecycle
@@ -417,7 +417,7 @@ import Nagare.Static.Release
   )
 import Nagare.Storage.Inspect (runStorageInspect)
 import Nagare.Storage.List (runStorageList)
-import Nagare.Storage.Restore (runStorageRestore)
+import Nagare.Storage.Restore (previewStorageRestore)
 import Nagare.Storage.Snapshot (previewSnapshot)
 import Nagare.Target
   ( AcmeDirectory (..)
@@ -1029,8 +1029,8 @@ data StorageCommand
     StorageInspect StoreCommonOpts String
   | -- | VOLUME, --bucket, --snapshot-id, --save-plan, --dry-run
     StorageSnapshot StoreCommonOpts String (Maybe String) (Maybe String) (Maybe FilePath) Bool
-  | -- | VOLUME, BACKUP_ID, --bucket, --into-live, --dry-run (EP-1)
-    StorageRestore StoreCommonOpts String String (Maybe String) Bool Bool
+  | -- | VOLUME, BACKUP_ID, --bucket, --into-live, --dry-run, --restore-id, --save-plan
+    StorageRestore StoreCommonOpts String String (Maybe String) Bool Bool (Maybe String) (Maybe FilePath)
   deriving stock (Generic, Show)
 
 -- | The @db@ subcommands (MasterPlan 9, EP-45, Integration Point IP4). One
@@ -2834,7 +2834,7 @@ opts =
                       <$> ( StorageRestore
                               <$> storeCommonOptsParser
                               <*> strArgument (metavar "VOLUME" <> help "Declared volume name")
-                              <*> strArgument (metavar "BACKUP_ID" <> help "Snapshot timestamp (or full gs:// URL) to restore")
+                              <*> strArgument (metavar "BACKUP_ID" <> help "Accepted volume snapshot ID")
                               <*> optional
                                 ( strOption
                                     ( long "bucket"
@@ -2844,10 +2844,14 @@ opts =
                                 )
                               <*> switch (long "into-live" <> help "Restore into the LIVE volume PVC (default: a scratch PVC)")
                               <*> dryRunOpt
+                              <*> optional (strOption (long "restore-id" <> metavar "ID"
+                                    <> help "Stable ID for one reviewed scratch restore"))
+                              <*> optional (strOption (long "save-plan" <> metavar "DIR"
+                                    <> help "Save the reviewed scratch restore plan"))
                           )
                         <**> helper
                   )
-                  (progDesc "Restore a volume snapshot from GCS into a scratch PVC (or --into-live)")
+                  (progDesc "Save a reviewed scratch restore from an accepted volume snapshot")
               )
         )
     dbCmd =
@@ -8609,13 +8613,23 @@ runStorage mctx = \case
           runReviewedVolumeSnapshotPlan mctx dep (T.pack vol) backend
             (T.pack stableId) directory
         _ -> dieT "live storage snapshot requires --snapshot-id ID and --save-plan DIR"
-  StorageRestore copts vol backupId bucket live dryRun -> do
-    dep <- resolveStorageDep copts
-    unless dryRun $ do
-      refuseDirectDataWriteWhenManaged mctx "storage restore"
-      refuseDirectVolumeMutationIfOwned mctx "restore" dep (T.pack vol)
-    backend <- resolveStoreBackend mctx bucket
-    runStorageRestore dep (T.pack vol) (T.pack backupId) live backend dryRun
+  StorageRestore copts vol backupId bucket live dryRun restoreId output ->
+    if dryRun
+      then do
+        when (isJust restoreId || isJust output)
+          (dieT "storage restore --dry-run cannot save a reviewed restore")
+        dep <- resolveStorageDep copts
+        backend <- resolveStoreBackend mctx bucket
+        previewStorageRestore dep (T.pack vol) (T.pack backupId) live backend
+      else do
+        when live (dieT "reviewed storage restore supports scratch PVCs only")
+        case (restoreId, output) of
+          (Just stableId, Just directory) -> do
+            dep <- resolveStorageDep copts
+            backend <- resolveStoreBackend mctx bucket
+            runReviewedVolumeRestorePlan mctx dep (T.pack vol) (T.pack backupId)
+              (T.pack stableId) backend directory
+          _ -> dieT "live storage restore requires --restore-id ID and --save-plan DIR"
 
 runReviewedVolumeSnapshotPlan
   :: Maybe String -> Deployment -> Text -> StoreBackend -> Text -> FilePath -> IO ()
@@ -8697,6 +8711,128 @@ runReviewedVolumeSnapshotPlan mctx dep volume backend snapshotId output = do
     (inventoryPlanRegistryWithNative active workspace
       (Map.union backupNative sourceNative)) active candidate output
   TIO.putStrLn "Saved volume snapshot review. Apply it to submit the fixed Job and verify stored bytes."
+
+runReviewedVolumeRestorePlan
+  :: Maybe String -> Deployment -> Text -> Text -> Text -> StoreBackend -> FilePath -> IO ()
+runReviewedVolumeRestorePlan mctx dep volume backupId restoreId backend output = do
+  let appName = serviceNameText (dep ^. #name)
+      ns = namespaceText (dep ^. #namespace)
+      declared = map (volumeNameText . (^. #name)) (dep ^. #volumes)
+  unless (volume `elem` declared)
+    (dieT ("app " <> appName <> " declares no volume named '" <> volume <> "'"))
+  active <- activeTarget mctx
+  (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+  snapshot <- Inventory.loadTargetSnapshot active
+  (cluster, _) <- either dieT pure (acceptedFoundationNamespace snapshot ns)
+  pvcAddress <- either dieT pure (Resource.kubernetesAddress cluster "v1"
+    "PersistentVolumeClaim" (Just ns) (pvcName appName volume))
+  (targetScope, pvc) <- case [(scope, member) | (_, scope) <- Map.elems
+        (ResourceInventory.snapshotScopes snapshot),
+        bundle <- ResourceInventory.scopeBundles scope,
+        ResourceInventory.Managed member <- ResourceInventory.declarations bundle,
+        member ^. #address == pvcAddress] of
+    [single] -> pure single
+    _ -> dieT "reviewed volume restore requires one accepted target PVC"
+  backupOwner <- either dieT pure (Resource.mkScopeId Resource.Standalone
+    ("volume-snapshot-" <> ns <> "-" <> appName <> "-" <> volume <> "-" <> backupId))
+  backupScope <- case Map.lookup backupOwner (ResourceInventory.snapshotScopes snapshot) of
+    Just (_, accepted) | Map.lookup "volume-backup.id"
+      (ResourceInventory.scopeOverrides accepted) == Just backupId
+      && Map.lookup "volume-backup.source.pvc"
+        (ResourceInventory.scopeOverrides accepted)
+          == Just (Resource.resourceIdText (pvc ^. #identity)) -> pure accepted
+    _ -> dieT "reviewed volume restore requires the exact accepted snapshot ID and PVC"
+  backupJob <- case [member | bundle <- ResourceInventory.scopeBundles backupScope,
+        ResourceInventory.Managed member <- ResourceInventory.declarations bundle,
+        case member ^. #address of
+          Resource.Kubernetes _ "batch" kind (Just namespace) _ ->
+            Resource.nameText kind == "job" && Resource.nameText namespace == ns
+          _ -> False] of
+    [single] -> pure single
+    _ -> dieT "accepted volume snapshot has no unique Job"
+  credential <- case backend of
+    GcsBackend {} -> pure Nothing
+    MinioBackend ref -> do
+      address <- either dieT pure (Resource.kubernetesAddress cluster "v1"
+        "Secret" (Just ns) (ref ^. #secretName))
+      case [member | (_, scope) <- Map.elems
+            (ResourceInventory.snapshotScopes snapshot),
+            bundle <- ResourceInventory.scopeBundles scope,
+            ResourceInventory.Managed member <- ResourceInventory.declarations bundle,
+            member ^. #address == address] of
+        [single] -> pure (Just single)
+        _ -> dieT "reviewed local restore requires one accepted store credential Secret"
+  store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+  history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
+  let acceptedRevision selected = case Map.lookup (ResourceInventory.scopeId selected)
+        (InventoryPlan.historyAccepted history) of
+        Just (revision, accepted) | accepted == selected -> pure revision
+        _ -> dieT "volume restore target or snapshot differs from accepted history"
+  targetRevision <- acceptedRevision targetScope
+  backupRevision <- acceptedRevision backupScope
+  acceptedInventory <- either (dieT . T.pack . show) pure
+    (ResourceInventory.composeSnapshot snapshot)
+  (acceptedNative, _) <- InventoryStatus.loadAcceptedNative store history acceptedInventory
+    >>= either dieT pure
+  let targetIds = pvc ^. #identity : maybe [] (\member -> [member ^. #identity]) credential
+      targetNative = Map.restrictKeys acceptedNative (Set.fromList targetIds)
+      backupNative = Map.restrictKeys acceptedNative
+        (Set.singleton (backupJob ^. #identity))
+  unless (Map.size targetNative == length targetIds && Map.size backupNative == 1)
+    (dieT "volume restore target or backup Job lacks accepted private native evidence")
+  targetAdapter <- inventoryKubernetesAdapter active
+    (ResourceInventory.snapshotBinding snapshot)
+    (\_ -> pure (Left "volume target observation does not use a cache key")) targetNative
+  observed <- InventoryAdapter.adapterObserve targetAdapter targetIds >>= either dieT pure
+  let physical resource = case Map.lookup resource (InventoryAdapter.observationMap observed) of
+        Just (InventoryAdapter.ObservedPresent uid) -> pure uid
+        _ -> dieT "volume target or credential is absent, drifted, or not ready"
+  pvcUid <- physical (pvc ^. #identity)
+  credentialPin <- traverse (\member -> do
+    uid <- physical (member ^. #identity)
+    pure (member, uid)) credential
+  context <- either dieT pure (Resource.mkContextId
+    (contextNameText (active ^. #contextName)))
+  let config = KubernetesRuntimeConfig context
+        (contextNameText (active ^. #contextName))
+        (fmap (fmap (const ())) (guardKubernetesContext active))
+      backupOps = mkKubernetesRuntimeOpsWithCacheKey config
+        (\_ -> pure (Left "volume snapshot observation does not use a cache key")) backupNative
+  backupState <- kubernetesObserve backupOps (backupJob ^. #identity)
+  backupUid <- case (backupState, Map.lookup (backupJob ^. #identity) backupNative) of
+    (KubernetesPresent uid _ (Just owner) digest, Just (_, bytes))
+      | owner == backupJob ^. #identity
+        && digest == InventoryDigest.contentDigest bytes -> pure uid
+    _ -> dieT "accepted volume snapshot Job is absent, incomplete, foreign, or drifted"
+  receiptBytes <- readBackupReceiptFromCompletedPod config backupNative
+    (backupJob ^. #identity) backupUid >>= either dieT pure
+  let request = VolumeRestoreRequest
+        { volumeRestoreApp = appName, volumeRestoreName = volume
+        , volumeRestoreNamespace = ns, volumeRestoreId = restoreId
+        , volumeRestoreBackup = backupScope
+        , volumeRestoreBackupRevision = backupRevision
+        , volumeRestoreBackupJobUid = backupUid
+        , volumeRestoreReceiptBytes = receiptBytes
+        , volumeRestoreTargetRevision = targetRevision
+        , volumeRestoreTargetPvcUid = pvcUid
+        , volumeRestoreBackend = backend
+        , volumeRestoreCredential = credentialPin
+        , volumeRestoreSource = Resource.SourceLocation
+            ("storage restore/" <> appName <> "/" <> volume) restoreId }
+  (restoreScope, restoreNative) <- either (dieT . T.pack . show) pure
+    (compileVolumeRestoreScope request targetScope acceptedNative)
+  case Map.lookup (ResourceInventory.scopeId restoreScope)
+    (ResourceInventory.snapshotScopes snapshot) of
+    Just (_, prior) | prior /= restoreScope ->
+      dieT "restore ID already has different accepted intent; choose a new ID"
+    _ -> pure ()
+  candidate <- either (dieT . T.pack . show) pure
+    (ResourceInventory.composeInventory snapshot
+      (ResourceInventory.ReplaceScope restoreScope NE.:| []))
+  Inventory.planInventoryCandidateWith
+    (inventoryPlanRegistryWithNative active workspace
+      (Map.unions [restoreNative, targetNative, backupNative])) active candidate output
+  TIO.putStrLn "Saved reviewed scratch volume restore. Apply it to verify stored bytes and create a separate PVC."
 
 -- | Dispatch the @broker@ subcommands (MasterPlan 15, EP-78). The namespace
 -- defaults to @personal@.
@@ -9115,17 +9251,6 @@ cloudflareZoneOwned history = accepted || retained || unresolved
           Resource.CloudflareDnsRecord _ _ -> True
           _ -> False]
     unresolved = isJust (InventoryStore.headActiveTransaction (InventoryPlan.historyHead history))
-
-refuseDirectVolumeMutationIfOwned :: Maybe String -> Text -> Deployment -> Text -> IO ()
-refuseDirectVolumeMutationIfOwned mctx operation deployment volumeName =
-  withAcceptedInventoryHistory mctx ("storage " <> operation) $ \history -> do
-    let appName = serviceNameText (deployment ^. #name)
-        namespaceName = namespaceText (deployment ^. #namespace)
-        nativeName = pvcName appName volumeName
-    when (nativeWorkloadOwned "" "persistentvolumeclaim" nativeName namespaceName
-        (ownedHistoryResources history))
-      (dieT ("volume " <> volumeName
-        <> " is owned by accepted or retained inventory history; direct " <> operation <> " is refused"))
 
 -- | Dispatch the @worker@ command group (EP-71). Provisions the GHC environment
 -- before loading the worker's @Config.hs@ (mirroring @db create --config@), then
