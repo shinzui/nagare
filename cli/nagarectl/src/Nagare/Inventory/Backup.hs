@@ -13,6 +13,9 @@ module Nagare.Inventory.Backup
   , parseBackupReceipt
   , parseManualBackupReceipt
   , compileManualBackupScope
+  , VolumeSnapshotRequest (..)
+  , volumeSnapshotJobSourcePins
+  , compileVolumeSnapshotScope
   ) where
 
 import Data.Aeson (Value (..), eitherDecodeStrict, object, (.=))
@@ -30,7 +33,7 @@ import Data.Time (UTCTime)
 import Data.Time.Format (defaultTimeLocale, formatTime)
 import Data.Vector qualified as V
 import Data.Yaml qualified as Yaml
-import Nagare.Cluster.GcsJob (StoreBackend, storeObjectUrl, storePrefixUrl)
+import Nagare.Cluster.GcsJob (MinioRef (..), StoreBackend (..), storeObjectUrl, storePrefixUrl)
 import Nagare.Database.Backup
   ( BackupDest (..), BackupJobInputs (..), BackupReceipt (..), backupExt
   , manualBackupJobName, manualBackupKeyPrefix, manualBackupObjectPath, renderBackupJob )
@@ -47,6 +50,8 @@ import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (DeleteWh
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
+import Nagare.Storage.Discover (pvcName)
+import Nagare.Storage.Snapshot qualified as Snapshot
 
 data ManualBackupRequest = ManualBackupRequest
   { databaseName :: !T.Text
@@ -132,7 +137,8 @@ manualBackupJobReceiptExpectation bytes = do
     Object root | KM.lookup "kind" root == Just (String "Job")
       , Just (Object metadata) <- KM.lookup "metadata" root
       , Just (Object annotations) <- KM.lookup "annotations" metadata
-      , Just (String _) <- KM.lookup "nagare.dev/backup-id" annotations -> do
+      , any isString [KM.lookup "nagare.dev/backup-id" annotations,
+          KM.lookup "nagare.dev/volume-backup-id" annotations] -> do
           let required key = case KM.lookup key annotations of
                 Just (String field) -> Right field
                 _ -> Left ("manual backup Job lacks " <> K.toText key)
@@ -178,6 +184,35 @@ manualBackupJobReceiptExpectation bytes = do
     lookupObject key root = case KM.lookup key root of
       Just (Object value) -> Right value
       _ -> Left ("manual backup Job lacks " <> K.toText key)
+    isString (Just (String _)) = True
+    isString _ = False
+
+-- | Pin one accepted PVC before a reviewed volume snapshot Job starts and
+-- again before its terminal receipt is accepted.
+volumeSnapshotJobSourcePins
+  :: ByteString -> Either T.Text (Maybe [(ResourceId, PhysicalIdentity)])
+volumeSnapshotJobSourcePins bytes = do
+  value <- first T.pack (eitherDecodeStrict bytes)
+  case value of
+    Object root | KM.lookup "kind" root == Just (String "Job")
+      , Just (Object metadata) <- KM.lookup "metadata" root
+      , Just (Object annotations) <- KM.lookup "annotations" metadata
+      , Just (String _) <- KM.lookup "nagare.dev/volume-backup-id" annotations -> do
+          let required key = case KM.lookup key annotations of
+                Just (String field) -> Right field
+                _ -> Left ("volume snapshot Job lacks " <> K.toText key)
+          resource <- required "nagare.dev/volume-source-pvc" >>= mkResourceId
+          uid <- required "nagare.dev/volume-source-pvc-uid" >>= mkPhysicalIdentity
+          credential <- case (KM.lookup "nagare.dev/volume-store-secret" annotations,
+              KM.lookup "nagare.dev/volume-store-secret-uid" annotations) of
+            (Nothing, Nothing) -> Right []
+            (Just (String rawId), Just (String rawUid)) -> do
+              secret <- mkResourceId rawId
+              physical <- mkPhysicalIdentity rawUid
+              pure [(secret, physical)]
+            _ -> Left "volume snapshot Job has incomplete store credential pins"
+          pure (Just ((resource, uid) : credential))
+    _ -> Right Nothing
 
 -- | Validate receipt bytes against an accepted address and static metadata.
 -- The checksum must still be compared with a fresh read of the backup object
@@ -418,3 +453,148 @@ annotateJob request accepted pvc stateful objectUrl receiptUrl metadataDigest ex
      in Right (Object (KM.insert "metadata" (Object
           (KM.insert "annotations" annotations metadata)) root))
   _ -> Left "manual backup Job lacks native metadata"
+
+data VolumeSnapshotRequest = VolumeSnapshotRequest
+  { volumeApp :: !T.Text
+  , volumeName :: !T.Text
+  , volumeNamespace :: !T.Text
+  , volumeBackupId :: !T.Text
+  , volumeSourceRevision :: !ScopeRevision
+  , volumeSourcePvcUid :: !PhysicalIdentity
+  , volumeStorageBackend :: !StoreBackend
+  , volumeStoreCredential :: !(Maybe (ManagedResource, PhysicalIdentity))
+  , volumeBackupSource :: !SourceLocation
+  }
+  deriving stock (Eq, Show)
+
+-- | Compile a fixed-key volume archive and receipt as one independently
+-- reviewed Job. It never deletes an earlier archive or writes into the PVC.
+compileVolumeSnapshotScope
+  :: VolumeSnapshotRequest -> ScopeDeclaration
+  -> Map ResourceId (ManagedResource, ByteString)
+  -> Either (NonEmpty InventoryError)
+       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileVolumeSnapshotScope request accepted native = do
+  let invalid message = inventoryError "invalid-volume-snapshot" message
+        & #scopes .~ [scopeId accepted]
+        & #sources .~ [volumeBackupSource request]
+        & (:| [])
+      app = volumeApp request
+      volume = volumeName request
+      ns = volumeNamespace request
+      backupId = volumeBackupId request
+      claim = pvcName app volume
+  _ <- first invalid (mkServiceName app)
+  _ <- first invalid (mkServiceName volume)
+  _ <- first invalid (mkServiceName ns)
+  _ <- first invalid (mkServiceName backupId)
+  unless (T.length backupId <= 20)
+    (Left (invalid "volume snapshot ID must contain at most 20 characters"))
+  pvc <- case [member | bundle <- scopeBundles accepted,
+      Managed member <- declarations bundle,
+      case member ^. #address of
+        Kubernetes _ "" kind (Just namespace) nativeName ->
+          nameText kind == "persistentvolumeclaim"
+            && nameText namespace == ns && nameText nativeName == claim
+        _ -> False] of
+    [single] -> Right single
+    _ -> Left (invalid "volume snapshot requires one accepted source PVC")
+  _ <- acceptedValue invalid native pvc
+  cluster <- case pvc ^. #address of
+    Kubernetes clusterId _ _ _ _ -> Right clusterId
+    _ -> Left (invalid "source PVC has no Kubernetes address")
+  let credential = volumeStoreCredential request
+  case (volumeStorageBackend request, credential) of
+    (GcsBackend {}, Nothing) -> pure ()
+    (MinioBackend ref, Just (secret, _)) -> do
+      expected <- first invalid (kubernetesAddress cluster "v1" "Secret"
+        (Just ns) (ref ^. #secretName))
+      unless (secret ^. #address == expected)
+        (Left (invalid "accepted MinIO credential differs from the snapshot Job reference"))
+      _ <- acceptedValue invalid native secret
+      pure ()
+    _ -> Left (invalid "volume snapshot store credential differs from its backend")
+  owner <- first invalid (mkScopeId Standalone
+    ("volume-snapshot-" <> ns <> "-" <> app <> "-" <> volume <> "-" <> backupId))
+  key <- first invalid (mkLogicalKey backupId)
+  role <- first invalid (mkName "job")
+  proofRole <- first invalid (mkName "snapshot")
+  let jobId = mintResourceId owner key role
+      proofId = mintResourceId owner key proofRole
+      jobName = "nagare-snapshot-" <> app <> "-" <> volume <> "-" <> backupId
+      objectUrl = storeObjectUrl (volumeStorageBackend request)
+        ("manual-volumes/" <> ns <> "/" <> app <> "/" <> volume <> "/" <> backupId <> ".tar.gz")
+      receiptUrl = objectUrl <> ".receipt.json"
+  unless (T.length jobName <= 63)
+    (Left (invalid "volume snapshot Job name exceeds 63 characters"))
+  let receiptMetadataValue = object
+        [ "id" .= backupId, "app" .= app, "volume" .= volume, "namespace" .= ns
+        , "object" .= objectUrl, "expiry" .= ("retain" :: T.Text)
+        , "sourceScope" .= scopeIdText (scopeId accepted)
+        , "sourceGeneration" .= generationNumber (revisionGeneration (volumeSourceRevision request))
+        , "sourceRevision" .= digestText (revisionDigest (volumeSourceRevision request))
+        , "sourcePvc" .= resourceIdText (pvc ^. #identity)
+        , "sourcePvcUid" .= physicalIdentityText (volumeSourcePvcUid request)
+        , "verification" .= ("sha256-readback" :: T.Text)
+        ]
+  metadataBytes <- first invalid (canonicalValue receiptMetadataValue)
+  receiptProbe <- first invalid (canonicalValue (object
+    [ "version" .= (1 :: Int), "sha256" .= T.replicate 64 "0",
+      "backup" .= receiptMetadataValue ]))
+  unless (BS.length receiptProbe + 1 <= 4096)
+    (Left (invalid "volume snapshot receipt exceeds the Kubernetes termination-message limit"))
+  let jobInputs = Snapshot.SnapshotJobInputs ns jobName claim objectUrl "/vol"
+        (volumeStorageBackend request)
+      reviewed = Snapshot.ReviewedSnapshotJobInputs jobInputs receiptUrl
+        (TE.decodeUtf8 metadataBytes)
+  rendered <- first (invalid . T.pack . show)
+    (Yaml.decodeEither' (Snapshot.renderReviewedSnapshotJob reviewed)
+      :: Either Yaml.ParseException Value)
+  job <- case rendered of
+    Object root | Just (Object metadata) <- KM.lookup "metadata" root ->
+      let annotations = object
+            ([ "nagare.dev/volume-backup-id" .= backupId
+             , "nagare.dev/backup-object" .= objectUrl
+             , "nagare.dev/backup-receipt" .= receiptUrl
+             , "nagare.dev/backup-receipt-metadata-digest" .=
+                 digestText (contentDigest metadataBytes)
+             , "nagare.dev/volume-source-pvc" .= resourceIdText (pvc ^. #identity)
+             , "nagare.dev/volume-source-pvc-uid" .=
+                 physicalIdentityText (volumeSourcePvcUid request)
+             ] <> case credential of
+               Nothing -> []
+               Just (secret, uid) ->
+                 [ "nagare.dev/volume-store-secret" .= resourceIdText (secret ^. #identity)
+                 , "nagare.dev/volume-store-secret-uid" .= physicalIdentityText uid ])
+       in Right (Object (KM.insert "metadata" (Object
+            (KM.insert "annotations" annotations metadata)) root))
+    _ -> Left (invalid "volume snapshot Job lacks native metadata")
+  canonical <- first invalid (canonicalValue job)
+  (bound, bytes) <- first (:| []) (bindKubernetesObject KubernetesInput
+    { resourceId = jobId, ownerScope = owner, clusterId = cluster
+    , inputObject = job, objectDigest = contentDigest canonical
+    , lifecyclePolicy = DeleteWhenUnreferenced, inputDataPolicy = Stateless
+    , inputSensitivity = Private, sourceLocation = volumeBackupSource request })
+  expected <- first invalid (kubernetesAddress cluster "batch/v1" "Job" (Just ns) jobName)
+  unless (bound ^. #address == expected)
+    (Left (invalid "volume snapshot Job has an unexpected native address"))
+  let sourceIds = pvc ^. #identity : maybe [] (\(secret, _) -> [secret ^. #identity]) credential
+      member = bound {dependencies = map OrderedAfter sourceIds}
+      proof = DeclaredOperation proofId (jobId :| [])
+        [ContentInput (contentDigest bytes)] VerifyBeforeRetry SnapshotData
+      overrides = Map.fromList
+        [ ("volume-backup.id", backupId), ("volume-backup.object", objectUrl)
+        , ("volume-backup.receipt", receiptUrl)
+        , ("volume-backup.source.scope", scopeIdText (scopeId accepted))
+        , ("volume-backup.source.generation", T.pack (show (generationNumber
+            (revisionGeneration (volumeSourceRevision request)))))
+        , ("volume-backup.source.revision", digestText
+            (revisionDigest (volumeSourceRevision request)))
+        , ("volume-backup.source.pvc", resourceIdText (pvc ^. #identity))
+        , ("volume-backup.source.pvc.uid", physicalIdentityText (volumeSourcePvcUid request))
+        , ("volume-backup.expiry", "retain")
+        , ("volume-backup.verification", "sha256-readback")
+        ]
+  base <- mkScopeDeclaration owner [ResourceBundle [Managed member] [] [] [] [proof] []]
+  pure (withScopeOverrides overrides (withScopeConfigDigest (contentDigest canonical) base),
+    Map.singleton jobId (member, bytes))

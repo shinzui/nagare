@@ -162,6 +162,11 @@ provenance:
       at: 2026-09-26T19:32:00Z
       mode: "implement"
       note: "Extend signed webhook proof harness to a disposable native Knative context and audit its startup failure"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-26T19:46:13Z
+      mode: "implement"
+      note: "Route manual volume snapshots through reviewed fixed Jobs and exact source checks"
 ---
 
 # Route application and data lifecycles through independent resource scopes
@@ -287,9 +292,12 @@ Critical path from completed M1 to final acceptance, in execution order:
 - [x] M3/M4 manual database data cutover (2026-09-26): Live manual backup and scratch restore require saved reviewed Job plans in every context; direct Job submission and broad inline manual pruning are removed. Volume snapshot/restore, live-target and other-engine restore, provider proof, and exact collection remain.
 - [x] M3/M4 environment and Secret command cutover (2026-09-26): All live channel writes use reviewed scopes; direct ConfigMap and Secret apply helpers are removed. Read-only dry-run rendering remains.
 - [x] M3/M4 manual task command cutover (2026-09-26): Live one-off runs require a reviewed stable run ID; schedule deletion requires saved staged reviews. Direct Job creation and CronJob deletion effects are removed.
+- [x] M3/M4 volume snapshot cutover (2026-09-26): `storage snapshot --snapshot-id ID --save-plan DIR` binds one accepted PVC, its source revision and UID, and an optional accepted local store credential to a fixed, create-only archive and receipt Job. Apply and resume recheck source UIDs and accepted native bytes; direct Job submission and broad pruning are removed. Reviewed scratch restore, exact pruning, and live provider proof remain.
 - [ ] M4: Cut over remaining direct app render/apply entry points to the reviewed compiler and publication path.
 
 ## Surprises & Discoveries
+
+2026-09-26: The old `storage snapshot` command applied a timestamped Job directly and then pruned a whole object prefix. Its local smoke script still invokes that command without a review. The reviewed snapshot path now uses a stable ID, fixed object and receipt keys, and no implicit deletion; the smoke script needs a reviewed restore path before it can be migrated. Local MinIO credentials are accepted as a namespaced Secret only where the platform copies them, so snapshot planning refuses other namespaces without an accepted credential.
 
 2026-09-26: The local Knative test cluster's CRDs and namespace were present, but its admission webhook had no ready endpoint when the signed reviewed site transaction attempted a Service create. The next run showed sustained API latency and a crash-looping webhook whose startup timed out reading `config-logging` through the cluster service IP. The live harness preserves the exact provider command diagnostics and checks webhook rollout before attempting delivery; no native site success is claimed. The recording-provider production and preview test still passes, and the disposable cluster was stopped.
 
@@ -458,6 +466,8 @@ Critical path from completed M1 to final acceptance, in execution order:
 2026-09-26: The first executable `app deploy --save-plan` isolation probe reached `runghc` but selected a stale `.ghc.environment` for GHC 9.12.3 before the current 9.12.4 file. The config loader then refused a valid local app before inventory planning. Auto-discovery now asks `ghc --numeric-version` and chooses only a matching project environment, falling back to Cabal if no match exists. The subsequent reviewed app probe produced Kubernetes-only operations without calling unrelated Pulumi, host, artifact, or cloud executables.
 
 ## Decision Log
+
+2026-09-26: Manual volume snapshots use an explicit stable ID and a namespace-isolated `manual-volumes/<namespace>/<app>/<volume>/<id>.tar.gz` object with a separate checksum receipt. The reviewed Job mounts the accepted PVC read-only and refuses to overwrite either key. Its source revision is recorded in the review; the PVC and local store credential UIDs and native bytes are rechecked before submit and receipt acceptance. A concurrent file write can still make a tar archive inconsistent; operators must quiesce applications that need application-consistent backups. No automatic prefix pruning is allowed, because it cannot identify exact reviewed object versions or accepted restore dependencies. This preserves earlier objects while reviewed restore and exact pruning are built.
 
 2026-09-26: Require a stable run ID for every live manual task run and a saved review for every scheduled-task deletion stage. Keep timestamped Job and deletion-plan output only as read-only previews. The accepted CronJob and its private native bytes authorize reviewed Job creation, while suspension, retirement, and exact collection remain separate decisions.
 

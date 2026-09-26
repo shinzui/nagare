@@ -27,7 +27,7 @@ import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Backup
   ( BackupReceiptExpectation (..), manualBackupJobReceiptExpectation
-  , manualBackupJobSourcePins, parseBackupReceipt )
+  , manualBackupJobSourcePins, volumeSnapshotJobSourcePins, parseBackupReceipt )
 import Nagare.Inventory.Restore (manualRestoreJobTargetPins)
 import Nagare.Inventory.Prune (manualPruneJobBackupPin)
 import Nagare.Inventory.BackendMap (renderBackendMapNative, renderShomeiSettingsNative)
@@ -202,13 +202,15 @@ mkKubernetesAdapterWithBackupReceipt specs ops readBackupReceipt =
       | otherwise = case Map.lookup (mutationResource mutation) specs of
           Nothing -> pure (Left "manual backup Job lacks its bound native object")
           Just (_, native) -> case (manualBackupJobSourcePins native,
-            manualRestoreJobTargetPins native, manualPruneJobBackupPin native) of
-            (Left reason, _, _) -> pure (Left reason)
-            (_, Left reason, _) -> pure (Left reason)
-            (_, _, Left reason) -> pure (Left reason)
-            (Right backupPins, Right restorePins, Right prunePin) -> do
+            manualRestoreJobTargetPins native, manualPruneJobBackupPin native,
+            volumeSnapshotJobSourcePins native) of
+            (Left reason, _, _, _) -> pure (Left reason)
+            (_, Left reason, _, _) -> pure (Left reason)
+            (_, _, Left reason, _) -> pure (Left reason)
+            (_, _, _, Left reason) -> pure (Left reason)
+            (Right backupPins, Right restorePins, Right prunePin, Right volumePins) -> do
               checked <- traverse checkOne (maybe [] id backupPins <> maybe [] id restorePins
-                <> maybe [] (: []) prunePin)
+                <> maybe [] (: []) prunePin <> maybe [] id volumePins)
               pure (sequence_ checked)
       where
         checkOne (resource, expectedUid) = case Map.lookup resource specs of

@@ -213,7 +213,8 @@ Snapshot a volume's contents to the active backup store (GCS in cloud mode,
 MinIO in local mode; see next section):
 
 ```bash
-nagarectl storage snapshot notes data
+nagarectl storage snapshot notes data --snapshot-id run-001 --save-plan ./volume-review
+nagarectl inventory apply ./volume-review --yes
 ```
 
 
@@ -223,12 +224,13 @@ Every app volume is, by an explicit policy, **either** included in the object-st
 backup flow **or** explicitly excluded — and an excluded volume triggers a **warning at
 deploy time**, so no volume is ever silently unprotected:
 
-- `retention = Retain` (the default) ⇒ **backup-included**: `nagarectl storage
-  snapshot APP VOLUME` tars the volume's contents to
-  `volumes/<app>/<volume>/<timestamp>.tar.gz` in the active store. In cloud mode
+- `retention = Retain` (the default) ⇒ **backup-included**: a reviewed `nagarectl
+  storage snapshot APP VOLUME --snapshot-id ID --save-plan DIR` Job tars the
+  volume's contents to `manual-volumes/<namespace>/<app>/<volume>/<id>.tar.gz`
+  in the active store. In cloud mode
   that is `gs://<backup-bucket>/...`; in local mode it is
-  `s3://nagare-backups/...` on MinIO. The newest few snapshots per volume are
-  kept (`--keep`, default 7); older ones are pruned.
+  `s3://nagare-backups/...` on MinIO. The Job verifies stored bytes and a
+  separate receipt. Snapshot deletion needs a separate reviewed action.
 - `retention = Delete` ⇒ **backup-excluded**: `nagarectl deploy` prints, to
   stderr, `warning: volume '<vol>' on app '<app>' is NOT backed up (backup
   excluded in config)`.
@@ -254,9 +256,9 @@ and the [disaster-recovery runbook](../runbooks/disaster-recovery.md); the verb
 is `nagarectl storage restore APP VOLUME <timestamp>` (scratch-first by default;
 `--into-live` targets the live PVC).
 
-After a context initializes inventory history, live direct `storage snapshot`
-and `storage restore` refuse even for an unclaimed volume. Reviewed snapshot
-and restore operations are still pending. `storage restore --dry-run` remains
+Live `storage snapshot` requires an accepted PVC and saved review in every
+context. Direct `storage restore` refuses after inventory initialization.
+`storage restore --dry-run` remains
 available to inspect the rendered operation without changing the cluster.
 
 

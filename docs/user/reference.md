@@ -508,14 +508,14 @@ volume *before* the Service.
 | --- | --- |
 | `nagarectl storage list APP` | List the app's volumes: volume name, PVC name, size, bound status, node path (`MISSING` if a declared volume has no PVC yet). |
 | `nagarectl storage inspect APP VOLUME` | `kubectl describe` the volume's PVC in detail. |
-| `nagarectl storage snapshot APP VOLUME [--bucket B] [--keep N]` | Tar the volume's contents to the active backup store (GCS or local MinIO; keeps the newest `N`, default 7). |
+| `nagarectl storage snapshot APP VOLUME --snapshot-id ID --save-plan DIR [--bucket B]` | Save a reviewed, create-only archive and checksum receipt Job for an accepted PVC. Apply with `inventory apply DIR --yes`. `--dry-run` prints a read-only legacy Job preview. |
 | `nagarectl storage restore APP VOLUME BACKUP_ID [--bucket B] [--into-live] [--dry-run]` | Restore a snapshot, scratch-first by default. |
 
 PVCs are named deterministically `nagare-vol-<app>-<volume>` and labelled
 `nagare.dev/managed-by: nagarectl` + `nagare.dev/app=<app>` + `nagare.dev/volume=<volume>`
-(the storage commands discover them by these labels). Snapshots land at
-`gs://<backup-bucket>/volumes/<app>/<volume>/<timestamp>.tar.gz` in cloud mode or
-`s3://nagare-backups/volumes/<app>/<volume>/<timestamp>.tar.gz` in local mode. A
+(the storage commands discover them by these labels). Reviewed snapshots land at
+`gs://<backup-bucket>/manual-volumes/<namespace>/<app>/<volume>/<id>.tar.gz` in cloud mode or
+`s3://nagare-backups/manual-volumes/<namespace>/<app>/<volume>/<id>.tar.gz` in local mode. A
 volume's data lives on the host under `/var/lib/nagare/local-path/` (or the k3d
 node's local-path storage in local mode). Restore with
 `nagarectl storage restore APP VOLUME <id>` (scratch-first).

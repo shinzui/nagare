@@ -89,7 +89,7 @@ refuse 'manual database restore without review' 'live database restore requires 
   db restore fixture backup-identity
 refuse 'direct database shell' 'direct database shell is refused' \
   db shell fixture
-refuse 'direct volume snapshot' 'direct storage snapshot is refused' \
+refuse 'volume snapshot without review' 'live storage snapshot requires --snapshot-id ID and --save-plan DIR' \
   storage snapshot hello --config ../nagare-dsl/test/fixtures/nagare/Config.hs data
 refuse 'direct volume restore' 'direct storage restore is refused' \
   storage restore hello --config ../nagare-dsl/test/fixtures/nagare/Config.hs data backup-identity

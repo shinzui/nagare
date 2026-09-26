@@ -34,7 +34,7 @@ import Nagare.Inventory.Adapters.Kubernetes
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), backupReceiptFromPodList, cacheClientDataMatches, certificateReady, collectionDeleteRequest, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, credentialDataMatches, deploymentAvailable, deploymentSelectorReplacement, desiredFieldsMatch, generatedCredentialTemplate, jobCompleted, knativeReady, materializeCacheKey, materializeCredential, mkKubernetesRuntimeOps, observeCacheClientOutput, parseObserved, readinessForAddress, statefulSetImmutableReplacement, statefulSetReady, supportedUpdateAddress, withoutCacheClientData)
 import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
 import Nagare.Inventory.Database (compileDatabaseForBackend)
-import Nagare.Inventory.Backup (ManualBackupRequest (..), BackupReceiptExpectation (..), BackupSourceProof (..), compileManualBackupScope, manualBackupJobReceiptExpectation, manualBackupJobSourcePins, manualBackupSourceProof, parseBackupReceipt, parseManualBackupReceipt)
+import Nagare.Inventory.Backup (ManualBackupRequest (..), BackupReceiptExpectation (..), BackupSourceProof (..), VolumeSnapshotRequest (..), compileManualBackupScope, compileVolumeSnapshotScope, manualBackupJobReceiptExpectation, manualBackupJobSourcePins, manualBackupSourceProof, parseBackupReceipt, parseManualBackupReceipt, volumeSnapshotJobSourcePins)
 import Nagare.Inventory.Prune (ManualPruneRequest (..), PruneSourceProof (..), compileManualPruneScope, manualPruneJobBackupPin, manualPruneSourceProof)
 import Nagare.Inventory.Restore (ManualRestoreRequest (..), compileManualRestoreScope, manualRestoreJobTargetPins, manualRestoreTargetProof)
 import Nagare.Inventory.DataService (NativeDataKind (..), compileBackupPruneRemovalScope, compileStandaloneDatabase, compileStatefulSetRestartScope, standaloneStatefulSetOwned)
@@ -58,6 +58,7 @@ import Nagare.Resource.Policy
 import Nagare.Resource.Reference (Dependency (..))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
+import Nagare.Storage.Discover (pvcName)
 import Test.Tasty
 import Test.Tasty.HUnit
 import System.Directory (createDirectoryIfMissing)
@@ -429,6 +430,81 @@ inventoryKubernetesTests =
         assertBool "backup native member omitted" (any (\(member, _) -> case address member of
           Kubernetes _ "batch" kind _ _ -> nameText kind == "cronjob"
           _ -> False) (Map.elems bound))
+    , testCase "reviewed volume snapshot refuses a changed PVC incarnation" $ do
+        let owner = ok (mkScopeId Application "notes")
+            pvcId = mintResourceId owner (ok (mkLogicalKey "data"))
+              (ok (mkName "pvc"))
+            pvcValue = object
+              [ "apiVersion" .= ("v1" :: Text), "kind" .= ("PersistentVolumeClaim" :: Text)
+              , "metadata" .= object
+                  ["name" .= pvcName "notes" "data", "namespace" .= ("default" :: Text)]
+              , "spec" .= object ["accessModes" .= ["ReadWriteOnce" :: Text]
+                  , "resources" .= object ["requests" .= object ["storage" .= ("1Gi" :: Text)]]]
+              ]
+            pvcBytes = ok (canonicalValue pvcValue)
+            (pvc, nativeBytes) = ok (bindKubernetesObject KubernetesInput
+              { resourceId = pvcId, ownerScope = owner, clusterId = cluster
+              , inputObject = pvcValue, objectDigest = contentDigest pvcBytes
+              , lifecyclePolicy = Retain
+              , inputDataPolicy = Durable (RecoveryIntent (ok (mkName "archive"))
+                  (mkSecretRef (ok (mkName "restore-key")) (ok (mkName "v1")) :| []))
+              , inputSensitivity = Private, sourceLocation = SourceLocation "notes" "data" })
+            sourceScope = ok (mkScopeDeclaration owner
+              [ResourceBundle [Managed pvc] [] [] [] [] []])
+            sourceNative = Map.singleton pvcId (pvc, nativeBytes)
+            request = VolumeSnapshotRequest
+              { volumeApp = "notes", volumeName = "data", volumeNamespace = "default"
+              , volumeBackupId = "run-001"
+              , volumeSourceRevision = ScopeRevision
+                  (ok (mkScopeGeneration 2)) (contentDigest "accepted-volume")
+              , volumeSourcePvcUid = ok (mkPhysicalIdentity "pvc-uid")
+              , volumeStorageBackend = GcsBackend "project" "bucket"
+              , volumeStoreCredential = Nothing
+              , volumeBackupSource = SourceLocation "storage snapshot" "run-001" }
+            (backupScope, backupNative) = ok
+              (compileVolumeSnapshotScope request sourceScope sourceNative)
+            (job, jobBytes) = case Map.elems backupNative of
+              [entry] -> entry
+              _ -> error "volume snapshot must bind one Job"
+            jobId = job ^. #identity
+            sourceState uid = KubernetesPresent uid "1" (Just pvcId)
+              (contentDigest nativeBytes)
+            create = createOperation {plannedResources = jobId :| []}
+        Map.lookup "volume-backup.object" (scopeOverrides backupScope)
+          @?= Just "gs://bucket/manual-volumes/default/notes/data/run-001.tar.gz"
+        volumeSnapshotJobSourcePins jobBytes @?= Right (Just
+          [(pvcId, ok (mkPhysicalIdentity "pvc-uid"))])
+        assertBool "snapshot did not use create-only upload and stored-byte readback"
+          (BC.isInfixOf "--if-generation-match=0" jobBytes
+            && BC.isInfixOf "sha256sum" jobBytes
+            && BC.isInfixOf "/dev/termination-log" jobBytes)
+        assertBool "snapshot still prunes data" (not (BC.isInfixOf "gsutil rm" jobBytes))
+        case manualBackupJobReceiptExpectation jobBytes of
+          Right (Just expectation) ->
+            receiptAddress expectation @?=
+              "gs://bucket/manual-volumes/default/notes/data/run-001.tar.gz.receipt.json"
+          other -> assertFailure ("volume snapshot lacks a receipt: " <> show other)
+        states <- newIORef (Map.fromList
+          [(jobId, KubernetesAbsent absence)
+          ,(pvcId, sourceState (ok (mkPhysicalIdentity "pvc-uid")))])
+        writes <- newIORef (0 :: Int)
+        let adapter = mkKubernetesAdapter (Map.union backupNative sourceNative)
+              KubernetesAdapterOps
+                { kubernetesContext = ok (mkContextId "test")
+                , kubernetesObserve = \selected -> Map.findWithDefault
+                    (KubernetesUnknown "unbound") selected <$> readIORef states
+                , kubernetesMutateConditional = \_ -> modifyIORef' writes (+ 1)
+                    >> pure AdapterEffectCompleted }
+        prepared <- adapterPrepare adapter create >>= expectRight
+        adapterPreflight adapter create prepared >>= expectRight
+        modifyIORef' states (Map.insert pvcId
+          (sourceState (ok (mkPhysicalIdentity "replacement-pvc"))))
+        assertBool "changed PVC UID passed snapshot preflight"
+          . isLeft =<< adapterPreflight adapter create prepared
+        adapterExecute adapter create prepared >>= \case
+          AdapterEffectFailed {} -> pure ()
+          other -> assertFailure ("changed PVC UID reached provider: " <> show other)
+        readIORef writes >>= (@?= 0)
     , testCase "manual database backup binds object and source incarnation into its own Job scope" $ do
         let owner = ok (mkScopeId Standalone "database-pg-main")
             db = Database (ok (mkDatabaseName "pg-main")) Nothing Postgres (defaultEngineVersion Postgres)

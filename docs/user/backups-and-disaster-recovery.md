@@ -11,10 +11,9 @@ generated:
 
 # Backups and disaster recovery
 
-> **Status:** 🟡 Database backups and app-volume snapshots/restores are built for
-> both cloud mode (GCS) and local mode (MinIO); the **local MinIO volume
-> snapshot/restore path is verified end-to-end** by `just local-smoke` (see
-> [Local development](local-development.md#run-the-local-smoke-test)). Full host
+> **Status:** 🟡 Database backups and app-volume snapshot planning support
+> cloud mode (GCS) and local mode (MinIO). The previous direct local smoke
+> script has not yet been migrated to reviewed data commands. Full host
 > disaster-recovery drills and some app-specific backup patterns, such as
 > continuous Litestream restore drills and dashboard export, are still deferred.
 > Pulumi now declares daily data-disk snapshots plus protected, versioned backup
@@ -27,8 +26,10 @@ is successful only if rebuilding it is *boring*.
 Live `db backup` and `db restore` require saved reviews in every context. An
 accepted database can use `db backup NAME --backup-id ID --save-plan DIR` or a
 PostgreSQL scratch restore with `--restore-id ID --save-plan DIR`, followed by
-`inventory apply DIR --yes`. Direct `storage snapshot` and `storage restore`
-refuse after inventory initialization; their reviewed routes remain pending.
+`inventory apply DIR --yes`. An accepted app PVC can use
+`storage snapshot APP VOLUME --snapshot-id ID --save-plan DIR`, followed by
+`inventory apply DIR --yes`. Direct `storage restore` refuses after inventory
+initialization; its reviewed route remains pending.
 Scheduled database backups remain part of reviewed database scopes. The older
 database Job renderers remain available only through `--dry-run`.
 
@@ -49,7 +50,7 @@ Most of Nagare is reproduced from Git; only a few things need real backup jobs.
 | SQLite app data | PVC snapshot, or Litestream pattern for hot SQLite | 🟡 |
 | Host Postgres | Restore from disk if data disk survives; use managed DBs for Nagare-owned backup tooling | 🟡 |
 | Whole data disk | Daily GCE snapshot at 08:00 UTC, retained seven days and kept if the source disk is deleted | 🟡 (declared; live apply/verification pending) |
-| App volumes (PVCs) | Legacy `nagarectl storage snapshot` → GCS or MinIO (`volumes/<app>/<volume>/`); direct data operations refuse after inventory admission | 🟡 (reviewed snapshot and restore pending) |
+| App volumes (PVCs) | Reviewed fixed-key snapshot Job → GCS or MinIO (`manual-volumes/<namespace>/<app>/<volume>/`); direct restore refuses after inventory admission | 🟡 (reviewed restore and live provider proof pending) |
 | Managed databases | Daily CronJob → GCS or MinIO (`databases/<name>/`); reviewed schedules verify stored bytes without pruning; accepted databases can save reviewed manual backup, expired manual pruning, and PostgreSQL scratch restore Jobs | 🟡 (live provider proof, scheduled pruning, and live-target/other-engine restore pending) |
 | Attic signing identity and metadata | Managed PostgreSQL `nix-cache` / daily `nagare-dbbackup-nix-cache` CronJob | 🟡 (provider implemented; live restore acceptance pending) |
 | Attic cache chunks | Reproducible producer inputs; optionally export the dedicated GCS bucket before retirement | Rebuildable |
@@ -79,21 +80,30 @@ comparison before clients resume.
 ### App volumes: backup-included by default, opt out explicitly
 
 A durable volume attached to an app (EP-34/EP-35) is part of the backup story by
-default. Before inventory admission, `nagarectl storage snapshot APP VOLUME`
-tars the volume's contents to the active object store:
+default. For an accepted PVC, save and apply a snapshot review:
 
-```text
-cloud: gs://<backup-bucket>/volumes/<app>/<volume>/<timestamp>.tar.gz
-local: s3://nagare-backups/volumes/<app>/<volume>/<timestamp>.tar.gz
+```bash
+nagarectl storage snapshot APP VOLUME --snapshot-id ID --save-plan DIR
+nagarectl inventory apply DIR --yes
 ```
 
-A short-lived in-cluster Job mounts the PVC read-only and streams the archive to
-the store, then keeps the last N snapshots per volume (`--keep`, default 7).
+The fixed object addresses are:
+
+```text
+cloud: gs://<backup-bucket>/manual-volumes/<namespace>/<app>/<volume>/<id>.tar.gz
+local: s3://nagare-backups/manual-volumes/<namespace>/<app>/<volume>/<id>.tar.gz
+```
+
+A reviewed Job mounts the accepted PVC read-only, creates the archive at that
+ID only if the key is empty, then reads back and hashes the stored bytes. It
+creates a separate `.receipt.json` object and checks its readback. Apply
+rechecks the PVC identity before submitting and accepting the Job. There is no
+automatic pruning; an occupied ID or partial upload needs explicit recovery.
 Restore a snapshot into a disposable scratch PVC — never over live data — with
 `nagarectl storage restore APP VOLUME <ts>` (it restores into a scratch PVC by
-default; pass `--into-live` to target the live PVC). These direct data commands
-refuse after inventory admission until reviewed snapshot and restore operations
-are available.
+default; pass `--into-live` to target the live PVC). Direct restore
+refuses after inventory admission until reviewed restore is available. The
+older snapshot renderer is available with `--dry-run` only.
 
 ### Managed databases: backed up by default
 

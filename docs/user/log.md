@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-26
+* **Change**: Save reviewed volume snapshots against an accepted PVC UID with create-only object and receipt uploads; remove direct snapshot Job submission and broad pruning.
 * **Test**: Exercise signed production and pull-request webhook deliveries through the built runner, reviewed site CLI, and a recording Kubernetes provider; verify the exact accepted image and four preview stores.
 * **Change**: Require stable reviewed IDs for live manual task runs and saved staged reviews for scheduled task deletion; remove direct Job creation and CronJob deletion effects.
 * **Change**: Route every live managed Runtime, Build, and Preview environment and versioned Secret write through reviewed channel scopes; remove direct ConfigMap and Secret apply helpers.

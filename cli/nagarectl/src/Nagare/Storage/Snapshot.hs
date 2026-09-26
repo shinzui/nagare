@@ -1,18 +1,10 @@
--- | @nagarectl storage snapshot APP VOLUME@ (EP-36): point-in-time backup of an
--- app volume's file contents to GCS, plus the backup-ownership policy and
--- retention pruning (MasterPlan Integration Point IP4).
+-- | Pure volume snapshot renderers and read-only preview.
 --
--- A snapshot is a @tar.gz@ of the volume's mounted contents, produced by a
--- short-lived in-cluster Kubernetes Job that co-mounts the same @local-path@ PVC
--- (read-only) and streams the archive to
--- @gs://<bucket>/volumes/<app>/<volume>/<timestamp>.tar.gz@ — the same bucket and
--- ADC conventions the Postgres/SQLite backups use. The Job is used (not
--- @kubectl exec@) because a Knative app scales to zero and has no stable pod.
+-- A reviewed snapshot is a @tar.gz@ of a read-only mounted PVC. It uses a
+-- fixed, create-only object address and a separate checksum receipt. A Job
+-- can run even when the associated Knative app has scaled to zero.
 --
--- The pure pieces ('snapshotObjectPath', 'snapshotGsUrl', 'snapshotTimestamp',
--- 'snapshotsToPrune', 'backupExcludedWarnings', 'renderSnapshotJob') are
--- separated from the @kubectl@/@gsutil@ IO so they are unit-testable without a
--- cluster.
+-- The older timestamped renderer remains available only for read-only previews.
 module Nagare.Storage.Snapshot
   ( -- * Pure object-key / timestamp helpers
     snapshotObjectPath
@@ -25,14 +17,14 @@ module Nagare.Storage.Snapshot
     -- * Snapshot Job rendering (pure)
   , SnapshotJobInputs (..)
   , renderSnapshotJob
+  , ReviewedSnapshotJobInputs (..)
+  , renderReviewedSnapshotJob
 
-    -- * Command driver
-  , runSnapshot
+    -- * Read-only preview
+  , previewSnapshot
   )
 where
 
-import Control.Monad (forM_)
-import Cradle
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
@@ -46,13 +38,15 @@ import Data.Yaml qualified as Y
 import Nagare.Cluster.GcsJob
   ( DataMovementJob (..)
   , StoreBackend (..)
+  , MinioRef (..)
   , dataMovementJobSpec
+  , storeCpCreateOnlyFromFile
+  , storeCpToStdout
   , storeCpFromStdin
   , storeEnv
   , storeHostAliases
   , storeImage
   , storeObjectUrl
-  , storePrefixUrl
   , storeShellPreamble
   )
 import Nagare.Dsl.Prelude hiding ((.=))
@@ -65,10 +59,8 @@ import Nagare.Dsl.Types
   , volumeNameText
   )
 import Nagare.Storage.Discover (pvcName)
-import System.Exit (ExitCode (..), exitFailure)
-import System.Environment (lookupEnv)
-import System.IO (hClose, stderr)
-import System.IO.Temp (withSystemTempFile)
+import System.Exit (exitFailure)
+import System.IO (stderr)
 
 -- ---------------------------------------------------------------------------
 -- Pure helpers
@@ -198,18 +190,93 @@ jobValue i =
         <> storeCpFromStdin (i ^. #backend) "\"$DEST\"" ::
         Text
 
--- ---------------------------------------------------------------------------
--- Command driver
+-- | A fixed-key, create-only snapshot with a stored-byte checksum receipt.
+-- The inventory compiler adds source identity pins to the Job metadata.
+data ReviewedSnapshotJobInputs = ReviewedSnapshotJobInputs
+  { snapshot :: !SnapshotJobInputs
+  , receiptUrl :: !Text
+  , receiptMetadata :: !Text
+  }
+  deriving stock (Generic, Eq, Show)
 
--- | Snapshot @volume@ of the app described by @dep@ to @bucket@, keeping the last
--- @keep@ snapshots for that volume. Resolves the PVC name deterministically
--- ('pvcName'); errors if the config declares no such volume. The @timestamp@ is
--- read from the wall clock here (the pure helpers take it as an argument so they
--- stay deterministic).
-runSnapshot :: Deployment -> Text -> StoreBackend -> Int -> IO ()
-runSnapshot dep volume backend keep = do
-  transaction <- lookupEnv "NAGARE_INVENTORY_TRANSACTION"
-  when (isJust transaction) (die "storage snapshot cannot run inside a reviewed inventory transaction")
+renderReviewedSnapshotJob :: ReviewedSnapshotJobInputs -> ByteString
+renderReviewedSnapshotJob input = Y.encode $ object
+  [ "apiVersion" .= ("batch/v1" :: Text)
+  , "kind" .= ("Job" :: Text)
+  , "metadata" .= object
+      [ "name" .= (job ^. #jobName)
+      , "namespace" .= (job ^. #namespace)
+      , "labels" .= object ["nagare.dev/managed-by" .= ("nagarectl" :: Text)]
+      ]
+  , "spec" .= dataMovementJobSpec DataMovementJob
+      { templateLabels = Nothing
+      , backoffLimit = 0
+      , hostAliases = storeHostAliases backend
+      , initContainers = []
+      , containers = [object
+          [ "name" .= ("upload" :: Text)
+          , "image" .= storeImage backend
+          , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
+          , "args" .= toJSON [shell]
+          , "env" .= toJSON
+              ([envVar "DEST" (job ^. #destinationUrl)
+               , envVar "BACKUP_RECEIPT_DEST" (input ^. #receiptUrl)
+               , envVar "BACKUP_RECEIPT_METADATA" (input ^. #receiptMetadata)]
+                <> storeEnv backend)
+          , "volumeMounts" .= toJSON
+              [ object ["name" .= ("vol" :: Text), "mountPath" .= ("/vol" :: Text),
+                        "readOnly" .= True]
+              , object ["name" .= ("dump" :: Text), "mountPath" .= ("/dump" :: Text)]
+              ]
+          ]]
+      , volumes =
+          [ object ["name" .= ("vol" :: Text), "persistentVolumeClaim" .=
+              object ["claimName" .= (job ^. #claimName)]]
+          , object ["name" .= ("dump" :: Text), "emptyDir" .= object []]
+          ]
+      }
+  ]
+  where
+    job = input ^. #snapshot
+    backend = job ^. #backend
+    envVar n v = object ["name" .= (n :: Text), "value" .= (v :: Text)]
+    versionedLocalBucket = case backend of
+      GcsBackend {} -> ""
+      MinioBackend ref ->
+        "aws s3api put-bucket-versioning --bucket " <> ref ^. #bucket
+          <> " --versioning-configuration Status=Enabled --endpoint-url "
+          <> ref ^. #endpoint <> "; "
+    verifyTools = case backend of
+      GcsBackend {} -> "command -v sha256sum >/dev/null 2>&1; "
+      MinioBackend {} ->
+        "command -v sha256sum >/dev/null 2>&1 || dnf install -y -q coreutils >/dev/null 2>&1; "
+          <> "command -v sha256sum >/dev/null 2>&1; "
+    shell =
+      "set -e; " <> storeShellPreamble backend
+      <> verifyTools
+      <> "tar -C /vol -czf /dump/backup.tar.gz .; "
+      <> "EXPECTED=$(sha256sum /dump/backup.tar.gz | cut -d' ' -f1); "
+      <> "test ${#EXPECTED} -eq 64; "
+      <> versionedLocalBucket
+      <> storeCpCreateOnlyFromFile backend "/dump/backup.tar.gz" "\"$DEST\""
+      <> "; ACTUAL=$(" <> storeCpToStdout backend "\"$DEST\""
+      <> " | sha256sum | cut -d' ' -f1); test \"$EXPECTED\" = \"$ACTUAL\"; "
+      <> "printf '{\"version\":1,\"sha256\":\"%s\",\"backup\":%s}\\n'"
+      <> " \"$EXPECTED\" \"$BACKUP_RECEIPT_METADATA\" > /dump/backup.receipt.json; "
+      <> storeCpCreateOnlyFromFile backend "/dump/backup.receipt.json" "\"$BACKUP_RECEIPT_DEST\""
+      <> "; " <> storeCpToStdout backend "\"$BACKUP_RECEIPT_DEST\""
+      <> " > /dump/backup.receipt.readback.json; "
+      <> "test \"$(sha256sum /dump/backup.receipt.json | cut -d' ' -f1)\" = "
+      <> "\"$(sha256sum /dump/backup.receipt.readback.json | cut -d' ' -f1)\"; "
+      <> "cat /dump/backup.receipt.readback.json > "
+      <> "\"${BACKUP_TERMINATION_LOG_PATH:-/dev/termination-log}\""
+
+-- ---------------------------------------------------------------------------
+-- Read-only preview
+
+-- | Show the legacy shape without submitting a Job or deleting stored data.
+previewSnapshot :: Deployment -> Text -> StoreBackend -> IO ()
+previewSnapshot dep volume backend = do
   let app = serviceNameText (dep ^. #name)
       ns = namespaceText (dep ^. #namespace)
       declared = map (volumeNameText . (^. #name)) (dep ^. #volumes)
@@ -230,61 +297,8 @@ runSnapshot dep volume backend keep = do
               , mountPath = "/vol"
               , backend = backend
               }
-      applyJob (renderSnapshotJob job)
-      waitForJob ns name
-      -- Best-effort cleanup of the completed Job; failure here is non-fatal.
-      run_ $ cmd "kubectl" & addArgs ["delete", "job", T.unpack name, "-n", T.unpack ns, "--ignore-not-found"]
-      pruneSnapshots backend app volume keep
-      TIO.putStrLn ("Snapshot written: " <> dest)
-
--- | Apply a rendered manifest via a temp file (mirrors 'Nagare.Deploy.applyManifests').
-applyJob :: ByteString -> IO ()
-applyJob manifest = withSystemTempFile "nagare-snapshot-job.yaml" $ \fp h -> do
-  BS.hPut h manifest
-  hClose h
-  run_ $ cmd "kubectl" & addArgs ["apply", "-f", fp]
-
--- | Block until the Job completes; on failure print its logs and exit non-zero.
-waitForJob :: Text -> Text -> IO ()
-waitForJob ns name = do
-  (code, _ :: StdoutUntrimmed) <-
-    run $
-      cmd "kubectl"
-        & addArgs
-          [ "wait"
-          , "--for=condition=complete"
-          , "--timeout=600s"
-          , "job/" <> T.unpack name
-          , "-n"
-          , T.unpack ns
-          ]
-        & silenceStderr
-  case code of
-    ExitSuccess -> pure ()
-    ExitFailure _ -> do
-      TIO.hPutStrLn stderr ("nagarectl: snapshot job " <> name <> " did not complete; recent logs:")
-      run_ $
-        cmd "kubectl"
-          & addArgs ["logs", "job/" <> T.unpack name, "-n", T.unpack ns, "--tail", "50"]
-      exitFailure
-
--- | List the volume's existing snapshots and delete all but the newest @keep@.
--- Laptop-side @gsutil@ prune, so it runs only for the GCS backend; in local mode
--- the MinIO Service is in-cluster (unreachable from the laptop), so on-demand
--- prune is skipped and retention is left to the in-pod self-prune (EP-84).
-pruneSnapshots :: StoreBackend -> Text -> Text -> Int -> IO ()
-pruneSnapshots MinioBackend {} _ _ _ = pure ()
-pruneSnapshots backend@GcsBackend {} app volume keep = do
-  let prefix = storePrefixUrl backend ("volumes/" <> app <> "/" <> volume <> "/")
-  (code, StdoutUntrimmed out) <-
-    run $ cmd "gsutil" & addArgs ["ls", T.unpack prefix] & silenceStderr
-  case code of
-    ExitFailure _ -> pure () -- nothing to prune (or no objects yet)
-    ExitSuccess -> do
-      let objs = filter (not . T.null) (map T.strip (T.lines out))
-          surplus = snapshotsToPrune keep objs
-      forM_ surplus $ \o ->
-        run_ $ cmd "gsutil" & addArgs ["rm", T.unpack o]
+      BS.putStr (renderSnapshotJob job)
+      TIO.putStrLn ("Preview destination: " <> dest)
 
 die :: Text -> IO a
 die msg = do
