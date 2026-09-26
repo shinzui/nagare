@@ -35,6 +35,8 @@ with open(sys.argv[1], "wb") as output:
     output.write(json.dumps(head, sort_keys=True, separators=(",", ":")).encode())
 PY
 chmod 600 "$store_dir/head.json"
+cp "$context_dir/guarded.env" "$fixture_root/profile-before"
+cp "$store_dir/head.json" "$fixture_root/head-before"
 
 refuse() {
   local label="$1"
@@ -57,6 +59,8 @@ refuse 'legacy init' --context guarded init --project other-project --skip-prefl
 refuse 'confirmed cleanup' --context guarded cleanup --confirm
 test -f "$context_dir/guarded.env"
 test -f "$store_dir/head.json"
+cmp -s "$context_dir/guarded.env" "$fixture_root/profile-before"
+cmp -s "$store_dir/head.json" "$fixture_root/head-before"
 python3 - "$store_dir/head.json" <<'PY'
 import json
 import sys
