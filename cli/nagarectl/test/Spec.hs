@@ -5122,10 +5122,19 @@ backupRestoreTests =
           assertBool "GCS does not compare digests" ("test \"$EXPECTED\" = \"$ACTUAL\"" `T.isInfixOf` cloudScript)
           assertBool "MinIO does not compare digests" ("test \"$EXPECTED\" = \"$ACTUAL\"" `T.isInfixOf` localScript)
           assertBool "reviewed backup still prunes" (all (not . T.isInfixOf "pruning") [cloud, local])
+          assertBool "scheduled backup key is bound to the Job UID"
+            (all (T.isInfixOf "${BACKUP_RUN_ID}.sql.gz") [cloud, local])
+          assertBool "scheduled backup reads the Job controller UID"
+            (all (T.isInfixOf "metadata.labels['batch.kubernetes.io/controller-uid']") [cloud, local])
+          assertBool "scheduled GCS backup creates only"
+            ("--if-generation-match=0" `T.isInfixOf` cloudScript)
+          assertBool "scheduled S3 backup creates only"
+            ("--if-none-match" `T.isInfixOf` localScript)
       , testCase "reviewed backup Job fails when stored bytes differ" $
           withSystemTempDirectory "nagare-backup-verification" $ \directory -> do
             let dump = directory </> "dump"
                 fakeGsutil = directory </> "gsutil"
+                fakeGcloud = directory </> "gcloud"
                 fakeAws = directory </> "aws"
                 fakeDnf = directory </> "dnf"
                 brokenTools = directory </> "broken-tools"
@@ -5149,9 +5158,17 @@ backupRestoreTests =
               , "if [ \"$2\" = - ]; then cat > \"$NAGARE_TEST_OBJECT\"; exit; fi"
               , "if [ \"$NAGARE_TEST_CORRUPT\" = 1 ]; then printf corrupt; else cat \"$NAGARE_TEST_OBJECT\"; fi"
               ]
+            writeFile fakeGcloud $ unlines
+              [ "#!/bin/sh"
+              , "set -eu"
+              , "[ \"$1\" = storage ] && [ \"$2\" = cp ] && [ \"$5\" = --if-generation-match=0 ] || exit 2"
+              , "cp \"$3\" \"$NAGARE_TEST_OBJECT\""
+              ]
             writeFile fakeAws $ unlines
               [ "#!/bin/sh"
               , "set -eu"
+              , "if [ \"$1\" = s3api ] && [ \"$2\" = put-bucket-versioning ]; then exit 0; fi"
+              , "if [ \"$1\" = s3api ] && [ \"$2\" = put-object ]; then cp \"$8\" \"$NAGARE_TEST_OBJECT\"; exit; fi"
               , "[ \"$1\" = s3 ] && [ \"$2\" = cp ] || exit 2"
               , "if [ \"$3\" = - ]; then cat > \"$NAGARE_TEST_OBJECT\"; exit; fi"
               , "if [ \"$NAGARE_TEST_CORRUPT\" = 1 ]; then printf corrupt; else cat \"$NAGARE_TEST_OBJECT\"; fi"
@@ -5159,26 +5176,31 @@ backupRestoreTests =
             writeFile fakeDnf "#!/bin/sh\nexit 0\n"
             writeFile fakeHash "#!/bin/sh\nexit 0\n"
             setFileMode fakeGsutil 0o755
+            setFileMode fakeGcloud 0o755
             setFileMode fakeAws 0o755
             setFileMode fakeDnf 0o755
             setFileMode fakeHash 0o755
             parentEnv <- getEnvironment
             let path = maybe "" id (lookup "PATH" parentEnv)
-                run script corrupt badHash = readCreateProcessWithExitCode
+                run script prefix corrupt badHash = readCreateProcessWithExitCode
                   ((proc "/bin/sh" ["-c", script]) {env = Just
                     ([("PATH", (if badHash then brokenTools <> ":" else "") <> directory <> ":" <> path),
-                      ("DEST", "gs://test/backup.gz"), ("PREFIX", "gs://test/"),
+                      ("DEST", "gs://test/backup.gz"), ("PREFIX", prefix),
+                      ("BACKUP_RUN_ID", "12345678-1234-1234-1234-123456789abc"),
                       ("NAGARE_TEST_OBJECT", stored), ("NAGARE_TEST_CORRUPT", corrupt)]
                       <> filter (\(key, _) -> key `notElem`
-                        ["PATH", "DEST", "PREFIX", "NAGARE_TEST_OBJECT", "NAGARE_TEST_CORRUPT"]) parentEnv)}) ""
-            forM_ [("GCS", cloudScript), ("MinIO", localScript)] $ \(label, script) -> do
-              (good, _, _) <- run script "0" False
-              good @?= ExitSuccess
-              (bad, _, _) <- run script "1" False
+                        ["PATH", "DEST", "PREFIX", "BACKUP_RUN_ID", "NAGARE_TEST_OBJECT", "NAGARE_TEST_CORRUPT"]) parentEnv)}) ""
+            forM_ [("GCS", cloudScript, "gs://test/"),
+                ("MinIO", localScript, "s3://nagare-backups/databases/test/")]
+              $ \(label, script, prefix) -> do
+              (good, _, goodError) <- run script prefix "0" False
+              assertBool (label <> " verified upload did not complete: " <> show good <> " " <> goodError)
+                (good == ExitSuccess)
+              (bad, _, _) <- run script prefix "1" False
               case bad of
                 ExitFailure _ -> pure ()
                 ExitSuccess -> assertFailure (label <> " corrupted stored bytes completed the backup Job")
-              (emptyHash, _, _) <- run script "0" True
+              (emptyHash, _, _) <- run script prefix "0" True
               case emptyHash of
                 ExitFailure _ -> pure ()
                 ExitSuccess -> assertFailure (label <> " empty digests completed the backup Job")

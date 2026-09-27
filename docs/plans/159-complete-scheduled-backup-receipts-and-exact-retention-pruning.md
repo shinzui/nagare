@@ -38,9 +38,12 @@ Every scheduled backup produces a durable, verifiable receipt for one exact obje
 
 Inherited: reviewed backup CronJobs upload and read back exact bytes without inline keep-last-N deletion. Manual backups already have stable identities, hash-checked receipts, expiry, and exact reviewed pruning. Scheduled receipt ingestion and retention pruning are the missing behavior.
 
+First producer correction (2026-09-27): reviewed scheduled CronJobs now derive their object key from the Job controller UID exposed on the Pod, validate that identity in the upload shell, and use the existing provider-conditional create-only transfer before readback. This removes timestamp collision/overwrite from new reviewed schedules. The inherited self-pruning legacy renderer retains its prior timestamp behavior until a reviewed schedule update. `cabal test nagarectl-test --test-options='-p backup' --test-show-details=failures` passed after the MinIO shell fixture used an S3 prefix. This is only the key/transport part of M1: no durable delegated receipt, ingestion command, Job-cleanup proof, or restore consumer passed yet. M1/M2 remain open.
+
 
 ## Surprises & Discoveries
 
+2026-09-27: The reviewed schedule still used a second-resolution timestamp and a normal copy, so concurrent/retried Jobs could address the same object. Kubernetes supplies the physical Job UID on controlled Pods as `batch.kubernetes.io/controller-uid`; the downward API projects that label into the upload container. The existing manual-backup conditional transport can then create the scheduled object without overwriting another run. This is the first producer correction under the existing scheduled-receipt acceptance, not a new retention policy.
 
 
 

@@ -148,10 +148,8 @@ defaultBackupSchedule = "17 3 * * *"
 data BackupDest
   = -- | A fixed object URL: the on-demand Job names its timestamp up front.
     BackupDestUrl !Text
-  | -- | @$PREFIX\<ts\>.\<ext\>@, stamped when the pod runs (the CronJob). Kubernetes
-    -- does not run a shell over @env@ values, so the stamp is taken in the upload
-    -- shell; the key matches 'dbBackupObjectPath' so restore-by-id and pruning
-    -- treat scheduled and on-demand backups alike.
+  | -- | A runtime-selected key. Reviewed schedules use the CronJob-created
+    -- Job's UID; legacy self-pruning schedules retain their timestamp key.
     BackupDestStamped
   deriving stock (Generic, Eq, Show)
 
@@ -179,7 +177,7 @@ data BackupJobInputs = BackupJobInputs
   -- ^ the @gs://@ listing prefix (for the self-prune step)
   , keep :: !Int
   , selfPrune :: !Bool
-  -- ^ when True (the CronJob), the upload container prunes inline after upload
+  -- ^ when True (only a legacy CronJob), the upload container prunes inline
   , verifyStored :: !Bool
   -- ^ when True, a successful Job read back the exact compressed object bytes.
   , receipt :: !(Maybe BackupReceipt)
@@ -245,7 +243,8 @@ dumpContainer i =
 
 -- | The upload main container: the backend's data-movement image gzips the
 -- dump and uploads it to @$DEST@. Reviewed fixed-key Jobs create only; reviewed
--- schedules read the object back; legacy schedules also keep the last N.
+-- reviewed schedules use the Job UID and create only; legacy schedules retain
+-- their timestamp key and inline keep-last-N deletion.
 uploadContainer :: BackupJobInputs -> Value
 uploadContainer i =
   object
@@ -259,6 +258,11 @@ uploadContainer i =
               ++ [ plainEnv "PREFIX" (i ^. #prefix)
                  , plainEnv "KEEP" (T.pack (show (i ^. #keep)))
                  ]
+              ++ [ object
+                   [ "name" .= ("BACKUP_RUN_ID" :: Text)
+                   , "valueFrom" .= object ["fieldRef" .= object
+                       ["fieldPath" .= ("metadata.labels['batch.kubernetes.io/controller-uid']" :: Text)]]
+                   ] | BackupDestStamped <- [i ^. #destination], not (i ^. #selfPrune)]
               ++ maybe [] (\r ->
                    [ plainEnv "BACKUP_RECEIPT_DEST" (r ^. #destination)
                    , plainEnv "BACKUP_RECEIPT_METADATA" (r ^. #metadataJson)
@@ -342,7 +346,13 @@ uploadShell i =
     raw = backupRawExt (i ^. #engine)
     stamp = case i ^. #destination of
       BackupDestUrl _ -> ""
-      BackupDestStamped -> "DEST=\"${PREFIX}$(date -u +%Y%m%dT%H%M%SZ)." <> backupExt (i ^. #engine) <> "\"; "
+      BackupDestStamped
+        | i ^. #selfPrune ->
+            "DEST=\"${PREFIX}$(date -u +%Y%m%dT%H%M%SZ)." <> backupExt (i ^. #engine) <> "\"; "
+        | otherwise ->
+            "test -n \"$BACKUP_RUN_ID\"; "
+              <> "case \"$BACKUP_RUN_ID\" in *[!a-f0-9-]* ) exit 1;; esac; "
+              <> "DEST=\"${PREFIX}${BACKUP_RUN_ID}." <> backupExt (i ^. #engine) <> "\"; "
     base = "set -e; " <> stamp <> storeShellPreamble backend <>
       if i ^. #verifyStored then verifiedUpload else streamedUpload
     streamedUpload = "gzip -9 -c /dump/backup." <> raw <> " | "
@@ -354,7 +364,7 @@ uploadShell i =
           <> "command -v sha256sum >/dev/null 2>&1; "
     createOnly = case i ^. #destination of
       BackupDestUrl _ -> not (i ^. #selfPrune)
-      BackupDestStamped -> False
+      BackupDestStamped -> not (i ^. #selfPrune)
     uploadVerified =
       if createOnly
         then versionedLocalBucket <> storeCpCreateOnlyFromFile backend "/dump/backup.gz" "\"$DEST\""
