@@ -43,7 +43,50 @@ inventoryTransactionTests :: TestTree
 inventoryTransactionTests =
   testGroup
     "inventory transactions"
-    [ testCase "published bootstrap review retains its selected payload identity" $ do
+    [ testCase "interactive maintenance review requires a captured data fence" $ do
+        let owner = ok (mkScopeId Standalone "maintenance-guard-test")
+            cluster = mintResourceId owner (ok (mkLogicalKey "cluster"))
+              (ok (mkName "cluster"))
+            managed = member owner cluster "database"
+            resource = declarationId managed
+            operation = DeclaredOperation
+              (mintResourceId owner (ok (mkLogicalKey "session"))
+                (ok (mkName "operation")))
+              (resource :| []) [ContentInput (contentDigest "maintenance-intent")]
+              OperatorRecovery MaintainData
+            scope = ok (mkScopeDeclaration owner
+              [ResourceBundle [managed] [] [] [] [operation] []])
+            candidate = ok (composeInventory
+              (ok (mkScopeSnapshot fixtureBinding Map.empty Map.empty))
+              (ReplaceScope scope :| []))
+            observations = ok (observationSet
+              [(resource, ConfirmedAbsent (contentDigest "absent"))])
+            adapter = Adapter
+              { adapterExecutor = KubernetesExecutor
+              , adapterIdentity = "maintenance-test"
+              , adapterVersion = "1"
+              , adapterObserve = \_ -> pure (Right observations)
+              , adapterPrepare = \_ -> pure (Right
+                  (PreparedNative "maintenance-private" "maintenance session"))
+              , adapterPreflight = \_ _ -> pure (Right ())
+              , adapterExecute = \_ _ -> pure AdapterEffectCompleted
+              , adapterVerify = \_ _ -> pure (Right (contentDigest "complete"))
+              , adapterRecover = \_ _ -> pure
+                  (RecoveryUnresolved "terminal outcome unknown")
+              }
+            registry = ok (mkAdapterRegistry [adapter])
+        store <- newMemoryStore
+        _ <- initializeStore store fixtureBinding "maintenance-fence-required"
+          >>= expectRight
+        history <- loadInventoryHistory store >>= expectRight
+        let proposal = ok (planChanges candidate noLifecycleDecisions history observations)
+        assertBool "maintenance operation was omitted"
+          (any ((== OpenMaintenanceSession) . plannedAction)
+            (proposalOperations proposal))
+        snapshot <- readStoreSnapshot store >>= expectRight
+        prepared <- prepareReview registry snapshot proposal
+        assertBool "unfenced maintenance review was saved" (isLeft prepared)
+    , testCase "published bootstrap review retains its selected payload identity" $ do
         let owner = ok (mkScopeId Platform "bootstrap-foundation")
             scope = ok (mkScopeDeclaration owner [])
             snapshot = ok (mkScopeSnapshot fixtureBinding Map.empty Map.empty)

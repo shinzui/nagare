@@ -802,6 +802,9 @@ selectedFence :: AdapterRegistry -> ReviewedPlan -> ReviewOperation -> PreparedN
   -> Either Text (Maybe (DataFenceRecord, DataFenceControls))
 selectedFence registry plan operation prepared = do
   saved <- reviewedFenceRecord plan operation
+  when (plannedAction (reviewPlannedOperation operation) == OpenMaintenanceSession
+      && isNothing saved)
+    (Left "interactive maintenance review has no data fence")
   case lookupAdapterFence registry (plannedExecutor (reviewPlannedOperation operation)) of
     Nothing
       | isNothing saved -> Right Nothing

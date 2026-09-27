@@ -1317,6 +1317,10 @@ prepareReviewWithPayloadIdentity payloadIdentity registry snapshot proposal = do
                   Right (Just record) -> Right (Just (fenceCapability fence, record))
             pure $ do
               selectedFence <- selected
+              when (plannedAction operation == OpenMaintenanceSession
+                  && isNothing selectedFence)
+                (Left (PrepareRefused (plannedOperationId operation)
+                  "interactive maintenance requires a reviewed data fence"))
               let bytes = preparedNativeBytes prepared
                   digest = contentDigest bytes
               fenceMember <- traverse (\(_, record) -> do

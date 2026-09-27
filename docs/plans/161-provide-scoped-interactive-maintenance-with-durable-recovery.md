@@ -58,6 +58,8 @@ The next contract slice adds a distinct `MaintainData` declared operation and `O
 
 Planner tracing exposed a general operation-only scope omission: replacing such a scope selected no managed member, so its declared operation was silently dropped. The planner now selects affected members from the replaced scope for observation and emits the maintenance action. `MaintainData` is treated as a completed one-shot operation after convergence, so a later review of the same accepted scope cannot reopen its terminal. The focused fixture checks both initial planning and that non-replay condition.
 
+The review and apply paths now explicitly require a saved DataFence record for `OpenMaintenanceSession`. A missing fence hook or a hook that declines this operation refuses review preparation; an admitted review without its fence record also refuses execution. This closes an otherwise unsafe generic fallback while the native maintenance fence and terminal adapter are being built. It is not evidence of a usable shell.
+
 
 
 
