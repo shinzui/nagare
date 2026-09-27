@@ -16,6 +16,7 @@ import Data.Aeson.Key qualified as K
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
+import Data.List (sort)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -159,38 +160,63 @@ compileManualRestoreScope request accepted native = do
   unless (engineName == "postgres")
     (Left (invalid "reviewed scratch restore currently supports PostgreSQL only"))
   version <- metadataText invalid "annotations" "nagare.dev/version" statefulValue
-  sourceScope <- required "backup.source.scope"
-  unless (sourceScope == scopeIdText (scopeId accepted))
-    (Left (invalid "backup belongs to another database scope"))
-  objectUrl <- required "backup.object"
-  receiptUrl <- required "backup.receipt"
-  backupId <- required "backup.id"
-  expiryText <- required "backup.expiry"
-  expiryEpoch <- if expiryText == "retain"
-    then Right 0
-    else case parseTimeM True defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ"
-      (T.unpack expiryText) :: Maybe UTCTime of
-      Just expiry -> Right (floor (utcTimeToPOSIXSeconds expiry))
-      Nothing -> Left (invalid "backup expiry is invalid")
-  unless (objectUrl == storeObjectUrl (restoreStorageBackend request)
-      (manualBackupObjectPath db ns backupId "sql.gz"))
-    (Left (invalid "backup object does not match the selected backend and database"))
-  receiptChecksum <- first invalid (parseManualBackupReceipt backup receiptUrl
-    (restoreReceiptBytes request))
-  receiptValue <- first (invalid . T.pack) (eitherDecodeStrict (restoreReceiptBytes request))
-  case receiptValue of
-    Object root | Just (Object metadata) <- KM.lookup "backup" root -> do
-      let field key = case KM.lookup key metadata of
-            Just (String selected) -> Right selected
-            _ -> Left (invalid ("backup receipt lacks " <> K.toText key))
-      receiptDatabase <- field "database"
-      receiptNamespace <- field "namespace"
-      receiptEngine <- field "engine"
-      receiptId <- field "id"
-      unless (receiptDatabase == db && receiptNamespace == ns
-          && receiptEngine == engineName && receiptId == backupId)
-        (Left (invalid "backup receipt targets another database, namespace, engine, or ID"))
-    _ -> Left (invalid "backup receipt lacks metadata")
+  (objectUrl, receiptUrl, backupId, expiryEpoch, receiptDigest,
+      receiptChecksum, objectVersion, receiptVersion) <-
+    if Map.member "scheduled.backup.id" (scopeOverrides backup)
+      then do
+        sourceScope <- required "scheduled.backup.source.scope"
+        unless (sourceScope == scopeIdText (scopeId accepted))
+          (Left (invalid "scheduled backup belongs to another database scope"))
+        objectUrl <- required "scheduled.backup.object"
+        receiptUrl <- required "scheduled.backup.receipt"
+        backupId <- required "scheduled.backup.id"
+        receiptChecksum <- required "scheduled.backup.object.sha256"
+        receiptDigestText <- required "scheduled.backup.receipt.digest"
+        receiptDigest <- first invalid (mkContentDigest receiptDigestText)
+        selectedObjectVersion <- required "scheduled.backup.object.version"
+        selectedReceiptVersion <- required "scheduled.backup.receipt.version"
+        unless (receiptUrl == objectUrl <> ".receipt.json"
+            && objectUrl == storeObjectUrl (restoreStorageBackend request)
+              ("databases/" <> db <> "/" <> backupId <> ".sql.gz")
+            && all (not . T.null) [selectedObjectVersion, selectedReceiptVersion])
+          (Left (invalid "scheduled backup has another address or lacks exact versions"))
+        pure (objectUrl, receiptUrl, backupId, 0, receiptDigest,
+          receiptChecksum, Just selectedObjectVersion, Just selectedReceiptVersion)
+      else do
+        sourceScope <- required "backup.source.scope"
+        unless (sourceScope == scopeIdText (scopeId accepted))
+          (Left (invalid "backup belongs to another database scope"))
+        objectUrl <- required "backup.object"
+        receiptUrl <- required "backup.receipt"
+        backupId <- required "backup.id"
+        expiryText <- required "backup.expiry"
+        expiryEpoch <- if expiryText == "retain"
+          then Right 0
+          else case parseTimeM True defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ"
+            (T.unpack expiryText) :: Maybe UTCTime of
+            Just expiry -> Right (floor (utcTimeToPOSIXSeconds expiry))
+            Nothing -> Left (invalid "backup expiry is invalid")
+        unless (objectUrl == storeObjectUrl (restoreStorageBackend request)
+            (manualBackupObjectPath db ns backupId "sql.gz"))
+          (Left (invalid "backup object does not match the selected backend and database"))
+        receiptChecksum <- first invalid (parseManualBackupReceipt backup receiptUrl
+          (restoreReceiptBytes request))
+        receiptValue <- first (invalid . T.pack) (eitherDecodeStrict (restoreReceiptBytes request))
+        case receiptValue of
+          Object root | Just (Object metadata) <- KM.lookup "backup" root -> do
+            let field key = case KM.lookup key metadata of
+                  Just (String selected) -> Right selected
+                  _ -> Left (invalid ("backup receipt lacks " <> K.toText key))
+            receiptDatabase <- field "database"
+            receiptNamespace <- field "namespace"
+            receiptEngine <- field "engine"
+            receiptId <- field "id"
+            unless (receiptDatabase == db && receiptNamespace == ns
+                && receiptEngine == engineName && receiptId == backupId)
+              (Left (invalid "backup receipt targets another database, namespace, engine, or ID"))
+          _ -> Left (invalid "backup receipt lacks metadata")
+        pure (objectUrl, receiptUrl, backupId, expiryEpoch,
+          contentDigest (restoreReceiptBytes request), receiptChecksum, Nothing, Nothing)
   scratch <- first invalid (scratchDatabaseName db (restoreId request))
   owner <- first invalid (mkScopeId Standalone
     ("database-restore-" <> ns <> "-" <> db <> "-" <> restoreId request))
@@ -200,14 +226,14 @@ compileManualRestoreScope request accepted native = do
   let jobId = mintResourceId owner key jobRole
       proofId = mintResourceId owner key proofRole
       jobName = manualDatabaseJobName "nagare-dbrestore-" db (restoreId request)
-      receiptDigest = contentDigest (restoreReceiptBytes request)
       inputs = RestoreJobInputs
         { namespace = ns, jobName = jobName, engine = Postgres
         , clientImage = engineImage Postgres <> ":" <> version
         , serviceHost = db, secretName = dbSecretName db, name = db
         , sourceUrl = objectUrl, liveTarget = False
         , verifiedSource = Just (VerifiedRestoreSource receiptUrl
-            (digestText receiptDigest) receiptChecksum scratch expiryEpoch)
+            (digestText receiptDigest) receiptChecksum scratch expiryEpoch
+            objectVersion receiptVersion)
         , backend = restoreStorageBackend request
         }
   rendered <- first (invalid . T.pack . show)
@@ -223,12 +249,12 @@ compileManualRestoreScope request accepted native = do
   expected <- first invalid (kubernetesAddress cluster "batch/v1" "Job" (Just ns) jobName)
   unless (bound ^. #address == expected)
     (Left (invalid "restore Job has an unexpected native address"))
-  let member = bound {dependencies = map (OrderedAfter . (^. #identity))
-        [backupJob, pvc, credential, stateful]}
+  let member = bound {dependencies = sort (map (OrderedAfter . (^. #identity))
+        [backupJob, pvc, credential, stateful])}
       proof = DeclaredOperation proofId (jobId :| [])
-        [ContentInput (contentDigest bytes), ContentInput receiptDigest]
+        (sort [ContentInput (contentDigest bytes), ContentInput receiptDigest])
         VerifyBeforeRetry RestoreData
-      overrides = Map.fromList
+      overrides = Map.fromList $
         [ ("restore.id", restoreId request)
         , ("restore.database", db)
         , ("restore.namespace", ns)
@@ -239,7 +265,9 @@ compileManualRestoreScope request accepted native = do
         , ("restore.backup.receipt", receiptUrl)
         , ("restore.backup.receipt.digest", digestText receiptDigest)
         , ("restore.backup.sha256", receiptChecksum)
-        , ("restore.target.scope", scopeIdText (scopeId accepted))
+        ] <> maybe [] (\selected -> [("restore.backup.object.version", selected)]) objectVersion
+          <> maybe [] (\selected -> [("restore.backup.receipt.version", selected)]) receiptVersion
+          <> [ ("restore.target.scope", scopeIdText (scopeId accepted))
         , ("restore.target.generation", T.pack (show (generationNumber
             (revisionGeneration (restoreTargetRevision request)))))
         , ("restore.target.revision", digestText (revisionDigest (restoreTargetRevision request)))

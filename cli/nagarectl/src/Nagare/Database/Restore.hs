@@ -82,6 +82,8 @@ data VerifiedRestoreSource = VerifiedRestoreSource
   , backupSha256 :: !Text
   , scratchDatabase :: !Text
   , expiryEpoch :: !Integer
+  , objectVersion :: !(Maybe Text)
+  , receiptVersion :: !(Maybe Text)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -136,6 +138,20 @@ downloadContainer i =
                  , plainEnv "EXPECTED_BACKUP_SHA256" (source ^. #backupSha256)
                  , plainEnv "BACKUP_EXPIRY_EPOCH" (T.pack (show (source ^. #expiryEpoch)))
                  ]) (i ^. #verifiedSource)
+            <> case (i ^. #backend, i ^. #verifiedSource) of
+              (MinioBackend ref, Just source)
+                | Just selectedObject <- source ^. #objectVersion
+                , Just selectedReceipt <- source ^. #receiptVersion ->
+                    let prefix = "s3://" <> ref ^. #bucket <> "/"
+                        objectKey = maybe "" id (T.stripPrefix prefix (i ^. #sourceUrl))
+                        receiptKey = maybe "" id (T.stripPrefix prefix (source ^. #receiptUrl))
+                     in [ plainEnv "STORE_ENDPOINT" (ref ^. #endpoint)
+                        , plainEnv "STORE_BUCKET" (ref ^. #bucket)
+                        , plainEnv "OBJECT_KEY" objectKey
+                        , plainEnv "RECEIPT_KEY" receiptKey
+                        , plainEnv "OBJECT_VERSION" selectedObject
+                        , plainEnv "RECEIPT_VERSION" selectedReceipt ]
+              _ -> []
             <> storeEnv (i ^. #backend))
     , "volumeMounts" .= toJSON [dumpMount]
     ]
@@ -185,6 +201,21 @@ downloadShell backend eng = \case
       <> storeCpToStdout backend "\"$SRC\""
       <> " | gunzip > /dump/backup."
       <> backupRawExt eng
+  Just source | Just _ <- source ^. #objectVersion
+      , Just _ <- source ^. #receiptVersion -> case backend of
+        MinioBackend {} ->
+          "set -e; test \"$BACKUP_EXPIRY_EPOCH\" -eq 0 || test \"$(date -u +%s)\" -lt \"$BACKUP_EXPIRY_EPOCH\"; "
+            <> storeShellPreamble backend <> hashTools
+            <> "aws s3api get-object --bucket \"$STORE_BUCKET\" --key \"$RECEIPT_KEY\" --version-id \"$RECEIPT_VERSION\" --endpoint-url \"$STORE_ENDPOINT\" /dump/backup.receipt.json > /dump/receipt-response.json; "
+            <> "aws s3api get-object --bucket \"$STORE_BUCKET\" --key \"$OBJECT_KEY\" --version-id \"$OBJECT_VERSION\" --endpoint-url \"$STORE_ENDPOINT\" /dump/backup.gz > /dump/object-response.json; "
+            <> "python3 -c 'import json,os; assert json.load(open(\"/dump/receipt-response.json\")).get(\"VersionId\")==os.environ[\"RECEIPT_VERSION\"]; assert json.load(open(\"/dump/object-response.json\")).get(\"VersionId\")==os.environ[\"OBJECT_VERSION\"]'; "
+            <> "test \"$(sha256sum /dump/backup.receipt.json | cut -d' ' -f1)\" = \"$EXPECTED_RECEIPT_SHA256\"; "
+            <> "test \"$(sha256sum /dump/backup.gz | cut -d' ' -f1)\" = \"$EXPECTED_BACKUP_SHA256\"; "
+            <> "gunzip -c /dump/backup.gz > /dump/backup."
+            <> backupRawExt eng
+        GcsBackend {} -> "exit 1"
+  Just source | isJust (source ^. #objectVersion) || isJust (source ^. #receiptVersion) ->
+    "exit 1"
   Just _ ->
     "set -e; test \"$BACKUP_EXPIRY_EPOCH\" -eq 0 || test \"$(date -u +%s)\" -lt \"$BACKUP_EXPIRY_EPOCH\"; "
       <> storeShellPreamble backend <> hashTools

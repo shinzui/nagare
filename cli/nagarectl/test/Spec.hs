@@ -5224,6 +5224,26 @@ backupRestoreTests =
           assertBool "partial scheduled source pins were accepted" (isLeft
             (scheduledIngestJobSourcePins (job
               (KeyMap.delete "nagare.dev/scheduled-receipt-signing-uid" annotations))))
+      , testCase "scheduled backup restore downloads exact MinIO versions" $ do
+          let checked = VerifiedRestoreSource
+                { receiptUrl = "s3://nagare-backups/databases/mydb/run.sql.gz.receipt.json"
+                , receiptSha256 = T.replicate 64 "a"
+                , backupSha256 = T.replicate 64 "b"
+                , scratchDatabase = "mydb_restore_run"
+                , expiryEpoch = 0
+                , objectVersion = Just "object-version"
+                , receiptVersion = Just "receipt-version" }
+              script = downloadShell localMinioBackend Postgres (Just checked)
+          assertBool "receipt exact version is not requested"
+            ("--key \"$RECEIPT_KEY\" --version-id \"$RECEIPT_VERSION\"" `T.isInfixOf` script)
+          assertBool "backup exact version is not requested"
+            ("--key \"$OBJECT_KEY\" --version-id \"$OBJECT_VERSION\"" `T.isInfixOf` script)
+          assertBool "returned provider versions are not checked"
+            ("receipt-response.json" `T.isInfixOf` script
+              && "object-response.json" `T.isInfixOf` script)
+          assertBool "partial version selection is accepted"
+            (downloadShell localMinioBackend Postgres
+              (Just (checked {receiptVersion = Nothing})) == "exit 1")
       , testCase "reviewed backup reads back exact stored bytes for both backends" $ do
           let cloud = TE.decodeUtf8 (renderInventoryDbBackupCronJob "personal" "mydb" Postgres "18" tnbGcsBackend 7)
               local = TE.decodeUtf8 (renderInventoryDbBackupCronJob "personal" "mydb" Postgres "18" localMinioBackend 7)
@@ -5887,7 +5907,7 @@ backupRestoreTests =
             let checked = VerifiedRestoreSource
                   { receiptUrl = T.pack receiptUrl, receiptSha256 = receiptHash
                   , backupSha256 = backupHash, scratchDatabase = "mydb_restore_run001"
-                  , expiryEpoch = 0 }
+                  , expiryEpoch = 0, objectVersion = Nothing, receiptVersion = Nothing }
                 script selected = T.unpack (T.replace "/dump" (T.pack dump)
                   (downloadShell tnbGcsBackend Postgres (Just selected)))
                 run selected = readCreateProcessWithExitCode

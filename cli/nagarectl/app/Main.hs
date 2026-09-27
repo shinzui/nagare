@@ -268,11 +268,12 @@ import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Application (ApplicationScopeInput (..), GoogleCdnBinding (..), CloudflareCdnBinding (..), ReviewedCdnBinding (..), DatabaseBinding, ServiceAction (..), acceptedAccessBinding, acceptedApplicationImage, acceptedImageBuildSecrets, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationDeployment, compileServiceActionScope, compileStandaloneServiceWithReleaseAndBuild, compileStandaloneWorkerWithDependenciesAndBuild, databaseRecoveryBindings, hostnameClaimOwned, legacyApplicationReleaseImport, legacyStandaloneReleaseImport, nativeWorkloadOwned, recordReviewedStandaloneOverrides, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
 import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteReleaseLog, acceptedSiteSource, compileServerSitePreviewScopeWithBuild, compileServerSiteRollbackScopeWithBuild, compileServerSiteScopeWithBuild, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteRollbackScopeWithCdn, compileStaticSiteRollbackScopeWithCloudflare, compileStaticSiteScope, compileStaticSiteScopeWithCdn, compileStaticSiteScopeWithCloudflare, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
 import Nagare.Inventory.Backup (ManualBackupRequest (..), BackupSourceProof (..), VolumeSnapshotRequest (..), compileManualBackupScope, compileVolumeSnapshotScope, manualBackupSourceProof)
-import Nagare.Inventory.Backup (scheduledReceiptExpectationFromCronJob)
+import Nagare.Inventory.Backup
+  ( ScheduledBackupReceipt (..), scheduledReceiptExpectationFromCronJob )
 import Nagare.Inventory.ScheduledIngest
   ( ScheduledIngestRequest (..), ScheduledIngestSourceProof (..)
   , compileScheduledIngestScope, scheduledIngestSourceProof )
-import Nagare.Inventory.ScheduledReceipt (inspectScheduledReceipt)
+import Nagare.Inventory.ScheduledReceipt (ScheduledReceiptEvidence (..), inspectScheduledReceipt)
 import Nagare.Inventory.ScheduledStore (readSecretField, withLocalObjectStore)
 import Nagare.Inventory.Prune (ManualPruneRequest (..), PruneSourceProof (..), compileManualPruneScope, manualPruneSourceProof)
 import Nagare.Inventory.VolumePrune (VolumePruneRequest (..), compileVolumePruneScope)
@@ -11225,9 +11226,13 @@ runReviewedDbRestorePlan mctx database namespaceName backupId restoreKey bucketA
     _ -> dieT "reviewed restore requires one accepted database credential"
   let backups = [scope | (_, scope) <- Map.elems
         (ResourceInventory.snapshotScopes snapshot),
-        Map.lookup "backup.id" (ResourceInventory.scopeOverrides scope) == Just backupId,
-        Map.lookup "backup.source.scope" (ResourceInventory.scopeOverrides scope)
-          == Just (Resource.scopeIdText (ResourceInventory.scopeId targetScope)),
+        let fields = ResourceInventory.scopeOverrides scope,
+        (Map.lookup "backup.id" fields == Just backupId
+          && Map.lookup "backup.source.scope" fields
+            == Just (Resource.scopeIdText (ResourceInventory.scopeId targetScope)))
+          || (Map.lookup "scheduled.backup.id" fields == Just backupId
+          && Map.lookup "scheduled.backup.source.scope" fields
+            == Just (Resource.scopeIdText (ResourceInventory.scopeId targetScope))),
         any (\bundle -> any (\case
           ResourceInventory.Managed member -> case member ^. #address of
             Resource.Kubernetes _ "batch" kind _ _ -> Resource.nameText kind == "job"
@@ -11236,13 +11241,16 @@ runReviewedDbRestorePlan mctx database namespaceName backupId restoreKey bucketA
           (ResourceInventory.scopeBundles scope)]
   backupScope <- case backups of
     [single] -> pure single
-    _ -> dieT "reviewed restore requires one accepted manual backup with the selected ID"
+    _ -> dieT "reviewed restore requires one accepted backup with the selected ID"
+  let scheduled = Map.member "scheduled.backup.id" (ResourceInventory.scopeOverrides backupScope)
   let pruned = [scope | (_, scope) <- Map.elems
         (ResourceInventory.snapshotScopes snapshot),
         Map.lookup "prune.backup.scope" (ResourceInventory.scopeOverrides scope)
-          == Just (Resource.scopeIdText (ResourceInventory.scopeId backupScope))]
+          == Just (Resource.scopeIdText (ResourceInventory.scopeId backupScope))
+          || Map.lookup "scheduled.prune.backup.scope" (ResourceInventory.scopeOverrides scope)
+            == Just (Resource.scopeIdText (ResourceInventory.scopeId backupScope))]
   unless (null pruned)
-    (dieT "selected manual backup has an accepted prune operation")
+    (dieT "selected backup has an accepted prune operation")
   let backupJobs = [member | bundle <- ResourceInventory.scopeBundles backupScope,
         ResourceInventory.Managed member <- ResourceInventory.declarations bundle,
         case member ^. #address of
@@ -11251,7 +11259,7 @@ runReviewedDbRestorePlan mctx database namespaceName backupId restoreKey bucketA
   backupJob <- case backupJobs of
     [single] -> pure single
     _ -> dieT "reviewed restore backup has no unique accepted Job"
-  case Map.lookup "backup.expiry" (ResourceInventory.scopeOverrides backupScope) of
+  unless scheduled $ case Map.lookup "backup.expiry" (ResourceInventory.scopeOverrides backupScope) of
     Just "retain" -> pure ()
     Just expiryText -> case parseTimeM True defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ"
       (T.unpack expiryText) :: Maybe UTCTime of
@@ -11300,9 +11308,72 @@ runReviewedDbRestorePlan mctx database namespaceName backupId restoreKey bucketA
     (KubernetesPresent uid _ (Just owner) digest, Just (_, bytes))
       | owner == backupJob ^. #identity && digest == InventoryDigest.contentDigest bytes -> pure uid
     _ -> dieT "accepted backup Job is absent, incomplete, foreign, or drifted"
-  receiptBytes <- readBackupReceiptFromCompletedPod config backupNative
-    (backupJob ^. #identity) backupUid >>= either dieT pure
   backend <- resolveStoreBackend mctx bucketArg
+  receiptBytes <- if scheduled then do
+    let required key = maybe (dieT ("accepted scheduled backup lacks " <> key)) pure
+          (Map.lookup key (ResourceInventory.scopeOverrides backupScope))
+    cronAddress <- either dieT pure (Resource.kubernetesAddress cluster "batch/v1"
+      "CronJob" (Just namespaceName) ("nagare-dbbackup-" <> database))
+    signingAddress <- either dieT pure (Resource.kubernetesAddress cluster "v1"
+      "Secret" (Just namespaceName) ("nagare-dbbackup-" <> database <> "-signing"))
+    let select address = [member | bundle <- ResourceInventory.scopeBundles targetScope,
+          ResourceInventory.Managed member <- ResourceInventory.declarations bundle,
+          member ^. #address == address]
+    cron <- case select cronAddress of
+      [single] -> pure single
+      _ -> dieT "scheduled restore requires one accepted backup CronJob"
+    signing <- case select signingAddress of
+      [single] -> pure single
+      _ -> dieT "scheduled restore requires one accepted signing Secret"
+    expectedStateful <- required "scheduled.backup.source.statefulset.uid"
+      >>= either dieT pure . Resource.mkPhysicalIdentity
+    expectedPvc <- required "scheduled.backup.source.pvc.uid"
+      >>= either dieT pure . Resource.mkPhysicalIdentity
+    expectedCron <- required "scheduled.backup.schedule.uid"
+      >>= either dieT pure . Resource.mkPhysicalIdentity
+    expectedSigning <- required "scheduled.backup.signing.uid"
+      >>= either dieT pure . Resource.mkPhysicalIdentity
+    unless (expectedStateful == statefulUid && expectedPvc == pvcUid)
+      (dieT "scheduled restore target source incarnation changed after ingestion")
+    let attestationIds = [cron ^. #identity, signing ^. #identity]
+        attestationNative = Map.restrictKeys acceptedNative (Set.fromList attestationIds)
+    unless (Map.size attestationNative == 2)
+      (dieT "scheduled restore attestation lacks accepted private native evidence")
+    attestationAdapter <- inventoryKubernetesAdapter active
+      (ResourceInventory.snapshotBinding snapshot)
+      (\_ -> pure (Left "scheduled restore attestation does not use a cache key")) attestationNative
+    attestation <- InventoryAdapter.adapterObserve attestationAdapter attestationIds
+      >>= either dieT pure
+    let matches resource uid = Map.lookup resource
+          (InventoryAdapter.observationMap attestation) == Just (InventoryAdapter.ObservedPresent uid)
+    unless (matches (cron ^. #identity) expectedCron
+        && matches (signing ^. #identity) expectedSigning)
+      (dieT "scheduled restore schedule or signing Secret incarnation changed")
+    (_, cronBytes) <- maybe (dieT "scheduled restore CronJob lacks native bytes") pure
+      (Map.lookup (cron ^. #identity) attestationNative)
+    expectation <- either dieT pure (scheduledReceiptExpectationFromCronJob backend
+      namespaceName database expectedStateful expectedPvc cronBytes)
+    ref <- case backend of
+      MinioBackend selected -> pure selected
+      GcsBackend {} -> dieT "cloud scheduled restore requires exact-generation provider inspection"
+    signingKey <- readSecretField (contextNameText (active ^. #contextName))
+      namespaceName ("nagare-dbbackup-" <> database <> "-signing") "HMAC_KEY"
+      >>= either dieT pure
+    inspected <- withLocalObjectStore (contextNameText (active ^. #contextName)) ref $ \reader ->
+      inspectScheduledReceipt reader expectation backupId signingKey
+    evidence <- either dieT pure inspected >>= either dieT pure
+    objectVersion <- required "scheduled.backup.object.version"
+    receiptVersion <- required "scheduled.backup.receipt.version"
+    objectSha <- required "scheduled.backup.object.sha256"
+    receiptDigest <- required "scheduled.backup.receipt.digest"
+    unless (scheduledObjectVersion evidence == objectVersion
+        && scheduledReceiptVersion evidence == receiptVersion
+        && scheduledSha256 (scheduledReceipt evidence) == objectSha
+        && Resource.digestText (scheduledReceiptDigest evidence) == receiptDigest)
+      (dieT "scheduled restore provider versions or stored bytes differ from accepted ingestion")
+    pure BS.empty
+  else readBackupReceiptFromCompletedPod config backupNative
+    (backupJob ^. #identity) backupUid >>= either dieT pure
   let request = ManualRestoreRequest
         { restoreDatabaseName = database, restoreNamespaceName = namespaceName
         , restoreId = restoreKey, restoreBackupScope = backupScope
