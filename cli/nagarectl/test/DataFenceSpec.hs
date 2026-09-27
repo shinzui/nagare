@@ -108,26 +108,83 @@ dataFenceTests = testGroup "data fence"
               declarations = [Managed resource | (resource, _) <- Map.elems acceptedNative]
           record <- captureKubernetesFence (kubectlKubernetesCaptureTransport config)
             declarations acceptedNative captureRequest >>= right
+          verifications <- newIORef (0 :: Int)
           let provider = kubectlKubernetesExclusion config Map.empty declarations acceptedNative
-              controls = kubernetesDataFenceControls provider (\_ -> pure (Right True))
-              pollExcluded 0 = assertFailure "native exclusion never drained"
-              pollExcluded attempts = do
-                observed <- observeWritersExcluded controls record >>= right
-                if observed then pure () else threadDelay 1000000 >> pollExcluded (attempts - 1)
-              pollReleased 0 = assertFailure "native writer release never completed"
-              pollReleased attempts = do
-                observed <- observeWritersReleased controls record >>= right
-                if observed == WritersFullyReleased then pure ()
-                  else do
-                    _ <- restoreFenceWriters controls record
-                    threadDelay 1000000
-                    pollReleased (attempts - 1)
+              verify _ = modifyIORef' verifications (+ 1) >> pure (Right True)
+              controls = kubernetesDataFenceControls provider verify
           validateFenceInputs controls record >>= right
-          stopFenceWriters controls record >>= right
-          pollExcluded (120 :: Int)
-          observeFencePhysical controls record >>= right >>= (@?= fencePhysical record)
-          _ <- restoreFenceWriters controls record
-          pollReleased (120 :: Int)
+          withSystemTempDirectory "nagare-native-fence" $ \rootPath -> do
+            store <- openFilesystemStore rootPath >>= right
+            _ <- initializeStore store fixtureBinding "native-fixture" >>= right
+            let interrupted = controls
+                  { stopFenceWriters = \_ -> pure (Left "fixture interrupted after reservation") }
+            firstAttempt <- withProcessLock store (\locked ->
+              acquireDataFence locked interrupted record) >>= right
+            case firstAttempt of
+              Left reason -> reason @?= "fixture interrupted after reservation"
+              Right _ -> assertFailure "interrupted acquisition claimed exclusion"
+            active <- readHead store >>= right >>= maybe
+              (assertFailure "native fence reservation is missing" >> error "missing head") pure
+            assertBool "interrupted native acquisition was not persisted"
+              (maybe False (\saved -> fenceSession saved == fenceSession record
+                  && fencePhase saved == FenceAcquiring)
+                (headDataFence active))
+            reopened <- openFilesystemStore rootPath >>= right
+            token <- withProcessLock reopened (\locked ->
+              resumeDataFence locked (fenceSession record)) >>= right >>= right
+            let freshProvider = kubectlKubernetesExclusion config Map.empty
+                  declarations acceptedNative
+                freshControls = kubernetesDataFenceControls freshProvider verify
+                pollAcquired 0 = assertFailure "persisted native fence never acquired exclusion"
+                pollAcquired attempts = do
+                  current <- readHead reopened >>= right >>= maybe
+                    (assertFailure "native fence head disappeared" >> error "missing head") pure
+                  case fmap fencePhase (headDataFence current) of
+                    Just FenceExcluded -> pure ()
+                    Just FenceAcquiring -> do
+                      _ <- withProcessLock reopened (\locked ->
+                        resumeDataFenceAcquisition locked freshControls token) >>= right
+                      threadDelay 1000000
+                      pollAcquired (attempts - 1)
+                    _ -> assertFailure "native fence left its acquisition phase"
+            pollAcquired (120 :: Int)
+            observeFencePhysical freshControls record >>= right
+              >>= (@?= fencePhysical record)
+            _ <- withProcessLock reopened (\locked ->
+              recoverDataFence locked freshControls token) >>= right >>= right
+            let interruptedRelease = freshControls
+                  { restoreFenceWriters = \_ -> pure (Left "fixture interrupted before release effect") }
+            firstRelease <- withProcessLock reopened (\locked ->
+              releaseDataFence locked interruptedRelease token) >>= right
+            case firstRelease of
+              Left reason -> reason @?= "fixture interrupted before release effect"
+              Right () -> assertFailure "interrupted release cleared the native fence"
+            releaseStore <- openFilesystemStore rootPath >>= right
+            releaseToken <- withProcessLock releaseStore (\locked ->
+              resumeDataFence locked (fenceSession record)) >>= right >>= right
+            let releaseProvider = kubectlKubernetesExclusion config Map.empty
+                  declarations acceptedNative
+                releaseControls = kubernetesDataFenceControls releaseProvider verify
+                pollReleased 0 = assertFailure "persisted native fence never released"
+                pollReleased attempts = do
+                  current <- readHead releaseStore >>= right >>= maybe
+                    (assertFailure "native fence head disappeared" >> error "missing head") pure
+                  case headDataFence current of
+                    Nothing -> pure ()
+                    Just saved | fencePhase saved == FenceReleasing -> do
+                      state <- observeWritersReleased releaseControls saved >>= right
+                      _ <- withProcessLock releaseStore (\locked ->
+                        case state of
+                          WritersPartlyReleased -> forwardRecoverDataFenceRelease
+                            locked releaseControls releaseToken
+                          _ -> releaseDataFence locked releaseControls releaseToken) >>= right
+                      threadDelay 1000000
+                      pollReleased (attempts - 1)
+                    Just _ -> assertFailure "native fence did not enter release"
+            pollReleased (120 :: Int)
+            readIORef verifications >>= \count ->
+              assertBool "native fence released without recovered-data verification"
+                (count >= 2)
         _ -> assertFailure "native exclusion context, namespace, and engine must be set together"
     , testCase "engine shutdown observes a clean exit on an explicitly selected native fixture" $ do
       selectedContext <- lookupEnv "NAGARE_EP160_SHUTDOWN_CONTEXT"
