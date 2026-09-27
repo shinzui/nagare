@@ -2,7 +2,9 @@ module DataFenceSpec (dataFenceTests) where
 
 import Data.Aeson (Value (..), eitherDecode, encode, object, toJSON, (.=))
 import Data.Aeson.KeyMap qualified as KM
+import Data.ByteString.Lazy qualified as BL
 import Data.Foldable (toList)
+import Data.Generics.Labels ()
 import Data.IORef
 import Data.List (elemIndex, find)
 import Data.List.NonEmpty (NonEmpty (..))
@@ -20,6 +22,7 @@ import Nagare.Inventory.DataFence.MountGuard
 import Nagare.Inventory.DataFence.MountGuardRuntime
 import Nagare.Inventory.DataFence.StatefulWriter
 import Nagare.Inventory.DataFence.VolumeState
+import Nagare.Inventory.DataFence.WriterInventory
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute
   ( AdmissionError (..), TransactionResult (..), admit, applyReviewed, execute, resumeTransaction )
@@ -28,6 +31,8 @@ import Nagare.Inventory.Store
 import InventoryTransactionSpec
   ( fixtureBinding, preparedFixtureWithRegistry, recordingRegistryWith )
 import Nagare.Resource.Inventory
+import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (Retain), Sensitivity (Public))
+import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Tasty
@@ -584,6 +589,52 @@ dataFenceTests = testGroup "data fence"
         case stopped of
           Left _ -> pure ()
           Right () -> assertFailure "replaced StatefulSet UID was accepted"
+    , testCase "writer discovery includes dependency and direct-mount clients" $ do
+        let cluster = mintResourceId fenceOwner
+              (known (mkLogicalKey "cluster")) (known (mkName "cluster"))
+            statefulId = mintResourceId fenceOwner
+              (known (mkLogicalKey "database")) (known (mkName "statefulset"))
+            clientId = mintResourceId fenceOwner
+              (known (mkLogicalKey "client")) (known (mkName "deployment"))
+            mountId = mintResourceId fenceOwner
+              (known (mkLogicalKey "mount")) (known (mkName "job"))
+            unrelatedId = mintResourceId fenceOwner
+              (known (mkLogicalKey "unrelated")) (known (mkName "deployment"))
+            native = object ["spec" .= object ["template" .= object
+              ["spec" .= object ["containers" .= ([] :: [Value])]]]]
+            mounted = object ["spec" .= object ["template" .= object
+              ["spec" .= object ["volumes" .= [object
+                ["persistentVolumeClaim" .= object
+                  ["claimName" .= ("data-pvc" :: Text)]]]]]]]
+            member resource group kind deps value =
+              ( ManagedResource resource fenceOwner KubernetesExecutor
+                  (Kubernetes cluster group (known (mkName kind))
+                    (Just (known (mkName "restore-space")))
+                    (known (mkName (resourceIdText resource & T.take 30))))
+                  [] (NativeObject (contentDigest (BL.toStrict (encode value))))
+                  Retain Stateless Public deps [] (SourceLocation "fixture" kind)
+              , BL.toStrict (encode value))
+            stateful = member statefulId "apps" "statefulset" [] native
+            client = member clientId "apps" "deployment"
+              [OrderedAfter statefulId] native
+            directMount = member mountId "batch" "job" [] mounted
+            unrelated = member unrelatedId "apps" "deployment" [] native
+            registry entries = Map.fromList
+              [(resource ^. #identity, (resource, bytes)) | (resource, bytes) <- entries]
+            declarations entries = [Managed resource | (resource, _) <- entries]
+        selected <- right (discoverWriterCandidates statefulId cluster "data-pvc"
+          (declarations [stateful, unrelated]) (registry [stateful, unrelated]))
+        map candidateResource selected @?= [statefulId]
+        case discoverWriterCandidates statefulId cluster "data-pvc"
+          (declarations [stateful, client]) (registry [stateful, client]) of
+          Left reason -> assertBool "dependent Deployment was not discovered"
+            (resourceIdText clientId `T.isInfixOf` reason)
+          Right _ -> assertFailure "dependent Deployment lacks a stop control"
+        case discoverWriterCandidates statefulId cluster "data-pvc"
+          (declarations [stateful, directMount]) (registry [stateful, directMount]) of
+          Left reason -> assertBool "direct PVC mount was not discovered"
+            (resourceIdText mountId `T.isInfixOf` reason)
+          Right _ -> assertFailure "direct mount Job lacks a stop control"
     , testCase "reviewed adapter effect runs only inside a verified fence" $ do
         store <- newMemoryStore
         steps <- newIORef ([] :: [Text])
