@@ -154,6 +154,26 @@ dataFenceTests = testGroup "data fence"
                     [ "kind" .= ("ServiceAccount" :: Text)
                     , "name" .= ("default" :: Text)
                     , "namespace" .= namespace]]]
+              collectionRole = object
+                [ "apiVersion" .= ("rbac.authorization.k8s.io/v1" :: Text)
+                , "kind" .= ("ClusterRole" :: Text)
+                , "metadata" .= object ["name" .= ("ep160-guard-collection-editor" :: Text)]
+                , "rules" .= [object
+                    [ "apiGroups" .= (["admissionregistration.k8s.io"] :: [Text])
+                    , "resources" .= (["validatingadmissionpolicybindings"] :: [Text])
+                    , "verbs" .= (["deletecollection"] :: [Text])]]]
+              collectionBinding = object
+                [ "apiVersion" .= ("rbac.authorization.k8s.io/v1" :: Text)
+                , "kind" .= ("ClusterRoleBinding" :: Text)
+                , "metadata" .= object ["name" .= ("ep160-guard-collection-editor" :: Text)]
+                , "roleRef" .= object
+                    [ "apiGroup" .= ("rbac.authorization.k8s.io" :: Text)
+                    , "kind" .= ("ClusterRole" :: Text)
+                    , "name" .= ("ep160-guard-collection-editor" :: Text)]
+                , "subjects" .= [object
+                    [ "kind" .= ("ServiceAccount" :: Text)
+                    , "name" .= ("default" :: Text)
+                    , "namespace" .= namespace]]]
               pollAuthority _ 0 = assertFailure "guard RBAC result did not converge"
               pollAuthority expected attempts = do
                 observed <- observeGuardAuthority authority
@@ -167,6 +187,12 @@ dataFenceTests = testGroup "data fence"
           pollAuthority False (10 :: Int)
           runKube ["delete", "clusterrolebinding", "ep160-guard-editor"] ""
           runKube ["delete", "clusterrole", "ep160-guard-editor"] ""
+          pollAuthority True (10 :: Int)
+          runKube ["create", "-f", "-"] (BL8.unpack (encode collectionRole))
+          runKube ["create", "-f", "-"] (BL8.unpack (encode collectionBinding))
+          pollAuthority False (10 :: Int)
+          runKube ["delete", "clusterrolebinding", "ep160-guard-collection-editor"] ""
+          runKube ["delete", "clusterrole", "ep160-guard-collection-editor"] ""
           pollAuthority True (10 :: Int)
           withSystemTempDirectory "nagare-native-fence" $ \rootPath -> do
             store <- openFilesystemStore rootPath >>= right
@@ -1757,17 +1783,20 @@ dataFenceTests = testGroup "data fence"
         observeGuardAuthority (transport (const False)) [principal] guard
           >>= (@?= Right True)
         queried <- readIORef checks
-        length queried @?= 24
+        length queried @?= 26
         assertBool "exact Pod policy patch check is missing"
           (GuardAccessQuery principal "patch" "validatingadmissionpolicies"
             (mountGuardName guard) `elem` queried)
+        assertBool "collection binding deletion check is missing"
+          (GuardAccessQuery principal "deletecollection"
+            "validatingadmissionpolicybindings" "" `elem` queried)
         writeIORef checks []
         observeGuardAuthority (transport (\query ->
             accessVerb query == "patch"
               && accessName query == mountGuardName guard)) [principal] guard
           >>= (@?= Right False)
         caseLength <- length <$> readIORef checks
-        assertBool "an authorized policy edit stopped the proof" (caseLength < 24)
+        assertBool "an authorized policy edit stopped the proof" (caseLength < 26)
         malformed <- observeGuardAuthority (transport (const False))
           ["system:serviceaccount:restore-space:client:other"] guard
         case malformed of

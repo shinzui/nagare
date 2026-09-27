@@ -43,8 +43,9 @@ data GuardAccessTransport = GuardAccessTransport
   }
 
 -- | Check every exact policy and binding address under each untrusted
--- principal. "False" means an edit is currently authorized; an unavailable
--- or inconclusive SubjectAccessReview is an error, never a denial proof.
+-- principal, including the collection delete that has no object name.
+-- "False" means an edit is currently authorized; an unavailable or
+-- inconclusive SubjectAccessReview is an error, never a denial proof.
 observeGuardAuthority :: GuardAccessTransport -> [Text] -> MountGuard
   -> IO (Either Text Bool)
 observeGuardAuthority transport principals mountGuard =
@@ -54,10 +55,13 @@ observeGuardAuthority transport principals mountGuard =
     addresses <- guardObjectAddresses mountGuard
     resources <- traverse resourceAddress addresses
     let queries = Set.toAscList (Set.fromList
-          [GuardAccessQuery principal verb resource name
+          ([GuardAccessQuery principal verb resource name
             | principal <- principals
             , (resource, name) <- resources
-            , verb <- ["update", "patch", "delete"]])
+            , verb <- ["update", "patch", "delete"]]
+            <> [GuardAccessQuery principal "deletecollection" resource ""
+              | principal <- principals
+              , resource <- Set.toAscList (Set.fromList (map fst resources))]))
     _ <- traverse serviceAccountNamespace principals
     pure queries of
     Left reason -> pure (Left reason)
@@ -138,10 +142,11 @@ kubectlGuardAccessTransport config = GuardAccessTransport checkOne
                       , "system:serviceaccounts:" <> namespace
                       , "system:authenticated"]
                   , "resourceAttributes" .= object
-                      [ "group" .= ("admissionregistration.k8s.io" :: Text)
-                      , "resource" .= accessResource query
-                      , "name" .= accessName query
-                      , "verb" .= accessVerb query]]]
+                      ([ "group" .= ("admissionregistration.k8s.io" :: Text)
+                       , "resource" .= accessResource query
+                       , "verb" .= accessVerb query]
+                        <> ["name" .= accessName query
+                            | not (T.null (accessName query))])]]
             input = T.unpack (TE.decodeUtf8 (BL.toStrict (encode accessReview)))
         guarded <- runtimeGuard config
         case guarded of
