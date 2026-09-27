@@ -101,7 +101,14 @@ print(json.dumps([{"config": {"name": service}} for service in services]))
 PY
     ;;
   "services enable "*" --project=fixture-project")
-    printf '%s\n' "$3" >> "$XDG_STATE_HOME/enabled-services" ;;
+    printf '%s\n' "$3" >> "$XDG_STATE_HOME/enabled-services"
+    if test -e "$XDG_STATE_HOME/fail-next-service-enable"; then
+      mv "$XDG_STATE_HOME/fail-next-service-enable" "$XDG_STATE_HOME/failed-service-once"
+      printf '%s\n' "$3" > "$XDG_STATE_HOME/failed-service"
+      printf 'simulated lost gcloud acknowledgement\n' >&2
+      exit 42
+    fi
+    ;;
   "storage buckets list --project=fixture-project --format=json(name)")
     if test -e "$XDG_STATE_HOME/bucket-created"; then
       printf '[{"name":"fixture-project-nagare-pulumi-state"}]\n'
@@ -283,11 +290,30 @@ if grep -Eq 'services enable|buckets (create|update)' "$XDG_STATE_HOME/gcloud-ap
   printf 'changed backend URL attempted a provider write\n' >&2
   exit 1
 fi
-"$nagarectl_bin" --context freshlocal platform bootstrap apply "$fixture_root/local-review" --yes > "$fixture_root/apply-out" 2>&1 || {
-  cat "$fixture_root/apply-out" >&2
-  cat "$XDG_STATE_HOME/gcloud-apply.log" >&2
+touch "$XDG_STATE_HOME/fail-next-service-enable"
+if "$nagarectl_bin" --context freshlocal platform bootstrap apply "$fixture_root/local-review" --yes \
+  > "$fixture_root/apply-out" 2>&1; then
+  printf 'foundation apply unexpectedly acknowledged a simulated lost result\n' >&2
+  exit 1
+fi
+test -s "$XDG_STATE_HOME/failed-service"
+foundation_transaction="$(python3 - "$XDG_STATE_HOME/nagare/freshlocal/inventory/head.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    head = json.load(source)
+assert head["activeTransaction"] is not None, head
+print(head["activeTransaction"])
+PY
+)"
+"$nagarectl_bin" --context freshlocal inventory resume "$foundation_transaction" --yes \
+  > "$fixture_root/foundation-resume-out" 2>&1 || {
+  cat "$fixture_root/foundation-resume-out" >&2
   exit 1
 }
+failed_service="$(cat "$XDG_STATE_HOME/failed-service")"
+test "$(grep -Fc "services enable $failed_service --project=fixture-project" "$XDG_STATE_HOME/gcloud-apply.log")" -eq 1
+printf 'public inventory resume proved a lost foundation API acknowledgement without repeating its write\n'
 test -e "$XDG_STATE_HOME/bucket-updated"
 test -e "$XDG_STATE_HOME/member-granted"
 test -e "$XDG_STATE_HOME/stack-created"
