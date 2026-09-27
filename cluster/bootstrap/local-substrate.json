@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "cluster": "nagare-local",
+  "registry": "registry.localhost",
+  "registryHost": "k3d-registry.localhost:5000",
+  "registryPort": "0.0.0.0:5000",
+  "k3sImage": "rancher/k3s:v1.34.6-k3s1",
+  "httpPort": "80:80@loadbalancer",
+  "httpsPort": "443:443@loadbalancer",
+  "k3sArg": "--disable=traefik@server:0"
+}

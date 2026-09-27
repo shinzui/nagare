@@ -1,5 +1,6 @@
 module InventoryFoundationSpec (inventoryFoundationTests) where
 
+import Control.Monad (forM_)
 import Data.Generics.Labels ()
 import Data.Aeson (eitherDecodeStrict, object, (.=))
 import Data.ByteString.Char8 qualified as BC
@@ -80,7 +81,11 @@ inventoryFoundationTests = testGroup "cluster foundation inventory"
           declarations))
   , testCase "cloud foundation composes before a cluster exists and preserves unrelated scopes" $ do
       let owner = ok (mkScopeId Platform "cloud-foundation")
-          appOwner = ok (mkScopeId Application "unrelated")
+          unrelatedOwners =
+            [ ok (mkScopeId Application "unrelated-app")
+            , ok (mkScopeId Standalone "unrelated-job")
+            , ok (mkScopeId Publication "unrelated-release")
+            ]
           project = known "acme-prod"
           api = FoundationResource (ok (mkLogicalKey "storage-api")) (known "service")
             (CloudService project (known "storage.googleapis.com")) (contentDigest "storage-api")
@@ -91,15 +96,20 @@ inventoryFoundationTests = testGroup "cluster foundation inventory"
             Protect Stateless Public [OrderedAfter apiId] (SourceLocation "target" "state-bucket")
           bundle = FoundationDeclarationBundle 1 owner project (api :| [bucket])
           binding = ContextBinding (ok (mkContextId "fixture")) project
-          appScope = ok (mkScopeDeclaration appOwner [ResourceBundle [] [] [] [] [] []])
+          unrelated = Map.fromList
+            [(scopeOwner, (ok (mkScopeGeneration generation),
+                ok (mkScopeDeclaration scopeOwner [ResourceBundle [] [] [] [] [] []])))
+            | (scopeOwner, generation) <- zip unrelatedOwners [4, 7, 11]]
           snapshot = ok (mkScopeSnapshot binding
-            (Map.singleton appOwner (ok (mkScopeGeneration 4), appScope)) Map.empty)
+            unrelated Map.empty)
       foundationScope <- expectRight (compileFoundationScope bundle)
       let candidate = ok (composeInventory snapshot (ReplaceScope foundationScope :| []))
           members = [resource | Managed resource <- inventoryDeclarations (candidateInventory candidate)]
       length members @?= 2
       all ((== CloudFoundationExecutor) . (^. #executor)) members @?= True
-      candidateGenerations candidate Map.! appOwner @?= ok (mkScopeGeneration 4)
+      forM_ (Map.toList unrelated) $ \(scopeOwner, (generation, scope)) -> do
+        candidateGenerations candidate Map.! scopeOwner @?= generation
+        inventoryScopes (candidateInventory candidate) Map.! scopeOwner @?= scope
       let wrongProject = bundle {foundationResources = api
             {foundationAddress = CloudService (known "other-project") (known "storage.googleapis.com")} :| [bucket]}
       assertBool "foreign-project API was accepted" (either (const True) (const False)

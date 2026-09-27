@@ -189,6 +189,82 @@ observe_build_job() {
   esac
 }
 
+load_local_substrate() {
+  [ "${NAGARE_MODE:-cloud}" = local ] || { echo "local substrate requires local mode" >&2; return 2; }
+  [ -n "${archive}" ] && [[ "${archive}" = /* ]] && [ -f "${archive}" ] && [ ! -L "${archive}" ] || {
+    echo "reviewed local substrate specification is missing" >&2; return 2;
+  }
+  local actual
+  actual="$(shasum -a 256 "${archive}" | awk '{print $1}')"
+  [ "${actual}" = "${source_digest}" ] && [ "${actual}" = "${expected}" ] || {
+    echo "local substrate specification differs from the reviewed digest" >&2; return 2;
+  }
+  jq -e '
+    .version == 1
+    and .cluster == "nagare-local"
+    and .registry == "registry.localhost"
+    and .registryHost == "k3d-registry.localhost:5000"
+    and .registryPort == "0.0.0.0:5000"
+    and .k3sImage == "rancher/k3s:v1.34.6-k3s1"
+    and .httpPort == "80:80@loadbalancer"
+    and .httpsPort == "443:443@loadbalancer"
+    and .k3sArg == "--disable=traefik@server:0"
+  ' "${archive}" >/dev/null || { echo "local substrate specification is unsupported" >&2; return 2; }
+  [ "${NAGARE_REGISTRY_HOST:-}" = "$(jq -r .registryHost "${archive}")" ] || {
+    echo "local registry differs from the selected context" >&2; return 2;
+  }
+}
+
+observe_local_registry() {
+  load_local_substrate
+  [ "${destination}" = "$(jq -r .registryHost "${archive}")" ] || {
+    echo "local registry destination differs from the reviewed specification" >&2; return 2;
+  }
+  local observed matched count port host_ip
+  observed="$(k3d registry list -o json)"
+  jq -e 'type == "array"' <<<"${observed}" >/dev/null || { echo "invalid k3d registry listing" >&2; return 2; }
+  matched="$(jq -c --arg name "k3d-$(jq -r .registry "${archive}")" \
+    '[.[] | select((.host // .name) == $name)]' <<<"${observed}")"
+  count="$(jq 'length' <<<"${matched}")"
+  if [ "${count}" = 0 ]; then emit_missing; return; fi
+  if [ "${count}" != 1 ]; then emit_owner_mismatch "k3d-registry://${destination}" "multiple matching local registries"; return; fi
+  port="$(jq -r '.[0].expose.binding.HostPort // .[0].expose.Binding.HostPort // .[0].expose.binding.hostPort // empty' <<<"${matched}")"
+  host_ip="$(jq -r '.[0].expose.binding.HostIp // .[0].expose.binding.HostIP // .[0].expose.Binding.HostIp // .[0].expose.Binding.HostIP // empty' <<<"${matched}")"
+  if [ "${port}" != 5000 ] || [ "${host_ip}" != "0.0.0.0" ]; then
+    emit_owner_mismatch "k3d-registry://${destination}" "local registry port binding differs from the reviewed specification"
+    return
+  fi
+  emit_present "k3d-registry://${destination}" "${expected}"
+}
+
+observe_local_cluster() {
+  load_local_substrate
+  [ "${destination}" = "$(jq -r .cluster "${archive}")" ] || {
+    echo "local cluster destination differs from the reviewed specification" >&2; return 2;
+  }
+  local observed matched count
+  observed="$(k3d cluster list -o json)"
+  jq -e 'type == "array"' <<<"${observed}" >/dev/null || { echo "invalid k3d cluster listing" >&2; return 2; }
+  matched="$(jq -c --arg name "${destination}" '[.[] | select(.name == $name)]' <<<"${observed}")"
+  count="$(jq 'length' <<<"${matched}")"
+  if [ "${count}" = 0 ]; then emit_missing; return; fi
+  if [ "${count}" != 1 ]; then emit_owner_mismatch "k3d-cluster://${destination}" "multiple matching local clusters"; return; fi
+  if ! jq -e --arg digest "${expected}" '
+    .[0].serversCount == 1
+    and .[0].serversRunning == 1
+    and .[0].hasLoadbalancer == true
+    and ([.[0].nodes[] | select(.role == "server" and .State.Running == true
+      and .runtimeLabels["nagare.bootstrap.digest"] == $digest)] | length) == 1
+    and ([.[0].nodes[] | select(.role == "loadbalancer") | .portMappings
+      | ((.["80/tcp"] // .["80"] // []) + (.["443/tcp"] // .["443"] // []))
+      | .[].HostPort] | sort) == ["443", "80"]
+  ' <<<"${matched}" >/dev/null; then
+    emit_owner_mismatch "k3d-cluster://${destination}" "local cluster identity or port mapping differs from the reviewed specification"
+    return
+  fi
+  emit_present "k3d-cluster://${destination}" "${expected}"
+}
+
 observe() {
   case "${kind}" in
     GceImageArtifact) observe_gce_image ;;
@@ -196,6 +272,8 @@ observe() {
     GcsImageObjectArtifact) observe_gcs_object ;;
     KubeconfigArtifact) observe_kubeconfig ;;
     BuildJobArtifact) observe_build_job ;;
+    LocalRegistryArtifact) observe_local_registry ;;
+    LocalClusterArtifact) observe_local_cluster ;;
     *) echo "artifact kind ${kind} has no production transport" >&2; return 2 ;;
   esac
 }
@@ -254,6 +332,28 @@ publish() {
         bash "${script_dir}/upload-images.sh" --build-only >&2
       ;;
     KubeconfigArtifact) publish_kubeconfig ;;
+    LocalRegistryArtifact)
+      load_local_substrate
+      [ "${destination}" = "$(jq -r .registryHost "${archive}")" ] || {
+        echo "local registry destination differs from the reviewed specification" >&2; return 2;
+      }
+      k3d registry create "$(jq -r .registry "${archive}")" \
+        --port "$(jq -r .registryPort "${archive}")" --no-help >&2
+      ;;
+    LocalClusterArtifact)
+      load_local_substrate
+      [ "${destination}" = "$(jq -r .cluster "${archive}")" ] || {
+        echo "local cluster destination differs from the reviewed specification" >&2; return 2;
+      }
+      k3d cluster create "${destination}" \
+        --image "$(jq -r .k3sImage "${archive}")" \
+        --registry-use "$(jq -r .registryHost "${archive}")" \
+        --port "$(jq -r .httpPort "${archive}")" \
+        --port "$(jq -r .httpsPort "${archive}")" \
+        --k3s-arg "$(jq -r .k3sArg "${archive}")" \
+        --runtime-label "nagare.bootstrap.digest=${expected}@server:0" \
+        --kubeconfig-update-default=false --kubeconfig-switch-context=false >&2
+      ;;
     GceImageArtifact)
       NAGARE_ARTIFACT_DESTINATION="${destination}" \
       NAGARE_ARTIFACT_EXPECTED_DIGEST="sha256:${expected}" \

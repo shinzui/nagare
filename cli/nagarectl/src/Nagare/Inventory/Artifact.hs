@@ -34,6 +34,8 @@ data ArtifactKind
   | GceImageArtifact
   | KubeconfigArtifact
   | BuildJobArtifact
+  | LocalRegistryArtifact
+  | LocalClusterArtifact
   | TemporaryBuilderArtifact
   | ReleasePayloadArtifact
   | ControlMetadataArtifact
@@ -181,6 +183,7 @@ ociArchiveSource source
 artifactLocalSource :: SourceLocation -> Maybe FilePath
 artifactLocalSource source
   | path source == "kubeconfig-prepared-v1" = Just (T.unpack (file source))
+  | path source == "local-substrate-v1" = Just (T.unpack (file source))
   | otherwise = ociArchiveSource source
 
 consumersComplete :: ConsumerCoverage -> Bool
@@ -195,6 +198,8 @@ kindName =
     GceImageArtifact -> "gce-image"
     KubeconfigArtifact -> "kubeconfig"
     BuildJobArtifact -> "build-job"
+    LocalRegistryArtifact -> "local-registry"
+    LocalClusterArtifact -> "local-cluster"
     TemporaryBuilderArtifact -> "temporary-builder"
     ReleasePayloadArtifact -> "release-payload"
     ControlMetadataArtifact -> "control-metadata"
@@ -206,6 +211,8 @@ kindFromName value = case nameText value of
   "gce-image" -> Right GceImageArtifact
   "kubeconfig" -> Right KubeconfigArtifact
   "build-job" -> Right BuildJobArtifact
+  "local-registry" -> Right LocalRegistryArtifact
+  "local-cluster" -> Right LocalClusterArtifact
   "temporary-builder" -> Right TemporaryBuilderArtifact
   "release-payload" -> Right ReleasePayloadArtifact
   "control-metadata" -> Right ControlMetadataArtifact

@@ -98,6 +98,7 @@ import Nagare.Cluster.Kubeconfig
   , defaultFetchOps
   , fetchKubeconfig
   , kubeconfigPath
+  , normalizeLocalKubeconfig
   )
 import Nagare.Cluster.Namespace (NamespacePurpose (..))
 import Nagare.Database.Backup (previewDbBackup)
@@ -4806,41 +4807,56 @@ runPlatformBootstrapPlan mctx output = do
       snapshot <- Inventory.loadTargetSnapshot active
       when (active ^. #profile . #mode == Cloud)
         (void (selectReviewedPulumiForContext (active ^. #contextName) (active ^. #profile)))
-      cloudStage <- buildCloudStageCandidate active workspace snapshot
-      case cloudStage of
+      localStage <- buildLocalSubstrateCandidate active workspace snapshot
+      case localStage of
         Just candidate -> do
           Inventory.planInventoryCandidateWithPayloadIdentity
             (inventoryPlanRegistry active workspace)
             ("nagare-bootstrap:" <> manifest ^. #payloadId) active candidate output
         Nothing -> do
-          imageBuild <- buildImageBuildStageCandidate active workspace snapshot
-          case imageBuild of
+          cloudStage <- buildCloudStageCandidate active workspace snapshot
+          case cloudStage of
+            Just candidate -> Inventory.planInventoryCandidateWithPayloadIdentity
+              (inventoryPlanRegistry active workspace)
+              ("nagare-bootstrap:" <> manifest ^. #payloadId) active candidate output
+            Nothing -> runAfterCloudStage active paths workspace snapshot manifest output
+
+runAfterCloudStage :: ActiveTarget -> PlatformPaths -> PlatformWorkspace
+  -> ResourceInventory.ScopeSnapshot -> PayloadManifest -> FilePath -> IO ()
+runAfterCloudStage active paths workspace snapshot manifest output = do
+  imageBuild <- buildImageBuildStageCandidate active workspace snapshot
+  case imageBuild of
+    Just candidate -> Inventory.planInventoryCandidateWithPayloadIdentity
+      (inventoryPlanRegistry active workspace)
+      ("nagare-bootstrap:" <> manifest ^. #payloadId) active candidate output
+    Nothing -> do
+      imagePublication <- buildImagePublicationStageCandidate active workspace snapshot
+      case imagePublication of
+        Just candidate -> Inventory.planInventoryCandidateWithPayloadIdentity
+          (inventoryPlanRegistry active workspace)
+          ("nagare-bootstrap:" <> manifest ^. #payloadId) active candidate output
+        Nothing -> do
+          hostStage <- buildHostStageCandidate active workspace snapshot
+          case hostStage of
             Just candidate -> Inventory.planInventoryCandidateWithPayloadIdentity
               (inventoryPlanRegistry active workspace)
               ("nagare-bootstrap:" <> manifest ^. #payloadId) active candidate output
             Nothing -> do
-              imagePublication <- buildImagePublicationStageCandidate active workspace snapshot
-              case imagePublication of
+              kubeconfigStage <- buildKubeconfigStageCandidate active workspace snapshot
+              case kubeconfigStage of
                 Just candidate -> Inventory.planInventoryCandidateWithPayloadIdentity
                   (inventoryPlanRegistry active workspace)
                   ("nagare-bootstrap:" <> manifest ^. #payloadId) active candidate output
                 Nothing -> do
-                  hostStage <- buildHostStageCandidate active workspace snapshot
-                  case hostStage of
-                    Just candidate -> Inventory.planInventoryCandidateWithPayloadIdentity
-                      (inventoryPlanRegistry active workspace)
-                      ("nagare-bootstrap:" <> manifest ^. #payloadId) active candidate output
-                    Nothing -> do
-                      kubeconfigStage <- buildKubeconfigStageCandidate active workspace snapshot
-                      case kubeconfigStage of
-                        Just candidate -> Inventory.planInventoryCandidateWithPayloadIdentity
-                          (inventoryPlanRegistry active workspace)
-                          ("nagare-bootstrap:" <> manifest ^. #payloadId) active candidate output
-                        Nothing -> do
-                          (candidate, native) <- buildPlatformCandidate active paths workspace snapshot
-                          Inventory.planInventoryCandidateWithPayloadIdentity
-                            (inventoryPlanRegistryWithNative active workspace native)
-                            ("nagare-bootstrap:" <> manifest ^. #payloadId) active candidate output
+                  when (active ^. #profile . #mode == Local) $ do
+                    selectedKubeconfig <- kubeconfigPath (active ^. #contextName)
+                    exists <- doesFileExist selectedKubeconfig
+                    unless exists (dieT "reviewed local context kubeconfig is missing")
+                    setEnv "KUBECONFIG" selectedKubeconfig
+                  (candidate, native) <- buildPlatformCandidate active paths workspace snapshot
+                  Inventory.planInventoryCandidateWithPayloadIdentity
+                    (inventoryPlanRegistryWithNative active workspace native)
+                    ("nagare-bootstrap:" <> manifest ^. #payloadId) active candidate output
 
 runPlatformBootstrapApply :: Maybe String -> FilePath -> Bool -> IO ()
 runPlatformBootstrapApply mctx reviewDirectory yes = do
@@ -5012,6 +5028,91 @@ buildCloudFoundationCandidate active paths workspace snapshot = do
       (InventoryFoundation.FoundationDeclarationBundle 1 owner project resources))
   either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
+
+data LocalSubstrateSpec = LocalSubstrateSpec
+  { localSpecVersion :: !Int
+  , localSpecCluster :: !Text
+  , localSpecRegistry :: !Text
+  , localSpecRegistryHost :: !Text
+  , localSpecRegistryPort :: !Text
+  , localSpecK3sImage :: !Text
+  , localSpecHttpPort :: !Text
+  , localSpecHttpsPort :: !Text
+  , localSpecK3sArg :: !Text
+  }
+  deriving stock (Eq, Show)
+
+instance Aeson.FromJSON LocalSubstrateSpec where
+  parseJSON = Aeson.withObject "local substrate spec" $ \value ->
+    LocalSubstrateSpec <$> value Aeson..: "version"
+      <*> value Aeson..: "cluster"
+      <*> value Aeson..: "registry"
+      <*> value Aeson..: "registryHost"
+      <*> value Aeson..: "registryPort"
+      <*> value Aeson..: "k3sImage"
+      <*> value Aeson..: "httpPort"
+      <*> value Aeson..: "httpsPort"
+      <*> value Aeson..: "k3sArg"
+
+buildLocalSubstrateCandidate
+  :: ActiveTarget -> PlatformWorkspace -> ResourceInventory.ScopeSnapshot
+  -> IO (Maybe ResourceInventory.CompositionCandidate)
+buildLocalSubstrateCandidate active workspace snapshot
+  | active ^. #profile . #mode /= Local = pure Nothing
+  | otherwise = do
+      let source = workspace ^. #root </> "cluster/bootstrap/local-substrate.json"
+      bytes <- BS.readFile source
+      spec <- either (dieT . T.pack) pure (Aeson.eitherDecodeStrict' bytes)
+      unless (localSpecVersion spec == 1
+          && localSpecRegistryHost spec == active ^. #profile . #registryHost)
+        (dieT "local substrate specification differs from the selected registry profile")
+      let digest = InventoryDigest.contentDigest bytes
+          knownName value = either (error . T.unpack) (\name -> name) (Resource.mkName value)
+          knownKey value = either (error . T.unpack) (\key -> key) (Resource.mkLogicalKey value)
+      owner <- either dieT pure (Resource.mkScopeId Resource.Platform "local-substrate")
+      let registryName = knownName ("k3d-" <> localSpecRegistry spec)
+          clusterName = knownName (localSpecCluster spec)
+          registryId = Resource.mintResourceId owner (knownKey "registry") registryName
+          clusterId = Resource.mintResourceId owner (knownKey "cluster") clusterName
+          resource key role name destination kind dependencies = ArtifactResourceSpec
+            { artifactLogicalKey = knownKey key
+            , artifactRole = role
+            , artifactName = name
+            , artifactDestination = destination
+            , artifactContentDigest = digest
+            , artifactSpecDigest = digest
+            , artifactKind = kind
+            , artifactOwnership = InventoryArtifact.OwnedArtifact
+            , artifactLifecycle = ResourcePolicy.Protect
+            , artifactDataPolicy = ResourcePolicy.Stateless
+            , artifactSensitivity = ResourcePolicy.Public
+            , artifactDependencies = dependencies
+            , artifactConsumers = InventoryArtifact.ConsumerCompletenessUnknown
+            , artifactPublishOperation = False
+            , artifactSource = Resource.SourceLocation (T.pack source) "local-substrate-v1"
+            }
+          registry = resource "registry" registryName registryName
+            (localSpecRegistryHost spec) InventoryArtifact.LocalRegistryArtifact []
+          cluster = resource "cluster" clusterName clusterName
+            (localSpecCluster spec) InventoryArtifact.LocalClusterArtifact
+            [ResourceReference.OrderedAfter registryId]
+          bundle = ArtifactDeclarationBundle 1 owner (registry NE.:| [cluster])
+      scope <- either (dieT . T.pack . show) pure (InventoryArtifact.compileArtifactScope bundle)
+      case Map.lookup owner (ResourceInventory.snapshotScopes snapshot) of
+        Just (_, prior) | ResourceWire.encodeCanonicalScope prior /= ResourceWire.encodeCanonicalScope scope ->
+          dieT "accepted local substrate differs from the selected specification"
+        Just _ -> do
+          adapter <- inventoryArtifactAdapter active workspace (InventoryArtifact.artifactExecutionSpecs bundle)
+          observed <- InventoryAdapter.adapterObserve adapter [registryId, clusterId]
+          let ready = case observed of
+                Left _ -> False
+                Right facts -> all (\resourceId -> case Map.lookup resourceId (InventoryAdapter.observationMap facts) of
+                  Just (InventoryAdapter.ObservedPresent _) -> True
+                  _ -> False) [registryId, clusterId]
+          if ready then pure Nothing else Just <$> either (dieT . T.pack . show) pure
+            (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
+        Nothing -> Just <$> either (dieT . T.pack . show) pure
+          (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
 
 loadCloudCatalog :: PlatformWorkspace -> IO (ByteString, InventoryCloud.CloudCatalog)
 loadCloudCatalog workspace = do
@@ -5351,23 +5452,39 @@ buildHostStageCandidate active _ snapshot
 buildKubeconfigStageCandidate
   :: ActiveTarget -> PlatformWorkspace -> ResourceInventory.ScopeSnapshot
   -> IO (Maybe ResourceInventory.CompositionCandidate)
-buildKubeconfigStageCandidate active workspace snapshot
-  | active ^. #profile . #mode /= Cloud = pure Nothing
-  | otherwise = do
+buildKubeconfigStageCandidate active workspace snapshot = do
       let context = active ^. #contextName
           contextText = contextNameText context
-      hostName <- readContextHostName context >>= either dieT pure
       destination <- kubeconfigPath context
       stateRoot <- nagareStateDir
       let preparedDir = stateRoot </> T.unpack contextText </> "prepared-kubeconfig"
       createDirectoryIfMissing True preparedDir
       setFileMode preparedDir 0o700
-      bytes <- withTempDirectory preparedDir "candidate-" $ \temporary -> do
-        let fetched = temporary </> "kubeconfig.yaml"
-            identity = KubeconfigIdentity contextText hostName
-            ops = defaultFetchOps (workspace ^. #scriptsDir </> "iap-ssh.sh")
-        fetchKubeconfig ops identity (active ^. #profile) fetched >>= either dieT pure
-        BS.readFile fetched
+      (bytes, producer) <- case active ^. #profile . #mode of
+        Cloud -> do
+          hostName <- readContextHostName context >>= either dieT pure
+          fetched <- withTempDirectory preparedDir "candidate-" $ \temporary -> do
+            let path = temporary </> "kubeconfig.yaml"
+                identity = KubeconfigIdentity contextText hostName
+                ops = defaultFetchOps (workspace ^. #scriptsDir </> "iap-ssh.sh")
+            fetchKubeconfig ops identity (active ^. #profile) path >>= either dieT pure
+            BS.readFile path
+          hostOwner <- either dieT pure (Resource.mkScopeId Resource.Platform "host")
+          hostKey <- either dieT pure (Resource.mkLogicalKey "nixos-system")
+          hostRole <- either dieT pure (Resource.mkName "system")
+          pure (fetched, Resource.mintResourceId hostOwner hostKey hostRole)
+        Local -> do
+          specBytes <- BS.readFile (workspace ^. #root </> "cluster/bootstrap/local-substrate.json")
+          spec <- either (dieT . T.pack) pure (Aeson.eitherDecodeStrict' specBytes)
+          (code, output, err) <- readProcessWithExitCode "k3d"
+            ["kubeconfig", "get", T.unpack (localSpecCluster spec)] ""
+          unless (code == ExitSuccess)
+            (dieT ("could not read reviewed local cluster kubeconfig: " <> T.pack err))
+          normalized <- either dieT pure (normalizeLocalKubeconfig contextText (BC.pack output))
+          clusterOwner <- either dieT pure (Resource.mkScopeId Resource.Platform "local-substrate")
+          clusterKey <- either dieT pure (Resource.mkLogicalKey "cluster")
+          clusterRole <- either dieT pure (Resource.mkName (localSpecCluster spec))
+          pure (normalized, Resource.mintResourceId clusterOwner clusterKey clusterRole)
       let digest = InventoryDigest.contentDigest bytes
           prepared = preparedDir </> T.unpack (Resource.digestText digest) <> ".yaml"
       linked <- try (pathIsSymbolicLink prepared) >>= \case
@@ -5384,11 +5501,7 @@ buildKubeconfigStageCandidate active workspace snapshot
       owner <- either dieT pure (Resource.mkScopeId Resource.Platform "kubeconfig")
       key <- either dieT pure (Resource.mkLogicalKey "context-kubeconfig")
       role <- either dieT pure (Resource.mkName contextText)
-      hostOwner <- either dieT pure (Resource.mkScopeId Resource.Platform "host")
-      hostKey <- either dieT pure (Resource.mkLogicalKey "nixos-system")
-      hostRole <- either dieT pure (Resource.mkName "system")
-      let hostId = Resource.mintResourceId hostOwner hostKey hostRole
-          artifact = ArtifactResourceSpec
+      let artifact = ArtifactResourceSpec
             { artifactLogicalKey = key
             , artifactRole = role
             , artifactName = role
@@ -5400,7 +5513,7 @@ buildKubeconfigStageCandidate active workspace snapshot
             , artifactLifecycle = ResourcePolicy.Protect
             , artifactDataPolicy = ResourcePolicy.Stateless
             , artifactSensitivity = ResourcePolicy.Secret
-            , artifactDependencies = [ResourceReference.OrderedAfter hostId]
+            , artifactDependencies = [ResourceReference.OrderedAfter producer]
             , artifactConsumers = InventoryArtifact.ConsumerCompletenessUnknown
             , artifactPublishOperation = False
             , artifactSource = Resource.SourceLocation (T.pack prepared) "kubeconfig-prepared-v1"
@@ -5567,13 +5680,11 @@ buildPlatformCandidate active paths workspace snapshot = do
   extra <- case orderedObservabilityScopes <> [observabilityExtra, secretScope] <> cacheScopes of
     firstScope : remaining -> pure (ResourceInventory.ReplaceScope firstScope NE.:| map ResourceInventory.ReplaceScope remaining)
     [] -> dieT "pinned bootstrap component set is empty"
-  let kubeconfigEdges = case profile ^. #mode of
-        Local -> []
-        Cloud ->
-          let owner = either (error . T.unpack) (\scope -> scope) (Resource.mkScopeId Resource.Platform "kubeconfig")
-              key = knownKey "context-kubeconfig"
-              role = knownName (contextNameText (active ^. #contextName))
-          in [ResourceReference.OrderedAfter (Resource.mintResourceId owner key role)]
+  let kubeconfigEdges =
+        let owner = either (error . T.unpack) (\scope -> scope) (Resource.mkScopeId Resource.Platform "kubeconfig")
+            key = knownKey "context-kubeconfig"
+            role = knownName (contextNameText (active ^. #contextName))
+        in [ResourceReference.OrderedAfter (Resource.mintResourceId owner key role)]
       orderCluster resource
         | resource ^. #executor `elem` [ResourceInventory.KubernetesExecutor, ResourceInventory.HelmExecutor] =
             resource {ResourceInventory.dependencies = kubeconfigEdges <> resource ^. #dependencies}
@@ -6287,6 +6398,12 @@ inventoryExecutionRegistry mctx bundle = do
                 (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
                 pure (active, workspace)
               else prepareInfraMutation mctx
+      when (active ^. #profile . #mode == Local
+          && (not (Map.null kubernetesSpecs) || not (Map.null allHelmSpecs))) $ do
+        selectedKubeconfig <- kubeconfigPath (active ^. #contextName)
+        exists <- doesFileExist selectedKubeconfig
+        unless exists (dieT "reviewed local context kubeconfig is missing")
+        setEnv "KUBECONFIG" selectedKubeconfig
       pulumi <-
         if null registrations
           then pure (Inventory.executionBlockedAdapterFor ResourceInventory.PulumiExecutor)

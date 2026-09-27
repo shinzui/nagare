@@ -8,6 +8,7 @@ module Nagare.Cluster.Kubeconfig
   , fetchKubeconfig
   , kubeconfigPath
   , normalizeKubeconfig
+  , normalizeLocalKubeconfig
   )
 where
 
@@ -22,6 +23,7 @@ import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Read qualified as TextRead
 import Data.Vector qualified as V
 import Data.Yaml qualified as Yaml
 import Nagare.Dsl.Prelude
@@ -190,7 +192,27 @@ runCommand overrides executable arguments = do
       | otherwise = ": " <> T.strip (T.pack stderrText)
 
 normalizeKubeconfig :: KubeconfigIdentity -> ByteString -> Either Text ByteString
-normalizeKubeconfig identity input = do
+normalizeKubeconfig identity = normalizeKubeconfigAt
+  (identity ^. #contextName) ("https://" <> identity ^. #hostName <> ":6443")
+
+normalizeLocalKubeconfig :: Text -> ByteString -> Either Text ByteString
+normalizeLocalKubeconfig context input = do
+  root <- decodeRoot input
+  (_, cluster) <- singletonNamedEntry "clusters" root
+  clusterBody <- objectAt "cluster" cluster
+  endpoint <- textAt "server" clusterBody
+  unless (any (`T.isPrefixOf` endpoint)
+      ["https://127.0.0.1:", "https://0.0.0.0:", "https://localhost:"])
+    (Left "local kubeconfig endpoint is not a loopback k3d API")
+  let portText = snd (T.breakOnEnd ":" endpoint)
+  unless (case (TextRead.decimal portText :: Either String (Int, Text)) of
+      Right (port, rest) -> T.null rest && port > 0 && port <= 65535
+      Left _ -> False)
+    (Left "local kubeconfig API port is invalid")
+  normalizeKubeconfigAt context endpoint input
+
+normalizeKubeconfigAt :: Text -> Text -> ByteString -> Either Text ByteString
+normalizeKubeconfigAt target endpoint input = do
   root <- decodeRoot input
   (clusterName, cluster) <- singletonNamedEntry "clusters" root
   (userName, user) <- singletonNamedEntry "users" root
@@ -203,9 +225,7 @@ normalizeKubeconfig identity input = do
   unless (contextCluster == clusterName) (Left "kubeconfig context does not reference its sole cluster")
   unless (contextUser == userName) (Left "kubeconfig context does not reference its sole user")
   clusterBody <- objectAt "cluster" cluster
-  let target = identity ^. #contextName
-      endpoint = "https://" <> identity ^. #hostName <> ":6443"
-      renamedCluster = Object (KeyMap.insert "name" (String target) (KeyMap.insert "cluster" (Object (KeyMap.insert "server" (String endpoint) clusterBody)) cluster))
+  let renamedCluster = Object (KeyMap.insert "name" (String target) (KeyMap.insert "cluster" (Object (KeyMap.insert "server" (String endpoint) clusterBody)) cluster))
       renamedUser = Object (KeyMap.insert "name" (String target) user)
       renamedContextBody = KeyMap.insert "user" (String target) (KeyMap.insert "cluster" (String target) contextBody)
       renamedContext = Object (KeyMap.insert "name" (String target) (KeyMap.insert "context" (Object renamedContextBody) context))
@@ -216,11 +236,15 @@ normalizeKubeconfig identity input = do
           . KeyMap.insert "clusters" (Array (V.singleton renamedCluster))
           $ root
   let output = Yaml.encode (Object normalizedRoot)
-  validateNormalizedKubeconfig identity output
+  validateNormalizedKubeconfigAt target endpoint output
   pure output
 
 validateNormalizedKubeconfig :: KubeconfigIdentity -> ByteString -> Either Text ()
-validateNormalizedKubeconfig identity input = do
+validateNormalizedKubeconfig identity = validateNormalizedKubeconfigAt
+  (identity ^. #contextName) ("https://" <> identity ^. #hostName <> ":6443")
+
+validateNormalizedKubeconfigAt :: Text -> Text -> ByteString -> Either Text ()
+validateNormalizedKubeconfigAt expectedName expectedEndpoint input = do
   root <- decodeRoot input
   (clusterName, cluster) <- singletonNamedEntry "clusters" root
   (userName, _) <- singletonNamedEntry "users" root
@@ -231,8 +255,6 @@ validateNormalizedKubeconfig identity input = do
   contextBody <- objectAt "context" context
   contextCluster <- textAt "cluster" contextBody
   contextUser <- textAt "user" contextBody
-  let expectedName = identity ^. #contextName
-      expectedEndpoint = "https://" <> identity ^. #hostName <> ":6443"
   unless
     (all (== expectedName) [clusterName, userName, contextName, current, contextCluster, contextUser])
     (Left "normalized kubeconfig does not consistently use the selected Nagare context name")

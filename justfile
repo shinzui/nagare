@@ -138,14 +138,7 @@ knative_version := "knative-v1.22.0"
 certmanager_version := "v1.20.2"
 netcertmanager_version := "v1.14.0"
 
-# Local k3s image pin for `just local-up` (EP-82). k3d's compiled-in default k3s
-# can be far older than what the platform needs (it defaulted to v1.21.7, whose
-# apiserver rejects the cert-manager {{certmanager_version}} CRDs with "unknown
-# field selectableFields"). Knative {{knative_version}} additionally refuses to
-# run on Kubernetes older than 1.34.0 ("version ... is not compatible, need at
-# least 1.34.0-0"), so pin a k3s >= 1.34 to reproduce the cloud's Kubernetes API
-# surface. Bump in lockstep with the knative/certmanager pins above.
-k3s_image := "rancher/k3s:v1.34.6-k3s1"
+# Local k3s and registry pins live in cluster/bootstrap/local-substrate.json.
 
 # EP-4 (docs/plans/4-knative-serving-kourier-ingress-and-cert-manager-tls.md):
 # install cert-manager + DNS-01 issuer, Knative Serving, Kourier ingress, and
@@ -220,30 +213,18 @@ cluster-enable-tls:
 # stand up the LOCAL development substrate — a k3d (k3s-in-Docker) cluster plus a
 # managed local registry — so nagare can be exercised on a laptop with NO GCP
 # account. Requires a running Docker daemon. Pair with `just local-bootstrap`.
-# `--registry-create k3d-registry.localhost:0.0.0.0:5000` starts a registry
-# container, injects a registries.yaml so in-cluster pulls of
-# k3d-registry.localhost:5000/... resolve to it, AND binds it to host 0.0.0.0:5000
-# so `docker push` reaches it. Traefik is disabled so it does not claim host
-# port 80 and collide with Kourier; host 80/443 map to the cluster load balancer.
-# Create the local k3d cluster + registry (NixOS/cloud substrate substitute).
+# The first review creates the registry and cluster with the exact selected
+# local substrate config. Later calls advance kubeconfig and cluster stages.
 [group('local')]
 local-up:
-    k3d cluster create nagare-local \
-      --image {{k3s_image}} \
-      --registry-create k3d-registry.localhost:0.0.0.0:5000 \
-      --port "80:80@loadbalancer" \
-      --port "443:443@loadbalancer" \
-      --k3s-arg "--disable=traefik@server:0"
-    @echo "Cluster up. For host 'docker push' to k3d-registry.localhost:5000 you need (see nagare.local.env.example):"
-    @echo "  1) name resolution: add '127.0.0.1 k3d-registry.localhost' to /etc/hosts if your resolver ignores .localhost"
-    @echo "  2) insecure registry: add 'k3d-registry.localhost:5000' to your Docker daemon insecure-registries and restart it"
-    @echo "  (the in-cluster pull needs neither — k3d wires it automatically)"
+    @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform guard; fi
+    scripts/run-reviewed-bootstrap.sh
 
-# EP-82: tear down the local cluster (deleting it also removes the managed
-# registry container).
-# Delete the local k3d cluster + registry.
+# EP-82: legacy teardown is available only before inventory admission. The
+# reviewed registry has its own lifecycle and is not deleted with the cluster.
 [group('local')]
 local-down:
+    @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform guard; fi
     k3d cluster delete nagare-local
 
 # Reconcile the complete local bootstrap inventory against the selected k3d

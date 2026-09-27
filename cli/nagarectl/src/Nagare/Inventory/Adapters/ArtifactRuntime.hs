@@ -172,6 +172,8 @@ expectedPhysical spec = case executionArtifactKind spec of
       GceImageArtifact -> "gce://"
       KubeconfigArtifact -> "kubeconfig://"
       BuildJobArtifact -> "build-job://"
+      LocalRegistryArtifact -> "k3d-registry://"
+      LocalClusterArtifact -> "k3d-cluster://"
       TemporaryBuilderArtifact -> "builder://"
       ReleasePayloadArtifact -> "release://"
       ControlMetadataArtifact -> "control://"
