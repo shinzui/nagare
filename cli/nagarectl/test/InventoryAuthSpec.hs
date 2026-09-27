@@ -226,6 +226,11 @@ inventoryAuthTests = testGroup "auth inventory component"
             "nagare-backups" "nagare-minio-credentials"
       (scope, native) <- compileLocalObjectStore "../.." foundation store >>= expectRight
       Map.size native @?= 5
+      serverImage <- lookupEnv "NAGARE_LOCAL_MINIO_IMAGE"
+      clientImage <- lookupEnv "NAGARE_LOCAL_MC_IMAGE"
+      forM_ [serverImage, clientImage] $ \selected -> forM_ selected $ \image ->
+        assertBool "reviewed local object-store image differs from the selected digest"
+          (any (BC.isInfixOf (BC.pack image) . snd) (Map.elems native))
       let credentials = [(resource, bytes) | (resource, bytes) <- Map.elems native,
             case resource ^. #address of
               Kubernetes _ "" kind _ name ->
