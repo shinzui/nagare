@@ -153,6 +153,7 @@ data DataFenceRecord = DataFenceRecord
   , fenceRecoveryArtifact :: !Text
   , fenceRecoveryDigest :: !ContentDigest
   , fenceSavedWriters :: !(Map ResourceId Value)
+  , fenceProviderIntent :: !(Maybe Value)
   , fencePhase :: !DataFencePhase
   , fenceAcquiredAt :: !Text
   }
@@ -292,7 +293,7 @@ instance FromJSON DataFencePhase where
     _ -> fail "unknown data fence phase"
 
 instance ToJSON DataFenceRecord where
-  toJSON fence = object
+  toJSON fence = object $
     [ "context" .= fenceContext fence
     , "session" .= fenceSession fence
     , "transaction" .= fenceTransaction fence
@@ -308,12 +309,13 @@ instance ToJSON DataFenceRecord where
         | (resource, configuration) <- Map.toAscList (fenceSavedWriters fence)]
     , "phase" .= fencePhase fence
     , "acquiredAt" .= fenceAcquiredAt fence
-    ]
+    ] <> maybe [] (\intent -> ["providerIntent" .= intent])
+      (fenceProviderIntent fence)
 
 instance FromJSON DataFenceRecord where
   parseJSON = withObject "DataFenceRecord" $ \o -> do
     unless (all (`elem` ["context", "session", "transaction", "accepted", "physical", "targets", "affected",
-        "recoveryArtifact", "recoveryDigest", "savedWriters", "phase", "acquiredAt"])
+        "recoveryArtifact", "recoveryDigest", "savedWriters", "providerIntent", "phase", "acquiredAt"])
         (KM.keys o)) (fail "data fence has an unknown field")
     accepted <- uniqueEntries "accepted scope" =<< traverse
       (withObject "fence scope" (\v -> (,) <$> v .: "scope" <*> v .: "revision"))
@@ -336,11 +338,17 @@ instance FromJSON DataFenceRecord where
     recovery <- o .: "recoveryArtifact"
     unless (not (T.null session) && not (T.null recovery) && not (Map.null physical))
       (fail "data fence lacks its session, recovery artifact, or physical target")
+    providerIntent <- o .:? "providerIntent"
+    unless (maybe True isObject providerIntent)
+      (fail "data fence provider intent must be an object")
     DataFenceRecord <$> o .: "context" <*> pure session <*> o .:? "transaction" <*> pure accepted
       <*> pure physical <*> pure (Set.fromList targetList)
       <*> pure (Set.fromList affectedList) <*> pure recovery
-      <*> o .: "recoveryDigest" <*> pure saved <*> o .: "phase" <*> o .: "acquiredAt"
+      <*> o .: "recoveryDigest" <*> pure saved <*> pure providerIntent
+      <*> o .: "phase" <*> o .: "acquiredAt"
     where
+      isObject (Object _) = True
+      isObject _ = False
       uniqueEntries label entries = do
         let selected = Map.fromList entries
         unless (length entries == Map.size selected) (fail ("duplicate " <> label))

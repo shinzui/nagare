@@ -112,7 +112,7 @@ inventoryObjectOpsTests = testGroup "inventory object operations"
           request = DataFenceRecord fixtureBinding "object-fence-session" Nothing
             (headAccepted current) physical (Set.singleton target) (Set.singleton writer)
             "gs://fixture/recovery" (contentDigest "recovery")
-            (Map.singleton writer (object [])) FenceAcquiring ""
+            (Map.singleton writer (object [])) Nothing FenceAcquiring ""
           controls = DataFenceControls
             { validateFenceInputs = \_ -> pure (Right ())
             , stopFenceWriters = \_ -> pure (Right ())

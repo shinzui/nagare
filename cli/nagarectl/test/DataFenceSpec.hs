@@ -40,7 +40,13 @@ import Test.Tasty.HUnit
 
 dataFenceTests :: TestTree
 dataFenceTests = testGroup "data fence"
-  [ testCase "reservation survives a new process and blocks planning until verified release" $
+  [ testCase "provider intent roundtrips and changes the reviewed digest" $ do
+      let withProvider = request
+            {fenceProviderIntent = Just (object ["version" .= (1 :: Int)])}
+      eitherDecode (encode withProvider) @?= Right withProvider
+      assertBool "provider intent must change the fence digest"
+        (dataFenceIntentDigest withProvider /= dataFenceIntentDigest request)
+    , testCase "reservation survives a new process and blocks planning until verified release" $
       withSystemTempDirectory "nagare-data-fence" $ \root -> do
         store <- openFilesystemStore root >>= right
         _ <- initializeStore store binding "operator-a" >>= right
@@ -724,6 +730,20 @@ dataFenceTests = testGroup "data fence"
           Left errors -> assertBool "changed physical target escaped review digest"
             (any ((== "data-fence-capability") . admissionErrorCode) errors)
           Right _ -> assertFailure "fenced review admitted a substituted target"
+        let provider = known (withAdapterFence plain KubernetesExecutor AdapterFence
+              { fenceCapability = "recorded-fence-v1"
+              , fenceForOperation = \_ _ -> Right (Just
+                  (request
+                    { fenceContext = fixtureBinding
+                    , fenceAccepted = reviewDesiredRevisions (reviewedDocument reviewed)
+                    , fenceProviderIntent = Just (object ["version" .= (1 :: Int)])
+                    }, controls))
+              })
+        substitutedProvider <- applyReviewed store provider reviewed
+        case substitutedProvider of
+          Left errors -> assertBool "changed provider intent escaped review digest"
+            (any ((== "data-fence-capability") . admissionErrorCode) errors)
+          Right _ -> assertFailure "fenced review admitted substituted provider intent"
         readIORef effects >>= (@?= 0)
     , testCase "ambiguous reviewed effect keeps its fence and refuses replay" $ do
         store <- newMemoryStore
@@ -778,7 +798,8 @@ fixtureControls released restored observe = DataFenceControls
 request :: DataFenceRecord
 request = DataFenceRecord binding "restore-session" Nothing Map.empty physical
   (Set.singleton target) (Set.singleton writer) "gs://fixture/recovery"
-  (contentDigest "recovery") (Map.singleton writer (object [])) FenceAcquiring ""
+  (contentDigest "recovery") (Map.singleton writer (object [])) Nothing
+  FenceAcquiring ""
 
 physical :: Map.Map ResourceId PhysicalIdentity
 physical = Map.fromList
