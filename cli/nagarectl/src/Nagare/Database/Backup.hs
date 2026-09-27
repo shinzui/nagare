@@ -28,6 +28,7 @@ module Nagare.Database.Backup
     -- * Job / CronJob rendering (pure)
   , BackupDest (..)
   , BackupReceipt (..)
+  , BackupReceiptTarget (..)
   , BackupJobInputs (..)
   , renderBackupJob
   , backupJobSpecValue
@@ -44,8 +45,10 @@ module Nagare.Database.Backup
 where
 
 import Data.Aeson (Value, object, toJSON, (.=))
+import Data.Aeson qualified as Aeson
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -153,11 +156,14 @@ data BackupDest
     BackupDestStamped
   deriving stock (Generic, Eq, Show)
 
--- | The immutable receipt that a reviewed fixed-key Job writes only after it
--- has read back and checked the exact compressed backup object. The static
--- metadata is a JSON object; the Job adds the observed SHA-256 to it.
+-- | A checked upload receipt. A scheduled receipt also records the physical
+-- Job UID, but is not accepted backup authority until separate ingestion has
+-- verified its delegation and source incarnation.
+data BackupReceiptTarget = FixedReceiptTarget !Text | BackupObjectReceiptTarget
+  deriving stock (Generic, Eq, Show)
+
 data BackupReceipt = BackupReceipt
-  { destination :: !Text
+  { destination :: !BackupReceiptTarget
   , metadataJson :: !Text
   }
   deriving stock (Generic, Eq, Show)
@@ -264,9 +270,10 @@ uploadContainer i =
                        ["fieldPath" .= ("metadata.labels['batch.kubernetes.io/controller-uid']" :: Text)]]
                    ] | BackupDestStamped <- [i ^. #destination], not (i ^. #selfPrune)]
               ++ maybe [] (\r ->
-                   [ plainEnv "BACKUP_RECEIPT_DEST" (r ^. #destination)
-                   , plainEnv "BACKUP_RECEIPT_METADATA" (r ^. #metadataJson)
-                   ]) (i ^. #receipt)
+                   [plainEnv "BACKUP_RECEIPT_METADATA" (r ^. #metadataJson)]
+                     ++ case r ^. #destination of
+                       FixedReceiptTarget address -> [plainEnv "BACKUP_RECEIPT_DEST" address]
+                       BackupObjectReceiptTarget -> []) (i ^. #receipt)
               ++ storeEnv (i ^. #backend)
           )
     , "volumeMounts" .= toJSON [dumpMount]
@@ -388,9 +395,10 @@ uploadShell i =
       <> "; rm -f /dump/backup.gz"
     receiptUpload = case i ^. #receipt of
       Nothing -> ""
-      Just _ ->
-        "; printf '{\"version\":1,\"sha256\":\"%s\",\"backup\":%s}\\n'"
-          <> " \"$EXPECTED\" \"$BACKUP_RECEIPT_METADATA\" > /dump/backup.receipt.json"
+      Just receiptInput ->
+        receiptPreamble (receiptInput ^. #destination)
+          <> "; " <> receiptBody (receiptInput ^. #destination)
+          <> " > /dump/backup.receipt.json"
           <> "; RECEIPT_EXPECTED=$(sha256sum /dump/backup.receipt.json | cut -d' ' -f1)"
           <> "; test ${#RECEIPT_EXPECTED} -eq 64"
           <> "; " <> storeCpCreateOnlyFromFile backend "/dump/backup.receipt.json" "\"$BACKUP_RECEIPT_DEST\""
@@ -401,6 +409,15 @@ uploadShell i =
           <> "; test \"$RECEIPT_EXPECTED\" = \"$RECEIPT_ACTUAL\""
           <> "; cat /dump/backup.receipt.readback.json > \"${BACKUP_TERMINATION_LOG_PATH:-/dev/termination-log}\""
           <> "; rm -f /dump/backup.receipt.json /dump/backup.receipt.readback.json"
+    receiptPreamble (FixedReceiptTarget _) = ""
+    receiptPreamble BackupObjectReceiptTarget =
+      "; BACKUP_RECEIPT_DEST=\"${DEST}.receipt.json\""
+    receiptBody (FixedReceiptTarget _) =
+      "printf '{\"version\":1,\"sha256\":\"%s\",\"backup\":%s}\\n'"
+        <> " \"$EXPECTED\" \"$BACKUP_RECEIPT_METADATA\""
+    receiptBody BackupObjectReceiptTarget =
+      "printf '{\"version\":2,\"sha256\":\"%s\",\"jobUid\":\"%s\",\"object\":\"%s\",\"backup\":%s}\\n'"
+        <> " \"$EXPECTED\" \"$BACKUP_RUN_ID\" \"$DEST\" \"$BACKUP_RECEIPT_METADATA\""
     -- keep the last $KEEP objects under $PREFIX (newest sort last with reverse sort)
     prune =
       "echo pruning; "
@@ -473,10 +490,20 @@ renderDbBackupCronJobWithOptions shouldPrune shouldVerify ns name eng version ba
             , keep = keep
             , selfPrune = shouldPrune
             , verifyStored = shouldVerify
-            , receipt = Nothing
+            , receipt = if shouldVerify then Just scheduledReceipt else Nothing
             , backend = backend
             }
       }
+  where
+    scheduledReceipt = BackupReceipt BackupObjectReceiptTarget
+      (TE.decodeUtf8 (LBS.toStrict (Aeson.encode (object
+        [ "database" .= name
+        , "namespace" .= ns
+        , "engine" .= T.toLower (T.pack (show eng))
+        , "format" .= backupExt eng
+        , "schedule" .= ("nagare-dbbackup-" <> name)
+        , "keep" .= keep
+        ]))))
 
 -- ---------------------------------------------------------------------------
 -- Command driver

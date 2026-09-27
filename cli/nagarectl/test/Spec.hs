@@ -104,6 +104,7 @@ import Nagare.Database.Backup
   , BackupDest (..)
   , BackupJobInputs (..)
   , BackupReceipt (..)
+  , BackupReceiptTarget (..)
   , backupExt
   , backupRawExt
   , dbBackupKeyPrefix
@@ -5328,7 +5329,7 @@ backupRestoreTests =
                 metadata = "{\"id\":\"run-001\",\"object\":\"gs://test/backup.gz\"}"
                 script = T.unpack (T.replace "/dump" (T.pack dump)
                   (uploadShell (backupJobInputsPg & #verifyStored .~ True
-                    & #receipt .~ Just (BackupReceipt (T.pack receiptUrl) (T.pack metadata)))))
+                    & #receipt .~ Just (BackupReceipt (FixedReceiptTarget (T.pack receiptUrl)) (T.pack metadata)))))
                 fakeGcloud = directory </> "gcloud"
                 fakeGsutil = directory </> "gsutil"
             createDirectoryIfMissing True dump
@@ -5392,6 +5393,83 @@ backupRestoreTests =
               ExitSuccess -> assertFailure "duplicate backup replaced an object"
             BS.readFile dataObject >>= (@?= dataBytes)
             BS.readFile receiptObject >>= (@?= receiptBytes)
+      , testCase "reviewed scheduled backup writes a UID-bound receipt after stored-byte verification" $
+          withSystemTempDirectory "nagare-scheduled-backup-receipt" $ \directory -> do
+            let dump = directory </> "dump"
+                dataObject = directory </> "backup.gz"
+                receiptObject = directory </> "backup.gz.receipt.json"
+                terminationLog = directory </> "termination-log"
+                runId = "12345678-1234-1234-1234-123456789abc"
+                dataUrl = "gs://test/databases/mydb/" <> runId <> ".sql.gz"
+                receiptUrl = dataUrl <> ".receipt.json"
+                metadata = "{\"database\":\"mydb\",\"schedule\":\"nagare-dbbackup-mydb\"}"
+                script = T.unpack (T.replace "/dump" (T.pack dump)
+                  (uploadShell (backupJobInputsPg & #verifyStored .~ True
+                    & #destination .~ BackupDestStamped
+                    & #receipt .~ Just (BackupReceipt BackupObjectReceiptTarget (T.pack metadata)))))
+                fakeGcloud = directory </> "gcloud"
+                fakeGsutil = directory </> "gsutil"
+            createDirectoryIfMissing True dump
+            writeFile fakeGcloud $ unlines
+              [ "#!/bin/sh", "set -eu"
+              , "[ \"$1\" = storage ] && [ \"$2\" = cp ] && [ \"$5\" = --if-generation-match=0 ] || exit 2"
+              , "case \"$4\" in"
+              , "  \"$NAGARE_TEST_DATA_URL\") TARGET=$NAGARE_TEST_DATA;;"
+              , "  \"$NAGARE_TEST_RECEIPT_URL\") TARGET=$NAGARE_TEST_RECEIPT;;"
+              , "  *) exit 3;;"
+              , "esac"
+              , "[ ! -e \"$TARGET\" ] || exit 47"
+              , "cat \"$3\" > \"$TARGET\""
+              ]
+            writeFile fakeGsutil $ unlines
+              [ "#!/bin/sh", "set -eu"
+              , "[ \"$1\" = cp ] && [ \"$3\" = - ] || exit 2"
+              , "case \"$2\" in"
+              , "  \"$NAGARE_TEST_DATA_URL\") cat \"$NAGARE_TEST_DATA\";;"
+              , "  \"$NAGARE_TEST_RECEIPT_URL\") cat \"$NAGARE_TEST_RECEIPT\";;"
+              , "  *) exit 3;;"
+              , "esac"
+              ]
+            mapM_ (`setFileMode` 0o755) [fakeGcloud, fakeGsutil]
+            parentEnv <- getEnvironment
+            let path = maybe "" id (lookup "PATH" parentEnv)
+                receiptEnv =
+                  [("PATH", directory <> ":" <> path),
+                   ("PREFIX", "gs://test/databases/mydb/"),
+                   ("BACKUP_RUN_ID", runId),
+                   ("BACKUP_RECEIPT_METADATA", metadata),
+                   ("BACKUP_TERMINATION_LOG_PATH", terminationLog),
+                   ("NAGARE_TEST_DATA", dataObject),
+                   ("NAGARE_TEST_RECEIPT", receiptObject),
+                   ("NAGARE_TEST_DATA_URL", dataUrl),
+                   ("NAGARE_TEST_RECEIPT_URL", receiptUrl)]
+                run = readCreateProcessWithExitCode
+                  ((proc "/bin/sh" ["-c", script]) {env = Just
+                    (receiptEnv <> filter (\(key, _) -> key `notElem` map fst receiptEnv) parentEnv)}) ""
+            BS.writeFile (dump </> "backup.sql") "scheduled receipt source\n"
+            (created, _, createError) <- run
+            assertBool ("scheduled receipt upload failed: " <> createError) (created == ExitSuccess)
+            receiptBytes <- BS.readFile receiptObject
+            BS.readFile terminationLog >>= (@?= receiptBytes)
+            (hashExit, hashOutput, _) <- readCreateProcessWithExitCode
+              (proc "sha256sum" [dataObject]) ""
+            hashExit @?= ExitSuccess
+            case eitherDecodeStrict receiptBytes of
+              Right (Aeson.Object root) -> do
+                KeyMap.lookup "version" root @?= Just (Aeson.Number 2)
+                KeyMap.lookup "sha256" root @?=
+                  Just (Aeson.String (T.pack (takeWhile (/= ' ') hashOutput)))
+                KeyMap.lookup "jobUid" root @?= Just (Aeson.String (T.pack runId))
+                KeyMap.lookup "object" root @?= Just (Aeson.String (T.pack dataUrl))
+                case KeyMap.lookup "backup" root of
+                  Just (Aeson.Object backup) ->
+                    KeyMap.lookup "schedule" backup @?= Just (Aeson.String "nagare-dbbackup-mydb")
+                  other -> assertFailure ("scheduled receipt metadata missing: " <> show other)
+              other -> assertFailure ("scheduled receipt JSON invalid: " <> show other)
+            (duplicate, _, _) <- run
+            case duplicate of
+              ExitFailure _ -> pure ()
+              ExitSuccess -> assertFailure "duplicate scheduled run replaced an existing object"
       , testCase "backup Jobs wait for the server and retry" $ do
           let y = TE.decodeUtf8 (renderBackupJob backupJobInputsPg)
           assertBool "waits for the server before the dump" ("until pg_isready -q -h mydb" `T.isInfixOf` y)

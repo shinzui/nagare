@@ -35,7 +35,7 @@ import Data.Vector qualified as V
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (MinioRef (..), StoreBackend (..), storeObjectUrl, storePrefixUrl)
 import Nagare.Database.Backup
-  ( BackupDest (..), BackupJobInputs (..), BackupReceipt (..), backupExt
+  ( BackupDest (..), BackupJobInputs (..), BackupReceipt (..), BackupReceiptTarget (..), backupExt
   , manualBackupJobName, manualBackupKeyPrefix, manualBackupObjectPath, renderBackupJob )
 import Nagare.Dsl.Database (dbSecretName, engineImage, parseEngine)
 import Nagare.Dsl.Database.Render (dbPvcName)
@@ -347,7 +347,7 @@ compileManualBackupScope request accepted native = do
         , keep = 0
         , selfPrune = False
         , verifyStored = True
-        , receipt = Just (BackupReceipt receiptUrl receiptMetadata)
+        , receipt = Just (BackupReceipt (FixedReceiptTarget receiptUrl) receiptMetadata)
         , backend = storageBackend request
         }
   rendered <- first (invalid . T.pack . show)
