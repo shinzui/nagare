@@ -32,7 +32,7 @@ import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapters.KubernetesRuntime
   (KubernetesRuntimeConfig (..))
 import Nagare.Inventory.DataFence (WriterReleaseState (..))
-import Nagare.Inventory.DataFence.MountGuard (mkPodOwnerPermit)
+import Nagare.Inventory.DataFence.MountGuard (validUid)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Resource.Types (ContentDigest, mkName)
 import Nagare.Resource.Wire (canonicalValue)
@@ -52,8 +52,8 @@ mkStatefulWriterPin :: Text -> Text -> Text -> Int -> ContentDigest
   -> Either Text StatefulWriterPin
 mkStatefulWriterPin namespace name uid replicas specDigest = do
   _ <- mkName namespace
-  _ <- mkPodOwnerPermit "StatefulSet" name uid
-    "system:serviceaccount:kube-system:statefulset-controller"
+  _ <- mkName name
+  unless (validUid uid) (Left "saved StatefulSet UID is malformed")
   unless (replicas >= 0) (Left "saved StatefulSet replicas are negative")
   pure (StatefulWriterPin namespace name uid replicas specDigest)
 

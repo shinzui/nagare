@@ -57,7 +57,6 @@ data RawWriter = RawWriter
   , rawWriterUid :: !Text
   , rawWriterReplicas :: !Int
   , rawWriterSpecDigest :: !ContentDigest
-  , rawWriterPrincipal :: !Text
   , rawWriterMountsTarget :: !Bool
   }
 
@@ -138,8 +137,6 @@ decodeKubernetesFenceIntent record = do
         pin <- mkStatefulWriterPin (rawWriterNamespace writer) (rawWriterName writer)
           (rawWriterUid writer) (rawWriterReplicas writer)
           (rawWriterSpecDigest writer)
-        _ <- mkPodOwnerPermit "StatefulSet" (rawWriterName writer)
-          (rawWriterUid writer) (rawWriterPrincipal writer)
         unless (not (rawWriterMountsTarget writer)
             || rawWriterNamespace writer == rawNamespace volume)
           (Left "Kubernetes PVC writer belongs to another namespace")
@@ -321,10 +318,9 @@ parseSavedWriter = withObject "saved Kubernetes writer" $ \o -> do
   kind <- o .: "kind" :: Parser Text
   case kind of
     "StatefulSet" -> do
-      onlyKeys ["kind", "namespace", "name", "uid", "replicas", "specDigest", "controllerPrincipal", "mountsTarget"] o
+      onlyKeys ["kind", "namespace", "name", "uid", "replicas", "specDigest", "mountsTarget"] o
       RawStateful <$> (RawWriter <$> o .: "namespace" <*> o .: "name"
         <*> o .: "uid" <*> o .: "replicas" <*> o .: "specDigest"
-        <*> o .: "controllerPrincipal"
         <*> o .: "mountsTarget")
     "Deployment" -> do
       onlyKeys ["kind", "namespace", "name", "uid", "replicas", "specDigest", "selector", "mountsTarget"] o

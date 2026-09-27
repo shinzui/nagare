@@ -136,6 +136,7 @@ library
     Nagare.Inventory.DataFence.DeploymentWriter
     Nagare.Inventory.DataFence.WriterInventory
     Nagare.Inventory.DataFence.KubernetesIntent
+    Nagare.Inventory.DataFence.KubernetesCapture
     Nagare.Inventory.DataFence.KubernetesExclusion
     Nagare.Inventory.DataFence.ServiceState
     Nagare.Inventory.DataFence.ScheduledWriter

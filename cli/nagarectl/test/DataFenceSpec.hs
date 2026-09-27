@@ -20,6 +20,7 @@ import Nagare.Inventory.Adapter
 import Nagare.Inventory.DataFence
 import Nagare.Inventory.DataFence.DeploymentWriter qualified as Deployment
 import Nagare.Inventory.DataFence.KubernetesExclusion
+import Nagare.Inventory.DataFence.KubernetesCapture
 import Nagare.Inventory.DataFence.MountGuard
 import Nagare.Inventory.DataFence.MountGuardRuntime
 import Nagare.Inventory.DataFence.KubernetesIntent
@@ -64,8 +65,6 @@ dataFenceTests = testGroup "data fence"
               , "uid" .= (writerUid :: Text)
               , "replicas" .= (1 :: Int)
               , "specDigest" .= contentDigest "fixture-stateful-spec"
-              , "controllerPrincipal" .=
-                  ("system:serviceaccount:kube-system:statefulset-controller" :: Text)
               , "mountsTarget" .= True]
             provider = object
               [ "version" .= (1 :: Int)
@@ -280,8 +279,6 @@ dataFenceTests = testGroup "data fence"
               , "uid" .= (writerUid :: Text)
               , "replicas" .= (1 :: Int)
               , "specDigest" .= known (digestStatefulWriterSpec nativeWriter)
-              , "controllerPrincipal" .=
-                  ("system:serviceaccount:kube-system:statefulset-controller" :: Text)
               , "mountsTarget" .= True]
             savedSchedule = object
               [ "kind" .= ("CronJob" :: Text)
@@ -628,6 +625,49 @@ dataFenceTests = testGroup "data fence"
             native = mkKubernetesExclusion (binding ^. #identity) Map.empty
               declarations acceptedNative guardTransport volumeTransport
               writerTransport deploymentTransport serviceTransport scheduleTransport
+            captureTransport = KubernetesCaptureTransport guardTransport volumeTransport
+              writerTransport deploymentTransport scheduleTransport serviceTransport
+            captureRequest = KubernetesCaptureRequest binding Map.empty
+              "restore-session" target writer (Just serviceId)
+              "gs://fixture/recovery" (contentDigest "recovery") Nothing
+        captured <- captureKubernetesFence captureTransport declarations
+          acceptedNative captureRequest >>= right
+        captured @?= nativeRecord
+        firstClaimRead <- newIORef True
+        let changedClaim = volumeTransport
+              { readClaim = \_ _ -> do
+                  firstRead <- atomicModifyIORef' firstClaimRead (\old -> (False, old))
+                  pure (Right (if firstRead then pvc else object
+                    [ "metadata" .= object
+                        [ "namespace" .= ("restore-space" :: Text)
+                        , "name" .= ("data-pvc" :: Text)
+                        , "uid" .= ("new-pvc-uid" :: Text)]
+                    , "spec" .= object
+                        [ "volumeName" .= ("pv-data" :: Text)
+                        , "accessModes" .= (["ReadWriteOnce"] :: [Text])]
+                    , "status" .= object ["phase" .= ("Bound" :: Text)]])) }
+        stale <- captureKubernetesFence
+          (captureTransport {captureVolumeTransport = changedClaim})
+          declarations acceptedNative captureRequest
+        case stale of
+          Left _ -> pure ()
+          Right _ -> assertFailure "PVC changed after capture but before validation"
+        let changedService = serviceTransport
+              { readService = \_ _ -> pure (Right (object
+                  [ "metadata" .= object
+                      [ "namespace" .= ("restore-space" :: Text)
+                      , "name" .= ("database" :: Text)
+                      , "uid" .= (serviceUid :: Text)]
+                  , "spec" .= object
+                      [ "clusterIP" .= ("10.0.0.9" :: Text)
+                      , "selector" .= object
+                          ["nagare.dev/database" .= ("other" :: Text)]]])) }
+        changedRoute <- captureKubernetesFence
+          (captureTransport {captureServiceTransport = changedService})
+          declarations acceptedNative captureRequest
+        case changedRoute of
+          Left _ -> pure ()
+          Right _ -> assertFailure "Service selector changed from accepted intent"
         let missingService = nativeRecord
               { fencePhysical = Map.delete serviceId (fencePhysical nativeRecord)
               , fenceProviderIntent = Just (case provider of
