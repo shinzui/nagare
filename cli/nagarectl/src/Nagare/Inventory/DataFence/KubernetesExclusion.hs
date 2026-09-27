@@ -82,6 +82,7 @@ validatedIntent exclusion record = do
     (Left "Kubernetes fence context or accepted revisions changed")
   intent <- decodeKubernetesFenceIntent record
   validateServiceAssociation exclusion intent
+  validateEngineAssociation exclusion intent
   candidates <- discoverWriterCandidatesForRoutes
     (kubernetesDependencyRoot intent)
     (maybe [] (pure . serviceResource) (kubernetesService intent))
@@ -90,6 +91,13 @@ validatedIntent exclusion record = do
     (exclusionDeclarations exclusion) (exclusionNative exclusion)
   validateKubernetesWriterInventory intent candidates
   pure intent
+
+validateEngineAssociation :: KubernetesExclusion -> KubernetesFenceIntent
+  -> Either Text ()
+validateEngineAssociation exclusion intent = do
+  (_, bytes) <- maybe (Left "database dependency root lacks accepted native evidence")
+    Right (Map.lookup (kubernetesDependencyRoot intent) (exclusionNative exclusion))
+  validateReviewedDatabaseEngine (kubernetesDatabaseEngine intent) bytes
 
 validateServiceAssociation :: KubernetesExclusion -> KubernetesFenceIntent
   -> Either Text ()

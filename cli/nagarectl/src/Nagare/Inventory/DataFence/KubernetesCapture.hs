@@ -20,6 +20,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Vector qualified as V
+import Nagare.Dsl.Database (Engine, engineToken)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapters.KubernetesRuntime
   ( KubernetesRuntimeConfig
@@ -47,6 +48,7 @@ data KubernetesCaptureRequest = KubernetesCaptureRequest
   , captureSession :: !Text
   , captureVolumeResource :: !ResourceId
   , captureDependencyRoot :: !ResourceId
+  , captureExpectedDatabaseEngine :: !(Maybe Engine)
   , captureServiceResource :: !(Maybe ResourceId)
   , captureRecoveryArtifact :: !Text
   , captureRecoveryDigest :: !ContentDigest
@@ -121,6 +123,12 @@ captureKubernetesFence transport declarations native request = do
                       writers <- forM selected (captureWriter transport)
                       let assembled = do
                             captured <- sequence writers
+                            (_, rootBytes) <- maybe
+                              (Left "database dependency root lacks accepted native evidence")
+                              Right (Map.lookup root native)
+                            databaseEngine <- parseAcceptedDatabaseEngine rootBytes
+                            unless (databaseEngine == captureExpectedDatabaseEngine request)
+                              (Left "requested database engine differs from accepted native evidence")
                             claimPhysical <- mkPhysicalIdentity claimUid
                             let servicePhysical =
                                   maybe
@@ -158,6 +166,8 @@ captureKubernetesFence transport declarations native request = do
                                             , "backing" .= backingValue backing
                                             ]
                                       ]
+                                        <> maybe [] (\engine ->
+                                          ["databaseEngine" .= engineToken engine]) databaseEngine
                                         <> maybe
                                           []
                                           ( \(_, _, value) ->

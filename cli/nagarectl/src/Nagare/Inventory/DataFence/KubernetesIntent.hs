@@ -4,18 +4,24 @@
 module Nagare.Inventory.DataFence.KubernetesIntent
   ( KubernetesFenceIntent (..)
   , decodeKubernetesFenceIntent
+  , parseAcceptedDatabaseEngine
+  , validateReviewedDatabaseEngine
   , validateKubernetesWriterInventory
   ) where
 
 import Control.Monad (forM, forM_, unless)
-import Data.Aeson (Value (..), withObject, (.:), (.:?))
+import Data.Aeson (Value (..), eitherDecodeStrict', withObject, (.:), (.:?))
 import Data.Aeson.Key (Key)
+import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
 import Data.Aeson.Types (Parser, parseEither)
+import Data.ByteString (ByteString)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Vector qualified as V
+import Nagare.Dsl.Database (Engine, engineImage, engineToken, mkEngineVersion, parseEngine)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.DataFence.DeploymentWriter qualified as Deployment
 import Nagare.Inventory.DataFence.MountGuard
@@ -30,6 +36,7 @@ import Nagare.Resource.Types
 data KubernetesFenceIntent = KubernetesFenceIntent
   { kubernetesCluster :: !ResourceId
   , kubernetesDependencyRoot :: !ResourceId
+  , kubernetesDatabaseEngine :: !(Maybe Engine)
   , kubernetesVolumeResource :: !ResourceId
   , kubernetesMountGuard :: !MountGuard
   , kubernetesReleaseMountGuard :: !MountGuard
@@ -110,8 +117,10 @@ decodeKubernetesFenceIntent :: DataFenceRecord
 decodeKubernetesFenceIntent record = do
   source <- maybe (Left "data fence lacks Kubernetes provider intent") Right
     (fenceProviderIntent record)
-  (cluster, root, volume, controllerPrincipal, restoreJob, rawService) <- first T.pack
+  (cluster, root, volume, controllerPrincipal, rawEngine, restoreJob, rawService) <- first T.pack
     (parseEither parseProvider source)
+  databaseEngine <- traverse (\token -> maybe
+    (Left "reviewed database engine is unsupported") Right (parseEngine token)) rawEngine
   service <- traverse (\raw -> mkServicePin (rawServiceResource raw)
     (rawServiceNamespace raw) (rawServiceName raw) (rawServiceUid raw)
     (rawServiceClusterIP raw) (rawServiceSelector raw)) rawService
@@ -204,7 +213,7 @@ decodeKubernetesFenceIntent record = do
     (writerName pin) (writerUid pin) controllerPrincipal) statefulWriters
   let releaseGuard = releaseMountGuard mountGuard releasePermits
   validateBacking (rawBacking volume)
-  pure (KubernetesFenceIntent cluster root (rawResource volume)
+  pure (KubernetesFenceIntent cluster root databaseEngine (rawResource volume)
     mountGuard releaseGuard (rawBacking volume)
     statefulWriters deploymentWriters scheduledWriters
     (Map.fromList [(resource, mounted) | (resource, _, mounted) <- writers]) service)
@@ -279,17 +288,78 @@ validateBacking (LocalVolume path node) = do
   _ <- mkName node
   pure ()
 
+-- | A managed database marker must resolve to exactly one supported server
+-- image and a pinned version. A generic StatefulSet without that marker is a
+-- volume writer, not a database engine. Replayed intent checks these accepted
+-- native bytes again before any provider effect.
+parseAcceptedDatabaseEngine :: ByteString -> Either Text (Maybe Engine)
+parseAcceptedDatabaseEngine bytes = do
+  value <- first T.pack (eitherDecodeStrict' bytes)
+  root <- requiredObjectValue "accepted StatefulSet" value
+  case KM.lookup "metadata" root of
+    Nothing -> Right Nothing
+    Just metadataValue -> do
+      metadata <- requiredObjectValue "accepted StatefulSet metadata" metadataValue
+      case KM.lookup "labels" metadata of
+        Nothing -> Right Nothing
+        Just labelsValue -> do
+          labels <- requiredObjectValue "accepted StatefulSet labels" labelsValue
+          case KM.lookup "nagare.dev/database" labels of
+            Nothing -> Right Nothing
+            Just (String database) | not (T.null database) -> do
+              kind <- requiredText "kind" root
+              unless (kind == "StatefulSet")
+                (Left "accepted managed database is not a StatefulSet")
+              spec <- requiredObject "spec" root
+              template <- requiredObject "template" spec
+              pod <- requiredObject "spec" template
+              containers <- requiredArray "containers" pod
+              container <- case containers of
+                [containerValue] -> requiredObjectValue "managed database container" containerValue
+                _ -> Left "managed database must have exactly one server container"
+              name <- requiredText "name" container
+              engine <- maybe (Left "managed database engine is unsupported") Right
+                (parseEngine name)
+              image <- requiredText "image" container
+              version <- maybe (Left "managed database image differs from its engine")
+                Right (T.stripPrefix (engineImage engine <> ":") image)
+              _ <- mkEngineVersion engine version
+              unless (name == engineToken engine)
+                (Left "managed database container differs from its engine")
+              pure (Just engine)
+            Just _ -> Left "managed database label is malformed"
+  where
+    requiredObject key fields = maybe
+      (Left ("accepted managed database lacks " <> key))
+      (requiredObjectValue ("accepted managed database " <> key))
+      (KM.lookup (Key.fromText key) fields)
+    requiredObjectValue _ (Object fields) = Right fields
+    requiredObjectValue label _ = Left (label <> " is not an object")
+    requiredText key fields = case KM.lookup (Key.fromText key) fields of
+      Just (String value) | not (T.null value) -> Right value
+      _ -> Left ("accepted managed database lacks " <> key)
+    requiredArray key fields = case KM.lookup (Key.fromText key) fields of
+      Just (Array values) -> Right (V.toList values)
+      _ -> Left ("accepted managed database lacks " <> key)
+
+validateReviewedDatabaseEngine :: Maybe Engine -> ByteString -> Either Text ()
+validateReviewedDatabaseEngine reviewed bytes = do
+  accepted <- parseAcceptedDatabaseEngine bytes
+  unless (accepted == reviewed)
+    (Left "reviewed database engine differs from accepted native evidence")
+
 parseProvider :: Value
-  -> Parser (ResourceId, ResourceId, RawVolume, Text, Maybe RawRestoreJob, Maybe RawService)
+  -> Parser (ResourceId, ResourceId, RawVolume, Text, Maybe Text, Maybe RawRestoreJob, Maybe RawService)
 parseProvider = withObject "Kubernetes fence intent" $ \o -> do
-  onlyKeys ["version", "provider", "cluster", "dependencyRoot", "volume", "statefulControllerPrincipal", "restoreJob", "service"] o
+  onlyKeys ["version", "provider", "cluster", "dependencyRoot", "volume", "statefulControllerPrincipal", "databaseEngine", "restoreJob", "service"] o
   version <- o .: "version" :: Parser Int
   unless (version == 2) (fail "unsupported Kubernetes fence intent version")
   provider <- o .: "provider" :: Parser Text
   unless (provider == "kubernetes") (fail "data fence provider is not Kubernetes")
-  (,,,,,) <$> o .: "cluster" <*> o .: "dependencyRoot"
+  (,,,,,,) <$> o .: "cluster" <*> o .: "dependencyRoot"
     <*> (o .: "volume" >>= parseVolume)
     <*> o .: "statefulControllerPrincipal"
+    <*> o .:? "databaseEngine"
     <*> (o .:? "restoreJob" >>= traverse parseJob)
     <*> (o .:? "service" >>= traverse parseService)
 

@@ -13,6 +13,7 @@ import Data.Maybe (listToMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
+import Nagare.Dsl.Database (Engine (..))
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
   ( AdapterExecution (..), AdapterFence (..)
@@ -52,6 +53,39 @@ dataFenceTests = testGroup "data fence"
       eitherDecode (encode withProvider) @?= Right withProvider
       assertBool "provider intent must change the fence digest"
         (dataFenceIntentDigest withProvider /= dataFenceIntentDigest request)
+    , testCase "accepted managed database image pins a supported engine" $ do
+        let native container image = BL.toStrict (encode (object
+              [ "kind" .= ("StatefulSet" :: Text)
+              , "metadata" .= object ["labels" .= object
+                  ["nagare.dev/database" .= ("database" :: Text)]]
+              , "spec" .= object ["template" .= object ["spec" .= object
+                  ["containers" .= [object
+                    ["name" .= (container :: Text), "image" .= (image :: Text)]]]]]
+              ]))
+        mapM_ (\(container, image, engine) ->
+          parseAcceptedDatabaseEngine (native container image)
+            @?= Right (Just engine))
+          [ ("postgres", "postgres:18", Postgres)
+          , ("redis", "redis:8", Redis)
+          , ("clickhouse", "clickhouse/clickhouse-server:25.8", ClickHouse)]
+        validateReviewedDatabaseEngine (Just Postgres)
+          (native "postgres" "postgres:18") @?= Right ()
+        case validateReviewedDatabaseEngine (Just Redis)
+            (native "postgres" "postgres:18") of
+          Left _ -> pure ()
+          Right _ -> assertFailure "reviewed engine substitution was accepted"
+        case validateReviewedDatabaseEngine Nothing
+            (native "postgres" "postgres:18") of
+          Left _ -> pure ()
+          Right _ -> assertFailure "managed database omitted its engine pin"
+        case parseAcceptedDatabaseEngine (native "postgres" "redis:8") of
+          Left _ -> pure ()
+          Right _ -> assertFailure "mismatched server image was accepted"
+        case parseAcceptedDatabaseEngine (native "postgres" "postgres:latest") of
+          Left _ -> pure ()
+          Right _ -> assertFailure "floating server image was accepted"
+        parseAcceptedDatabaseEngine (BL.toStrict (encode
+          (object ["spec" .= object []]))) @?= Right Nothing
     , testCase "Kubernetes fence intent validates the complete durable native pin" $ do
         let pvcUid = "11111111-2222-3333-4444-555555555555"
             pvUid = "66666666-7777-8888-9999-000000000000"
@@ -273,6 +307,7 @@ dataFenceTests = testGroup "data fence"
               , "provider" .= ("kubernetes" :: Text)
               , "cluster" .= cluster
               , "dependencyRoot" .= writer
+              , "databaseEngine" .= ("postgres" :: Text)
               , "statefulControllerPrincipal" .=
                   ("system:serviceaccount:kube-system:statefulset-controller" :: Text)
               , "volume" .= object
@@ -368,10 +403,18 @@ dataFenceTests = testGroup "data fence"
             writerSpec replicas = object
               [ "replicas" .= (replicas :: Int)
               , "serviceName" .= ("database" :: Text)
-              , "template" .= object ["spec" .= object ["volumes" .= [object
-                  ["persistentVolumeClaim" .= object
-                    ["claimName" .= ("data-pvc" :: Text)]]]]]]
-            nativeWriter = object ["spec" .= writerSpec (1 :: Int)]
+              , "template" .= object ["spec" .= object
+                  [ "containers" .= [object
+                      [ "name" .= ("postgres" :: Text)
+                      , "image" .= ("postgres:18" :: Text)]]
+                  , "volumes" .= [object
+                      ["persistentVolumeClaim" .= object
+                        ["claimName" .= ("data-pvc" :: Text)]]]]]]
+            nativeWriter = object
+              [ "kind" .= ("StatefulSet" :: Text)
+              , "metadata" .= object ["labels" .= object
+                  ["nagare.dev/database" .= ("database" :: Text)]]
+              , "spec" .= writerSpec (1 :: Int)]
             deploymentSpec replicas = object
               [ "replicas" .= (replicas :: Int)
               , "selector" .= object ["matchLabels" .= object
@@ -439,6 +482,7 @@ dataFenceTests = testGroup "data fence"
               _ -> Nothing
             address _ = Nothing
         nativeIntent <- right (decodeKubernetesFenceIntent nativeRecord)
+        kubernetesDatabaseEngine nativeIntent @?= Just Postgres
         let releaseName = mountGuardName (kubernetesReleaseMountGuard nativeIntent)
         objects <- newIORef (Map.empty :: Map.Map (Text, Text) Value)
         guardDenied <- newIORef False
@@ -659,12 +703,17 @@ dataFenceTests = testGroup "data fence"
             captureTransport = KubernetesCaptureTransport guardTransport volumeTransport
               writerTransport deploymentTransport scheduleTransport serviceTransport
             captureRequest = KubernetesCaptureRequest binding Map.empty
-              "restore-session" target writer (Just serviceId)
+              "restore-session" target writer (Just Postgres) (Just serviceId)
               "gs://fixture/recovery" (contentDigest "recovery")
               "system:serviceaccount:kube-system:statefulset-controller" Nothing
         captured <- captureKubernetesFence captureTransport declarations
           acceptedNative captureRequest >>= right
         captured @?= nativeRecord
+        wrongEngine <- captureKubernetesFence captureTransport declarations
+          acceptedNative (captureRequest {captureExpectedDatabaseEngine = Just Redis})
+        case wrongEngine of
+          Left _ -> pure ()
+          Right _ -> assertFailure "requested engine differed from accepted server image"
         firstClaimRead <- newIORef True
         let changedClaim = volumeTransport
               { readClaim = \_ _ -> do
@@ -710,6 +759,15 @@ dataFenceTests = testGroup "data fence"
         case omitted of
           Left _ -> pure ()
           Right () -> assertFailure "StatefulSet fence omitted its Service route"
+        let missingEngine = nativeRecord
+              { fenceProviderIntent = Just (case provider of
+                  Object fields -> Object (KM.delete "databaseEngine" fields)
+                  other -> other)
+              }
+        unpinned <- validateKubernetesExclusion native missingEngine
+        case unpinned of
+          Left _ -> pure ()
+          Right () -> assertFailure "managed database omitted its reviewed engine"
         validateKubernetesExclusion native nativeRecord >>= right
         refused <- stopKubernetesWriters native nativeRecord
         refused @?= Left "Kubernetes mount admission guard is not enforcing"

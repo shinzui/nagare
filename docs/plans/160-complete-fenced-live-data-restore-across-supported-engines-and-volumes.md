@@ -115,6 +115,8 @@ Inherited: manual receipts and expiry validation, PostgreSQL scratch restore, an
 
 2026-09-27 saved-intent apply boundary: `AdapterFence` now separates planning capture from apply-time control construction. Apply reads the exact canonical private `DataFenceRecord` from the verified review and passes it to the replay hook; it never asks the planning hook to recapture the intent. A fresh-registry recording test deliberately makes planning capture fail at apply, checks the exact saved record in the replay hook, and still completes the fenced transaction. Missing capability and changed provider/physical expectations refuse before effects. The focused data-fence suite passes. Production Kubernetes and engine replay controls are still absent, so M1 remains open.
 
+2026-09-27 database engine pin: read-only Kubernetes capture now requires the requested engine to match the accepted root StatefulSet's managed database marker, single server container, supported engine image, and pinned image tag. It stores the engine token in private intent; replay checks that token again against accepted native bytes before any provider effect. The native recording fixture now captures a PostgreSQL-shaped StatefulSet and refuses an omitted or substituted engine; focused cases cover PostgreSQL, Redis, and ClickHouse images plus mismatched and floating tags. This establishes engine identity for later native drain controls, not engine write exclusion. M1 remains open until those controls, production review registration, and provider proof are complete.
+
 
 ## Surprises & Discoveries
 
