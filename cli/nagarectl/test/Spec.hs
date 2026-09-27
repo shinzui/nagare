@@ -20,6 +20,7 @@ import Data.Aeson (eitherDecodeStrict, encode)
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
+import Data.Yaml qualified as Yaml
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
@@ -347,7 +348,9 @@ import Nagare.Resource.Inventory (Declaration (External, Managed), ResourceBundl
 import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (DeleteWhenUnreferenced))
 import Nagare.Resource.Inventory qualified as InventoryModel
 import Nagare.Resource.Canonical (canonicalValue, contentDigest)
-import Nagare.Inventory.Backup (ScheduledBackupReceipt (..), ScheduledReceiptExpectation (..), parseScheduledBackupReceipt)
+import Nagare.Inventory.Backup
+  ( ScheduledBackupReceipt (..), ScheduledReceiptExpectation (..)
+  , parseScheduledBackupReceipt, scheduledReceiptExpectationFromCronJob )
 import Nagare.Resource.Policy qualified as InventoryPolicy
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types qualified as Resource
@@ -5113,6 +5116,25 @@ backupRestoreTests =
           assertBool "no scheduled- key prefix" (not ("scheduled-" `T.isInfixOf` y))
           assertBool "no DEST env var" (not ("name: DEST" `T.isInfixOf` y))
           assertBool "listing prefix" ("gs://tan-nb-exp-nagare-backups/databases/en-db/" `T.isInfixOf` y)
+      , testCase "scheduled backup receipt expectation comes from accepted CronJob bytes" $ do
+          let rendered = renderInventoryDbBackupCronJob "personal" "mydb" Postgres "18" localMinioBackend 7
+              value = either (error . show) id (Yaml.decodeEither' rendered :: Either Yaml.ParseException Aeson.Value)
+              native = either (error . T.unpack) id (canonicalValue value)
+              uid = either (error . T.unpack) id
+                (Resource.mkPhysicalIdentity "22222222-2222-2222-2222-222222222222")
+              expectation = scheduledReceiptExpectationFromCronJob localMinioBackend
+                "personal" "mydb" uid uid native
+          case expectation of
+            Left reason -> assertFailure ("accepted schedule was rejected: " <> T.unpack reason)
+            Right checked -> do
+              scheduledObjectPrefix checked @?= "s3://nagare-backups/databases/mydb/"
+              scheduledFormat checked @?= "sql.gz"
+          assertBool "wrong backend can authorize schedule" (isLeft
+            (scheduledReceiptExpectationFromCronJob tnbGcsBackend
+              "personal" "mydb" uid uid native))
+          assertBool "wrong source name can authorize schedule" (isLeft
+            (scheduledReceiptExpectationFromCronJob localMinioBackend
+              "personal" "other" uid uid native))
       , testCase "reviewed backup reads back exact stored bytes for both backends" $ do
           let cloud = TE.decodeUtf8 (renderInventoryDbBackupCronJob "personal" "mydb" Postgres "18" tnbGcsBackend 7)
               local = TE.decodeUtf8 (renderInventoryDbBackupCronJob "personal" "mydb" Postgres "18" localMinioBackend 7)

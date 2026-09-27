@@ -15,6 +15,7 @@ module Nagare.Inventory.Backup
   , parseBackupReceipt
   , parseManualBackupReceipt
   , parseScheduledBackupReceipt
+  , scheduledReceiptExpectationFromCronJob
   , compileManualBackupScope
   , VolumeSnapshotRequest (..)
   , volumeSnapshotJobSourcePins
@@ -43,7 +44,7 @@ import Data.Vector qualified as V
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (MinioRef (..), StoreBackend (..), storeObjectUrl, storePrefixUrl)
 import Nagare.Database.Backup
-  ( BackupDest (..), BackupJobInputs (..), BackupReceipt (..), BackupReceiptTarget (..), backupExt
+  ( BackupDest (..), BackupJobInputs (..), BackupReceipt (..), BackupReceiptTarget (..), backupExt, dbBackupKeyPrefix
   , manualBackupJobName, manualBackupKeyPrefix, manualBackupObjectPath, renderBackupJob )
 import Nagare.Dsl.Database (dbSecretName, engineImage, parseEngine)
 import Nagare.Dsl.Database.Render (dbPvcName)
@@ -114,6 +115,83 @@ data ScheduledBackupReceipt = ScheduledBackupReceipt
   , scheduledScheduleRevision :: !ContentDigest
   }
   deriving stock (Eq, Show)
+
+-- | Derive receipt authority from the exact native bytes retained for an
+-- accepted schedule. The caller separately proves that these bytes belong to
+-- accepted history, that the signing Secret is accepted, and that the two
+-- observed source UIDs are the intended incarnation. In particular, a receipt
+-- cannot supply its own metadata expectation or object prefix.
+scheduledReceiptExpectationFromCronJob
+  :: StoreBackend -> T.Text -> T.Text -> PhysicalIdentity -> PhysicalIdentity
+  -> ByteString -> Either T.Text ScheduledReceiptExpectation
+scheduledReceiptExpectationFromCronJob backend namespaceName database statefulUid pvcUid bytes = do
+  value <- first T.pack (eitherDecodeStrict bytes)
+  unless (lookupJsonPath ["kind"] value == Just (String "CronJob")
+      && lookupJsonPath ["metadata", "name"] value == Just (String schedule)
+      && lookupJsonPath ["metadata", "namespace"] value == Just (String namespaceName))
+    (Left "accepted scheduled backup CronJob has another identity")
+  let podSpecPath = ["spec", "jobTemplate", "spec", "template", "spec"]
+      containers = case lookupJsonPath (podSpecPath <> ["containers"]) value of
+        Just (Array entries) -> V.toList entries
+        _ -> []
+      uploads = [container | container <- containers,
+        lookupJsonPath ["name"] container == Just (String "upload")]
+  upload <- case uploads of
+    [single] -> Right single
+    _ -> Left "accepted scheduled backup has no unique upload container"
+  let entries = case lookupJsonPath ["env"] upload of
+        Just (Array fields) -> V.toList fields
+        _ -> []
+      env name = case [field | field <- entries, lookupJsonPath ["name"] field == Just (String name)] of
+        [field] -> Right field
+        _ -> Left ("accepted scheduled backup lacks one " <> name <> " environment entry")
+      plain name = do
+        field <- env name
+        case lookupJsonPath ["value"] field of
+          Just (String result) -> Right result
+          _ -> Left ("accepted scheduled backup has no plain " <> name <> " value")
+  prefix <- plain "PREFIX"
+  unless (prefix == storePrefixUrl backend (dbBackupKeyPrefix database))
+    (Left "accepted scheduled backup uses another object key space")
+  sourceName <- plain "BACKUP_SOURCE_NAME"
+  unless (sourceName == database)
+    (Left "accepted scheduled backup probes another source")
+  runId <- env "BACKUP_RUN_ID"
+  unless (lookupJsonPath ["valueFrom", "fieldRef", "fieldPath"] runId
+      == Just (String "metadata.labels['batch.kubernetes.io/controller-uid']"))
+    (Left "accepted scheduled backup has another run identity")
+  unless (lookupJsonPath (podSpecPath <> ["serviceAccountName"]) value
+      == Just (String schedule))
+    (Left "accepted scheduled backup has another source reader")
+  signing <- env "BACKUP_SIGNING_KEY"
+  unless (lookupJsonPath ["valueFrom", "secretKeyRef", "name"] signing
+      == Just (String (schedule <> "-signing")))
+    (Left "accepted scheduled backup has another signing Secret")
+  unless (lookupJsonPath ["valueFrom", "secretKeyRef", "key"] signing
+      == Just (String "HMAC_KEY"))
+    (Left "accepted scheduled backup has another signing key field")
+  metadataJson <- plain "BACKUP_RECEIPT_METADATA"
+  metadata <- first T.pack (eitherDecodeStrict (TE.encodeUtf8 metadataJson))
+  (format, revision) <- case metadata of
+    Object fields | KM.size fields == 7
+      , KM.lookup "database" fields == Just (String database)
+      , KM.lookup "namespace" fields == Just (String namespaceName)
+      , KM.lookup "schedule" fields == Just (String schedule)
+      , Just (String engineName) <- KM.lookup "engine" fields
+      , Just (String extension) <- KM.lookup "format" fields
+      , Just (String digest) <- KM.lookup "scheduleRevision" fields
+      , Just (Number _) <- KM.lookup "keep" fields
+      , Just engine <- parseEngine engineName
+      , extension == backupExt engine -> Right (extension, digest)
+    _ -> Left "accepted scheduled backup has invalid receipt metadata"
+  _ <- mkContentDigest revision
+  metadataBytes <- canonicalValue metadata
+  pure (ScheduledReceiptExpectation prefix format (contentDigest metadataBytes) statefulUid pvcUid)
+  where
+    schedule = "nagare-dbbackup-" <> database
+    lookupJsonPath [] current = Just current
+    lookupJsonPath (key : rest) (Object fields) = KM.lookup key fields >>= lookupJsonPath rest
+    lookupJsonPath _ _ = Nothing
 
 manualBackupSourceProof :: ScopeDeclaration -> Either T.Text (Maybe BackupSourceProof)
 manualBackupSourceProof scope
