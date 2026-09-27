@@ -32,6 +32,7 @@ data KubernetesFenceIntent = KubernetesFenceIntent
   , kubernetesDependencyRoot :: !ResourceId
   , kubernetesVolumeResource :: !ResourceId
   , kubernetesMountGuard :: !MountGuard
+  , kubernetesReleaseMountGuard :: !MountGuard
   , kubernetesVolumeBacking :: !VolumeBacking
   , kubernetesStatefulWriters :: ![(ResourceId, StatefulWriterPin)]
   , kubernetesDeploymentWriters :: ![(ResourceId, Deployment.DeploymentWriterPin)]
@@ -109,7 +110,7 @@ decodeKubernetesFenceIntent :: DataFenceRecord
 decodeKubernetesFenceIntent record = do
   source <- maybe (Left "data fence lacks Kubernetes provider intent") Right
     (fenceProviderIntent record)
-  (cluster, root, volume, restoreJob, rawService) <- first T.pack
+  (cluster, root, volume, controllerPrincipal, restoreJob, rawService) <- first T.pack
     (parseEither parseProvider source)
   service <- traverse (\raw -> mkServicePin (rawServiceResource raw)
     (rawServiceNamespace raw) (rawServiceName raw) (rawServiceUid raw)
@@ -199,9 +200,12 @@ decodeKubernetesFenceIntent record = do
       | (_, pin) <- scheduledWriters]
   mountGuard <- maybe (Right scheduleGuard) (\pin -> withGuardedService scheduleGuard
     (serviceNamespace pin) (serviceName pin) (serviceUid pin)) service
+  releasePermits <- traverse (\(_, pin) -> mkPodOwnerPermit "StatefulSet"
+    (writerName pin) (writerUid pin) controllerPrincipal) statefulWriters
+  let releaseGuard = releaseMountGuard mountGuard releasePermits
   validateBacking (rawBacking volume)
   pure (KubernetesFenceIntent cluster root (rawResource volume)
-    mountGuard (rawBacking volume)
+    mountGuard releaseGuard (rawBacking volume)
     statefulWriters deploymentWriters scheduledWriters
     (Map.fromList [(resource, mounted) | (resource, _, mounted) <- writers]) service)
 
@@ -276,15 +280,16 @@ validateBacking (LocalVolume path node) = do
   pure ()
 
 parseProvider :: Value
-  -> Parser (ResourceId, ResourceId, RawVolume, Maybe RawRestoreJob, Maybe RawService)
+  -> Parser (ResourceId, ResourceId, RawVolume, Text, Maybe RawRestoreJob, Maybe RawService)
 parseProvider = withObject "Kubernetes fence intent" $ \o -> do
-  onlyKeys ["version", "provider", "cluster", "dependencyRoot", "volume", "restoreJob", "service"] o
+  onlyKeys ["version", "provider", "cluster", "dependencyRoot", "volume", "statefulControllerPrincipal", "restoreJob", "service"] o
   version <- o .: "version" :: Parser Int
-  unless (version == 1) (fail "unsupported Kubernetes fence intent version")
+  unless (version == 2) (fail "unsupported Kubernetes fence intent version")
   provider <- o .: "provider" :: Parser Text
   unless (provider == "kubernetes") (fail "data fence provider is not Kubernetes")
-  (,,,,) <$> o .: "cluster" <*> o .: "dependencyRoot"
+  (,,,,,) <$> o .: "cluster" <*> o .: "dependencyRoot"
     <*> (o .: "volume" >>= parseVolume)
+    <*> o .: "statefulControllerPrincipal"
     <*> (o .:? "restoreJob" >>= traverse parseJob)
     <*> (o .:? "service" >>= traverse parseService)
 

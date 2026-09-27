@@ -269,10 +269,9 @@ observeKubernetesExcluded exclusion record = case validatedIntent exclusion reco
             && volumeHasNoConsumers evidence
             && serviceEmpty && guarded)
 
--- | Called only from the durable verified-release phase. This incomplete
--- release path requires an intact admission guard before cleanup and refuses
--- to resume after a partial guard deletion. Production registration remains
--- blocked until a guarded handoff protects foreign mounts during restoration.
+-- | The release overlay is observed before acquisition-guard cleanup and
+-- remains active until the exact saved writer intent is ready. A restart can
+-- reenter after a lost acknowledgement without opening foreign PVC mounts.
 releaseKubernetesWriters :: KubernetesExclusion -> DataFenceRecord
   -> IO (Either Text ())
 releaseKubernetesWriters exclusion record = case validatedIntent exclusion record of
@@ -284,15 +283,44 @@ releaseKubernetesWriters exclusion record = case validatedIntent exclusion recor
       Right () -> do
         let guardTransport = exclusionGuardTransport exclusion
             mountGuard = kubernetesMountGuard intent
-        enforcing <- observeMountGuard guardTransport mountGuard
-        case enforcing of
+            releaseGuard = kubernetesReleaseMountGuard intent
+        acquisition <- observeMountGuard guardTransport mountGuard
+        releasing <- observeMountGuard guardTransport releaseGuard
+        case (,) <$> acquisition <*> releasing of
           Left reason -> pure (Left reason)
-          Right False -> pure (Left "Kubernetes mount admission guard is not enforcing before release")
-          Right True -> do
-            removed <- removeMountGuard guardTransport mountGuard
-            case removed of
+          Right (False, False) -> do
+            acquisitionAbsent <- observeMountGuardAbsent guardTransport mountGuard
+            ready <- observeSavedKubernetesWritersReady exclusion intent
+            case (,) <$> acquisitionAbsent <*> ready of
               Left reason -> pure (Left reason)
-              Right () -> restoreKubernetesWriterIntent exclusion intent
+              Right (True, True) -> removeMountGuard guardTransport releaseGuard
+              Right _ -> pure (Left
+                "Kubernetes mount admission guard is not enforcing before release")
+          Right _ -> do
+            installed <- installMountGuard guardTransport releaseGuard
+            case installed of
+              Left reason -> pure (Left reason)
+              Right () -> do
+                overlay <- observeMountGuard guardTransport releaseGuard
+                case overlay of
+                  Left reason -> pure (Left reason)
+                  Right False -> pure (Left
+                    "Kubernetes release mount guard is not enforcing")
+                  Right True -> do
+                    removed <- removeMountGuard guardTransport mountGuard
+                    case removed of
+                      Left reason -> pure (Left reason)
+                      Right () -> do
+                        restored <- restoreKubernetesWriterIntent exclusion intent
+                        case restored of
+                          Left reason -> pure (Left reason)
+                          Right () -> do
+                            ready <- observeSavedKubernetesWritersReady exclusion intent
+                            case ready of
+                              Left reason -> pure (Left reason)
+                              Right False -> pure (Left
+                                "saved Kubernetes writer intent is not ready for guard release")
+                              Right True -> removeMountGuard guardTransport releaseGuard
 
 restoreKubernetesWriterIntent :: KubernetesExclusion -> KubernetesFenceIntent
   -> IO (Either Text ())
@@ -324,6 +352,19 @@ restoreKubernetesWriterIntent exclusion intent = do
                 restoreScheduledWriter (exclusionScheduleTransport exclusion) pin
               pure (sequence_ schedules)
 
+observeSavedKubernetesWritersReady :: KubernetesExclusion
+  -> KubernetesFenceIntent -> IO (Either Text Bool)
+observeSavedKubernetesWritersReady exclusion intent = do
+  stateful <- forM (kubernetesStatefulWriters intent) $ \(_, pin) ->
+    observeStatefulWriterRelease (exclusionWriterTransport exclusion) pin
+  deployments <- forM (kubernetesDeploymentWriters intent) $ \(_, pin) ->
+    Deployment.observeDeploymentWriterRelease
+      (exclusionDeploymentTransport exclusion) pin
+  schedules <- forM (kubernetesScheduledWriters intent) $ \(_, pin) ->
+    observeScheduledWriterRelease (exclusionScheduleTransport exclusion) pin
+  pure $ all (== WritersFullyReleased)
+    <$> (sequence (stateful <> deployments <> schedules))
+
 observeKubernetesRelease :: KubernetesExclusion -> DataFenceRecord
   -> IO (Either Text WriterReleaseState)
 observeKubernetesRelease exclusion record = case validatedIntent exclusion record of
@@ -341,15 +382,18 @@ observeKubernetesRelease exclusion record = case validatedIntent exclusion recor
         schedules <- forM (kubernetesScheduledWriters intent) $ \(_, pin) ->
           observeScheduledWriterRelease (exclusionScheduleTransport exclusion) pin
         let mountGuard = kubernetesMountGuard intent
+            releaseGuard = kubernetesReleaseMountGuard intent
             transport = exclusionGuardTransport exclusion
         intact <- observeMountGuard transport mountGuard
         absent <- observeMountGuardAbsent transport mountGuard
+        releaseAbsent <- observeMountGuardAbsent transport releaseGuard
         pure $ do
           states <- sequence writers
           deploymentStates <- sequence deployments
           scheduledStates <- sequence schedules
           guarded <- intact
           removed <- absent
+          overlayRemoved <- releaseAbsent
           let scheduledExcluded = and
                 [ state == WritersStillExcluded
                     || (scheduleSavedSuspend pin == Just True
@@ -357,7 +401,8 @@ observeKubernetesRelease exclusion record = case validatedIntent exclusion recor
                 | ((_, pin), state) <- zip (kubernetesScheduledWriters intent)
                     scheduledStates]
           pure $ if all (== WritersFullyReleased) (states <> deploymentStates)
-              && all (== WritersFullyReleased) scheduledStates && removed
+              && all (== WritersFullyReleased) scheduledStates
+              && removed && overlayRemoved
             then WritersFullyReleased
             else if all (== WritersStillExcluded) (states <> deploymentStates)
               && scheduledExcluded && guarded

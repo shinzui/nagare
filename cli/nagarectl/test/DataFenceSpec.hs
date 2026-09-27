@@ -67,10 +67,12 @@ dataFenceTests = testGroup "data fence"
               , "specDigest" .= contentDigest "fixture-stateful-spec"
               , "mountsTarget" .= True]
             provider = object
-              [ "version" .= (1 :: Int)
+              [ "version" .= (2 :: Int)
               , "provider" .= ("kubernetes" :: Text)
               , "cluster" .= clusterId
               , "dependencyRoot" .= writer
+              , "statefulControllerPrincipal" .=
+                  ("system:serviceaccount:kube-system:statefulset-controller" :: Text)
               , "volume" .= object
                   [ "resource" .= target
                   , "namespace" .= ("restore-space" :: Text)
@@ -93,8 +95,19 @@ dataFenceTests = testGroup "data fence"
         kubernetesVolumeBacking decoded @?= LocalVolume "/data/disk" "node-a"
         map fst (kubernetesStatefulWriters decoded) @?= [writer]
         let (podPolicy, _) = mountGuardObjects (kubernetesMountGuard decoded)
+            (releasePolicy, _) = mountGuardObjects
+              (kubernetesReleaseMountGuard decoded)
         assertBool "acquisition guard must deny the saved writer controller"
           (not (writerUid `T.isInfixOf` T.pack (show podPolicy)))
+        assertBool "release guard has a distinct admission address"
+          (mountGuardName (kubernetesMountGuard decoded)
+            /= mountGuardName (kubernetesReleaseMountGuard decoded))
+        assertBool "release guard permits the exact saved writer owner"
+          (writerUid `T.isInfixOf` T.pack (show releasePolicy))
+        assertBool "release guard binds the authenticated controller"
+          ("system:serviceaccount:kube-system:statefulset-controller"
+            `T.isInfixOf` T.pack (show releasePolicy))
+        statefulWriterGuardObjects (kubernetesReleaseMountGuard decoded) @?= []
         case statefulWriterGuardObjects (kubernetesMountGuard decoded) of
           [(writerPolicy, _), (scalePolicy, _)] -> do
             let rendered = T.pack (show writerPolicy)
@@ -172,6 +185,13 @@ dataFenceTests = testGroup "data fence"
         case decodeKubernetesFenceIntent extraField of
           Left _ -> pure ()
           Right _ -> assertFailure "unknown native intent field was accepted"
+        let missingReleasePrincipal = native
+              {fenceProviderIntent = Just (case provider of
+                Object fields -> Object (KM.delete "statefulControllerPrincipal" fields)
+                other -> other)}
+        case decodeKubernetesFenceIntent missingReleasePrincipal of
+          Left _ -> pure ()
+          Right _ -> assertFailure "unreviewed release controller was accepted"
     , testCase "service evidence counts unready and legacy endpoints" $ do
         servicePin <- right (mkServicePin target "restore-space" "database"
           "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" "10.0.0.9"
@@ -249,10 +269,12 @@ dataFenceTests = testGroup "data fence"
             deploymentId = mintResourceId fenceOwner
               (known (mkLogicalKey "database-client")) (known (mkName "deployment"))
             provider = object
-              [ "version" .= (1 :: Int)
+              [ "version" .= (2 :: Int)
               , "provider" .= ("kubernetes" :: Text)
               , "cluster" .= cluster
               , "dependencyRoot" .= writer
+              , "statefulControllerPrincipal" .=
+                  ("system:serviceaccount:kube-system:statefulset-controller" :: Text)
               , "volume" .= object
                   [ "resource" .= target
                   , "namespace" .= ("restore-space" :: Text)
@@ -416,6 +438,8 @@ dataFenceTests = testGroup "data fence"
                   _ -> Nothing
               _ -> Nothing
             address _ = Nothing
+        nativeIntent <- right (decodeKubernetesFenceIntent nativeRecord)
+        let releaseName = mountGuardName (kubernetesReleaseMountGuard nativeIntent)
         objects <- newIORef (Map.empty :: Map.Map (Text, Text) Value)
         guardDenied <- newIORef False
         writerDenied <- newIORef False
@@ -434,6 +458,7 @@ dataFenceTests = testGroup "data fence"
         endpointsCleared <- newIORef False
         patches <- newIORef (0 :: Int)
         loseDeleteAck <- newIORef True
+        loseReleaseDeleteAck <- newIORef False
         let guardTransport = MountGuardTransport
               { readGuardObject = \kind name ->
                   Right . Map.lookup (kind, name) <$> readIORef objects
@@ -464,7 +489,11 @@ dataFenceTests = testGroup "data fence"
                   if not pinned then pure (Left "guard delete precondition failed") else do
                     modifyIORef' objects (Map.delete (kind, name))
                     lost <- readIORef loseDeleteAck
-                    if lost then writeIORef loseDeleteAck False
+                    lostRelease <- readIORef loseReleaseDeleteAck
+                    if name == releaseName && lostRelease then
+                      writeIORef loseReleaseDeleteAck False
+                        >> pure (Left "release guard delete acknowledgement lost")
+                    else if lost then writeIORef loseDeleteAck False
                       >> pure (Left "guard delete acknowledgement lost")
                       else pure (Right ())
               , probeForeignMountDenied = \_ -> Right <$> readIORef guardDenied
@@ -631,7 +660,8 @@ dataFenceTests = testGroup "data fence"
               writerTransport deploymentTransport scheduleTransport serviceTransport
             captureRequest = KubernetesCaptureRequest binding Map.empty
               "restore-session" target writer (Just serviceId)
-              "gs://fixture/recovery" (contentDigest "recovery") Nothing
+              "gs://fixture/recovery" (contentDigest "recovery")
+              "system:serviceaccount:kube-system:statefulset-controller" Nothing
         captured <- captureKubernetesFence captureTransport declarations
           acceptedNative captureRequest >>= right
         captured @?= nativeRecord
@@ -732,15 +762,23 @@ dataFenceTests = testGroup "data fence"
         firstRelease <- releaseKubernetesWriters native nativeRecord
         firstRelease @?= Left "guard delete acknowledgement lost"
         readIORef patches >>= (@?= 1)
+        observeMountGuard guardTransport (kubernetesReleaseMountGuard nativeIntent)
+          >>= right >>= (@?= True)
         observeKubernetesRelease native nativeRecord >>= right
           >>= (@?= WritersPartlyReleased)
+        writeIORef loseReleaseDeleteAck True
         releaseKubernetesWriters native nativeRecord >>= (@?=
-          Left "Kubernetes mount admission guard is not enforcing before release")
+          Left "release guard delete acknowledgement lost")
+        readIORef patches >>= (@?= 2)
         observeKubernetesRelease native nativeRecord >>= right
           >>= (@?= WritersPartlyReleased)
-        readIORef patches >>= (@?= 1)
-        readIORef deploymentPatches >>= (@?= 1)
-        readIORef schedulePatches >>= (@?= 1)
+        releaseKubernetesWriters native nativeRecord >>= right
+        observeKubernetesRelease native nativeRecord >>= right
+          >>= (@?= WritersFullyReleased)
+        releaseKubernetesWriters native nativeRecord >>= right
+        readIORef patches >>= (@?= 2)
+        readIORef deploymentPatches >>= (@?= 2)
+        readIORef schedulePatches >>= (@?= 2)
     , testCase "reservation survives a new process and blocks planning until verified release" $
       withSystemTempDirectory "nagare-data-fence" $ \root -> do
         store <- openFilesystemStore root >>= right

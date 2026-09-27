@@ -6,6 +6,7 @@ module Nagare.Inventory.DataFence.MountGuard
   ( MountGuard
   , PodOwnerPermit
   , mkMountGuard
+  , releaseMountGuard
   , withGuardedStatefulSets
   , withGuardedDeployments
   , withGuardedService
@@ -61,6 +62,7 @@ data PodOwnerPermit = PodOwnerPermit
 
 data MountGuard = MountGuard
   { guardSession :: !Text
+  , guardVariant :: !Text
   , guardNamespace :: !Name
   , guardClaim :: !Name
   , guardClaimUid :: !Text
@@ -136,9 +138,22 @@ mkMountGuard session namespace claim claimUid volume volumeUid permits = do
     (Left "mount guard PVC or PV name is not a DNS subdomain")
   unless (validUid claimUid) (Left "fenced PVC UID is not a canonical Kubernetes UUID")
   unless (validUid volumeUid) (Left "fenced PV UID is not a canonical Kubernetes UUID")
-  MountGuard session <$> mkName namespace <*> mkName claim <*> pure claimUid
+  MountGuard session "" <$> mkName namespace <*> mkName claim <*> pure claimUid
     <*> mkName volume <*> pure volumeUid <*> pure permits <*> pure []
     <*> pure [] <*> pure Nothing <*> pure []
+
+-- | A separately named release overlay keeps foreign PVC mounts denied while
+-- the acquisition guard is removed and saved writer intent returns. Only
+-- authenticated controllers of exact reviewed owners receive Pod permits.
+releaseMountGuard :: MountGuard -> [PodOwnerPermit] -> MountGuard
+releaseMountGuard guard permits = guard
+  { guardVariant = "release"
+  , guardPermits = permits
+  , guardWriters = []
+  , guardDeployments = []
+  , guardService = Nothing
+  , guardSchedules = []
+  }
 
 withGuardedStatefulSets :: MountGuard -> [(Text, Text, Text)]
   -> Either Text MountGuard
@@ -230,7 +245,8 @@ mountGuardName guard = "nagare-data-fence-" <>
   T.take 32 (digestText (contentDigest (TE.encodeUtf8
     (T.intercalate "/" [guardSession guard, nameText (guardNamespace guard),
       nameText (guardClaim guard), guardClaimUid guard,
-      nameText (guardVolume guard), guardVolumeUid guard]))))
+      nameText (guardVolume guard), guardVolumeUid guard]
+      <> if T.null (guardVariant guard) then "" else "/" <> guardVariant guard))))
 
 guardNamespaceName :: MountGuard -> Text
 guardNamespaceName = nameText . guardNamespace

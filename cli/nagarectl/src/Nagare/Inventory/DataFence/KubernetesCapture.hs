@@ -50,6 +50,7 @@ data KubernetesCaptureRequest = KubernetesCaptureRequest
   , captureServiceResource :: !(Maybe ResourceId)
   , captureRecoveryArtifact :: !Text
   , captureRecoveryDigest :: !ContentDigest
+  , captureStatefulControllerPrincipal :: !Text
   , captureRestoreJob :: !(Maybe (Text, Text, Text))
   }
 
@@ -140,10 +141,12 @@ captureKubernetesFence transport declarations native request = do
                                     )
                                 provider =
                                   object
-                                    ( [ "version" .= (1 :: Int)
+                                    ( [ "version" .= (2 :: Int)
                                       , "provider" .= ("kubernetes" :: Text)
                                       , "cluster" .= cluster
                                       , "dependencyRoot" .= root
+                                      , "statefulControllerPrincipal"
+                                          .= captureStatefulControllerPrincipal request
                                       , "volume"
                                           .= object
                                             [ "resource" .= target
