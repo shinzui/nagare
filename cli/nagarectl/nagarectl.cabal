@@ -144,6 +144,7 @@ library
     Nagare.Inventory.DataFence.KubernetesExclusion
     Nagare.Inventory.DataFence.ServiceState
     Nagare.Inventory.DataFence.ScheduledWriter
+    Nagare.Inventory.Maintenance
     Nagare.Inventory.DataService
     Nagare.Inventory.Backup
     Nagare.Inventory.Prune

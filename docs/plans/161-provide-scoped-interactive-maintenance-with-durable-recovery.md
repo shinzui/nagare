@@ -54,6 +54,8 @@ Native access-policy probe (2026-09-27): an isolated `ep161-maintenance-probe` n
 
 The first provider piece, `MaintenanceNetwork`, now renders a session/Pod-UID-bound deny-ingress policy, rejects changed or terminating native objects, and uses UID/resourceVersion preconditions on removal. Its focused maintenance test covers a lost create acknowledgement, unchanged replay, and refusal to delete a drifted policy. The module is not yet attached to the DataFence callbacks or a public operation, so it does not advance either milestone by itself. EP-160 M1's accepted library command-service fixture remains valid; public live restore and interactive session registration belong to the still-open consumer outcomes.
 
+The next contract slice adds a distinct `MaintainData` declared operation and `OpenMaintenanceSession` planned action. `compileMaintenanceScope` produces an operation-only scope over the existing accepted StatefulSet, with the exact source/PVC/Pod UIDs, source revision, recovery revision, and completed recovery Job identity in private overrides. It refuses a recovery reference from another source incarnation, a different cluster, or missing accepted native bytes. The existing Kubernetes adapter still refuses this new action, and no public command saves or applies it yet. This is planning groundwork; M1 and M2 remain open until the end-to-end native session and recovery fixture passes.
+
 
 
 

@@ -877,7 +877,9 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
     declared operation = do
       executor <- listToMaybe [resource ^. #executor | resourceId <- NE.toList (operation ^. #affects), Just (Managed resource) <- [Map.lookup resourceId desiredDeclarations]]
       let digest = contentDigest (canonicalBytes (toJSON operation))
-      pure (operation, mkPlanned RunDeclaredOperation executor (operation ^. #affects) digest (operation ^. #recovery))
+      let action = if operation ^. #operationKind == MaintainData
+            then OpenMaintenanceSession else RunDeclaredOperation
+      pure (operation, mkPlanned action executor (operation ^. #affects) digest (operation ^. #recovery))
     declaredOperations = map addDeclaredDependencies declaredSeeds
     addDeclaredDependencies (operation, planned) =
       let affected = NE.toList (operation ^. #affects)

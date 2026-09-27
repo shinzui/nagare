@@ -38,6 +38,7 @@ import Nagare.Inventory.Backup (ManualBackupRequest (..), BackupReceiptExpectati
 import Nagare.Inventory.Prune (ManualPruneRequest (..), PruneSourceProof (..), compileManualPruneScope, manualPruneJobBackupPin, manualPruneSourceProof)
 import Nagare.Inventory.VolumePrune (VolumePruneRequest (..), compileVolumePruneScope, volumePruneJobCredentialPin)
 import Nagare.Inventory.Restore (ManualRestoreRequest (..), VolumeRestoreRequest (..), compileManualRestoreScope, compileVolumeRestoreScope, manualRestoreJobTargetPins, manualRestoreTargetProof, volumeRestoreJobSourcePins)
+import Nagare.Inventory.Maintenance (MaintenanceRequest (..), MaintenanceSourceProof (..), compileMaintenanceScope, maintenanceSourceProof)
 import Nagare.Inventory.DataService (NativeDataKind (..), compileBackupPruneRemovalScope, compileStandaloneDatabase, compileStatefulSetRestartScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Components.Foundation (compileContributedNamespaces)
@@ -1064,6 +1065,52 @@ inventoryKubernetesTests =
                 manualRestoreJobTargetPins restoreBytes @?= Right (Just
                   [(statefulId, sourceStatefulUid request),
                    (pvcId, sourcePvcUid request)])
+                let maintenanceRequest = MaintenanceRequest
+                      { maintenanceDatabase = "pg-main"
+                      , maintenanceNamespace = "default"
+                      , maintenanceSession = "maint-001"
+                      , maintenanceTargetRevision = sourceRevision request
+                      , maintenanceStatefulUid = sourceStatefulUid request
+                      , maintenancePvcUid = sourcePvcUid request
+                      , maintenancePodUid = ok (mkPhysicalIdentity "database-pod-uid")
+                      , maintenanceRecoveryScope = backupScope
+                      , maintenanceRecoveryRevision = ScopeRevision
+                          (ok (mkScopeGeneration 1)) (contentDigest "accepted-backup")
+                      , maintenanceRecoveryJobUid = completedPhysical
+                      , maintenanceRecoveryId = backupId request
+                      , maintenanceSource = SourceLocation "db shell" "pg-main"
+                      }
+                    maintenanceScope = ok (compileMaintenanceScope maintenanceRequest
+                      databaseScope (Map.union backupNative databaseNative))
+                maintenanceSourceProof maintenanceScope @?= Right (Just MaintenanceSourceProof
+                  { maintenanceSourceScope = scopeIdText owner
+                  , maintenanceSourceGeneration = 3
+                  , maintenanceSourceDigest = contentDigest "accepted-database"
+                  , maintenanceSourceStateful = statefulId
+                  , maintenanceSourceStatefulUid = sourceStatefulUid request
+                  , maintenanceSourcePvc = pvcId
+                  , maintenanceSourcePvcUid = sourcePvcUid request
+                  , maintenanceSourcePodUid = ok (mkPhysicalIdentity "database-pod-uid")
+                  , maintenanceSourceRecovery = scopeIdText (scopeId backupScope)
+                  , maintenanceSourceRecoveryGeneration = 1
+                  , maintenanceSourceRecoveryDigest = contentDigest "accepted-backup"
+                  , maintenanceSourceRecoveryJob = job ^. #identity
+                  , maintenanceSourceRecoveryJobUid = completedPhysical })
+                assertBool "maintenance operation could not compose with accepted database"
+                  (not (isLeft (composeInventory restoreSnapshot
+                    (ReplaceScope maintenanceScope :| []))))
+                assertBool "maintenance accepted a recovery for another run"
+                  (isLeft (compileMaintenanceScope
+                    (maintenanceRequest {maintenanceRecoveryId = "another"})
+                    databaseScope (Map.union backupNative databaseNative)))
+                assertBool "maintenance accepted a backup from another source incarnation"
+                  (isLeft (compileMaintenanceScope
+                    (maintenanceRequest {maintenancePvcUid = ok
+                      (mkPhysicalIdentity "replacement-pvc")})
+                    databaseScope (Map.union backupNative databaseNative)))
+                assertBool "maintenance accepted missing private recovery native bytes"
+                  (isLeft (compileMaintenanceScope maintenanceRequest databaseScope
+                    (Map.delete (job ^. #identity) (Map.union backupNative databaseNative))))
                 let restoreOperation = createOperation
                       {plannedResources = restoreJob ^. #identity :| []}
                     restoreAdapter = mkKubernetesAdapter
