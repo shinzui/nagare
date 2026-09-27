@@ -180,6 +180,8 @@ This MasterPlan is a living document. Keep Progress, Surprises & Discoveries, De
 
 ## Vision & Scope
 
+**MANDATORY OPERATOR BOUNDARY — NO GKE (2026-09-27).** Nagare supports local k3d/k3s and k3s on a NixOS VM in GCP Compute Engine. Do not create, start, use, authenticate to, select, or request access to a GKE cluster for this initiative. Existing workstation GKE contexts are unrelated. No child may add GKE credentials, probes, compatibility, or access as a completion gate. EP-156 owns actual GCP/NixOS/k3s and GCS integration; GCP does not mean GKE.
+
 Address [IR-24](../improvement-requests/make-managed-resources-first-class.md): an operator can obtain one complete, typed, revision-bound account of Nagare-managed cloud, host, Kubernetes, data, credential, artifact, and release/control resources. Compilation rejects conflicting ownership before mutation. Review exposes creation, adoption, update, replacement, migration, retention, and deletion. Apply executes dependency-aware native operations with durable evidence; resume skips proven completed work. Status explains identity, ownership, dependencies, drift, health, and retirement decisions.
 
 Platform components and applications retain independent desired-state ownership and release cadence. Each scope is one owner's complete declaration with its own revision. The context inventory composes these declarations and validates their shared claims; it is not another independently editable desired-state document. Updating one selected scope preserves every unselected scope. Application deployments can submit authorized contributions to platform-owned routing/configuration, but cannot seize the entire shared object or advance the platform release.
@@ -242,6 +244,8 @@ EP-152 bootstrap is complete. The remaining integration chain is EP-155 local ev
 
 
 ## Integration Points
+
+**EP-160 M1 closure correction (2026-09-27).** Its finite gates are production saved-review fence integration, observed local k3s exclusion, scoped guard authority, durable interruption/recovery, real fixture verification before release, and recorded acceptance. Full engine restore/content belongs to EP-160 M2; live-volume recovery to M3; real cloud k3s/GCS proof to EP-156. These remain required for the full release but must not become circular M1 prerequisites. EP-161 consumes the accepted shared contract. Reuse proven controls; do not expand this milestone into generalized cluster security or additional providers.
 
 **Replacement-plan ownership (2026-09-26).** Active ownership after the EP-150 split is EP-152 for platform candidate/marker behavior in cli/nagarectl/app/Main.hs and cli/nagarectl/src/Nagare/Inventory/Bootstrap.hs; EP-153 for command registration/coverage, remaining platform-side entry points, application/library cutover, smoke/in-cluster webhook consumers, and user docs; EP-154 for Nix packaging and native output manifests; EP-155 for outstanding promised native migration/collection bindings, the common scenario fixture, and local evidence; EP-156 for the GCP fixture and shared-store evidence; EP-157 for scripts/assemble-managed-resource-evidence.sh, scripts/assemble-release.sh, release workflow enforcement, and the existing GitHubRelease adapter. EP-155 owns scripts/rehearse-managed-resources.sh; EP-156 consumes its protocol and contributes cloud cases without forking it. Shared Main.hs, Spec.hs, and workflow edits must preserve concurrent changes.
 
@@ -469,6 +473,8 @@ One question is open and is the operator's to decide. ADR 13 moved tan-nb-exp's 
 
 ## Decision Log
 
+2026-09-27: Enforce the operator’s explicit no-GKE instruction and correct EP-160’s milestone ownership. Its prior rolling estimates included an invented provider gate and are not a current M1 forecast. All required behavior and actual local/cloud release proof remain required in their assigned plans.
+
 2026-09-26: Recompose unfinished EP-148 work into EP-158–161 and transfer its cross-cutting M4/native proof obligations to EP-153–157. Keep completed evidence; supersede the original without waiving acceptance. EP-160 alone owns shared data fencing, EP-161 consumes it, and provider proof remains reusable without a plan-closure cycle. Extend the effort forecast to include the previously excluded feature work.
 
 2026-09-26: Split EP-150 into EP-152–157 at the operator’s request because four oversized milestones hid substantial delivered work and the remaining release path. Preserve every existing requirement, credit implemented baseline once, and separate preparation from native acceptance. No reduced or knowingly broken version is an acceptable outcome. EP-157 owns the final all-gates decision; partial local evidence is not release readiness.
@@ -530,6 +536,8 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 
 
 ## Revision Notes
+
+2026-09-27: Prohibit GKE across all children and fix the finite EP-160 M1 boundary without weakening M2/M3 or EP-156 acceptance.
 
 2026-09-26: Split EP-148 remaining features into four bounded plans, redirect active dependencies and acceptance, preserve delivered work, and remove stale duplicate open parent checkboxes.
 

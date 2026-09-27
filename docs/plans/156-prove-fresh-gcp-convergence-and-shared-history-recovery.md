@@ -26,6 +26,8 @@ This ExecPlan is a living document for remaining work transferred from EP-150.
 
 ## Purpose / Big Picture
 
+**NO GKE.** This plan uses a Nagare NixOS VM in GCP Compute Engine running k3s, as declared in infra/pulumi and nixos/hosts/nagare-01/k3s.nix. Do not create, start, use, authenticate to, select, or request access to a GKE cluster. No existing GKE context is this plan’s fixture. Cloud fence/controller identity and GCS-history evidence belong here on the actual Nagare stack and do not gate EP-160 M1.
+
 
 A production-shaped disposable GCP context proves reviewed cloud/host/cluster/application convergence, shared GCS ownership history, recovery, and exact cleanup while preserving standing project resources. This supplies cloud behavior that neither local Kubernetes nor recording adapters can establish.
 
@@ -46,6 +48,8 @@ No new implementation findings in this successor plan. Inherited evidence and kn
 
 
 ## Decision Log
+
+2026-09-27: The operator explicitly prohibits GKE. Retain the existing GCP Compute Engine/NixOS/k3s target and own its native fence/controller/GCS evidence without making it a prerequisite for EP-160’s local shared-contract milestone.
 
 2026-09-26: Redirect unfinished EP-148 dependencies to EP-158–161 and preserve this plan’s assigned integration, package, or release obligations. EP-148 is superseded history, not a pending completion gate.
 

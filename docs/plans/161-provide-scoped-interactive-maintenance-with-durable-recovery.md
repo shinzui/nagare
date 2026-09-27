@@ -11,6 +11,12 @@ provenance:
     model: "gpt-6-astra"
     harness: "codex-cli"
     at: 2026-09-26T22:14:13Z
+  revisions:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-27T13:04:28Z
+      mode: "update"
+      note: "Consume bounded EP-160 M1 and prohibit GKE dependencies."
 ---
 
 # Provide scoped interactive maintenance with durable recovery
@@ -40,6 +46,8 @@ Inherited: aggregate hooks already declare affected resources and reviewed per-t
 
 
 ## Decision Log
+
+2026-09-27: Consume EP-160’s corrected finite M1 contract without waiting for M2/M3 or EP-156. Preserve the operator’s explicit no-GKE boundary.
 
 
 2026-09-26: Transfer a bounded unfinished EP-148 outcome into its own plan. Preserve delivered behavior and all release gates; no feature is dropped and no prior work is reset.
@@ -119,6 +127,8 @@ Use isolated test state and exact disposable resource identities. Retain the sav
 
 
 ## Interfaces and Dependencies
+
+The corrected EP-160 M1 handoff is its six shared-contract closure criteria on local k3s, not complete engine restore or cloud integration. Consume that fence after its acceptance; do not add a GKE provider, credential, or validation dependency. GKE use and provisioning are explicitly prohibited. Actual GCP/NixOS/k3s integration remains EP-156.
 
 
 Completed [EP-146](146-reconcile-cloud-host-and-artifact-resources-through-inventory-adapters.md), [EP-147](147-compile-cluster-bootstrap-into-owned-resource-components.md), [EP-149](149-explain-drift-and-execute-reviewed-adoption-migration-and-retirement.md), and [EP-151](151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes.md) provide prerequisites. [EP-160](160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md) owns DataFence and the mandatory M1 integration handoff: maintenance fixture and UI work may start against its agreed contract, but live admission cannot ship before that contract's exclusion/recovery proof passes. This is an integration dependency, not a hard requirement to finish every restore engine first. [EP-153](153-close-managed-command-coverage-for-the-inventory-release.md) owns the finite entrypoint audit; [EP-159](159-complete-scheduled-backup-receipts-and-exact-retention-pruning.md) supplies scheduled recovery references where selected. [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md)/[EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md) integrate native sessions and [EP-157](157-gate-the-inventory-release-on-complete-immutable-evidence.md) gates readiness. Initial estimate: 8–16 active hours after the shared fence contract is available, low confidence, excluding integrated runs. Reforecast after the first pseudo-terminal/process-death probe; inability to identify a surviving remote client is an unresolved implementation requirement.

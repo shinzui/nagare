@@ -601,3 +601,10 @@ evidence assembler requires the result's source revision to equal the release
 manifest revision. A standalone `complete: true` flag or a passing guard test
 cannot establish command coverage. Further operation families must extend the
 registry and behavioral proof before a release may claim completion.
+
+
+## Amendment — 2026-09-27: supported deployment targets and bounded fence acceptance
+
+The operator explicitly prohibits GKE for this initiative. Nagare targets local k3d/k3s and k3s on its NixOS host in GCP Compute Engine. GCP is not permission to provision Google Kubernetes Engine. Do not create, start, use, authenticate to, select, or request a GKE context, or add GKE compatibility/proof requirements. The GKE requirement introduced during EP-160 implementation was a scope error and is withdrawn.
+
+EP-160 M1 establishes the production saved-review fence contract, local native writer exclusion, scoped authority, durable recovery, and a real verification/release gate. Engine-specific restored-content semantics remain M2; live-volume recovery remains M3; full real cloud k3s and GCS-history evidence remains EP-156. Shared-contract completion must not wait on those later outcomes, and full release acceptance still requires all of them. Known unsafe writer paths refuse until their owning implementation is accepted. Trusted cluster administrators are outside the workload fence threat boundary; concrete bypasses by in-scope principals must be fixed without silently expanding into a general Kubernetes security project.
