@@ -20,6 +20,7 @@ import Nagare.Inventory.Adapter
 import Nagare.Inventory.DataFence
 import Nagare.Inventory.DataFence.MountGuard
 import Nagare.Inventory.DataFence.MountGuardRuntime
+import Nagare.Inventory.DataFence.KubernetesIntent
 import Nagare.Inventory.DataFence.StatefulWriter
 import Nagare.Inventory.DataFence.VolumeState
 import Nagare.Inventory.DataFence.WriterInventory
@@ -46,6 +47,66 @@ dataFenceTests = testGroup "data fence"
       eitherDecode (encode withProvider) @?= Right withProvider
       assertBool "provider intent must change the fence digest"
         (dataFenceIntentDigest withProvider /= dataFenceIntentDigest request)
+    , testCase "Kubernetes fence intent validates the complete durable native pin" $ do
+        let pvcUid = "11111111-2222-3333-4444-555555555555"
+            pvUid = "66666666-7777-8888-9999-000000000000"
+            writerUid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+            clusterId = mintResourceId fenceOwner
+              (known (mkLogicalKey "cluster")) (known (mkName "cluster"))
+            savedWriter = object
+              [ "kind" .= ("StatefulSet" :: Text)
+              , "namespace" .= ("restore-space" :: Text)
+              , "name" .= ("database" :: Text)
+              , "uid" .= (writerUid :: Text)
+              , "replicas" .= (1 :: Int)
+              , "controllerPrincipal" .=
+                  ("system:serviceaccount:kube-system:statefulset-controller" :: Text)
+              , "mountsTarget" .= True]
+            provider = object
+              [ "version" .= (1 :: Int)
+              , "provider" .= ("kubernetes" :: Text)
+              , "cluster" .= clusterId
+              , "dependencyRoot" .= writer
+              , "volume" .= object
+                  [ "resource" .= target
+                  , "namespace" .= ("restore-space" :: Text)
+                  , "claim" .= ("data-pvc" :: Text)
+                  , "claimUid" .= (pvcUid :: Text)
+                  , "pv" .= ("pv-data" :: Text)
+                  , "pvUid" .= (pvUid :: Text)
+                  , "backing" .= object
+                      [ "kind" .= ("local" :: Text)
+                      , "path" .= ("/data/disk" :: Text)
+                      , "node" .= ("node-a" :: Text)]]]
+            native = request
+              { fencePhysical = Map.fromList
+                  [ (target, known (mkPhysicalIdentity pvcUid))
+                  , (writer, known (mkPhysicalIdentity writerUid))]
+              , fenceSavedWriters = Map.singleton writer savedWriter
+              , fenceProviderIntent = Just provider
+              }
+        decoded <- right (decodeKubernetesFenceIntent native)
+        kubernetesVolumeBacking decoded @?= LocalVolume "/data/disk" "node-a"
+        map fst (kubernetesStatefulWriters decoded) @?= [writer]
+        let wrongPhysical = native {fencePhysical = Map.insert writer
+              (known (mkPhysicalIdentity "bbbbbbbb-2222-3333-4444-555555555555"))
+              (fencePhysical native)}
+        case decodeKubernetesFenceIntent wrongPhysical of
+          Left _ -> pure ()
+          Right _ -> assertFailure "writer UID substitution was accepted"
+        let unsupported = native {fenceSavedWriters = Map.singleton writer
+              (case savedWriter of
+                Object fields -> Object (KM.insert "kind" (String "Deployment") fields)
+                other -> other)}
+        case decodeKubernetesFenceIntent unsupported of
+          Left _ -> pure ()
+          Right _ -> assertFailure "unsupported writer control was accepted"
+        let extraField = native {fenceProviderIntent = Just (case provider of
+              Object fields -> Object (KM.insert "unreviewed" (String "value") fields)
+              other -> other)}
+        case decodeKubernetesFenceIntent extraField of
+          Left _ -> pure ()
+          Right _ -> assertFailure "unknown native intent field was accepted"
     , testCase "reservation survives a new process and blocks planning until verified release" $
       withSystemTempDirectory "nagare-data-fence" $ \root -> do
         store <- openFilesystemStore root >>= right
