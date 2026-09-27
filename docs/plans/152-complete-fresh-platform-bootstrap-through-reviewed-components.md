@@ -63,6 +63,10 @@ Inherited baseline: commits `9c308390`, `28e05b72`, and `09d83188` supplied expl
 
 2026-09-26 continuation: Cloud infrastructure preparation now selects the reviewed stack without creating a missing stack outside the foundation review. The Pulumi inventory runtime passes its retained backend URL explicitly to every subprocess. The TypeScript program parity fixture covers the foundation-managed configuration and confirms that disabling Pulumi API ownership removes exactly seven API registrations, leaving 24 other cloud registrations to declare in ordered stages. Candidate source revision `0444fc12` passed `npm test` in `infra/pulumi`, `cabal test nagarectl-test --test-show-details=failures -v0`, `cabal build exe:nagarectl -v0`, the public foundation and entrypoint-guard shell fixtures, Haskell style, and `git diff --check`. The 24-resource cloud candidate and stage dispatch remain unimplemented.
 
+2026-09-26 continuation: The public bootstrap planner now admits the foundation-managed Pulumi program through dependency layers before it reads Kubernetes. A catalog in the immutable Pulumi program names the 24 base registrations, their parents, and their review layers; the TypeScript fixture checks its membership against the actual program, including the optional three-resource Nix cache delta. Resources outside the admitted layer receive explicit native bookkeeping registrations while every admitted resource has its own reviewed inventory operation. The planner checks accepted Pulumi URNs against read-only stack export before advancing, so a missing resource returns to a focused repair review. Named contexts pin the Nix cache choice and bucket against inherited shell values. M1 remains open for the registered image/VM/CDN variants, exact cloud resource policies, artifact and host prerequisites, local staging, and cluster dispatch. M2 remains open for interruption/resume and final-marker proof.
+
+2026-09-26 evidence for candidate source revision `733906e1`: `npm test` in `infra/pulumi`, `cabal test nagarectl-test --test-show-details=failures -v0`, `cabal build exe:nagarectl -v0`, `bash scripts/test-bootstrap-foundation-public.sh <built nagarectl>`, `bash scripts/test-inventory-entrypoint-guards.sh <built nagarectl>`, `bash scripts/check-haskell-style.sh`, and `git diff --check` passed. The isolated public fixture converged the nine-resource foundation, then four Pulumi reviews with 1, 9, 9, and 5 operations using a recording provider. It verified accepted/converged journal revisions, no repeated root operation in later reviews, and one reviewed repair after removing a physical URN. The same fixture initialized a separate real local Pulumi stack; cloud resource plans and effects were recorded, not native GCP execution. No host or final marker was reached.
+
 
 ## Surprises & Discoveries
 
@@ -85,6 +89,8 @@ Inherited baseline: commits `9c308390`, `28e05b72`, and `09d83188` supplied expl
 
 2026-09-26: An isolated native Pulumi experiment applied two saved plans for independent component targets in sequence from one initial stack snapshot. A parent-child variant refused a child-only targeted preview before its parent existed: the diagnostic named the missing dependency target. The cloud builder therefore has to stage dependent provider resources in order; same-stage independent targets still need topology and convergence proof in Nagare's actual program.
 
+2026-09-26: The first cloud-layer fixture exposed duplicate primary/alias claims when a Pulumi URN was both the resource address and its native alias. The cloud compiler now omits an alias equal to its primary address. The same fixture exposed an inherited Nix cache flag that changed a named context's registration count from 24 to 27; the selected profile now pins that choice and its bucket to the stored context.
+
 
 ## Decision Log
 
@@ -96,6 +102,8 @@ Inherited baseline: commits `9c308390`, `28e05b72`, and `09d83188` supplied expl
 2026-09-26: Bind the final marker to platform scope revisions and payload identity. Application, standalone, and publication revisions remain independently owned; changing one does not alter platform bootstrap completion. The marker scope is excluded from its own digest to avoid a self-reference.
 
 2026-09-26: Put pre-Pulumi APIs and state buckets under a dedicated cloud-foundation executor. Publish that first review to the local context inventory store, then use the existing conditional history migration after the bucket receipt is accepted. The Pulumi backend cannot be opened to store the review that creates its own bucket.
+
+2026-09-26: Use one public review per admitted Pulumi dependency layer. Keep the full native registration set visible to the TypeScript guard as managed or explicit bookkeeping, while journal operations target only resources in the admitted layer. Read-only stack export selects a repair layer when a previously accepted URN is absent.
 
 
 ## Outcomes & Retrospective
