@@ -4,19 +4,25 @@ import Data.Aeson (Value (..), eitherDecode, encode, object, toJSON)
 import Data.Aeson.KeyMap qualified as KM
 import Data.Foldable (toList)
 import Data.IORef
+import Data.List (elemIndex)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude
-import Nagare.Inventory.Adapter (mkAdapterRegistry, observationSet)
+import Nagare.Inventory.Adapter
+  ( AdapterExecution (..), AdapterFence (..)
+  , RecoveryDecision (..), mkAdapterRegistry, observationSet, withAdapterFence )
 import Nagare.Inventory.DataFence
 import Nagare.Inventory.DataFence.MountGuard
 import Nagare.Inventory.Digest (contentDigest)
-import Nagare.Inventory.Execute (AdmissionError (..), TransactionResult (..), admit, execute, resumeTransaction)
+import Nagare.Inventory.Execute
+  ( AdmissionError (..), TransactionResult (..), admit, applyReviewed, execute, resumeTransaction )
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
+import InventoryTransactionSpec
+  ( fixtureBinding, preparedFixtureWithRegistry, recordingRegistryWith )
 import Nagare.Resource.Inventory
 import Nagare.Resource.Types
 import System.IO.Temp (withSystemTempDirectory)
@@ -318,6 +324,127 @@ dataFenceTests = testGroup "data fence"
           pvcUid "pv-data" pvUid [] of
           Left _ -> pure ()
           Right _ -> assertFailure "invalid Kubernetes namespace was accepted"
+    , testCase "reviewed adapter effect runs only inside a verified fence" $ do
+        store <- newMemoryStore
+        steps <- newIORef ([] :: [Text])
+        released <- newIORef False
+        let recordStep step = modifyIORef' steps (<> [step])
+            controls = DataFenceControls
+              { validateFenceInputs = \_ -> pure (Right ())
+              , stopFenceWriters = \_ -> recordStep "stop" >> pure (Right ())
+              , observeFencePhysical = \_ -> pure (Right physical)
+              , observeWritersExcluded = \_ -> pure (Right True)
+              , verifyRecoveredData = \_ -> recordStep "verify-data" >> pure (Right True)
+              , restoreFenceWriters = \_ -> do
+                  recordStep "release"
+                  writeIORef released True
+                  pure (Right ())
+              , observeWritersReleased = \_ -> do
+                  wasReleased <- readIORef released
+                  pure (Right (if wasReleased then WritersFullyReleased else WritersStillExcluded))
+              }
+            customize desired registry = known (withAdapterFence registry KubernetesExecutor
+              AdapterFence
+                { fenceCapability = "recorded-fence-v1"
+                , fenceForOperation = \_ _ -> Right (Just
+                    (request {fenceContext = fixtureBinding, fenceAccepted = desired}, controls))
+                })
+            effect _ _ = recordStep "effect" >> pure AdapterEffectCompleted
+            recovery _ _ = pure RecoverySafeToRetry
+        (reviewed, registry) <- preparedFixtureWithRegistry store effect recovery customize
+        assertBool "review must bind the fence capability" (any
+          ((== Just "recorded-fence-v1") . reviewFenceCapability)
+          (reviewOperations (reviewedDocument reviewed)))
+        assertBool "review must bind exact fence inputs" (any
+          (isJust . reviewFenceDigest) (reviewOperations (reviewedDocument reviewed)))
+        assertBool "review must show fence and recovery steps" (any
+          (maybe False (T.isInfixOf "data fence: acquire, verify, release")
+            . reviewFenceSummary)
+          (reviewOperations (reviewedDocument reviewed)))
+        outcome <- applyReviewed store registry reviewed >>= right
+        case outcome of
+          Converged _ -> pure ()
+          _ -> assertFailure "fenced reviewed operation did not converge"
+        observed <- readIORef steps
+        let position step = maybe (error ("missing " <> T.unpack step)) id
+              (elemIndex step observed)
+        assertBool "writer stop precedes effect" (position "stop" < position "effect")
+        assertBool "data verification follows effect"
+          (position "effect" < position "verify-data")
+        assertBool "release follows verification"
+          (position "verify-data" < position "release")
+        final <- readHead store >>= right >>= maybe
+          (assertFailure "head missing" >> error "head") pure
+        headDataFence final @?= Nothing
+    , testCase "saved fenced review refuses a registry without its capability" $ do
+        store <- newMemoryStore
+        effects <- newIORef (0 :: Int)
+        released <- newIORef False
+        restored <- newIORef (0 :: Int)
+        let controls = fixtureControls released restored (pure (Right physical))
+            effect _ _ = modifyIORef' effects (+ 1) >> pure AdapterEffectCompleted
+            recovery _ _ = pure RecoverySafeToRetry
+            customize desired registry = known (withAdapterFence registry KubernetesExecutor
+              AdapterFence
+                { fenceCapability = "recorded-fence-v1"
+                , fenceForOperation = \_ _ -> Right (Just
+                    (request {fenceContext = fixtureBinding, fenceAccepted = desired}, controls))
+                })
+        (reviewed, _) <- preparedFixtureWithRegistry store effect recovery customize
+        let plain = recordingRegistryWith (\_ _ -> pure (Right ())) effect recovery
+        refused <- applyReviewed store plain reviewed
+        case refused of
+          Left errors -> assertBool "missing fence capability was not refused"
+            (any ((== "data-fence-capability") . admissionErrorCode) errors)
+          Right _ -> assertFailure "fenced review ran without the fence provider"
+        let changedPhysical = Map.insert target
+              (known (mkPhysicalIdentity "substituted-uid")) physical
+            altered = known (withAdapterFence plain KubernetesExecutor AdapterFence
+              { fenceCapability = "recorded-fence-v1"
+              , fenceForOperation = \_ _ -> Right (Just
+                  (request
+                    { fenceContext = fixtureBinding
+                    , fenceAccepted = reviewDesiredRevisions (reviewedDocument reviewed)
+                    , fencePhysical = changedPhysical
+                    }, controls))
+              })
+        substituted <- applyReviewed store altered reviewed
+        case substituted of
+          Left errors -> assertBool "changed physical target escaped review digest"
+            (any ((== "data-fence-capability") . admissionErrorCode) errors)
+          Right _ -> assertFailure "fenced review admitted a substituted target"
+        readIORef effects >>= (@?= 0)
+    , testCase "ambiguous reviewed effect keeps its fence and refuses replay" $ do
+        store <- newMemoryStore
+        effects <- newIORef (0 :: Int)
+        released <- newIORef False
+        restored <- newIORef (0 :: Int)
+        let controls = fixtureControls released restored (pure (Right physical))
+            effect _ _ = do
+              modifyIORef' effects (+ 1)
+              pure (AdapterEffectAmbiguous "effect acknowledgement lost")
+            recovery _ _ = pure RecoverySafeToRetry
+            customize desired registry = known (withAdapterFence registry KubernetesExecutor
+              AdapterFence
+                { fenceCapability = "recorded-fence-v1"
+                , fenceForOperation = \_ _ -> Right (Just
+                    (request {fenceContext = fixtureBinding, fenceAccepted = desired}, controls))
+                })
+        (reviewed, registry) <- preparedFixtureWithRegistry store effect recovery customize
+        outcome <- applyReviewed store registry reviewed >>= right
+        transaction <- case outcome of
+          StoppedAmbiguous value _ -> pure value
+          _ -> assertFailure "ambiguous effect did not stop the transaction" >> error "transaction"
+        fenced <- readHead store >>= right >>= maybe
+          (assertFailure "head missing" >> error "head") pure
+        fmap fencePhase (headDataFence fenced) @?= Just FenceUnresolved
+        resumed <- resumeTransaction store registry transaction
+        case resumed of
+          Left errors -> assertBool "ordinary resume bypassed the unresolved fence"
+            (any ((== "active-data-fence") . admissionErrorCode) errors)
+          Right _ -> assertFailure "ambiguous fenced effect resumed"
+        readIORef effects >>= (@?= 1)
+        readIORef restored >>= (@?= 0)
   ]
 
 fixtureControls :: IORef Bool -> IORef Int

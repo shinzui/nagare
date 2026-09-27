@@ -1,4 +1,4 @@
-module InventoryTransactionSpec (inventoryTransactionTests, exerciseStore, fixtureBinding, preparedFixtureWith, recordingRegistryWith, runInventoryLockHoldProbe, runInventoryLockProbe) where
+module InventoryTransactionSpec (inventoryTransactionTests, exerciseStore, fixtureBinding, preparedFixtureWith, preparedFixtureWithRegistry, recordingRegistryWith, runInventoryLockHoldProbe, runInventoryLockProbe) where
 
 import Control.Concurrent (threadDelay)
 import Control.Monad (forM_)
@@ -1494,7 +1494,15 @@ preparedFixture store calls execution recovery =
   preparedFixtureWith store (\operation _ -> modifyIORef' calls (<> [plannedOperationId operation]) >> execution operation) (\operation _ -> recovery operation)
 
 preparedFixtureWith :: InventoryStore -> (PlannedOperation -> PreparedNative -> IO AdapterExecution) -> (PlannedOperation -> PreparedNative -> IO RecoveryDecision) -> IO (ReviewedPlan, AdapterRegistry)
-preparedFixtureWith store execution recovery = do
+preparedFixtureWith store execution recovery =
+  preparedFixtureWithRegistry store execution recovery (\_ registry -> registry)
+
+preparedFixtureWithRegistry :: InventoryStore
+  -> (PlannedOperation -> PreparedNative -> IO AdapterExecution)
+  -> (PlannedOperation -> PreparedNative -> IO RecoveryDecision)
+  -> (Map.Map ScopeId ScopeRevision -> AdapterRegistry -> AdapterRegistry)
+  -> IO (ReviewedPlan, AdapterRegistry)
+preparedFixtureWithRegistry store execution recovery customize = do
   bytes <- BS.readFile "test/fixtures/inventory/valid.json"
   let CandidateInput snapshot changes = ok (decodeCandidateInput bytes)
       candidate = ok (composeInventory snapshot changes)
@@ -1510,8 +1518,8 @@ preparedFixtureWith store execution recovery = do
             [ (resource, if Set.member resource acceptedIds then ObservedPresent (physical resource) else ConfirmedAbsent (absence resource))
             | resource <- Set.toAscList (requiredResources requirements)
             ]
-      registry = recordingRegistry execution recovery
       proposal = ok (planChanges candidate noLifecycleDecisions history observations)
+      registry = customize (proposalDesired proposal) (recordingRegistry execution recovery)
   snapshotBefore <- readStoreSnapshot store >>= expectRight
   bundle <- prepareReview registry snapshotBefore proposal >>= expectRight
   _ <- publishReview store bundle >>= expectRight

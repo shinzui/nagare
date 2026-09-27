@@ -6,6 +6,7 @@ module Nagare.Inventory.DataFence
   ( WriterReleaseState (..)
   , DataFenceControls (..)
   , FenceToken
+  , dataFenceIntentDigest
   , acquireDataFence
   , resumeDataFence
   , beginDataChange
@@ -15,6 +16,7 @@ module Nagare.Inventory.DataFence
   , releaseDataFence
   ) where
 
+import Data.Aeson (toJSON)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
@@ -22,8 +24,10 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Time (defaultTimeLocale, formatTime, getCurrentTime)
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Store
-import Nagare.Resource.Types (PhysicalIdentity, ResourceId)
+import Nagare.Resource.Types (ContentDigest, PhysicalIdentity, ResourceId)
+import Nagare.Resource.Wire (canonicalValue)
 
 -- | A provider may resume writer release only when its observed state proves
 -- that no release effect started. A partly restored configuration requires a
@@ -49,6 +53,13 @@ data DataFenceControls = DataFenceControls
   }
 
 newtype FenceToken = FenceToken Text
+
+-- | The public review binds every private fence input, including exact
+-- physical identities and saved writer configuration, without publishing
+-- credentials or the recovery artifact URL.
+dataFenceIntentDigest :: DataFenceRecord -> ContentDigest
+dataFenceIntentDigest record = contentDigest (either
+  (error . T.unpack) id (canonicalValue (toJSON record)))
 
 -- | Write the reservation before touching a writer. Any crash after the
 -- conditional write leaves the head fenced until explicit recovery.

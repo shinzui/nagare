@@ -16,10 +16,13 @@ module Nagare.Inventory.Adapter
   , AdapterExecution (..)
   , RecoveryDecision (..)
   , Adapter (..)
+  , AdapterFence (..)
   , AdapterRegistry
   , mkAdapterRegistry
   , emptyAdapterRegistry
+  , withAdapterFence
   , lookupAdapter
+  , lookupAdapterFence
   , observeWithRegistry
   )
 where
@@ -33,7 +36,9 @@ import Data.Set (Set)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude hiding ((.=))
+import Nagare.Inventory.DataFence (DataFenceControls)
 import Nagare.Inventory.Journal
+import Nagare.Inventory.Store (DataFenceRecord)
 import Nagare.Resource.Inventory (Executor)
 import Nagare.Resource.Policy (RecoveryClass)
 import Nagare.Resource.Types
@@ -150,6 +155,15 @@ data Adapter = Adapter
   , adapterRecover :: !(PlannedOperation -> PreparedNative -> IO RecoveryDecision)
   }
 
+-- | A pure, reviewed selection of an optional live-data fence. The returned
+-- controls perform provider I/O only when the transaction runner invokes
+-- them after persisting its fence reservation.
+data AdapterFence = AdapterFence
+  { fenceCapability :: !Text
+  , fenceForOperation :: !(PlannedOperation -> PreparedNative
+      -> Either Text (Maybe (DataFenceRecord, DataFenceControls)))
+  }
+
 instance ToJSON ResourceObservation where toJSON = genericToJSON defaultOptions
 
 instance FromJSON ResourceObservation where parseJSON = genericParseJSON defaultOptions
@@ -189,23 +203,35 @@ instance ToJSON ReviewBarrier where toJSON = genericToJSON defaultOptions
 
 instance FromJSON ReviewBarrier where parseJSON = genericParseJSON defaultOptions
 
-newtype AdapterRegistry = AdapterRegistry (Map Executor Adapter)
+data AdapterRegistry = AdapterRegistry
+  (Map Executor Adapter) (Map Executor AdapterFence)
 
 mkAdapterRegistry :: [Adapter] -> Either Text AdapterRegistry
 mkAdapterRegistry adapters
-  | length adapters == Map.size registry = Right (AdapterRegistry registry)
+  | length adapters == Map.size registry = Right (AdapterRegistry registry Map.empty)
   | otherwise = Left "adapter registry contains duplicate executors"
   where
     registry = Map.fromList [(adapterExecutor adapter, adapter) | adapter <- adapters]
 
 emptyAdapterRegistry :: AdapterRegistry
-emptyAdapterRegistry = AdapterRegistry Map.empty
+emptyAdapterRegistry = AdapterRegistry Map.empty Map.empty
+
+withAdapterFence :: AdapterRegistry -> Executor -> AdapterFence
+  -> Either Text AdapterRegistry
+withAdapterFence (AdapterRegistry adapters fences) executor fence
+  | Map.notMember executor adapters = Left "data fence has no registered adapter"
+  | T.null (fenceCapability fence) = Left "data fence capability identity is empty"
+  | Map.member executor fences = Left "adapter already has a data fence capability"
+  | otherwise = Right (AdapterRegistry adapters (Map.insert executor fence fences))
 
 lookupAdapter :: AdapterRegistry -> Executor -> Either Text Adapter
-lookupAdapter (AdapterRegistry registry) executor =
+lookupAdapter (AdapterRegistry registry _) executor =
   maybe (Left ("no adapter registered for " <> showText executor)) Right (Map.lookup executor registry)
   where
     showText = T.pack . show
+
+lookupAdapterFence :: AdapterRegistry -> Executor -> Maybe AdapterFence
+lookupAdapterFence (AdapterRegistry _ fences) executor = Map.lookup executor fences
 
 observeWithRegistry :: AdapterRegistry -> Map Executor [ResourceId] -> IO (Either Text ObservationSet)
 observeWithRegistry registry requests = do

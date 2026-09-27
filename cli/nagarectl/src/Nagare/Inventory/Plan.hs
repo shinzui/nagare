@@ -75,6 +75,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude hiding ((.=), (<.>))
 import Nagare.Inventory.Adapter
+import Nagare.Inventory.DataFence (dataFenceIntentDigest)
 import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Journal
@@ -1022,6 +1023,9 @@ data ReviewOperation = ReviewOperation
   , reviewAdapterVersion :: !Text
   , reviewNativeDigest :: !(Maybe ContentDigest)
   , reviewPublicSummary :: !Text
+  , reviewFenceCapability :: !(Maybe Text)
+  , reviewFenceDigest :: !(Maybe ContentDigest)
+  , reviewFenceSummary :: !(Maybe Text)
   }
   deriving stock (Eq, Show, Generic)
 
@@ -1097,17 +1101,26 @@ instance FromJSON LifecycleProposal where parseJSON = genericParseJSON defaultOp
 
 instance ToJSON ReviewOperation where
   toJSON operation =
-    object
+    object $
       [ "operation" .= reviewPlannedOperation operation
       , "adapterIdentity" .= reviewAdapterIdentity operation
       , "adapterVersion" .= reviewAdapterVersion operation
       , "nativeDigest" .= reviewNativeDigest operation
       , "summary" .= reviewPublicSummary operation
-      ]
+      ] <> maybe [] (\capability -> ["fenceCapability" .= capability])
+        (reviewFenceCapability operation)
+        <> maybe [] (\digest -> ["fenceDigest" .= digest])
+          (reviewFenceDigest operation)
+        <> maybe [] (\summary -> ["fenceSummary" .= summary])
+          (reviewFenceSummary operation)
 
 instance FromJSON ReviewOperation where
   parseJSON = withObject "ReviewOperation" $ \o ->
-    ReviewOperation <$> o .: "operation" <*> o .: "adapterIdentity" <*> o .: "adapterVersion" <*> o .: "nativeDigest" <*> o .: "summary"
+    ReviewOperation <$> o .: "operation" <*> o .: "adapterIdentity"
+      <*> o .: "adapterVersion" <*> o .: "nativeDigest" <*> o .: "summary"
+      <*> o .:? "fenceCapability"
+      <*> o .:? "fenceDigest"
+      <*> o .:? "fenceSummary"
 
 instance ToJSON RetentionProof where
   toJSON proof = object
@@ -1243,19 +1256,38 @@ prepareReviewWithPayloadIdentity payloadIdentity registry snapshot proposal = do
         pure $ case result of
           Left (PreparationBlocked barrier) ->
             Right
-              ( ReviewOperation operation (adapterIdentity adapter) (adapterVersion adapter) Nothing "review barrier"
+              ( ReviewOperation operation (adapterIdentity adapter) (adapterVersion adapter)
+                  Nothing "review barrier" Nothing Nothing Nothing
               , Nothing
               , Just barrier
               )
           Left err -> Left err
-          Right prepared ->
+          Right prepared -> do
+            selected <- case lookupAdapterFence registry (plannedExecutor operation) of
+              Nothing -> Right Nothing
+              Just fence -> case fenceForOperation fence operation prepared of
+                Left reason -> Left (PrepareRefused (plannedOperationId operation) reason)
+                Right Nothing -> Right Nothing
+                Right (Just (record, _)) -> Right (Just (fenceCapability fence, record))
             let bytes = preparedNativeBytes prepared
                 digest = contentDigest bytes
-             in Right
-                  ( ReviewOperation operation (adapterIdentity adapter) (adapterVersion adapter) (Just digest) (preparedPublicSummary prepared)
-                  , Just (digest, bytes)
-                  , Nothing
-                  )
+            Right
+              ( ReviewOperation operation (adapterIdentity adapter) (adapterVersion adapter)
+                  (Just digest) (preparedPublicSummary prepared) (fmap fst selected)
+                  (dataFenceIntentDigest . snd <$> selected)
+                  (publicFenceSummary . snd <$> selected)
+              , Just (digest, bytes)
+              , Nothing
+              )
+
+    publicFenceSummary record =
+      "data fence: acquire, verify, release; session=" <> fenceSession record
+        <> "; targets=" <> T.intercalate "," (map resourceIdText
+          (Set.toAscList (fenceTargets record)))
+        <> "; affected=" <> T.intercalate "," (map resourceIdText
+          (Set.toAscList (fenceAffected record)))
+        <> "; recovery-sha256=" <> digestText (fenceRecoveryDigest record)
+        <> "; intent-sha256=" <> digestText (dataFenceIntentDigest record)
 
 encodeReviewDocument :: ReviewDocument -> ByteString
 encodeReviewDocument = either (error . T.unpack) id . canonicalValue . toJSON
