@@ -27,6 +27,7 @@ module Nagare.Inventory.Plan
   , ChangeProposal
   , proposalOperations
   , proposalDesired
+  , candidateDesiredRevisions
   , RetentionProof (..)
   , MigrationProof (..)
   , planChanges
@@ -591,6 +592,16 @@ data RetentionProof = RetentionProof
   }
   deriving stock (Eq, Show)
 
+-- | The review's desired vector is determined by the candidate alone. A
+-- provider that captures private fence evidence before planning must use the
+-- same canonical revisions that the resulting proposal will publish.
+candidateDesiredRevisions :: CompositionCandidate -> Map ScopeId ScopeRevision
+candidateDesiredRevisions candidate = Map.mapWithKey
+  (\scope declaration -> ScopeRevision
+    (candidateGenerations candidate Map.! scope)
+    (contentDigest (encodeCanonicalScope declaration)))
+  (inventoryScopes (candidateInventory candidate))
+
 planChanges :: CompositionCandidate -> LifecycleDecisions -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) ChangeProposal
 planChanges candidate decisions history observations = do
   unless (null structuralErrors) (Left (NE.fromList structuralErrors))
@@ -615,10 +626,7 @@ planChanges candidate decisions history observations = do
   let migrationProofs = buildMigrationProofs checkedDecisions
   let desiredScopes = inventoryScopes (candidateInventory candidate)
       scopeMembers = Map.fromList [(contentDigest bytes, bytes) | declaration <- Map.elems desiredScopes, let bytes = encodeCanonicalScope declaration]
-      desiredRevisions =
-        Map.mapWithKey
-          (\scope declaration -> ScopeRevision (candidateGenerations candidate Map.! scope) (contentDigest (encodeCanonicalScope declaration)))
-          desiredScopes
+      desiredRevisions = candidateDesiredRevisions candidate
       candidateBytes =
         either (error . T.unpack) id $
           canonicalValue $

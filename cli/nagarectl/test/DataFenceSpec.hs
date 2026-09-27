@@ -426,6 +426,7 @@ dataFenceTests = testGroup "data fence"
                     (known (mkPhysicalIdentity "fixture-observed")) resource
                     (fencePhysical record))) | resource <- Set.toAscList required])
           proposal <- right (planChanges candidate noLifecycleDecisions history observed)
+          candidateDesiredRevisions candidate @?= proposalDesired proposal
           captures <- newIORef (0 :: Int)
           effects <- newIORef (0 :: Int)
           let accepted = proposalDesired proposal

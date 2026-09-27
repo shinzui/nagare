@@ -71,6 +71,10 @@ The PostgreSQL online fence now has native callbacks that keep the exact reviewe
 
 The affected `nagarectl-test` full suite passed after updating stale fixture counts for scheduled backup companion resources and the accepted application Secret channels. No public maintenance session was executed by that suite.
 
+The Kubernetes fence adapter now exposes a separate maintenance capability whose replay reconstructs the online controls from a saved private Pod pin. It accepts only `OpenMaintenanceSession`; the ordinary offline restore capability remains separate. Production planning/execution registries still need to supply the source pin and recovery verifier, so this adapter capability alone does not admit a command.
+
+Planning constructs its adapter registry before producing a proposal. The desired revision vector is nevertheless determined by the candidate, so `candidateDesiredRevisions` now supplies the same canonical vector that `planChanges` publishes. Production fence registration can use it at capture time and compare it with the saved review at replay; the maintenance source-native loader and public command remain the next integration step.
+
 
 
 
