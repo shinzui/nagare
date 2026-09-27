@@ -34,6 +34,7 @@ data MountGuardTransport = MountGuardTransport
   , probeWriterScaleDenied :: !(MountGuard -> IO (Either Text Bool))
   , probeServiceMutationDenied :: !(MountGuard -> IO (Either Text Bool))
   , probeEndpointSliceDenied :: !(MountGuard -> IO (Either Text Bool))
+  , probeLegacyEndpointsDenied :: !(MountGuard -> IO (Either Text Bool))
   , probeScheduleDenied :: !(MountGuard -> IO (Either Text Bool))
   }
 
@@ -98,7 +99,12 @@ observeMountGuard transport guard = do
                   case endpointsDenied of
                     Left reason -> pure (Left reason)
                     Right False -> pure (Right False)
-                    Right True -> probeScheduleDenied transport guard
+                    Right True -> do
+                      legacyDenied <- probeLegacyEndpointsDenied transport guard
+                      case legacyDenied of
+                        Left reason -> pure (Left reason)
+                        Right False -> pure (Right False)
+                        Right True -> probeScheduleDenied transport guard
 
 -- | Only the explicit verified-release path may call this. Bindings go first
 -- so no policy can remain unexpectedly active after release. Each deletion is
@@ -156,18 +162,21 @@ guardObjects guard =
       deploymentPairs = deploymentWriterGuardObjects guard
       servicePairs = maybe [] (: []) (serviceMutationGuardObjects guard)
       slicePairs = maybe [] (: []) (endpointSliceGuardObjects guard)
+      legacyPairs = maybe [] (: []) (legacyEndpointsGuardObjects guard)
       schedulePairs = scheduledWriterGuardObjects guard
    in [podPolicy, pvcPolicy, pvPolicy, namespacePolicy]
       <> map fst writerPairs
       <> map fst deploymentPairs
       <> map fst servicePairs
       <> map fst slicePairs
+      <> map fst legacyPairs
       <> map fst schedulePairs
       <> [podBinding, pvcBinding, pvBinding, namespaceBinding]
       <> map snd writerPairs
       <> map snd deploymentPairs
       <> map snd servicePairs
       <> map snd slicePairs
+      <> map snd legacyPairs
       <> map snd schedulePairs
 
 objectAddress :: Value -> Either Text (Text, Text)
@@ -203,7 +212,7 @@ textField key root = case KM.lookup (Key.fromText key) root of
 
 kubectlMountGuardTransport :: KubernetesRuntimeConfig -> MountGuardTransport
 kubectlMountGuardTransport config = MountGuardTransport
-  readOne createOne deleteOne probe probeScale probeService probeSlice probeSchedule
+  readOne createOne deleteOne probe probeScale probeService probeSlice probeLegacy probeSchedule
   where
     invoke arguments input = do
       guarded <- runtimeGuard config
@@ -415,6 +424,39 @@ kubectlMountGuardTransport config = MountGuardTransport
           Right (ExitSuccess, _, _) -> Right False
           Right (ExitFailure _, _, errors) ->
             Right ("Nagare database endpoints are fenced" `T.isInfixOf` T.pack errors)
+    probeLegacy guard = case guardedService guard of
+      Nothing -> pure (Right True)
+      Just service -> do
+        let namespace = T.unpack (guardedServiceNamespace service)
+            name = T.unpack (guardedServiceName service)
+            endpoints = object
+              [ "apiVersion" .= ("v1" :: Text)
+              , "kind" .= ("Endpoints" :: Text)
+              , "metadata" .= object ["name" .= guardedServiceName service]
+              , "subsets" .= [object
+                  [ "addresses" .= [object ["ip" .= ("10.9.8.7" :: Text)]]
+                  , "ports" .= [object ["port" .= (5432 :: Int)]]]]]
+            patch = object ["subsets" .= [object
+              [ "addresses" .= [object ["ip" .= ("10.9.8.7" :: Text)]]
+              , "ports" .= [object ["port" .= (5432 :: Int)]]]]]
+        existing <- invoke ["--namespace", namespace, "get", "endpoints", name,
+          "-o", "json", "--ignore-not-found"] ""
+        case existing of
+          Left reason -> pure (Left reason)
+          Right (ExitFailure _, _, _) -> pure (Left "could not read legacy Endpoints")
+          Right (ExitSuccess, output, _) -> do
+            let input = T.unpack (TE.decodeUtf8 (BL.toStrict (encode
+                  (if T.null (T.strip (T.pack output)) then endpoints else patch))))
+                arguments = if T.null (T.strip (T.pack output))
+                  then ["--namespace", namespace, "create", "-f", "-", "--dry-run=server"]
+                  else ["--namespace", namespace, "patch", "endpoints", name,
+                    "--type=merge", "-p", input, "--dry-run=server"]
+            result <- invoke arguments (if T.null (T.strip (T.pack output)) then input else "")
+            pure $ case result of
+              Left reason -> Left reason
+              Right (ExitSuccess, _, _) -> Right False
+              Right (ExitFailure _, _, errors) -> Right
+                ("Nagare legacy database endpoints are fenced" `T.isInfixOf` T.pack errors)
     probeSchedule guard = do
       results <- forM (guardedSchedules guard) $ \schedule -> do
         let namespace = T.unpack (guardedScheduleNamespace schedule)

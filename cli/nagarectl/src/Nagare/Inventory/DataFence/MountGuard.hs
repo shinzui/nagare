@@ -35,6 +35,7 @@ module Nagare.Inventory.DataFence.MountGuard
   , deploymentWriterGuardObjects
   , serviceMutationGuardObjects
   , endpointSliceGuardObjects
+  , legacyEndpointsGuardObjects
   , scheduledWriterGuardObjects
   ) where
 
@@ -490,6 +491,21 @@ endpointSliceGuardObjects guard = fmap render (guardService guard)
           <> guardedServiceName service
           <> "' || !has(object.endpoints) || object.endpoints == null "
           <> "|| size(object.endpoints) == 0"
+
+-- | Legacy Endpoints still provide a Service route on supported clusters.
+-- Permit the endpoint controller to drain the exact object, but never to
+-- recreate a nonempty address set while the target is fenced.
+legacyEndpointsGuardObjects :: MountGuard -> Maybe (Value, Value)
+legacyEndpointsGuardObjects guard = fmap render (guardService guard)
+  where
+    render service = mutationGuardObjects guard "legacy-endpoints"
+      ["CREATE", "UPDATE"] "" "endpoints" expression
+      "Nagare legacy database endpoints are fenced"
+      where
+        expression = "request.namespace != '" <> guardedServiceNamespace service
+          <> "' || object.metadata.name != '" <> guardedServiceName service
+          <> "' || !has(object.subsets) || object.subsets == null "
+          <> "|| size(object.subsets) == 0"
 
 -- | Keep schedules suspended and deny new Jobs carrying their exact owner
 -- UID. Already-started Jobs and Pods still need separate drain observation.
