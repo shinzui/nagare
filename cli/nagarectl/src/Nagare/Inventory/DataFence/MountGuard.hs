@@ -8,6 +8,8 @@ module Nagare.Inventory.DataFence.MountGuard
   , mkMountGuard
   , mkPodOwnerPermit
   , mountGuardName
+  , guardNamespaceName
+  , guardClaimName
   , mountGuardObjects
   , pvcMutationGuardObjects
   , pvMutationGuardObjects
@@ -97,6 +99,12 @@ mountGuardName guard = "nagare-data-fence-" <>
       nameText (guardClaim guard), guardClaimUid guard,
       nameText (guardVolume guard), guardVolumeUid guard]))))
 
+guardNamespaceName :: MountGuard -> Text
+guardNamespaceName = nameText . guardNamespace
+
+guardClaimName :: MountGuard -> Text
+guardClaimName = nameText . guardClaim
+
 -- | The policy covers Pod CREATE and UPDATE, while the binding enforces Deny.
 -- A controller exception requires both the API-authenticated controller user
 -- and the exact owning workload UID. An owner reference alone is spoofable.
@@ -117,11 +125,15 @@ mountGuardObjects guard = (policy, binding)
       , "spec" .= object
           [ "failurePolicy" .= ("Fail" :: Text)
           , "matchConstraints" .= object
-              [ "resourceRules" .= [object
+              [ "matchPolicy" .= ("Equivalent" :: Text)
+              , "namespaceSelector" .= object []
+              , "objectSelector" .= object []
+              , "resourceRules" .= [object
                   [ "apiGroups" .= ([""] :: [Text])
                   , "apiVersions" .= (["v1"] :: [Text])
                   , "operations" .= (["CREATE", "UPDATE"] :: [Text])
                   , "resources" .= (["pods"] :: [Text])
+                  , "scope" .= ("*" :: Text)
                   ]]
               ]
           , "validations" .= [object
@@ -197,11 +209,15 @@ mutationGuardObjects guard suffix operations resource expression message =
       , "spec" .= object
           [ "failurePolicy" .= ("Fail" :: Text)
           , "matchConstraints" .= object
-              [ "resourceRules" .= [object
+              [ "matchPolicy" .= ("Equivalent" :: Text)
+              , "namespaceSelector" .= object []
+              , "objectSelector" .= object []
+              , "resourceRules" .= [object
                   [ "apiGroups" .= ([""] :: [Text])
                   , "apiVersions" .= (["v1"] :: [Text])
                   , "operations" .= operations
                   , "resources" .= [resource]
+                  , "scope" .= ("*" :: Text)
                   ]]
               ]
           , "validations" .= [object

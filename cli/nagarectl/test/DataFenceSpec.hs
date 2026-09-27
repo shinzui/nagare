@@ -16,6 +16,7 @@ import Nagare.Inventory.Adapter
   , RecoveryDecision (..), mkAdapterRegistry, observationSet, withAdapterFence )
 import Nagare.Inventory.DataFence
 import Nagare.Inventory.DataFence.MountGuard
+import Nagare.Inventory.DataFence.MountGuardRuntime
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute
   ( AdmissionError (..), TransactionResult (..), admit, applyReviewed, execute, resumeTransaction )
@@ -324,6 +325,59 @@ dataFenceTests = testGroup "data fence"
           pvcUid "pv-data" pvUid [] of
           Left _ -> pure ()
           Right _ -> assertFailure "invalid Kubernetes namespace was accepted"
+    , testCase "mount guard install resumes and proof rejects policy drift" $ do
+        guard <- right (mkMountGuard "restore-session" "restore-space" "data-pvc"
+          "11111111-2222-3333-4444-555555555555" "pv-data"
+          "66666666-7777-8888-9999-000000000000" [])
+        objects <- newIORef (Map.empty :: Map.Map (Text, Text) Value)
+        creates <- newIORef (0 :: Int)
+        failSecondCreate <- newIORef True
+        denied <- newIORef True
+        let address (Object value) = case
+              (KM.lookup "kind" value, KM.lookup "metadata" value) of
+              (Just (String kind), Just (Object metadata)) ->
+                case KM.lookup "name" metadata of
+                  Just (String name) -> (kind, name)
+                  _ -> error "guard object lacks name"
+              _ -> error "guard object lacks kind"
+            address _ = error "guard object is not JSON"
+            transport = MountGuardTransport
+              { readGuardObject = \kind name ->
+                  pure . Right . Map.lookup (kind, name) =<< readIORef objects
+              , createGuardObject = \value -> do
+                  modifyIORef' creates (+ 1)
+                  attempt <- readIORef creates
+                  failNow <- readIORef failSecondCreate
+                  if attempt == 2 && failNow
+                    then writeIORef failSecondCreate False >> pure (Left "response lost")
+                    else do
+                      modifyIORef' objects (Map.insert (address value) value)
+                      pure (Right ())
+              , probeForeignMountDenied = \_ -> Right <$> readIORef denied
+              }
+        firstInstall <- installMountGuard transport guard
+        case firstInstall of
+          Left _ -> pure ()
+          Right () -> assertFailure "partial policy install was reported complete"
+        readIORef creates >>= (@?= 2)
+        installMountGuard transport guard >>= right
+        readIORef creates >>= (@?= 9)
+        installMountGuard transport guard >>= right
+        readIORef creates >>= (@?= 9)
+        observeMountGuard transport guard >>= right >>= (@?= True)
+        writeIORef denied False
+        observeMountGuard transport guard >>= right >>= (@?= False)
+        writeIORef denied True
+        let name = mountGuardName guard
+        modifyIORef' objects (Map.adjust (\value -> case value of
+          Object fields -> Object (KM.insert "spec" (object []) fields)
+          other -> other) ("ValidatingAdmissionPolicy", name))
+        observeMountGuard transport guard >>= right >>= (@?= False)
+        result <- installMountGuard transport guard
+        case result of
+          Left _ -> pure ()
+          Right () -> assertFailure "changed policy was accepted on restart"
+        readIORef creates >>= (@?= 9)
     , testCase "reviewed adapter effect runs only inside a verified fence" $ do
         store <- newMemoryStore
         steps <- newIORef ([] :: [Text])
