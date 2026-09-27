@@ -1,11 +1,11 @@
 -- | Native Kubernetes components of a live-volume data fence. This module
--- observes accepted StatefulSet writers and exact PVC/PV state; database
--- connection exclusion and recovered-content verification remain separate
--- requirements before these controls can release a complete data fence.
+-- observes accepted writers, the database shutdown, and exact PVC/PV state.
+-- The restore mode supplies its own recovered-content verification.
 module Nagare.Inventory.DataFence.KubernetesExclusion
   ( KubernetesExclusion
   , mkKubernetesExclusion
   , kubectlKubernetesExclusion
+  , kubernetesDataFenceControls
   , validateKubernetesExclusion
   , stopKubernetesWriters
   , observeKubernetesPhysical
@@ -27,7 +27,7 @@ import Nagare.Dsl.Database (Engine)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapters.KubernetesRuntime
   (KubernetesRuntimeConfig (..))
-import Nagare.Inventory.DataFence (WriterReleaseState (..))
+import Nagare.Inventory.DataFence (DataFenceControls (..), WriterReleaseState (..))
 import Nagare.Inventory.DataFence.DatabaseShutdown
 import Nagare.Inventory.DataFence.DeploymentWriter qualified as Deployment
 import Nagare.Inventory.DataFence.KubernetesIntent
@@ -76,6 +76,23 @@ kubectlKubernetesExclusion config accepted declarations native =
     (kubectlServiceTransport config)
     (kubectlScheduledWriterTransport config)
     (kubectlDatabaseShutdownTransport config)
+
+-- | Bind every shared fence callback to the same reviewed Kubernetes
+-- provider and exact native evidence. A restore mode supplies its own
+-- recovered-content verifier; the provider cannot infer data correctness
+-- from a stopped controller or an empty Service route.
+kubernetesDataFenceControls :: KubernetesExclusion
+  -> (DataFenceRecord -> IO (Either Text Bool)) -> DataFenceControls
+kubernetesDataFenceControls exclusion verify = DataFenceControls
+  { validateFenceInputs = validateKubernetesExclusion exclusion
+  , stopFenceWriters = stopKubernetesWriters exclusion
+  , observeFencePhysical = observeKubernetesPhysical exclusion
+  , observeWritersExcluded = observeKubernetesExcluded exclusion
+  , verifyRecoveredData = verify
+  , restoreFenceWriters = releaseKubernetesWriters exclusion
+  , observeWritersReleased = observeKubernetesRelease exclusion
+  , forwardRecoverPartlyReleased = Just (releaseKubernetesWriters exclusion)
+  }
 
 validatedIntent :: KubernetesExclusion -> DataFenceRecord
   -> Either Text KubernetesFenceIntent

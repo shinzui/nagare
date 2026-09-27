@@ -1,9 +1,11 @@
 module DataFenceSpec (dataFenceTests) where
 
+import Control.Concurrent (threadDelay)
 import Control.Monad (forM_)
 import Data.Aeson (Value (..), eitherDecode, eitherDecodeStrict', encode, object, toJSON, (.=))
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString.Lazy qualified as BL
+import Data.ByteString.Lazy.Char8 qualified as BL8
 import Data.Foldable (toList)
 import Data.Generics.Labels ()
 import Data.IORef
@@ -53,7 +55,81 @@ import Test.Tasty.HUnit
 
 dataFenceTests :: TestTree
 dataFenceTests = testGroup "data fence"
-  [ testCase "engine shutdown observes a clean exit on an explicitly selected native fixture" $ do
+  [ testCase "native database exclusion drains a mounted PVC and Service" $ do
+      selectedContext <- lookupEnv "NAGARE_EP160_EXCLUSION_CONTEXT"
+      selectedNamespace <- lookupEnv "NAGARE_EP160_EXCLUSION_NAMESPACE"
+      selectedEngine <- lookupEnv "NAGARE_EP160_EXCLUSION_ENGINE"
+      case (selectedContext, selectedNamespace, selectedEngine) of
+        (Nothing, Nothing, Nothing) -> pure ()
+        (Just contextName, Just namespaceName, Just engineName) -> do
+          engine <- case engineName of
+            "postgres" -> pure Postgres
+            "redis" -> pure Redis
+            "clickhouse" -> pure ClickHouse
+            _ -> assertFailure "unknown native exclusion engine" >> error "unknown engine"
+          let ContextBinding context _ = fixtureBinding
+              namespace = T.pack namespaceName
+              cluster = mintResourceId fenceOwner (known (mkLogicalKey "cluster"))
+                (known (mkName "cluster"))
+              root = mintResourceId fenceOwner (known (mkLogicalKey "database"))
+                (known (mkName "statefulset"))
+              route = mintResourceId fenceOwner (known (mkLogicalKey "database-route"))
+                (known (mkName "service"))
+              member resource group kind name value =
+                let bytes = BL.toStrict (encode value)
+                 in (resource, (ManagedResource resource fenceOwner KubernetesExecutor
+                      (Kubernetes cluster group (known (mkName kind))
+                        (Just (known (mkName namespace))) (known (mkName name)))
+                      [] (NativeObject (contentDigest bytes)) Retain Stateless Public [] []
+                      (SourceLocation "native-exclusion-fixture" kind), bytes))
+              getJson :: String -> String -> IO Value
+              getJson kind name = do
+                (code, output, stderrOutput) <- readProcessWithExitCode "kubectl"
+                  ["--context", contextName, "-n", namespaceName, "get", kind,
+                    name, "-o", "json"] ""
+                code @?= ExitSuccess
+                case eitherDecode (BL8.pack output) of
+                  Left reason -> assertFailure (stderrOutput <> reason) >> error reason
+                  Right value -> pure value
+              config = KubernetesRuntimeConfig context (T.pack contextName)
+                (pure (Right ()))
+              captureRequest = KubernetesCaptureRequest fixtureBinding Map.empty
+                "native-exclusion-session" target root (Just engine) (Just route)
+                "fixture://recovery" (contentDigest "fixture-recovery")
+                "system:serviceaccount:kube-system:statefulset-controller" Nothing
+          claim <- getJson "pvc" "data-pvc"
+          stateful <- getJson "statefulset" "database"
+          service <- getJson "service" "database"
+          let acceptedNative = Map.fromList
+                [ member target "" "persistentvolumeclaim" "data-pvc" claim
+                , member root "apps" "statefulset" "database" stateful
+                , member route "" "service" "database" service
+                ]
+              declarations = [Managed resource | (resource, _) <- Map.elems acceptedNative]
+          record <- captureKubernetesFence (kubectlKubernetesCaptureTransport config)
+            declarations acceptedNative captureRequest >>= right
+          let provider = kubectlKubernetesExclusion config Map.empty declarations acceptedNative
+              controls = kubernetesDataFenceControls provider (\_ -> pure (Right True))
+              pollExcluded 0 = assertFailure "native exclusion never drained"
+              pollExcluded attempts = do
+                observed <- observeWritersExcluded controls record >>= right
+                if observed then pure () else threadDelay 1000000 >> pollExcluded (attempts - 1)
+              pollReleased 0 = assertFailure "native writer release never completed"
+              pollReleased attempts = do
+                observed <- observeWritersReleased controls record >>= right
+                if observed == WritersFullyReleased then pure ()
+                  else do
+                    _ <- restoreFenceWriters controls record
+                    threadDelay 1000000
+                    pollReleased (attempts - 1)
+          validateFenceInputs controls record >>= right
+          stopFenceWriters controls record >>= right
+          pollExcluded (120 :: Int)
+          observeFencePhysical controls record >>= right >>= (@?= fencePhysical record)
+          _ <- restoreFenceWriters controls record
+          pollReleased (120 :: Int)
+        _ -> assertFailure "native exclusion context, namespace, and engine must be set together"
+    , testCase "engine shutdown observes a clean exit on an explicitly selected native fixture" $ do
       selectedContext <- lookupEnv "NAGARE_EP160_SHUTDOWN_CONTEXT"
       selectedNamespace <- lookupEnv "NAGARE_EP160_SHUTDOWN_NAMESPACE"
       case (selectedContext, selectedNamespace) of
@@ -758,6 +834,8 @@ dataFenceTests = testGroup "data fence"
               declarations acceptedNative guardTransport volumeTransport
               writerTransport deploymentTransport serviceTransport scheduleTransport
               shutdownTransport
+            controls = kubernetesDataFenceControls native
+              (\_ -> pure (Right True))
             captureTransport = KubernetesCaptureTransport guardTransport volumeTransport
               writerTransport deploymentTransport scheduleTransport serviceTransport
               shutdownTransport
@@ -848,7 +926,7 @@ dataFenceTests = testGroup "data fence"
         case unpinned of
           Left _ -> pure ()
           Right () -> assertFailure "managed database omitted its reviewed engine"
-        validateKubernetesExclusion native nativeRecord >>= right
+        validateFenceInputs controls nativeRecord >>= right
         refused <- stopKubernetesWriters native nativeRecord
         refused @?= Left "Kubernetes mount admission guard is not enforcing"
         readIORef objects >>= \installed -> Map.size installed @?= 34
@@ -890,7 +968,7 @@ dataFenceTests = testGroup "data fence"
         shutdownRefused @?= Left "engine shutdown refused"
         readIORef patches >>= (@?= 0)
         writeIORef shutdownDenied False
-        stopKubernetesWriters native nativeRecord >>= right
+        stopFenceWriters controls nativeRecord >>= right
         readIORef shutdownCalls >>= (@?= 2)
         readIORef schedulePatches >>= (@?= 1)
         readIORef patches >>= (@?= 1)
@@ -899,7 +977,7 @@ dataFenceTests = testGroup "data fence"
         writeIORef drained True
         observeKubernetesExcluded native nativeRecord >>= right >>= (@?= False)
         writeIORef endpointsCleared True
-        observeKubernetesExcluded native nativeRecord >>= right >>= (@?= True)
+        observeWritersExcluded controls nativeRecord >>= right >>= (@?= True)
         writeIORef liveWriterImage "redis:8"
         driftedObservation <- observeKubernetesExcluded native nativeRecord
         case driftedObservation of
