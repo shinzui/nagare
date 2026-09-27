@@ -220,7 +220,7 @@ observe_local_registry() {
   [ "${destination}" = "$(jq -r .registryHost "${archive}")" ] || {
     echo "local registry destination differs from the reviewed specification" >&2; return 2;
   }
-  local observed matched count port host_ip
+  local observed matched count port host_ip mappings
   observed="$(k3d registry list -o json)"
   jq -e 'type == "array"' <<<"${observed}" >/dev/null || { echo "invalid k3d registry listing" >&2; return 2; }
   matched="$(jq -c --arg name "k3d-$(jq -r .registry "${archive}")" \
@@ -228,9 +228,11 @@ observe_local_registry() {
   count="$(jq 'length' <<<"${matched}")"
   if [ "${count}" = 0 ]; then emit_missing; return; fi
   if [ "${count}" != 1 ]; then emit_owner_mismatch "k3d-registry://${destination}" "multiple matching local registries"; return; fi
-  port="$(jq -r '.[0].expose.binding.HostPort // .[0].expose.Binding.HostPort // .[0].expose.binding.hostPort // empty' <<<"${matched}")"
-  host_ip="$(jq -r '.[0].expose.binding.HostIp // .[0].expose.binding.HostIP // .[0].expose.Binding.HostIp // .[0].expose.Binding.HostIP // empty' <<<"${matched}")"
-  if [ "${port}" != 5000 ] || [ "${host_ip}" != "0.0.0.0" ]; then
+  mappings="$(jq -r '.[0].portMappings["5000/tcp"] // [] | length' <<<"${matched}")"
+  port="$(jq -r '.[0].portMappings["5000/tcp"][0].HostPort // .[0].expose.binding.HostPort // .[0].expose.Binding.HostPort // .[0].expose.binding.hostPort // empty' <<<"${matched}")"
+  host_ip="$(jq -r '.[0].portMappings["5000/tcp"][0].HostIp // .[0].expose.binding.HostIp // .[0].expose.binding.HostIP // .[0].expose.Binding.HostIp // .[0].expose.Binding.HostIP // empty' <<<"${matched}")"
+  if { [ "${mappings}" != 0 ] && [ "${mappings}" != 1 ]; } \
+    || [ "${port}" != 5000 ] || [ "${host_ip}" != "0.0.0.0" ]; then
     emit_owner_mismatch "k3d-registry://${destination}" "local registry port binding differs from the reviewed specification"
     return
   fi

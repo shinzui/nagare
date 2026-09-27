@@ -69,7 +69,7 @@ printf '%s\n' "$*" >> "$XDG_STATE_HOME/k3d.log"
 case "$*" in
   "registry list -o json")
     if test -e "$XDG_STATE_HOME/registry-created"; then
-      printf '[{"host":"k3d-registry.localhost","expose":{"binding":{"HostIp":"0.0.0.0","HostPort":"5000"}}}]\n'
+      printf '[{"name":"k3d-registry.localhost","portMappings":{"5000/tcp":[{"HostIp":"0.0.0.0","HostPort":"5000"}]}}]\n'
     else printf '[]\n'; fi ;;
   "cluster list -o json")
     if test -e "$XDG_STATE_HOME/cluster-created"; then

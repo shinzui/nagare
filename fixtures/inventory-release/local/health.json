@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "mode": "local",
+  "clusterPrefix": "k3d-",
+  "knativeNamespace": "knative-serving",
+  "knativeWebhook": "webhook",
+  "objectStoreNamespace": "nagare-system",
+  "objectStoreDeployment": "minio",
+  "objectStoreService": "minio",
+  "objectStoreBucketJob": "minio-make-bucket",
+  "registryUrl": "http://k3d-registry.localhost:5000/v2/"
+}

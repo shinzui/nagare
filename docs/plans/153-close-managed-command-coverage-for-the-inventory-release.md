@@ -62,6 +62,8 @@ M2 handoff (2026-09-26): `scripts/local-smoke.sh` and `scripts/live-smoke.sh` no
 
 M2 checkpoint (2026-09-27): Registered the production `planInventoryCandidateWithPayloadIdentity` call and regenerated the existing catalogue snapshot. `python3 scripts/audit-managed-commands.py --update-catalogue --coverage-result /tmp/nagare-command-coverage.json` reports zero registration errors; `bash scripts/test-managed-command-audit.sh` passes and still rejects an injected mutation (135 routes, 34 recipes, 26 library calls). Coverage remains incomplete with 11 pending routes, seven recipes, and 30 incomplete catalogue rows. The next ordered checkpoint is EP-154's installed-package smoke; this registration repair does not close M2.
 
+M2 consumer checkpoint (2026-09-27): The first installed `local-up` on a fresh isolated context failed because `scripts/run-reviewed-bootstrap.sh` handed an existing `mktemp -d` directory to `platform bootstrap plan --out`; the planner requires a new output path. The wrapper now creates a private parent and uses its absent `review` child. The repeated command passed review publication and reached the native registry operation. `bash scripts/test-knative-bootstrap-readiness.sh` and shell syntax checks passed. EP-155 records the later artifact-observation failure; this consumer fix alone does not close M2.
+
 Inherited baseline: legacy upgrade/Pulumi/context/cleanup/host-credential guards, eleven CLI refusal assertions, and the coverage catalogue already exist. Several guarded operations remain unavailable after admission; their guards are not evidence of a working replacement.
 
 

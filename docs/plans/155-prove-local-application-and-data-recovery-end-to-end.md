@@ -22,6 +22,11 @@ provenance:
       at: 2026-09-27T13:29:05Z
       mode: "update"
       note: "Apply Codex execution-log diagnosis, fixed outcome ownership, production-path checkpoints, and restore/maintenance handoff without expanding release scope"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-27T14:29:12Z
+      mode: "implement"
+      note: "Start local health fixture and repair observed k3d registry provider binding"
 ---
 
 # Prove local application and data recovery end to end
@@ -43,11 +48,15 @@ One reproducible disposable local run proves that the installed Nagare candidate
 
 Inherited baseline: InventoryIntegrationSpec covers a recording platform/two-app/cache scenario; scripts/rehearse-managed-resources.sh already has plan/apply/verify and refusal tests. EP-147 has a prior local bootstrap proof. EP-148 has worker-only and task-deletion native probes, plus recording webhook proofs. None alone proves this combined scenario.
 
+Early fixture handoff (2026-09-27): `fixtures/inventory-release/local/health.json` and `scripts/rehearse-local-inventory-release.sh` now bind an exact local k3d target to the existing saved-review plan/apply/verify runner. Before review publication, the runner checks the confined local profile, kubeconfig cluster identity, Kubernetes API, ready Knative webhook endpoint, registry API, and ready MinIO endpoint/bucket Job. Shell syntax and `--help` passed. A run against the absent `ep155-local` profile refused before Kubernetes access; no healthy native fixture or application/data candidate has yet passed. M1/M2 remain open.
+
+The first installed platform path used revision `2717b386f3529e24ad09245f9236e9f2fa972914`, isolated state at `/tmp/nagare-mp23-ep155-2717`, and the fresh `local` profile. It first exposed EP-153's existing-output review-path bug, which was fixed. The next review reached native registry creation but stopped at ambiguous operation `op-9796d85bb45a73e5d1b55082` in transaction `tx-701b4772dc756d5767fe007e33acc69c00fb75aff2be6b695dcaea39f7d1e8e2`; the review remains at `/tmp/nagare-bootstrap-review.QWERYl/review`. k3d reported the exact newly created `k3d-registry.localhost` with a `5000/tcp` port mapping, but the installed observer could not parse that shape. `inventory recover` with the saved-review decision refused `unsupported-recovery`, so this run is not accepted and its old transaction must not be blindly replayed. The source observer now reads k3d 5.9 `portMappings` while preserving the older fixture shape; `bash scripts/test-bootstrap-local-public.sh <built nagarectl>` passed. Next: use a new exact candidate and disposable target after exact cleanup of this test-only registry, then continue the platform → application/database → unchanged replay assertion. No whole milestone is complete.
+
 
 ## Surprises & Discoveries
 
 
-No new implementation findings in this successor plan. Inherited evidence and known gaps are identified below.
+2026-09-27: The installed local bootstrap discovered a k3d registry observation mismatch: current `k3d registry list -o json` exposes `portMappings["5000/tcp"]`, not the observer's expected `expose.binding`. The operation may have succeeded while its acknowledgement was lost, so the old candidate's recovery correctly stays unresolved. This is an EP-155 native provider binding under the existing real-convergence assertion, not a new provider or feature requirement.
 
 
 ## Decision Log
