@@ -8,6 +8,7 @@ module Nagare.Inventory.DataFence.MountGuardRuntime
   , observeMountGuard
   , removeMountGuard
   , observeMountGuardAbsent
+  , guardObjectAddresses
   ) where
 
 import Control.Exception (IOException, try)
@@ -178,6 +179,11 @@ guardObjects guard =
       <> map snd slicePairs
       <> map snd legacyPairs
       <> map snd schedulePairs
+
+-- | Exact cluster-scoped policy and binding names used by authorization
+-- checks. A broad resource-only check misses name-scoped RBAC grants.
+guardObjectAddresses :: MountGuard -> Either Text [(Text, Text)]
+guardObjectAddresses = traverse objectAddress . guardObjects
 
 objectAddress :: Value -> Either Text (Text, Text)
 objectAddress (Object root) = do

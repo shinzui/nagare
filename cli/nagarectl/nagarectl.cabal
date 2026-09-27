@@ -131,6 +131,7 @@ library
     Nagare.Inventory.DataFence
     Nagare.Inventory.DataFence.MountGuard
     Nagare.Inventory.DataFence.MountGuardRuntime
+    Nagare.Inventory.DataFence.GuardAuthority
     Nagare.Inventory.DataFence.VolumeState
     Nagare.Inventory.DataFence.StatefulWriter
     Nagare.Inventory.DataFence.DeploymentWriter

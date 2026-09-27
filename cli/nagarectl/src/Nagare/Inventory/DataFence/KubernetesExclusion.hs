@@ -14,13 +14,14 @@ module Nagare.Inventory.DataFence.KubernetesExclusion
   , observeKubernetesRelease
   ) where
 
-import Control.Monad (forM, unless)
+import Control.Monad (foldM, forM, unless)
 import Data.Aeson (Value (..), eitherDecodeStrict')
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Nagare.Dsl.Database (Engine)
@@ -30,8 +31,10 @@ import Nagare.Inventory.Adapters.KubernetesRuntime
 import Nagare.Inventory.DataFence (DataFenceControls (..), WriterReleaseState (..))
 import Nagare.Inventory.DataFence.DatabaseShutdown
 import Nagare.Inventory.DataFence.DeploymentWriter qualified as Deployment
+import Nagare.Inventory.DataFence.GuardAuthority
 import Nagare.Inventory.DataFence.KubernetesIntent
-import Nagare.Inventory.DataFence.MountGuard (guardClaimName)
+import Nagare.Inventory.DataFence.MountGuard
+  (MountGuard, guardClaimName, guardNamespaceName)
 import Nagare.Inventory.DataFence.MountGuardRuntime
 import Nagare.Inventory.DataFence.ServiceState
 import Nagare.Inventory.DataFence.ScheduledWriter
@@ -48,6 +51,7 @@ data KubernetesExclusion = KubernetesExclusion
   , exclusionDeclarations :: ![Declaration]
   , exclusionNative :: !(Map ResourceId (ManagedResource, ByteString))
   , exclusionGuardTransport :: !MountGuardTransport
+  , exclusionGuardAccessTransport :: !GuardAccessTransport
   , exclusionVolumeTransport :: !VolumeTransport
   , exclusionWriterTransport :: !StatefulWriterTransport
   , exclusionDeploymentTransport :: !Deployment.DeploymentWriterTransport
@@ -58,7 +62,8 @@ data KubernetesExclusion = KubernetesExclusion
 
 mkKubernetesExclusion :: ContextId -> Map ScopeId ScopeRevision
   -> [Declaration] -> Map ResourceId (ManagedResource, ByteString)
-  -> MountGuardTransport -> VolumeTransport -> StatefulWriterTransport
+  -> MountGuardTransport -> GuardAccessTransport -> VolumeTransport
+  -> StatefulWriterTransport
   -> Deployment.DeploymentWriterTransport -> ServiceTransport
   -> ScheduledWriterTransport -> DatabaseShutdownTransport
   -> KubernetesExclusion
@@ -70,7 +75,8 @@ kubectlKubernetesExclusion :: KubernetesRuntimeConfig
   -> KubernetesExclusion
 kubectlKubernetesExclusion config accepted declarations native =
   mkKubernetesExclusion (runtimeContext config) accepted declarations native
-    (kubectlMountGuardTransport config) (kubectlVolumeTransport config)
+    (kubectlMountGuardTransport config) (kubectlGuardAccessTransport config)
+    (kubectlVolumeTransport config)
     (kubectlStatefulWriterTransport config)
     (Deployment.kubectlDeploymentWriterTransport config)
     (kubectlServiceTransport config)
@@ -93,6 +99,55 @@ kubernetesDataFenceControls exclusion verify = DataFenceControls
   , observeWritersReleased = observeKubernetesRelease exclusion
   , forwardRecoverPartlyReleased = Just (releaseKubernetesWriters exclusion)
   }
+
+-- | Admission behavior and policy-edit authority are separate proof parts.
+-- The checked principals come from the private intent and accepted native
+-- workload templates;
+-- an authorized policy editor invalidates exclusion even if a Pod dry-run
+-- happens to be denied at this instant.
+observeProtectedMountGuard :: KubernetesExclusion -> KubernetesFenceIntent
+  -> MountGuard -> IO (Either Text Bool)
+observeProtectedMountGuard exclusion intent mountGuard = do
+  enforcing <- observeMountGuard (exclusionGuardTransport exclusion) mountGuard
+  case enforcing of
+    Left reason -> pure (Left reason)
+    Right False -> pure (Right False)
+    Right True -> case protectedGuardPrincipals exclusion intent of
+      Left reason -> pure (Left reason)
+      Right principals -> observeGuardAuthority
+        (exclusionGuardAccessTransport exclusion) principals mountGuard
+
+-- | Accepted native Pod templates fix the managed workload identities whose
+-- Kubernetes RBAC must not permit changes to guard policies or bindings.
+protectedGuardPrincipals :: KubernetesExclusion -> KubernetesFenceIntent
+  -> Either Text [Text]
+protectedGuardPrincipals exclusion intent = do
+  stateful <- traverse (\(resource, pin) -> acceptedPrincipal resource
+    (writerNamespace pin) ["template", "spec"])
+    (kubernetesStatefulWriters intent)
+  deployments <- traverse (\(resource, pin) -> acceptedPrincipal resource
+    (Deployment.writerNamespace pin) ["template", "spec"])
+    (kubernetesDeploymentWriters intent)
+  schedules <- traverse (\(resource, pin) -> acceptedPrincipal resource
+    (scheduleNamespace pin) ["jobTemplate", "spec", "template", "spec"])
+    (kubernetesScheduledWriters intent)
+  let targetDefault = "system:serviceaccount:"
+        <> guardNamespaceName (kubernetesMountGuard intent) <> ":default"
+  pure (Set.toAscList (Set.fromList
+    (targetDefault : kubernetesGuardPrincipals intent
+      <> stateful <> deployments <> schedules)))
+  where
+    acceptedPrincipal resource namespace path = do
+      (_, bytes) <- maybe
+        (Left "fenced workload lacks accepted native evidence") Right
+        (Map.lookup resource (exclusionNative exclusion))
+      spec <- nativeSpec bytes
+      podSpec <- foldM (flip nativeField) spec path
+      account <- case KM.lookup "serviceAccountName" podSpec of
+        Nothing -> Right "default"
+        Just (String value) | not (T.null value) -> Right value
+        _ -> Left "accepted workload has a malformed service account"
+      pure ("system:serviceaccount:" <> namespace <> ":" <> account)
 
 validatedIntent :: KubernetesExclusion -> DataFenceRecord
   -> Either Text KubernetesFenceIntent
@@ -236,7 +291,7 @@ stopKubernetesWriters exclusion record = case validatedIntent exclusion record o
         case installed of
           Left reason -> pure (Left reason)
           Right () -> do
-            enforcing <- observeMountGuard (exclusionGuardTransport exclusion)
+            enforcing <- observeProtectedMountGuard exclusion intent
               (kubernetesMountGuard intent)
             case enforcing of
               Left reason -> pure (Left reason)
@@ -356,8 +411,7 @@ observeKubernetesExcluded exclusion record = case validatedIntent exclusion reco
   Left reason -> pure (Left reason)
   Right intent -> do
     let mountGuard = kubernetesMountGuard intent
-        guardTransport = exclusionGuardTransport exclusion
-    before <- observeMountGuard guardTransport mountGuard
+    before <- observeProtectedMountGuard exclusion intent mountGuard
     case before of
       Left reason -> pure (Left reason)
       Right False -> pure (Right False)
@@ -376,7 +430,7 @@ observeKubernetesExcluded exclusion record = case validatedIntent exclusion reco
           Nothing -> pure (Right True)
           Just pin -> fmap (fmap serviceHasNoEndpoints)
             (observeServiceState (exclusionServiceTransport exclusion) pin)
-        after <- observeMountGuard guardTransport mountGuard
+        after <- observeProtectedMountGuard exclusion intent mountGuard
         pure $ do
           _ <- engine
           stopped <- sequence writers
@@ -404,8 +458,8 @@ releaseKubernetesWriters exclusion record = case validatedIntent exclusion recor
         let guardTransport = exclusionGuardTransport exclusion
             mountGuard = kubernetesMountGuard intent
             releaseGuard = kubernetesReleaseMountGuard intent
-        acquisition <- observeMountGuard guardTransport mountGuard
-        releasing <- observeMountGuard guardTransport releaseGuard
+        acquisition <- observeProtectedMountGuard exclusion intent mountGuard
+        releasing <- observeProtectedMountGuard exclusion intent releaseGuard
         case (,) <$> acquisition <*> releasing of
           Left reason -> pure (Left reason)
           Right (False, False) -> do
@@ -421,7 +475,7 @@ releaseKubernetesWriters exclusion record = case validatedIntent exclusion recor
             case installed of
               Left reason -> pure (Left reason)
               Right () -> do
-                overlay <- observeMountGuard guardTransport releaseGuard
+                overlay <- observeProtectedMountGuard exclusion intent releaseGuard
                 case overlay of
                   Left reason -> pure (Left reason)
                   Right False -> pure (Left
@@ -504,7 +558,7 @@ observeKubernetesRelease exclusion record = case validatedIntent exclusion recor
         let mountGuard = kubernetesMountGuard intent
             releaseGuard = kubernetesReleaseMountGuard intent
             transport = exclusionGuardTransport exclusion
-        intact <- observeMountGuard transport mountGuard
+        intact <- observeProtectedMountGuard exclusion intent mountGuard
         absent <- observeMountGuardAbsent transport mountGuard
         releaseAbsent <- observeMountGuardAbsent transport releaseGuard
         pure $ do

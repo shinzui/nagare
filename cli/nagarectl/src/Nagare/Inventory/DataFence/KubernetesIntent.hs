@@ -47,6 +47,7 @@ data KubernetesFenceIntent = KubernetesFenceIntent
   , kubernetesScheduledWriters :: ![(ResourceId, ScheduledWriterPin)]
   , kubernetesWriterMountsTarget :: !(Map.Map ResourceId Bool)
   , kubernetesService :: !(Maybe ServicePin)
+  , kubernetesGuardPrincipals :: ![Text]
   }
   deriving stock (Eq, Show)
 
@@ -235,11 +236,16 @@ decodeKubernetesFenceIntent record = do
         (rawReplicaSetUid replicaSet) principal
   let releaseGuard = releaseMountGuard mountGuard
         (releasePermits <> replicaSetPermits)
+      guardPrincipals = Set.toAscList (Set.fromList
+        ([controllerPrincipal]
+          <> maybe [] (pure . rawJobPrincipal) restoreJob
+          <> maybe [] pure replicaSetPrincipal))
   validateBacking (rawBacking volume)
   pure (KubernetesFenceIntent cluster root databaseEngine (rawResource volume)
     mountGuard releaseGuard (rawBacking volume)
     statefulWriters deploymentWriters scheduledWriters
-    (Map.fromList [(resource, mounted) | (resource, _, mounted) <- writers]) service)
+    (Map.fromList [(resource, mounted) | (resource, _, mounted) <- writers])
+    service guardPrincipals)
 
 -- | Reconcile the saved writer pins with the complete accepted native
 -- discovery before any provider mutation. Dependency clients and direct PVC

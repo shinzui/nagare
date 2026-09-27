@@ -25,6 +25,7 @@ import Nagare.Inventory.DataFence
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..))
 import Nagare.Inventory.DataFence.DatabaseShutdown
 import Nagare.Inventory.DataFence.DeploymentWriter qualified as Deployment
+import Nagare.Inventory.DataFence.GuardAuthority
 import Nagare.Inventory.DataFence.KubernetesExclusion
 import Nagare.Inventory.DataFence.KubernetesCapture
 import Nagare.Inventory.DataFence.MountGuard
@@ -124,6 +125,49 @@ dataFenceTests = testGroup "data fence"
               verify _ = modifyIORef' verifications (+ 1) >> pure (Right True)
               controls = kubernetesDataFenceControls provider verify
           validateFenceInputs controls record >>= right
+          let protectedGuard = kubernetesMountGuard
+                (known (decodeKubernetesFenceIntent record))
+              defaultPrincipal = "system:serviceaccount:" <> namespace <> ":default"
+              authority = kubectlGuardAccessTransport config
+              runKube arguments input = do
+                (code, _, errorOutput) <- readProcessWithExitCode "kubectl"
+                  (["--context", contextName] <> arguments) input
+                assertEqual errorOutput ExitSuccess code
+              role = object
+                [ "apiVersion" .= ("rbac.authorization.k8s.io/v1" :: Text)
+                , "kind" .= ("ClusterRole" :: Text)
+                , "metadata" .= object ["name" .= ("ep160-guard-editor" :: Text)]
+                , "rules" .= [object
+                    [ "apiGroups" .= (["admissionregistration.k8s.io"] :: [Text])
+                    , "resources" .= (["validatingadmissionpolicies"] :: [Text])
+                    , "resourceNames" .= [mountGuardName protectedGuard]
+                    , "verbs" .= (["patch"] :: [Text])]]]
+              editorBinding = object
+                [ "apiVersion" .= ("rbac.authorization.k8s.io/v1" :: Text)
+                , "kind" .= ("ClusterRoleBinding" :: Text)
+                , "metadata" .= object ["name" .= ("ep160-guard-editor" :: Text)]
+                , "roleRef" .= object
+                    [ "apiGroup" .= ("rbac.authorization.k8s.io" :: Text)
+                    , "kind" .= ("ClusterRole" :: Text)
+                    , "name" .= ("ep160-guard-editor" :: Text)]
+                , "subjects" .= [object
+                    [ "kind" .= ("ServiceAccount" :: Text)
+                    , "name" .= ("default" :: Text)
+                    , "namespace" .= namespace]]]
+              pollAuthority _ 0 = assertFailure "guard RBAC result did not converge"
+              pollAuthority expected attempts = do
+                observed <- observeGuardAuthority authority
+                  [defaultPrincipal] protectedGuard >>= right
+                if observed == expected then pure () else do
+                  threadDelay 200000
+                  pollAuthority expected (attempts - 1)
+          pollAuthority True (10 :: Int)
+          runKube ["create", "-f", "-"] (BL8.unpack (encode role))
+          runKube ["create", "-f", "-"] (BL8.unpack (encode editorBinding))
+          pollAuthority False (10 :: Int)
+          runKube ["delete", "clusterrolebinding", "ep160-guard-editor"] ""
+          runKube ["delete", "clusterrole", "ep160-guard-editor"] ""
+          pollAuthority True (10 :: Int)
           withSystemTempDirectory "nagare-native-fence" $ \rootPath -> do
             store <- openFilesystemStore rootPath >>= right
             _ <- initializeStore store fixtureBinding "native-fixture" >>= right
@@ -678,7 +722,8 @@ dataFenceTests = testGroup "data fence"
               [ "replicas" .= (replicas :: Int)
               , "serviceName" .= ("database" :: Text)
               , "template" .= object ["spec" .= object
-                  [ "containers" .= [object
+                  [ "serviceAccountName" .= ("database-account" :: Text)
+                  , "containers" .= [object
                       [ "name" .= ("postgres" :: Text)
                       , "image" .= (image :: Text)]]
                   , "volumes" .= [object
@@ -693,15 +738,23 @@ dataFenceTests = testGroup "data fence"
               [ "replicas" .= (replicas :: Int)
               , "selector" .= object ["matchLabels" .= object
                   ["app" .= ("database-client" :: Text)]]
-              , "template" .= object ["metadata" .= object ["labels" .= object
-                  ["app" .= ("database-client" :: Text)]]]]
+              , "template" .= object
+                  [ "metadata" .= object ["labels" .= object
+                      ["app" .= ("database-client" :: Text)]]
+                  , "spec" .= object
+                      [ "serviceAccountName" .= ("client-account" :: Text)
+                      , "containers" .= [object
+                      [ "name" .= ("client" :: Text)
+                      , "image" .= ("busybox:1.36" :: Text)]]]]]
             nativeDeployment = object ["spec" .= deploymentSpec (1 :: Int)]
             nativeService = object ["spec" .= object ["selector" .= object
               ["nagare.dev/database" .= ("database" :: Text)]]]
             scheduleSpec suspended = object
               [ "suspend" .= suspended
               , "jobTemplate" .= object ["spec" .= object ["template" .= object
-                  ["spec" .= object ["containers" .= ([] :: [Value])]]]]]
+                  ["spec" .= object
+                    [ "serviceAccountName" .= ("backup-account" :: Text)
+                    , "containers" .= ([] :: [Value])]]]]]
             nativeSchedule = object ["spec" .= scheduleSpec False]
             observedService = object
               [ "metadata" .= object
@@ -765,6 +818,8 @@ dataFenceTests = testGroup "data fence"
         endpointDenied <- newIORef False
         legacyEndpointDenied <- newIORef False
         scheduleDenied <- newIORef False
+        authorityAllowed <- newIORef False
+        authorityChecks <- newIORef ([] :: [GuardAccessQuery])
         scheduleSuspended <- newIORef False
         scheduleJobsActive <- newIORef True
         schedulePodPhase <- newIORef ("Running" :: Text)
@@ -980,12 +1035,18 @@ dataFenceTests = testGroup "data fence"
                     , "status" .= object ["phase" .= phase]]]]))
               }
             native = mkKubernetesExclusion (binding ^. #identity) Map.empty
-              declarations acceptedNative guardTransport volumeTransport
+              declarations acceptedNative guardTransport authorityTransport
+              volumeTransport
               writerTransport deploymentTransport serviceTransport scheduleTransport
               shutdownTransport
+            authorityTransport = GuardAccessTransport
+              (\query -> do
+                atomicModifyIORef' authorityChecks (\old -> (query : old, ()))
+                Right <$> readIORef authorityAllowed)
             controls = kubernetesDataFenceControls native
               (\_ -> pure (Right True))
-            captureTransport = KubernetesCaptureTransport guardTransport volumeTransport
+            captureTransport = KubernetesCaptureTransport guardTransport authorityTransport
+              volumeTransport
               writerTransport deploymentTransport scheduleTransport serviceTransport
               shutdownTransport
             shutdownTransport = DatabaseShutdownTransport $ \_ podName podUid engine image -> do
@@ -1102,6 +1163,20 @@ dataFenceTests = testGroup "data fence"
         scheduleRefused @?= Left "Kubernetes mount admission guard is not enforcing"
         readIORef patches >>= (@?= 0)
         writeIORef scheduleDenied True
+        _ <- stopKubernetesWriters native nativeRecord
+        checkedPrincipals <- Set.fromList . map accessPrincipal
+          <$> readIORef authorityChecks
+        assertBool "accepted workload service accounts were omitted from authority"
+          (Set.fromList
+            [ "system:serviceaccount:restore-space:database-account"
+            , "system:serviceaccount:restore-space:client-account"
+            , "system:serviceaccount:restore-space:backup-account"]
+              `Set.isSubsetOf` checkedPrincipals)
+        writeIORef authorityAllowed True
+        editable <- stopKubernetesWriters native nativeRecord
+        editable @?= Left "Kubernetes mount admission guard is not enforcing"
+        readIORef patches >>= (@?= 0)
+        writeIORef authorityAllowed False
         waitingClients <- stopKubernetesWriters native nativeRecord
         waitingClients @?= Left "managed database clients have not drained"
         readIORef patches >>= (@?= 0)
@@ -1597,6 +1672,34 @@ dataFenceTests = testGroup "data fence"
           pvcUid "pv-data" pvUid [] of
           Left _ -> pure ()
           Right _ -> assertFailure "invalid Kubernetes namespace was accepted"
+    , testCase "guard authority checks exact names and refuses policy editors" $ do
+        guard <- right (mkMountGuard "restore-session" "restore-space" "data-pvc"
+          "11111111-2222-3333-4444-555555555555" "pv-data"
+          "66666666-7777-8888-9999-000000000000" [])
+        checks <- newIORef ([] :: [GuardAccessQuery])
+        let principal = "system:serviceaccount:restore-space:client"
+            transport allowed = GuardAccessTransport $ \query -> do
+              atomicModifyIORef' checks (\old -> (query : old, ()))
+              pure (Right (allowed query))
+        observeGuardAuthority (transport (const False)) [principal] guard
+          >>= (@?= Right True)
+        queried <- readIORef checks
+        length queried @?= 24
+        assertBool "exact Pod policy patch check is missing"
+          (GuardAccessQuery principal "patch" "validatingadmissionpolicies"
+            (mountGuardName guard) `elem` queried)
+        writeIORef checks []
+        observeGuardAuthority (transport (\query ->
+            accessVerb query == "patch"
+              && accessName query == mountGuardName guard)) [principal] guard
+          >>= (@?= Right False)
+        caseLength <- length <$> readIORef checks
+        assertBool "an authorized policy edit stopped the proof" (caseLength < 24)
+        malformed <- observeGuardAuthority (transport (const False))
+          ["system:serviceaccount:restore-space:client:other"] guard
+        case malformed of
+          Left _ -> pure ()
+          Right _ -> assertFailure "malformed principal was accepted"
     , testCase "mount guard install resumes and proof rejects policy drift" $ do
         guard <- right (mkMountGuard "restore-session" "restore-space" "data-pvc"
           "11111111-2222-3333-4444-555555555555" "pv-data"
