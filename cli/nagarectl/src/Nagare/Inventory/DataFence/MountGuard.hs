@@ -289,14 +289,30 @@ namespaceDeleteGuardObjects guard = mutationGuardObjects guard "namespace"
     expression = "oldObject.metadata.name != '" <> nameText (guardNamespace guard) <> "'"
 
 -- | The saved controllers may only be driven toward zero while recovery is
--- active. This covers both ordinary StatefulSet updates and /scale updates;
--- DELETE is refused. The guard is removed only after verified recovery.
+-- active. The parent resource and /scale subresource have different admission
+-- object shapes, so each gets its own rule. DELETE is refused.
 statefulWriterGuardObjects :: MountGuard -> [(Value, Value)]
-statefulWriterGuardObjects guard = map render (guardWriters guard)
+statefulWriterGuardObjects guard = concatMap renderWriter (guardWriters guard)
   where
-    render writer = (policy, binding)
+    renderWriter writer =
+      [ render writer "-w-" "statefulsets" parentExpression
+      , render writer "-s-" "statefulsets/scale" scaleExpression
+      ]
       where
-        name = mountGuardName guard <> "-w-" <> T.take 8
+        target = "oldObject.metadata.namespace != '"
+          <> guardedWriterNamespace writer
+          <> "' || oldObject.metadata.name != '" <> guardedWriterName writer
+          <> "' || (request.operation == 'UPDATE' && object.spec.replicas == 0"
+        parentExpression = target
+          <> " && (oldObject.spec.replicas != 0 || object.spec == oldObject.spec))"
+        scaleExpression = "oldObject.metadata.namespace != '"
+          <> guardedWriterNamespace writer
+          <> "' || oldObject.metadata.name != '" <> guardedWriterName writer
+          <> "' || (request.operation == 'UPDATE'"
+          <> " && (!has(object.spec.replicas) || object.spec.replicas == 0))"
+    render writer suffix resource expression = (policy, binding)
+      where
+        name = mountGuardName guard <> suffix <> T.take 8
           (digestText (contentDigest (TE.encodeUtf8 (T.intercalate "/"
             [guardedWriterNamespace writer, guardedWriterName writer,
               guardedWriterUid writer]))))
@@ -320,7 +336,7 @@ statefulWriterGuardObjects guard = map render (guardWriters guard)
                       [ "apiGroups" .= (["apps"] :: [Text])
                       , "apiVersions" .= (["v1"] :: [Text])
                       , "operations" .= (["UPDATE", "DELETE"] :: [Text])
-                      , "resources" .= (["statefulsets", "statefulsets/scale"] :: [Text])
+                      , "resources" .= ([resource] :: [Text])
                       , "scope" .= ("Namespaced" :: Text)
                       ]]
                   ]
@@ -337,10 +353,6 @@ statefulWriterGuardObjects guard = map render (guardWriters guard)
               [ "policyName" .= name
               , "validationActions" .= (["Deny"] :: [Text])
               ]]
-        expression =
-          "oldObject.metadata.namespace != '" <> guardedWriterNamespace writer
-            <> "' || oldObject.metadata.name != '" <> guardedWriterName writer
-            <> "' || (request.operation == 'UPDATE' && object.spec.replicas == 0)"
 
 -- | The Service route cannot be changed or deleted while exclusion is active.
 -- The UID is also observed against the durable pin before every data effect.

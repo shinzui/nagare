@@ -62,6 +62,7 @@ dataFenceTests = testGroup "data fence"
               , "name" .= ("database" :: Text)
               , "uid" .= (writerUid :: Text)
               , "replicas" .= (1 :: Int)
+              , "specDigest" .= contentDigest "fixture-stateful-spec"
               , "controllerPrincipal" .=
                   ("system:serviceaccount:kube-system:statefulset-controller" :: Text)
               , "mountsTarget" .= True]
@@ -95,14 +96,20 @@ dataFenceTests = testGroup "data fence"
         assertBool "acquisition guard must deny the saved writer controller"
           (not (writerUid `T.isInfixOf` T.pack (show podPolicy)))
         case statefulWriterGuardObjects (kubernetesMountGuard decoded) of
-          [(writerPolicy, _)] -> do
+          [(writerPolicy, _), (scalePolicy, _)] -> do
             let rendered = T.pack (show writerPolicy)
+                scaleRendered = T.pack (show scalePolicy)
+            assertBool "writer guard covers the parent resource"
+              ("\"statefulsets\"" `T.isInfixOf` rendered)
             assertBool "writer guard covers the scale subresource"
-              ("statefulsets/scale" `T.isInfixOf` rendered)
+              ("statefulsets/scale" `T.isInfixOf` scaleRendered)
             assertBool "writer guard requires zero replicas"
-              ("object.spec.replicas == 0" `T.isInfixOf` rendered)
+              ("object.spec.replicas == 0" `T.isInfixOf` scaleRendered)
+            assertBool "parent guard freezes a stopped writer spec"
+              ("object.spec == oldObject.spec" `T.isInfixOf` rendered)
             assertBool "writer guard binds the saved UID"
-              (writerUid `T.isInfixOf` rendered)
+              (writerUid `T.isInfixOf` rendered
+                && writerUid `T.isInfixOf` scaleRendered)
           _ -> assertFailure "saved StatefulSet has no admission guard"
         let candidate = WriterCandidate writer StatefulSetWriter
               (Kubernetes clusterId "apps" (known (mkName "statefulset"))
@@ -245,6 +252,7 @@ dataFenceTests = testGroup "data fence"
               , "name" .= ("database" :: Text)
               , "uid" .= (writerUid :: Text)
               , "replicas" .= (1 :: Int)
+              , "specDigest" .= known (digestStatefulWriterSpec nativeWriter)
               , "controllerPrincipal" .=
                   ("system:serviceaccount:kube-system:statefulset-controller" :: Text)
               , "mountsTarget" .= True]
@@ -298,11 +306,13 @@ dataFenceTests = testGroup "data fence"
               , "spec" .= object ["volumes" .= [object
                   ["persistentVolumeClaim" .= object
                     ["claimName" .= ("data-pvc" :: Text)]]]]]
-            nativeWriter = object ["spec" .= object
-              [ "serviceName" .= ("database" :: Text)
+            writerSpec replicas = object
+              [ "replicas" .= (replicas :: Int)
+              , "serviceName" .= ("database" :: Text)
               , "template" .= object ["spec" .= object ["volumes" .= [object
                   ["persistentVolumeClaim" .= object
-                    ["claimName" .= ("data-pvc" :: Text)]]]]]]]
+                    ["claimName" .= ("data-pvc" :: Text)]]]]]]
+            nativeWriter = object ["spec" .= writerSpec (1 :: Int)]
             nativeService = object ["spec" .= object ["selector" .= object
               ["nagare.dev/database" .= ("database" :: Text)]]]
             scheduleSpec suspended = object
@@ -432,7 +442,7 @@ dataFenceTests = testGroup "data fence"
                         , "uid" .= (writerUid :: Text)
                         , "resourceVersion" .= ("7" :: Text)
                         , "generation" .= (if desired == 0 then 2 else 1 :: Int)]
-                    , "spec" .= object ["replicas" .= desired]
+                    , "spec" .= writerSpec desired
                     , "status" .= object
                         [ "observedGeneration" .=
                             (if desired == 0 && not ready then 1 else 2 :: Int)
@@ -523,7 +533,7 @@ dataFenceTests = testGroup "data fence"
         validateKubernetesExclusion native nativeRecord >>= right
         refused <- stopKubernetesWriters native nativeRecord
         refused @?= Left "Kubernetes mount admission guard is not enforcing"
-        readIORef objects >>= \installed -> Map.size installed @?= 18
+        readIORef objects >>= \installed -> Map.size installed @?= 20
         readIORef patches >>= (@?= 0)
         writeIORef guardDenied True
         scaleRefused <- stopKubernetesWriters native nativeRecord
@@ -1233,7 +1243,9 @@ dataFenceTests = testGroup "data fence"
           Right _ -> assertFailure "replaced PVC UID was accepted"
     , testCase "StatefulSet writer scale and release require observed convergence" $ do
         let uid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-        pin <- right (mkStatefulWriterPin "restore-space" "database" uid 2)
+        pin <- right (mkStatefulWriterPin "restore-space" "database" uid 2
+          (known (digestStatefulWriterSpec (object ["spec" .= object
+            ["replicas" .= (2 :: Int)]]))))
         current <- newIORef (object
           [ "metadata" .= object
               [ "namespace" .= ("restore-space" :: Text)
@@ -1283,6 +1295,13 @@ dataFenceTests = testGroup "data fence"
         stopStatefulWriter transport pin >>= (@?= Left "response lost")
         stopStatefulWriter transport pin >>= (@?= Right ())
         readIORef patches >>= \values -> length values @?= 1
+        modifyIORef' current (replaceObject "spec"
+          (KM.insert "serviceName" (String "changed")))
+        observeStatefulWriterStopped transport pin >>= \case
+          Left reason -> assertBool "changed StatefulSet spec was not refused"
+            ("differs from reviewed writer intent" `T.isInfixOf` reason)
+          Right _ -> assertFailure "changed StatefulSet spec acquired exclusion"
+        modifyIORef' current (replaceObject "spec" (KM.delete "serviceName"))
         observeStatefulWriterStopped transport pin >>= (@?= Right False)
         restoreStatefulWriter transport pin >>=
           (@?= Left "StatefulSet has not finished stopping")

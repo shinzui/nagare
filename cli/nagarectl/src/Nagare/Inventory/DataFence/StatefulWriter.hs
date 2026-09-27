@@ -8,6 +8,8 @@ module Nagare.Inventory.DataFence.StatefulWriter
   , writerName
   , writerUid
   , writerSavedReplicas
+  , writerSpecDigest
+  , digestStatefulWriterSpec
   , StatefulWriterTransport (..)
   , kubectlStatefulWriterTransport
   , stopStatefulWriter
@@ -31,7 +33,9 @@ import Nagare.Inventory.Adapters.KubernetesRuntime
   (KubernetesRuntimeConfig (..))
 import Nagare.Inventory.DataFence (WriterReleaseState (..))
 import Nagare.Inventory.DataFence.MountGuard (mkPodOwnerPermit)
-import Nagare.Resource.Types (mkName)
+import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Resource.Types (ContentDigest, mkName)
+import Nagare.Resource.Wire (canonicalValue)
 import System.Exit (ExitCode (..))
 import System.Process (readProcessWithExitCode)
 
@@ -40,17 +44,27 @@ data StatefulWriterPin = StatefulWriterPin
   , writerName :: !Text
   , writerUid :: !Text
   , writerSavedReplicas :: !Int
+  , writerSpecDigest :: !ContentDigest
   }
   deriving stock (Eq, Show)
 
-mkStatefulWriterPin :: Text -> Text -> Text -> Int
+mkStatefulWriterPin :: Text -> Text -> Text -> Int -> ContentDigest
   -> Either Text StatefulWriterPin
-mkStatefulWriterPin namespace name uid replicas = do
+mkStatefulWriterPin namespace name uid replicas specDigest = do
   _ <- mkName namespace
   _ <- mkPodOwnerPermit "StatefulSet" name uid
     "system:serviceaccount:kube-system:statefulset-controller"
   unless (replicas >= 0) (Left "saved StatefulSet replicas are negative")
-  pure (StatefulWriterPin namespace name uid replicas)
+  pure (StatefulWriterPin namespace name uid replicas specDigest)
+
+-- | Preserve the reviewed live controller spec while allowing only the
+-- replica count to move through the fenced stop and release phases.
+digestStatefulWriterSpec :: Value -> Either Text ContentDigest
+digestStatefulWriterSpec (Object root) = do
+  spec <- jsonObject "spec" root
+  bytes <- canonicalValue (Object (KM.delete "replicas" spec))
+  pure (contentDigest bytes)
+digestStatefulWriterSpec _ = Left "StatefulSet observation is not an object"
 
 data StatefulWriterTransport = StatefulWriterTransport
   { readStatefulWriter :: !(Text -> Text -> IO (Either Text Value))
@@ -144,6 +158,9 @@ observedWriter pin (Object root) = do
     (Left "StatefulSet identity changed")
   revision <- jsonText "resourceVersion" metadata
   generation <- jsonInteger "generation" metadata
+  observedDigest <- digestStatefulWriterSpec (Object root)
+  unless (observedDigest == writerSpecDigest pin)
+    (Left "StatefulSet template or spec differs from reviewed writer intent")
   spec <- jsonObject "spec" root
   replicas <- jsonInt "replicas" spec
   status <- jsonObject "status" root

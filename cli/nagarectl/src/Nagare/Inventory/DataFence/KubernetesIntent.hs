@@ -54,6 +54,7 @@ data RawWriter = RawWriter
   , rawWriterName :: !Text
   , rawWriterUid :: !Text
   , rawWriterReplicas :: !Int
+  , rawWriterSpecDigest :: !ContentDigest
   , rawWriterPrincipal :: !Text
   , rawWriterMountsTarget :: !Bool
   }
@@ -115,6 +116,7 @@ decodeKubernetesFenceIntent record = do
       RawStateful writer -> do
         pin <- mkStatefulWriterPin (rawWriterNamespace writer) (rawWriterName writer)
           (rawWriterUid writer) (rawWriterReplicas writer)
+          (rawWriterSpecDigest writer)
         _ <- mkPodOwnerPermit "StatefulSet" (rawWriterName writer)
           (rawWriterUid writer) (rawWriterPrincipal writer)
         unless (not (rawWriterMountsTarget writer)
@@ -266,9 +268,10 @@ parseSavedWriter = withObject "saved Kubernetes writer" $ \o -> do
   kind <- o .: "kind" :: Parser Text
   case kind of
     "StatefulSet" -> do
-      onlyKeys ["kind", "namespace", "name", "uid", "replicas", "controllerPrincipal", "mountsTarget"] o
+      onlyKeys ["kind", "namespace", "name", "uid", "replicas", "specDigest", "controllerPrincipal", "mountsTarget"] o
       RawStateful <$> (RawWriter <$> o .: "namespace" <*> o .: "name"
-        <*> o .: "uid" <*> o .: "replicas" <*> o .: "controllerPrincipal"
+        <*> o .: "uid" <*> o .: "replicas" <*> o .: "specDigest"
+        <*> o .: "controllerPrincipal"
         <*> o .: "mountsTarget")
     "CronJob" -> do
       onlyKeys ["kind", "namespace", "name", "uid", "suspend", "specDigest", "mountsTarget"] o
