@@ -254,6 +254,7 @@ dataFenceTests = testGroup "data fence"
               , "name" .= ("nagare-dbbackup-database" :: Text)
               , "uid" .= (scheduleUid :: Text)
               , "suspend" .= False
+              , "specDigest" .= known (digestScheduledWriterSpec nativeSchedule)
               , "mountsTarget" .= False]
             nativeRecord = request
               { fencePhysical = Map.fromList
@@ -304,10 +305,11 @@ dataFenceTests = testGroup "data fence"
                     ["claimName" .= ("data-pvc" :: Text)]]]]]]]
             nativeService = object ["spec" .= object ["selector" .= object
               ["nagare.dev/database" .= ("database" :: Text)]]]
-            nativeSchedule = object ["spec" .= object
-              [ "suspend" .= False
+            scheduleSpec suspended = object
+              [ "suspend" .= suspended
               , "jobTemplate" .= object ["spec" .= object ["template" .= object
-                  ["spec" .= object ["containers" .= ([] :: [Value])]]]]]]
+                  ["spec" .= object ["containers" .= ([] :: [Value])]]]]]
+            nativeSchedule = object ["spec" .= scheduleSpec False]
             observedService = object
               [ "metadata" .= object
                   [ "namespace" .= ("restore-space" :: Text)
@@ -465,7 +467,7 @@ dataFenceTests = testGroup "data fence"
                         , "name" .= ("nagare-dbbackup-database" :: Text)
                         , "uid" .= (scheduleUid :: Text)
                         , "resourceVersion" .= ("8" :: Text)]
-                    , "spec" .= object ["suspend" .= suspended]
+                    , "spec" .= scheduleSpec suspended
                     , "status" .= object ["active" .= if active
                         then [object ["uid" .= ("eeeeeeee-1111-2222-3333-444444444444" :: Text)]]
                         else ([] :: [Value])]]))
@@ -1334,7 +1336,8 @@ dataFenceTests = testGroup "data fence"
                       , "uid" .= jobUid
                       , "controller" .= True]]]
               , "status" .= object ["phase" .= (phase :: Text)]]]]
-        pin <- right (mkScheduledWriterPin namespace cronName cronUid (Just False))
+        pin <- right (mkScheduledWriterPin namespace cronName cronUid (Just False)
+          (known (digestScheduledWriterSpec (cron False True cronUid))))
         current <- newIORef (cron False True cronUid)
         activeJob <- newIORef True
         podPhase <- newIORef ("Running" :: Text)
@@ -1364,6 +1367,20 @@ dataFenceTests = testGroup "data fence"
           (@?= Left "CronJob patch acknowledgement lost")
         stopScheduledWriter transport pin >>= (@?= Right ())
         readIORef patches >>= (@?= 1)
+        writeIORef current (object
+          [ "metadata" .= object
+              [ "namespace" .= namespace
+              , "name" .= cronName
+              , "uid" .= cronUid
+              , "resourceVersion" .= ("10" :: Text)]
+          , "spec" .= object
+              [ "suspend" .= True
+              , "schedule" .= ("* * * * *" :: Text)]])
+        observeScheduledWriterStopped transport pin >>= \case
+          Left reason -> assertBool "changed CronJob spec was not refused"
+            ("differs from reviewed writer intent" `T.isInfixOf` reason)
+          Right _ -> assertFailure "changed CronJob spec acquired exclusion"
+        writeIORef current (cron True True cronUid)
         observeScheduledWriterStopped transport pin >>= (@?= Right False)
         restoreScheduledWriter transport pin >>= (@?= Left "CronJob Jobs have not drained")
         writeIORef activeJob False

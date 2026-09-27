@@ -391,7 +391,9 @@ scheduledWriterGuardObjects guard = concatMap render (guardSchedules guard)
           <> guardedScheduleNamespace schedule
           <> "' || oldObject.metadata.name != '"
           <> guardedScheduleName schedule
-          <> "' || (request.operation == 'UPDATE' && object.spec.suspend == true)"
+          <> "' || (request.operation == 'UPDATE' && object.spec.suspend == true"
+          <> " && (!has(oldObject.spec.suspend) || oldObject.spec.suspend != true"
+          <> " || object.spec == oldObject.spec))"
         jobExpression = "request.namespace != '"
           <> guardedScheduleNamespace schedule
           <> "' || !has(object.metadata.ownerReferences) || "

@@ -8,6 +8,8 @@ module Nagare.Inventory.DataFence.ScheduledWriter
   , scheduleName
   , scheduleUid
   , scheduleSavedSuspend
+  , scheduleSpecDigest
+  , digestScheduledWriterSpec
   , ScheduledWriterTransport (..)
   , kubectlScheduledWriterTransport
   , stopScheduledWriter
@@ -33,7 +35,9 @@ import Nagare.Inventory.Adapters.KubernetesRuntime
   (KubernetesRuntimeConfig (..))
 import Nagare.Inventory.DataFence (WriterReleaseState (..))
 import Nagare.Inventory.DataFence.MountGuard (validUid)
-import Nagare.Resource.Types (mkName)
+import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Resource.Types (ContentDigest, mkName)
+import Nagare.Resource.Wire (canonicalValue)
 import System.Exit (ExitCode (..))
 import System.Process (readProcessWithExitCode)
 
@@ -42,16 +46,27 @@ data ScheduledWriterPin = ScheduledWriterPin
   , scheduleName :: !Text
   , scheduleUid :: !Text
   , scheduleSavedSuspend :: !(Maybe Bool)
+  , scheduleSpecDigest :: !ContentDigest
   }
   deriving stock (Eq, Show)
 
-mkScheduledWriterPin :: Text -> Text -> Text -> Maybe Bool
+mkScheduledWriterPin :: Text -> Text -> Text -> Maybe Bool -> ContentDigest
   -> Either Text ScheduledWriterPin
-mkScheduledWriterPin namespace name uid saved = do
+mkScheduledWriterPin namespace name uid saved specDigest = do
   _ <- mkName namespace
   _ <- mkName name
   unless (validUid uid) (Left "fenced CronJob UID is not a Kubernetes UUID")
-  pure (ScheduledWriterPin namespace name uid saved)
+  pure (ScheduledWriterPin namespace name uid saved specDigest)
+
+-- | Pin the reviewed live CronJob spec except the one field the fence must
+-- change. This catches an altered schedule or Job template at every native
+-- observation, including after a lost patch acknowledgement.
+digestScheduledWriterSpec :: Value -> Either Text ContentDigest
+digestScheduledWriterSpec (Object root) = do
+  spec <- objectField "spec" root
+  bytes <- canonicalValue (Object (KM.delete "suspend" spec))
+  pure (contentDigest bytes)
+digestScheduledWriterSpec _ = Left "CronJob observation is not an object"
 
 data ScheduledWriterTransport = ScheduledWriterTransport
   { readScheduledWriter :: !(Text -> Text -> IO (Either Text Value))
@@ -146,6 +161,9 @@ parseSchedule pin (Object root) = do
       && textField "uid" meta == Right (scheduleUid pin))
     (Left "CronJob identity changed")
   revision <- textField "resourceVersion" meta
+  observedDigest <- digestScheduledWriterSpec (Object root)
+  unless (observedDigest == scheduleSpecDigest pin)
+    (Left "CronJob schedule or Job template differs from reviewed writer intent")
   spec <- objectField "spec" root
   suspend <- case KM.lookup "suspend" spec of
     Nothing -> Right Nothing

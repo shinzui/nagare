@@ -63,6 +63,7 @@ data RawSchedule = RawSchedule
   , rawScheduleName :: !Text
   , rawScheduleUid :: !Text
   , rawScheduleSuspend :: !(Maybe Bool)
+  , rawScheduleSpecDigest :: !ContentDigest
   , rawScheduleMountsTarget :: !Bool
   }
 
@@ -123,7 +124,7 @@ decodeKubernetesFenceIntent record = do
       RawScheduled schedule -> do
         pin <- mkScheduledWriterPin (rawScheduleNamespace schedule)
           (rawScheduleName schedule) (rawScheduleUid schedule)
-          (rawScheduleSuspend schedule)
+          (rawScheduleSuspend schedule) (rawScheduleSpecDigest schedule)
         unless (not (rawScheduleMountsTarget schedule)
             || rawScheduleNamespace schedule == rawNamespace volume)
           (Left "Kubernetes PVC writer belongs to another namespace")
@@ -270,9 +271,10 @@ parseSavedWriter = withObject "saved Kubernetes writer" $ \o -> do
         <*> o .: "uid" <*> o .: "replicas" <*> o .: "controllerPrincipal"
         <*> o .: "mountsTarget")
     "CronJob" -> do
-      onlyKeys ["kind", "namespace", "name", "uid", "suspend", "mountsTarget"] o
+      onlyKeys ["kind", "namespace", "name", "uid", "suspend", "specDigest", "mountsTarget"] o
       RawScheduled <$> (RawSchedule <$> o .: "namespace" <*> o .: "name"
-        <*> o .: "uid" <*> o .:? "suspend" <*> o .: "mountsTarget")
+        <*> o .: "uid" <*> o .:? "suspend" <*> o .: "specDigest"
+        <*> o .: "mountsTarget")
     _ -> fail "Kubernetes writer has no implemented stop control"
 
 parseJob :: Value -> Parser RawRestoreJob
