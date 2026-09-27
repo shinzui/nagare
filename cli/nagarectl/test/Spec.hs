@@ -351,6 +351,8 @@ import Nagare.Resource.Canonical (canonicalValue, contentDigest)
 import Nagare.Inventory.Backup
   ( ScheduledBackupReceipt (..), ScheduledReceiptExpectation (..)
   , parseScheduledBackupReceipt, scheduledReceiptExpectationFromCronJob )
+import Nagare.Inventory.ScheduledReceipt (ScheduledReceiptEvidence (..), inspectScheduledReceipt)
+import Nagare.Inventory.ScheduledStore (ObjectReader (..), StoredObject (..))
 import Nagare.Resource.Policy qualified as InventoryPolicy
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types qualified as Resource
@@ -5135,6 +5137,68 @@ backupRestoreTests =
           assertBool "wrong source name can authorize schedule" (isLeft
             (scheduledReceiptExpectationFromCronJob localMinioBackend
               "personal" "other" uid uid native))
+      , testCase "scheduled backup inspection binds exact receipt and object versions" $ do
+          let runId = "11111111-1111-1111-1111-111111111111"
+              sourceUid = "22222222-2222-2222-2222-222222222222"
+              objectAddress = "s3://nagare-backups/databases/mydb/" <> runId <> ".sql.gz"
+              receiptAddress = objectAddress <> ".receipt.json"
+              objectBytes = "scheduled-backup-bytes"
+              objectSha = Resource.digestText (contentDigest objectBytes)
+              metadata = Aeson.object
+                [ "database" Aeson..= ("mydb" :: Text)
+                , "namespace" Aeson..= ("personal" :: Text)
+                , "engine" Aeson..= ("postgres" :: Text)
+                , "format" Aeson..= ("sql.gz" :: Text)
+                , "schedule" Aeson..= ("nagare-dbbackup-mydb" :: Text)
+                , "scheduleRevision" Aeson..= T.replicate 64 "a"
+                , "keep" Aeson..= (7 :: Int)
+                ]
+              canonical = either (error . T.unpack) id . canonicalValue
+              payload = Aeson.object
+                [ "sha256" Aeson..= objectSha
+                , "jobUid" Aeson..= runId
+                , "object" Aeson..= objectAddress
+                , "source" Aeson..= Aeson.object
+                    [ "statefulSetUid" Aeson..= sourceUid
+                    , "pvcUid" Aeson..= sourceUid ]
+                , "backup" Aeson..= metadata
+                ]
+              signingBytes = BS.replicate 32 0xaa
+              signature = T.pack (show (hmacGetDigest
+                (hmac signingBytes (canonical payload) :: HMAC SHA256)))
+              receiptBytes = LBS.toStrict (Aeson.encode (Aeson.object
+                [ "version" Aeson..= (4 :: Int)
+                , "payload" Aeson..= payload
+                , "hmacSha256" Aeson..= signature ]))
+              uid = either (error . T.unpack) id (Resource.mkPhysicalIdentity sourceUid)
+              expectation = ScheduledReceiptExpectation
+                "s3://nagare-backups/databases/mydb/" "sql.gz"
+                (contentDigest (canonical metadata)) uid uid
+              reader changeExactReceipt changeExactObject = ObjectReader $ \address selected path -> do
+                let (version, bytes) = if address == receiptAddress
+                      then ("receipt-version", if changeExactReceipt
+                          && selected == Just "receipt-version"
+                          then BS.map (+ 1) receiptBytes else receiptBytes)
+                      else ("object-version", if changeExactObject
+                        && selected == Just "object-version"
+                        then BS.map (+ 1) objectBytes else objectBytes)
+                if address `notElem` [objectAddress, receiptAddress]
+                    || maybe False (/= version) selected
+                  then pure (Left "missing exact object")
+                  else do
+                    BS.writeFile path bytes
+                    pure (Right (StoredObject version (fromIntegral (BS.length bytes))))
+          verified <- inspectScheduledReceipt (reader False False) expectation runId (T.replicate 64 "a")
+          case verified of
+            Left reason -> assertFailure ("exact scheduled backup was rejected: " <> T.unpack reason)
+            Right evidence -> do
+              scheduledObjectVersion evidence @?= "object-version"
+              scheduledReceiptVersion evidence @?= "receipt-version"
+              scheduledSha256 (scheduledReceipt evidence) @?= objectSha
+          changedReceipt <- inspectScheduledReceipt (reader True False) expectation runId (T.replicate 64 "a")
+          assertBool "changed receipt version bytes were accepted" (isLeft changedReceipt)
+          changedObject <- inspectScheduledReceipt (reader False True) expectation runId (T.replicate 64 "a")
+          assertBool "changed backup version bytes were accepted" (isLeft changedObject)
       , testCase "reviewed backup reads back exact stored bytes for both backends" $ do
           let cloud = TE.decodeUtf8 (renderInventoryDbBackupCronJob "personal" "mydb" Postgres "18" tnbGcsBackend 7)
               local = TE.decodeUtf8 (renderInventoryDbBackupCronJob "personal" "mydb" Postgres "18" localMinioBackend 7)
