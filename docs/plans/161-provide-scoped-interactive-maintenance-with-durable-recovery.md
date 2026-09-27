@@ -22,6 +22,11 @@ provenance:
       at: 2026-09-27T13:29:05Z
       mode: "update"
       note: "Apply Codex execution-log diagnosis, fixed outcome ownership, production-path checkpoints, and restore/maintenance handoff without expanding release scope"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-27T20:53:10Z
+      mode: "implement"
+      note: "Advance PostgreSQL online fence callbacks and verify native client exclusion"
 ---
 
 # Provide scoped interactive maintenance with durable recovery
@@ -54,13 +59,17 @@ Native access-policy probe (2026-09-27): an isolated `ep161-maintenance-probe` n
 
 The same repeatable probe now starts a detached `psql` client with a unique `PGAPPNAME`, reads its backend PID through the server Pod's local socket after the invoking client has exited, terminates that PID with `pg_terminate_backend`, and confirms that the marker is gone. A rerun passed all checks and waited for disposable namespace deletion; a subsequent namespace listing contained no `nagare-ep161-network-*` namespace. Two intermediate runs exposed a Pod-ready/SQL-ready startup race, so both remote and local SQL readiness are polled before the policy and marked session checks. This establishes a viable PostgreSQL observation/termination primitive on local k3s. It still does not prove terminal parent-death handling, OS-client termination, the admission guard, or durable DataFence recovery, and does not complete M2.
 
-The first provider piece, `MaintenanceNetwork`, now renders a session/Pod-UID-bound deny-ingress policy, rejects changed or terminating native objects, and uses UID/resourceVersion preconditions on removal. Its focused maintenance test covers a lost create acknowledgement, unchanged replay, and refusal to delete a drifted policy. The module is not yet attached to the DataFence callbacks or a public operation, so it does not advance either milestone by itself. EP-160 M1's accepted library command-service fixture remains valid; public live restore and interactive session registration belong to the still-open consumer outcomes.
+The first provider piece, `MaintenanceNetwork`, rendered a session/Pod-UID-bound deny-ingress policy, rejected changed or terminating native objects, and used UID/resourceVersion preconditions on removal. Its focused maintenance test covered a lost create acknowledgement, unchanged replay, and refusal to delete a drifted policy. At that point the module was not yet attached to the DataFence callbacks or a public operation, so it did not advance either milestone by itself. EP-160 M1's accepted library command-service fixture remains valid; public live restore and interactive session registration belong to the still-open consumer outcomes.
 
 The next contract slice adds a distinct `MaintainData` declared operation and `OpenMaintenanceSession` planned action. `compileMaintenanceScope` produces an operation-only scope over the existing accepted StatefulSet, with the exact source/PVC/Pod UIDs, source revision, recovery revision, and completed recovery Job identity in private overrides. It refuses a recovery reference from another source incarnation, a different cluster, or missing accepted native bytes. The existing Kubernetes adapter still refuses this new action, and no public command saves or applies it yet. This is planning groundwork; M1 and M2 remain open until the end-to-end native session and recovery fixture passes.
 
 Planner tracing exposed a general operation-only scope omission: replacing such a scope selected no managed member, so its declared operation was silently dropped. The planner now selects affected members from the replaced scope for observation and emits the maintenance action. `MaintainData` is treated as a completed one-shot operation after convergence, so a later review of the same accepted scope cannot reopen its terminal. The focused fixture checks both initial planning and that non-replay condition.
 
 The review and apply paths now explicitly require a saved DataFence record for `OpenMaintenanceSession`. A missing fence hook or a hook that declines this operation refuses review preparation; an admitted review without its fence record also refuses execution. This closes an otherwise unsafe generic fallback while the native maintenance fence and terminal adapter are being built. It is not evidence of a usable shell.
+
+The PostgreSQL online fence now has native callbacks that keep the exact reviewed StatefulSet Pod alive, install the PVC mount admission guard and a Pod-UID-bound deny-ingress policy, stop reviewed clients/schedules, and require the original server Pod, sole PVC consumer, policy-edit denial, and drained PostgreSQL client backends before exclusion. NetworkPolicy ingress is additive, so the callback refuses another ingress policy in the namespace; it also refuses a host-network database Pod. SubjectAccessReview checks use Kubernetes's separate resource/subresource fields for Pod exec/attach/port-forward, and include controller-template changes that could create a host-network bypass. The local accepted `mp23-pg-b-0` Pod still matched its reviewed UID and selector labels. Its configured database role could query `pg_stat_activity`; a hard-coded `postgres` role did not exist, so the transport uses the Pod's injected role/database. The disposable k3s probe passed remote ingress denial, local socket access, count `0 → 1 → 0` across a marked client, and backend termination. These callbacks are not yet registered with the public review/apply registry or attached to a terminal adapter; M1/M2 remain open.
+
+The affected `nagarectl-test` full suite passed after updating stale fixture counts for scheduled backup companion resources and the accepted application Secret channels. No public maintenance session was executed by that suite.
 
 
 

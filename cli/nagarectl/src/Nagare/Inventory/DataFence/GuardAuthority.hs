@@ -6,7 +6,9 @@ module Nagare.Inventory.DataFence.GuardAuthority
   ( GuardAccessQuery (..)
   , GuardAccessTransport (..)
   , kubectlGuardAccessTransport
+  , guardAccessReview
   , observeGuardAuthority
+  , observeDeniedGuardQueries
   , workloadServiceAccountPrincipal
   ) where
 
@@ -32,8 +34,11 @@ import System.Process (readProcessWithExitCode)
 
 data GuardAccessQuery = GuardAccessQuery
   { accessPrincipal :: !Text
+  , accessGroup :: !Text
+  , accessNamespace :: !(Maybe Text)
   , accessVerb :: !Text
   , accessResource :: !Text
+  , accessSubresource :: !(Maybe Text)
   , accessName :: !Text
   }
   deriving stock (Eq, Ord, Show)
@@ -55,17 +60,27 @@ observeGuardAuthority transport principals mountGuard =
     addresses <- guardObjectAddresses mountGuard
     resources <- traverse resourceAddress addresses
     let queries = Set.toAscList (Set.fromList
-          ([GuardAccessQuery principal verb resource name
+          ([GuardAccessQuery principal "admissionregistration.k8s.io" Nothing
+            verb resource Nothing name
             | principal <- principals
             , (resource, name) <- resources
             , verb <- ["update", "patch", "delete"]]
-            <> [GuardAccessQuery principal "deletecollection" resource ""
+            <> [GuardAccessQuery principal "admissionregistration.k8s.io" Nothing
+              "deletecollection" resource Nothing ""
               | principal <- principals
               , resource <- Set.toAscList (Set.fromList (map fst resources))]))
-    _ <- traverse serviceAccountNamespace principals
     pure queries of
     Left reason -> pure (Left reason)
-    Right queries -> checkAll queries
+    Right queries -> observeDeniedGuardQueries transport queries
+
+-- | All listed capabilities must be denied to the reviewed untrusted
+-- principals. A failed or inconclusive SubjectAccessReview is not proof.
+observeDeniedGuardQueries :: GuardAccessTransport -> [GuardAccessQuery]
+  -> IO (Either Text Bool)
+observeDeniedGuardQueries transport queries = case
+  traverse (serviceAccountNamespace . accessPrincipal) queries of
+  Left reason -> pure (Left reason)
+  Right _ -> checkAll queries
   where
     checkAll [] = pure (Right True)
     checkAll remaining = do
@@ -129,25 +144,10 @@ workloadServiceAccountPrincipal namespace path value = do
 kubectlGuardAccessTransport :: KubernetesRuntimeConfig -> GuardAccessTransport
 kubectlGuardAccessTransport config = GuardAccessTransport checkOne
   where
-    checkOne query = case serviceAccountNamespace (accessPrincipal query) of
+    checkOne query = case guardAccessReview query of
       Left reason -> pure (Left reason)
-      Right namespace -> do
-        let accessReview = object
-              [ "apiVersion" .= ("authorization.k8s.io/v1" :: Text)
-              , "kind" .= ("SubjectAccessReview" :: Text)
-              , "spec" .= object
-                  [ "user" .= accessPrincipal query
-                  , "groups" .=
-                      [ "system:serviceaccounts" :: Text
-                      , "system:serviceaccounts:" <> namespace
-                      , "system:authenticated"]
-                  , "resourceAttributes" .= object
-                      ([ "group" .= ("admissionregistration.k8s.io" :: Text)
-                       , "resource" .= accessResource query
-                       , "verb" .= accessVerb query]
-                        <> ["name" .= accessName query
-                            | not (T.null (accessName query))])]]
-            input = T.unpack (TE.decodeUtf8 (BL.toStrict (encode accessReview)))
+      Right accessReview -> do
+        let input = T.unpack (TE.decodeUtf8 (BL.toStrict (encode accessReview)))
         guarded <- runtimeGuard config
         case guarded of
           Left reason -> pure (Left ("cluster guard refused: " <> reason))
@@ -163,6 +163,30 @@ kubectlGuardAccessTransport config = GuardAccessTransport checkOne
                 value <- first T.pack (eitherDecodeStrict'
                   (TE.encodeUtf8 (T.pack output)))
                 parseReviewStatus value
+
+guardAccessReview :: GuardAccessQuery -> Either Text Value
+guardAccessReview query = do
+  namespace <- serviceAccountNamespace (accessPrincipal query)
+  pure $ object
+    [ "apiVersion" .= ("authorization.k8s.io/v1" :: Text)
+    , "kind" .= ("SubjectAccessReview" :: Text)
+    , "spec" .= object
+        [ "user" .= accessPrincipal query
+        , "groups" .=
+            [ "system:serviceaccounts" :: Text
+            , "system:serviceaccounts:" <> namespace
+            , "system:authenticated"]
+        , "resourceAttributes" .= object
+             ([ "group" .= accessGroup query
+             , "resource" .= accessResource query
+             , "verb" .= accessVerb query]
+              <> ["subresource" .= subresource
+                  | Just subresource <- [accessSubresource query]]
+              <> ["namespace" .= namespaceName
+                  | Just namespaceName <- [accessNamespace query]]
+              <> ["name" .= accessName query
+                  | not (T.null (accessName query))])]
+    ]
 
 parseReviewStatus :: Value -> Either Text Bool
 parseReviewStatus (Object root) = case KM.lookup "status" root of

@@ -4,13 +4,15 @@
 -- maintenance exclusion: caller controls must also stop reviewed writers,
 -- observe admission guards, and pin the live Pod incarnation.
 module Nagare.Inventory.DataFence.MaintenanceNetwork
-  ( MaintenanceNetworkPin
+  ( MaintenanceNetworkPin (..)
   , mkMaintenanceNetworkPin
   , maintenancePolicyName
   , maintenancePolicyObject
   , MaintenanceNetworkTransport (..)
   , kubectlMaintenanceNetworkTransport
   , observeMaintenancePolicy
+  , maintenancePodSelected
+  , observeMaintenancePolicyAuthority
   , installMaintenancePolicy
   , removeMaintenancePolicy
   ) where
@@ -24,9 +26,12 @@ import Data.ByteString.Lazy qualified as BL
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import Data.Set qualified as Set
+import Data.Vector qualified as V
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..))
 import Nagare.Inventory.DataFence.MountGuard (validUid)
+import Nagare.Inventory.DataFence.GuardAuthority
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Resource.Types (digestText, mkName)
 import System.Exit (ExitCode (..))
@@ -77,8 +82,45 @@ maintenancePolicyObject pin = object
       , "ingress" .= ([] :: [Value]) ]
   ]
 
+-- | The policy's Pod selector must actually select the pinned live Pod.
+-- A plausible policy spec against a differently labelled Pod is no fence.
+maintenancePodSelected :: MaintenanceNetworkPin -> Value -> Either Text ()
+maintenancePodSelected pin listing = do
+  root <- asObject listing
+  items <- case KM.lookup "items" root of
+    Just (Array values) -> Right (V.toList values)
+    _ -> Left "maintenance Pod list lacks items"
+  matches <- traverse one items
+  unless (length [() | Just () <- matches] == 1)
+    (Left "maintenance policy does not select one exact running Pod")
+  where
+    one value = do
+      pod <- asObject value
+      metadata <- objectField "metadata" pod
+      name <- textField "name" metadata
+      if name /= networkPodName pin then Right Nothing else do
+        unless (KM.lookup "namespace" metadata
+            == Just (String (networkNamespace pin))
+            && KM.lookup "uid" metadata == Just (String (networkPodUid pin))
+            && KM.lookup "deletionTimestamp" metadata == Nothing)
+          (Left "maintenance Pod identity changed or is terminating")
+        labels <- objectField "labels" metadata
+        unless (KM.lookup "statefulset.kubernetes.io/pod-name" labels
+              == Just (String (networkPodName pin))
+            && KM.lookup "nagare.dev/database" labels
+              == Just (String (networkDatabase pin)))
+          (Left "maintenance ingress policy does not select the pinned Pod")
+        status <- objectField "status" pod
+        unless (KM.lookup "phase" status == Just (String "Running"))
+          (Left "maintenance Pod is not running")
+        spec <- objectField "spec" pod
+        unless (KM.lookup "hostNetwork" spec `elem` [Nothing, Just (Bool False)])
+          (Left "maintenance ingress policy cannot fence a host-network Pod")
+        pure (Just ())
+
 data MaintenanceNetworkTransport = MaintenanceNetworkTransport
   { readMaintenancePolicy :: !(Text -> Text -> IO (Either Text (Maybe Value)))
+  , listMaintenancePolicies :: !(Text -> IO (Either Text Value))
   , createMaintenancePolicy :: !(Value -> IO (Either Text ()))
   , deleteMaintenancePolicy :: !(Text -> Text -> Text -> Text -> IO (Either Text ()))
   }
@@ -88,11 +130,100 @@ data MaintenanceNetworkTransport = MaintenanceNetworkTransport
 observeMaintenancePolicy :: MaintenanceNetworkTransport -> MaintenanceNetworkPin
   -> IO (Either Text (Maybe (Text, Text)))
 observeMaintenancePolicy transport pin = do
+  listing <- listMaintenancePolicies transport (networkNamespace pin)
   observed <- readMaintenancePolicy transport (networkNamespace pin)
     (maintenancePolicyName pin)
   pure $ do
+    policies <- listing
+    noCompetingIngress pin policies
     current <- observed
     traverse (validatePolicy pin) current
+
+-- | NetworkPolicy ingress permissions are additive. Until the provider can
+-- prove a narrower selector interaction, another ingress policy in this
+-- namespace makes this deny policy insufficient for maintenance exclusion.
+noCompetingIngress :: MaintenanceNetworkPin -> Value -> Either Text ()
+noCompetingIngress pin listing = do
+  root <- asObject listing
+  items <- case KM.lookup "items" root of
+    Just (Array values) -> Right (V.toList values)
+    _ -> Left "maintenance NetworkPolicy list lacks items"
+  _ <- traverse one items
+  pure ()
+  where
+    one value = do
+      policy <- asObject value
+      metadata <- objectField "metadata" policy
+      name <- textField "name" metadata
+      unless (KM.lookup "namespace" metadata
+          == Just (String (networkNamespace pin)))
+        (Left "maintenance NetworkPolicy list contains another namespace")
+      unless (name == maintenancePolicyName pin) $ do
+        spec <- objectField "spec" policy
+        types <- case KM.lookup "policyTypes" spec of
+          Just (Array values) -> traverse asType (V.toList values)
+          Nothing -> Right ["Ingress"]
+          _ -> Left "competing NetworkPolicy has malformed policyTypes"
+        unless (not (null types) && types == ["Egress"])
+          (Left "another ingress NetworkPolicy may admit the maintenance Pod")
+    asType (String value) | value `elem` ["Ingress", "Egress"] = Right value
+    asType _ = Left "competing NetworkPolicy has an unknown policy type"
+
+-- | Reviewed workload identities must be unable to add an allowing policy,
+-- edit an existing policy, start a host-network bypass, change the target
+-- Pod's selector labels, or run a second local client with Pod exec/attach.
+-- The operator identity is trusted;
+-- this checks the accepted workloads whose exclusion the fence relies on.
+observeMaintenancePolicyAuthority :: GuardAccessTransport
+  -> MaintenanceNetworkTransport -> [Text] -> [(Text, Text, Text)]
+  -> MaintenanceNetworkPin
+  -> IO (Either Text Bool)
+observeMaintenancePolicyAuthority access network principals controllers pin
+  | null principals = pure (Left "maintenance has no untrusted principals")
+  | otherwise = do
+      listing <- listMaintenancePolicies network (networkNamespace pin)
+      case listing >>= listedNames of
+        Left reason -> pure (Left reason)
+        Right names -> observeDeniedGuardQueries access
+          (Set.toAscList (Set.fromList
+            [GuardAccessQuery principal group (Just (networkNamespace pin))
+              verb resource subresource name
+            | principal <- principals
+            , (group, resource, subresource, verb, name) <-
+                [("networking.k8s.io", "networkpolicies", Nothing, verb, name)
+                  | name <- names, verb <- ["update", "patch", "delete"]]
+                  <> [("networking.k8s.io", "networkpolicies", Nothing, verb, "")
+                    | verb <- ["create", "deletecollection"]]
+                  <> [("", "pods", Nothing, verb, networkPodName pin)
+                    | verb <- ["update", "patch"]]
+                  <> [("", "pods", Nothing, "create", "")]
+                  <> [(group, resource, Nothing, "create", "")
+                    | (group, resource) <-
+                        [("apps", "deployments"), ("apps", "statefulsets"),
+                          ("apps", "daemonsets"), ("batch", "jobs"),
+                          ("batch", "cronjobs")]]
+                  <> [(group, resource, Nothing, verb, name)
+                    | (group, resource, name) <- controllers
+                    , verb <- ["update", "patch"]]
+                  <> [("", "pods", Just subresource, "create", networkPodName pin)
+                    | subresource <- ["exec", "attach", "portforward", "proxy"]]
+                  <> [("", "pods", Just "ephemeralcontainers", verb,
+                    networkPodName pin) | verb <- ["update", "patch"]]
+            ]))
+  where
+    listedNames value = do
+      root <- asObject value
+      items <- case KM.lookup "items" root of
+        Just (Array values) -> Right (V.toList values)
+        _ -> Left "maintenance NetworkPolicy list lacks items"
+      names <- traverse (\item -> do
+        policy <- asObject item
+        metadata <- objectField "metadata" policy
+        unless (KM.lookup "namespace" metadata
+            == Just (String (networkNamespace pin)))
+          (Left "maintenance policy authority saw another namespace")
+        textField "name" metadata) items
+      pure (maintenancePolicyName pin : names)
 
 validatePolicy :: MaintenanceNetworkPin -> Value -> Either Text (Text, Text)
 validatePolicy pin current = do
@@ -169,7 +300,7 @@ textField key root = case KM.lookup (Key.fromText key) root of
 kubectlMaintenanceNetworkTransport :: KubernetesRuntimeConfig
   -> MaintenanceNetworkTransport
 kubectlMaintenanceNetworkTransport config = MaintenanceNetworkTransport
-  readOne createOne deleteOne
+  readOne listAll createOne deleteOne
   where
     invoke arguments input = do
       guarded <- runtimeGuard config
@@ -191,6 +322,14 @@ kubectlMaintenanceNetworkTransport config = MaintenanceNetworkTransport
         Right (ExitSuccess, output, _) | null output -> Right Nothing
         Right (ExitSuccess, output, _) ->
           Just <$> first T.pack (eitherDecodeStrict' (TE.encodeUtf8 (T.pack output)))
+    listAll namespace = do
+      result <- invoke ["--namespace", T.unpack namespace, "get",
+        "networkpolicies", "-o", "json"] ""
+      pure $ case result of
+        Left reason -> Left reason
+        Right (ExitFailure _, _, _) -> Left "could not list maintenance namespace policies"
+        Right (ExitSuccess, output, _) ->
+          first T.pack (eitherDecodeStrict' (TE.encodeUtf8 (T.pack output)))
     createOne value = do
       result <- invoke ["create", "-f", "-"]
         (T.unpack (TE.decodeUtf8 (BL.toStrict (encode value))))

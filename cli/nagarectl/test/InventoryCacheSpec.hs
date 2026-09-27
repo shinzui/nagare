@@ -107,8 +107,8 @@ inventoryCacheTests = testGroup "cache inventory adapter"
           cacheInput = renderInput {renderDatabase = databaseId "statefulset", renderCredential = databaseId "credential"}
           binding = ContextBinding (ok (mkContextId "test")) (ok (mkName "project"))
       (scope, native) <- compileCacheComponent databaseInput (GcsBackend "project" "bucket") cacheInput >>= expectRight
-      length (concatMap declarations (scopeBundles scope)) @?= 16
-      Map.size native @?= 15
+      length (concatMap declarations (scopeBundles scope)) @?= 20
+      Map.size native @?= 19
       let snapshot = ok (mkScopeSnapshot binding Map.empty Map.empty)
       (candidate, candidateNative) <- compileCacheCandidate snapshot databaseInput (GcsBackend "project" "bucket") cacheInput >>= expectRight
       Map.size candidateNative @?= Map.size native
@@ -171,7 +171,7 @@ inventoryCacheTests = testGroup "cache inventory adapter"
       (bootstrap, bootstrapNative) <- compileBootstrapCandidate snapshot
         (BootstrapInput foundationInput (Just (databaseInput, GcsBackend "project" "bucket", cacheInput)) [] []) >>= expectRight
       Map.size (inventoryScopes (candidateInventory bootstrap)) @?= 2
-      Map.size bootstrapNative @?= 18
+      Map.size bootstrapNative @?= 22
       (fullBootstrap, fullNative) <- compilePinnedBootstrap snapshot foundationInput
         (Just (databaseInput, GcsBackend "project" "bucket", cacheInput)) "../.." >>= expectRight
       Map.size (inventoryScopes (candidateInventory fullBootstrap)) @?= 6

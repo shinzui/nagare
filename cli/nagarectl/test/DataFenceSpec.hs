@@ -2045,11 +2045,13 @@ dataFenceTests = testGroup "data fence"
         queried <- readIORef checks
         length queried @?= 26
         assertBool "exact Pod policy patch check is missing"
-          (GuardAccessQuery principal "patch" "validatingadmissionpolicies"
+          (GuardAccessQuery principal "admissionregistration.k8s.io" Nothing
+            "patch" "validatingadmissionpolicies" Nothing
             (mountGuardName guard) `elem` queried)
         assertBool "collection binding deletion check is missing"
-          (GuardAccessQuery principal "deletecollection"
-            "validatingadmissionpolicybindings" "" `elem` queried)
+          (GuardAccessQuery principal "admissionregistration.k8s.io" Nothing
+            "deletecollection"
+            "validatingadmissionpolicybindings" Nothing "" `elem` queried)
         writeIORef checks []
         observeGuardAuthority (transport (\query ->
             accessVerb query == "patch"

@@ -1380,7 +1380,7 @@ renderTests =
         (isLeft (applicationRetirementScope "other" "personal" (Just "kizashi") secretSnapshot))
       assertBool "retirement selected an absent pinned key"
         (isLeft (applicationRetirementScope "kizashi-serve" "personal" (Just "other") secretSnapshot))
-      Map.size <$> acceptedSecretBindings secretSnapshot secretIds @?= Right 1
+      Map.size <$> acceptedSecretBindings secretSnapshot secretIds @?= Right 2
       assertBool "duplicate accepted Secret binding was accepted"
         (isLeft (acceptedSecretBindings secretSnapshot (secretIds <> secretIds)))
       assertBool "non-Secret image identity was accepted as a Secret"
@@ -1396,8 +1396,8 @@ renderTests =
       assertBool "unknown database recovery was accepted"
         (isLeft (databaseRecoveryBindings app ["other=backup:v1"]))
       length (scopeBundles scope) @?= 7
-      Map.size native @?= 10
-      length [() | bundle <- scopeBundles scope, Managed _ <- declarations bundle] @?= 10
+      Map.size native @?= 14
+      length [() | bundle <- scopeBundles scope, Managed _ <- declarations bundle] @?= 14
       let customDomains = unsafe (mkDomains [("foo.apps.example.com", True)])
           expandedApp = app & #service %~ fmap (\service -> service
             & #tasks .~ (appWithHooks ^. #tasks) & #domains .~ customDomains
@@ -1415,9 +1415,9 @@ renderTests =
                   (scopeInputOverrides input))
             }
           (expandedScope, expandedNative) = checked (compileApplicationScope expandedInput)
-      Map.size expandedNative @?= 12
+      Map.size expandedNative @?= 16
       length [() | bundle <- scopeBundles expandedScope, Managed _ <- declarations bundle]
-        @?= 13
+        @?= 17
       let nativeKinds = Set.fromList
             [(group, Resource.nameText kind) | (member, _) <- Map.elems expandedNative
             , Resource.Kubernetes _ group kind _ _ <- [member ^. #address]]

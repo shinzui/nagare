@@ -82,6 +82,15 @@ fi
 
 # Recovery must be able to find a session that outlived its invoking client.
 # Start a detached, marked local client, then terminate only that backend.
+client_count_sql="select count(*) from pg_stat_activity where backend_type = 'client backend' and pid <> pg_backend_pid()"
+client_count() {
+  kube -n "$namespace" exec server -- psql -U postgres -d postgres \
+    -Atqc "$client_count_sql" 2>/dev/null
+}
+if [[ "$(client_count)" != 0 ]]; then
+  printf 'unexpected PostgreSQL client before marked session\n' >&2
+  exit 1
+fi
 kube -n "$namespace" exec server -- sh -c \
   'PGAPPNAME=nagare-maintenance-probe psql -U postgres -d postgres -c "select pg_sleep(120)" >/tmp/nagare-maintenance-probe.log 2>&1 </dev/null &'
 activity_sql="select pid from pg_stat_activity where application_name = 'nagare-maintenance-probe'"
@@ -98,6 +107,10 @@ for _ in {1..20}; do
 done
 if [[ ! "$marked_pid" =~ ^[0-9]+$ ]]; then
   printf 'detached marked database session was not observed\n' >&2
+  exit 1
+fi
+if [[ "$(client_count)" != 1 ]]; then
+  printf 'server-side exclusion did not find the established client\n' >&2
   exit 1
 fi
 terminated="$(kube -n "$namespace" exec server -- psql -U postgres -d postgres \
@@ -119,6 +132,10 @@ for _ in {1..20}; do
 done
 if [[ -n "$marked_pid" ]]; then
   printf 'marked database session survived recovery termination\n' >&2
+  exit 1
+fi
+if [[ "$(client_count)" != 0 ]]; then
+  printf 'server-side exclusion still finds a client after termination\n' >&2
   exit 1
 fi
 printf 'maintenance network probe passed: remote ingress denied, local socket and marked-session recovery usable\n'

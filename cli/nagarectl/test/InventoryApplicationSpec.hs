@@ -425,13 +425,15 @@ inventoryApplicationTests = testGroup "application inventory compilation"
       (bundles, native) <- either (fail . show) pure
         (compileApplicationDatabases app cluster Nothing recoveryByDatabase backend source)
       length bundles @?= 1
-      Map.size native @?= 5
+      Map.size native @?= 9
       [resource ^. #owner | bundle <- bundles, Managed resource <- bundle ^. #declarations]
-        @?= replicate 5 owner
+        @?= replicate 9 owner
       case app ^. #databases of
         [database] -> do
-          map (databaseNativeOwned database . pure . fst) (Map.elems native)
-            @?= replicate 5 True
+          let directlyOwned = map (databaseNativeOwned database . pure . fst)
+                (Map.elems native)
+          length (filter id directlyOwned) @?= 5
+          length (filter not directlyOwned) @?= 4
           let claims = [resource | (resource, _) <- Map.elems native,
                 case resource ^. #address of
                   Kubernetes _ "" kind _ _ -> nameText kind == "persistentvolumeclaim"

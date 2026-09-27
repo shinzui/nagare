@@ -1309,14 +1309,15 @@ inventoryKubernetesTests =
             backend = GcsBackend "project" "bucket"
             (declaration, native) = ok (compileStandaloneDatabase direct backend)
         scopeId declaration @?= owner
-        length (concatMap declarations (scopeBundles declaration)) @?= 5
-        Map.size native @?= 5
+        length (concatMap declarations (scopeBundles declaration)) @?= 9
+        Map.size native @?= 9
         let retainedKinds = [nameText kind | (member, _) <- Map.elems native
               , Kubernetes _ _ kind _ _ <- [address member], lifecycle member == Retain]
             removedKinds = [nameText kind | (member, _) <- Map.elems native
               , Kubernetes _ _ kind _ _ <- [address member], lifecycle member == DeleteWhenUnreferenced]
-        sort retainedKinds @?= ["persistentvolumeclaim", "secret"]
-        sort removedKinds @?= ["cronjob", "service", "statefulset"]
+        sort retainedKinds @?= ["persistentvolumeclaim", "secret", "secret"]
+        sort removedKinds @?= ["cronjob", "role", "rolebinding",
+          "service", "serviceaccount", "statefulset"]
         let owned = map fst (Map.elems native)
         assertBool "accepted StatefulSet owns the direct name" (standaloneStatefulSetOwned "pg-main" "personal" owned)
         let (restarted, restartedNative) = ok (compileStatefulSetRestartScope

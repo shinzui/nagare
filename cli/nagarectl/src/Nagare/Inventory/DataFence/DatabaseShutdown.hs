@@ -5,6 +5,7 @@
 module Nagare.Inventory.DataFence.DatabaseShutdown
   ( DatabaseShutdownTransport (..)
   , kubectlDatabaseShutdownTransport
+  , observeDatabasePod
   , requestDatabaseShutdown
   ) where
 
@@ -34,6 +35,19 @@ data DatabaseShutdownTransport = DatabaseShutdownTransport
   { sendDatabaseShutdown :: !(Text -> Text -> Text -> Engine -> Text
       -> IO (Either Text ()))
   }
+
+-- | Find the one running Pod owned by the exact reviewed StatefulSet and
+-- carrying its accepted engine image. Maintenance retains this Pod instead
+-- of shutting it down, and must recheck the UID at every fence transition.
+observeDatabasePod :: VolumeTransport -> StatefulWriterPin -> Engine -> Text
+  -> IO (Either Text (Text, Text))
+observeDatabasePod volume pin engine acceptedImage = do
+  listing <- listNamespacePods volume (writerNamespace pin)
+  pure $ do
+    pods <- listing
+    selected <- databasePod pin engine acceptedImage pods
+    maybe (Left "reviewed database Pod is absent, terminating, or not running")
+      Right selected
 
 -- | Only an exact, running, owned server Pod receives a shutdown request.
 -- A previously removed Pod is safe to skip on acquisition resume; the
