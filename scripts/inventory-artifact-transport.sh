@@ -244,24 +244,37 @@ observe_local_cluster() {
   [ "${destination}" = "$(jq -r .cluster "${archive}")" ] || {
     echo "local cluster destination differs from the reviewed specification" >&2; return 2;
   }
-  local observed matched count
+  local observed matched count server_identity
   observed="$(k3d cluster list -o json)"
   jq -e 'type == "array"' <<<"${observed}" >/dev/null || { echo "invalid k3d cluster listing" >&2; return 2; }
   matched="$(jq -c --arg name "${destination}" '[.[] | select(.name == $name)]' <<<"${observed}")"
   count="$(jq 'length' <<<"${matched}")"
   if [ "${count}" = 0 ]; then emit_missing; return; fi
   if [ "${count}" != 1 ]; then emit_owner_mismatch "k3d-cluster://${destination}" "multiple matching local clusters"; return; fi
-  if ! jq -e --arg digest "${expected}" '
+  if ! jq -e --arg server "k3d-${destination}-server-0" '
     .[0].serversCount == 1
     and .[0].serversRunning == 1
     and .[0].hasLoadbalancer == true
-    and ([.[0].nodes[] | select(.role == "server" and .State.Running == true
-      and .runtimeLabels["nagare.bootstrap.digest"] == $digest)] | length) == 1
+    and ([.[0].nodes[] | select(.role == "server" and .name == $server
+      and .State.Running == true)] | length) == 1
     and ([.[0].nodes[] | select(.role == "loadbalancer") | .portMappings
       | ((.["80/tcp"] // .["80"] // []) + (.["443/tcp"] // .["443"] // []))
       | .[].HostPort] | sort) == ["443", "80"]
   ' <<<"${matched}" >/dev/null; then
     emit_owner_mismatch "k3d-cluster://${destination}" "local cluster identity or port mapping differs from the reviewed specification"
+    return
+  fi
+  server_identity="$(docker inspect --type container "k3d-${destination}-server-0")" || {
+    echo "local cluster server container cannot be inspected" >&2; return 2;
+  }
+  if ! jq -e --arg cluster "${destination}" --arg digest "${expected}" '
+    length == 1
+    and .[0].State.Running == true
+    and .[0].Config.Labels["k3d.cluster"] == $cluster
+    and .[0].Config.Labels["k3d.role"] == "server"
+    and .[0].Config.Labels["nagare.bootstrap.digest"] == $digest
+  ' <<<"${server_identity}" >/dev/null; then
+    emit_owner_mismatch "k3d-cluster://${destination}" "local cluster server digest label differs from the reviewed specification"
     return
   fi
   emit_present "k3d-cluster://${destination}" "${expected}"

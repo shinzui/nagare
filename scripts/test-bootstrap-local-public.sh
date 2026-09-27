@@ -81,7 +81,7 @@ digest = pathlib.Path(sys.argv[1]).read_text().strip()
 print(json.dumps([{"name": "nagare-local", "serversCount": 1,
   "serversRunning": 1, "hasLoadbalancer": True,
   "nodes": [
-    {"role": "server", "State": {"Running": True},
+    {"name": "k3d-nagare-local-server-0", "role": "server", "State": {"Running": True},
      "runtimeLabels": {"nagare.bootstrap.digest": digest}},
     {"role": "loadbalancer", "portMappings": {
       "80/tcp": [{"HostPort": "80"}],
@@ -136,7 +136,16 @@ YAML
   *) printf 'unexpected k3d command: %s\n' "$*" >&2; exit 43 ;;
 esac
 EOF
-chmod +x "$fixture_root/bin/k3d"
+cat > "$fixture_root/bin/docker" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$*" == 'inspect --type container k3d-nagare-local-server-0' ]] || exit 43
+test -s "$XDG_STATE_HOME/cluster-digest" || exit 44
+digest="$(cat "$XDG_STATE_HOME/cluster-digest")"
+jq -n --arg digest "$digest" '[{State:{Running:true},Config:{Labels:{
+  "k3d.cluster":"nagare-local", "k3d.role":"server", "nagare.bootstrap.digest":$digest}}}]'
+EOF
+chmod +x "$fixture_root/bin/k3d" "$fixture_root/bin/docker"
 
 "$nagarectl_bin" --context localfresh platform bootstrap plan --out "$fixture_root/substrate-review" \
   > "$fixture_root/substrate-plan-out" 2>&1 || {
