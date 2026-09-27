@@ -1,5 +1,6 @@
 module DataFenceSpec (dataFenceTests) where
 
+import Control.Monad (forM_)
 import Data.Aeson (Value (..), eitherDecode, eitherDecodeStrict', encode, object, toJSON, (.=))
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString.Lazy qualified as BL
@@ -19,6 +20,8 @@ import Nagare.Inventory.Adapter
   ( AdapterExecution (..), AdapterFence (..)
   , RecoveryDecision (..), mkAdapterRegistry, observationSet, withAdapterFence )
 import Nagare.Inventory.DataFence
+import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..))
+import Nagare.Inventory.DataFence.DatabaseShutdown
 import Nagare.Inventory.DataFence.DeploymentWriter qualified as Deployment
 import Nagare.Inventory.DataFence.KubernetesExclusion
 import Nagare.Inventory.DataFence.KubernetesCapture
@@ -41,13 +44,45 @@ import Nagare.Resource.Inventory
 import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (Retain), Sensitivity (Public))
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
+import System.Environment (lookupEnv)
+import System.Exit (ExitCode (..))
 import System.IO.Temp (withSystemTempDirectory)
+import System.Process (readProcessWithExitCode)
 import Test.Tasty
 import Test.Tasty.HUnit
 
 dataFenceTests :: TestTree
 dataFenceTests = testGroup "data fence"
-  [ testCase "provider intent roundtrips and changes the reviewed digest" $ do
+  [ testCase "engine shutdown observes a clean exit on an explicitly selected native fixture" $ do
+      selectedContext <- lookupEnv "NAGARE_EP160_SHUTDOWN_CONTEXT"
+      selectedNamespace <- lookupEnv "NAGARE_EP160_SHUTDOWN_NAMESPACE"
+      case (selectedContext, selectedNamespace) of
+        (Nothing, Nothing) -> pure ()
+        (Just contextName, Just namespaceName) -> do
+          let ContextBinding context _ = fixtureBinding
+              transport = kubectlDatabaseShutdownTransport
+                (KubernetesRuntimeConfig context (T.pack contextName)
+                  (pure (Right ())))
+          forM_ [("postgres", Postgres, "postgres:18"),
+              ("redis", Redis, "redis:8"),
+              ("clickhouse", ClickHouse, "clickhouse/clickhouse-server:25.8")]
+              $ \(podName, engine, image) -> do
+            (code, output, _) <- readProcessWithExitCode "kubectl"
+              ["--context", contextName, "-n", namespaceName, "get", "pod",
+                podName, "-o", "jsonpath={.metadata.uid}"] ""
+            code @?= ExitSuccess
+            let uid = T.pack output
+            assertBool "native probe Pod UID is malformed" (validUid uid)
+            wrongPod <- sendDatabaseShutdown transport (T.pack namespaceName)
+              (T.pack podName) "00000000-0000-0000-0000-000000000000"
+              engine image
+            case wrongPod of
+              Left _ -> pure ()
+              Right () -> assertFailure "shutdown accepted a substituted Pod UID"
+            sendDatabaseShutdown transport (T.pack namespaceName)
+              (T.pack podName) uid engine image >>= right
+        _ -> assertFailure "native shutdown context and namespace must be set together"
+    , testCase "provider intent roundtrips and changes the reviewed digest" $ do
       let withProvider = request
             {fenceProviderIntent = Just (object ["version" .= (1 :: Int)])}
       eitherDecode (encode withProvider) @?= Right withProvider
@@ -396,10 +431,24 @@ dataFenceTests = testGroup "data fence"
               [ "metadata" .= object
                   [ "namespace" .= ("restore-space" :: Text)
                   , "name" .= ("database-0" :: Text)
-                  , "uid" .= ("ffffffff-0000-1111-2222-333333333333" :: Text)]
-              , "spec" .= object ["volumes" .= [object
-                  ["persistentVolumeClaim" .= object
-                    ["claimName" .= ("data-pvc" :: Text)]]]]]
+                  , "uid" .= ("ffffffff-0000-1111-2222-333333333333" :: Text)
+                  , "ownerReferences" .= [object
+                      [ "kind" .= ("StatefulSet" :: Text)
+                      , "name" .= ("database" :: Text)
+                      , "uid" .= (writerUid :: Text)
+                      , "controller" .= True]]]
+              , "spec" .= object
+                  [ "containers" .= [object
+                      [ "name" .= ("postgres" :: Text)
+                      , "image" .= ("postgres:18" :: Text)]]
+                  , "volumes" .= [object
+                      ["persistentVolumeClaim" .= object
+                        ["claimName" .= ("data-pvc" :: Text)]]]]
+              , "status" .= object
+                  [ "phase" .= ("Running" :: Text)
+                  , "containerStatuses" .= [object
+                      [ "name" .= ("postgres" :: Text)
+                      , "state" .= object ["running" .= object []]]]]]
             writerSpec replicas image = object
               [ "replicas" .= (replicas :: Int)
               , "serviceName" .= ("database" :: Text)
@@ -499,8 +548,11 @@ dataFenceTests = testGroup "data fence"
         deploymentReplicas <- newIORef (1 :: Int)
         deploymentPatches <- newIORef (0 :: Int)
         drained <- newIORef False
+        clientDrained <- newIORef False
         endpointsCleared <- newIORef False
         patches <- newIORef (0 :: Int)
+        shutdownCalls <- newIORef (0 :: Int)
+        shutdownDenied <- newIORef False
         liveWriterImage <- newIORef ("postgres:18" :: Text)
         loseDeleteAck <- newIORef True
         loseReleaseDeleteAck <- newIORef False
@@ -593,7 +645,7 @@ dataFenceTests = testGroup "data fence"
             deploymentTransport = Deployment.DeploymentWriterTransport
               { Deployment.readDeploymentWriter = \_ _ -> do
                   desired <- readIORef deploymentReplicas
-                  ready <- readIORef drained
+                  ready <- readIORef clientDrained
                   let current = if desired == 0 && ready then 0 else 1 :: Int
                       generation = if desired == 0 then 2 else 1 :: Int
                   pure (Right (object
@@ -621,7 +673,7 @@ dataFenceTests = testGroup "data fence"
                   _ -> pure (Left "Deployment replica patch is malformed")
               , Deployment.listDeploymentReplicaSets = \_ -> do
                   desired <- readIORef deploymentReplicas
-                  ready <- readIORef drained
+                  ready <- readIORef clientDrained
                   let current = if desired == 0 && ready then 0 else 1 :: Int
                   pure (Right (object ["items" .= [object
                     [ "metadata" .= object
@@ -635,7 +687,7 @@ dataFenceTests = testGroup "data fence"
                     , "spec" .= object ["replicas" .= desired]
                     , "status" .= object ["replicas" .= current]]]]))
               , Deployment.listDeploymentPods = \_ -> do
-                  ready <- readIORef drained
+                  ready <- readIORef clientDrained
                   pure (Right (object ["items" .= if ready then ([] :: [Value])
                     else [object
                       [ "metadata" .= object
@@ -705,8 +757,18 @@ dataFenceTests = testGroup "data fence"
             native = mkKubernetesExclusion (binding ^. #identity) Map.empty
               declarations acceptedNative guardTransport volumeTransport
               writerTransport deploymentTransport serviceTransport scheduleTransport
+              shutdownTransport
             captureTransport = KubernetesCaptureTransport guardTransport volumeTransport
               writerTransport deploymentTransport scheduleTransport serviceTransport
+              shutdownTransport
+            shutdownTransport = DatabaseShutdownTransport $ \_ podName podUid engine image -> do
+              modifyIORef' shutdownCalls (+ 1)
+              denied <- readIORef shutdownDenied
+              pure $ if denied then Left "engine shutdown refused"
+                else if podName == "database-0"
+                    && podUid == "ffffffff-0000-1111-2222-333333333333"
+                    && engine == Postgres && image == "postgres:18"
+                  then Right () else Left "wrong engine server Pod"
             captureRequest = KubernetesCaptureRequest binding Map.empty
               "restore-session" target writer (Just Postgres) (Just serviceId)
               "gs://fixture/recovery" (contentDigest "recovery")
@@ -813,7 +875,23 @@ dataFenceTests = testGroup "data fence"
         scheduleRefused @?= Left "Kubernetes mount admission guard is not enforcing"
         readIORef patches >>= (@?= 0)
         writeIORef scheduleDenied True
+        waitingClients <- stopKubernetesWriters native nativeRecord
+        waitingClients @?= Left "managed database clients have not drained"
+        readIORef patches >>= (@?= 0)
+        readIORef shutdownCalls >>= (@?= 0)
+        writeIORef clientDrained True
+        waitingSchedule <- stopKubernetesWriters native nativeRecord
+        waitingSchedule @?= Left "managed database clients have not drained"
+        readIORef shutdownCalls >>= (@?= 0)
+        writeIORef scheduleJobsActive False
+        writeIORef schedulePodPhase "Succeeded"
+        writeIORef shutdownDenied True
+        shutdownRefused <- stopKubernetesWriters native nativeRecord
+        shutdownRefused @?= Left "engine shutdown refused"
+        readIORef patches >>= (@?= 0)
+        writeIORef shutdownDenied False
         stopKubernetesWriters native nativeRecord >>= right
+        readIORef shutdownCalls >>= (@?= 2)
         readIORef schedulePatches >>= (@?= 1)
         readIORef patches >>= (@?= 1)
         readIORef deploymentPatches >>= (@?= 1)
@@ -821,9 +899,6 @@ dataFenceTests = testGroup "data fence"
         writeIORef drained True
         observeKubernetesExcluded native nativeRecord >>= right >>= (@?= False)
         writeIORef endpointsCleared True
-        observeKubernetesExcluded native nativeRecord >>= right >>= (@?= False)
-        writeIORef scheduleJobsActive False
-        writeIORef schedulePodPhase "Succeeded"
         observeKubernetesExcluded native nativeRecord >>= right >>= (@?= True)
         writeIORef liveWriterImage "redis:8"
         driftedObservation <- observeKubernetesExcluded native nativeRecord

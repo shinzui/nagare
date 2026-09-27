@@ -26,6 +26,7 @@ import Nagare.Inventory.Adapters.KubernetesRuntime
   ( KubernetesRuntimeConfig
   )
 import Nagare.Inventory.DataFence.DeploymentWriter qualified as Deployment
+import Nagare.Inventory.DataFence.DatabaseShutdown
 import Nagare.Inventory.DataFence.KubernetesExclusion
 import Nagare.Inventory.DataFence.KubernetesIntent
 import Nagare.Inventory.DataFence.MountGuardRuntime
@@ -63,6 +64,7 @@ data KubernetesCaptureTransport = KubernetesCaptureTransport
   , captureDeploymentTransport :: !Deployment.DeploymentWriterTransport
   , captureScheduleTransport :: !ScheduledWriterTransport
   , captureServiceTransport :: !ServiceTransport
+  , captureShutdownTransport :: !DatabaseShutdownTransport
   }
 
 kubectlKubernetesCaptureTransport ::
@@ -76,6 +78,7 @@ kubectlKubernetesCaptureTransport config =
     (Deployment.kubectlDeploymentWriterTransport config)
     (kubectlScheduledWriterTransport config)
     (kubectlServiceTransport config)
+    (kubectlDatabaseShutdownTransport config)
 
 captureKubernetesFence ::
   KubernetesCaptureTransport ->
@@ -233,6 +236,7 @@ captureKubernetesFence transport declarations native request = do
                                   (captureDeploymentTransport transport)
                                   (captureServiceTransport transport)
                                   (captureScheduleTransport transport)
+                                  (captureShutdownTransport transport)
                           checked <- validateKubernetesExclusion validator record
                           pure (record <$ checked)
 

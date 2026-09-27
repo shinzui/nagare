@@ -23,10 +23,12 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
+import Nagare.Dsl.Database (Engine)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapters.KubernetesRuntime
   (KubernetesRuntimeConfig (..))
 import Nagare.Inventory.DataFence (WriterReleaseState (..))
+import Nagare.Inventory.DataFence.DatabaseShutdown
 import Nagare.Inventory.DataFence.DeploymentWriter qualified as Deployment
 import Nagare.Inventory.DataFence.KubernetesIntent
 import Nagare.Inventory.DataFence.MountGuard (guardClaimName)
@@ -51,13 +53,14 @@ data KubernetesExclusion = KubernetesExclusion
   , exclusionDeploymentTransport :: !Deployment.DeploymentWriterTransport
   , exclusionServiceTransport :: !ServiceTransport
   , exclusionScheduleTransport :: !ScheduledWriterTransport
+  , exclusionShutdownTransport :: !DatabaseShutdownTransport
   }
 
 mkKubernetesExclusion :: ContextId -> Map ScopeId ScopeRevision
   -> [Declaration] -> Map ResourceId (ManagedResource, ByteString)
   -> MountGuardTransport -> VolumeTransport -> StatefulWriterTransport
   -> Deployment.DeploymentWriterTransport -> ServiceTransport
-  -> ScheduledWriterTransport
+  -> ScheduledWriterTransport -> DatabaseShutdownTransport
   -> KubernetesExclusion
 mkKubernetesExclusion = KubernetesExclusion
 
@@ -72,6 +75,7 @@ kubectlKubernetesExclusion config accepted declarations native =
     (Deployment.kubectlDeploymentWriterTransport config)
     (kubectlServiceTransport config)
     (kubectlScheduledWriterTransport config)
+    (kubectlDatabaseShutdownTransport config)
 
 validatedIntent :: KubernetesExclusion -> DataFenceRecord
   -> Either Text KubernetesFenceIntent
@@ -104,6 +108,15 @@ validateEngineAssociation exclusion intent = do
       (lookup (kubernetesDependencyRoot intent) (kubernetesStatefulWriters intent)))
       (Left "managed database root lacks a reviewed StatefulSet writer")
 
+acceptedDatabaseServer :: KubernetesExclusion -> KubernetesFenceIntent
+  -> Either Text (Maybe (Engine, Text))
+acceptedDatabaseServer exclusion intent = do
+  (_, bytes) <- maybe
+    (Left "database dependency root lacks accepted native evidence") Right
+    (Map.lookup (kubernetesDependencyRoot intent) (exclusionNative exclusion))
+  value <- first T.pack (eitherDecodeStrict' bytes)
+  parseObservedDatabaseServer value
+
 observeLiveDatabaseEngine :: KubernetesExclusion -> KubernetesFenceIntent
   -> IO (Either Text ())
 observeLiveDatabaseEngine exclusion intent =
@@ -116,11 +129,7 @@ observeLiveDatabaseEngine exclusion intent =
         observed <- readStatefulWriter (exclusionWriterTransport exclusion)
           (writerNamespace pin) (writerName pin)
         pure $ do
-          (_, acceptedBytes) <- maybe
-            (Left "database dependency root lacks accepted native evidence") Right
-            (Map.lookup (kubernetesDependencyRoot intent) (exclusionNative exclusion))
-          acceptedValue <- first T.pack (eitherDecodeStrict' acceptedBytes)
-          accepted <- parseObservedDatabaseServer acceptedValue
+          accepted <- acceptedDatabaseServer exclusion intent
           current <- observed
           actual <- parseObservedDatabaseServer current
           unless (actual == accepted && fmap fst actual == Just expected)
@@ -221,15 +230,70 @@ stopKubernetesWriters exclusion record = case validatedIntent exclusion record o
                 case sequence_ schedules of
                   Left reason -> pure (Left reason)
                   Right () -> do
-                    stopped <- forM (kubernetesStatefulWriters intent) $ \(_, pin) ->
-                      stopStatefulWriter (exclusionWriterTransport exclusion) pin
-                    case sequence_ stopped of
+                    let databaseRoot = case kubernetesDatabaseEngine intent of
+                          Nothing -> Nothing
+                          Just _ -> Just (kubernetesDependencyRoot intent)
+                        clients = [(resource, pin)
+                          | (resource, pin) <- kubernetesStatefulWriters intent
+                          , Just resource /= databaseRoot]
+                        roots = [(resource, pin)
+                          | (resource, pin) <- kubernetesStatefulWriters intent
+                          , Just resource == databaseRoot]
+                    deployments <- forM (kubernetesDeploymentWriters intent)
+                      $ \(_, pin) -> Deployment.stopDeploymentWriter
+                        (exclusionDeploymentTransport exclusion) pin
+                    case sequence_ deployments of
                       Left reason -> pure (Left reason)
                       Right () -> do
-                        deployments <- forM (kubernetesDeploymentWriters intent)
-                          $ \(_, pin) -> Deployment.stopDeploymentWriter
-                            (exclusionDeploymentTransport exclusion) pin
-                        pure (sequence_ deployments)
+                        clientStops <- forM clients $ \(_, pin) ->
+                          stopStatefulWriter (exclusionWriterTransport exclusion) pin
+                        case sequence_ clientStops of
+                          Left reason -> pure (Left reason)
+                          Right () -> do
+                            quiet <- observeDatabaseClientsDrained exclusion intent clients
+                            case quiet of
+                              Left reason -> pure (Left reason)
+                              Right False -> pure (Left "managed database clients have not drained")
+                              Right True -> do
+                                shutdown <- requestReviewedDatabaseShutdown exclusion intent roots
+                                case shutdown of
+                                  Left reason -> pure (Left reason)
+                                  Right () -> do
+                                    stopped <- forM roots $ \(_, pin) ->
+                                      stopStatefulWriter
+                                        (exclusionWriterTransport exclusion) pin
+                                    pure (sequence_ stopped)
+
+observeDatabaseClientsDrained :: KubernetesExclusion -> KubernetesFenceIntent
+  -> [(ResourceId, StatefulWriterPin)] -> IO (Either Text Bool)
+observeDatabaseClientsDrained exclusion intent clients =
+  case kubernetesDatabaseEngine intent of
+    Nothing -> pure (Right True)
+    Just _ -> do
+      stateful <- forM clients $ \(_, pin) ->
+        observeStatefulWriterStopped (exclusionWriterTransport exclusion) pin
+      deployments <- forM (kubernetesDeploymentWriters intent) $ \(_, pin) ->
+        Deployment.observeDeploymentWriterStopped
+          (exclusionDeploymentTransport exclusion) pin
+      schedules <- forM (kubernetesScheduledWriters intent) $ \(_, pin) ->
+        observeScheduledWriterStopped (exclusionScheduleTransport exclusion) pin
+      pure $ do
+        stopped <- sequence stateful
+        deploymentStopped <- sequence deployments
+        scheduleStopped <- sequence schedules
+        pure (and stopped && and deploymentStopped && and scheduleStopped)
+
+requestReviewedDatabaseShutdown :: KubernetesExclusion -> KubernetesFenceIntent
+  -> [(ResourceId, StatefulWriterPin)] -> IO (Either Text ())
+requestReviewedDatabaseShutdown exclusion intent roots =
+  case (kubernetesDatabaseEngine intent, roots,
+      acceptedDatabaseServer exclusion intent) of
+    (Nothing, [], _) -> pure (Right ())
+    (Just engine, [(_, pin)], Right (Just (_, image))) ->
+      requestDatabaseShutdown (exclusionVolumeTransport exclusion)
+        (exclusionShutdownTransport exclusion) pin engine image
+    (_, _, Left reason) -> pure (Left reason)
+    _ -> pure (Left "reviewed database server shutdown intent is incomplete")
 
 -- | The returned identities are the durable reviewed map only after current
 -- PVC/PV/backing and every StatefulSet UID have been checked natively.
