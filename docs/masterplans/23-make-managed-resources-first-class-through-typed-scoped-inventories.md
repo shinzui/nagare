@@ -166,6 +166,11 @@ provenance:
       at: 2026-09-26T20:36:32Z
       mode: "update"
       note: "Replace EP-150 with six bounded remaining-work plans, preserve all release gates, and expose dependencies and forecast"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-27T03:47:41Z
+      mode: "update"
+      note: "Mark EP-152 complete and retain full local and GCP acceptance gates"
 ---
 
 # Make managed resources first-class through typed scoped inventories
@@ -211,7 +216,7 @@ Rejected alternatives were isolated platform/application inventories without sha
 | 149 | Explain drift and execute reviewed adoption migration and retirement | docs/plans/149-explain-drift-and-execute-reviewed-adoption-migration-and-retirement.md | EP-144, EP-145 | EP-146, EP-147 | Complete |
 | 150 | Integration history — superseded by EP-152–157; delivered work retained | docs/plans/150-integrate-resource-inventories-into-upgrades-and-release-verification.md | None | None | Cancelled |
 | 151 | Store inventory history in the context state bucket with conditional writes | docs/plans/151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes.md | EP-145 | EP-146 | Complete |
-| 152 | Complete fresh platform bootstrap through reviewed components | docs/plans/152-complete-fresh-platform-bootstrap-through-reviewed-components.md | EP-146, EP-147, EP-149, EP-151 | None | Not Started |
+| 152 | Complete fresh platform bootstrap through reviewed components | docs/plans/152-complete-fresh-platform-bootstrap-through-reviewed-components.md | EP-146, EP-147, EP-149, EP-151 | None | Complete |
 | 153 | Close managed command coverage for the inventory release | docs/plans/153-close-managed-command-coverage-for-the-inventory-release.md | EP-146, EP-147, EP-149, EP-151 | EP-152, EP-158, EP-159, EP-160, EP-161 | Not Started |
 | 154 | Validate installed inventory packages on every supported system | docs/plans/154-validate-installed-inventory-packages-on-every-supported-system.md | EP-146, EP-147, EP-149, EP-151 | EP-152, EP-153, EP-158, EP-159, EP-160, EP-161 | Not Started |
 | 155 | Prove local application and data recovery end to end | docs/plans/155-prove-local-application-and-data-recovery-end-to-end.md | EP-146, EP-147, EP-149, EP-151 | EP-152, EP-153, EP-154, EP-158, EP-159, EP-160, EP-161 | Not Started |
@@ -233,7 +238,7 @@ EP-146, EP-147, EP-149, and EP-151 may proceed after EP-145. EP-151 needs only E
 
 EP-148's delivered application/data code now supplies the baseline to EP-158–161; the original plan is superseded, so no active child depends on its completion. EP-146/147/149/151 are complete prerequisites for all active successors. EP-158 access/CDN and EP-159 backup receipts can proceed independently. EP-160 implements and proves the shared data fence at M1; EP-161 can prepare session fixtures against that contract, but native maintenance admission waits for its exclusion/recovery proof. EP-159 receipt extensions feed EP-160 restore and EP-161 recovery, while existing manual receipts allow development to begin without that integration.
 
-The remaining integration chain is EP-152 bootstrap, EP-155 local evidence, EP-156 cloud evidence, and EP-157 final release acceptance. EP-153 command coverage, EP-154 packaging, and EP-158–161 features proceed alongside it. Fixture and schema work can start before all features finish; final evidence must include their working implementations. Shared native proofs do not require administrative closure of the feature plan that will cite them. EP-157 requires every active predecessor's full accepted outcome. Numerical order is not execution order. MasterPlan 21's separate replacement-upgrade initiative remains independent; reuse its safety principles without silently adding its unfinished live cutover to this release.
+EP-152 bootstrap is complete. The remaining integration chain is EP-155 local evidence, EP-156 cloud evidence, and EP-157 final release acceptance. EP-153 command coverage, EP-154 packaging, and EP-158–161 features proceed alongside it. Fixture and schema work can start before all features finish; final evidence must include their working implementations. Shared native proofs do not require administrative closure of the feature plan that will cite them. EP-157 requires every active predecessor's full accepted outcome. Numerical order is not execution order. MasterPlan 21's separate replacement-upgrade initiative remains independent; reuse its safety principles without silently adding its unfinished live cutover to this release.
 
 
 ## Integration Points
@@ -274,11 +279,11 @@ These ownership, identity, review, storage, migration, and controller-delegation
 
 ## Progress
 
-2026-09-26: Six foundation/adapter/store children are Complete. EP-148 and EP-150 are Cancelled/superseded with delivered work preserved. EP-152–161 are ten active remaining-work plans; none has been accepted under its new boundary yet. The next outcomes are fresh bootstrap (EP-152), the finite command audit (EP-153), and shared restore/maintenance fencing (EP-160 M1). Access/CDN and scheduled backup work can proceed independently. There is no release-ready claim.
+2026-09-26: EP-152 is Complete. Fresh cloud and local contexts reach reviewed platform candidates without an existing target cluster; public cluster apply/resume proves lost-acknowledgement and pre-marker recovery, and a disposable native k3d smoke verifies the final marker and its accepted scope vector. The marker smoke records other component effects, so EP-155 and EP-156 still own full native local application/data and GCP convergence. EP-148 and EP-150 remain Cancelled/superseded with delivered work preserved. Nine active plans EP-153–161 remain. The next outcomes are the finite command audit (EP-153), local and cloud integrated evidence (EP-155/156), and shared restore/maintenance fencing (EP-160 M1). There is no release-ready claim.
 
 **Readiness and forecast.** A working version requires fresh-context bootstrap, every promised application/data operation, complete command coverage, installed native packages, local/GCP recovery proof, and immutable evidence for the same candidate. All remain required; checklist percentages do not measure remaining effort.
 
-The earlier EP-150-only estimate was 32–68 active engineering hours and explicitly excluded unfinished EP-148 features. The current low-confidence ranges are EP-152 8–16, EP-153 6–12 (expanded command/consumer cutover), EP-154 4–8, EP-155 4–12, EP-156 8–16, EP-157 4–8, EP-158 6–12, EP-159 8–16, EP-160 16–32, and EP-161 8–16. Summed sequential effort is 72–148 active engineering hours, not elapsed delivery time or a measured forecast. These ranges expose previously excluded work; splitting did not create it. They exclude approvals, provider/image outages, and runner queues; shared native proof must not be counted twice.
+The earlier EP-150-only estimate was 32–68 active engineering hours and explicitly excluded unfinished EP-148 features. EP-152's former 8–16 hour range is retired on completion; its elapsed execution included fixture and build waits, so this document does not infer active effort from wall time. The remaining low-confidence ranges are EP-153 6–12 (expanded command/consumer cutover), EP-154 4–8, EP-155 4–12, EP-156 8–16, EP-157 4–8, EP-158 6–12, EP-159 8–16, EP-160 16–32, and EP-161 8–16. Summed sequential remaining effort is 64–132 active engineering hours, not a measured forecast. These ranges expose previously excluded work; splitting did not create it. They exclude approvals, provider/image outages, and runner queues; shared native proof must not be counted twice.
 
 The largest uncertainty is actual writer exclusion and recovery across three database engines and mounted volumes in EP-160. Re-estimate after its first native fence probe, the first full fresh bootstrap attempt, and EP-153's finite registration audit. EP-155's range must also be revisited if that audit finds additional missing native collection bindings. Upper bounds trigger reassessment, never removal of features or proof. On each accepted outcome report the result, next gate, named blocker, active effort versus waiting, and revised range. Do not provide a calendar promise until these uncertainties are measured.
 
@@ -519,7 +524,7 @@ its ownership and recovery protocol.
 
 ## Outcomes & Retrospective
 
-EP-144, EP-145, EP-146, EP-147, EP-149, and EP-151 remain complete. The ten active outcomes EP-152–161 remain required; EP-148 and EP-150 are superseded history with their delivered work preserved. EP-150 delivered a recoverable release publisher, deterministic integration tests, history restoration, evidence projection, and compatibility safeguards; cancelling its umbrella does not erase those implementations. Final acceptance still requires IR-24's full verification set, native local/GCP behavior, independent-scope isolation, complete command coverage, clone-free native packages, and immutable evidence. EP-147's bootstrap and EP-149's recording migration proofs are inputs to that acceptance, not substitutes for it.
+EP-144, EP-145, EP-146, EP-147, EP-149, EP-151, and EP-152 are complete. Nine active outcomes EP-153–161 remain required; EP-148 and EP-150 are superseded history with their delivered work preserved. EP-150 delivered a recoverable release publisher, deterministic integration tests, history restoration, evidence projection, and compatibility safeguards; cancelling its umbrella does not erase those implementations. EP-152 adds reviewed fresh platform stages, public recovery, and a focused native marker smoke. Final acceptance still requires IR-24's full verification set, native local/GCP behavior, independent-scope isolation, complete command coverage, clone-free native packages, and immutable evidence. EP-152's focused marker proof is an input to that acceptance, not a substitute for full local and GCP recovery evidence.
 
 At completion, compare these outcomes with IR-24, update its status only with evidence, and distill durable lessons into ADR 22 and affected existing ADRs. Do not publish a release or modify existing operator deployments as a side effect of updating plan status.
 

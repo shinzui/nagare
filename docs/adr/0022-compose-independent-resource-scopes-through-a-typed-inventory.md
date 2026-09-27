@@ -573,6 +573,15 @@ The remaining EP-148 feature work is assigned to EP-158 (access/CDN), EP-159 (sc
 
 EP-160 owns one durable data-fence protocol in the existing inventory store/journal. It binds the accepted target and physical incarnation, affected writers, recovery references, exclusion proof, and recovery/release phases. The CLI writer lock alone is not data-write exclusion. Restore and maintenance must establish and observe appropriate provider controls before changing data. EP-161 owns client/session lifetime and uses that same protocol; it does not add a second maintenance lock, session store, timeout unlock, or automatic replay. A surviving remote client or ambiguous data effect retains its recovery obligation after operator-process death. These are required design contracts, not claims that fencing is already implemented.
 
+
+## Amendment — 2026-09-26: reviewed fresh bootstrap completion is generation stable
+
+A fresh context's platform prerequisite stages are independently reviewed and accepted before any cluster-dependent review is prepared. The final platform marker waits for every cluster operation and records the selected immutable payload identity plus the accepted platform scope generations and canonical declaration digests. Independently owned application, standalone, and publication revisions do not enter that marker vector.
+
+Recompiling a canonically identical platform scope for bootstrap validation does not select a new scope revision. Bootstrap omits that replacement from its final composition and reuses the accepted generation; otherwise a new planning timestamp could change the marker vector and request a spurious update. The marker's installation time is reused only when the reconstructed marker specification matches its accepted declaration. A proved artifact publication operation remains complete on an unchanged rerun, while a physically missing artifact receives a focused reviewed repair.
+
+The focused native marker proof exercises the final operation against a disposable Kubernetes API after recording the other component effects. It does not replace the required native local application/data and GCP convergence evidence for the inventory release.
+
 EP-159 owns a compatible extension of the existing backup receipt contract for delegated scheduled runs and exact retention selection. Restore consumes verified receipts; an object listing alone grants neither restore nor deletion authority. All feature outcomes and native integration gates remain mandatory together under MasterPlan 23.
 
 

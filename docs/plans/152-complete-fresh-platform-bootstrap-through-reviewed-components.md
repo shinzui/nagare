@@ -22,6 +22,16 @@ provenance:
       at: 2026-09-26T23:30:57Z
       mode: "implement"
       note: "Bind reviewed bootstrap marker to selected immutable payload during execution"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-27T03:45:18Z
+      mode: "implement"
+      note: "Complete fresh local and cloud stage composition and prove cluster recovery and native final marker"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-27T03:47:35Z
+      mode: "implement"
+      note: "Close EP-152 after public recovery and native marker smoke"
 ---
 
 # Complete fresh platform bootstrap through reviewed components
@@ -39,7 +49,7 @@ A fresh context selected from one immutable payload can be planned, applied, res
 
 
 - [x] M1: Fresh local/cloud bootstrap produces complete platform-only reviewed stages, including foundation and host prerequisites, without requiring an already-created target cluster.
-- [ ] M2: Public bootstrap apply/resume preserves completed receipts, emits the final inventory-bound marker only after convergence, and rejects changed payload intent after admission.
+- [x] M2: Public bootstrap apply/resume preserves completed receipts, emits the final inventory-bound marker only after convergence, and rejects changed payload intent after admission.
 
 Inherited baseline: commits `9c308390`, `28e05b72`, and `09d83188` supplied explicit payload/workspace composition, fresh-context policy, and eleven legacy entrypoint refusals. These are not new work. Remaining production cloud/host assembly and final-marker proof are the acceptance gap.
 
@@ -81,6 +91,8 @@ Inherited baseline: commits `9c308390`, `28e05b72`, and `09d83188` supplied expl
 
 2026-09-26 continuation at `ad499a25`: M1 is complete. A fresh local context now reviews the pinned k3d registry and cluster as an ordered two-resource scope, then installs a private, normalized context kubeconfig through a separate reviewed artifact operation before it reads Kubernetes. The source fixture `scripts/test-bootstrap-local-public.sh` starts with no target cluster, verifies registry-to-cluster and cluster-to-kubeconfig edges, rejects another context and a changed platform pin before mutation, loses the registry acknowledgement, resumes without creating it twice, and reaches a platform-only 209-operation cluster review. The cloud fixture still reaches its 203-operation cluster review from no cloud objects or cluster. Both reviews give every Kubernetes and Helm declaration a kubeconfig dependency and make the marker depend on all preceding operations. `InventoryFoundationSpec` checks preservation of application, standalone, and publication scopes and generations. `cabal build exe:nagarectl -v0`, `cabal test nagarectl-test --test-show-details=failures -v0`, both public fixtures, Haskell style, shell syntax, and `git diff --check` passed. These recording fixtures prove stage composition and public pre-cluster recovery; they do not apply the cluster review or prove the final marker. M2 remains open for cluster and pre-marker interruption, unchanged rerun, and native marker smoke.
 
+2026-09-26 continuation at `cdce1534`: M2 is complete. The public local fixture applies its 209-operation cluster review through `platform bootstrap apply` and retains a transaction after a lost Kubernetes acknowledgement. `inventory resume --yes` observes the completed write and does not repeat it. With observation unavailable, resume refuses without another write or a marker; after observation returns, the same transaction converges. A separate run interrupts immediately before marker creation and proves the marker is absent until resume. The retained cluster review refuses a changed platform pin before Kubernetes mutation. After convergence, the fixture verifies one marker write, accepted and converged revisions, the payload ID, and a SHA-256 scope vector recalculated from accepted platform revisions. An unchanged public bootstrap plan contains verification operations only, with neither a marker update nor repeated artifact publication. The focused native run creates a disposable k3d cluster on random ports, sends the reviewed final ConfigMap operation through the real Kubernetes API after recorded component effects, reads back the marker, verifies the same accepted vector, and deletes that exact disposable cluster. This is native marker smoke, not a full native local or GCP workload convergence claim. Evidence is reproducible in `scripts/test-bootstrap-local-public.sh` and `scripts/test-bootstrap-kubectl-fixture.py`; its transient journals and command logs were removed by the fixture. `cabal build exe:nagarectl -v0`, `cabal test nagarectl-test --test-show-details=failures -v0`, `bash scripts/test-bootstrap-foundation-public.sh <built nagarectl>`, four local fixture modes (`cluster`, `unresolved`, `marker`, `native-marker`), Haskell style, shell/Python syntax, and `git diff --check` passed. EP-155 and EP-156 retain their separate full native application/data and GCP acceptance gates.
+
 
 ## Surprises & Discoveries
 
@@ -107,6 +119,8 @@ Inherited baseline: commits `9c308390`, `28e05b72`, and `09d83188` supplied expl
 
 2026-09-26: The first cloud-layer fixture exposed duplicate primary/alias claims when a Pulumi URN was both the resource address and its native alias. The cloud compiler now omits an alias equal to its primary address. The same fixture exposed an inherited Nix cache flag that changed a named context's registration count from 24 to 27; the selected profile now pins that choice and its bucket to the stored context.
 
+2026-09-26: Replacing an identical accepted cluster scope increments its generation even when its canonical declaration is unchanged. The rerun therefore changed the marker's accepted scope vector and tried to update the marker solely because of a new planning timestamp. Bootstrap now preserves generations for identical scopes and omits those replacements from the final candidate. The composed accepted declaration also has canonical dependency ordering; generated native members must bind to that declaration before review validation. A converged artifact publication operation retains its proof so bootstrap verification does not republish it on every rerun.
+
 
 ## Decision Log
 
@@ -125,7 +139,7 @@ Inherited baseline: commits `9c308390`, `28e05b72`, and `09d83188` supplied expl
 ## Outcomes & Retrospective
 
 
-Implementation remains partial. Marker identity and scope-vector checks, targeted Pulumi operations, image publication, and host activation have focused test and public recording-fixture evidence. The recording fixture reaches the VM and host receipts; it is not a local bootstrap, native GCP/cloud-cluster convergence, or final-marker acceptance run. Inherited capabilities are credited in Progress and must not be presented as newly completed work.
+Both milestones are complete. Fresh cloud and local contexts reach complete reviewed platform candidates without an existing target Kubernetes API. Public apply/resume evidence covers cloud foundation, Pulumi, image, host, kubeconfig, cluster components, unresolved writes, and the last marker boundary. A disposable native k3d smoke confirms the final reviewed marker operation and its accepted scope vector on a real Kubernetes API while recording the other component effects. Full native local application/data recovery and fresh GCP convergence remain the separate acceptance work assigned to EP-155 and EP-156. Inherited capabilities are credited in Progress rather than presented as new work.
 
 
 ## Context and Orientation
