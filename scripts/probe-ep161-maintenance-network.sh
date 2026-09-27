@@ -9,7 +9,8 @@ namespace="nagare-ep161-network-$$"
 kube() { kubectl --context "$context" "$@"; }
 
 cleanup() {
-  kube delete namespace "$namespace" --ignore-not-found --wait=false >/dev/null 2>&1 || true
+  kube delete namespace "$namespace" --ignore-not-found --wait=true --timeout=120s \
+    >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -24,7 +25,19 @@ server_ip="$(kube -n "$namespace" get pod server -o jsonpath='{.status.podIP}')"
 case "$server_ip" in
   *[!0-9.]*|'') printf 'server Pod has no IPv4 address\n' >&2; exit 1 ;;
 esac
-kube -n "$namespace" exec client -- pg_isready -t 2 -h "$server_ip" -p 5432 >/dev/null
+remote_ready=0
+for _ in {1..20}; do
+  if kube -n "$namespace" exec client -- pg_isready -t 2 -h "$server_ip" -p 5432 \
+      >/dev/null 2>&1; then
+    remote_ready=1
+    break
+  fi
+  sleep 1
+done
+if [[ "$remote_ready" != 1 ]]; then
+  printf 'remote database client did not become ready before ingress denial\n' >&2
+  exit 1
+fi
 
 kube create -f - >/dev/null <<EOF
 {
@@ -53,6 +66,59 @@ if [[ "$denied" != 1 ]]; then
   printf 'network ingress remained reachable after the deny policy\n' >&2
   exit 1
 fi
-kube -n "$namespace" exec server -- pg_isready -t 2 \
-  -h /var/run/postgresql -p 5432 >/dev/null
-printf 'maintenance network probe passed: remote ingress denied, local socket usable\n'
+database_ready=0
+for _ in {1..20}; do
+  if kube -n "$namespace" exec server -- psql -U postgres -d postgres \
+      -Atqc 'select 1' >/dev/null 2>&1; then
+    database_ready=1
+    break
+  fi
+  sleep 1
+done
+if [[ "$database_ready" != 1 ]]; then
+  printf 'local database client did not become ready\n' >&2
+  exit 1
+fi
+
+# Recovery must be able to find a session that outlived its invoking client.
+# Start a detached, marked local client, then terminate only that backend.
+kube -n "$namespace" exec server -- sh -c \
+  'PGAPPNAME=nagare-maintenance-probe psql -U postgres -d postgres -c "select pg_sleep(120)" >/tmp/nagare-maintenance-probe.log 2>&1 </dev/null &'
+activity_sql="select pid from pg_stat_activity where application_name = 'nagare-maintenance-probe'"
+marked_pid=""
+for _ in {1..20}; do
+  if observed="$(kube -n "$namespace" exec server -- psql -U postgres -d postgres \
+      -Atqc "$activity_sql" 2>/dev/null)"; then
+    marked_pid="${observed//$'\r'/}"
+    if [[ "$marked_pid" =~ ^[0-9]+$ ]]; then
+      break
+    fi
+  fi
+  sleep 1
+done
+if [[ ! "$marked_pid" =~ ^[0-9]+$ ]]; then
+  printf 'detached marked database session was not observed\n' >&2
+  exit 1
+fi
+terminated="$(kube -n "$namespace" exec server -- psql -U postgres -d postgres \
+  -Atqc "select pg_terminate_backend($marked_pid)" 2>/dev/null)"
+terminated="${terminated//$'\r'/}"
+if [[ "$terminated" != t ]]; then
+  printf 'marked database session could not be terminated\n' >&2
+  exit 1
+fi
+for _ in {1..20}; do
+  if observed="$(kube -n "$namespace" exec server -- psql -U postgres -d postgres \
+      -Atqc "$activity_sql" 2>/dev/null)"; then
+    marked_pid="${observed//$'\r'/}"
+    if [[ -z "$marked_pid" ]]; then
+      break
+    fi
+  fi
+  sleep 1
+done
+if [[ -n "$marked_pid" ]]; then
+  printf 'marked database session survived recovery termination\n' >&2
+  exit 1
+fi
+printf 'maintenance network probe passed: remote ingress denied, local socket and marked-session recovery usable\n'
