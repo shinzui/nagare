@@ -33,6 +33,7 @@ data MountGuardTransport = MountGuardTransport
   , probeForeignMountDenied :: !(MountGuard -> IO (Either Text Bool))
   , probeWriterScaleDenied :: !(MountGuard -> IO (Either Text Bool))
   , probeServiceMutationDenied :: !(MountGuard -> IO (Either Text Bool))
+  , probeEndpointSliceDenied :: !(MountGuard -> IO (Either Text Bool))
   }
 
 -- | Existing objects are accepted only when their effective policy and
@@ -86,7 +87,12 @@ observeMountGuard transport guard = do
           case scaleDenied of
             Left reason -> pure (Left reason)
             Right False -> pure (Right False)
-            Right True -> probeServiceMutationDenied transport guard
+            Right True -> do
+              serviceDenied <- probeServiceMutationDenied transport guard
+              case serviceDenied of
+                Left reason -> pure (Left reason)
+                Right False -> pure (Right False)
+                Right True -> probeEndpointSliceDenied transport guard
 
 -- | Only the explicit verified-release path may call this. Bindings go first
 -- so no policy can remain unexpectedly active after release. Each deletion is
@@ -142,12 +148,15 @@ guardObjects guard =
       (namespacePolicy, namespaceBinding) = namespaceDeleteGuardObjects guard
       writerPairs = statefulWriterGuardObjects guard
       servicePairs = maybe [] (: []) (serviceMutationGuardObjects guard)
+      slicePairs = maybe [] (: []) (endpointSliceGuardObjects guard)
    in [podPolicy, pvcPolicy, pvPolicy, namespacePolicy]
       <> map fst writerPairs
       <> map fst servicePairs
+      <> map fst slicePairs
       <> [podBinding, pvcBinding, pvBinding, namespaceBinding]
       <> map snd writerPairs
       <> map snd servicePairs
+      <> map snd slicePairs
 
 objectAddress :: Value -> Either Text (Text, Text)
 objectAddress (Object root) = do
@@ -182,7 +191,7 @@ textField key root = case KM.lookup (Key.fromText key) root of
 
 kubectlMountGuardTransport :: KubernetesRuntimeConfig -> MountGuardTransport
 kubectlMountGuardTransport config = MountGuardTransport
-  readOne createOne deleteOne probe probeScale probeService
+  readOne createOne deleteOne probe probeScale probeService probeSlice
   where
     invoke arguments input = do
       guarded <- runtimeGuard config
@@ -300,6 +309,33 @@ kubectlMountGuardTransport config = MountGuardTransport
           "delete", "service", T.unpack (guardedServiceName service),
           "--dry-run=server"] ""
         pure (and <$> traverse serviceDenied [update, deletion])
+    probeSlice guard = case guardedService guard of
+      Nothing -> pure (Right True)
+      Just service -> do
+        let slice = object
+              [ "apiVersion" .= ("discovery.k8s.io/v1" :: Text)
+              , "kind" .= ("EndpointSlice" :: Text)
+              , "metadata" .= object
+                  [ "name" .= (T.take 40 (mountGuardName guard) <> "-endpoint-probe")
+                  , "labels" .= object
+                      [ "kubernetes.io/service-name" .= guardedServiceName service
+                      , "endpointslice.kubernetes.io/managed-by" .= ("nagare-fence-probe" :: Text)
+                      ]]
+              , "addressType" .= ("IPv4" :: Text)
+              , "ports" .= [object
+                  [ "port" .= (5432 :: Int)
+                  , "protocol" .= ("TCP" :: Text)]]
+              , "endpoints" .= [object
+                  ["addresses" .= (["10.9.8.7"] :: [Text])]]
+              ]
+        result <- invoke ["--namespace", T.unpack (guardedServiceNamespace service),
+          "create", "-f", "-", "--dry-run=server"]
+          (T.unpack (TE.decodeUtf8 (BL.toStrict (encode slice))))
+        pure $ case result of
+          Left reason -> Left reason
+          Right (ExitSuccess, _, _) -> Right False
+          Right (ExitFailure _, _, errors) ->
+            Right ("Nagare database endpoints are fenced" `T.isInfixOf` T.pack errors)
     serviceDenied result = case result of
       Left reason -> Left reason
       Right (ExitSuccess, _, _) -> Right False

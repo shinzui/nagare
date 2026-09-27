@@ -333,6 +333,7 @@ dataFenceTests = testGroup "data fence"
         guardDenied <- newIORef False
         writerDenied <- newIORef False
         serviceDenied <- newIORef False
+        endpointDenied <- newIORef False
         replicas <- newIORef (1 :: Int)
         drained <- newIORef False
         endpointsCleared <- newIORef False
@@ -374,6 +375,7 @@ dataFenceTests = testGroup "data fence"
               , probeForeignMountDenied = \_ -> Right <$> readIORef guardDenied
               , probeWriterScaleDenied = \_ -> Right <$> readIORef writerDenied
               , probeServiceMutationDenied = \_ -> Right <$> readIORef serviceDenied
+              , probeEndpointSliceDenied = \_ -> Right <$> readIORef endpointDenied
               }
             volumeTransport = VolumeTransport
               { readClaim = \_ _ -> pure (Right pvc)
@@ -437,7 +439,7 @@ dataFenceTests = testGroup "data fence"
         validateKubernetesExclusion native nativeRecord >>= right
         refused <- stopKubernetesWriters native nativeRecord
         refused @?= Left "Kubernetes mount admission guard is not enforcing"
-        readIORef objects >>= \installed -> Map.size installed @?= 12
+        readIORef objects >>= \installed -> Map.size installed @?= 14
         readIORef patches >>= (@?= 0)
         writeIORef guardDenied True
         scaleRefused <- stopKubernetesWriters native nativeRecord
@@ -448,6 +450,10 @@ dataFenceTests = testGroup "data fence"
         routeRefused @?= Left "Kubernetes mount admission guard is not enforcing"
         readIORef patches >>= (@?= 0)
         writeIORef serviceDenied True
+        endpointRefused <- stopKubernetesWriters native nativeRecord
+        endpointRefused @?= Left "Kubernetes mount admission guard is not enforcing"
+        readIORef patches >>= (@?= 0)
+        writeIORef endpointDenied True
         stopKubernetesWriters native nativeRecord >>= right
         readIORef patches >>= (@?= 1)
         observeKubernetesExcluded native nativeRecord >>= right >>= (@?= False)
@@ -823,6 +829,22 @@ dataFenceTests = testGroup "data fence"
         guardedExpression pvPolicy @?= Just (String "oldObject.metadata.name != 'pv-data'")
         guardedExpression namespacePolicy @?=
           Just (String "oldObject.metadata.name != 'restore-space'")
+        serviceGuard <- right (withGuardedService guard "restore-space" "database"
+          "99999999-8888-7777-6666-555555555555")
+        case (serviceMutationGuardObjects serviceGuard,
+            endpointSliceGuardObjects serviceGuard) of
+          (Just (servicePolicy, _), Just (slicePolicy, _)) -> do
+            assertBool "Service update/delete guard binds the exact name"
+              (maybe False (T.isInfixOf "oldObject.metadata.name != 'database'")
+                (case guardedExpression servicePolicy of
+                  Just (String value) -> Just value
+                  _ -> Nothing))
+            assertBool "empty EndpointSlices remain drainable"
+              (maybe False (T.isInfixOf "object.endpoints == null")
+                (case guardedExpression slicePolicy of
+                  Just (String value) -> Just value
+                  _ -> Nothing))
+          _ -> assertFailure "Service route guards were not rendered"
         case expression of
           Just (String value) -> do
             assertBool "PVC name is constrained" ("data-pvc" `T.isInfixOf` value)
@@ -874,6 +896,7 @@ dataFenceTests = testGroup "data fence"
               , probeForeignMountDenied = \_ -> Right <$> readIORef denied
               , probeWriterScaleDenied = \_ -> pure (Right True)
               , probeServiceMutationDenied = \_ -> pure (Right True)
+              , probeEndpointSliceDenied = \_ -> pure (Right True)
               }
         firstInstall <- installMountGuard transport guard
         case firstInstall of
@@ -952,6 +975,7 @@ dataFenceTests = testGroup "data fence"
               , probeForeignMountDenied = \_ -> pure (Right False)
               , probeWriterScaleDenied = \_ -> pure (Right True)
               , probeServiceMutationDenied = \_ -> pure (Right True)
+              , probeEndpointSliceDenied = \_ -> pure (Right True)
               }
         let firstKey = case reverse rendered of
               firstObject : _ -> address firstObject
@@ -1056,6 +1080,7 @@ dataFenceTests = testGroup "data fence"
                     [] -> ([], Right False)
               , probeWriterScaleDenied = \_ -> pure (Right True)
               , probeServiceMutationDenied = \_ -> pure (Right True)
+              , probeEndpointSliceDenied = \_ -> pure (Right True)
               }
             volumeTransport = VolumeTransport
               { readClaim = \_ _ -> pure (Right pvc)

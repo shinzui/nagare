@@ -26,6 +26,7 @@ module Nagare.Inventory.DataFence.MountGuard
   , namespaceDeleteGuardObjects
   , statefulWriterGuardObjects
   , serviceMutationGuardObjects
+  , endpointSliceGuardObjects
   ) where
 
 import Data.Aeson (Value, object, (.=))
@@ -236,7 +237,7 @@ mountGuardObjects guard = (policy, binding)
 -- still has to observe exact UIDs and the volume handle before every effect.
 pvcMutationGuardObjects :: MountGuard -> (Value, Value)
 pvcMutationGuardObjects guard = mutationGuardObjects guard "pvc"
-  ["UPDATE", "DELETE"] "persistentvolumeclaims" expression
+  ["UPDATE", "DELETE"] "" "persistentvolumeclaims" expression
   "Nagare live PVC identity is fenced"
   where
     expression = "oldObject.metadata.namespace != '"
@@ -245,14 +246,14 @@ pvcMutationGuardObjects guard = mutationGuardObjects guard "pvc"
 
 pvMutationGuardObjects :: MountGuard -> (Value, Value)
 pvMutationGuardObjects guard = mutationGuardObjects guard "pv"
-  ["UPDATE", "DELETE"] "persistentvolumes" expression
+  ["UPDATE", "DELETE"] "" "persistentvolumes" expression
   "Nagare live PV identity is fenced"
   where
     expression = "oldObject.metadata.name != '" <> nameText (guardVolume guard) <> "'"
 
 namespaceDeleteGuardObjects :: MountGuard -> (Value, Value)
 namespaceDeleteGuardObjects guard = mutationGuardObjects guard "namespace"
-  ["DELETE"] "namespaces" expression "Nagare live recovery namespace is fenced"
+  ["DELETE"] "" "namespaces" expression "Nagare live recovery namespace is fenced"
   where
     expression = "oldObject.metadata.name != '" <> nameText (guardNamespace guard) <> "'"
 
@@ -316,7 +317,7 @@ serviceMutationGuardObjects :: MountGuard -> Maybe (Value, Value)
 serviceMutationGuardObjects guard = fmap render (guardService guard)
   where
     render service = mutationGuardObjects guard "service"
-      ["UPDATE", "DELETE"] "services" expression
+      ["UPDATE", "DELETE"] "" "services" expression
       "Nagare database Service is fenced"
       where
         expression = "oldObject.metadata.namespace != '"
@@ -324,9 +325,26 @@ serviceMutationGuardObjects guard = fmap render (guardService guard)
           <> "' || oldObject.metadata.name != '"
           <> guardedServiceName service <> "'"
 
-mutationGuardObjects :: MountGuard -> Text -> [Text] -> Text -> Text -> Text
+-- | Allow the endpoint controller to drain existing slices, but refuse any
+-- new or updated nonempty slice associated with the fenced Service.
+endpointSliceGuardObjects :: MountGuard -> Maybe (Value, Value)
+endpointSliceGuardObjects guard = fmap render (guardService guard)
+  where
+    render service = mutationGuardObjects guard "endpoint-slice"
+      ["CREATE", "UPDATE"] "discovery.k8s.io" "endpointslices" expression
+      "Nagare database endpoints are fenced"
+      where
+        expression = "request.namespace != '" <> guardedServiceNamespace service
+          <> "' || !has(object.metadata.labels) || "
+          <> "!('kubernetes.io/service-name' in object.metadata.labels) || "
+          <> "object.metadata.labels['kubernetes.io/service-name'] != '"
+          <> guardedServiceName service
+          <> "' || !has(object.endpoints) || object.endpoints == null "
+          <> "|| size(object.endpoints) == 0"
+
+mutationGuardObjects :: MountGuard -> Text -> [Text] -> Text -> Text -> Text -> Text
   -> (Value, Value)
-mutationGuardObjects guard suffix operations resource expression message =
+mutationGuardObjects guard suffix operations group resource expression message =
   (policy, binding)
   where
     name = mountGuardName guard <> "-" <> suffix
@@ -347,7 +365,7 @@ mutationGuardObjects guard suffix operations resource expression message =
               , "namespaceSelector" .= object []
               , "objectSelector" .= object []
               , "resourceRules" .= [object
-                  [ "apiGroups" .= ([""] :: [Text])
+                  [ "apiGroups" .= [group]
                   , "apiVersions" .= (["v1"] :: [Text])
                   , "operations" .= operations
                   , "resources" .= [resource]
