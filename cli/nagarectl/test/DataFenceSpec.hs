@@ -18,6 +18,7 @@ import Nagare.Inventory.Adapter
   ( AdapterExecution (..), AdapterFence (..)
   , RecoveryDecision (..), mkAdapterRegistry, observationSet, withAdapterFence )
 import Nagare.Inventory.DataFence
+import Nagare.Inventory.DataFence.KubernetesExclusion
 import Nagare.Inventory.DataFence.MountGuard
 import Nagare.Inventory.DataFence.MountGuardRuntime
 import Nagare.Inventory.DataFence.KubernetesIntent
@@ -126,6 +127,159 @@ dataFenceTests = testGroup "data fence"
         case decodeKubernetesFenceIntent extraField of
           Left _ -> pure ()
           Right _ -> assertFailure "unknown native intent field was accepted"
+    , testCase "native Kubernetes exclusion guards before scaling and waits for drain" $ do
+        let pvcUid = "11111111-2222-3333-4444-555555555555"
+            pvUid = "66666666-7777-8888-9999-000000000000"
+            writerUid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+            cluster = mintResourceId fenceOwner
+              (known (mkLogicalKey "cluster")) (known (mkName "cluster"))
+            provider = object
+              [ "version" .= (1 :: Int)
+              , "provider" .= ("kubernetes" :: Text)
+              , "cluster" .= cluster
+              , "dependencyRoot" .= writer
+              , "volume" .= object
+                  [ "resource" .= target
+                  , "namespace" .= ("restore-space" :: Text)
+                  , "claim" .= ("data-pvc" :: Text)
+                  , "claimUid" .= (pvcUid :: Text)
+                  , "pv" .= ("pv-data" :: Text)
+                  , "pvUid" .= (pvUid :: Text)
+                  , "backing" .= object
+                      [ "kind" .= ("csi" :: Text)
+                      , "driver" .= ("example.csi" :: Text)
+                      , "handle" .= ("disk-123" :: Text)]]]
+            savedWriter = object
+              [ "kind" .= ("StatefulSet" :: Text)
+              , "namespace" .= ("restore-space" :: Text)
+              , "name" .= ("database" :: Text)
+              , "uid" .= (writerUid :: Text)
+              , "replicas" .= (1 :: Int)
+              , "controllerPrincipal" .=
+                  ("system:serviceaccount:kube-system:statefulset-controller" :: Text)
+              , "mountsTarget" .= True]
+            nativeRecord = request
+              { fencePhysical = Map.fromList
+                  [(target, known (mkPhysicalIdentity pvcUid))
+                  , (writer, known (mkPhysicalIdentity writerUid))]
+              , fenceSavedWriters = Map.singleton writer savedWriter
+              , fenceProviderIntent = Just provider
+              }
+            pvc = object
+              [ "metadata" .= object
+                  [ "namespace" .= ("restore-space" :: Text)
+                  , "name" .= ("data-pvc" :: Text)
+                  , "uid" .= (pvcUid :: Text)]
+              , "spec" .= object
+                  [ "volumeName" .= ("pv-data" :: Text)
+                  , "accessModes" .= (["ReadWriteOnce"] :: [Text])]
+              , "status" .= object ["phase" .= ("Bound" :: Text)]]
+            pv = object
+              [ "metadata" .= object
+                  [ "name" .= ("pv-data" :: Text)
+                  , "uid" .= (pvUid :: Text)]
+              , "spec" .= object
+                  [ "accessModes" .= (["ReadWriteOnce"] :: [Text])
+                  , "claimRef" .= object
+                      [ "namespace" .= ("restore-space" :: Text)
+                      , "name" .= ("data-pvc" :: Text)
+                      , "uid" .= (pvcUid :: Text)]
+                  , "csi" .= object
+                      [ "driver" .= ("example.csi" :: Text)
+                      , "volumeHandle" .= ("disk-123" :: Text)]]
+              , "status" .= object ["phase" .= ("Bound" :: Text)]]
+            pod = object
+              [ "metadata" .= object
+                  [ "namespace" .= ("restore-space" :: Text)
+                  , "name" .= ("database-0" :: Text)
+                  , "uid" .= ("ffffffff-0000-1111-2222-333333333333" :: Text)]
+              , "spec" .= object ["volumes" .= [object
+                  ["persistentVolumeClaim" .= object
+                    ["claimName" .= ("data-pvc" :: Text)]]]]]
+            nativeWriter = object ["spec" .= object ["template" .= object
+              ["spec" .= object ["volumes" .= [object
+                ["persistentVolumeClaim" .= object
+                  ["claimName" .= ("data-pvc" :: Text)]]]]]]]
+            member resource kind name value =
+              let bytes = BL.toStrict (encode value)
+               in (resource, (ManagedResource resource fenceOwner KubernetesExecutor
+                    (Kubernetes cluster (if kind == "statefulset" then "apps" else "")
+                      (known (mkName kind)) (Just (known (mkName "restore-space")))
+                      (known (mkName name))) []
+                    (NativeObject (contentDigest bytes)) Retain Stateless Public [] []
+                    (SourceLocation "fixture" kind), bytes))
+            acceptedNative = Map.fromList
+              [member target "persistentvolumeclaim" "data-pvc" (object [])
+              ,member writer "statefulset" "database" nativeWriter]
+            declarations = [Managed resource | (resource, _) <- Map.elems acceptedNative]
+            address (Object fields) = case
+              (KM.lookup "kind" fields, KM.lookup "metadata" fields) of
+              (Just (String kind), Just (Object metadata)) ->
+                (,) kind <$> case KM.lookup "name" metadata of
+                  Just (String name) -> Just name
+                  _ -> Nothing
+              _ -> Nothing
+            address _ = Nothing
+        objects <- newIORef (Map.empty :: Map.Map (Text, Text) Value)
+        guardDenied <- newIORef False
+        replicas <- newIORef (1 :: Int)
+        drained <- newIORef False
+        patches <- newIORef (0 :: Int)
+        let guardTransport = MountGuardTransport
+              { readGuardObject = \kind name ->
+                  Right . Map.lookup (kind, name) <$> readIORef objects
+              , createGuardObject = \value -> case address value of
+                  Nothing -> pure (Left "guard address missing")
+                  Just key -> modifyIORef' objects (Map.insert key value)
+                    >> pure (Right ())
+              , probeForeignMountDenied = \_ -> Right <$> readIORef guardDenied
+              }
+            volumeTransport = VolumeTransport
+              { readClaim = \_ _ -> pure (Right pvc)
+              , readVolume = \_ -> pure (Right pv)
+              , listNamespacePods = \_ -> do
+                  empty <- readIORef drained
+                  pure (Right (object ["items" .= if empty then [] else [pod]]))
+              , listVolumeAttachments = pure (Right
+                  (object ["items" .= ([] :: [Value])]))
+              }
+            writerTransport = StatefulWriterTransport
+              { readStatefulWriter = \_ _ -> do
+                  desired <- readIORef replicas
+                  ready <- readIORef drained
+                  let current = if desired == 0 && ready then 0 else 1 :: Int
+                  pure (Right (object
+                    [ "metadata" .= object
+                        [ "namespace" .= ("restore-space" :: Text)
+                        , "name" .= ("database" :: Text)
+                        , "uid" .= (writerUid :: Text)
+                        , "resourceVersion" .= ("7" :: Text)
+                        , "generation" .= (if desired == 0 then 2 else 1 :: Int)]
+                    , "spec" .= object ["replicas" .= desired]
+                    , "status" .= object
+                        [ "observedGeneration" .=
+                            (if desired == 0 && not ready then 1 else 2 :: Int)
+                        , "replicas" .= current
+                        , "readyReplicas" .= current]]))
+              , patchStatefulWriter = \_ _ _ -> do
+                  modifyIORef' patches (+ 1)
+                  writeIORef replicas 0
+                  pure (Right ())
+              }
+            native = mkKubernetesExclusion (binding ^. #identity) Map.empty
+              declarations acceptedNative guardTransport volumeTransport writerTransport
+        validateKubernetesExclusion native nativeRecord >>= right
+        refused <- stopKubernetesWriters native nativeRecord
+        refused @?= Left "Kubernetes mount admission guard is not enforcing"
+        readIORef patches >>= (@?= 0)
+        writeIORef guardDenied True
+        stopKubernetesWriters native nativeRecord >>= right
+        readIORef patches >>= (@?= 1)
+        observeKubernetesExcluded native nativeRecord >>= right >>= (@?= False)
+        writeIORef drained True
+        observeKubernetesExcluded native nativeRecord >>= right >>= (@?= True)
+        observeKubernetesPhysical native nativeRecord >>= right
+          >>= (@?= fencePhysical nativeRecord)
     , testCase "reservation survives a new process and blocks planning until verified release" $
       withSystemTempDirectory "nagare-data-fence" $ \root -> do
         store <- openFilesystemStore root >>= right
@@ -177,6 +331,46 @@ dataFenceTests = testGroup "data fence"
         headDataFence final @?= Nothing
         readIORef restored >>= (@?= 1)
         readIORef released >>= (@?= True)
+    , testCase "unfinished acquisition resumes after process loss and native drain" $
+      withSystemTempDirectory "nagare-acquiring-fence" $ \root -> do
+        store <- openFilesystemStore root >>= right
+        _ <- initializeStore store binding "operator-a" >>= right
+        stopped <- newIORef False
+        drained <- newIORef False
+        stopEffects <- newIORef (0 :: Int)
+        released <- newIORef False
+        restored <- newIORef (0 :: Int)
+        let original = fixtureControls released restored (pure (Right physical))
+            controls = original
+              { stopFenceWriters = \_ -> do
+                  alreadyStopped <- readIORef stopped
+                  if alreadyStopped then pure (Right ()) else do
+                    writeIORef stopped True
+                    modifyIORef' stopEffects (+ 1)
+                    pure (Left "stop acknowledgement lost")
+              , observeWritersExcluded = \_ -> Right <$> readIORef drained
+              }
+        firstAttempt <- withProcessLock store (\locked ->
+          acquireDataFence locked controls request) >>= right
+        case firstAttempt of
+          Left reason -> reason @?= "stop acknowledgement lost"
+          Right _ -> assertFailure "lost stop acknowledgement acquired fence"
+        active <- readHead store >>= right >>= maybe
+          (assertFailure "head missing" >> error "head") pure
+        fmap fencePhase (headDataFence active) @?= Just FenceAcquiring
+        reopened <- openFilesystemStore root >>= right
+        token <- withProcessLock reopened (\locked ->
+          resumeDataFence locked "restore-session") >>= right >>= right
+        pending <- withProcessLock reopened (\locked ->
+          resumeDataFenceAcquisition locked controls token) >>= right
+        pending @?= Left "data fence writer exclusion is not proved"
+        writeIORef drained True
+        _ <- withProcessLock reopened (\locked ->
+          resumeDataFenceAcquisition locked controls token) >>= right >>= right
+        readIORef stopEffects >>= (@?= 1)
+        final <- readHead reopened >>= right >>= maybe
+          (assertFailure "head missing" >> error "head") pure
+        fmap fencePhase (headDataFence final) @?= Just FenceExcluded
     , testCase "lost release acknowledgement is observed without replaying writer restoration" $ do
         store <- newMemoryStore
         _ <- initializeStore store binding "operator-a" >>= right
@@ -277,7 +471,7 @@ dataFenceTests = testGroup "data fence"
           Left _ -> pure ()
           Right _ -> assertFailure "changed target identity acquired fence"
         active <- readHead store >>= right >>= maybe (assertFailure "head missing" >> error "head") pure
-        fmap fencePhase (headDataFence active) @?= Just FenceUnresolved
+        fmap fencePhase (headDataFence active) @?= Just FenceAcquiring
     , testCase "reviewed transaction may own only its matching fence" $ do
         store <- newMemoryStore
         initial <- initializeStore store binding "operator-a" >>= right
@@ -721,6 +915,11 @@ dataFenceTests = testGroup "data fence"
           Left reason -> assertBool "direct PVC mount was not discovered"
             (resourceIdText mountId `T.isInfixOf` reason)
           Right _ -> assertFailure "direct mount Job lacks a stop control"
+        case discoverWriterCandidates statefulId cluster "data-pvc"
+          (declarations [stateful, directMount]) (registry [stateful]) of
+          Left reason -> assertBool "missing accepted native Job was not refused"
+            (resourceIdText mountId `T.isInfixOf` reason)
+          Right _ -> assertFailure "missing native evidence hid a PVC mount"
     , testCase "reviewed adapter effect runs only inside a verified fence" $ do
         store <- newMemoryStore
         steps <- newIORef ([] :: [Text])

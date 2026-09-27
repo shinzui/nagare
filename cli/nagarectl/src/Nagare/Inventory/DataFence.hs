@@ -9,6 +9,7 @@ module Nagare.Inventory.DataFence
   , dataFenceIntentDigest
   , acquireDataFence
   , resumeDataFence
+  , resumeDataFenceAcquisition
   , beginDataChange
   , verifyDataChange
   , markDataFenceUnresolved
@@ -83,18 +84,7 @@ acquireDataFence locked controls requested = do
               reserved <- writeHead locked headValue (Just record)
               case reserved of
                 Left reason -> pure (Left reason)
-                Right () -> do
-                  stopped <- stopFenceWriters controls record
-                  case stopped of
-                    Left reason -> unresolved locked record reason
-                    Right () -> do
-                      checked <- exclusionProof controls record
-                      case checked of
-                        Left reason -> unresolved locked record reason
-                        Right () -> do
-                          advanced <- transition locked (FenceToken (fenceSession record))
-                            [FenceAcquiring] FenceExcluded
-                          pure (FenceToken (fenceSession record) <$ advanced)
+                Right () -> advanceAcquisition locked controls record
 
 -- | A new process may reopen only the exact persisted session. The token
 -- grants access to state transitions, not authority to claim provider proof.
@@ -105,6 +95,41 @@ resumeDataFence locked session = do
     Right record | fenceSession record == session -> Right (FenceToken session)
     Right _ -> Left "data fence session differs from private history"
     Left reason -> Left reason
+
+-- | A stop request can return before a controller and its Pods finish
+-- draining, or lose its acknowledgement. The durable acquiring phase keeps
+-- admission closed while a fresh process validates and reobserves the same
+-- reviewed controls. Only native exclusion proof advances to FenceExcluded.
+resumeDataFenceAcquisition :: LockedStore s -> DataFenceControls
+  -> FenceToken -> IO (Either Text ())
+resumeDataFenceAcquisition locked controls token = do
+  current <- matchingFence locked token
+  case current of
+    Left reason -> pure (Left reason)
+    Right record | fencePhase record /= FenceAcquiring ->
+      pure (Left "data fence is not acquiring")
+    Right record -> do
+      validated <- validateFenceInputs controls record
+      case validated of
+        Left reason -> pure (Left reason)
+        Right () -> do
+          advanced <- advanceAcquisition locked controls record
+          pure (() <$ advanced)
+
+advanceAcquisition :: LockedStore s -> DataFenceControls
+  -> DataFenceRecord -> IO (Either Text FenceToken)
+advanceAcquisition locked controls record = do
+  stopped <- stopFenceWriters controls record
+  case stopped of
+    Left reason -> pure (Left reason)
+    Right () -> do
+      checked <- exclusionProof controls record
+      case checked of
+        Left reason -> pure (Left reason)
+        Right () -> do
+          advanced <- transition locked (FenceToken (fenceSession record))
+            [FenceAcquiring] FenceExcluded
+          pure (FenceToken (fenceSession record) <$ advanced)
 
 beginDataChange :: LockedStore s -> DataFenceControls -> FenceToken -> IO (Either Text ())
 beginDataChange locked controls token = do

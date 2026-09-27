@@ -62,6 +62,13 @@ discoverWriterCandidates target cluster claim declarations native = do
     (Left "accepted writer inventory has duplicate resource identities")
   unless (Map.member target byId)
     (Left "fenced writer target is absent from accepted declarations")
+  let missingNative = [declarationId declaration
+        | declaration@(Managed member) <- declarations
+        , inCluster cluster (address member)
+        , Map.notMember (declarationId declaration) native]
+  unless (null missingNative)
+    (Left ("accepted Kubernetes writer inventory lacks native evidence: "
+      <> T.intercalate "," (map resourceIdText missingNative)))
   let affected = dependentClosure target declarations
       relevant =
         [(resource, member, bytes)

@@ -11,6 +11,7 @@ module Nagare.Inventory.DataFence.StatefulWriter
   , StatefulWriterTransport (..)
   , kubectlStatefulWriterTransport
   , stopStatefulWriter
+  , observeStatefulWriterIdentity
   , observeStatefulWriterStopped
   , restoreStatefulWriter
   , observeStatefulWriterRelease
@@ -71,6 +72,12 @@ stopStatefulWriter transport pin = do
           pure (Left "StatefulSet replicas changed since the reviewed writer intent")
       | otherwise -> patchStatefulWriter transport (writerNamespace pin)
           (writerName pin) (replicaPatch pin writer 0)
+
+observeStatefulWriterIdentity :: StatefulWriterTransport -> StatefulWriterPin
+  -> IO (Either Text ())
+observeStatefulWriterIdentity transport pin = do
+  current <- readStatefulWriter transport (writerNamespace pin) (writerName pin)
+  pure (() <$ (current >>= observedWriter pin))
 
 observeStatefulWriterStopped :: StatefulWriterTransport -> StatefulWriterPin
   -> IO (Either Text Bool)
