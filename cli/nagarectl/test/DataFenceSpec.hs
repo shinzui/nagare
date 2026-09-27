@@ -184,12 +184,70 @@ dataFenceTests = testGroup "data fence"
               (maybe False (\saved -> fenceSession saved == fenceSession record
                   && fencePhase saved == FenceAcquiring)
                 (headDataFence active))
+            let scheduleUid = maybe
+                  (error "native fixture schedule UID is missing")
+                  physicalIdentityText (Map.lookup schedule (fencePhysical record))
+                activeJob = object
+                  [ "apiVersion" .= ("batch/v1" :: Text)
+                  , "kind" .= ("Job" :: Text)
+                  , "metadata" .= object
+                      [ "name" .= ("ep160-active-backup" :: Text)
+                      , "namespace" .= namespace
+                      , "ownerReferences" .= [object
+                          [ "apiVersion" .= ("batch/v1" :: Text)
+                          , "kind" .= ("CronJob" :: Text)
+                          , "name" .= ("nagare-dbbackup-database" :: Text)
+                          , "uid" .= scheduleUid
+                          , "controller" .= True]]]
+                  , "spec" .= object ["template" .= object
+                      [ "spec" .= object
+                          [ "restartPolicy" .= ("Never" :: Text)
+                          , "containers" .= [object
+                              [ "name" .= ("backup" :: Text)
+                              , "image" .= ("busybox:1.36" :: Text)
+                              , "command" .= (["sh", "-c",
+                                  "touch /mount/active-backup-marker && sleep 3600"] :: [Text])
+                              , "volumeMounts" .= [object
+                                  [ "name" .= ("data" :: Text)
+                                  , "mountPath" .= ("/mount" :: Text)]]]]
+                          , "volumes" .= [object
+                              [ "name" .= ("data" :: Text)
+                              , "persistentVolumeClaim" .= object
+                                  ["claimName" .= ("data-pvc" :: Text)]]]]]]]
+                waitActiveJob 0 = assertFailure "fixture backup Job never became active"
+                waitActiveJob attempts = do
+                  observed <- getJson "job" "ep160-active-backup"
+                  let activeCount = case observed of
+                        Object fields -> case KM.lookup "status" fields of
+                          Just (Object status) -> KM.lookup "active" status
+                          _ -> Nothing
+                        _ -> Nothing
+                  if activeCount == Just (toJSON (1 :: Int)) then pure () else do
+                    threadDelay 500000
+                    waitActiveJob (attempts - 1)
+            runKube ["create", "-f", "-"] (BL8.unpack (encode activeJob))
+            waitActiveJob (30 :: Int)
+            runKube ["-n", namespaceName, "wait", "pod", "-l",
+              "batch.kubernetes.io/job-name=ep160-active-backup",
+              "--for=condition=Ready", "--timeout=60s"] ""
+            runKube ["-n", namespaceName, "exec", "job/ep160-active-backup",
+              "--", "test", "-f", "/mount/active-backup-marker"] ""
             reopened <- openFilesystemStore rootPath >>= right
             token <- withProcessLock reopened (\locked ->
               resumeDataFence locked (fenceSession record)) >>= right >>= right
             let freshProvider = kubectlKubernetesExclusion config Map.empty
                   declarations acceptedNative
                 freshControls = kubernetesDataFenceControls freshProvider verify
+                proveActiveJob 0 = assertFailure
+                  "running backup Job did not hold the fence acquiring"
+                proveActiveJob attempts = do
+                  waiting <- withProcessLock reopened (\locked ->
+                    resumeDataFenceAcquisition locked freshControls token) >>= right
+                  case waiting of
+                    Left "managed database clients have not drained" -> pure ()
+                    Left _ -> threadDelay 1000000 >> proveActiveJob (attempts - 1)
+                    Right () -> assertFailure
+                      "native fence acquired while an owned backup Job was active"
                 pollAcquired 0 = assertFailure "persisted native fence never acquired exclusion"
                 pollAcquired attempts = do
                   current <- readHead reopened >>= right >>= maybe
@@ -202,6 +260,13 @@ dataFenceTests = testGroup "data fence"
                       threadDelay 1000000
                       pollAcquired (attempts - 1)
                     _ -> assertFailure "native fence left its acquisition phase"
+            proveActiveJob (4 :: Int)
+            whileRunning <- readHead reopened >>= right >>= maybe
+              (assertFailure "native fence disappeared with an active Job"
+                >> error "missing head") pure
+            fmap fencePhase (headDataFence whileRunning) @?= Just FenceAcquiring
+            runKube ["-n", namespaceName, "delete", "job", "ep160-active-backup",
+              "--cascade=foreground", "--wait=true"] ""
             pollAcquired (120 :: Int)
             observeFencePhysical freshControls record >>= right
               >>= (@?= fencePhysical record)

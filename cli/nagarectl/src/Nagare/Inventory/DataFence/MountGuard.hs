@@ -264,8 +264,10 @@ guardVolumeIdentity :: MountGuard -> Text
 guardVolumeIdentity = guardVolumeUid
 
 -- | The policy covers Pod CREATE and UPDATE, while the binding enforces Deny.
--- A controller exception requires both the API-authenticated controller user
--- and the exact owning workload UID. An owner reference alone is spoofable.
+-- An already-mounted Pod may retain its spec during an UPDATE so Kubernetes
+-- can remove finalizers and drain it. A controller exception requires both
+-- the API-authenticated controller user and the exact owning workload UID.
+-- An owner reference alone is spoofable.
 mountGuardObjects :: MountGuard -> (Value, Value)
 mountGuardObjects guard = (policy, binding)
   where
@@ -314,6 +316,8 @@ mountGuardObjects guard = (policy, binding)
         <> "' || !has(object.spec.volumes) || object.spec.volumes.all(v, "
         <> "!has(v.persistentVolumeClaim) || v.persistentVolumeClaim.claimName != '"
         <> nameText (guardClaim guard) <> "')"
+        <> " || (request.operation == 'UPDATE' && oldObject != null && "
+        <> "object.spec == oldObject.spec)"
         <> foldMap permitExpression (guardPermits guard)
     permitExpression permit =
       " || (request.userInfo.username == '" <> permitControllerPrincipal permit
