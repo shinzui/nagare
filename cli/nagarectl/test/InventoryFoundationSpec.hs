@@ -9,7 +9,7 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Nagare.Dsl.Prelude hiding ((.=))
-import Nagare.Inventory.Bootstrap (bootstrapCandidateScopeVectorDigest, bootstrapMarkerValue, bootstrapScopeVectorDigest, compileBootstrapStamp, verifyBootstrapStampPayload)
+import Nagare.Inventory.Bootstrap (bootstrapCandidateScopeVectorDigest, bootstrapMarkerValue, bootstrapPreservedScopeVectorDigest, bootstrapScopeVectorDigest, compileBootstrapStamp, verifyBootstrapStampPayload)
 import Nagare.Inventory.Adapter (Adapter (..), AdapterExecution (AdapterEffectCompleted), OperationAction (CreateResource), PlannedOperation (..), PreparedNative (..), RecoveryDecision (RecoveryProvedComplete))
 import Nagare.Inventory.Adapters.Foundation (FoundationAdapterOps (..), FoundationNativePlan (..), FoundationObservation (..), FoundationTarget (..), foundationTargetDigest, mkFoundationAdapter)
 import Nagare.Inventory.Adapters.FoundationRuntime (GcloudRunner (..), mkFoundationRuntimeOps)
@@ -283,6 +283,7 @@ inventoryFoundationTests = testGroup "cluster foundation inventory"
             [(fixtureOwner, (ok (mkScopeGeneration 1), baseScope)),
              (scopeId stampScope, (ok (mkScopeGeneration 1), stampScope))]) Map.empty)
           rerun = ok (composeInventory accepted (ReplaceScope baseScope :| []))
+      bootstrapPreservedScopeVectorDigest accepted rerun @?= Right vectorDigest
       (nextStamp, _) <- expectRight (compileBootstrapStamp fixtureCluster marker rerun)
       _ <- expectRight (composeInventory accepted (candidateChanges rerun <> (ReplaceScope nextStamp :| [])))
       pure ()

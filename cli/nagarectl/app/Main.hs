@@ -251,7 +251,7 @@ import Nagare.Inventory.Adapters.Foundation (FoundationAdapterOps (..), Foundati
 import Nagare.Inventory.Adapters.FoundationRuntime (mkFoundationRuntimeOps, realGcloudRunner)
 import Nagare.Inventory.Artifact qualified as InventoryArtifact
 import Nagare.Inventory.Artifact (ArtifactDeclarationBundle (..), ArtifactExecutionSpec (..), ArtifactKind (..), ArtifactResourceSpec (..))
-import Nagare.Inventory.Bootstrap (BootstrapInput (..), bootstrapCandidateScopeVectorDigest, bootstrapMarkerValue, bootstrapScopeVectorDigest, compileBootstrapStamp, compileBootstrapWithAuthAndScopes, composePlatformChanges, verifyBootstrapStampPayload)
+import Nagare.Inventory.Bootstrap (BootstrapInput (..), bootstrapMarkerValue, bootstrapPreservedScopeVectorDigest, bootstrapScopeVectorDigest, compileBootstrapStamp, compileBootstrapWithAuthAndScopes, composePlatformChanges, verifyBootstrapStampPayload)
 import Nagare.Inventory.Cloud qualified as InventoryCloud
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), compileContributedNamespaces)
 import Nagare.Inventory.BackendMap (compileContributedBackendMaps, compileContributedShomeiSettings)
@@ -5703,16 +5703,31 @@ buildPlatformCandidate active paths workspace snapshot = do
     (traverse orderClusterChange (ResourceInventory.candidateChanges base <> extra))
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory unstampedSnapshot linkedChanges)
-  vectorDigest <- either dieT pure (bootstrapCandidateScopeVectorDigest candidate)
+  vectorDigest <- either dieT pure (bootstrapPreservedScopeVectorDigest snapshot candidate)
   installedAt <- acceptedBootstrapInstalledAt active snapshot cluster
     (manifest ^. #payloadId) vectorDigest (identityFromPayload manifest) candidate
   (stampScope, stampNative) <- either (dieT . T.pack . show) pure
     (compileBootstrapStamp cluster (bootstrapMarkerValue (manifest ^. #payloadId) vectorDigest (identityFromPayload manifest) installedAt) candidate)
+  let differsFromAccepted = \case
+        ResourceInventory.ReplaceScope scope -> case Map.lookup
+          (ResourceInventory.scopeId scope) (ResourceInventory.snapshotScopes snapshot) of
+          Just (_, prior) -> ResourceWire.encodeCanonicalScope prior
+            /= ResourceWire.encodeCanonicalScope scope
+          Nothing -> True
+        _ -> True
+      changedScopes = filter differsFromAccepted
+        (NE.toList (ResourceInventory.candidateChanges candidate))
   stamped <- either (dieT . T.pack . show) pure
-    (composePlatformChanges snapshot (ResourceInventory.candidateChanges candidate
-      <> (ResourceInventory.ReplaceScope stampScope NE.:| [])))
+    (composePlatformChanges snapshot
+      (NE.fromList (changedScopes <> [ResourceInventory.ReplaceScope stampScope])))
   let linkedNative = Map.map (\(resource, bytes) -> (orderCluster resource, bytes)) native
-      completeNative = Map.union linkedNative stampNative
+      composedMembers = Map.fromList
+        [(resource ^. #identity, resource)
+        | ResourceInventory.Managed resource <- ResourceInventory.inventoryDeclarations
+            (ResourceInventory.candidateInventory stamped)]
+      completeNative = Map.mapWithKey (\resourceId (resource, bytes) ->
+        (Map.findWithDefault resource resourceId composedMembers, bytes))
+        (Map.union linkedNative stampNative)
   unless (Map.size completeNative == Map.size native + Map.size stampNative)
     (dieT "bootstrap completion marker shares a native identity")
   pure (stamped, completeNative)

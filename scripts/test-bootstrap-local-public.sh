@@ -3,9 +3,22 @@
 set -euo pipefail
 
 nagarectl_bin="${1:?pass the built nagarectl executable path}"
+interrupt_mode="${2:-cluster}"
+case "$interrupt_mode" in cluster|unresolved|marker|native-marker) ;; *) printf 'expected cluster, unresolved, marker, or native-marker interruption\n' >&2; exit 2 ;; esac
+real_k3d="$(command -v k3d)"
+real_kubectl="$(command -v kubectl)"
 real_helm="$(command -v helm)"
 fixture_root="$(mktemp -d "${TMPDIR:-/tmp}/nagare-bootstrap-local.XXXXXX")"
-trap 'rm -rf "$fixture_root"' EXIT
+native_cluster_created=0
+controller_archive_created=0
+cleanup_fixture() {
+  if [ "$native_cluster_created" = 1 ]; then
+    "$real_k3d" cluster delete nagare-bootstrap-marker-smoke >/dev/null
+  fi
+  if [ "$controller_archive_created" = 1 ]; then rm -f "$controller_archive"; fi
+  rm -rf "$fixture_root"
+}
+trap cleanup_fixture EXIT
 export XDG_CONFIG_HOME="$fixture_root/config"
 export XDG_STATE_HOME="$fixture_root/state"
 export NAGARE_PLATFORM_ROOT="$(pwd)"
@@ -16,7 +29,20 @@ if test -L "$controller_archive"; then
 fi
 if test ! -e "$controller_archive"; then
   printf 'fixture controller image archive\n' > "$controller_archive"
-  trap 'rm -f "$controller_archive"; rm -rf "$fixture_root"' EXIT
+  controller_archive_created=1
+fi
+if [ "$interrupt_mode" = native-marker ]; then
+  if "$real_k3d" cluster list -o json | jq -e '.[] | select(.name == "nagare-bootstrap-marker-smoke")' >/dev/null; then
+    printf 'native marker smoke cluster already exists\n' >&2
+    exit 1
+  fi
+  native_cluster_created=1
+  "$real_k3d" cluster create nagare-bootstrap-marker-smoke \
+    --image rancher/k3s:v1.34.6-k3s1 --kubeconfig-update-default=false \
+    --kubeconfig-switch-context=false --timeout 120s >/dev/null
+  export NAGARE_TEST_NATIVE_MARKER=1
+  export NAGARE_TEST_REAL_K3D="$real_k3d"
+  export NAGARE_TEST_REAL_KUBECTL="$real_kubectl"
 fi
 export PATH="$fixture_root/bin:$PATH"
 export NAGARE_REAL_HELM="$real_helm"
@@ -82,6 +108,10 @@ PY
     test -s "$XDG_STATE_HOME/cluster-digest"
     touch "$XDG_STATE_HOME/cluster-created" ;;
   "kubeconfig get nagare-local")
+    if [ "${NAGARE_TEST_NATIVE_MARKER:-}" = 1 ]; then
+      "$NAGARE_TEST_REAL_K3D" kubeconfig get nagare-bootstrap-marker-smoke
+      exit
+    fi
     cat <<'YAML'
 apiVersion: v1
 kind: Config
@@ -235,6 +265,10 @@ test ! -e "$destination"
 }
 test -s "$destination"
 test "$(KUBECONFIG="$destination" kubectl config current-context)" = localfresh
+if [ "$interrupt_mode" = native-marker ]; then
+  KUBECONFIG="$destination" "$real_kubectl" --context localfresh \
+    create namespace nagare-system >/dev/null
+fi
 if grep -Fq 'a2V5' "$fixture_root/kubeconfig-review/review.json"; then
   printf 'public local kubeconfig review exposed credential bytes\n' >&2
   exit 1
@@ -242,34 +276,52 @@ fi
 printf 'public local bootstrap installed its reviewed context kubeconfig\n'
 export NAGARE_TEST_KUBECONFIG_DESTINATION="$destination"
 
-cat > "$fixture_root/bin/kubectl" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-test "${KUBECONFIG:-}" = "$NAGARE_TEST_KUBECONFIG_DESTINATION"
-printf '%s\n' "$*" >> "$XDG_STATE_HOME/kubectl.log"
-case "$*" in
-  "--context localfresh version -o json")
-    printf '{"serverVersion":{"gitVersion":"v1.34.6+k3s1"}}\n' ;;
-  "--context localfresh --request-timeout=10s get "*) ;;
-  *) printf 'unexpected kubectl command: %s\n' "$*" >&2; exit 43 ;;
-esac
-EOF
+cp "$NAGARE_PLATFORM_ROOT/scripts/test-bootstrap-kubectl-fixture.py" "$fixture_root/bin/kubectl"
 cat > "$fixture_root/bin/helm" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+printf '%s\n' "$*" >> "$XDG_STATE_HOME/helm.log"
 case "$*" in
-  "status "*" -o json") printf 'Error: release: not found\n' >&2; exit 1 ;;
+  "status "*" -o json")
+    release="$2"
+    namespace=""
+    while [ "$#" -gt 0 ]; do
+      if [ "$1" = --namespace ]; then namespace="$2"; break; fi
+      shift
+    done
+    receipt="$XDG_STATE_HOME/helm-${namespace}-${release}.txt"
+    if [ -f "$receipt" ]; then
+      jq -n --arg description "$(cat "$receipt")" \
+        '{version:1,info:{status:"deployed",description:$description}}'
+    else printf 'Error: release: not found\n' >&2; exit 1; fi ;;
+  "upgrade --install "*)
+    release="$3"
+    namespace=""
+    description=""
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --namespace) namespace="$2"; shift ;;
+        --description) description="$2"; shift ;;
+      esac
+      shift
+    done
+    test -n "$namespace" && test -n "$description"
+    printf '%s\n' "$description" > "$XDG_STATE_HOME/helm-${namespace}-${release}.txt" ;;
   *) exec "$NAGARE_REAL_HELM" "$@" ;;
 esac
 EOF
 cat > "$fixture_root/bin/skopeo" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+printf '%s\n' "$*" >> "$XDG_STATE_HOME/skopeo.log"
 case "$*" in
   *" inspect --format {{.Digest}} docker-archive:"*)
     printf 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' ;;
-  "inspect --tls-verify=false --format {{.Digest}} docker://"*)
-    printf 'manifest unknown\n' >&2; exit 1 ;;
+  *"inspect --tls-verify=false --format {{.Digest}} docker://"*)
+    if [ -f "$XDG_STATE_HOME/oci-published" ]; then
+      printf 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n'
+    else printf 'manifest unknown\n' >&2; exit 1; fi ;;
+  *" copy --preserve-digests "*) touch "$XDG_STATE_HOME/oci-published" ;;
   *) printf 'unexpected skopeo command: %s\n' "$*" >&2; exit 43 ;;
 esac
 EOF
@@ -334,3 +386,106 @@ assert len(marker_members) == 1, marker_members
 assert edge in marker_members[0]["dependencies"]
 PY
 printf 'public local bootstrap planned 209 cluster operations after its kubeconfig\n'
+
+sed 's/NAGARE_PLATFORM_VERSION=0.4.0/NAGARE_PLATFORM_VERSION=0.4.1/' \
+  "$fixture_root/localfresh.env.saved" > "$XDG_CONFIG_HOME/nagare/contexts/localfresh.env"
+if "$nagarectl_bin" --context localfresh platform bootstrap apply "$fixture_root/cluster-review" --yes \
+  > "$fixture_root/changed-cluster-pin-out" 2>&1; then
+  printf 'changed platform pin unexpectedly applied the cluster review\n' >&2
+  exit 1
+fi
+test ! -e "$XDG_STATE_HOME/kubectl-writes"
+cp "$fixture_root/localfresh.env.saved" "$XDG_CONFIG_HOME/nagare/contexts/localfresh.env"
+printf 'changed cluster payload pin refused before Kubernetes mutation\n'
+if [ "$interrupt_mode" = cluster ] || [ "$interrupt_mode" = unresolved ]; then
+  touch "$XDG_STATE_HOME/fail-cluster-ack"
+else
+  touch "$XDG_STATE_HOME/fail-marker-before"
+fi
+if "$nagarectl_bin" --context localfresh platform bootstrap apply "$fixture_root/cluster-review" --yes \
+  > "$fixture_root/cluster-apply-out" 2>&1; then
+  printf 'cluster apply unexpectedly acknowledged the simulated interruption\n' >&2
+  exit 1
+fi
+if [ "$interrupt_mode" = cluster ] || [ "$interrupt_mode" = unresolved ]; then
+  test -e "$XDG_STATE_HOME/failed-cluster-ack"
+else
+  test -e "$XDG_STATE_HOME/failed-marker-before"
+  test ! -e "$XDG_STATE_HOME/kubectl-objects/configmap__nagare-system__nagare-platform-version.json"
+fi
+transaction="$(python3 - "$XDG_STATE_HOME/nagare/localfresh/inventory/head.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    head = json.load(source)
+assert head["activeTransaction"] is not None, head
+print(head["activeTransaction"])
+PY
+)"
+if [ "$interrupt_mode" = unresolved ]; then
+  touch "$XDG_STATE_HOME/unresolved-get"
+  if "$nagarectl_bin" --context localfresh inventory resume "$transaction" --yes \
+    > "$fixture_root/unresolved-resume-out" 2>&1; then
+    printf 'unresolved Kubernetes write unexpectedly resumed\n' >&2
+    exit 1
+  fi
+  test ! -e "$XDG_STATE_HOME/kubectl-objects/configmap__nagare-system__nagare-platform-version.json"
+  test "$(wc -l < "$XDG_STATE_HOME/kubectl-writes")" -eq 1
+  rm -f "$XDG_STATE_HOME/unresolved-get"
+  printf 'unresolved cluster result refused without another write\n'
+fi
+if ! "$nagarectl_bin" --context localfresh inventory resume "$transaction" --yes \
+  > "$fixture_root/cluster-resume-out" 2>&1; then
+  cat "$fixture_root/cluster-apply-out" >&2
+  cat "$fixture_root/cluster-resume-out" >&2
+  exit 1
+fi
+test -s "$XDG_STATE_HOME/kubectl-objects/configmap__nagare-system__nagare-platform-version.json"
+test "$(grep -Fc 'configmap/nagare-platform-version' "$XDG_STATE_HOME/kubectl-writes")" -eq 1
+if [ "$interrupt_mode" = native-marker ]; then
+  KUBECONFIG="$destination" "$real_kubectl" --context localfresh -n nagare-system \
+    get configmap nagare-platform-version -o json | jq -e \
+      '.data.payloadId == "source-development" and .data.version == "0.4.0"' >/dev/null
+  printf 'disposable native k3d API stores the reviewed final marker\n'
+fi
+python3 - "$XDG_STATE_HOME/nagare/localfresh/inventory/head.json" \
+  "$XDG_STATE_HOME/kubectl-objects/configmap__nagare-system__nagare-platform-version.json" <<'PY'
+import hashlib
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    head = json.load(source)
+assert head["activeTransaction"] is None, head
+assert head["accepted"] == head["converged"], head
+with open(sys.argv[2], encoding="utf-8") as source:
+    marker = json.load(source)
+data = marker["data"]
+assert data["payloadId"] == "source-development", data
+assert data["version"] == "0.4.0", data
+assert data["installedAt"], data
+vector = [{"scope": entry["scope"], "generation": entry["revision"]["generation"],
+           "digest": entry["revision"]["digest"]} for entry in head["accepted"]
+          if entry["scope"]["kind"] == "Platform"
+          and entry["scope"]["name"] != "bootstrap-stamp"]
+vector.sort(key=lambda entry: (entry["scope"]["kind"], entry["scope"]["name"]))
+digest = hashlib.sha256(json.dumps(vector, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+assert data["scopeVectorDigest"] == digest, data
+PY
+printf 'public local bootstrap resumed %s interruption and converged the marker\n' "$interrupt_mode"
+
+"$nagarectl_bin" --context localfresh platform bootstrap plan --out "$fixture_root/unchanged-review" \
+  > "$fixture_root/unchanged-plan-out" 2>&1 || {
+  cat "$fixture_root/unchanged-plan-out" >&2
+  exit 1
+}
+python3 - "$fixture_root/unchanged-review/review.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    review = json.load(source)
+actions = {item["operation"]["action"]["tag"] for item in review["operations"]}
+assert actions == {"VerifyResource"}, actions
+assert any("platform:bootstrap-stamp/bootstrap/version" in item["operation"]["resources"]
+           for item in review["operations"])
+PY
+printf 'unchanged bootstrap planned no provider updates\n'

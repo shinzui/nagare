@@ -732,7 +732,8 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
       , operation <- bundle ^. #operations]
     -- Converged scope revisions retain proof of unchanged forward-only
     -- operations. Kubernetes TTL can remove migration Jobs, while host
-    -- activation retains its committed closure receipt in the journal.
+    -- activation and artifact publication retain their verified receipts in
+    -- the journal. A missing artifact still gets a focused create operation.
     provenOperations =
       Map.fromList
         [ (operation ^. #identity, operation)
@@ -740,11 +741,18 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
         , Map.lookup scope (historyConverged history) == Just revision
         , bundle <- scopeBundles declaration
         , operation <- bundle ^. #operations
-        , operation ^. #operationKind `elem` [SchemaMigration, PreDeployHook, ActivateHost]
+        , forwardOnly operation
         ]
     operationIsProven operation =
-      operation ^. #operationKind `elem` [SchemaMigration, PreDeployHook, ActivateHost]
+      forwardOnly operation
         && Map.lookup (operation ^. #identity) provenOperations == Just operation
+    forwardOnly operation = operation ^. #operationKind `elem`
+      [SchemaMigration, PreDeployHook, ActivateHost]
+      || (operation ^. #operationKind == PublishRelease
+          && all isArtifact (NE.toList (operation ^. #affects)))
+    isArtifact resourceId = case Map.lookup resourceId oldDeclarations of
+      Just (Managed resource) -> resource ^. #executor == ArtifactExecutor
+      _ -> False
     provenMigrationJobs =
       Set.fromList
         [ resource

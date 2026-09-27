@@ -10,6 +10,7 @@ module Nagare.Inventory.Bootstrap
   , compileBootstrapWithAuthAndScopes
   , compileBootstrapStamp
   , bootstrapCandidateScopeVectorDigest
+  , bootstrapPreservedScopeVectorDigest
   , bootstrapScopeVectorDigest
   , bootstrapMarkerValue
   , verifyBootstrapStampPayload
@@ -141,6 +142,24 @@ bootstrapCandidateScopeVectorDigest candidate = do
       generation <- maybe (Left "bootstrap candidate scope has no generation") Right
         (Map.lookup owner generations)
       pure (ScopeRevision generation (contentDigest (encodeCanonicalScope declaration)))
+
+-- A bootstrap rebuild selects every cluster scope for validation, including
+-- scopes whose canonical declaration is already accepted. Their generation
+-- stays fixed when the final candidate omits those identical replacements.
+bootstrapPreservedScopeVectorDigest
+  :: ScopeSnapshot -> CompositionCandidate -> Either Text ContentDigest
+bootstrapPreservedScopeVectorDigest snapshot candidate = do
+  let scopes = inventoryScopes (candidateInventory candidate)
+      desiredGeneration owner declaration =
+        case Map.lookup owner (snapshotScopes snapshot) of
+          Just (generation, accepted)
+            | encodeCanonicalScope declaration == encodeCanonicalScope accepted -> Right generation
+          _ -> maybe (Left "bootstrap candidate scope has no generation") Right
+            (Map.lookup owner (candidateGenerations candidate))
+  revisions <- Map.traverseWithKey (\owner declaration -> do
+    generation <- desiredGeneration owner declaration
+    pure (ScopeRevision generation (contentDigest (encodeCanonicalScope declaration)))) scopes
+  pure (bootstrapScopeVectorDigest revisions)
 
 -- | The reviewed marker records the immutable payload and accepted scope
 -- vector. The general platform marker predates these fields and stays readable.
