@@ -1,14 +1,18 @@
 module DataFenceSpec (dataFenceTests) where
 
-import Data.Aeson (eitherDecode, encode, object)
+import Data.Aeson (Value (..), eitherDecode, encode, object, toJSON)
+import Data.Aeson.KeyMap qualified as KM
+import Data.Foldable (toList)
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
+import Data.Text qualified as T
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter (mkAdapterRegistry, observationSet)
 import Nagare.Inventory.DataFence
+import Nagare.Inventory.DataFence.MountGuard
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute (AdmissionError (..), TransactionResult (..), admit, execute, resumeTransaction)
 import Nagare.Inventory.Plan
@@ -252,6 +256,68 @@ dataFenceTests = testGroup "data fence"
         headSequence fenced @?= 1
         assertBool "transaction remains active" (isJust (headActiveTransaction fenced))
         assertBool "fence remains active" (isJust (headDataFence fenced))
+    , testCase "mount guard binds an exact PVC and authenticated restore Job" $ do
+        let pvcUid = "11111111-2222-3333-4444-555555555555"
+            pvUid = "66666666-7777-8888-9999-000000000000"
+            jobUid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+            statefulUid = "ffffffff-0000-1111-2222-333333333333"
+        permit <- right (mkPodOwnerPermit "Job" "restore-job" jobUid
+          "system:serviceaccount:kube-system:job-controller")
+        writerPermit <- right (mkPodOwnerPermit "StatefulSet" "database" statefulUid
+          "system:serviceaccount:kube-system:statefulset-controller")
+        guard <- right (mkMountGuard "restore-session" "restore-space" "data-pvc"
+          pvcUid "pv-data" pvUid [permit, writerPermit])
+        let (policy, bindingValue) = mountGuardObjects guard
+            (pvcPolicy, pvcBinding) = pvcMutationGuardObjects guard
+            (pvPolicy, _) = pvMutationGuardObjects guard
+            (namespacePolicy, _) = namespaceDeleteGuardObjects guard
+            field key (Object value) = KM.lookup key value
+            field _ _ = Nothing
+            policySpec = field "spec" policy
+            bindingSpec = field "spec" bindingValue
+            validations = policySpec >>= field "validations"
+            expression = case validations of
+              Just (Array values) | first : _ <- toList values -> field "expression" first
+              _ -> Nothing
+        (policySpec >>= field "failurePolicy") @?= Just (String "Fail")
+        (bindingSpec >>= field "validationActions") @?=
+          Just (toJSON (["Deny"] :: [Text]))
+        (field "spec" pvcPolicy >>= field "failurePolicy") @?= Just (String "Fail")
+        (field "spec" pvcBinding >>= field "validationActions") @?=
+          Just (toJSON (["Deny"] :: [Text]))
+        case field "spec" pvcPolicy >>= field "validations" of
+          Just (Array values) | firstValidation : _ <- toList values ->
+            case field "expression" firstValidation of
+              Just (String value) -> assertBool "claim mutation guard checks the old object"
+                ("oldObject.metadata.name != 'data-pvc'" `T.isInfixOf` value)
+              _ -> assertFailure "PVC guard lacks an expression"
+          _ -> assertFailure "PVC guard lacks validations"
+        let guardedExpression guardedPolicy = case field "spec" guardedPolicy >>= field "validations" of
+              Just (Array values) | firstValidation : _ <- toList values ->
+                field "expression" firstValidation
+              _ -> Nothing
+        guardedExpression pvPolicy @?= Just (String "oldObject.metadata.name != 'pv-data'")
+        guardedExpression namespacePolicy @?=
+          Just (String "oldObject.metadata.name != 'restore-space'")
+        case expression of
+          Just (String value) -> do
+            assertBool "PVC name is constrained" ("data-pvc" `T.isInfixOf` value)
+            assertBool "Job UID is constrained" (jobUid `T.isInfixOf` value)
+            assertBool "writer UID is constrained" (statefulUid `T.isInfixOf` value)
+            assertBool "controller principal is constrained"
+              ("system:serviceaccount:kube-system:job-controller" `T.isInfixOf` value)
+          _ -> assertFailure "mount guard lacks a CEL expression"
+        case mkPodOwnerPermit "Job" "restore-job" jobUid "foreign' || true" of
+          Left _ -> pure ()
+          Right _ -> assertFailure "CEL injection was accepted"
+        case mkMountGuard "restore-session" "restore-space" "data-pvc"
+          "wrong-uid" "pv-data" pvUid [] of
+          Left _ -> pure ()
+          Right _ -> assertFailure "unbound PVC UID was accepted"
+        case mkMountGuard "restore-session" "restore_space" "data-pvc"
+          pvcUid "pv-data" pvUid [] of
+          Left _ -> pure ()
+          Right _ -> assertFailure "invalid Kubernetes namespace was accepted"
   ]
 
 fixtureControls :: IORef Bool -> IORef Int

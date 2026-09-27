@@ -129,6 +129,7 @@ library
     Nagare.Inventory.Components.Upstream
     Nagare.Inventory.Database
     Nagare.Inventory.DataFence
+    Nagare.Inventory.DataFence.MountGuard
     Nagare.Inventory.DataService
     Nagare.Inventory.Backup
     Nagare.Inventory.Prune
