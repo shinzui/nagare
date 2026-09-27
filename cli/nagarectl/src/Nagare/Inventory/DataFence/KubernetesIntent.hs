@@ -5,6 +5,7 @@ module Nagare.Inventory.DataFence.KubernetesIntent
   ( KubernetesFenceIntent (..)
   , decodeKubernetesFenceIntent
   , parseAcceptedDatabaseEngine
+  , parseObservedDatabaseServer
   , validateReviewedDatabaseEngine
   , validateKubernetesWriterInventory
   ) where
@@ -295,7 +296,14 @@ validateBacking (LocalVolume path node) = do
 parseAcceptedDatabaseEngine :: ByteString -> Either Text (Maybe Engine)
 parseAcceptedDatabaseEngine bytes = do
   value <- first T.pack (eitherDecodeStrict' bytes)
-  root <- requiredObjectValue "accepted StatefulSet" value
+  fmap fst <$> parseObservedDatabaseServer value
+
+-- | Use the same strict engine check for accepted bytes and a live
+-- StatefulSet observation. A captured live spec digest alone can pin a
+-- drifted server image rather than the accepted engine.
+parseObservedDatabaseServer :: Value -> Either Text (Maybe (Engine, Text))
+parseObservedDatabaseServer observed = do
+  root <- requiredObjectValue "accepted StatefulSet" observed
   case KM.lookup "metadata" root of
     Nothing -> Right Nothing
     Just metadataValue -> do
@@ -326,7 +334,7 @@ parseAcceptedDatabaseEngine bytes = do
               _ <- mkEngineVersion engine version
               unless (name == engineToken engine)
                 (Left "managed database container differs from its engine")
-              pure (Just engine)
+              pure (Just (engine, image))
             Just _ -> Left "managed database label is malformed"
   where
     requiredObject key fields = maybe

@@ -117,6 +117,8 @@ Inherited: manual receipts and expiry validation, PostgreSQL scratch restore, an
 
 2026-09-27 database engine pin: read-only Kubernetes capture now requires the requested engine to match the accepted root StatefulSet's managed database marker, single server container, supported engine image, and pinned image tag. It stores the engine token in private intent; replay checks that token again against accepted native bytes before any provider effect. The native recording fixture now captures a PostgreSQL-shaped StatefulSet and refuses an omitted or substituted engine; focused cases cover PostgreSQL, Redis, and ClickHouse images plus mismatched and floating tags. This establishes engine identity for later native drain controls, not engine write exclusion. M1 remains open until those controls, production review registration, and provider proof are complete.
 
+2026-09-27 live server drift check: capture, physical validation, and exclusion observation now compare the root StatefulSet's currently observed server container and exact image tag with accepted native evidence. A changed engine or supported-version tag cannot be silently pinned as the reviewed live spec. The recording provider refuses both drifts before capture and refuses changed server evidence during exclusion observation; all 26 focused data-fence tests pass. This closes an accepted-versus-live identity gap, but the engine-specific drain, production adapter registration, and provider proof remain open for M1.
+
 
 ## Surprises & Discoveries
 

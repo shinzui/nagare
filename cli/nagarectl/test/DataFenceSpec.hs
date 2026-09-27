@@ -400,13 +400,13 @@ dataFenceTests = testGroup "data fence"
               , "spec" .= object ["volumes" .= [object
                   ["persistentVolumeClaim" .= object
                     ["claimName" .= ("data-pvc" :: Text)]]]]]
-            writerSpec replicas = object
+            writerSpec replicas image = object
               [ "replicas" .= (replicas :: Int)
               , "serviceName" .= ("database" :: Text)
               , "template" .= object ["spec" .= object
                   [ "containers" .= [object
                       [ "name" .= ("postgres" :: Text)
-                      , "image" .= ("postgres:18" :: Text)]]
+                      , "image" .= (image :: Text)]]
                   , "volumes" .= [object
                       ["persistentVolumeClaim" .= object
                         ["claimName" .= ("data-pvc" :: Text)]]]]]]
@@ -414,7 +414,7 @@ dataFenceTests = testGroup "data fence"
               [ "kind" .= ("StatefulSet" :: Text)
               , "metadata" .= object ["labels" .= object
                   ["nagare.dev/database" .= ("database" :: Text)]]
-              , "spec" .= writerSpec (1 :: Int)]
+              , "spec" .= writerSpec (1 :: Int) "postgres:18"]
             deploymentSpec replicas = object
               [ "replicas" .= (replicas :: Int)
               , "selector" .= object ["matchLabels" .= object
@@ -501,6 +501,7 @@ dataFenceTests = testGroup "data fence"
         drained <- newIORef False
         endpointsCleared <- newIORef False
         patches <- newIORef (0 :: Int)
+        liveWriterImage <- newIORef ("postgres:18" :: Text)
         loseDeleteAck <- newIORef True
         loseReleaseDeleteAck <- newIORef False
         let guardTransport = MountGuardTransport
@@ -560,15 +561,19 @@ dataFenceTests = testGroup "data fence"
               { readStatefulWriter = \_ _ -> do
                   desired <- readIORef replicas
                   ready <- readIORef drained
+                  image <- readIORef liveWriterImage
                   let current = if desired == 0 && ready then 0 else 1 :: Int
                   pure (Right (object
-                    [ "metadata" .= object
+                    [ "kind" .= ("StatefulSet" :: Text)
+                    , "metadata" .= object
                         [ "namespace" .= ("restore-space" :: Text)
                         , "name" .= ("database" :: Text)
                         , "uid" .= (writerUid :: Text)
                         , "resourceVersion" .= ("7" :: Text)
-                        , "generation" .= (if desired == 0 then 2 else 1 :: Int)]
-                    , "spec" .= writerSpec desired
+                        , "generation" .= (if desired == 0 then 2 else 1 :: Int)
+                        , "labels" .= object
+                            ["nagare.dev/database" .= ("database" :: Text)]]
+                    , "spec" .= writerSpec desired image
                     , "status" .= object
                         [ "observedGeneration" .=
                             (if desired == 0 && not ready then 1 else 2 :: Int)
@@ -706,6 +711,19 @@ dataFenceTests = testGroup "data fence"
               "restore-session" target writer (Just Postgres) (Just serviceId)
               "gs://fixture/recovery" (contentDigest "recovery")
               "system:serviceaccount:kube-system:statefulset-controller" Nothing
+        writeIORef liveWriterImage "redis:8"
+        driftedEngine <- captureKubernetesFence captureTransport declarations
+          acceptedNative captureRequest
+        case driftedEngine of
+          Left _ -> pure ()
+          Right _ -> assertFailure "live server image drift was captured as accepted"
+        writeIORef liveWriterImage "postgres:17"
+        driftedVersion <- captureKubernetesFence captureTransport declarations
+          acceptedNative captureRequest
+        case driftedVersion of
+          Left _ -> pure ()
+          Right _ -> assertFailure "live server version drift was captured as accepted"
+        writeIORef liveWriterImage "postgres:18"
         captured <- captureKubernetesFence captureTransport declarations
           acceptedNative captureRequest >>= right
         captured @?= nativeRecord
@@ -807,6 +825,12 @@ dataFenceTests = testGroup "data fence"
         writeIORef scheduleJobsActive False
         writeIORef schedulePodPhase "Succeeded"
         observeKubernetesExcluded native nativeRecord >>= right >>= (@?= True)
+        writeIORef liveWriterImage "redis:8"
+        driftedObservation <- observeKubernetesExcluded native nativeRecord
+        case driftedObservation of
+          Left _ -> pure ()
+          Right _ -> assertFailure "drifted live server image retained exclusion proof"
+        writeIORef liveWriterImage "postgres:18"
         observeKubernetesPhysical native nativeRecord >>= right
           >>= (@?= fencePhysical nativeRecord)
         observeKubernetesRelease native nativeRecord >>= right

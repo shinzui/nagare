@@ -98,6 +98,33 @@ validateEngineAssociation exclusion intent = do
   (_, bytes) <- maybe (Left "database dependency root lacks accepted native evidence")
     Right (Map.lookup (kubernetesDependencyRoot intent) (exclusionNative exclusion))
   validateReviewedDatabaseEngine (kubernetesDatabaseEngine intent) bytes
+  case kubernetesDatabaseEngine intent of
+    Nothing -> Right ()
+    Just _ -> unless (maybe False (const True)
+      (lookup (kubernetesDependencyRoot intent) (kubernetesStatefulWriters intent)))
+      (Left "managed database root lacks a reviewed StatefulSet writer")
+
+observeLiveDatabaseEngine :: KubernetesExclusion -> KubernetesFenceIntent
+  -> IO (Either Text ())
+observeLiveDatabaseEngine exclusion intent =
+  case kubernetesDatabaseEngine intent of
+    Nothing -> pure (Right ())
+    Just expected -> case lookup (kubernetesDependencyRoot intent)
+        (kubernetesStatefulWriters intent) of
+      Nothing -> pure (Left "managed database root lacks a reviewed StatefulSet writer")
+      Just pin -> do
+        observed <- readStatefulWriter (exclusionWriterTransport exclusion)
+          (writerNamespace pin) (writerName pin)
+        pure $ do
+          (_, acceptedBytes) <- maybe
+            (Left "database dependency root lacks accepted native evidence") Right
+            (Map.lookup (kubernetesDependencyRoot intent) (exclusionNative exclusion))
+          acceptedValue <- first T.pack (eitherDecodeStrict' acceptedBytes)
+          accepted <- parseObservedDatabaseServer acceptedValue
+          current <- observed
+          actual <- parseObservedDatabaseServer current
+          unless (actual == accepted && fmap fst actual == Just expected)
+            (Left "live database server image differs from reviewed accepted engine")
 
 validateServiceAssociation :: KubernetesExclusion -> KubernetesFenceIntent
   -> Either Text ()
@@ -217,6 +244,7 @@ observeKubernetesPhysical exclusion record = case validatedIntent exclusion reco
 observeExactPhysical :: KubernetesExclusion -> KubernetesFenceIntent
   -> IO (Either Text ())
 observeExactPhysical exclusion intent = do
+  engine <- observeLiveDatabaseEngine exclusion intent
   volume <- observeVolumeState (exclusionVolumeTransport exclusion)
     (kubernetesMountGuard intent) (kubernetesVolumeBacking intent)
   writers <- forM (kubernetesStatefulWriters intent) $ \(_, pin) ->
@@ -229,6 +257,7 @@ observeExactPhysical exclusion intent = do
   service <- traverse (observeServiceState (exclusionServiceTransport exclusion))
     (kubernetesService intent)
   pure $ do
+    _ <- engine
     _ <- volume
     sequence_ writers
     sequence_ deployments
@@ -252,6 +281,7 @@ observeKubernetesExcluded exclusion record = case validatedIntent exclusion reco
       Left reason -> pure (Left reason)
       Right False -> pure (Right False)
       Right True -> do
+        engine <- observeLiveDatabaseEngine exclusion intent
         writers <- forM (kubernetesStatefulWriters intent) $ \(_, pin) ->
           observeStatefulWriterStopped (exclusionWriterTransport exclusion) pin
         deployments <- forM (kubernetesDeploymentWriters intent) $ \(_, pin) ->
@@ -267,6 +297,7 @@ observeKubernetesExcluded exclusion record = case validatedIntent exclusion reco
             (observeServiceState (exclusionServiceTransport exclusion) pin)
         after <- observeMountGuard guardTransport mountGuard
         pure $ do
+          _ <- engine
           stopped <- sequence writers
           deploymentStopped <- sequence deployments
           suspended <- sequence schedules
