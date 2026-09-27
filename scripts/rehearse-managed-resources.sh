@@ -5,7 +5,7 @@ usage() {
   cat <<'EOF'
 Usage: scripts/rehearse-managed-resources.sh --phase plan|apply|verify \
   --mode local|cloud --context NAME --expected-cluster CLUSTER \
-  [--expected-project PROJECT] [--candidate COMPILED_DIRECTORY] \
+  [--kube-context NAME] [--expected-project PROJECT] [--candidate COMPILED_DIRECTORY] \
   --evidence-dir DIRECTORY [--private-store-export DIRECTORY] [--yes]
 
 Plan and verify require a candidate compiled by nagarectl inventory compile.
@@ -31,6 +31,7 @@ sha256_file() {
 phase=""
 mode=""
 context=""
+kube_context=""
 expected_cluster=""
 expected_project=""
 candidate=""
@@ -39,12 +40,13 @@ private_store_export=""
 yes=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --phase|--mode|--context|--expected-cluster|--expected-project|--candidate|--evidence-dir|--private-store-export)
+    --phase|--mode|--context|--kube-context|--expected-cluster|--expected-project|--candidate|--evidence-dir|--private-store-export)
       [[ $# -ge 2 ]] || die "$1 requires a value"
       case "$1" in
         --phase) phase="$2" ;;
         --mode) mode="$2" ;;
         --context) context="$2" ;;
+        --kube-context) kube_context="$2" ;;
         --expected-cluster) expected_cluster="$2" ;;
         --expected-project) expected_project="$2" ;;
         --candidate) candidate="$2" ;;
@@ -61,6 +63,7 @@ done
 [[ "$phase" == plan || "$phase" == apply || "$phase" == verify ]] || die "--phase must be plan, apply, or verify"
 [[ "$mode" == local || "$mode" == cloud ]] || die "--mode must be local or cloud"
 [[ -n "$context" && -n "$expected_cluster" && -n "$evidence_dir" ]] || die "context, expected cluster, and evidence directory are required"
+kube_context="${kube_context:-$context}"
 if [[ "$mode" == cloud ]]; then
   [[ -n "$expected_project" ]] || die "cloud mode requires --expected-project"
 else
@@ -100,16 +103,16 @@ else
     '.confined == true and .observations.context == $context and .observations.declaredProject == $project' \
     <<<"$guard_json" >/dev/null || die "selected context or GCP project differs from the reviewed target"
 fi
-cluster="$(kubectl config view -o json | jq -er --arg context "$context" \
+cluster="$(kubectl config view -o json | jq -er --arg context "$kube_context" \
   '[.contexts[] | select(.name == $context) | .context.cluster] | if length == 1 then .[0] else error("context has no unique cluster") end')"
-[[ "$cluster" == "$expected_cluster" ]] || die "Kubernetes context $context selects cluster $cluster, expected $expected_cluster"
+[[ "$cluster" == "$expected_cluster" ]] || die "Kubernetes context $kube_context selects cluster $cluster, expected $expected_cluster"
 
 if [[ "$phase" == plan ]]; then
   [[ ! -e "$evidence_dir" ]] || die "evidence directory already exists; refusing to replace a review or completed evidence"
   mkdir -m 700 -p "$evidence_dir"
-  jq -n -S --arg context "$context" --arg mode "$mode" \
+  jq -n -S --arg context "$context" --arg kubeContext "$kube_context" --arg mode "$mode" \
     --arg project "$expected_project" --arg cluster "$cluster" \
-    '{schemaVersion: 1, context: $context, mode: $mode,
+    '{schemaVersion: 1, context: $context, kubeContext: $kubeContext, mode: $mode,
       expectedProject: (if $mode == "cloud" then $project else null end),
       expectedCluster: $cluster}' > "$evidence_dir/target.json"
   "$cli" version --json | jq -S . > "$evidence_dir/operator-version.json"
@@ -133,8 +136,9 @@ fi
 [[ -f "$evidence_dir/operator-version.json" ]] || die "evidence directory has no operator identity"
 cmp -s "$evidence_dir/operator-version.json" <("$cli" version --json | jq -S .) \
   || die "operator version or source revision changed since review"
-jq -e --arg context "$context" --arg mode "$mode" --arg project "$expected_project" --arg cluster "$cluster" \
+jq -e --arg context "$context" --arg kubeContext "$kube_context" --arg mode "$mode" --arg project "$expected_project" --arg cluster "$cluster" \
   '.schemaVersion == 1 and .context == $context and .mode == $mode
+    and .kubeContext == $kubeContext
     and .expectedProject == (if $mode == "cloud" then $project else null end)
     and .expectedCluster == $cluster' "$evidence_dir/target.json" >/dev/null \
   || die "saved target differs from requested context, project, or cluster"

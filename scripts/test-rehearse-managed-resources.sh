@@ -51,7 +51,7 @@ cat > "$test_root/bin/kubectl" <<'FAKE_KUBECTL'
 #!/usr/bin/env bash
 set -euo pipefail
 [[ "$*" == 'config view -o json' ]] || exit 34
-printf '%s\n' '{"contexts":[{"name":"demo","context":{"cluster":"fixture-cluster"}}]}'
+printf '%s\n' '{"contexts":[{"name":"demo","context":{"cluster":"fixture-cluster"}},{"name":"k3d-demo","context":{"cluster":"fixture-cluster"}}]}'
 FAKE_KUBECTL
 chmod +x "$test_root/bin/nagarectl" "$test_root/bin/kubectl"
 jq -n '{version: 1, desired: {scopes: []}}' > "$test_root/candidate/candidate.json"
@@ -81,6 +81,20 @@ jq -e '.state == "planned"' "$test_root/evidence/run.json" >/dev/null
 jq -e '.state == "applied"' "$test_root/evidence/run.json" >/dev/null
 "$runner" --phase verify "${common[@]}" --candidate "$test_root/candidate" > "$test_root/verify.out"
 jq -e '.state == "verified" and .noOp == true' "$test_root/evidence/run.json" >/dev/null
+
+distinct=(--mode local --context demo --kube-context k3d-demo \
+  --expected-cluster fixture-cluster --evidence-dir "$test_root/distinct-kube-context")
+"$runner" --phase plan "${distinct[@]}" --candidate "$test_root/candidate" >/dev/null
+jq -e '.context == "demo" and .kubeContext == "k3d-demo"' \
+  "$test_root/distinct-kube-context/target.json" >/dev/null
+if "$runner" --phase apply --mode local --context demo \
+  --expected-cluster fixture-cluster --evidence-dir "$test_root/distinct-kube-context" \
+  --yes >/dev/null 2>&1; then
+  printf 'changed Kubernetes context was accepted after review\n' >&2
+  exit 1
+fi
+"$runner" --phase apply "${distinct[@]}" --yes >/dev/null
+"$runner" --phase verify "${distinct[@]}" --candidate "$test_root/candidate" >/dev/null
 
 if "$runner" --phase plan --mode local --context demo --expected-cluster wrong-cluster \
   --candidate "$test_root/candidate" --evidence-dir "$test_root/wrong-cluster" >/dev/null 2>&1; then

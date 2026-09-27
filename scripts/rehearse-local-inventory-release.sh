@@ -76,7 +76,7 @@ else
   [[ -f "$evidence_dir/local-health.json" ]] \
     || die "saved local fixture health evidence is missing"
 fi
-for tool in jq kubectl curl; do
+for tool in jq kubectl docker; do
   command -v "$tool" >/dev/null 2>&1 || die "$tool is required"
 done
 cli="${NAGARECTL_BIN:-nagarectl}"
@@ -103,19 +103,23 @@ guard="$($cli --context "$context" context guard --json)" \
 jq -e --arg context "$context" \
   '.confined == true and .mode == "local" and .context == $context' \
   <<<"$guard" >/dev/null || die "selected Nagare context is not local and confined"
-selected_cluster="$(kubectl config view -o json | jq -er --arg context "$context" \
+kube_context="$(kubectl config current-context)" \
+  || die "no selected Kubernetes context"
+[[ "$kube_context" == "$cluster" ]] \
+  || die "Kubernetes context $kube_context differs from expected local cluster $cluster"
+selected_cluster="$(kubectl config view -o json | jq -er --arg context "$kube_context" \
   '[.contexts[] | select(.name == $context) | .context.cluster]
     | if length == 1 then .[0] else error("context has no unique cluster") end')" \
-  || die "Kubernetes context $context is missing or ambiguous"
+  || die "Kubernetes context $kube_context is missing or ambiguous"
 [[ "$selected_cluster" == "$cluster" ]] \
-  || die "Kubernetes context $context selects $selected_cluster, expected $cluster"
+  || die "Kubernetes context $kube_context selects $selected_cluster, expected $cluster"
 
-kubectl --context "$context" get --raw=/readyz >/dev/null \
-  || die "Kubernetes API is not ready for $context"
+kubectl --context "$kube_context" get --raw=/readyz >/dev/null \
+  || die "Kubernetes API is not ready for $kube_context"
 
 ready_deployment() {
   local namespace="$1" name="$2"
-  kubectl --context "$context" -n "$namespace" get deployment "$name" -o json \
+  kubectl --context "$kube_context" -n "$namespace" get deployment "$name" -o json \
     | jq -e '(.spec.replicas // 1) > 0
       and (.status.readyReplicas // 0) >= (.spec.replicas // 1)
       and (.status.observedGeneration // 0) >= .metadata.generation' >/dev/null \
@@ -123,21 +127,23 @@ ready_deployment() {
 }
 
 ready_deployment "$knative_ns" "$knative_webhook"
-kubectl --context "$context" -n "$knative_ns" get endpoints "$knative_webhook" -o json \
+kubectl --context "$kube_context" -n "$knative_ns" get endpoints "$knative_webhook" -o json \
   | jq -e '[.subsets[]?.addresses[]?] | length > 0' >/dev/null \
   || die "Knative webhook has no ready endpoint"
 ready_deployment "$store_ns" "$store_deployment"
-kubectl --context "$context" -n "$store_ns" get endpoints "$store_service" -o json \
+kubectl --context "$kube_context" -n "$store_ns" get endpoints "$store_service" -o json \
   | jq -e '[.subsets[]?.addresses[]?] | length > 0' >/dev/null \
   || die "MinIO has no ready endpoint"
-kubectl --context "$context" -n "$store_ns" get job "$store_bucket_job" -o json \
+kubectl --context "$kube_context" -n "$store_ns" get job "$store_bucket_job" -o json \
   | jq -e '(.status.succeeded // 0) > 0' >/dev/null \
   || die "MinIO bucket-creation Job has not succeeded"
-kubectl --context "$context" get --raw \
+kubectl --context "$kube_context" get --raw \
   "/api/v1/namespaces/${store_ns}/services/http:${store_service}:9000/proxy/minio/health/ready" >/dev/null \
   || die "MinIO readiness endpoint is unavailable"
-curl --max-time 5 --fail --silent --show-error \
-  --output /dev/null "$registry_url" \
+[[ "$registry_url" == http://k3d-registry.localhost:5000/v2/ ]] \
+  || die "local registry URL differs from the checked-in fixture"
+docker exec k3d-registry.localhost wget -qO- http://localhost:5000/v2/ \
+  | jq -e 'type == "object"' >/dev/null \
   || die "local image registry API is unavailable"
 
 tmp_health="$(mktemp "${TMPDIR:-/tmp}/nagare-local-health.XXXXXX")"
@@ -151,7 +157,7 @@ jq -n -S --arg context "$context" --arg cluster "$cluster" \
       "local-registry", "object-store", "object-store-bucket"]}' > "$tmp_health"
 
 args=(--phase "$phase" --mode local --context "$context"
-  --expected-cluster "$cluster" --evidence-dir "$evidence_dir")
+  --kube-context "$kube_context" --expected-cluster "$cluster" --evidence-dir "$evidence_dir")
 if [[ "$phase" == apply ]]; then
   args+=(--yes)
 else

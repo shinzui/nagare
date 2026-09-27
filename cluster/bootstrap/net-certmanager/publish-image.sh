@@ -60,9 +60,20 @@ if [ "${NAGARE_MODE:-cloud}" != local ]; then
 fi
 
 if [ "${NAGARE_MODE:-cloud}" = local ] && [ "$registry" = k3d-registry.localhost:5000 ]; then
-  skopeo --policy "${policy}" copy --preserve-digests \
-    "docker-archive:${archive}" "docker-daemon:${destination}" >&2
-  docker push "$destination" >&2
+  # A macOS host may route port 5000 to AirTunes while the Docker VM and k3d
+  # registry still reach each other. An operator-owned loopback forward into
+  # that VM changes only the wire endpoint, never the reviewed destination.
+  wire_destination="$destination"
+  if [ -n "${NAGARE_LOCAL_REGISTRY_FORWARD:-}" ]; then
+    [[ "$NAGARE_LOCAL_REGISTRY_FORWARD" =~ ^127\.0\.0\.1:([0-9]{1,5})$ ]] \
+      && [ "${BASH_REMATCH[1]}" -ge 1 ] && [ "${BASH_REMATCH[1]}" -le 65535 ] || {
+      echo "local registry forward must be a loopback host and port" >&2
+      exit 2
+    }
+    wire_destination="${NAGARE_LOCAL_REGISTRY_FORWARD}/${destination#"${registry}/"}"
+  fi
+  skopeo --policy "${policy}" copy --preserve-digests "${tls_args[@]}" \
+    "docker-archive:${archive}" "docker://${wire_destination}" >&2
   remote_manifest="$(nagare_local_registry_digest "$destination")"
 else
   skopeo --policy "${policy}" copy --preserve-digests "${tls_args[@]}" "${auth_args[@]}" \
