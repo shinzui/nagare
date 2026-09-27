@@ -7,8 +7,11 @@ module Nagare.Inventory.DataFence.MountGuard
   , PodOwnerPermit
   , mkMountGuard
   , withGuardedStatefulSets
+  , withGuardedService
   , GuardedStatefulSet (..)
+  , GuardedService (..)
   , guardedStatefulSets
+  , guardedService
   , mkPodOwnerPermit
   , validUid
   , mountGuardName
@@ -22,6 +25,7 @@ module Nagare.Inventory.DataFence.MountGuard
   , pvMutationGuardObjects
   , namespaceDeleteGuardObjects
   , statefulWriterGuardObjects
+  , serviceMutationGuardObjects
   ) where
 
 import Data.Aeson (Value, object, (.=))
@@ -51,6 +55,7 @@ data MountGuard = MountGuard
   , guardVolumeUid :: !Text
   , guardPermits :: ![PodOwnerPermit]
   , guardWriters :: ![GuardedStatefulSet]
+  , guardService :: !(Maybe GuardedService)
   }
   deriving stock (Eq, Show)
 
@@ -58,6 +63,13 @@ data GuardedStatefulSet = GuardedStatefulSet
   { guardedWriterNamespace :: !Text
   , guardedWriterName :: !Text
   , guardedWriterUid :: !Text
+  }
+  deriving stock (Eq, Show)
+
+data GuardedService = GuardedService
+  { guardedServiceNamespace :: !Text
+  , guardedServiceName :: !Text
+  , guardedServiceUid :: !Text
   }
   deriving stock (Eq, Show)
 
@@ -95,7 +107,7 @@ mkMountGuard session namespace claim claimUid volume volumeUid permits = do
   unless (validUid claimUid) (Left "fenced PVC UID is not a canonical Kubernetes UUID")
   unless (validUid volumeUid) (Left "fenced PV UID is not a canonical Kubernetes UUID")
   MountGuard session <$> mkName namespace <*> mkName claim <*> pure claimUid
-    <*> mkName volume <*> pure volumeUid <*> pure permits <*> pure []
+    <*> mkName volume <*> pure volumeUid <*> pure permits <*> pure [] <*> pure Nothing
 
 withGuardedStatefulSets :: MountGuard -> [(Text, Text, Text)]
   -> Either Text MountGuard
@@ -114,6 +126,16 @@ withGuardedStatefulSets guard writers = do
 
 guardedStatefulSets :: MountGuard -> [GuardedStatefulSet]
 guardedStatefulSets = guardWriters
+
+withGuardedService :: MountGuard -> Text -> Text -> Text
+  -> Either Text MountGuard
+withGuardedService guard namespace name uid = do
+  unless (validDnsLabel namespace && validDnsSubdomain name && validUid uid)
+    (Left "fenced Service address or UID is malformed")
+  pure guard {guardService = Just (GuardedService namespace name uid)}
+
+guardedService :: MountGuard -> Maybe GuardedService
+guardedService = guardService
 
 validDnsSubdomain :: Text -> Bool
 validDnsSubdomain name = T.length name <= 253
@@ -287,6 +309,20 @@ statefulWriterGuardObjects guard = map render (guardWriters guard)
           "oldObject.metadata.namespace != '" <> guardedWriterNamespace writer
             <> "' || oldObject.metadata.name != '" <> guardedWriterName writer
             <> "' || (request.operation == 'UPDATE' && object.spec.replicas == 0)"
+
+-- | The Service route cannot be changed or deleted while exclusion is active.
+-- The UID is also observed against the durable pin before every data effect.
+serviceMutationGuardObjects :: MountGuard -> Maybe (Value, Value)
+serviceMutationGuardObjects guard = fmap render (guardService guard)
+  where
+    render service = mutationGuardObjects guard "service"
+      ["UPDATE", "DELETE"] "services" expression
+      "Nagare database Service is fenced"
+      where
+        expression = "oldObject.metadata.namespace != '"
+          <> guardedServiceNamespace service
+          <> "' || oldObject.metadata.name != '"
+          <> guardedServiceName service <> "'"
 
 mutationGuardObjects :: MountGuard -> Text -> [Text] -> Text -> Text -> Text
   -> (Value, Value)

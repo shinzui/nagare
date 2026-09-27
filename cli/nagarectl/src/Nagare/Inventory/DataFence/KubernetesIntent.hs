@@ -125,9 +125,11 @@ decodeKubernetesFenceIntent record = do
     (rawNamespace volume) (rawClaim volume) (rawClaimUid volume)
     (rawPv volume) (rawPvUid volume)
     (maybe [] (: []) restorePermit)
-  mountGuard <- withGuardedStatefulSets volumeGuard
+  writerGuard <- withGuardedStatefulSets volumeGuard
     [(writerNamespace pin, writerName pin, writerUid pin)
       | ((_, pin), _) <- writers]
+  mountGuard <- maybe (Right writerGuard) (\pin -> withGuardedService writerGuard
+    (serviceNamespace pin) (serviceName pin) (serviceUid pin)) service
   validateBacking (rawBacking volume)
   pure (KubernetesFenceIntent cluster root (rawResource volume)
     mountGuard (rawBacking volume)

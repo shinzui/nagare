@@ -332,6 +332,7 @@ dataFenceTests = testGroup "data fence"
         objects <- newIORef (Map.empty :: Map.Map (Text, Text) Value)
         guardDenied <- newIORef False
         writerDenied <- newIORef False
+        serviceDenied <- newIORef False
         replicas <- newIORef (1 :: Int)
         drained <- newIORef False
         endpointsCleared <- newIORef False
@@ -372,6 +373,7 @@ dataFenceTests = testGroup "data fence"
                       else pure (Right ())
               , probeForeignMountDenied = \_ -> Right <$> readIORef guardDenied
               , probeWriterScaleDenied = \_ -> Right <$> readIORef writerDenied
+              , probeServiceMutationDenied = \_ -> Right <$> readIORef serviceDenied
               }
             volumeTransport = VolumeTransport
               { readClaim = \_ _ -> pure (Right pvc)
@@ -435,13 +437,17 @@ dataFenceTests = testGroup "data fence"
         validateKubernetesExclusion native nativeRecord >>= right
         refused <- stopKubernetesWriters native nativeRecord
         refused @?= Left "Kubernetes mount admission guard is not enforcing"
-        readIORef objects >>= \installed -> Map.size installed @?= 10
+        readIORef objects >>= \installed -> Map.size installed @?= 12
         readIORef patches >>= (@?= 0)
         writeIORef guardDenied True
         scaleRefused <- stopKubernetesWriters native nativeRecord
         scaleRefused @?= Left "Kubernetes mount admission guard is not enforcing"
         readIORef patches >>= (@?= 0)
         writeIORef writerDenied True
+        routeRefused <- stopKubernetesWriters native nativeRecord
+        routeRefused @?= Left "Kubernetes mount admission guard is not enforcing"
+        readIORef patches >>= (@?= 0)
+        writeIORef serviceDenied True
         stopKubernetesWriters native nativeRecord >>= right
         readIORef patches >>= (@?= 1)
         observeKubernetesExcluded native nativeRecord >>= right >>= (@?= False)
@@ -867,6 +873,7 @@ dataFenceTests = testGroup "data fence"
               , deleteGuardObject = \_ _ _ _ -> pure (Left "unexpected guard delete")
               , probeForeignMountDenied = \_ -> Right <$> readIORef denied
               , probeWriterScaleDenied = \_ -> pure (Right True)
+              , probeServiceMutationDenied = \_ -> pure (Right True)
               }
         firstInstall <- installMountGuard transport guard
         case firstInstall of
@@ -944,6 +951,7 @@ dataFenceTests = testGroup "data fence"
                       else pure (Right ())
               , probeForeignMountDenied = \_ -> pure (Right False)
               , probeWriterScaleDenied = \_ -> pure (Right True)
+              , probeServiceMutationDenied = \_ -> pure (Right True)
               }
         let firstKey = case reverse rendered of
               firstObject : _ -> address firstObject
@@ -1047,6 +1055,7 @@ dataFenceTests = testGroup "data fence"
                     next : rest -> (rest, Right next)
                     [] -> ([], Right False)
               , probeWriterScaleDenied = \_ -> pure (Right True)
+              , probeServiceMutationDenied = \_ -> pure (Right True)
               }
             volumeTransport = VolumeTransport
               { readClaim = \_ _ -> pure (Right pvc)

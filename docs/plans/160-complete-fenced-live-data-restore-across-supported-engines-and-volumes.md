@@ -85,6 +85,8 @@ Inherited: manual receipts and expiry validation, PostgreSQL scratch restore, an
 
 2026-09-27 accepted route discovery: the native writer inventory now walks both the StatefulSet root and its reviewed Service as dependency roots. A recording fixture proves that a Deployment depending only on the Service is discovered and refused before acquisition because Deployment stop control remains unsupported. This closes an omission in candidate enumeration, but it does not yet quiesce those clients or prove external writers excluded.
 
+2026-09-27 Service mutation guard: the reviewed native guard now includes an exact namespace/name Service `UPDATE`/`DELETE` admission policy and binding, with current-object and server dry-run denial observation before exclusion. The strict provider intent attaches this guard only to its pinned Service; the Service UID is reobserved separately against durable physical identity. A recording test refuses writer stop until the Service denial probe succeeds. On disposable `k3d-ep160-service-guard`, the generated policy denied a server dry-run Service patch with a tested UID (`668efdaa-5d60-48db-aa16-0bbfd0f5f982`) and a dry-run delete, while an unrelated Service patch succeeded. Kubernetes documents `oldObject` for updates/deletes in [Validating Admission Policy](https://kubernetes.io/docs/reference/access-authn-authz/validating-admission-policy/). The guard does not yet prevent someone with policy-management authority from changing it, or prevent a newly created EndpointSlice from carrying a route; M1 remains open.
+
 
 ## Surprises & Discoveries
 
