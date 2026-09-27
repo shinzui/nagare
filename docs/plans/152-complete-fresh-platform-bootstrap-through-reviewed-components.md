@@ -55,6 +55,8 @@ Inherited baseline: commits `9c308390`, `28e05b72`, and `09d83188` supplied expl
 
 2026-09-26 continuation: The optional Pulumi backend IAM member is now stored in named contexts and bound to the foundation bucket declaration and retained execution target. The grant applies only to the Pulumi state bucket when the inventory journal uses another bucket. The public recording fixture exercises its grant and refuses a changed stored member before writes. Pulumi's seeded config disables its duplicate ownership of the seven foundation-managed APIs. The inventory Pulumi adapter now supplies the complete registration set to the TypeScript guard while targeting individual operations. The later cloud stage still needs to seed that config, construct its complete typed candidate, and prove native targeted previews.
 
+2026-09-26 evidence for candidate source revision `443a1b15`: `cabal test nagarectl-test --test-show-details=failures -v0`, focused inventory tests, `cabal build exe:nagarectl -v0`, `bash scripts/test-bootstrap-foundation-public.sh <built nagarectl>`, `bash scripts/test-inventory-entrypoint-guards.sh <built nagarectl>`, `bash scripts/check-haskell-style.sh`, and `git diff --check` passed. The public fixture recorded a grant to the Pulumi bucket and refused changed stored member and backend URL before provider writes. The two-bucket focused test proved that the inventory bucket received no grant. This is foundation and registration-contract evidence, not a complete cloud stage.
+
 
 ## Surprises & Discoveries
 
