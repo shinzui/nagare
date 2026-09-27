@@ -3,7 +3,8 @@
 -- restore can use this protocol. In particular, a saved writer configuration
 -- is not proof that the writer has stopped.
 module Nagare.Inventory.DataFence
-  ( DataFenceControls (..)
+  ( WriterReleaseState (..)
+  , DataFenceControls (..)
   , FenceToken
   , acquireDataFence
   , resumeDataFence
@@ -24,6 +25,16 @@ import Nagare.Dsl.Prelude
 import Nagare.Inventory.Store
 import Nagare.Resource.Types (PhysicalIdentity, ResourceId)
 
+-- | A provider may resume writer release only when its observed state proves
+-- that no release effect started. A partly restored configuration requires a
+-- separate forward-recovery decision; treating it as untouched could replay
+-- an uncertain effect.
+data WriterReleaseState
+  = WritersStillExcluded
+  | WritersPartlyReleased
+  | WritersFullyReleased
+  deriving stock (Eq, Show)
+
 -- | The native implementation must make each observation from the current
 -- provider state. A successful request to scale or suspend is not an
 -- observation of excluded writers.
@@ -34,7 +45,7 @@ data DataFenceControls = DataFenceControls
   , observeWritersExcluded :: !(DataFenceRecord -> IO (Either Text Bool))
   , verifyRecoveredData :: !(DataFenceRecord -> IO (Either Text Bool))
   , restoreFenceWriters :: !(DataFenceRecord -> IO (Either Text ()))
-  , observeWritersReleased :: !(DataFenceRecord -> IO (Either Text Bool))
+  , observeWritersReleased :: !(DataFenceRecord -> IO (Either Text WriterReleaseState))
   }
 
 newtype FenceToken = FenceToken Text
@@ -159,13 +170,17 @@ releaseDataFence locked controls token = do
               released <- restoreFenceWriters controls record
               case released of
                 Left reason -> pure (Left reason)
-                Right () -> finishRelease locked controls token record
+                Right () -> finishReleaseObserved False locked controls token record
         (Left reason, _) -> pure (Left reason)
         (_, Left reason) -> pure (Left reason)
 
 finishRelease :: LockedStore s -> DataFenceControls -> FenceToken
   -> DataFenceRecord -> IO (Either Text ())
-finishRelease locked controls token record = do
+finishRelease = finishReleaseObserved True
+
+finishReleaseObserved :: Bool -> LockedStore s -> DataFenceControls -> FenceToken
+  -> DataFenceRecord -> IO (Either Text ())
+finishReleaseObserved mayResume locked controls token record = do
   physical <- observeFencePhysical controls record
   case physical of
     Left reason -> pure (Left reason)
@@ -175,8 +190,16 @@ finishRelease locked controls token record = do
       observed <- observeWritersReleased controls record
       case observed of
         Left reason -> pure (Left reason)
-        Right False -> pure (Left "writer release is not proved; fence remains in releasing phase")
-        Right True -> do
+        Right WritersPartlyReleased ->
+          pure (Left "writer release is partial; fence remains in releasing phase")
+        Right WritersStillExcluded | mayResume -> do
+          released <- restoreFenceWriters controls record
+          case released of
+            Left reason -> pure (Left reason)
+            Right () -> finishReleaseObserved False locked controls token record
+        Right WritersStillExcluded ->
+          pure (Left "writer release was requested but remains unproved; fence stays in releasing phase")
+        Right WritersFullyReleased -> do
           headResult <- currentHead locked
           case headResult of
             Right headValue | Just active <- headDataFence headValue

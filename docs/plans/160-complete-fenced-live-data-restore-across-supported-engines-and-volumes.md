@@ -47,6 +47,8 @@ Inherited: manual receipts and expiry validation, PostgreSQL scratch restore, an
 
 2026-09-26 shared-history check: a recording-provider test now opens two inventory clients over one conditional object backend. The first persists a fence; the second reads the same phase and session and refuses a previously saved review without invoking its adapter. This exercises the cross-state-root store contract locally, but is not a live GCS bucket run.
 
+2026-09-26 release-recovery correction: the provider now distinguishes fully released writers, definitely untouched writer controls, and partial release. A fresh process can resume the release only from the definitely untouched state; a partial release remains fenced for forward recovery. Focused tests cover an interruption before any release effect and a partial release without duplicate control calls. M1 still needs native implementations of these observations.
+
 2026-09-26 native probe: a dedicated `k3d-nagare-data-fence-ep160` cluster (k3s v1.32.5) used namespace `ep160-fence-probe`, StatefulSet UID `dbe60801-35ee-42ff-b9bc-e645b06816d7`, and PVC UID `1bfb6d23-1aea-4582-bc18-d951e7258a27`. A JSON Patch testing the StatefulSet UID and resourceVersion then setting replicas to zero was accepted once; the same stale patch was rejected. After its Pod was observed deleted, a separate Pod mounted the same `ReadWriteOnce` PVC and wrote `foreign` to its file. A fail-closed `ValidatingAdmissionPolicy` denied that new mount. An exception based only on the restore Job owner reference was spoofable; combining the exact suspended Job UID with the authenticated `system:serviceaccount:kube-system:job-controller` principal denied the spoof and allowed the Job Pod to complete and read `foreign`. These are direct k3s observations from temporary manifests under `/tmp/nagare-ep160-*`, not a public reviewed-command fixture or proof for GKE. The disposable cluster was deleted after the probe.
 
 
@@ -70,6 +72,8 @@ Inherited: manual receipts and expiry validation, PostgreSQL scratch restore, an
 2026-09-26: An exact, fail-closed Pod admission guard is required for a live PVC while recovery is active; `ReadWriteOnce` and a scaled-down StatefulSet do not close the mount race. The native probe supports a policy tied to target namespace/PVC and an explicitly suspended restore Job's UID plus controller principal. Treat that mechanism as a candidate until its policy and binding are themselves reviewed, observed, protected against drift, and shown to work on every supported Kubernetes provider. Reforecast M1–M3 at 24–48 active hours, low confidence, after this mount-control discovery.
 
 2026-09-26: A live restore fence must coexist with its own reviewed inventory transaction, while blocking all other transactions. Bind it to the active transaction and keep that transaction unresolved until the fence is verified and released. A standalone fence with no transaction remains available to maintenance. The first draft's mutual exclusion would have made reviewed restore unreachable.
+
+2026-09-26: A persisted `FenceReleasing` phase can precede any native release effect if the process dies at that boundary. Recovery may reissue writer restoration only after the provider proves no release effect started; if controls changed partly, keep the fence unresolved. A Boolean "released" observation lacked the information needed to distinguish these cases.
 
 
 ## Outcomes & Retrospective

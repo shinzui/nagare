@@ -100,6 +100,65 @@ dataFenceTests = testGroup "data fence"
         readIORef restored >>= (@?= 1)
         final <- readHead store >>= right >>= maybe (assertFailure "head missing" >> error "head") pure
         headDataFence final @?= Nothing
+    , testCase "release resumes after interruption before any writer control" $
+        withSystemTempDirectory "nagare-fence-release" $ \root -> do
+          store <- openFilesystemStore root >>= right
+          _ <- initializeStore store binding "operator-a" >>= right
+          released <- newIORef False
+          restored <- newIORef (0 :: Int)
+          let original = fixtureControls released restored (pure (Right physical))
+              interrupted = original {restoreFenceWriters = \_ ->
+                pure (Left "interrupted before writer release")}
+          token <- withProcessLock store (\locked -> acquireDataFence locked original request)
+            >>= right >>= right
+          _ <- withProcessLock store (\locked -> beginDataChange locked original token)
+            >>= right >>= right
+          _ <- withProcessLock store (\locked -> verifyDataChange locked original token)
+            >>= right >>= right
+          outcome <- withProcessLock store (\locked -> releaseDataFence locked interrupted token)
+            >>= right
+          case outcome of
+            Left _ -> pure ()
+            Right () -> assertFailure "interrupted release appeared complete"
+          readIORef restored >>= (@?= 0)
+          reopened <- openFilesystemStore root >>= right
+          resumed <- withProcessLock reopened (\locked -> resumeDataFence locked "restore-session")
+            >>= right >>= right
+          _ <- withProcessLock reopened (\locked -> recoverDataFence locked original resumed)
+            >>= right >>= right
+          readIORef restored >>= (@?= 1)
+          final <- readHead reopened >>= right >>= maybe
+            (assertFailure "head missing" >> error "head") pure
+          headDataFence final @?= Nothing
+    , testCase "partial writer release is not replayed" $ do
+        store <- newMemoryStore
+        _ <- initializeStore store binding "operator-a" >>= right
+        released <- newIORef False
+        restored <- newIORef (0 :: Int)
+        let original = fixtureControls released restored (pure (Right physical))
+            partial = original
+              { restoreFenceWriters = \_ -> do
+                  modifyIORef' restored (+ 1)
+                  pure (Left "one writer changed before interruption")
+              , observeWritersReleased = \_ -> pure (Right WritersPartlyReleased)
+              }
+        token <- withProcessLock store (\locked -> acquireDataFence locked partial request)
+          >>= right >>= right
+        _ <- withProcessLock store (\locked -> beginDataChange locked partial token)
+          >>= right >>= right
+        _ <- withProcessLock store (\locked -> verifyDataChange locked partial token)
+          >>= right >>= right
+        _ <- withProcessLock store (\locked -> releaseDataFence locked partial token)
+          >>= right
+        repeated <- withProcessLock store (\locked -> releaseDataFence locked partial token)
+          >>= right
+        case repeated of
+          Left _ -> pure ()
+          Right () -> assertFailure "partial writer release was accepted"
+        readIORef restored >>= (@?= 1)
+        active <- readHead store >>= right >>= maybe
+          (assertFailure "head missing" >> error "head") pure
+        fmap fencePhase (headDataFence active) @?= Just FenceReleasing
     , testCase "changed target identity leaves a durable unresolved fence" $ do
         store <- newMemoryStore
         _ <- initializeStore store binding "operator-a" >>= right
@@ -207,7 +266,9 @@ fixtureControls released restored observe = DataFenceControls
       modifyIORef' restored (+ 1)
       writeIORef released True
       pure (Right ())
-  , observeWritersReleased = \_ -> Right <$> readIORef released
+  , observeWritersReleased = \_ -> do
+      wasReleased <- readIORef released
+      pure (Right (if wasReleased then WritersFullyReleased else WritersStillExcluded))
   }
 
 request :: DataFenceRecord

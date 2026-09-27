@@ -120,7 +120,7 @@ inventoryObjectOpsTests = testGroup "inventory object operations"
             , observeWritersExcluded = \_ -> pure (Right True)
             , verifyRecoveredData = \_ -> pure (Right True)
             , restoreFenceWriters = \_ -> pure (Right ())
-            , observeWritersReleased = \_ -> pure (Right True)
+            , observeWritersReleased = \_ -> pure (Right WritersFullyReleased)
             }
       acquired <- withProcessLock firstStore (\lock -> acquireDataFence lock controls request)
       case acquired of
