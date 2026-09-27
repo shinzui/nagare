@@ -1071,9 +1071,9 @@ reviewBundleDocument = bundleDocument
 reviewBundleScopes :: ReviewBundle -> Map ContentDigest ByteString
 reviewBundleScopes = bundleScopes
 
--- | Private retained native evidence. A public review directory loads with an
--- empty map; command factories receive the store-backed bundle after matching
--- its public document and scope members byte-for-byte.
+-- | Private prepared native evidence and reviewed fence records. A public
+-- review directory loads with an empty map; command factories receive the
+-- store-backed bundle after matching its public document and scope members.
 reviewBundleNative :: ReviewBundle -> Map ContentDigest ByteString
 reviewBundleNative = bundleNative
 
@@ -1226,7 +1226,8 @@ prepareReviewWithPayloadIdentity payloadIdentity registry snapshot proposal = do
     firstError : rest -> pure (Left (firstError :| rest))
     [] -> do
       let operations = [operation | (operation, _, _) <- successes]
-          native = Map.fromList [(digest, bytes) | (_, Just (digest, bytes), _) <- successes]
+          native = Map.fromList [member | (_, members, _) <- successes,
+            member <- members]
           barriers = [barrier | (_, _, Just barrier) <- successes]
           headValue = storeSnapshotHead snapshot
           document =
@@ -1258,7 +1259,7 @@ prepareReviewWithPayloadIdentity payloadIdentity registry snapshot proposal = do
             Right
               ( ReviewOperation operation (adapterIdentity adapter) (adapterVersion adapter)
                   Nothing "review barrier" Nothing Nothing Nothing
-              , Nothing
+              , []
               , Just barrier
               )
           Left err -> Left err
@@ -1271,12 +1272,20 @@ prepareReviewWithPayloadIdentity payloadIdentity registry snapshot proposal = do
                 Right (Just (record, _)) -> Right (Just (fenceCapability fence, record))
             let bytes = preparedNativeBytes prepared
                 digest = contentDigest bytes
+            fenceMember <- traverse (\(_, record) -> do
+              fenceBytes <- first (PrepareRefused (plannedOperationId operation))
+                (canonicalValue (toJSON record))
+              let fenceDigest = dataFenceIntentDigest record
+              unless (contentDigest fenceBytes == fenceDigest)
+                (Left (PrepareRefused (plannedOperationId operation)
+                  "data fence private member differs from reviewed digest"))
+              pure (fenceDigest, fenceBytes)) selected
             Right
               ( ReviewOperation operation (adapterIdentity adapter) (adapterVersion adapter)
                   (Just digest) (preparedPublicSummary prepared) (fmap fst selected)
                   (dataFenceIntentDigest . snd <$> selected)
                   (publicFenceSummary . snd <$> selected)
-              , Just (digest, bytes)
+              , (digest, bytes) : maybe [] (: []) fenceMember
               , Nothing
               )
 
@@ -1294,6 +1303,28 @@ encodeReviewDocument = either (error . T.unpack) id . canonicalValue . toJSON
 
 reviewDigest :: ReviewBundle -> ContentDigest
 reviewDigest = contentDigest . encodeReviewDocument . bundleDocument
+
+-- The public document names both the prepared adapter object and the private
+-- fence record. Keep both in the content-addressed store, never in the public
+-- review directory, so a new process reconstructs the exact reviewed intent.
+reviewPrivateDigests :: ReviewDocument -> [ContentDigest]
+reviewPrivateDigests document =
+  [digest | operation <- reviewOperations document,
+    Just digest <- [reviewNativeDigest operation]]
+  <> [digest | operation <- reviewOperations document,
+    Just digest <- [reviewFenceDigest operation]]
+
+fenceMembersValid :: ReviewDocument -> Map ContentDigest ByteString -> Bool
+fenceMembersValid document members = all valid
+  [digest | operation <- reviewOperations document,
+    Just digest <- [reviewFenceDigest operation]]
+  where
+    valid digest = case Map.lookup digest members of
+      Nothing -> False
+      Just bytes -> case eitherDecodeStrict' bytes of
+        Left _ -> False
+        Right (record :: DataFenceRecord) ->
+          dataFenceIntentDigest record == digest
 
 publishReview :: InventoryStore -> ReviewBundle -> IO (Either StoreError ContentDigest)
 publishReview store bundle = do
@@ -1321,13 +1352,17 @@ loadPublishedReview store digest = do
         | contentDigest bytes /= digest -> pure (Left (StoreInvalidObject (reviewKey digest) "published review digest mismatch"))
         | otherwise -> do
             scopeResults <- traverse (readRequired store . scopeKey) [revisionDigest revision | revision <- Map.elems (reviewDesiredRevisions document)]
-            nativeResults <- traverse (readRequired store . nativeKey) [member | operation <- reviewOperations document, Just member <- [reviewNativeDigest operation]]
+            nativeResults <- traverse (readRequired store . nativeKey)
+              (reviewPrivateDigests document)
             pure $ do
               scopes <- sequence scopeResults
               native <- sequence nativeResults
               let scopeMap = Map.fromList [(contentDigest member, member) | member <- scopes]
                   nativeMap = Map.fromList [(contentDigest member, member) | member <- native]
-              pure (ReviewBundle document scopeMap nativeMap)
+              if fenceMembersValid document nativeMap
+                then pure (ReviewBundle document scopeMap nativeMap)
+                else Left (StoreInvalidObject (reviewKey digest)
+                  "published data fence member is malformed")
   where
     readRequired inventoryStore key = do
       loaded <- readObject inventoryStore key
@@ -1413,7 +1448,8 @@ verifyReview snapshot bundle =
         <> collectionReviewErrors headValue document
         <> migrationReviewErrors headValue document
         <> [ReviewError "scope-member" "review scope member is missing or has a different digest" | not (membersMatch (bundleScopes bundle) (map revisionDigest (Map.elems (reviewDesiredRevisions document))))]
-        <> [ReviewError "native-member" "review native member is missing or has a different digest" | not (membersMatch (bundleNative bundle) [member | operation <- reviewOperations document, Just member <- [reviewNativeDigest operation]])]
+        <> [ReviewError "native-member" "review private member is missing or has a different digest" | not (membersMatch (bundleNative bundle) (reviewPrivateDigests document))]
+        <> [ReviewError "data-fence-member" "review data fence private member is malformed or differs from its digest" | not (fenceMembersValid document (bundleNative bundle))]
         <> [ReviewError "operation-dependency" "review operation depends on an operation absent from the same review" | not (null missingDependencies)]
     membersMatch members digests =
       Set.fromList digests == Map.keysSet members
@@ -1448,7 +1484,8 @@ verifyActiveReview snapshot transaction bundle =
                Nothing -> True]
         <> activeCollectionReviewErrors headValue document
         <> [ReviewError "scope-member" "active review scope member is missing or has a different digest" | not (membersMatch (bundleScopes bundle) (map revisionDigest (Map.elems (reviewDesiredRevisions document))))]
-        <> [ReviewError "native-member" "active review native member is missing or has a different digest" | not (membersMatch (bundleNative bundle) [member | operation <- reviewOperations document, Just member <- [reviewNativeDigest operation]])]
+        <> [ReviewError "native-member" "active review private member is missing or has a different digest" | not (membersMatch (bundleNative bundle) (reviewPrivateDigests document))]
+        <> [ReviewError "data-fence-member" "active review data fence private member is malformed or differs from its digest" | not (fenceMembersValid document (bundleNative bundle))]
     membersMatch members digests =
       Set.fromList digests == Map.keysSet members
         && all (\(memberDigest, bytes) -> contentDigest bytes == memberDigest) (Map.toList members)

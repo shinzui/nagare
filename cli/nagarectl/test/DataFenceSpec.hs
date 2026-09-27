@@ -1,6 +1,6 @@
 module DataFenceSpec (dataFenceTests) where
 
-import Data.Aeson (Value (..), eitherDecode, encode, object, toJSON, (.=))
+import Data.Aeson (Value (..), eitherDecode, eitherDecodeStrict', encode, object, toJSON, (.=))
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString.Lazy qualified as BL
 import Data.Foldable (toList)
@@ -1771,6 +1771,23 @@ dataFenceTests = testGroup "data fence"
           (maybe False (T.isInfixOf "data fence: acquire, verify, release")
             . reviewFenceSummary)
           (reviewOperations (reviewedDocument reviewed)))
+        case [digest | operation <- reviewOperations (reviewedDocument reviewed),
+            Just digest <- [reviewFenceDigest operation]] of
+          [digest] -> do
+            snapshot <- readStoreSnapshot store >>= right
+            published <- case Set.toList (storeSnapshotReviewDigests snapshot) of
+              [reviewId] -> loadPublishedReview store reviewId >>= right
+              _ -> assertFailure "review store lacks one published review" >> error "review"
+            bytes <- maybe (assertFailure "private fence record was not published"
+              >> error "fence") pure (Map.lookup digest (reviewBundleNative published))
+            saved <- right (eitherDecodeStrict' bytes :: Either String DataFenceRecord)
+            dataFenceIntentDigest saved @?= digest
+            fenceRecoveryArtifact saved @?= "gs://fixture/recovery"
+            withSystemTempDirectory "nagare-public-fence-review" $ \root -> do
+              _ <- writeReviewBundle (root <> "/review") published >>= right
+              public <- loadReviewBundle (root <> "/review") >>= right
+              reviewBundleNative public @?= Map.empty
+          _ -> assertFailure "review lacks one fence digest"
         outcome <- applyReviewed store registry reviewed >>= right
         case outcome of
           Converged _ -> pure ()
