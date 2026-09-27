@@ -69,6 +69,8 @@ Inherited baseline: commits `9c308390`, `28e05b72`, and `09d83188` supplied expl
 
 2026-09-26 continuation: The public fixture now loses one acknowledgement after the recording Pulumi provider has written a layer-one resource, then resumes the retained bootstrap transaction through `inventory resume --yes`. The adapter's no-change preview proves that operation complete, the journal continues the remaining operations, and the fixture checks that the affected `pulumi up --plan` ran exactly once. Candidate source revision `d748b3fb` passed `bash scripts/test-bootstrap-foundation-public.sh <built nagarectl>`. This is a public cloud-layer recovery proof, not the required foundation, host, cluster, and pre-marker interruption matrix.
 
+2026-09-26 continuation: The same public fixture now loses the acknowledgement after a foundation API enable has taken effect. `inventory resume --yes` observes that service, records its receipt, finishes the foundation, and the command log shows the affected enable ran once. Candidate source revision `494bfe31` passed `bash scripts/test-bootstrap-foundation-public.sh <built nagarectl>`. The foundation and cloud-layer portions of the interruption matrix have recording-provider evidence; host, cluster, and pre-marker interruption cases and native final-marker proof remain open.
+
 
 ## Surprises & Discoveries
 
