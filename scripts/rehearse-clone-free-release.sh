@@ -3,10 +3,11 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: scripts/rehearse-clone-free-release.sh --version VERSION [--flake-ref REF] [--output FILE]
+Usage: scripts/rehearse-clone-free-release.sh --version VERSION [--flake-ref REF] [--output FILE] [--smoke-only]
 
 Exercise a versioned Nagare flake from an isolated home and a directory outside its source checkout.
 When --flake-ref is omitted, the current clean HEAD is consumed through an exact git+file revision.
+--smoke-only checks the installed CLI/operator and payload without claiming the full release rehearsal.
 EOF
 }
 
@@ -18,6 +19,7 @@ die() {
 version=""
 flake_ref=""
 output=""
+smoke_only=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -35,6 +37,10 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 ]] || die "--output requires a value"
       output="$2"
       shift 2
+      ;;
+    --smoke-only)
+      smoke_only=true
+      shift
       ;;
     --help|-h)
       usage
@@ -71,8 +77,8 @@ cleanup() {
 }
 trap cleanup EXIT
 mkdir -p "$test_root/home" "$test_root/config" "$test_root/state" "$test_root/work"
-cp "$repo_root/cluster/examples/hello-knative-service/nagare/Config.hs" "$test_root/work/Config.hs"
 cp "$repo_root/cli/nagarectl/test/fixtures/operator.pub" "$test_root/work/operator.pub"
+cp "$repo_root/cli/nagarectl/test/fixtures/inventory/valid.json" "$test_root/work/inventory.json"
 
 # A shell entered through .envrc exports the operator's active context. Drop it so the
 # rehearsal sees only the isolated XDG tree, as a clean CI runner does.
@@ -133,7 +139,10 @@ run_cli context create local --mode local \
   --local-object-store http://minio:9000/nagare-backups \
   --use
 run_cli context show local > local-context.env
-run_cli deploy --dry-run --file "$test_root/work/Config.hs" > typed-config.out
+run_cli inventory compile --input "$test_root/work/inventory.json" \
+  --out "$test_root/work/compiled-inventory" > inventory-compile.out
+test -s "$test_root/work/compiled-inventory/candidate.json"
+test -s "$test_root/work/compiled-inventory/candidate.sha256"
 run_cli platform root --json > platform-root.json
 jq -e --arg version "$version" \
   '.source == "installed" and .platformVersion == $version and (.workspaceRoot | length > 0)' \
@@ -147,6 +156,30 @@ source "$workspace_root/scripts/lib/release.sh"
 expected_source_tag="$(jq -er '.revision' version.json | cut -c1-12)"
 [[ "$(nagare_release_source_tag "$workspace_root")" == "$expected_source_tag" ]]
 run_operator --dry-run local-up > local-init.out 2>&1
+
+if [[ "$smoke_only" == true ]]; then
+  current_system="$(nix eval --raw --impure --expr builtins.currentSystem)"
+  supported_systems="$(nix eval "${flake_ref}#lib.release.supportedSystems" --json)"
+  jq -e --arg system "$current_system" 'index($system) != null' <<<"$supported_systems" >/dev/null \
+    || die "current system $current_system is absent from the release metadata"
+  result="$(jq -n -S \
+    --arg version "$version" \
+    --arg revision "$(jq -er '.revision' version.json)" \
+    --arg flakeRef "$flake_ref" \
+    --arg system "$current_system" \
+    --argjson supportedSystems "$supported_systems" \
+    '{version: $version, revision: $revision, flakeRef: $flakeRef,
+      system: $system, supportedSystems: $supportedSystems,
+      installedSmoke: true, cloneFree: false,
+      checks: ["version", "context", "inventory-compile", "payload", "operator-tools", "local-init"]}')"
+  if [[ -n "$output" ]]; then
+    mkdir -p "$(dirname "$output")"
+    printf '%s\n' "$result" > "$output"
+  else
+    printf '%s\n' "$result"
+  fi
+  exit 0
+fi
 
 # Exercise the exact operator command shape from docs/user/upgrades.md. The doubles are deliberately
 # earlier on PATH than the wrapper's release-pinned fallbacks, so the rehearsal records a safe plan
@@ -340,7 +373,7 @@ result="$(jq -n -S \
     supportedSystems: $supportedSystems, cloneFree: true,
     pulumiVersion: $pulumiVersion,
     platformUpgrade: {state: $upgradeState, previewCalls: $previewCalls},
-    checks: ["version", "context", "typed-config", "payload", "host-config", "local-init", "cloud-init", "context-env", "operator-recipe", "platform-upgrade"]}')"
+    checks: ["version", "context", "inventory-compile", "payload", "host-config", "local-init", "cloud-init", "context-env", "operator-recipe", "platform-upgrade"]}')"
 
 if [[ -n "$output" ]]; then
   mkdir -p "$(dirname "$output")"

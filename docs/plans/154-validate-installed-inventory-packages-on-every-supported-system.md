@@ -22,6 +22,11 @@ provenance:
       at: 2026-09-27T13:38:39Z
       mode: "update"
       note: "Schedule an early installed-package check before feature/provider runs and retain full final-candidate acceptance"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-27T14:15:37Z
+      mode: "implement"
+      note: "Pass bounded installed Darwin smoke and identify stale full-run typed-config fixture"
 ---
 
 # Validate installed inventory packages on every supported system
@@ -43,11 +48,13 @@ The installed operator and developer packages run the inventory commands outside
 
 Inherited baseline: Nix fixture-path fixes, Helm/OpenSSL test inputs, example logical keys, and one Darwin CLI package test were delivered in EP-150. Full flake validation remained incomplete at the formatting gate; no Linux success is inferred from Darwin.
 
+Early installed checkpoint (2026-09-27): `bash scripts/rehearse-clone-free-release.sh --version 0.4.0 --flake-ref 'git+file:///Users/shinzui/Keikaku/bokuno/nagare?rev=2717b386f3529e24ad09245f9236e9f2fa972914' --smoke-only --output /tmp/nagare-mp23-installed-smoke-darwin.json` passed on aarch64 Darwin from an isolated home and directory outside the checkout. The report binds revision `2717b386f3529e24ad09245f9236e9f2fa972914` and checks installed CLI/operator version, local context, inventory compilation, payload files, operator Pulumi tools, and a dry-run local recipe. The first full-run attempt exposed an obsolete `deploy --dry-run` fixture, which now requires an accepted image and tag; the bounded smoke uses the existing read-only inventory compiler instead. The report explicitly says `cloneFree: false` so final release assembly cannot count it as a complete rehearsal. M1/M2 remain open: typed-config and every-system native gates, full clone-free rehearsal, and final candidate identity still need proof. Next ordered checkpoint is EP-155's local fixture/health preparation.
+
 
 ## Surprises & Discoveries
 
 
-No new implementation findings in this successor plan. Inherited evidence and known gaps are identified below.
+2026-09-27: The prior clone-free runner's unqualified `deploy --dry-run` call stopped before typed-config loading because reviewed deploy now requires `--tag` and an accepted `--image-resource`. This was a runner assumption, not evidence of a broken installed CLI. The bounded smoke proves installed inventory compilation; the separate native typed-config checks and complete release rehearsal remain required.
 
 
 ## Decision Log
