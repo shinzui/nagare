@@ -1,5 +1,6 @@
 module InventoryObjectOpsSpec (inventoryObjectOpsTests) where
 
+import Data.Aeson (object)
 import Data.IORef
 import Crypto.Random (getRandomBytes)
 import Data.Either (isLeft)
@@ -7,10 +8,12 @@ import Data.ByteString qualified as BS
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust)
+import Data.Set qualified as Set
 import Data.Text qualified as T
 import InventoryTransactionSpec (exerciseStore, fixtureBinding, preparedFixtureWith, recordingRegistryWith)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter
+import Nagare.Inventory.DataFence
 import Nagare.Inventory.Execute hiding (withProcessLock)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (mkTransactionId)
@@ -85,6 +88,53 @@ inventoryObjectOpsTests = testGroup "inventory object operations"
         Left failures -> assertBool "second admission did not see the active claim"
           ("active-transaction" `elem` map admissionErrorCode (NE.toList failures))
         Right _ -> assertFailure "second client admitted the same review"
+      readIORef effects >>= (@?= 0)
+  , testCase "second object client sees a durable fence and refuses a saved review" $ do
+      ops <- fakeObjectOps
+      firstStore <- newObjectStore ops fixtureBinding "client-a" Nothing
+        >>= either (assertFailure . show) pure
+      secondStore <- newObjectStore ops fixtureBinding "client-b" Nothing
+        >>= either (assertFailure . show) pure
+      effects <- newIORef (0 :: Int)
+      (reviewed, registry) <- preparedFixtureWith firstStore
+        (\_ _ -> modifyIORef' effects (+ 1) >> pure AdapterEffectCompleted)
+        (\_ _ -> pure RecoverySafeToRetry)
+      current <- readHead firstStore >>= either (assertFailure . show) pure
+        >>= maybe (assertFailure "head missing" >> error "unreachable") pure
+      let known = either (error . T.unpack) id
+          owner = known (mkScopeId Standalone "fence-object")
+          target = mintResourceId owner (known (mkLogicalKey "target")) (known (mkName "pvc"))
+          writer = mintResourceId owner (known (mkLogicalKey "writer")) (known (mkName "deployment"))
+          physical = Map.fromList
+            [ (target, known (mkPhysicalIdentity "target-uid"))
+            , (writer, known (mkPhysicalIdentity "writer-uid"))
+            ]
+          request = DataFenceRecord fixtureBinding "object-fence-session" Nothing
+            (headAccepted current) physical (Set.singleton target) (Set.singleton writer)
+            "gs://fixture/recovery" (contentDigest "recovery")
+            (Map.singleton writer (object [])) FenceAcquiring ""
+          controls = DataFenceControls
+            { validateFenceInputs = \_ -> pure (Right ())
+            , stopFenceWriters = \_ -> pure (Right ())
+            , observeFencePhysical = \_ -> pure (Right physical)
+            , observeWritersExcluded = \_ -> pure (Right True)
+            , verifyRecoveredData = \_ -> pure (Right True)
+            , restoreFenceWriters = \_ -> pure (Right ())
+            , observeWritersReleased = \_ -> pure (Right True)
+            }
+      acquired <- withProcessLock firstStore (\lock -> acquireDataFence lock controls request)
+      case acquired of
+        Right (Right _) -> pure ()
+        _ -> assertFailure "object-backed fence acquisition failed"
+      observed <- readHead secondStore >>= either (assertFailure . show) pure
+        >>= maybe (assertFailure "head missing" >> error "unreachable") pure
+      fmap fenceSession (headDataFence observed) @?= Just "object-fence-session"
+      fmap fencePhase (headDataFence observed) @?= Just FenceExcluded
+      second <- applyReviewed secondStore registry reviewed
+      case second of
+        Left failures -> assertBool "second state root did not see the fence"
+          ("active-data-fence" `elem` map admissionErrorCode (NE.toList failures))
+        Right _ -> assertFailure "second state root admitted a fenced review"
       readIORef effects >>= (@?= 0)
   , testCase "a second client sees the completed reviewed transaction" $ do
       ops <- fakeObjectOps
