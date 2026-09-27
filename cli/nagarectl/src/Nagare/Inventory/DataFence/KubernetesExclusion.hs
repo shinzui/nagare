@@ -269,11 +269,10 @@ observeKubernetesExcluded exclusion record = case validatedIntent exclusion reco
             && volumeHasNoConsumers evidence
             && serviceEmpty && guarded)
 
--- | Called only from the durable verified-release phase. The acquisition
--- guard never permits the original StatefulSet Pods to mount the PVC; remove
--- it only after verification, before restoring saved replicas. Both effects
--- are conditional and restart-safe. A partial response remains visible for
--- the separately reviewed forward-recovery operation.
+-- | Called only from the durable verified-release phase. This incomplete
+-- release path requires an intact admission guard before cleanup and refuses
+-- to resume after a partial guard deletion. Production registration remains
+-- blocked until a guarded handoff protects foreign mounts during restoration.
 releaseKubernetesWriters :: KubernetesExclusion -> DataFenceRecord
   -> IO (Either Text ())
 releaseKubernetesWriters exclusion record = case validatedIntent exclusion record of
@@ -283,37 +282,47 @@ releaseKubernetesWriters exclusion record = case validatedIntent exclusion recor
     case physical of
       Left reason -> pure (Left reason)
       Right () -> do
-        removed <- removeMountGuard (exclusionGuardTransport exclusion)
-          (kubernetesMountGuard intent)
-        case removed of
+        let guardTransport = exclusionGuardTransport exclusion
+            mountGuard = kubernetesMountGuard intent
+        enforcing <- observeMountGuard guardTransport mountGuard
+        case enforcing of
           Left reason -> pure (Left reason)
-          Right () -> do
-            restored <- forM (kubernetesStatefulWriters intent) $ \(_, pin) ->
-              restoreStatefulWriter (exclusionWriterTransport exclusion) pin
-            case sequence_ restored of
+          Right False -> pure (Left "Kubernetes mount admission guard is not enforcing before release")
+          Right True -> do
+            removed <- removeMountGuard guardTransport mountGuard
+            case removed of
               Left reason -> pure (Left reason)
-              Right () -> do
-                deployments <- forM (kubernetesDeploymentWriters intent)
-                  $ \(_, pin) -> Deployment.restoreDeploymentWriter
-                    (exclusionDeploymentTransport exclusion) pin
-                case sequence_ deployments of
-                  Left reason -> pure (Left reason)
-                  Right () -> do
-                    ready <- forM (kubernetesStatefulWriters intent) $ \(_, pin) ->
-                      observeStatefulWriterRelease (exclusionWriterTransport exclusion) pin
-                    deploymentReady <- forM (kubernetesDeploymentWriters intent)
-                      $ \(_, pin) -> Deployment.observeDeploymentWriterRelease
-                        (exclusionDeploymentTransport exclusion) pin
-                    case (,) <$> sequence ready <*> sequence deploymentReady of
-                      Left reason -> pure (Left reason)
-                      Right (states, deploymentStates)
-                        | not (all (== WritersFullyReleased)
-                            (states <> deploymentStates)) ->
-                            pure (Left "database workloads are not ready for schedule release")
-                      Right _ -> do
-                        schedules <- forM (kubernetesScheduledWriters intent) $ \(_, pin) ->
-                          restoreScheduledWriter (exclusionScheduleTransport exclusion) pin
-                        pure (sequence_ schedules)
+              Right () -> restoreKubernetesWriterIntent exclusion intent
+
+restoreKubernetesWriterIntent :: KubernetesExclusion -> KubernetesFenceIntent
+  -> IO (Either Text ())
+restoreKubernetesWriterIntent exclusion intent = do
+  restored <- forM (kubernetesStatefulWriters intent) $ \(_, pin) ->
+    restoreStatefulWriter (exclusionWriterTransport exclusion) pin
+  case sequence_ restored of
+    Left reason -> pure (Left reason)
+    Right () -> do
+      deployments <- forM (kubernetesDeploymentWriters intent)
+        $ \(_, pin) -> Deployment.restoreDeploymentWriter
+          (exclusionDeploymentTransport exclusion) pin
+      case sequence_ deployments of
+        Left reason -> pure (Left reason)
+        Right () -> do
+          ready <- forM (kubernetesStatefulWriters intent) $ \(_, pin) ->
+            observeStatefulWriterRelease (exclusionWriterTransport exclusion) pin
+          deploymentReady <- forM (kubernetesDeploymentWriters intent)
+            $ \(_, pin) -> Deployment.observeDeploymentWriterRelease
+              (exclusionDeploymentTransport exclusion) pin
+          case (,) <$> sequence ready <*> sequence deploymentReady of
+            Left reason -> pure (Left reason)
+            Right (states, deploymentStates)
+              | not (all (== WritersFullyReleased)
+                  (states <> deploymentStates)) ->
+                  pure (Left "database workloads are not ready for schedule release")
+            Right _ -> do
+              schedules <- forM (kubernetesScheduledWriters intent) $ \(_, pin) ->
+                restoreScheduledWriter (exclusionScheduleTransport exclusion) pin
+              pure (sequence_ schedules)
 
 observeKubernetesRelease :: KubernetesExclusion -> DataFenceRecord
   -> IO (Either Text WriterReleaseState)

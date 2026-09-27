@@ -723,17 +723,24 @@ dataFenceTests = testGroup "data fence"
           >>= (@?= fencePhysical nativeRecord)
         observeKubernetesRelease native nativeRecord >>= right
           >>= (@?= WritersStillExcluded)
+        writeIORef guardDenied False
+        releaseKubernetesWriters native nativeRecord >>= (@?=
+          Left "Kubernetes mount admission guard is not enforcing before release")
+        readIORef objects >>= \installed -> Map.size installed @?= 34
+        readIORef patches >>= (@?= 1)
+        writeIORef guardDenied True
         firstRelease <- releaseKubernetesWriters native nativeRecord
         firstRelease @?= Left "guard delete acknowledgement lost"
         readIORef patches >>= (@?= 1)
         observeKubernetesRelease native nativeRecord >>= right
           >>= (@?= WritersPartlyReleased)
-        releaseKubernetesWriters native nativeRecord >>= right
+        releaseKubernetesWriters native nativeRecord >>= (@?=
+          Left "Kubernetes mount admission guard is not enforcing before release")
         observeKubernetesRelease native nativeRecord >>= right
-          >>= (@?= WritersFullyReleased)
-        readIORef patches >>= (@?= 2)
-        readIORef deploymentPatches >>= (@?= 2)
-        readIORef schedulePatches >>= (@?= 2)
+          >>= (@?= WritersPartlyReleased)
+        readIORef patches >>= (@?= 1)
+        readIORef deploymentPatches >>= (@?= 1)
+        readIORef schedulePatches >>= (@?= 1)
     , testCase "reservation survives a new process and blocks planning until verified release" $
       withSystemTempDirectory "nagare-data-fence" $ \root -> do
         store <- openFilesystemStore root >>= right

@@ -109,6 +109,8 @@ Inherited: manual receipts and expiry validation, PostgreSQL scratch restore, an
 
 2026-09-27 post-effect exclusion check: the shared fence protocol now reobserves exact physical identity and writer exclusion after a data effect, before accepting recovered-content verification. A focused failure test removes the exclusion proof after `FenceChanging`; verification does not run, the durable phase becomes `FenceUnresolved`, and only an explicit reobserved recovery can release it. This closes a protocol hole, but full M1 still requires the production native provider and engine-specific exclusion proof.
 
+2026-09-27 release safety audit: the existing native release removed admission bindings before restoring the original writer, leaving a foreign mount window if release were interrupted. It now requires intact observed admission before any cleanup and refuses a second release call after partial guard deletion; focused tests prove no replica restoration occurs in that state. This is a fail-closed precondition, not the required guarded handoff: the first release attempt can still remove the Pod mount guard before the writer is ready. Keep this provider unregistered for production. M1 needs a release-mode admission policy that permits only the exact authenticated saved controller, continues denying foreign mounts through writer restoration, and is removed only after ready intent is observed. The controller principal must be captured as a reviewed provider fact and proved on both k3s and GKE. This supersedes the earlier claim that conditional guard cleanup alone made native release restart-safe.
+
 
 ## Surprises & Discoveries
 
