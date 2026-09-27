@@ -18,6 +18,7 @@ import Nagare.Inventory.Adapter
   ( AdapterExecution (..), AdapterFence (..)
   , RecoveryDecision (..), mkAdapterRegistry, observationSet, withAdapterFence )
 import Nagare.Inventory.DataFence
+import Nagare.Inventory.DataFence.DeploymentWriter qualified as Deployment
 import Nagare.Inventory.DataFence.KubernetesExclusion
 import Nagare.Inventory.DataFence.MountGuard
 import Nagare.Inventory.DataFence.MountGuardRuntime
@@ -1241,6 +1242,84 @@ dataFenceTests = testGroup "data fence"
           emptyPods emptyAttachments of
           Left _ -> pure ()
           Right _ -> assertFailure "replaced PVC UID was accepted"
+    , testCase "Deployment writer waits for ReplicaSets and terminating Pods" $ do
+        let uid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+            replicaUid = "bbbbbbbb-cccc-dddd-eeee-ffffffffffff"
+            deploymentSpec replicas image = object
+              [ "replicas" .= (replicas :: Int)
+              , "selector" .= object ["matchLabels" .= object
+                  ["app" .= ("client" :: Text)]]
+              , "template" .= object ["spec" .= object
+                  ["containers" .= [object ["image" .= (image :: Text)]]]]]
+            deployment replicas statusReplicas generation image = object
+              [ "metadata" .= object
+                  [ "namespace" .= ("restore-space" :: Text)
+                  , "name" .= ("client" :: Text)
+                  , "uid" .= (uid :: Text)
+                  , "resourceVersion" .= ("7" :: Text)
+                  , "generation" .= (generation :: Int)]
+              , "spec" .= deploymentSpec replicas image
+              , "status" .= object
+                  [ "observedGeneration" .= (generation :: Int)
+                  , "replicas" .= (statusReplicas :: Int)
+                  , "readyReplicas" .= (statusReplicas :: Int)]]
+            replicaSet desired current = object ["items" .= [object
+              [ "metadata" .= object
+                  [ "namespace" .= ("restore-space" :: Text)
+                  , "name" .= ("client-123" :: Text)
+                  , "uid" .= (replicaUid :: Text)
+                  , "ownerReferences" .= [object
+                      [ "kind" .= ("Deployment" :: Text)
+                      , "name" .= ("client" :: Text)
+                      , "uid" .= (uid :: Text)]]]
+              , "spec" .= object ["replicas" .= (desired :: Int)]
+              , "status" .= object ["replicas" .= (current :: Int)]]]]
+            pod phase = object ["items" .= [object
+              [ "metadata" .= object
+                  [ "namespace" .= ("restore-space" :: Text)
+                  , "labels" .= object ["app" .= ("client" :: Text)]
+                  , "ownerReferences" .= [object
+                      [ "kind" .= ("ReplicaSet" :: Text)
+                      , "name" .= ("client-123" :: Text)
+                      , "uid" .= (replicaUid :: Text)]]]
+              , "status" .= object ["phase" .= (phase :: Text)]]]]
+            emptyPods = object ["items" .= ([] :: [Value])]
+        pin <- right (Deployment.mkDeploymentWriterPin "restore-space"
+          "client" uid 1 (known (Deployment.digestDeploymentWriterSpec
+            (deployment 1 1 1 "old"))))
+        current <- newIORef (deployment 1 1 1 "old")
+        replicaSets <- newIORef (replicaSet 1 1)
+        pods <- newIORef (pod "Running")
+        patches <- newIORef (0 :: Int)
+        let transport = Deployment.DeploymentWriterTransport
+              { Deployment.readDeploymentWriter = \_ _ -> Right <$> readIORef current
+              , Deployment.patchDeploymentWriter = \_ _ _ -> do
+                  count <- atomicModifyIORef' patches (\n -> (n + 1, n + 1))
+                  writeIORef current (deployment (if count == 1 then 0 else 1)
+                    (if count == 1 then 1 else 0) count "old")
+                  pure (Right ())
+              , Deployment.listDeploymentReplicaSets = \_ -> Right <$> readIORef replicaSets
+              , Deployment.listDeploymentPods = \_ -> Right <$> readIORef pods
+              }
+        Deployment.stopDeploymentWriter transport pin >>= (@?= Right ())
+        Deployment.observeDeploymentWriterStopped transport pin >>= (@?= Right False)
+        writeIORef current (deployment 0 0 2 "old")
+        writeIORef replicaSets (replicaSet 0 0)
+        Deployment.observeDeploymentWriterStopped transport pin >>= (@?= Right False)
+        writeIORef pods emptyPods
+        Deployment.observeDeploymentWriterStopped transport pin >>= (@?= Right True)
+        writeIORef current (deployment 0 0 2 "changed")
+        Deployment.observeDeploymentWriterStopped transport pin >>= \case
+          Left reason -> assertBool "changed Deployment template was accepted"
+            ("differs from reviewed writer intent" `T.isInfixOf` reason)
+          Right _ -> assertFailure "changed Deployment template acquired exclusion"
+        writeIORef current (deployment 0 0 2 "old")
+        Deployment.restoreDeploymentWriter transport pin >>= (@?= Right ())
+        Deployment.observeDeploymentWriterRelease transport pin >>=
+          (@?= Right WritersPartlyReleased)
+        writeIORef current (deployment 1 1 3 "old")
+        Deployment.observeDeploymentWriterRelease transport pin >>=
+          (@?= Right WritersFullyReleased)
     , testCase "StatefulSet writer scale and release require observed convergence" $ do
         let uid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
         pin <- right (mkStatefulWriterPin "restore-space" "database" uid 2

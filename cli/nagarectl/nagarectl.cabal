@@ -133,6 +133,7 @@ library
     Nagare.Inventory.DataFence.MountGuardRuntime
     Nagare.Inventory.DataFence.VolumeState
     Nagare.Inventory.DataFence.StatefulWriter
+    Nagare.Inventory.DataFence.DeploymentWriter
     Nagare.Inventory.DataFence.WriterInventory
     Nagare.Inventory.DataFence.KubernetesIntent
     Nagare.Inventory.DataFence.KubernetesExclusion
