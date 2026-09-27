@@ -156,10 +156,14 @@ verifyDataChange locked controls token = do
     Right record | fencePhase record /= FenceChanging ->
       pure (Left "data fence has no active data change to verify")
     Right record -> do
-      checked <- dataProof controls record
-      case checked of
+      excluded <- exclusionProof controls record
+      case excluded of
         Left reason -> unresolved locked record reason
-        Right () -> transition locked token [FenceChanging] FenceVerifying
+        Right () -> do
+          checked <- dataProof controls record
+          case checked of
+            Left reason -> unresolved locked record reason
+            Right () -> transition locked token [FenceChanging] FenceVerifying
 
 markDataFenceUnresolved :: LockedStore s -> FenceToken -> IO (Either Text ())
 markDataFenceUnresolved locked token = do

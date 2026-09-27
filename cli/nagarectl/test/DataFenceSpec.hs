@@ -825,6 +825,43 @@ dataFenceTests = testGroup "data fence"
         final <- readHead reopened >>= right >>= maybe
           (assertFailure "head missing" >> error "head") pure
         fmap fencePhase (headDataFence final) @?= Just FenceExcluded
+    , testCase "lost writer exclusion after a data effect remains unresolved" $ do
+        store <- newMemoryStore
+        _ <- initializeStore store binding "operator-a" >>= right
+        excluded <- newIORef True
+        verifications <- newIORef (0 :: Int)
+        released <- newIORef False
+        restored <- newIORef (0 :: Int)
+        let original = fixtureControls released restored (pure (Right physical))
+            controls = original
+              { observeWritersExcluded = \_ -> Right <$> readIORef excluded
+              , verifyRecoveredData = \_ -> do
+                  modifyIORef' verifications (+ 1)
+                  pure (Right True)
+              }
+        token <- withProcessLock store (\locked ->
+          acquireDataFence locked controls request) >>= right >>= right
+        _ <- withProcessLock store (\locked ->
+          beginDataChange locked controls token) >>= right >>= right
+        writeIORef excluded False
+        result <- withProcessLock store (\locked ->
+          verifyDataChange locked controls token) >>= right
+        case result of
+          Left _ -> pure ()
+          Right () -> assertFailure "lost writer exclusion verified the data change"
+        readIORef verifications >>= (@?= 0)
+        readIORef restored >>= (@?= 0)
+        active <- readHead store >>= right >>= maybe
+          (assertFailure "head missing" >> error "head") pure
+        fmap fencePhase (headDataFence active) @?= Just FenceUnresolved
+        writeIORef excluded True
+        _ <- withProcessLock store (\locked ->
+          recoverDataFence locked controls token) >>= right >>= right
+        _ <- withProcessLock store (\locked ->
+          releaseDataFence locked controls token) >>= right >>= right
+        final <- readHead store >>= right >>= maybe
+          (assertFailure "head missing" >> error "head") pure
+        headDataFence final @?= Nothing
     , testCase "lost release acknowledgement is observed without replaying writer restoration" $ do
         store <- newMemoryStore
         _ <- initializeStore store binding "operator-a" >>= right

@@ -107,6 +107,8 @@ Inherited: manual receipts and expiry validation, PostgreSQL scratch restore, an
 
 2026-09-27 strict private fence accessor: `reviewBundleFenceRecord` now reconstructs only a fence member named by an operation in the loaded review. It checks complete public fence metadata, private member presence, content digest, canonical encoding, and the record's intent digest; a public export cannot supply the private record. The focused data-fence suite passes. This gives a fresh apply registry an exact reviewed input but does not register the unfinished engine/Kubernetes provider, so M1 remains open.
 
+2026-09-27 post-effect exclusion check: the shared fence protocol now reobserves exact physical identity and writer exclusion after a data effect, before accepting recovered-content verification. A focused failure test removes the exclusion proof after `FenceChanging`; verification does not run, the durable phase becomes `FenceUnresolved`, and only an explicit reobserved recovery can release it. This closes a protocol hole, but full M1 still requires the production native provider and engine-specific exclusion proof.
+
 
 ## Surprises & Discoveries
 
