@@ -32,6 +32,11 @@ provenance:
       at: 2026-09-27T13:29:05Z
       mode: "update"
       note: "Apply Codex execution-log diagnosis, fixed outcome ownership, production-path checkpoints, and restore/maintenance handoff without expanding release scope"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-27T14:00:52Z
+      mode: "implement"
+      note: "Repair command-service registration regression and hand off installed smoke"
 ---
 
 # Close managed command coverage for the inventory release
@@ -54,6 +59,8 @@ Every supported mutation command and shipped recipe is mapped to its owner, revi
 M2 handoff (2026-09-26): `just deploy-hello` now uses the typed `nagarectl deploy` path and requires an accepted image resource and explicit tag; historical direct `kubectl apply` effects were removed from that recipe. The example config now names `hello` under the selected context registry, and the example/user instructions describe reviewed publication and retirement. `just --dry-run deploy-hello ...`, the command audit, the focused inventory Cabal suite, both entrypoint guard scripts, and strict `docs/user` validation passed. The remaining seven pending recipes and eleven pending CLI routes are still open, as are platform cleanup/profile/credential protocols and native smoke/consumer proof.
 
 M2 handoff (2026-09-26): `scripts/local-smoke.sh` and `scripts/live-smoke.sh` now publish a Docker archive through `app image-plan`, deploy with its accepted image resource and explicit tag, and save/apply volume snapshot and scratch restore reviews. The local database drill also saves/applies reviewed backup and restore Jobs and checks the scratch database sentinel. Both scripts retain accepted resources and private reviews for exact recovery instead of deleting PVCs or object keys by broad selectors. `bash -n` for both scripts, `bash scripts/test-managed-command-audit.sh`, and strict `docs/user` validation passed. These are source-level checks; native smoke execution and a scratch-volume sentinel readback remain open. The workstation's `local` profile is pinned to platform 0.1.0 while the current selected payload is 0.4.0, and the `nagare-local` k3d cluster is absent, so this session did not claim a native run against that stale target. The live harness still starts the VM directly, and all seven recipes remain pending in the audit.
+
+M2 checkpoint (2026-09-27): Registered the production `planInventoryCandidateWithPayloadIdentity` call and regenerated the existing catalogue snapshot. `python3 scripts/audit-managed-commands.py --update-catalogue --coverage-result /tmp/nagare-command-coverage.json` reports zero registration errors; `bash scripts/test-managed-command-audit.sh` passes and still rejects an injected mutation (135 routes, 34 recipes, 26 library calls). Coverage remains incomplete with 11 pending routes, seven recipes, and 30 incomplete catalogue rows. The next ordered checkpoint is EP-154's installed-package smoke; this registration repair does not close M2.
 
 Inherited baseline: legacy upgrade/Pulumi/context/cleanup/host-credential guards, eleven CLI refusal assertions, and the coverage catalogue already exist. Several guarded operations remain unavailable after admission; their guards are not evidence of a working replacement.
 

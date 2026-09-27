@@ -206,7 +206,7 @@ RECIPE_FAMILY = {
 # Public library calls from production consumers are checked as an exact set.
 # Pure observations are included so a new write cannot hide as an unlisted call.
 LIBRARY_CALLS = {
-    "cli/nagarectl/app/Main.hs": "applyInventoryWithFactory compileInventory convergeInventoryCandidateWith executionBlockedAdapterFor exportInventory loadCandidate loadTargetSnapshot manifestAdapterFor migrateTargetStore openTargetStoreReadOnly planInventory planInventoryAdoptionWith planInventoryCandidateAdoptionWith planInventoryCandidateWith planInventoryCandidateWithRetirements planInventoryCollectionWith planInventoryCollectionsWith planInventoryMigrationWith planInventoryRetirementWith planInventoryWithRetirements recoverInventoryWithFactory restoreInventory resumeInventoryWithFactoryTakeover",
+    "cli/nagarectl/app/Main.hs": "applyInventoryWithFactory compileInventory convergeInventoryCandidateWith executionBlockedAdapterFor exportInventory loadCandidate loadTargetSnapshot manifestAdapterFor migrateTargetStore openTargetStoreReadOnly planInventory planInventoryAdoptionWith planInventoryCandidateAdoptionWith planInventoryCandidateWith planInventoryCandidateWithPayloadIdentity planInventoryCandidateWithRetirements planInventoryCollectionWith planInventoryCollectionsWith planInventoryMigrationWith planInventoryRetirementWith planInventoryWithRetirements recoverInventoryWithFactory restoreInventory resumeInventoryWithFactoryTakeover",
     "cli/nagarectl/nagared/Main.hs": "loadTargetSnapshot openTargetStoreReadOnly",
 }
 

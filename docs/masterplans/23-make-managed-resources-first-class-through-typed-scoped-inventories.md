@@ -176,6 +176,11 @@ provenance:
       at: 2026-09-27T13:29:05Z
       mode: "update"
       note: "Apply Codex execution-log diagnosis, fixed outcome ownership, production-path checkpoints, and restore/maintenance handoff without expanding release scope"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-27T14:00:52Z
+      mode: "implement"
+      note: "Credit EP-160 M1 and EP-153 registration checkpoint; select EP-154 installed smoke"
 ---
 
 # Make managed resources first-class through typed scoped inventories
@@ -298,9 +303,9 @@ These ownership, identity, review, storage, migration, and controller-delegation
 
 ## Progress
 
-2026-09-27 coordination snapshot: seven children are Complete; EP-148 and EP-150 are Cancelled/superseded with their delivered work preserved. EP-153 is In Progress: M1's finite registration audit was delivered on September 26 and M2 remains open. EP-160 is In Progress in another implementation session; its current six M1 closure criteria remain authoritative. EP-154–159 and EP-161 have no accepted successor milestone recorded. Nine active children remain, with substantial feature work as well as final integration. This is not evidence of 90% release readiness.
+2026-09-27 coordination snapshot: seven children are Complete; EP-148 and EP-150 are Cancelled/superseded with their delivered work preserved. EP-160 M1 is accepted on local k3s, while M2/M3 remain open. EP-153 repaired its post-M1 registration regression: the injected-mutation audit passes with 26 library calls and zero registration errors, but M2 and all pending coverage remain open. The next ordered checkpoint is EP-154's installed-package smoke outside the checkout. EP-154–159 and EP-161 have no accepted whole milestone recorded. Nine active children remain, with substantial feature work as well as final integration. This is not evidence of 90% release readiness.
 
-**Implementation order, corrected after tracing producer/consumer code (2026-09-27).** Select the next existing milestone/checkpoint from this order; the numerical registry is an ownership list, not an instruction to finish each whole plan in number order. Preserve the session already implementing EP-160 M1. These checkpoints order existing acceptance work and do not add milestones or waive the rest of a child.
+**Implementation order, corrected after tracing producer/consumer code (2026-09-27).** Select the next existing milestone/checkpoint from this order; the numerical registry is an ownership list, not an instruction to finish each whole plan in number order. EP-160 M1 is accepted; begin order 2. These checkpoints order existing acceptance work and do not add milestones or waive the rest of a child.
 
 | Order | Work and owner | Prerequisite / handoff that prevents rework |
 |---|---|---|
