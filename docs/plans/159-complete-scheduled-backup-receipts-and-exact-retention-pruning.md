@@ -40,6 +40,8 @@ Inherited: reviewed backup CronJobs upload and read back exact bytes without inl
 
 First producer correction (2026-09-27): reviewed scheduled CronJobs now derive their object key from the Job controller UID exposed on the Pod, validate that identity in the upload shell, and use the existing provider-conditional create-only transfer before readback. This removes timestamp collision/overwrite from new reviewed schedules. The inherited self-pruning legacy renderer retains its prior timestamp behavior until a reviewed schedule update. `cabal test nagarectl-test --test-options='-p backup' --test-show-details=failures` passed after the MinIO shell fixture used an S3 prefix. This is only the key/transport part of M1: no durable delegated receipt, ingestion command, Job-cleanup proof, or restore consumer passed yet. M1/M2 remain open.
 
+Native producer probe (2026-09-27): in the isolated EP-155 six-CPU v2 fixture `/tmp/nagare-mp23-ep155-23001-6cpu-v2`, a disposable Job triggered from the accepted PostgreSQL CronJob `nagare-dbbackup-mp23-pg-a` completed with physical UID `26057256-3a89-47bb-9283-b99e6444c0e9`. A separate read-only S3 HeadObject probe found its exact `databases/mp23-pg-a/<Job UID>.sql.gz` object at version `9245f0ea-d6ba-44e7-8f92-ca53d9c60e37`, length 398 bytes. After deleting only that test Job, a second probe returned the same object version and length; both probe Pods were removed. This proves the corrected key/upload and object survival for a template-triggered PostgreSQL Job. The run did not create a delegated receipt, ingest one into history, use an automatic CronJob firing, or restore bytes; those M1 and EP-160 obligations remain open.
+
 
 ## Surprises & Discoveries
 
