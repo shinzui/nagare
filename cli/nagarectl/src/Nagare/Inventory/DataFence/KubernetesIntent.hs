@@ -13,7 +13,6 @@ import Data.Aeson.Key (Key)
 import Data.Aeson.KeyMap qualified as KM
 import Data.Aeson.Types (Parser, parseEither)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (mapMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -85,29 +84,30 @@ decodeKubernetesFenceIntent record = do
       (Left "Kubernetes writer UID differs from durable physical identity")
     pin <- mkStatefulWriterPin (rawWriterNamespace raw) (rawWriterName raw)
       (rawWriterUid raw) (rawWriterReplicas raw)
-    validatedPermit <- mkPodOwnerPermit "StatefulSet" (rawWriterName raw)
+    _ <- mkPodOwnerPermit "StatefulSet" (rawWriterName raw)
       (rawWriterUid raw) (rawWriterPrincipal raw)
     unless (not (rawWriterMountsTarget raw)
         || rawWriterNamespace raw == rawNamespace volume)
       (Left "Kubernetes PVC writer belongs to another namespace")
-    let permit = if rawWriterMountsTarget raw then Just validatedPermit else Nothing
-    pure ((resource, pin), permit, (resource, rawWriterMountsTarget raw))
+    pure ((resource, pin), (resource, rawWriterMountsTarget raw))
   unless (Map.keysSet (fenceSavedWriters record) == fenceAffected record
       && Map.keysSet (fencePhysical record)
         == Set.union (fenceTargets record) (fenceAffected record))
     (Left "Kubernetes fence does not bind exactly every target and writer")
   restorePermit <- traverse (\job -> mkPodOwnerPermit "Job" (rawJobName job)
     (rawJobUid job) (rawJobPrincipal job)) restoreJob
+  -- A saved StatefulSet must not be permitted here: a foreign scale-up could
+  -- recreate its Pod during recovery. It may mount only after verified release
+  -- removes this guard.
   mountGuard <- mkMountGuard (fenceSession record)
     (rawNamespace volume) (rawClaim volume) (rawClaimUid volume)
     (rawPv volume) (rawPvUid volume)
-    (mapMaybe (\(_, permit, _) -> permit) writers
-      <> maybe [] (: []) restorePermit)
+    (maybe [] (: []) restorePermit)
   validateBacking (rawBacking volume)
   pure (KubernetesFenceIntent cluster root (rawResource volume)
     mountGuard (rawBacking volume)
-    (map (\(writer, _, _) -> writer) writers)
-    (Map.fromList [mount | (_, _, mount) <- writers]))
+    (map fst writers)
+    (Map.fromList (map snd writers)))
 
 -- | Reconcile the saved writer pins with the complete accepted native
 -- discovery before any provider mutation. Dependency clients and direct PVC

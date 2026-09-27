@@ -89,6 +89,9 @@ dataFenceTests = testGroup "data fence"
         decoded <- right (decodeKubernetesFenceIntent native)
         kubernetesVolumeBacking decoded @?= LocalVolume "/data/disk" "node-a"
         map fst (kubernetesStatefulWriters decoded) @?= [writer]
+        let (podPolicy, _) = mountGuardObjects (kubernetesMountGuard decoded)
+        assertBool "acquisition guard must deny the saved writer controller"
+          (not (writerUid `T.isInfixOf` T.pack (show podPolicy)))
         let candidate = WriterCandidate writer StatefulSetWriter
               (Kubernetes clusterId "apps" (known (mkName "statefulset"))
                 (Just (known (mkName "restore-space")))
@@ -317,6 +320,7 @@ dataFenceTests = testGroup "data fence"
           >>= (@?= WritersStillExcluded)
         firstRelease <- releaseKubernetesWriters native nativeRecord
         firstRelease @?= Left "guard delete acknowledgement lost"
+        readIORef patches >>= (@?= 1)
         observeKubernetesRelease native nativeRecord >>= right
           >>= (@?= WritersPartlyReleased)
         releaseKubernetesWriters native nativeRecord >>= right

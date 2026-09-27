@@ -154,10 +154,11 @@ observeKubernetesExcluded exclusion record = case validatedIntent exclusion reco
           guarded <- after
           pure (and stopped && volumeHasNoConsumers evidence && guarded)
 
--- | Called only from the durable verified-release phase. Each StatefulSet
--- restore is conditional and restart-safe; guard deletion likewise uses
--- per-object UID/resourceVersion preconditions. A partial response remains
--- visible for the separately reviewed forward-recovery operation.
+-- | Called only from the durable verified-release phase. The acquisition
+-- guard never permits the original StatefulSet Pods to mount the PVC; remove
+-- it only after verification, before restoring saved replicas. Both effects
+-- are conditional and restart-safe. A partial response remains visible for
+-- the separately reviewed forward-recovery operation.
 releaseKubernetesWriters :: KubernetesExclusion -> DataFenceRecord
   -> IO (Either Text ())
 releaseKubernetesWriters exclusion record = case validatedIntent exclusion record of
@@ -167,12 +168,14 @@ releaseKubernetesWriters exclusion record = case validatedIntent exclusion recor
     case physical of
       Left reason -> pure (Left reason)
       Right () -> do
-        restored <- forM (kubernetesStatefulWriters intent) $ \(_, pin) ->
-          restoreStatefulWriter (exclusionWriterTransport exclusion) pin
-        case sequence_ restored of
+        removed <- removeMountGuard (exclusionGuardTransport exclusion)
+          (kubernetesMountGuard intent)
+        case removed of
           Left reason -> pure (Left reason)
-          Right () -> removeMountGuard (exclusionGuardTransport exclusion)
-            (kubernetesMountGuard intent)
+          Right () -> do
+            restored <- forM (kubernetesStatefulWriters intent) $ \(_, pin) ->
+              restoreStatefulWriter (exclusionWriterTransport exclusion) pin
+            pure (sequence_ restored)
 
 observeKubernetesRelease :: KubernetesExclusion -> DataFenceRecord
   -> IO (Either Text WriterReleaseState)
