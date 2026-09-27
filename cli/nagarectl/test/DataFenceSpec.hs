@@ -23,6 +23,7 @@ import Nagare.Inventory.DataFence.MountGuard
 import Nagare.Inventory.DataFence.MountGuardRuntime
 import Nagare.Inventory.DataFence.KubernetesIntent
 import Nagare.Inventory.DataFence.ServiceState
+import Nagare.Inventory.DataFence.ScheduledWriter
 import Nagare.Inventory.DataFence.StatefulWriter
 import Nagare.Inventory.DataFence.VolumeState
 import Nagare.Inventory.DataFence.WriterInventory
@@ -207,10 +208,13 @@ dataFenceTests = testGroup "data fence"
             pvUid = "66666666-7777-8888-9999-000000000000"
             writerUid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
             serviceUid = "99999999-8888-7777-6666-555555555555"
+            scheduleUid = "cccccccc-1111-2222-3333-444444444444"
             cluster = mintResourceId fenceOwner
               (known (mkLogicalKey "cluster")) (known (mkName "cluster"))
             serviceId = mintResourceId fenceOwner
               (known (mkLogicalKey "service")) (known (mkName "service"))
+            scheduleId = mintResourceId fenceOwner
+              (known (mkLogicalKey "backup-schedule")) (known (mkName "cronjob"))
             provider = object
               [ "version" .= (1 :: Int)
               , "provider" .= ("kubernetes" :: Text)
@@ -244,12 +248,22 @@ dataFenceTests = testGroup "data fence"
               , "controllerPrincipal" .=
                   ("system:serviceaccount:kube-system:statefulset-controller" :: Text)
               , "mountsTarget" .= True]
+            savedSchedule = object
+              [ "kind" .= ("CronJob" :: Text)
+              , "namespace" .= ("restore-space" :: Text)
+              , "name" .= ("nagare-dbbackup-database" :: Text)
+              , "uid" .= (scheduleUid :: Text)
+              , "suspend" .= False
+              , "mountsTarget" .= False]
             nativeRecord = request
               { fencePhysical = Map.fromList
                   [(target, known (mkPhysicalIdentity pvcUid))
                   , (writer, known (mkPhysicalIdentity writerUid))
-                  , (serviceId, known (mkPhysicalIdentity serviceUid))]
-              , fenceSavedWriters = Map.singleton writer savedWriter
+                  , (serviceId, known (mkPhysicalIdentity serviceUid))
+                  , (scheduleId, known (mkPhysicalIdentity scheduleUid))]
+              , fenceAffected = Set.fromList [writer, scheduleId]
+              , fenceSavedWriters = Map.fromList
+                  [(writer, savedWriter), (scheduleId, savedSchedule)]
               , fenceProviderIntent = Just provider
               }
             pvc = object
@@ -290,6 +304,10 @@ dataFenceTests = testGroup "data fence"
                     ["claimName" .= ("data-pvc" :: Text)]]]]]]]
             nativeService = object ["spec" .= object ["selector" .= object
               ["nagare.dev/database" .= ("database" :: Text)]]]
+            nativeSchedule = object ["spec" .= object
+              [ "suspend" .= False
+              , "jobTemplate" .= object ["spec" .= object ["template" .= object
+                  ["spec" .= object ["containers" .= ([] :: [Value])]]]]]]
             observedService = object
               [ "metadata" .= object
                   [ "namespace" .= ("restore-space" :: Text)
@@ -311,15 +329,23 @@ dataFenceTests = testGroup "data fence"
             member resource kind name value =
               let bytes = BL.toStrict (encode value)
                in (resource, (ManagedResource resource fenceOwner KubernetesExecutor
-                    (Kubernetes cluster (if kind == "statefulset" then "apps" else "")
+                    (Kubernetes cluster (case kind of
+                      "statefulset" -> "apps"
+                      "cronjob" -> "batch"
+                      _ -> "")
                       (known (mkName kind)) (Just (known (mkName "restore-space")))
                       (known (mkName name))) []
                     (NativeObject (contentDigest bytes)) Retain Stateless Public [] []
                     (SourceLocation "fixture" kind), bytes))
+            scheduleMember = case member scheduleId "cronjob"
+                "nagare-dbbackup-database" nativeSchedule of
+              (resource, (nativeMember, bytes)) ->
+                (resource, (nativeMember {dependencies = [OrderedAfter writer]}, bytes))
             acceptedNative = Map.fromList
               [member target "persistentvolumeclaim" "data-pvc" (object [])
               ,member writer "statefulset" "database" nativeWriter
-              ,member serviceId "service" "database" nativeService]
+              ,member serviceId "service" "database" nativeService
+              ,scheduleMember]
             declarations = [Managed resource | (resource, _) <- Map.elems acceptedNative]
             address (Object fields) = case
               (KM.lookup "kind" fields, KM.lookup "metadata" fields) of
@@ -334,6 +360,11 @@ dataFenceTests = testGroup "data fence"
         writerDenied <- newIORef False
         serviceDenied <- newIORef False
         endpointDenied <- newIORef False
+        scheduleDenied <- newIORef False
+        scheduleSuspended <- newIORef False
+        scheduleJobsActive <- newIORef True
+        schedulePodPhase <- newIORef ("Running" :: Text)
+        schedulePatches <- newIORef (0 :: Int)
         replicas <- newIORef (1 :: Int)
         drained <- newIORef False
         endpointsCleared <- newIORef False
@@ -376,6 +407,7 @@ dataFenceTests = testGroup "data fence"
               , probeWriterScaleDenied = \_ -> Right <$> readIORef writerDenied
               , probeServiceMutationDenied = \_ -> Right <$> readIORef serviceDenied
               , probeEndpointSliceDenied = \_ -> Right <$> readIORef endpointDenied
+              , probeScheduleDenied = \_ -> Right <$> readIORef scheduleDenied
               }
             volumeTransport = VolumeTransport
               { readClaim = \_ _ -> pure (Right pvc)
@@ -423,9 +455,59 @@ dataFenceTests = testGroup "data fence"
                     else [endpointSlice]]))
               , readLegacyEndpoints = \_ _ -> pure (Right Nothing)
               }
+            scheduleTransport = ScheduledWriterTransport
+              { readScheduledWriter = \_ _ -> do
+                  suspended <- readIORef scheduleSuspended
+                  active <- readIORef scheduleJobsActive
+                  pure (Right (object
+                    [ "metadata" .= object
+                        [ "namespace" .= ("restore-space" :: Text)
+                        , "name" .= ("nagare-dbbackup-database" :: Text)
+                        , "uid" .= (scheduleUid :: Text)
+                        , "resourceVersion" .= ("8" :: Text)]
+                    , "spec" .= object ["suspend" .= suspended]
+                    , "status" .= object ["active" .= if active
+                        then [object ["uid" .= ("eeeeeeee-1111-2222-3333-444444444444" :: Text)]]
+                        else ([] :: [Value])]]))
+              , patchScheduledWriter = \_ _ patch -> case patch of
+                  Array operations | Just (Object lastOperation) <-
+                    listToMaybe (reverse (toList operations)) ->
+                      case KM.lookup "value" lastOperation of
+                        Just (Bool value) -> do
+                          modifyIORef' schedulePatches (+ 1)
+                          writeIORef scheduleSuspended value
+                          pure (Right ())
+                        _ -> pure (Left "schedule patch lacks suspend")
+                  _ -> pure (Left "schedule patch is malformed")
+              , listScheduledJobs = \_ -> do
+                  active <- readIORef scheduleJobsActive
+                  pure (Right (object ["items" .= [object
+                    [ "metadata" .= object
+                        [ "namespace" .= ("restore-space" :: Text)
+                        , "name" .= ("nagare-dbbackup-database-12345678" :: Text)
+                        , "uid" .= ("eeeeeeee-1111-2222-3333-444444444444" :: Text)
+                        , "ownerReferences" .= [object
+                            [ "kind" .= ("CronJob" :: Text)
+                            , "name" .= ("nagare-dbbackup-database" :: Text)
+                            , "uid" .= (scheduleUid :: Text)
+                            , "controller" .= True]]]
+                    , "status" .= object ["active" .= (if active then 1 else 0 :: Int)]]]]))
+              , listScheduledPods = \_ -> do
+                  phase <- readIORef schedulePodPhase
+                  pure (Right (object ["items" .= [object
+                    [ "metadata" .= object
+                        [ "namespace" .= ("restore-space" :: Text)
+                        , "name" .= ("nagare-dbbackup-database-12345678-pod" :: Text)
+                        , "ownerReferences" .= [object
+                            [ "kind" .= ("Job" :: Text)
+                            , "name" .= ("nagare-dbbackup-database-12345678" :: Text)
+                            , "uid" .= ("eeeeeeee-1111-2222-3333-444444444444" :: Text)
+                            , "controller" .= True]]]
+                    , "status" .= object ["phase" .= phase]]]]))
+              }
             native = mkKubernetesExclusion (binding ^. #identity) Map.empty
               declarations acceptedNative guardTransport volumeTransport
-              writerTransport serviceTransport
+              writerTransport serviceTransport scheduleTransport
         let missingService = nativeRecord
               { fencePhysical = Map.delete serviceId (fencePhysical nativeRecord)
               , fenceProviderIntent = Just (case provider of
@@ -439,7 +521,7 @@ dataFenceTests = testGroup "data fence"
         validateKubernetesExclusion native nativeRecord >>= right
         refused <- stopKubernetesWriters native nativeRecord
         refused @?= Left "Kubernetes mount admission guard is not enforcing"
-        readIORef objects >>= \installed -> Map.size installed @?= 14
+        readIORef objects >>= \installed -> Map.size installed @?= 18
         readIORef patches >>= (@?= 0)
         writeIORef guardDenied True
         scaleRefused <- stopKubernetesWriters native nativeRecord
@@ -454,12 +536,20 @@ dataFenceTests = testGroup "data fence"
         endpointRefused @?= Left "Kubernetes mount admission guard is not enforcing"
         readIORef patches >>= (@?= 0)
         writeIORef endpointDenied True
+        scheduleRefused <- stopKubernetesWriters native nativeRecord
+        scheduleRefused @?= Left "Kubernetes mount admission guard is not enforcing"
+        readIORef patches >>= (@?= 0)
+        writeIORef scheduleDenied True
         stopKubernetesWriters native nativeRecord >>= right
+        readIORef schedulePatches >>= (@?= 1)
         readIORef patches >>= (@?= 1)
         observeKubernetesExcluded native nativeRecord >>= right >>= (@?= False)
         writeIORef drained True
         observeKubernetesExcluded native nativeRecord >>= right >>= (@?= False)
         writeIORef endpointsCleared True
+        observeKubernetesExcluded native nativeRecord >>= right >>= (@?= False)
+        writeIORef scheduleJobsActive False
+        writeIORef schedulePodPhase "Succeeded"
         observeKubernetesExcluded native nativeRecord >>= right >>= (@?= True)
         observeKubernetesPhysical native nativeRecord >>= right
           >>= (@?= fencePhysical nativeRecord)
@@ -474,6 +564,7 @@ dataFenceTests = testGroup "data fence"
         observeKubernetesRelease native nativeRecord >>= right
           >>= (@?= WritersFullyReleased)
         readIORef patches >>= (@?= 2)
+        readIORef schedulePatches >>= (@?= 2)
     , testCase "reservation survives a new process and blocks planning until verified release" $
       withSystemTempDirectory "nagare-data-fence" $ \root -> do
         store <- openFilesystemStore root >>= right
@@ -897,6 +988,7 @@ dataFenceTests = testGroup "data fence"
               , probeWriterScaleDenied = \_ -> pure (Right True)
               , probeServiceMutationDenied = \_ -> pure (Right True)
               , probeEndpointSliceDenied = \_ -> pure (Right True)
+              , probeScheduleDenied = \_ -> pure (Right True)
               }
         firstInstall <- installMountGuard transport guard
         case firstInstall of
@@ -976,6 +1068,7 @@ dataFenceTests = testGroup "data fence"
               , probeWriterScaleDenied = \_ -> pure (Right True)
               , probeServiceMutationDenied = \_ -> pure (Right True)
               , probeEndpointSliceDenied = \_ -> pure (Right True)
+              , probeScheduleDenied = \_ -> pure (Right True)
               }
         let firstKey = case reverse rendered of
               firstObject : _ -> address firstObject
@@ -1081,6 +1174,7 @@ dataFenceTests = testGroup "data fence"
               , probeWriterScaleDenied = \_ -> pure (Right True)
               , probeServiceMutationDenied = \_ -> pure (Right True)
               , probeEndpointSliceDenied = \_ -> pure (Right True)
+              , probeScheduleDenied = \_ -> pure (Right True)
               }
             volumeTransport = VolumeTransport
               { readClaim = \_ _ -> pure (Right pvc)
@@ -1205,6 +1299,86 @@ dataFenceTests = testGroup "data fence"
         case stopped of
           Left _ -> pure ()
           Right () -> assertFailure "replaced StatefulSet UID was accepted"
+    , testCase "scheduled writer waits for already-started Jobs and Pods" $ do
+        let cronUid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" :: Text
+            jobUid = "11111111-2222-3333-4444-555555555555" :: Text
+            namespace = "restore-space" :: Text
+            cronName = "nagare-dbbackup-database" :: Text
+            cron suspended active uid = object
+              [ "metadata" .= object
+                  [ "namespace" .= namespace
+                  , "name" .= cronName
+                  , "uid" .= (uid :: Text)
+                  , "resourceVersion" .= ("10" :: Text)]
+              , "spec" .= object ["suspend" .= suspended]
+              , "status" .= object ["active" .= if active
+                  then [object ["uid" .= jobUid]] else ([] :: [Value])]]
+            job active = object ["items" .= [object
+              [ "metadata" .= object
+                  [ "namespace" .= namespace
+                  , "name" .= (cronName <> "-12345678")
+                  , "uid" .= jobUid
+                  , "ownerReferences" .= [object
+                      [ "kind" .= ("CronJob" :: Text)
+                      , "name" .= cronName
+                      , "uid" .= cronUid
+                      , "controller" .= True]]]
+              , "status" .= object ["active" .= (if active then 1 else 0 :: Int)]]]]
+            pod phase = object ["items" .= [object
+              [ "metadata" .= object
+                  [ "namespace" .= namespace
+                  , "name" .= (cronName <> "-12345678-pod")
+                  , "ownerReferences" .= [object
+                      [ "kind" .= ("Job" :: Text)
+                      , "name" .= (cronName <> "-12345678")
+                      , "uid" .= jobUid
+                      , "controller" .= True]]]
+              , "status" .= object ["phase" .= (phase :: Text)]]]]
+        pin <- right (mkScheduledWriterPin namespace cronName cronUid (Just False))
+        current <- newIORef (cron False True cronUid)
+        activeJob <- newIORef True
+        podPhase <- newIORef ("Running" :: Text)
+        patches <- newIORef (0 :: Int)
+        loseAck <- newIORef True
+        let transport = ScheduledWriterTransport
+              { readScheduledWriter = \_ _ -> Right <$> readIORef current
+              , patchScheduledWriter = \_ _ patch -> do
+                  modifyIORef' patches (+ 1)
+                  let desired = case patch of
+                        Array operations | Just (Object lastOp) <-
+                          listToMaybe (reverse (toList operations)) ->
+                            KM.lookup "value" lastOp
+                        _ -> Nothing
+                  case desired of
+                    Just (Bool value) -> do
+                      writeIORef current (cron value True cronUid)
+                      lost <- readIORef loseAck
+                      if lost then writeIORef loseAck False
+                        >> pure (Left "CronJob patch acknowledgement lost")
+                        else pure (Right ())
+                    _ -> pure (Left "CronJob patch did not set suspend")
+              , listScheduledJobs = \_ -> Right . job <$> readIORef activeJob
+              , listScheduledPods = \_ -> Right . pod <$> readIORef podPhase
+              }
+        stopScheduledWriter transport pin >>=
+          (@?= Left "CronJob patch acknowledgement lost")
+        stopScheduledWriter transport pin >>= (@?= Right ())
+        readIORef patches >>= (@?= 1)
+        observeScheduledWriterStopped transport pin >>= (@?= Right False)
+        restoreScheduledWriter transport pin >>= (@?= Left "CronJob Jobs have not drained")
+        writeIORef activeJob False
+        writeIORef podPhase "Succeeded"
+        writeIORef current (cron True False cronUid)
+        observeScheduledWriterStopped transport pin >>= (@?= Right True)
+        observeScheduledWriterRelease transport pin >>= (@?= Right WritersStillExcluded)
+        restoreScheduledWriter transport pin >>= (@?= Right ())
+        observeScheduledWriterRelease transport pin >>= (@?= Right WritersFullyReleased)
+        readIORef patches >>= (@?= 2)
+        writeIORef current (cron False False
+          "bbbbbbbb-2222-3333-4444-555555555555")
+        observeScheduledWriterIdentity transport pin >>= \case
+          Left _ -> pure ()
+          Right () -> assertFailure "replaced CronJob UID was accepted"
     , testCase "writer discovery includes dependency and direct-mount clients" $ do
         let cluster = mintResourceId fenceOwner
               (known (mkLogicalKey "cluster")) (known (mkName "cluster"))

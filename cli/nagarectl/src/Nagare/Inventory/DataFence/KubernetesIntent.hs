@@ -19,6 +19,7 @@ import Data.Text qualified as T
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.DataFence.MountGuard
 import Nagare.Inventory.DataFence.ServiceState
+import Nagare.Inventory.DataFence.ScheduledWriter
 import Nagare.Inventory.DataFence.StatefulWriter
 import Nagare.Inventory.DataFence.VolumeState (VolumeBacking (..))
 import Nagare.Inventory.DataFence.WriterInventory
@@ -32,6 +33,7 @@ data KubernetesFenceIntent = KubernetesFenceIntent
   , kubernetesMountGuard :: !MountGuard
   , kubernetesVolumeBacking :: !VolumeBacking
   , kubernetesStatefulWriters :: ![(ResourceId, StatefulWriterPin)]
+  , kubernetesScheduledWriters :: ![(ResourceId, ScheduledWriterPin)]
   , kubernetesWriterMountsTarget :: !(Map.Map ResourceId Bool)
   , kubernetesService :: !(Maybe ServicePin)
   }
@@ -55,6 +57,16 @@ data RawWriter = RawWriter
   , rawWriterPrincipal :: !Text
   , rawWriterMountsTarget :: !Bool
   }
+
+data RawSchedule = RawSchedule
+  { rawScheduleNamespace :: !Text
+  , rawScheduleName :: !Text
+  , rawScheduleUid :: !Text
+  , rawScheduleSuspend :: !(Maybe Bool)
+  , rawScheduleMountsTarget :: !Bool
+  }
+
+data RawSavedWriter = RawStateful !RawWriter | RawScheduled !RawSchedule
 
 data RawRestoreJob = RawRestoreJob
   { rawJobName :: !Text
@@ -92,18 +104,32 @@ decodeKubernetesFenceIntent record = do
     (Left "Kubernetes fence PVC UID differs from durable physical identity")
   writers <- forM (Map.toAscList (fenceSavedWriters record)) $ \(resource, value) -> do
     raw <- first T.pack (parseEither parseSavedWriter value)
-    unless (fmap physicalIdentityText
-        (Map.lookup resource (fencePhysical record))
-          == Just (rawWriterUid raw))
+    let uid = case raw of
+          RawStateful writer -> rawWriterUid writer
+          RawScheduled schedule -> rawScheduleUid schedule
+    unless (fmap physicalIdentityText (Map.lookup resource (fencePhysical record))
+        == Just uid)
       (Left "Kubernetes writer UID differs from durable physical identity")
-    pin <- mkStatefulWriterPin (rawWriterNamespace raw) (rawWriterName raw)
-      (rawWriterUid raw) (rawWriterReplicas raw)
-    _ <- mkPodOwnerPermit "StatefulSet" (rawWriterName raw)
-      (rawWriterUid raw) (rawWriterPrincipal raw)
-    unless (not (rawWriterMountsTarget raw)
-        || rawWriterNamespace raw == rawNamespace volume)
-      (Left "Kubernetes PVC writer belongs to another namespace")
-    pure ((resource, pin), (resource, rawWriterMountsTarget raw))
+    case raw of
+      RawStateful writer -> do
+        pin <- mkStatefulWriterPin (rawWriterNamespace writer) (rawWriterName writer)
+          (rawWriterUid writer) (rawWriterReplicas writer)
+        _ <- mkPodOwnerPermit "StatefulSet" (rawWriterName writer)
+          (rawWriterUid writer) (rawWriterPrincipal writer)
+        unless (not (rawWriterMountsTarget writer)
+            || rawWriterNamespace writer == rawNamespace volume)
+          (Left "Kubernetes PVC writer belongs to another namespace")
+        pure (resource, Left pin, rawWriterMountsTarget writer)
+      RawScheduled schedule -> do
+        pin <- mkScheduledWriterPin (rawScheduleNamespace schedule)
+          (rawScheduleName schedule) (rawScheduleUid schedule)
+          (rawScheduleSuspend schedule)
+        unless (not (rawScheduleMountsTarget schedule)
+            || rawScheduleNamespace schedule == rawNamespace volume)
+          (Left "Kubernetes PVC writer belongs to another namespace")
+        pure (resource, Right pin, rawScheduleMountsTarget schedule)
+  let statefulWriters = [(resource, pin) | (resource, Left pin, _) <- writers]
+      scheduledWriters = [(resource, pin) | (resource, Right pin, _) <- writers]
   let serviceIds = maybe Set.empty (Set.singleton . serviceResource) service
   unless (Set.null (Set.intersection serviceIds
       (Set.union (fenceTargets record) (fenceAffected record))))
@@ -127,14 +153,17 @@ decodeKubernetesFenceIntent record = do
     (maybe [] (: []) restorePermit)
   writerGuard <- withGuardedStatefulSets volumeGuard
     [(writerNamespace pin, writerName pin, writerUid pin)
-      | ((_, pin), _) <- writers]
-  mountGuard <- maybe (Right writerGuard) (\pin -> withGuardedService writerGuard
+      | (_, pin) <- statefulWriters]
+  scheduleGuard <- withGuardedSchedules writerGuard
+    [(scheduleNamespace pin, scheduleName pin, scheduleUid pin)
+      | (_, pin) <- scheduledWriters]
+  mountGuard <- maybe (Right scheduleGuard) (\pin -> withGuardedService scheduleGuard
     (serviceNamespace pin) (serviceName pin) (serviceUid pin)) service
   validateBacking (rawBacking volume)
   pure (KubernetesFenceIntent cluster root (rawResource volume)
     mountGuard (rawBacking volume)
-    (map fst writers)
-    (Map.fromList (map snd writers)) service)
+    statefulWriters scheduledWriters
+    (Map.fromList [(resource, mounted) | (resource, _, mounted) <- writers]) service)
 
 -- | Reconcile the saved writer pins with the complete accepted native
 -- discovery before any provider mutation. Dependency clients and direct PVC
@@ -142,7 +171,10 @@ decodeKubernetesFenceIntent record = do
 validateKubernetesWriterInventory :: KubernetesFenceIntent
   -> [WriterCandidate] -> Either Text ()
 validateKubernetesWriterInventory intent candidates = do
-  let pinned = Map.fromList (kubernetesStatefulWriters intent)
+  let pinned = Map.fromList ([(resource, Left pin)
+        | (resource, pin) <- kubernetesStatefulWriters intent]
+        <> [(resource, Right pin)
+        | (resource, pin) <- kubernetesScheduledWriters intent])
       discovered = Map.fromList [(candidateResource candidate, candidate)
         | candidate <- candidates]
   unless (length candidates == Map.size discovered
@@ -151,8 +183,11 @@ validateKubernetesWriterInventory intent candidates = do
   forM_ (Map.toAscList pinned) $ \(resource, pin) -> do
     candidate <- maybe (Left "accepted writer is missing") Right
       (Map.lookup resource discovered)
-    unless (candidateKind candidate == StatefulSetWriter
-        && matchesWriterAddress intent pin (candidateAddress candidate))
+    unless (case pin of
+        Left stateful -> candidateKind candidate == StatefulSetWriter
+          && matchesWriterAddress intent stateful (candidateAddress candidate)
+        Right scheduled -> candidateKind candidate == CronJobWriter
+          && matchesScheduleAddress intent scheduled (candidateAddress candidate))
       (Left "accepted writer controller differs from reviewed fence writer")
     unless (Map.lookup resource (kubernetesWriterMountsTarget intent)
         == Just (candidateByMount candidate))
@@ -166,6 +201,15 @@ matchesWriterAddress intent pin (Kubernetes cluster "apps" kind namespace name) 
     && fmap nameText namespace == Just (writerNamespace pin)
     && nameText name == writerName pin
 matchesWriterAddress _ _ _ = False
+
+matchesScheduleAddress :: KubernetesFenceIntent -> ScheduledWriterPin
+  -> ProviderAddress -> Bool
+matchesScheduleAddress intent pin (Kubernetes cluster "batch" kind namespace name) =
+  cluster == kubernetesCluster intent
+    && nameText kind == "cronjob"
+    && fmap nameText namespace == Just (scheduleNamespace pin)
+    && nameText name == scheduleName pin
+matchesScheduleAddress _ _ _ = False
 
 validateBacking :: VolumeBacking -> Either Text ()
 validateBacking (CsiVolume driver handle) =
@@ -216,15 +260,20 @@ parseBacking = withObject "Kubernetes volume backing" $ \o -> do
       LocalVolume <$> o .: "path" <*> o .: "node"
     _ -> fail "unsupported Kubernetes volume backing"
 
-parseSavedWriter :: Value -> Parser RawWriter
+parseSavedWriter :: Value -> Parser RawSavedWriter
 parseSavedWriter = withObject "saved Kubernetes writer" $ \o -> do
-  onlyKeys ["kind", "namespace", "name", "uid", "replicas", "controllerPrincipal", "mountsTarget"] o
   kind <- o .: "kind" :: Parser Text
-  unless (kind == "StatefulSet")
-    (fail "Kubernetes writer has no implemented stop control")
-  RawWriter <$> o .: "namespace" <*> o .: "name" <*> o .: "uid"
-    <*> o .: "replicas" <*> o .: "controllerPrincipal"
-    <*> o .: "mountsTarget"
+  case kind of
+    "StatefulSet" -> do
+      onlyKeys ["kind", "namespace", "name", "uid", "replicas", "controllerPrincipal", "mountsTarget"] o
+      RawStateful <$> (RawWriter <$> o .: "namespace" <*> o .: "name"
+        <*> o .: "uid" <*> o .: "replicas" <*> o .: "controllerPrincipal"
+        <*> o .: "mountsTarget")
+    "CronJob" -> do
+      onlyKeys ["kind", "namespace", "name", "uid", "suspend", "mountsTarget"] o
+      RawScheduled <$> (RawSchedule <$> o .: "namespace" <*> o .: "name"
+        <*> o .: "uid" <*> o .:? "suspend" <*> o .: "mountsTarget")
+    _ -> fail "Kubernetes writer has no implemented stop control"
 
 parseJob :: Value -> Parser RawRestoreJob
 parseJob = withObject "Kubernetes restore Job" $ \o -> do

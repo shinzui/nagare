@@ -8,10 +8,13 @@ module Nagare.Inventory.DataFence.MountGuard
   , mkMountGuard
   , withGuardedStatefulSets
   , withGuardedService
+  , withGuardedSchedules
   , GuardedStatefulSet (..)
   , GuardedService (..)
+  , GuardedSchedule (..)
   , guardedStatefulSets
   , guardedService
+  , guardedSchedules
   , mkPodOwnerPermit
   , validUid
   , mountGuardName
@@ -27,6 +30,7 @@ module Nagare.Inventory.DataFence.MountGuard
   , statefulWriterGuardObjects
   , serviceMutationGuardObjects
   , endpointSliceGuardObjects
+  , scheduledWriterGuardObjects
   ) where
 
 import Data.Aeson (Value, object, (.=))
@@ -57,6 +61,7 @@ data MountGuard = MountGuard
   , guardPermits :: ![PodOwnerPermit]
   , guardWriters :: ![GuardedStatefulSet]
   , guardService :: !(Maybe GuardedService)
+  , guardSchedules :: ![GuardedSchedule]
   }
   deriving stock (Eq, Show)
 
@@ -71,6 +76,13 @@ data GuardedService = GuardedService
   { guardedServiceNamespace :: !Text
   , guardedServiceName :: !Text
   , guardedServiceUid :: !Text
+  }
+  deriving stock (Eq, Show)
+
+data GuardedSchedule = GuardedSchedule
+  { guardedScheduleNamespace :: !Text
+  , guardedScheduleName :: !Text
+  , guardedScheduleUid :: !Text
   }
   deriving stock (Eq, Show)
 
@@ -108,7 +120,8 @@ mkMountGuard session namespace claim claimUid volume volumeUid permits = do
   unless (validUid claimUid) (Left "fenced PVC UID is not a canonical Kubernetes UUID")
   unless (validUid volumeUid) (Left "fenced PV UID is not a canonical Kubernetes UUID")
   MountGuard session <$> mkName namespace <*> mkName claim <*> pure claimUid
-    <*> mkName volume <*> pure volumeUid <*> pure permits <*> pure [] <*> pure Nothing
+    <*> mkName volume <*> pure volumeUid <*> pure permits <*> pure []
+    <*> pure Nothing <*> pure []
 
 withGuardedStatefulSets :: MountGuard -> [(Text, Text, Text)]
   -> Either Text MountGuard
@@ -137,6 +150,24 @@ withGuardedService guard namespace name uid = do
 
 guardedService :: MountGuard -> Maybe GuardedService
 guardedService = guardService
+
+withGuardedSchedules :: MountGuard -> [(Text, Text, Text)]
+  -> Either Text MountGuard
+withGuardedSchedules guard schedules = do
+  validated <- traverse validate schedules
+  let addresses = [(guardedScheduleNamespace schedule, guardedScheduleName schedule)
+        | schedule <- validated]
+  unless (length addresses == Set.size (Set.fromList addresses))
+    (Left "fenced CronJob address is duplicated")
+  pure guard {guardSchedules = validated}
+  where
+    validate (namespace, name, uid) = do
+      unless (validDnsLabel namespace && validDnsSubdomain name && validUid uid)
+        (Left "fenced CronJob address or UID is malformed")
+      pure (GuardedSchedule namespace name uid)
+
+guardedSchedules :: MountGuard -> [GuardedSchedule]
+guardedSchedules = guardSchedules
 
 validDnsSubdomain :: Text -> Bool
 validDnsSubdomain name = T.length name <= 253
@@ -341,6 +372,35 @@ endpointSliceGuardObjects guard = fmap render (guardService guard)
           <> guardedServiceName service
           <> "' || !has(object.endpoints) || object.endpoints == null "
           <> "|| size(object.endpoints) == 0"
+
+-- | Keep schedules suspended and deny new Jobs carrying their exact owner
+-- UID. Already-started Jobs and Pods still need separate drain observation.
+scheduledWriterGuardObjects :: MountGuard -> [(Value, Value)]
+scheduledWriterGuardObjects guard = concatMap render (guardSchedules guard)
+  where
+    render schedule =
+      [ mutationGuardObjects guard (suffix schedule <> "-cronjob")
+          ["UPDATE", "DELETE"] "batch" "cronjobs" cronExpression
+          "Nagare database schedule is fenced"
+      , mutationGuardObjects guard (suffix schedule <> "-job")
+          ["CREATE"] "batch" "jobs" jobExpression
+          "Nagare scheduled Job creation is fenced"
+      ]
+      where
+        cronExpression = "oldObject.metadata.namespace != '"
+          <> guardedScheduleNamespace schedule
+          <> "' || oldObject.metadata.name != '"
+          <> guardedScheduleName schedule
+          <> "' || (request.operation == 'UPDATE' && object.spec.suspend == true)"
+        jobExpression = "request.namespace != '"
+          <> guardedScheduleNamespace schedule
+          <> "' || !has(object.metadata.ownerReferences) || "
+          <> "object.metadata.ownerReferences.all(r, r.kind != 'CronJob' || "
+          <> "r.uid != '" <> guardedScheduleUid schedule <> "')"
+    suffix schedule = "schedule-" <> T.take 8
+      (digestText (contentDigest (TE.encodeUtf8 (T.intercalate "/"
+        [guardedScheduleNamespace schedule, guardedScheduleName schedule,
+          guardedScheduleUid schedule]))))
 
 mutationGuardObjects :: MountGuard -> Text -> [Text] -> Text -> Text -> Text -> Text
   -> (Value, Value)

@@ -31,6 +31,7 @@ import Nagare.Inventory.DataFence.KubernetesIntent
 import Nagare.Inventory.DataFence.MountGuard (guardClaimName)
 import Nagare.Inventory.DataFence.MountGuardRuntime
 import Nagare.Inventory.DataFence.ServiceState
+import Nagare.Inventory.DataFence.ScheduledWriter
 import Nagare.Inventory.DataFence.StatefulWriter
 import Nagare.Inventory.DataFence.VolumeState
 import Nagare.Inventory.DataFence.WriterInventory
@@ -47,12 +48,13 @@ data KubernetesExclusion = KubernetesExclusion
   , exclusionVolumeTransport :: !VolumeTransport
   , exclusionWriterTransport :: !StatefulWriterTransport
   , exclusionServiceTransport :: !ServiceTransport
+  , exclusionScheduleTransport :: !ScheduledWriterTransport
   }
 
 mkKubernetesExclusion :: ContextId -> Map ScopeId ScopeRevision
   -> [Declaration] -> Map ResourceId (ManagedResource, ByteString)
   -> MountGuardTransport -> VolumeTransport -> StatefulWriterTransport
-  -> ServiceTransport
+  -> ServiceTransport -> ScheduledWriterTransport
   -> KubernetesExclusion
 mkKubernetesExclusion = KubernetesExclusion
 
@@ -64,6 +66,7 @@ kubectlKubernetesExclusion config accepted declarations native =
   mkKubernetesExclusion (runtimeContext config) accepted declarations native
     (kubectlMountGuardTransport config) (kubectlVolumeTransport config)
     (kubectlStatefulWriterTransport config) (kubectlServiceTransport config)
+    (kubectlScheduledWriterTransport config)
 
 validatedIntent :: KubernetesExclusion -> DataFenceRecord
   -> Either Text KubernetesFenceIntent
@@ -173,9 +176,14 @@ stopKubernetesWriters exclusion record = case validatedIntent exclusion record o
               Left reason -> pure (Left reason)
               Right False -> pure (Left "Kubernetes mount admission guard is not enforcing")
               Right True -> do
-                stopped <- forM (kubernetesStatefulWriters intent) $ \(_, pin) ->
-                  stopStatefulWriter (exclusionWriterTransport exclusion) pin
-                pure (sequence_ stopped)
+                schedules <- forM (kubernetesScheduledWriters intent) $ \(_, pin) ->
+                  stopScheduledWriter (exclusionScheduleTransport exclusion) pin
+                case sequence_ schedules of
+                  Left reason -> pure (Left reason)
+                  Right () -> do
+                    stopped <- forM (kubernetesStatefulWriters intent) $ \(_, pin) ->
+                      stopStatefulWriter (exclusionWriterTransport exclusion) pin
+                    pure (sequence_ stopped)
 
 -- | The returned identities are the durable reviewed map only after current
 -- PVC/PV/backing and every StatefulSet UID have been checked natively.
@@ -194,11 +202,14 @@ observeExactPhysical exclusion intent = do
     (kubernetesMountGuard intent) (kubernetesVolumeBacking intent)
   writers <- forM (kubernetesStatefulWriters intent) $ \(_, pin) ->
     observeStatefulWriterIdentity (exclusionWriterTransport exclusion) pin
+  schedules <- forM (kubernetesScheduledWriters intent) $ \(_, pin) ->
+    observeScheduledWriterIdentity (exclusionScheduleTransport exclusion) pin
   service <- traverse (observeServiceState (exclusionServiceTransport exclusion))
     (kubernetesService intent)
   pure $ do
     _ <- volume
     sequence_ writers
+    sequence_ schedules
     case service of
       Nothing -> Right ()
       Just observed -> () <$ observed
@@ -220,6 +231,8 @@ observeKubernetesExcluded exclusion record = case validatedIntent exclusion reco
       Right True -> do
         writers <- forM (kubernetesStatefulWriters intent) $ \(_, pin) ->
           observeStatefulWriterStopped (exclusionWriterTransport exclusion) pin
+        schedules <- forM (kubernetesScheduledWriters intent) $ \(_, pin) ->
+          observeScheduledWriterStopped (exclusionScheduleTransport exclusion) pin
         volume <- observeVolumeState (exclusionVolumeTransport exclusion)
           mountGuard (kubernetesVolumeBacking intent)
         service <- case kubernetesService intent of
@@ -229,10 +242,11 @@ observeKubernetesExcluded exclusion record = case validatedIntent exclusion reco
         after <- observeMountGuard guardTransport mountGuard
         pure $ do
           stopped <- sequence writers
+          suspended <- sequence schedules
           evidence <- volume
           serviceEmpty <- service
           guarded <- after
-          pure (and stopped && volumeHasNoConsumers evidence
+          pure (and stopped && and suspended && volumeHasNoConsumers evidence
             && serviceEmpty && guarded)
 
 -- | Called only from the durable verified-release phase. The acquisition
@@ -256,7 +270,19 @@ releaseKubernetesWriters exclusion record = case validatedIntent exclusion recor
           Right () -> do
             restored <- forM (kubernetesStatefulWriters intent) $ \(_, pin) ->
               restoreStatefulWriter (exclusionWriterTransport exclusion) pin
-            pure (sequence_ restored)
+            case sequence_ restored of
+              Left reason -> pure (Left reason)
+              Right () -> do
+                ready <- forM (kubernetesStatefulWriters intent) $ \(_, pin) ->
+                  observeStatefulWriterRelease (exclusionWriterTransport exclusion) pin
+                case sequence ready of
+                  Left reason -> pure (Left reason)
+                  Right states | not (all (== WritersFullyReleased) states) ->
+                    pure (Left "StatefulSet is not ready for schedule release")
+                  Right _ -> do
+                    schedules <- forM (kubernetesScheduledWriters intent) $ \(_, pin) ->
+                      restoreScheduledWriter (exclusionScheduleTransport exclusion) pin
+                    pure (sequence_ schedules)
 
 observeKubernetesRelease :: KubernetesExclusion -> DataFenceRecord
   -> IO (Either Text WriterReleaseState)
@@ -269,16 +295,27 @@ observeKubernetesRelease exclusion record = case validatedIntent exclusion recor
       Right () -> do
         writers <- forM (kubernetesStatefulWriters intent) $ \(_, pin) ->
           observeStatefulWriterRelease (exclusionWriterTransport exclusion) pin
+        schedules <- forM (kubernetesScheduledWriters intent) $ \(_, pin) ->
+          observeScheduledWriterRelease (exclusionScheduleTransport exclusion) pin
         let mountGuard = kubernetesMountGuard intent
             transport = exclusionGuardTransport exclusion
         intact <- observeMountGuard transport mountGuard
         absent <- observeMountGuardAbsent transport mountGuard
         pure $ do
           states <- sequence writers
+          scheduledStates <- sequence schedules
           guarded <- intact
           removed <- absent
-          pure $ if all (== WritersFullyReleased) states && removed
+          let scheduledExcluded = and
+                [ state == WritersStillExcluded
+                    || (scheduleSavedSuspend pin == Just True
+                      && state == WritersFullyReleased)
+                | ((_, pin), state) <- zip (kubernetesScheduledWriters intent)
+                    scheduledStates]
+          pure $ if all (== WritersFullyReleased) states
+              && all (== WritersFullyReleased) scheduledStates && removed
             then WritersFullyReleased
-            else if all (== WritersStillExcluded) states && guarded
+            else if all (== WritersStillExcluded) states
+              && scheduledExcluded && guarded
               then WritersStillExcluded
               else WritersPartlyReleased

@@ -118,7 +118,8 @@ discoverWriterCandidatesForRoutes target routes cluster claim declarations nativ
       || Set.member target selectedIds)
     (Left "fenced writer target has no supported native control")
   let uncontrolled = [resourceIdText (candidateResource candidate)
-        | candidate <- candidates, candidateKind candidate /= StatefulSetWriter]
+        | candidate <- candidates, candidateKind candidate `notElem`
+            [StatefulSetWriter, CronJobWriter]]
   unless (null uncontrolled)
     (Left ("accepted writer has no implemented fence control: "
       <> T.intercalate "," uncontrolled))

@@ -34,6 +34,7 @@ data MountGuardTransport = MountGuardTransport
   , probeWriterScaleDenied :: !(MountGuard -> IO (Either Text Bool))
   , probeServiceMutationDenied :: !(MountGuard -> IO (Either Text Bool))
   , probeEndpointSliceDenied :: !(MountGuard -> IO (Either Text Bool))
+  , probeScheduleDenied :: !(MountGuard -> IO (Either Text Bool))
   }
 
 -- | Existing objects are accepted only when their effective policy and
@@ -92,7 +93,12 @@ observeMountGuard transport guard = do
               case serviceDenied of
                 Left reason -> pure (Left reason)
                 Right False -> pure (Right False)
-                Right True -> probeEndpointSliceDenied transport guard
+                Right True -> do
+                  endpointsDenied <- probeEndpointSliceDenied transport guard
+                  case endpointsDenied of
+                    Left reason -> pure (Left reason)
+                    Right False -> pure (Right False)
+                    Right True -> probeScheduleDenied transport guard
 
 -- | Only the explicit verified-release path may call this. Bindings go first
 -- so no policy can remain unexpectedly active after release. Each deletion is
@@ -149,14 +155,17 @@ guardObjects guard =
       writerPairs = statefulWriterGuardObjects guard
       servicePairs = maybe [] (: []) (serviceMutationGuardObjects guard)
       slicePairs = maybe [] (: []) (endpointSliceGuardObjects guard)
+      schedulePairs = scheduledWriterGuardObjects guard
    in [podPolicy, pvcPolicy, pvPolicy, namespacePolicy]
       <> map fst writerPairs
       <> map fst servicePairs
       <> map fst slicePairs
+      <> map fst schedulePairs
       <> [podBinding, pvcBinding, pvBinding, namespaceBinding]
       <> map snd writerPairs
       <> map snd servicePairs
       <> map snd slicePairs
+      <> map snd schedulePairs
 
 objectAddress :: Value -> Either Text (Text, Text)
 objectAddress (Object root) = do
@@ -191,7 +200,7 @@ textField key root = case KM.lookup (Key.fromText key) root of
 
 kubectlMountGuardTransport :: KubernetesRuntimeConfig -> MountGuardTransport
 kubectlMountGuardTransport config = MountGuardTransport
-  readOne createOne deleteOne probe probeScale probeService probeSlice
+  readOne createOne deleteOne probe probeScale probeService probeSlice probeSchedule
   where
     invoke arguments input = do
       guarded <- runtimeGuard config
@@ -336,6 +345,54 @@ kubectlMountGuardTransport config = MountGuardTransport
           Right (ExitSuccess, _, _) -> Right False
           Right (ExitFailure _, _, errors) ->
             Right ("Nagare database endpoints are fenced" `T.isInfixOf` T.pack errors)
+    probeSchedule guard = do
+      results <- forM (guardedSchedules guard) $ \schedule -> do
+        let namespace = T.unpack (guardedScheduleNamespace schedule)
+            name = T.unpack (guardedScheduleName schedule)
+            patch = toJSON
+              [ object ["op" .= ("test" :: Text)
+                  , "path" .= ("/metadata/uid" :: Text)
+                  , "value" .= guardedScheduleUid schedule]
+              , object ["op" .= ("add" :: Text)
+                  , "path" .= ("/spec/suspend" :: Text)
+                  , "value" .= False]]
+            job = object
+              [ "apiVersion" .= ("batch/v1" :: Text)
+              , "kind" .= ("Job" :: Text)
+              , "metadata" .= object
+                  [ "name" .= (T.take 40 (mountGuardName guard) <> "-job-probe")
+                  , "ownerReferences" .= [object
+                      [ "apiVersion" .= ("batch/v1" :: Text)
+                      , "kind" .= ("CronJob" :: Text)
+                      , "name" .= guardedScheduleName schedule
+                      , "uid" .= guardedScheduleUid schedule
+                      , "controller" .= True]]]
+              , "spec" .= object ["template" .= object
+                  ["spec" .= object
+                    [ "containers" .= [object
+                        [ "name" .= ("probe" :: Text)
+                        , "image" .= ("registry.k8s.io/pause:3.9" :: Text)]]
+                    , "restartPolicy" .= ("Never" :: Text)]]]
+              ]
+        update <- invoke ["--namespace", namespace, "patch", "cronjob", name,
+          "--type=json", "-p",
+          T.unpack (TE.decodeUtf8 (BL.toStrict (encode patch))),
+          "--dry-run=server"] ""
+        deletion <- invoke ["--namespace", namespace, "delete", "cronjob", name,
+          "--dry-run=server"] ""
+        creation <- invoke ["--namespace", namespace, "create", "-f", "-",
+          "--dry-run=server"]
+          (T.unpack (TE.decodeUtf8 (BL.toStrict (encode job))))
+        pure $ and <$> sequence
+          [deniedWith "Nagare database schedule is fenced" update,
+            deniedWith "Nagare database schedule is fenced" deletion,
+            deniedWith "Nagare scheduled Job creation is fenced" creation]
+      pure (and <$> sequence results)
+    deniedWith message result = case result of
+      Left reason -> Left reason
+      Right (ExitSuccess, _, _) -> Right False
+      Right (ExitFailure _, _, errors) ->
+        Right (message `T.isInfixOf` T.pack errors)
     serviceDenied result = case result of
       Left reason -> Left reason
       Right (ExitSuccess, _, _) -> Right False
