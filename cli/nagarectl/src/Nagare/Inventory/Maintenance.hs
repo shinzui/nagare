@@ -40,13 +40,17 @@ data MaintenanceRequest = MaintenanceRequest
   , maintenanceRecoveryScope :: !ScopeDeclaration
   , maintenanceRecoveryRevision :: !ScopeRevision
   , maintenanceRecoveryJobUid :: !PhysicalIdentity
+  , maintenanceRecoveryReceiptDigest :: !ContentDigest
   , maintenanceRecoveryId :: !Text
   , maintenanceSource :: !SourceLocation
   }
   deriving stock (Eq, Show)
 
 data MaintenanceSourceProof = MaintenanceSourceProof
-  { maintenanceSourceScope :: !Text
+  { maintenanceSourceSession :: !Text
+  , maintenanceSourceDatabase :: !Text
+  , maintenanceSourceNamespace :: !Text
+  , maintenanceSourceScope :: !Text
   , maintenanceSourceGeneration :: !Integer
   , maintenanceSourceDigest :: !ContentDigest
   , maintenanceSourceStateful :: !ResourceId
@@ -59,6 +63,8 @@ data MaintenanceSourceProof = MaintenanceSourceProof
   , maintenanceSourceRecoveryDigest :: !ContentDigest
   , maintenanceSourceRecoveryJob :: !ResourceId
   , maintenanceSourceRecoveryJobUid :: !PhysicalIdentity
+  , maintenanceSourceRecoveryReceiptDigest :: !ContentDigest
+  , maintenanceSourceRecoveryId :: !Text
   }
   deriving stock (Eq, Show)
 
@@ -71,7 +77,10 @@ maintenanceSourceProof scope
         [(value, "")] | value > 0 -> Right value
         _ -> Left "maintenance target generation is invalid"
       MaintenanceSourceProof
-        <$> required "maintenance.target.scope"
+        <$> (required "maintenance.session" >>= validSession)
+        <*> (required "maintenance.database" >>= validName)
+        <*> (required "maintenance.namespace" >>= validName)
+        <*> required "maintenance.target.scope"
         <*> pure generation
         <*> (required "maintenance.target.revision" >>= mkContentDigest)
         <*> (required "maintenance.target.statefulset" >>= mkResourceId)
@@ -84,6 +93,8 @@ maintenanceSourceProof scope
         <*> (required "maintenance.recovery.revision" >>= mkContentDigest)
         <*> (required "maintenance.recovery.job" >>= mkResourceId)
         <*> (required "maintenance.recovery.job.uid" >>= mkPhysicalIdentity)
+        <*> (required "maintenance.recovery.receipt.digest" >>= mkContentDigest)
+        <*> required "maintenance.recovery.id"
   where
     fields = scopeOverrides scope
     required key = maybe (Left ("maintenance scope lacks " <> key)) Right
@@ -91,6 +102,12 @@ maintenanceSourceProof scope
     parseGeneration value = case reads (T.unpack value) of
       [(number, "")] | number > 0 -> Right number
       _ -> Left "maintenance recovery generation is invalid"
+    validName value = value <$ mkServiceName value
+    validSession value = do
+      _ <- mkServiceName value
+      unless (T.length value <= 20)
+        (Left "maintenance session ID exceeds 20 characters")
+      pure value
 
 compileMaintenanceScope
   :: MaintenanceRequest -> ScopeDeclaration
@@ -205,6 +222,8 @@ compileMaintenanceScope request accepted native = do
         , "recoveryJob" .= resourceIdText (backupJob ^. #identity)
         , "recoveryJobUid" .= physicalIdentityText
             (maintenanceRecoveryJobUid request)
+        , "recoveryReceiptDigest" .= digestText
+            (maintenanceRecoveryReceiptDigest request)
         , "recoveryId" .= maintenanceRecoveryId request ]
   intentBytes <- first invalid (canonicalValue intent)
   let operation = DeclaredOperation operationId (stateful ^. #identity :| [])
@@ -234,6 +253,8 @@ compileMaintenanceScope request accepted native = do
         , ("maintenance.recovery.job", resourceIdText (backupJob ^. #identity))
         , ("maintenance.recovery.job.uid", physicalIdentityText
             (maintenanceRecoveryJobUid request))
+        , ("maintenance.recovery.receipt.digest", digestText
+            (maintenanceRecoveryReceiptDigest request))
         , ("maintenance.recovery.id", maintenanceRecoveryId request)
         ]
   base <- mkScopeDeclaration owner [ResourceBundle [] [] [] [] [operation] []]

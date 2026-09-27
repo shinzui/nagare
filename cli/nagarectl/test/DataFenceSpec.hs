@@ -130,6 +130,7 @@ dataFenceTests = testGroup "data fence"
                 _ -> error "marker Job is malformed"
               captureRequest = KubernetesCaptureRequest fixtureBinding Map.empty
                 "native-exclusion-session" target root (Just engine) (Just route)
+                False
                 "fixture://recovery" (contentDigest "fixture-recovery")
                 "system:serviceaccount:kube-system:statefulset-controller"
                 (Just "system:serviceaccount:kube-system:replicaset-controller")
@@ -963,6 +964,7 @@ dataFenceTests = testGroup "data fence"
               , "provider" .= ("kubernetes" :: Text)
               , "cluster" .= cluster
               , "dependencyRoot" .= writer
+              , "networkExclusion" .= False
               , "databaseEngine" .= ("postgres" :: Text)
               , "statefulControllerPrincipal" .=
                   ("system:serviceaccount:kube-system:statefulset-controller" :: Text)
@@ -1413,6 +1415,7 @@ dataFenceTests = testGroup "data fence"
                   then Right () else Left "wrong engine server Pod"
             captureRequest = KubernetesCaptureRequest binding Map.empty
               "restore-session" target writer (Just Postgres) (Just serviceId)
+              False
               "gs://fixture/recovery" (contentDigest "recovery")
               "system:serviceaccount:kube-system:statefulset-controller" Nothing Nothing
         writeIORef liveWriterImage "redis:8"
@@ -2657,6 +2660,17 @@ dataFenceTests = testGroup "data fence"
         assertBool "Service-dependent Deployment was not discovered"
           (any (\candidate -> candidateResource candidate == clientId
             && candidateKind candidate == DeploymentWriter) routed)
+        isolated <- right (discoverWriterCandidatesForIsolatedNetwork
+          statefulId [serviceId] cluster "data-pvc"
+          (declarations [stateful, service, routeClient])
+          (registry [stateful, service, routeClient]))
+        map candidateResource isolated @?= [statefulId]
+        case discoverWriterCandidatesForIsolatedNetwork statefulId []
+          cluster "data-pvc" (declarations [stateful, directMount])
+          (registry [stateful, directMount]) of
+          Left reason -> assertBool "network isolation hid a direct PVC mount"
+            (resourceIdText mountId `T.isInfixOf` reason)
+          Right _ -> assertFailure "mounted Job bypassed isolated writer discovery"
         case discoverWriterCandidates statefulId cluster "data-pvc"
           (declarations [stateful, directMount]) (registry [stateful, directMount]) of
           Left reason -> assertBool "direct PVC mount was not discovered"

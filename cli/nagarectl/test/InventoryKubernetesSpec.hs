@@ -1077,13 +1077,17 @@ inventoryKubernetesTests =
                       , maintenanceRecoveryRevision = ScopeRevision
                           (ok (mkScopeGeneration 1)) (contentDigest "accepted-backup")
                       , maintenanceRecoveryJobUid = completedPhysical
+                      , maintenanceRecoveryReceiptDigest = contentDigest "completed-receipt"
                       , maintenanceRecoveryId = backupId request
                       , maintenanceSource = SourceLocation "db shell" "pg-main"
                       }
                     maintenanceScope = ok (compileMaintenanceScope maintenanceRequest
                       databaseScope (Map.union backupNative databaseNative))
                 maintenanceSourceProof maintenanceScope @?= Right (Just MaintenanceSourceProof
-                  { maintenanceSourceScope = scopeIdText owner
+                  { maintenanceSourceSession = "maint-001"
+                  , maintenanceSourceDatabase = "pg-main"
+                  , maintenanceSourceNamespace = "default"
+                  , maintenanceSourceScope = scopeIdText owner
                   , maintenanceSourceGeneration = 3
                   , maintenanceSourceDigest = contentDigest "accepted-database"
                   , maintenanceSourceStateful = statefulId
@@ -1095,7 +1099,9 @@ inventoryKubernetesTests =
                   , maintenanceSourceRecoveryGeneration = 1
                   , maintenanceSourceRecoveryDigest = contentDigest "accepted-backup"
                   , maintenanceSourceRecoveryJob = job ^. #identity
-                  , maintenanceSourceRecoveryJobUid = completedPhysical })
+                  , maintenanceSourceRecoveryJobUid = completedPhysical
+                  , maintenanceSourceRecoveryReceiptDigest = contentDigest "completed-receipt"
+                  , maintenanceSourceRecoveryId = backupId request })
                 let maintenanceCandidate = ok (composeInventory restoreSnapshot
                       (ReplaceScope maintenanceScope :| []))
                 maintenanceStore <- newMemoryStore

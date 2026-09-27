@@ -181,6 +181,11 @@ provenance:
       at: 2026-09-27T14:00:52Z
       mode: "implement"
       note: "Credit EP-160 M1 and EP-153 registration checkpoint; select EP-154 installed smoke"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-27T22:09:47Z
+      mode: "implement"
+      note: "Record first public PostgreSQL maintenance review, fenced terminal, and converged recovery fixture"
 ---
 
 # Make managed resources first-class through typed scoped inventories
@@ -245,7 +250,7 @@ At each checkpoint handoff, record the accepted output/evidence and next checkpo
 | 158 | Complete reviewed access and CDN operations | docs/plans/158-complete-reviewed-access-and-cdn-operations.md | EP-146, EP-147, EP-149, EP-151 | None | Not Started |
 | 159 | Complete scheduled backup receipts and exact retention pruning | docs/plans/159-complete-scheduled-backup-receipts-and-exact-retention-pruning.md | EP-146, EP-147, EP-149, EP-151 | None | In Progress |
 | 160 | Complete fenced live data restore across supported engines and volumes | docs/plans/160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md | EP-146, EP-147, EP-149, EP-151 | EP-159 | In Progress |
-| 161 | Provide scoped interactive maintenance with durable recovery | docs/plans/161-provide-scoped-interactive-maintenance-with-durable-recovery.md | EP-146, EP-147, EP-149, EP-151 | EP-159, EP-160 | Not Started |
+| 161 | Provide scoped interactive maintenance with durable recovery | docs/plans/161-provide-scoped-interactive-maintenance-with-durable-recovery.md | EP-146, EP-147, EP-149, EP-151 | EP-159, EP-160 | In Progress |
 
 Hard dependencies must be Complete before starting the dependent child; soft dependencies supply additional real-adapter coverage but allow independent fixture-backed work. Registry status values are Not Started, In Progress, Complete, or Cancelled.
 
@@ -415,7 +420,7 @@ The ordering inspection found another concrete coupling: `compileManualRestoreSc
 
 **A concrete design gap remains at the next handoff.** `DataFence/KubernetesExclusion.hs` shuts down the database, scales its StatefulSet to zero, and requires no PVC consumers and no Service endpoints. EP-161 requires a running engine reachable by one authorized interactive client. Likewise, the inherited logical restore renderer takes a Service host. These consumers cannot simply wrap that offline exclusion callback and assume they work. Reuse the durable DataFence state machine and store, but distinguish acquisition of exclusive data access from admission/observation of the selected recovery or maintenance process. EP-160 M2 owns engine-specific restore execution; EP-161 owns maintenance process admission. Their respective content/client proofs establish these policies; neither becomes a new EP-160 M1 gate. ADR 22 records the boundary.
 
-EP-161's first planning slice now compiles a one-shot `MaintainData` operation over the accepted database owner, pins its Pod/source/recovery identities, selects that affected member for observation from an operation-only scope, and refuses review/apply without a saved DataFence record. A disposable local k3s probe also proved PostgreSQL network ingress denial with a usable local socket and targeted observation/termination of a detached marked client. These are the prerequisites found by tracing the public command path, not a reviewed terminal fixture: the online native fence callback, terminal adapter, public `db shell` review form, and parent-death recovery are still unimplemented. EP-161 M1/M2 remain open; no GKE path was introduced.
+EP-161's first public PostgreSQL maintenance checkpoint now uses the accepted `mp23-pg-a` database and manual recovery backup in the isolated local fixture. `db shell --session-id mp23-maint-1 --recovery-backup mp23-a-seed-1 --save-plan` issued review `460beebfb1fe10e8b22bbaf412f8e8d94e1e6259118666de7256acb728916997` with an exact online DataFence. The reviewed terminal ran a read-only SQL probe returning `mp23_pg_a | 1`; journal sequence 606 recorded completion, the policy and fence were removed, and `inventory resume --yes` converged the transaction. The run also exercised explicit recovery from an unreserved fence-start failure and continuation of a durable `acquiring` fence. EP-161 M1/M2 remain open for supported exec/migration entrypoints and normal/nonzero/terminal-loss/process-death recovery proof. No GKE path was introduced.
 
 **Current registration evidence.** At `f79329f0`, running `python3 scripts/audit-managed-commands.py --coverage-result /tmp/nagare-mp23-command-coverage.json` reports 135 registered CLI routes, 34 recipes, 25 registered library calls, 11 pending routes, seven pending recipes, and 30 incomplete catalogue rows. It exits 1 for the unregistered existing `Inventory.planInventoryCandidateWithPayloadIdentity` call in `app/Main.hs`. That file was clean during this inspection, so this is a committed integration regression, not the concurrent EP-160 edit. EP-153 owns the correction and matching audit fixture. Counts overlap command families and proof obligations; they are not 48 independent missing features. The dirty candidate is not release evidence.
 

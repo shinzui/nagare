@@ -187,7 +187,7 @@ observeProtectedMaintenancePolicy :: KubernetesExclusion -> KubernetesFenceInten
   -> MaintenanceNetworkTransport -> MaintenanceNetworkPin
   -> IO (Either Text Bool)
 observeProtectedMaintenancePolicy exclusion intent network pin = case
-  protectedGuardPrincipals exclusion intent of
+  protectedNetworkPrincipals exclusion intent of
   Left reason -> pure (Left reason)
   Right principals -> observeMaintenancePolicyAuthority
     (exclusionGuardAccessTransport exclusion) network principals controllers pin
@@ -267,9 +267,9 @@ observeMaintenanceExcluded exclusion network postgres pin record = case
     beforeAuthority <- observeProtectedMaintenancePolicy exclusion intent network pin
     case (,,) <$> beforeGuard <*> beforePolicy <*> beforeAuthority of
       Left reason -> pure (Left reason)
-      Right (False, _, _) -> pure (Right False)
-      Right (_, Nothing, _) -> pure (Right False)
-      Right (_, _, False) -> pure (Right False)
+      Right (False, _, _) -> pure (Left "maintenance mount guard is not enforcing")
+      Right (_, Nothing, _) -> pure (Left "maintenance ingress policy is absent")
+      Right (_, _, False) -> pure (Left "maintenance policy authority is unproved")
       Right (True, Just _, True) -> do
         pod <- observeMaintenancePod exclusion pin intent root image
         rootReady <- observeStatefulWriterRelease
@@ -302,11 +302,19 @@ observeMaintenanceExcluded exclusion network postgres pin record = case
           guarded <- afterGuard
           policy <- afterPolicy
           authority <- afterAuthority
-          pure (ready == WritersFullyReleased && and stopped
-            && and deploymentStopped && and scheduleStopped
-            && volumePodConsumers evidence == [networkPodName pin]
-            && null (volumeAttachmentConsumers evidence)
-            && clientsGone && guarded && isJust policy && authority)
+          unless (ready == WritersFullyReleased)
+            (Left "maintenance database StatefulSet is not ready")
+          unless (and stopped && and deploymentStopped && and scheduleStopped)
+            (Left "maintenance managed clients are not stopped")
+          unless (volumePodConsumers evidence
+              == [networkPodName pin <> "/" <> networkPodUid pin]
+              && null (volumeAttachmentConsumers evidence))
+            (Left "maintenance PVC has another Pod or attachment consumer")
+          unless clientsGone
+            (Left "maintenance PostgreSQL client backends remain")
+          unless (guarded && isJust policy && authority)
+            (Left "maintenance mount or network exclusion changed during observation")
+          pure True
 
 releaseMaintenanceWriters :: KubernetesExclusion -> MaintenanceNetworkTransport
   -> MaintenanceNetworkPin -> DataFenceRecord -> IO (Either Text ())
@@ -361,6 +369,16 @@ observeProtectedMountGuard exclusion intent mountGuard = do
 protectedGuardPrincipals :: KubernetesExclusion -> KubernetesFenceIntent
   -> Either Text [Text]
 protectedGuardPrincipals exclusion intent = do
+  workloads <- protectedWorkloadPrincipals exclusion intent
+  pure (Set.toAscList (Set.fromList
+    (kubernetesGuardPrincipals intent <> workloads)))
+
+-- Network ingress exclusion must be uneditable by accepted workloads. The
+-- reviewed controller principals operate those workloads and are trusted by
+-- the mount guard; Kubernetes necessarily grants them Pod creation rights.
+protectedWorkloadPrincipals :: KubernetesExclusion -> KubernetesFenceIntent
+  -> Either Text [Text]
+protectedWorkloadPrincipals exclusion intent = do
   stateful <- traverse (\(resource, pin) -> acceptedPrincipal resource
     (writerNamespace pin) ["template", "spec"])
     (kubernetesStatefulWriters intent)
@@ -373,8 +391,7 @@ protectedGuardPrincipals exclusion intent = do
   let targetDefault = "system:serviceaccount:"
         <> guardNamespaceName (kubernetesMountGuard intent) <> ":default"
   pure (Set.toAscList (Set.fromList
-    (targetDefault : kubernetesGuardPrincipals intent
-      <> stateful <> deployments <> schedules)))
+    (targetDefault : stateful <> deployments <> schedules)))
   where
     acceptedPrincipal resource namespace path = do
       (_, bytes) <- maybe
@@ -382,6 +399,43 @@ protectedGuardPrincipals exclusion intent = do
         (Map.lookup resource (exclusionNative exclusion))
       value <- first T.pack (eitherDecodeStrict' bytes)
       workloadServiceAccountPrincipal namespace ("spec" : path) value
+
+-- A workload in the database namespace or a declared route-dependent client
+-- may reach the database, including a Knative Service without a PVC mount.
+-- Its identity must not be able to add an allowing policy or start a local
+-- or host-network client. Unrelated platform controllers remain trusted.
+protectedNetworkPrincipals :: KubernetesExclusion -> KubernetesFenceIntent
+  -> Either Text [Text]
+protectedNetworkPrincipals exclusion intent = do
+  selected <- protectedWorkloadPrincipals exclusion intent
+  let roots = Set.fromList
+        (kubernetesDependencyRoot intent :
+          maybe [] (pure . serviceResource) (kubernetesService intent))
+      connected = dependentClosure roots (exclusionDeclarations exclusion)
+      targetNamespace = guardNamespaceName (kubernetesMountGuard intent)
+  others <- traverse principal
+    [(namespace, path, bytes)
+      | (resource, (member, bytes)) <- Map.toAscList (exclusionNative exclusion)
+      , Kubernetes cluster group kind (Just name) _ <- [address member]
+      , cluster == kubernetesCluster intent
+      , Just path <- [templatePath group (nameText kind)]
+      , let namespace = nameText name
+      , namespace == targetNamespace || Set.member resource connected]
+  pure (Set.toAscList (Set.fromList (selected <> others)))
+  where
+    principal (namespace, path, bytes) = do
+      value <- first T.pack (eitherDecodeStrict' bytes)
+      workloadServiceAccountPrincipal namespace path value
+    templatePath "apps" kind
+      | kind `elem` ["statefulset", "deployment", "daemonset", "replicaset"] =
+          Just ["spec", "template", "spec"]
+    templatePath "batch" "job" = Just ["spec", "template", "spec"]
+    templatePath "batch" "cronjob" =
+      Just ["spec", "jobTemplate", "spec", "template", "spec"]
+    templatePath "serving.knative.dev" "service" =
+      Just ["spec", "template", "spec"]
+    templatePath "" "pod" = Just ["spec"]
+    templatePath _ _ = Nothing
 
 validatedIntent :: KubernetesExclusion -> DataFenceRecord
   -> Either Text KubernetesFenceIntent
@@ -393,7 +447,9 @@ validatedIntent exclusion record = do
   intent <- decodeKubernetesFenceIntent record
   validateServiceAssociation exclusion intent
   validateEngineAssociation exclusion intent
-  candidates <- discoverWriterCandidatesForRoutes
+  candidates <- (if kubernetesNetworkExcluded intent
+      then discoverWriterCandidatesForIsolatedNetwork
+      else discoverWriterCandidatesForRoutes)
     (kubernetesDependencyRoot intent)
     (maybe [] (pure . serviceResource) (kubernetesService intent))
     (kubernetesCluster intent)

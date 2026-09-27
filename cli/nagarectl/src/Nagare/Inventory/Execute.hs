@@ -460,12 +460,12 @@ recordOperatorRecovery store registry input takeOver = do
               case claimed of
                 Left err -> pure (Left err)
                 Right () -> do
-                  result <- inspectRecovery lock (headDataFence headValue)
+                  result <- inspectRecovery lock events (headDataFence headValue)
                   released <- releaseClaim lock transaction False
                   pure $ if released then result else failure "executor-claim" "could not release operator recovery claim"
-    inspectRecovery :: forall s. LockedStore s -> Maybe DataFenceRecord
+    inspectRecovery :: forall s. LockedStore s -> [JournalEvent] -> Maybe DataFenceRecord
       -> IO (Either (NonEmpty AdmissionError) ())
-    inspectRecovery lock activeFence = do
+    inspectRecovery lock events activeFence = do
       bundle <- loadPublishedReview store (recoveryReview input)
       snapshot <- readStoreSnapshot store
       case (bundle, snapshot) of
@@ -490,6 +490,23 @@ recordOperatorRecovery store registry input takeOver = do
                     , sameReviewedFence transaction saved active ->
                       recoverFenced lock adapter (reviewPlannedOperation reviewOperation)
                         prepared active controls
+                  Right (Just _) | isNothing activeFence
+                    , recoveryAction input == RetryAfterAdapterProof
+                    , Just lastEvent <- find
+                        (\event -> eventTransaction event == transaction
+                          && eventOperation event == Just operationId)
+                        (reverse events)
+                    , eventState lastEvent == Ambiguous
+                    , "data fence acquisition or exclusion is unresolved"
+                        `T.isPrefixOf` eventDetail lastEvent -> do
+                          -- startFence returned before adapterExecute. With no
+                          -- durable reservation, its read-only validation or
+                          -- conditional reservation failed before any effect.
+                          appended <- appendEvent lock transaction (Just operationId)
+                            (OperatorResolved "fence-not-reserved-safe-retry")
+                            "operator selected retry after unreserved fence start"
+                          pure (first (\err -> AdmissionError "journal" (showText err) :| [])
+                            (() <$ appended))
                   Right _ | isJust activeFence || fencedAction (recoveryAction input) ->
                     pure (failure "data-fence-capability"
                       "active data fence differs from the private reviewed member")
@@ -685,9 +702,9 @@ runOperations locked registry transaction reviewed initialEvents operations = go
                     else do
                       started <- startFence fenceSelection
                       case started of
-                        Left _ -> do
+                        Left reason -> do
                           _ <- appendEvent locked transaction (Just operationId) Ambiguous
-                            "data fence acquisition or exclusion is unresolved"
+                            ("data fence acquisition or exclusion is unresolved: " <> reason)
                           pure (Just (StoppedAmbiguous transaction operationId))
                         Right activeFence -> do
                           result <- withAdapterEnv transaction operation

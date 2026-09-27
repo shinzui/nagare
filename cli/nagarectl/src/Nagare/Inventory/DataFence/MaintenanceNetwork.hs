@@ -184,8 +184,9 @@ observeMaintenancePolicyAuthority access network principals controllers pin
       listing <- listMaintenancePolicies network (networkNamespace pin)
       case listing >>= listedNames of
         Left reason -> pure (Left reason)
-        Right names -> observeDeniedGuardQueries access
-          (Set.toAscList (Set.fromList
+        Right names -> do
+          result <- firstAllowedGuardQuery access
+            (Set.toAscList (Set.fromList
             [GuardAccessQuery principal group (Just (networkNamespace pin))
               verb resource subresource name
             | principal <- principals
@@ -210,6 +211,12 @@ observeMaintenancePolicyAuthority access network principals controllers pin
                   <> [("", "pods", Just "ephemeralcontainers", verb,
                     networkPodName pin) | verb <- ["update", "patch"]]
             ]))
+          pure $ case result of
+            Left reason -> Left reason
+            Right Nothing -> Right True
+            Right (Just query) -> Left
+              ("maintenance network exclusion can be bypassed: "
+                <> T.pack (show query))
   where
     listedNames value = do
       root <- asObject value
@@ -243,7 +250,15 @@ validatePolicy pin current = do
         == Just (String (networkPodUid pin)))
     (Left "maintenance ingress policy belongs to another session or Pod")
   desired <- asObject (maintenancePolicyObject pin)
-  unless (KM.lookup "spec" root == KM.lookup "spec" desired)
+  spec <- objectField "spec" root
+  expected <- objectField "spec" desired
+  -- The API server may omit an empty ingress list. With Ingress selected,
+  -- both forms deny every inbound connection.
+  unless (KM.lookup "podSelector" spec == KM.lookup "podSelector" expected
+      && KM.lookup "policyTypes" spec == KM.lookup "policyTypes" expected
+      && KM.lookup "ingress" spec `elem` [Nothing, Just (Array V.empty)]
+      && all (`elem` ["podSelector", "policyTypes", "ingress"])
+        (KM.keys spec))
     (Left "maintenance ingress policy no longer denies exact Pod ingress")
   uid <- textField "uid" metadata
   revision <- textField "resourceVersion" metadata

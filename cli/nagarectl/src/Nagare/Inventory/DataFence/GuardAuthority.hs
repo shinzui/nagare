@@ -9,6 +9,7 @@ module Nagare.Inventory.DataFence.GuardAuthority
   , guardAccessReview
   , observeGuardAuthority
   , observeDeniedGuardQueries
+  , firstAllowedGuardQuery
   , workloadServiceAccountPrincipal
   ) where
 
@@ -20,6 +21,7 @@ import Data.Aeson.KeyMap qualified as KM
 import Data.Aeson.Key qualified as Key
 import Data.ByteString.Lazy qualified as BL
 import Data.Char (isAsciiLower, isDigit)
+import Data.List (find)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -77,12 +79,18 @@ observeGuardAuthority transport principals mountGuard =
 -- principals. A failed or inconclusive SubjectAccessReview is not proof.
 observeDeniedGuardQueries :: GuardAccessTransport -> [GuardAccessQuery]
   -> IO (Either Text Bool)
-observeDeniedGuardQueries transport queries = case
+observeDeniedGuardQueries transport queries =
+  fmap (fmap (maybe True (const False)))
+    (firstAllowedGuardQuery transport queries)
+
+firstAllowedGuardQuery :: GuardAccessTransport -> [GuardAccessQuery]
+  -> IO (Either Text (Maybe GuardAccessQuery))
+firstAllowedGuardQuery transport queries = case
   traverse (serviceAccountNamespace . accessPrincipal) queries of
   Left reason -> pure (Left reason)
   Right _ -> checkAll queries
   where
-    checkAll [] = pure (Right True)
+    checkAll [] = pure (Right Nothing)
     checkAll remaining = do
       let (batch, rest) = splitAt 8 remaining
       slots <- traverse (\query -> do
@@ -95,7 +103,8 @@ observeDeniedGuardQueries transport queries = case
             Right result -> result | outcome <- checked]
       case sequence reviewed of
         Left reason -> pure (Left reason)
-        Right allowed | or allowed -> pure (Right False)
+        Right allowed | or allowed -> pure (Right
+          (fmap fst (find snd (zip batch allowed))))
         Right _ -> checkAll rest
 
 resourceAddress :: (Text, Text) -> Either Text (Text, Text)

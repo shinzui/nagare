@@ -52,6 +52,7 @@ data KubernetesCaptureRequest = KubernetesCaptureRequest
   , captureDependencyRoot :: !ResourceId
   , captureExpectedDatabaseEngine :: !(Maybe Engine)
   , captureServiceResource :: !(Maybe ResourceId)
+  , captureNetworkExclusion :: !Bool
   , captureRecoveryArtifact :: !Text
   , captureRecoveryDigest :: !ContentDigest
   , captureStatefulControllerPrincipal :: !Text
@@ -117,13 +118,10 @@ captureKubernetesFence transport declarations native request = do
                 Right servicePin -> do
                   let routes = maybe [] (\(resource, _, _) -> [resource]) servicePin
                       candidates =
-                        discoverWriterCandidatesForRoutes
-                          root
-                          routes
-                          cluster
-                          claim
-                          declarations
-                          native
+                        (if captureNetworkExclusion request
+                          then discoverWriterCandidatesForIsolatedNetwork
+                          else discoverWriterCandidatesForRoutes)
+                          root routes cluster claim declarations native
                   case candidates of
                     Left reason -> pure (Left reason)
                     Right selected -> do
@@ -160,6 +158,7 @@ captureKubernetesFence transport declarations native request = do
                                       , "provider" .= ("kubernetes" :: Text)
                                       , "cluster" .= cluster
                                       , "dependencyRoot" .= root
+                                      , "networkExclusion" .= captureNetworkExclusion request
                                       , "statefulControllerPrincipal"
                                           .= captureStatefulControllerPrincipal request
                                       , "volume"

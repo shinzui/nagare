@@ -236,7 +236,10 @@ mkKubernetesAdapterWithBackupReceipt specs ops readBackupReceipt =
 singleSpec :: Map ResourceId (ManagedResource, ByteString) -> PlannedOperation -> Either Text (ResourceId, ManagedResource, ByteString)
 singleSpec specs operation = do
   unless (plannedExecutor operation == KubernetesExecutor) (Left "operation has a different executor")
-  unless (plannedAction operation `elem` [CreateResource, UpdateResource, VerifyResource, AdoptResource, RetireResource, RunDeclaredOperation]) (Left "Kubernetes adapter does not support this action")
+  unless (plannedAction operation `elem` [CreateResource, UpdateResource,
+      VerifyResource, AdoptResource, RetireResource, RunDeclaredOperation,
+      OpenMaintenanceSession])
+    (Left "Kubernetes adapter does not support this action")
   resource <- case (plannedAction operation, NE.toList (plannedResources operation)) of
     (RunDeclaredOperation, affected) -> case
       [resourceId | resourceId <- affected,
@@ -272,12 +275,17 @@ validateBefore operation resource desiredDigest state =
       | owner == resource && not (T.null revision) && digest == desiredDigest -> Right ()
     (RunDeclaredOperation, KubernetesPresent _ revision (Just owner) _) | owner == resource && not (T.null revision) -> Right ()
     (RunDeclaredOperation, KubernetesAbsent _) -> Right ()
+    (OpenMaintenanceSession, KubernetesPresent _ revision (Just owner) digest)
+      | owner == resource && not (T.null revision)
+      , digest == desiredDigest -> Right ()
     (_, KubernetesUnknown reason) -> Left ("Kubernetes observation unavailable: " <> reason)
     (_, KubernetesNotReady {}) -> Left "Kubernetes object is present but its required condition is not ready"
     (CreateResource, _) -> Left "create requires confirmed absence; an existing object needs reviewed adoption"
     (AdoptResource, _) -> Left "adoption requires an unstamped matching object with a physical identity and resourceVersion"
     (UpdateResource, _) -> Left "update requires a present object stamped with this logical identity and resourceVersion"
     (RunDeclaredOperation, _) -> Left "declared Job operation requires a completed owned Job"
+    (OpenMaintenanceSession, _) ->
+      Left "maintenance requires the reviewed present database object"
     _ -> Left "unsupported Kubernetes action"
 
 buildMutation :: ContextId -> PlannedOperation -> ResourceId -> ManagedResource -> ByteString -> KubernetesState -> Either PrepareError KubernetesMutation

@@ -4,6 +4,7 @@ import Data.Aeson (Value (..), object, (.=))
 import Data.Aeson.KeyMap qualified as KM
 import Data.IORef
 import Data.Text (Text)
+import Data.Text qualified as T
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.DataFence.GuardAuthority
 import Nagare.Inventory.DataFence.MaintenanceNetwork
@@ -74,6 +75,12 @@ inventoryMaintenanceTests = testGroup "maintenance"
       installMaintenancePolicy transport pin >>= (@?= Right (uid, version))
       installMaintenancePolicy transport pin >>= (@?= Right (uid, version))
       readIORef creations >>= (@?= 1)
+      let normalized = case withIdentity (maintenancePolicyObject pin) of
+            Object root | Just (Object spec) <- KM.lookup "spec" root ->
+              Object (KM.insert "spec" (Object (KM.delete "ingress" spec)) root)
+            _ -> error "maintenance policy is malformed"
+      writeIORef current (Just normalized)
+      observeMaintenancePolicy transport pin >>= (@?= Right (Just (uid, version)))
       queries <- newIORef ([] :: [GuardAccessQuery])
       let principal = "system:serviceaccount:personal:application"
           access allow = GuardAccessTransport $ \query -> do
@@ -104,7 +111,10 @@ inventoryMaintenanceTests = testGroup "maintenance"
       observeMaintenancePolicyAuthority (access (\query ->
           accessGroup query == "networking.k8s.io"
             && accessVerb query == "create")) transport [principal] [] pin
-        >>= (@?= Right False)
+        >>= \case
+          Left reason -> assertBool "allowed edit was not identified"
+            ("networkpolicies" `T.isInfixOf` reason)
+          Right _ -> assertFailure "allowed policy edit was accepted"
       let allowing = withIdentity (maintenancePolicyObject pin)
             & \case
               Object root -> Object (KM.insert "spec" (object

@@ -8,6 +8,7 @@ module Nagare.Inventory.DataFence.MaintenancePostgres
 import Control.Exception (IOException, try)
 import Data.Text (Text)
 import Data.Text qualified as T
+import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapters.KubernetesRuntime
   (KubernetesRuntimeConfig (..))
 import System.Exit (ExitCode (..))

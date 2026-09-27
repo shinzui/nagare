@@ -11,7 +11,7 @@ module Nagare.Inventory.DataFence.KubernetesIntent
   ) where
 
 import Control.Monad (forM, forM_, unless)
-import Data.Aeson (Value (..), eitherDecodeStrict', withObject, (.:), (.:?))
+import Data.Aeson (Value (..), eitherDecodeStrict', withObject, (.:), (.:?), (.!=))
 import Data.Aeson.Key (Key)
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
@@ -38,6 +38,7 @@ data KubernetesFenceIntent = KubernetesFenceIntent
   { kubernetesCluster :: !ResourceId
   , kubernetesDependencyRoot :: !ResourceId
   , kubernetesDatabaseEngine :: !(Maybe Engine)
+  , kubernetesNetworkExcluded :: !Bool
   , kubernetesVolumeResource :: !ResourceId
   , kubernetesMountGuard :: !MountGuard
   , kubernetesReleaseMountGuard :: !MountGuard
@@ -126,6 +127,7 @@ decodeKubernetesFenceIntent record = do
   source <- maybe (Left "data fence lacks Kubernetes provider intent") Right
     (fenceProviderIntent record)
   (cluster, root, volume, controllerPrincipal, replicaSetPrincipal, rawEngine,
+    networkExcluded,
     restoreJob, rawService) <- first T.pack
     (parseEither parseProvider source)
   databaseEngine <- traverse (\token -> maybe
@@ -241,7 +243,8 @@ decodeKubernetesFenceIntent record = do
           <> maybe [] (pure . rawJobPrincipal) restoreJob
           <> maybe [] pure replicaSetPrincipal))
   validateBacking (rawBacking volume)
-  pure (KubernetesFenceIntent cluster root databaseEngine (rawResource volume)
+  pure (KubernetesFenceIntent cluster root databaseEngine networkExcluded
+    (rawResource volume)
     mountGuard releaseGuard (rawBacking volume)
     statefulWriters deploymentWriters scheduledWriters
     (Map.fromList [(resource, mounted) | (resource, _, mounted) <- writers])
@@ -385,21 +388,22 @@ validateReviewedDatabaseEngine reviewed bytes = do
     (Left "reviewed database engine differs from accepted native evidence")
 
 parseProvider :: Value
-  -> Parser (ResourceId, ResourceId, RawVolume, Text, Maybe Text, Maybe Text,
+  -> Parser (ResourceId, ResourceId, RawVolume, Text, Maybe Text, Maybe Text, Bool,
       Maybe RawRestoreJob, Maybe RawService)
 parseProvider = withObject "Kubernetes fence intent" $ \o -> do
   onlyKeys ["version", "provider", "cluster", "dependencyRoot", "volume",
     "statefulControllerPrincipal", "replicaSetControllerPrincipal",
-    "databaseEngine", "restoreJob", "service"] o
+    "databaseEngine", "networkExclusion", "restoreJob", "service"] o
   version <- o .: "version" :: Parser Int
   unless (version == 3) (fail "unsupported Kubernetes fence intent version")
   provider <- o .: "provider" :: Parser Text
   unless (provider == "kubernetes") (fail "data fence provider is not Kubernetes")
-  (,,,,,,,) <$> o .: "cluster" <*> o .: "dependencyRoot"
+  (,,,,,,,,) <$> o .: "cluster" <*> o .: "dependencyRoot"
     <*> (o .: "volume" >>= parseVolume)
     <*> o .: "statefulControllerPrincipal"
     <*> o .:? "replicaSetControllerPrincipal"
     <*> o .:? "databaseEngine"
+    <*> (o .:? "networkExclusion" .!= False)
     <*> (o .:? "restoreJob" >>= traverse parseJob)
     <*> (o .:? "service" >>= traverse parseService)
 

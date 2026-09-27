@@ -9,6 +9,8 @@ module Nagare.Inventory.DataFence.WriterInventory
   , WriterCandidate (..)
   , discoverWriterCandidates
   , discoverWriterCandidatesForRoutes
+  , discoverWriterCandidatesForIsolatedNetwork
+  , dependentClosure
   ) where
 
 import Control.Monad (forM, unless)
@@ -63,7 +65,23 @@ discoverWriterCandidatesForRoutes
   :: ResourceId -> [ResourceId] -> ResourceId -> Text -> [Declaration]
   -> Map ResourceId (ManagedResource, ByteString)
   -> Either Text [WriterCandidate]
-discoverWriterCandidatesForRoutes target routes cluster claim declarations native = do
+discoverWriterCandidatesForRoutes = discoverWriterCandidatesWithNetworkPolicy False
+
+-- | During an online maintenance fence, a separately verified deny-ingress
+-- policy excludes network clients. Only controllers mounting the fenced PVC
+-- need a writer control; dependencies without a mount cannot bypass that
+-- policy through the database Service.
+discoverWriterCandidatesForIsolatedNetwork
+  :: ResourceId -> [ResourceId] -> ResourceId -> Text -> [Declaration]
+  -> Map ResourceId (ManagedResource, ByteString)
+  -> Either Text [WriterCandidate]
+discoverWriterCandidatesForIsolatedNetwork = discoverWriterCandidatesWithNetworkPolicy True
+
+discoverWriterCandidatesWithNetworkPolicy
+  :: Bool -> ResourceId -> [ResourceId] -> ResourceId -> Text
+  -> [Declaration] -> Map ResourceId (ManagedResource, ByteString)
+  -> Either Text [WriterCandidate]
+discoverWriterCandidatesWithNetworkPolicy networkExcluded target routes cluster claim declarations native = do
   unless (not (T.null claim)) (Left "fenced PVC name is empty")
   let byId = Map.fromList [(declarationId declaration, declaration)
         | declaration <- declarations]
@@ -92,7 +110,7 @@ discoverWriterCandidatesForRoutes target routes cluster claim declarations nativ
         mounted = mountsClaim claim value
         kind = workloadKind (address member)
         possibleController = hasPodTemplate value
-    if not dependent && not mounted
+    if (not dependent || networkExcluded && resource /= target) && not mounted
       then pure Nothing
       else case kind of
         Just supported -> pure (Just (WriterCandidate resource supported
@@ -100,7 +118,9 @@ discoverWriterCandidatesForRoutes target routes cluster claim declarations nativ
         Nothing
           | possibleController || mounted ->
               Left ("accepted writer controller lacks a fence control: "
-                <> resourceIdText resource)
+                <> resourceIdText resource
+                <> " (network-excluded=" <> T.pack (show networkExcluded)
+                <> ", direct-mount=" <> T.pack (show mounted) <> ")")
           | otherwise -> pure Nothing
   let candidates = sortOn candidateResource (mapMaybe id selected)
       selectedIds = Set.fromList (map candidateResource candidates)
@@ -110,6 +130,7 @@ discoverWriterCandidatesForRoutes target routes cluster claim declarations nativ
         , Just declaration <- [Map.lookup resource byId]
         , resource /= target
         , declarationNeedsNativeControl declaration
+        , not networkExcluded || resource == target
         , Set.notMember resource selectedIds]
   unless (null unsupportedDependents)
     (Left ("accepted dependent may write but has no native fence control: "
