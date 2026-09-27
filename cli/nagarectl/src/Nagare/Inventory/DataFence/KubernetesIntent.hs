@@ -4,9 +4,10 @@
 module Nagare.Inventory.DataFence.KubernetesIntent
   ( KubernetesFenceIntent (..)
   , decodeKubernetesFenceIntent
+  , validateKubernetesWriterInventory
   ) where
 
-import Control.Monad (forM, unless)
+import Control.Monad (forM, forM_, unless)
 import Data.Aeson (Value (..), withObject, (.:), (.:?))
 import Data.Aeson.Key (Key)
 import Data.Aeson.KeyMap qualified as KM
@@ -20,6 +21,7 @@ import Nagare.Dsl.Prelude
 import Nagare.Inventory.DataFence.MountGuard
 import Nagare.Inventory.DataFence.StatefulWriter
 import Nagare.Inventory.DataFence.VolumeState (VolumeBacking (..))
+import Nagare.Inventory.DataFence.WriterInventory
 import Nagare.Inventory.Store (DataFenceRecord (..))
 import Nagare.Resource.Types
 
@@ -30,6 +32,7 @@ data KubernetesFenceIntent = KubernetesFenceIntent
   , kubernetesMountGuard :: !MountGuard
   , kubernetesVolumeBacking :: !VolumeBacking
   , kubernetesStatefulWriters :: ![(ResourceId, StatefulWriterPin)]
+  , kubernetesWriterMountsTarget :: !(Map.Map ResourceId Bool)
   }
   deriving stock (Eq, Show)
 
@@ -88,7 +91,7 @@ decodeKubernetesFenceIntent record = do
         || rawWriterNamespace raw == rawNamespace volume)
       (Left "Kubernetes PVC writer belongs to another namespace")
     let permit = if rawWriterMountsTarget raw then Just validatedPermit else Nothing
-    pure ((resource, pin), permit)
+    pure ((resource, pin), permit, (resource, rawWriterMountsTarget raw))
   unless (Map.keysSet (fenceSavedWriters record) == fenceAffected record
       && Map.keysSet (fencePhysical record)
         == Set.union (fenceTargets record) (fenceAffected record))
@@ -98,11 +101,44 @@ decodeKubernetesFenceIntent record = do
   mountGuard <- mkMountGuard (fenceSession record)
     (rawNamespace volume) (rawClaim volume) (rawClaimUid volume)
     (rawPv volume) (rawPvUid volume)
-    (mapMaybe snd writers <> maybe [] (: []) restorePermit)
+    (mapMaybe (\(_, permit, _) -> permit) writers
+      <> maybe [] (: []) restorePermit)
   validateBacking (rawBacking volume)
   pure (KubernetesFenceIntent cluster root (rawResource volume)
     mountGuard (rawBacking volume)
-    (map fst writers))
+    (map (\(writer, _, _) -> writer) writers)
+    (Map.fromList [mount | (_, _, mount) <- writers]))
+
+-- | Reconcile the saved writer pins with the complete accepted native
+-- discovery before any provider mutation. Dependency clients and direct PVC
+-- mounts must be represented by the same exact Kubernetes controllers.
+validateKubernetesWriterInventory :: KubernetesFenceIntent
+  -> [WriterCandidate] -> Either Text ()
+validateKubernetesWriterInventory intent candidates = do
+  let pinned = Map.fromList (kubernetesStatefulWriters intent)
+      discovered = Map.fromList [(candidateResource candidate, candidate)
+        | candidate <- candidates]
+  unless (length candidates == Map.size discovered
+      && Map.keysSet pinned == Map.keysSet discovered)
+    (Left "accepted writer discovery differs from reviewed fence writers")
+  forM_ (Map.toAscList pinned) $ \(resource, pin) -> do
+    candidate <- maybe (Left "accepted writer is missing") Right
+      (Map.lookup resource discovered)
+    unless (candidateKind candidate == StatefulSetWriter
+        && matchesWriterAddress intent pin (candidateAddress candidate))
+      (Left "accepted writer controller differs from reviewed fence writer")
+    unless (Map.lookup resource (kubernetesWriterMountsTarget intent)
+        == Just (candidateByMount candidate))
+      (Left "accepted PVC mount differs from reviewed writer intent")
+
+matchesWriterAddress :: KubernetesFenceIntent -> StatefulWriterPin
+  -> ProviderAddress -> Bool
+matchesWriterAddress intent pin (Kubernetes cluster "apps" kind namespace name) =
+  cluster == kubernetesCluster intent
+    && nameText kind == "statefulset"
+    && fmap nameText namespace == Just (writerNamespace pin)
+    && nameText name == writerName pin
+matchesWriterAddress _ _ _ = False
 
 validateBacking :: VolumeBacking -> Either Text ()
 validateBacking (CsiVolume driver handle) =

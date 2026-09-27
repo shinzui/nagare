@@ -4,6 +4,10 @@
 module Nagare.Inventory.DataFence.StatefulWriter
   ( StatefulWriterPin
   , mkStatefulWriterPin
+  , writerNamespace
+  , writerName
+  , writerUid
+  , writerSavedReplicas
   , StatefulWriterTransport (..)
   , kubectlStatefulWriterTransport
   , stopStatefulWriter

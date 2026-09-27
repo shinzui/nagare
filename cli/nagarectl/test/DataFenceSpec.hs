@@ -88,6 +88,25 @@ dataFenceTests = testGroup "data fence"
         decoded <- right (decodeKubernetesFenceIntent native)
         kubernetesVolumeBacking decoded @?= LocalVolume "/data/disk" "node-a"
         map fst (kubernetesStatefulWriters decoded) @?= [writer]
+        let candidate = WriterCandidate writer StatefulSetWriter
+              (Kubernetes clusterId "apps" (known (mkName "statefulset"))
+                (Just (known (mkName "restore-space")))
+                (known (mkName "database"))) True True
+        _ <- right (validateKubernetesWriterInventory decoded [candidate])
+        case validateKubernetesWriterInventory decoded [] of
+          Left _ -> pure ()
+          Right _ -> assertFailure "omitted accepted writer was accepted"
+        case validateKubernetesWriterInventory decoded
+            [candidate {candidateByMount = False}] of
+          Left _ -> pure ()
+          Right _ -> assertFailure "changed PVC mount was accepted"
+        case validateKubernetesWriterInventory decoded
+            [candidate {candidateAddress = Kubernetes clusterId "apps"
+              (known (mkName "statefulset"))
+              (Just (known (mkName "restore-space")))
+              (known (mkName "other"))}] of
+          Left _ -> pure ()
+          Right _ -> assertFailure "changed writer address was accepted"
         let wrongPhysical = native {fencePhysical = Map.insert writer
               (known (mkPhysicalIdentity "bbbbbbbb-2222-3333-4444-555555555555"))
               (fencePhysical native)}
