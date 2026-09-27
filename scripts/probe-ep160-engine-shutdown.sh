@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cluster_name="nagare-ep160-engine-shutdown-$$"
+cluster_name="ep160-shutdown-$$"
 namespace="ep160-engine-shutdown"
 probe_root="$(mktemp -d)"
 evidence_root="$repo_root/.tmp/$cluster_name"
