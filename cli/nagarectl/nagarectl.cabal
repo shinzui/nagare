@@ -131,6 +131,7 @@ library
     Nagare.Inventory.DataFence
     Nagare.Inventory.DataFence.MountGuard
     Nagare.Inventory.DataFence.MountGuardRuntime
+    Nagare.Inventory.DataFence.VolumeState
     Nagare.Inventory.DataService
     Nagare.Inventory.Backup
     Nagare.Inventory.Prune

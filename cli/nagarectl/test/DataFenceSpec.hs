@@ -1,22 +1,23 @@
 module DataFenceSpec (dataFenceTests) where
 
-import Data.Aeson (Value (..), eitherDecode, encode, object, toJSON)
+import Data.Aeson (Value (..), eitherDecode, encode, object, toJSON, (.=))
 import Data.Aeson.KeyMap qualified as KM
 import Data.Foldable (toList)
 import Data.IORef
-import Data.List (elemIndex)
+import Data.List (elemIndex, find)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
-import Nagare.Dsl.Prelude
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
   ( AdapterExecution (..), AdapterFence (..)
   , RecoveryDecision (..), mkAdapterRegistry, observationSet, withAdapterFence )
 import Nagare.Inventory.DataFence
 import Nagare.Inventory.DataFence.MountGuard
 import Nagare.Inventory.DataFence.MountGuardRuntime
+import Nagare.Inventory.DataFence.VolumeState
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute
   ( AdmissionError (..), TransactionResult (..), admit, applyReviewed, execute, resumeTransaction )
@@ -378,6 +379,139 @@ dataFenceTests = testGroup "data fence"
           Left _ -> pure ()
           Right () -> assertFailure "changed policy was accepted on restart"
         readIORef creates >>= (@?= 9)
+    , testCase "exact volume evidence counts every Pod and attachment consumer" $ do
+        mountGuard <- right (mkMountGuard "restore-session" "restore-space" "data-pvc"
+          "11111111-2222-3333-4444-555555555555" "pv-data"
+          "66666666-7777-8888-9999-000000000000" [])
+        let pvc = object
+              [ "metadata" .= object
+                  [ "namespace" .= ("restore-space" :: Text)
+                  , "name" .= ("data-pvc" :: Text)
+                  , "uid" .= ("11111111-2222-3333-4444-555555555555" :: Text)]
+              , "spec" .= object
+                  [ "volumeName" .= ("pv-data" :: Text)
+                  , "accessModes" .= (["ReadWriteOnce"] :: [Text])]
+              , "status" .= object ["phase" .= ("Bound" :: Text)]
+              ]
+            pv = object
+              [ "metadata" .= object
+                  [ "name" .= ("pv-data" :: Text)
+                  , "uid" .= ("66666666-7777-8888-9999-000000000000" :: Text)]
+              , "spec" .= object
+                  [ "accessModes" .= (["ReadWriteOnce"] :: [Text])
+                  , "claimRef" .= object
+                      [ "namespace" .= ("restore-space" :: Text)
+                      , "name" .= ("data-pvc" :: Text)
+                      , "uid" .= ("11111111-2222-3333-4444-555555555555" :: Text)]
+                  , "csi" .= object
+                      [ "driver" .= ("example.csi" :: Text)
+                      , "volumeHandle" .= ("disk-123" :: Text)]
+                  ]
+              , "status" .= object ["phase" .= ("Bound" :: Text)]
+              ]
+            emptyPods = object ["items" .= ([] :: [Value])]
+            emptyAttachments = object ["items" .= ([] :: [Value])]
+            mountedPod = object
+              [ "metadata" .= object
+                  [ "namespace" .= ("restore-space" :: Text)
+                  , "name" .= ("foreign" :: Text)
+                  , "uid" .= ("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" :: Text)]
+              , "spec" .= object ["volumes" .= [object
+                  [ "persistentVolumeClaim" .= object
+                      ["claimName" .= ("data-pvc" :: Text)]]]]
+              ]
+            attachment = object
+              [ "metadata" .= object
+                  [ "name" .= ("attachment" :: Text)
+                  , "uid" .= ("ffffffff-0000-1111-2222-333333333333" :: Text)]
+              , "spec" .= object ["source" .= object
+                  ["persistentVolumeName" .= ("pv-data" :: Text)]]
+              , "status" .= object ["attached" .= False]
+              ]
+            backing = CsiVolume "example.csi" "disk-123"
+            observed pods attachments = parseVolumeEvidence mountGuard backing
+              pvc pv pods attachments
+        emptyEvidence <- right (observed emptyPods emptyAttachments)
+        assertBool "empty volume should have no consumers"
+          (volumeHasNoConsumers emptyEvidence)
+        probes <- newIORef [True, True]
+        let guardObjects = concatMap (\(policy, bindingValue) ->
+              [policy, bindingValue])
+              [ mountGuardObjects mountGuard
+              , pvcMutationGuardObjects mountGuard
+              , pvMutationGuardObjects mountGuard
+              , namespaceDeleteGuardObjects mountGuard
+              ]
+            address (Object fields) = case
+              (KM.lookup "kind" fields, KM.lookup "metadata" fields) of
+              (Just (String kind), Just (Object metadata)) ->
+                case KM.lookup "name" metadata of
+                  Just (String name) -> Just (kind, name)
+                  _ -> Nothing
+              _ -> Nothing
+            address _ = Nothing
+            guardedTransport = MountGuardTransport
+              { readGuardObject = \kind name ->
+                  pure (Right (find ((== Just (kind, name)) . address) guardObjects))
+              , createGuardObject = \_ -> pure (Left "unexpected create")
+              , probeForeignMountDenied = \_ -> atomicModifyIORef' probes $ \values ->
+                  case values of
+                    next : rest -> (rest, Right next)
+                    [] -> ([], Right False)
+              }
+            volumeTransport = VolumeTransport
+              { readClaim = \_ _ -> pure (Right pvc)
+              , readVolume = \_ -> pure (Right pv)
+              , listNamespacePods = \_ -> pure (Right emptyPods)
+              , listVolumeAttachments = pure (Right emptyAttachments)
+              }
+        observeGuardedVolumeExcluded guardedTransport volumeTransport
+          mountGuard backing >>= right >>= (@?= True)
+        writeIORef probes [True, False]
+        observeGuardedVolumeExcluded guardedTransport volumeTransport
+          mountGuard backing >>= right >>= (@?= False)
+        podEvidence <- right (observed
+          (object ["items" .= [mountedPod]]) emptyAttachments)
+        volumePodConsumers podEvidence @?=
+          ["foreign/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"]
+        assertBool "Pod still has the PVC" (not (volumeHasNoConsumers podEvidence))
+        attachmentEvidence <- right (observed emptyPods
+          (object ["items" .= [attachment]]))
+        assertBool "detached attachment intent still exists"
+          (not (volumeHasNoConsumers attachmentEvidence))
+        case parseVolumeEvidence mountGuard (CsiVolume "example.csi" "other")
+          pvc pv emptyPods emptyAttachments of
+          Left _ -> pure ()
+          Right _ -> assertFailure "changed CSI handle was accepted"
+        let localPv = case pv of
+              Object fields | Just (Object spec) <- KM.lookup "spec" fields ->
+                Object (KM.insert "spec" (Object
+                  (KM.insert "nodeAffinity" (object ["required" .= object
+                    ["nodeSelectorTerms" .= [object ["matchExpressions" .= [object
+                      [ "key" .= ("kubernetes.io/hostname" :: Text)
+                      , "operator" .= ("In" :: Text)
+                      , "values" .= (["node-a"] :: [Text])]]]]]])
+                    (KM.insert "local" (object ["path" .= ("/data/disk" :: Text)])
+                    (KM.delete "csi" spec)))) fields)
+              other -> other
+        localEvidence <- right (parseVolumeEvidence mountGuard
+          (LocalVolume "/data/disk" "node-a") pvc localPv
+          emptyPods emptyAttachments)
+        assertBool "local volume has no consumers"
+          (volumeHasNoConsumers localEvidence)
+        case parseVolumeEvidence mountGuard (LocalVolume "/data/disk" "node-b")
+          pvc localPv emptyPods emptyAttachments of
+          Left _ -> pure ()
+          Right _ -> assertFailure "changed local PV node was accepted"
+        let replacedClaim = case pvc of
+              Object fields | Just (Object metadata) <- KM.lookup "metadata" fields ->
+                Object (KM.insert "metadata" (Object (KM.insert "uid"
+                  (String "bbbbbbbb-2222-3333-4444-555555555555") metadata)) fields)
+              other -> other
+        case parseVolumeEvidence mountGuard backing replacedClaim pv
+          emptyPods emptyAttachments of
+          Left _ -> pure ()
+          Right _ -> assertFailure "replaced PVC UID was accepted"
     , testCase "reviewed adapter effect runs only inside a verified fence" $ do
         store <- newMemoryStore
         steps <- newIORef ([] :: [Text])

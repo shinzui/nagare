@@ -10,6 +10,9 @@ module Nagare.Inventory.DataFence.MountGuard
   , mountGuardName
   , guardNamespaceName
   , guardClaimName
+  , guardClaimIdentity
+  , guardVolumeName
+  , guardVolumeIdentity
   , mountGuardObjects
   , pvcMutationGuardObjects
   , pvMutationGuardObjects
@@ -104,6 +107,15 @@ guardNamespaceName = nameText . guardNamespace
 
 guardClaimName :: MountGuard -> Text
 guardClaimName = nameText . guardClaim
+
+guardClaimIdentity :: MountGuard -> Text
+guardClaimIdentity = guardClaimUid
+
+guardVolumeName :: MountGuard -> Text
+guardVolumeName = nameText . guardVolume
+
+guardVolumeIdentity :: MountGuard -> Text
+guardVolumeIdentity = guardVolumeUid
 
 -- | The policy covers Pod CREATE and UPDATE, while the binding enforces Deny.
 -- A controller exception requires both the API-authenticated controller user
