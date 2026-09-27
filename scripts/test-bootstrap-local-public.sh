@@ -139,11 +139,23 @@ EOF
 cat > "$fixture_root/bin/docker" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-[[ "$*" == 'inspect --type container k3d-nagare-local-server-0' ]] || exit 43
-test -s "$XDG_STATE_HOME/cluster-digest" || exit 44
-digest="$(cat "$XDG_STATE_HOME/cluster-digest")"
-jq -n --arg digest "$digest" '[{State:{Running:true},Config:{Labels:{
-  "k3d.cluster":"nagare-local", "k3d.role":"server", "nagare.bootstrap.digest":$digest}}}]'
+case "$*" in
+  'inspect --type container k3d-nagare-local-server-0')
+    test -s "$XDG_STATE_HOME/cluster-digest" || exit 44
+    digest="$(cat "$XDG_STATE_HOME/cluster-digest")"
+    jq -n --arg digest "$digest" '[{State:{Running:true},Config:{Labels:{
+      "k3d.cluster":"nagare-local", "k3d.role":"server", "nagare.bootstrap.digest":$digest}}}]' ;;
+  'exec k3d-registry.localhost wget -S -O /dev/null '*'/v2/net-certmanager-controller/manifests/v1.14.0-nagare.1')
+    if [ -f "$XDG_STATE_HOME/oci-published" ]; then
+      printf '  HTTP/1.1 200 OK\n  Docker-Content-Digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' >&2
+    else
+      printf '  HTTP/1.1 404 Not Found\n' >&2
+      exit 1
+    fi ;;
+  'push k3d-registry.localhost:5000/net-certmanager-controller:v1.14.0-nagare.1')
+    touch "$XDG_STATE_HOME/oci-published" ;;
+  *) printf 'unexpected docker command: %s\n' "$*" >&2; exit 43 ;;
+esac
 EOF
 chmod +x "$fixture_root/bin/k3d" "$fixture_root/bin/docker"
 

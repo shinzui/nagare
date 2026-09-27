@@ -12,6 +12,8 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "${script_dir}/../../.." && pwd)"
 # shellcheck source=scripts/lib/target.sh
 source "${root}/scripts/lib/target.sh"
+# shellcheck source=scripts/lib/local-registry.sh
+source "${root}/scripts/lib/local-registry.sh"
 
 if [ "${NAGARE_MODE:-cloud}" = local ]; then
   registry="${NAGARE_REGISTRY_HOST:?local registry host is required}"
@@ -57,10 +59,17 @@ if [ "${NAGARE_MODE:-cloud}" != local ]; then
   auth_args=(--authfile "${private_dir}/auth.json")
 fi
 
-skopeo --policy "${policy}" copy --preserve-digests "${tls_args[@]}" "${auth_args[@]}" \
-  "docker-archive:${archive}" "docker://${destination}" >&2
-remote_manifest="$(skopeo --policy "${policy}" inspect "${inspect_args[@]}" "${auth_args[@]}" \
-  --format '{{.Digest}}' "docker://${destination}")"
+if [ "${NAGARE_MODE:-cloud}" = local ] && [ "$registry" = k3d-registry.localhost:5000 ]; then
+  skopeo --policy "${policy}" copy --preserve-digests \
+    "docker-archive:${archive}" "docker-daemon:${destination}" >&2
+  docker push "$destination" >&2
+  remote_manifest="$(nagare_local_registry_digest "$destination")"
+else
+  skopeo --policy "${policy}" copy --preserve-digests "${tls_args[@]}" "${auth_args[@]}" \
+    "docker-archive:${archive}" "docker://${destination}" >&2
+  remote_manifest="$(skopeo --policy "${policy}" inspect "${inspect_args[@]}" "${auth_args[@]}" \
+    --format '{{.Digest}}' "docker://${destination}")"
+fi
 [ "${remote_manifest}" = "${source_manifest}" ] || {
   echo "published patched-controller manifest differs from the reviewed digest" >&2
   exit 2

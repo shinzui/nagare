@@ -40,6 +40,8 @@ repo_root="$(cd "${script_dir}/.." && pwd)"
 # stack. Local target loading otherwise selects or initializes one per call.
 export NAGARE_SKIP_PULUMI_STACK_SELECT=1
 source "${script_dir}/lib/target.sh"
+# shellcheck source=lib/local-registry.sh
+source "${script_dir}/lib/local-registry.sh"
 
 absence_digest() {
   local value
@@ -87,10 +89,20 @@ observe_gce_image() {
 }
 
 observe_oci_image() (
-  local output
+  local output status
   local tls_args=()
   local auth_args=()
   if [ "${NAGARE_MODE:-cloud}" = local ]; then
+    if [ "${NAGARE_REGISTRY_HOST:-}" = k3d-registry.localhost:5000 ]; then
+      if output="$(nagare_local_registry_digest "$destination")"; then
+        emit_present "oci://${destination}" "$output"
+        return
+      else
+        status=$?
+        if [ "$status" -eq 4 ]; then emit_missing; return; fi
+        return "$status"
+      fi
+    fi
     tls_args+=(--tls-verify=false)
   else
     _require_target_project
