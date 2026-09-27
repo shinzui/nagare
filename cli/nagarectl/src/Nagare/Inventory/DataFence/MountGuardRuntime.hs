@@ -12,7 +12,7 @@ module Nagare.Inventory.DataFence.MountGuardRuntime
 
 import Control.Exception (IOException, try)
 import Control.Monad (forM, unless)
-import Data.Aeson (Value (..), eitherDecodeStrict', encode, object, (.=))
+import Data.Aeson (Value (..), eitherDecodeStrict', encode, object, toJSON, (.=))
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString.Lazy qualified as BL
@@ -31,6 +31,7 @@ data MountGuardTransport = MountGuardTransport
   , createGuardObject :: !(Value -> IO (Either Text ()))
   , deleteGuardObject :: !(Text -> Text -> Text -> Text -> IO (Either Text ()))
   , probeForeignMountDenied :: !(MountGuard -> IO (Either Text Bool))
+  , probeWriterScaleDenied :: !(MountGuard -> IO (Either Text Bool))
   }
 
 -- | Existing objects are accepted only when their effective policy and
@@ -74,7 +75,12 @@ observeMountGuard transport guard = do
   case sequence observed of
     Left reason -> pure (Left reason)
     Right matches | not (and matches) -> pure (Right False)
-    Right _ -> probeForeignMountDenied transport guard
+    Right _ -> do
+      foreignDenied <- probeForeignMountDenied transport guard
+      case foreignDenied of
+        Left reason -> pure (Left reason)
+        Right False -> pure (Right False)
+        Right True -> probeWriterScaleDenied transport guard
 
 -- | Only the explicit verified-release path may call this. Bindings go first
 -- so no policy can remain unexpectedly active after release. Each deletion is
@@ -128,8 +134,11 @@ guardObjects guard =
       (pvcPolicy, pvcBinding) = pvcMutationGuardObjects guard
       (pvPolicy, pvBinding) = pvMutationGuardObjects guard
       (namespacePolicy, namespaceBinding) = namespaceDeleteGuardObjects guard
-   in [podPolicy, pvcPolicy, pvPolicy, namespacePolicy,
-       podBinding, pvcBinding, pvBinding, namespaceBinding]
+      writerPairs = statefulWriterGuardObjects guard
+   in [podPolicy, pvcPolicy, pvPolicy, namespacePolicy]
+      <> map fst writerPairs
+      <> [podBinding, pvcBinding, pvBinding, namespaceBinding]
+      <> map snd writerPairs
 
 objectAddress :: Value -> Either Text (Text, Text)
 objectAddress (Object root) = do
@@ -163,7 +172,8 @@ textField key root = case KM.lookup (Key.fromText key) root of
   _ -> Left ("mount guard " <> key <> " is missing")
 
 kubectlMountGuardTransport :: KubernetesRuntimeConfig -> MountGuardTransport
-kubectlMountGuardTransport config = MountGuardTransport readOne createOne deleteOne probe
+kubectlMountGuardTransport config = MountGuardTransport
+  readOne createOne deleteOne probe probeScale
   where
     invoke arguments input = do
       guarded <- runtimeGuard config
@@ -241,3 +251,29 @@ kubectlMountGuardTransport config = MountGuardTransport readOne createOne delete
         Right (ExitSuccess, _, _) -> Right False
         Right (ExitFailure _, _, errors) ->
           Right ("Nagare live PVC is fenced" `T.isInfixOf` T.pack errors)
+    probeScale guard = do
+      results <- forM (guardedStatefulSets guard) $ \writer -> do
+        let patch = toJSON
+              [ object ["op" .= ("test" :: Text)
+                  , "path" .= ("/metadata/uid" :: Text)
+                  , "value" .= guardedWriterUid writer]
+              , object ["op" .= ("replace" :: Text)
+                  , "path" .= ("/spec/replicas" :: Text)
+                  , "value" .= (1 :: Int)]]
+        parent <- invoke ["--namespace", T.unpack (guardedWriterNamespace writer),
+          "patch", "statefulset", T.unpack (guardedWriterName writer),
+          "--type=json", "-p", T.unpack (TE.decodeUtf8 (BL.toStrict (encode patch))),
+          "--dry-run=server"] ""
+        scale <- invoke ["--namespace", T.unpack (guardedWriterNamespace writer),
+          "scale", "statefulset", T.unpack (guardedWriterName writer),
+          "--replicas=1", "--dry-run=server"] ""
+        deletion <- invoke ["--namespace", T.unpack (guardedWriterNamespace writer),
+          "delete", "statefulset", T.unpack (guardedWriterName writer),
+          "--dry-run=server"] ""
+        pure $ and <$> traverse denied [parent, scale, deletion]
+      pure (and <$> sequence results)
+    denied result = case result of
+      Left reason -> Left reason
+      Right (ExitSuccess, _, _) -> Right False
+      Right (ExitFailure _, _, errors) ->
+        Right ("Nagare writer controller is fenced" `T.isInfixOf` T.pack errors)

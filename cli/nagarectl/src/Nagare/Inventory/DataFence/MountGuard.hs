@@ -6,6 +6,9 @@ module Nagare.Inventory.DataFence.MountGuard
   ( MountGuard
   , PodOwnerPermit
   , mkMountGuard
+  , withGuardedStatefulSets
+  , GuardedStatefulSet (..)
+  , guardedStatefulSets
   , mkPodOwnerPermit
   , mountGuardName
   , guardNamespaceName
@@ -17,10 +20,12 @@ module Nagare.Inventory.DataFence.MountGuard
   , pvcMutationGuardObjects
   , pvMutationGuardObjects
   , namespaceDeleteGuardObjects
+  , statefulWriterGuardObjects
   ) where
 
 import Data.Aeson (Value, object, (.=))
 import Data.Char (isAlphaNum, isAscii, isAsciiLower)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -44,6 +49,14 @@ data MountGuard = MountGuard
   , guardVolume :: !Name
   , guardVolumeUid :: !Text
   , guardPermits :: ![PodOwnerPermit]
+  , guardWriters :: ![GuardedStatefulSet]
+  }
+  deriving stock (Eq, Show)
+
+data GuardedStatefulSet = GuardedStatefulSet
+  { guardedWriterNamespace :: !Text
+  , guardedWriterName :: !Text
+  , guardedWriterUid :: !Text
   }
   deriving stock (Eq, Show)
 
@@ -81,7 +94,25 @@ mkMountGuard session namespace claim claimUid volume volumeUid permits = do
   unless (validUid claimUid) (Left "fenced PVC UID is not a canonical Kubernetes UUID")
   unless (validUid volumeUid) (Left "fenced PV UID is not a canonical Kubernetes UUID")
   MountGuard session <$> mkName namespace <*> mkName claim <*> pure claimUid
-    <*> mkName volume <*> pure volumeUid <*> pure permits
+    <*> mkName volume <*> pure volumeUid <*> pure permits <*> pure []
+
+withGuardedStatefulSets :: MountGuard -> [(Text, Text, Text)]
+  -> Either Text MountGuard
+withGuardedStatefulSets guard writers = do
+  validated <- traverse validate writers
+  let addresses = [(guardedWriterNamespace writer, guardedWriterName writer)
+        | writer <- validated]
+  unless (length addresses == Set.size (Set.fromList addresses))
+    (Left "fenced StatefulSet address is duplicated")
+  pure guard {guardWriters = validated}
+  where
+    validate (namespace, name, uid) = do
+      unless (validDnsLabel namespace && validDnsSubdomain name && validUid uid)
+        (Left "fenced StatefulSet address or UID is malformed")
+      pure (GuardedStatefulSet namespace name uid)
+
+guardedStatefulSets :: MountGuard -> [GuardedStatefulSet]
+guardedStatefulSets = guardWriters
 
 validDnsSubdomain :: Text -> Bool
 validDnsSubdomain name = T.length name <= 253
@@ -201,6 +232,60 @@ namespaceDeleteGuardObjects guard = mutationGuardObjects guard "namespace"
   ["DELETE"] "namespaces" expression "Nagare live recovery namespace is fenced"
   where
     expression = "oldObject.metadata.name != '" <> nameText (guardNamespace guard) <> "'"
+
+-- | The saved controllers may only be driven toward zero while recovery is
+-- active. This covers both ordinary StatefulSet updates and /scale updates;
+-- DELETE is refused. The guard is removed only after verified recovery.
+statefulWriterGuardObjects :: MountGuard -> [(Value, Value)]
+statefulWriterGuardObjects guard = map render (guardWriters guard)
+  where
+    render writer = (policy, binding)
+      where
+        name = mountGuardName guard <> "-w-" <> T.take 8
+          (digestText (contentDigest (TE.encodeUtf8 (T.intercalate "/"
+            [guardedWriterNamespace writer, guardedWriterName writer,
+              guardedWriterUid writer]))))
+        policy = object
+          [ "apiVersion" .= ("admissionregistration.k8s.io/v1" :: Text)
+          , "kind" .= ("ValidatingAdmissionPolicy" :: Text)
+          , "metadata" .= object
+              [ "name" .= name
+              , "annotations" .= object
+                  [ "nagare.dev/fence-pvc-uid" .= guardClaimUid guard
+                  , "nagare.dev/fence-pv-uid" .= guardVolumeUid guard
+                  , "nagare.dev/fence-writer-uid" .= guardedWriterUid writer
+                  ]]
+          , "spec" .= object
+              [ "failurePolicy" .= ("Fail" :: Text)
+              , "matchConstraints" .= object
+                  [ "matchPolicy" .= ("Equivalent" :: Text)
+                  , "namespaceSelector" .= object []
+                  , "objectSelector" .= object []
+                  , "resourceRules" .= [object
+                      [ "apiGroups" .= (["apps"] :: [Text])
+                      , "apiVersions" .= (["v1"] :: [Text])
+                      , "operations" .= (["UPDATE", "DELETE"] :: [Text])
+                      , "resources" .= (["statefulsets", "statefulsets/scale"] :: [Text])
+                      , "scope" .= ("Namespaced" :: Text)
+                      ]]
+                  ]
+              , "validations" .= [object
+                  [ "expression" .= expression
+                  , "message" .= ("Nagare writer controller is fenced" :: Text)
+                  ]]
+              ]]
+        binding = object
+          [ "apiVersion" .= ("admissionregistration.k8s.io/v1" :: Text)
+          , "kind" .= ("ValidatingAdmissionPolicyBinding" :: Text)
+          , "metadata" .= object ["name" .= name]
+          , "spec" .= object
+              [ "policyName" .= name
+              , "validationActions" .= (["Deny"] :: [Text])
+              ]]
+        expression =
+          "oldObject.metadata.namespace != '" <> guardedWriterNamespace writer
+            <> "' || oldObject.metadata.name != '" <> guardedWriterName writer
+            <> "' || (request.operation == 'UPDATE' && object.spec.replicas == 0)"
 
 mutationGuardObjects :: MountGuard -> Text -> [Text] -> Text -> Text -> Text
   -> (Value, Value)

@@ -99,10 +99,13 @@ decodeKubernetesFenceIntent record = do
   -- A saved StatefulSet must not be permitted here: a foreign scale-up could
   -- recreate its Pod during recovery. It may mount only after verified release
   -- removes this guard.
-  mountGuard <- mkMountGuard (fenceSession record)
+  volumeGuard <- mkMountGuard (fenceSession record)
     (rawNamespace volume) (rawClaim volume) (rawClaimUid volume)
     (rawPv volume) (rawPvUid volume)
     (maybe [] (: []) restorePermit)
+  mountGuard <- withGuardedStatefulSets volumeGuard
+    [(writerNamespace pin, writerName pin, writerUid pin)
+      | ((_, pin), _) <- writers]
   validateBacking (rawBacking volume)
   pure (KubernetesFenceIntent cluster root (rawResource volume)
     mountGuard (rawBacking volume)

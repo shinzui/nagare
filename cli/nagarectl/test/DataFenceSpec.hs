@@ -92,6 +92,16 @@ dataFenceTests = testGroup "data fence"
         let (podPolicy, _) = mountGuardObjects (kubernetesMountGuard decoded)
         assertBool "acquisition guard must deny the saved writer controller"
           (not (writerUid `T.isInfixOf` T.pack (show podPolicy)))
+        case statefulWriterGuardObjects (kubernetesMountGuard decoded) of
+          [(writerPolicy, _)] -> do
+            let rendered = T.pack (show writerPolicy)
+            assertBool "writer guard covers the scale subresource"
+              ("statefulsets/scale" `T.isInfixOf` rendered)
+            assertBool "writer guard requires zero replicas"
+              ("object.spec.replicas == 0" `T.isInfixOf` rendered)
+            assertBool "writer guard binds the saved UID"
+              (writerUid `T.isInfixOf` rendered)
+          _ -> assertFailure "saved StatefulSet has no admission guard"
         let candidate = WriterCandidate writer StatefulSetWriter
               (Kubernetes clusterId "apps" (known (mkName "statefulset"))
                 (Just (known (mkName "restore-space")))
@@ -225,6 +235,7 @@ dataFenceTests = testGroup "data fence"
             address _ = Nothing
         objects <- newIORef (Map.empty :: Map.Map (Text, Text) Value)
         guardDenied <- newIORef False
+        writerDenied <- newIORef False
         replicas <- newIORef (1 :: Int)
         drained <- newIORef False
         patches <- newIORef (0 :: Int)
@@ -263,6 +274,7 @@ dataFenceTests = testGroup "data fence"
                       >> pure (Left "guard delete acknowledgement lost")
                       else pure (Right ())
               , probeForeignMountDenied = \_ -> Right <$> readIORef guardDenied
+              , probeWriterScaleDenied = \_ -> Right <$> readIORef writerDenied
               }
             volumeTransport = VolumeTransport
               { readClaim = \_ _ -> pure (Right pvc)
@@ -307,8 +319,13 @@ dataFenceTests = testGroup "data fence"
         validateKubernetesExclusion native nativeRecord >>= right
         refused <- stopKubernetesWriters native nativeRecord
         refused @?= Left "Kubernetes mount admission guard is not enforcing"
+        readIORef objects >>= \installed -> Map.size installed @?= 10
         readIORef patches >>= (@?= 0)
         writeIORef guardDenied True
+        scaleRefused <- stopKubernetesWriters native nativeRecord
+        scaleRefused @?= Left "Kubernetes mount admission guard is not enforcing"
+        readIORef patches >>= (@?= 0)
+        writeIORef writerDenied True
         stopKubernetesWriters native nativeRecord >>= right
         readIORef patches >>= (@?= 1)
         observeKubernetesExcluded native nativeRecord >>= right >>= (@?= False)
@@ -731,6 +748,7 @@ dataFenceTests = testGroup "data fence"
                       pure (Right ())
               , deleteGuardObject = \_ _ _ _ -> pure (Left "unexpected guard delete")
               , probeForeignMountDenied = \_ -> Right <$> readIORef denied
+              , probeWriterScaleDenied = \_ -> pure (Right True)
               }
         firstInstall <- installMountGuard transport guard
         case firstInstall of
@@ -807,6 +825,7 @@ dataFenceTests = testGroup "data fence"
                       >> pure (Left "delete acknowledgement lost")
                       else pure (Right ())
               , probeForeignMountDenied = \_ -> pure (Right False)
+              , probeWriterScaleDenied = \_ -> pure (Right True)
               }
         let firstKey = case reverse rendered of
               firstObject : _ -> address firstObject
@@ -909,6 +928,7 @@ dataFenceTests = testGroup "data fence"
                   case values of
                     next : rest -> (rest, Right next)
                     [] -> ([], Right False)
+              , probeWriterScaleDenied = \_ -> pure (Right True)
               }
             volumeTransport = VolumeTransport
               { readClaim = \_ _ -> pure (Right pvc)
