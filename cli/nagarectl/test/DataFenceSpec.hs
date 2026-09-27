@@ -1176,6 +1176,8 @@ dataFenceTests = testGroup "data fence"
               (known (mkLogicalKey "cluster")) (known (mkName "cluster"))
             statefulId = mintResourceId fenceOwner
               (known (mkLogicalKey "database")) (known (mkName "statefulset"))
+            serviceId = mintResourceId fenceOwner
+              (known (mkLogicalKey "database-route")) (known (mkName "service"))
             clientId = mintResourceId fenceOwner
               (known (mkLogicalKey "client")) (known (mkName "deployment"))
             mountId = mintResourceId fenceOwner
@@ -1197,8 +1199,14 @@ dataFenceTests = testGroup "data fence"
                   Retain Stateless Public deps [] (SourceLocation "fixture" kind)
               , BL.toStrict (encode value))
             stateful = member statefulId "apps" "statefulset" [] native
+            service = member serviceId "" "service" []
+              (object ["spec" .= object
+                ["selector" .= object
+                  ["nagare.dev/database" .= ("database" :: Text)]]])
             client = member clientId "apps" "deployment"
               [OrderedAfter statefulId] native
+            routeClient = member clientId "apps" "deployment"
+              [OrderedAfter serviceId] native
             directMount = member mountId "batch" "job" [] mounted
             unrelated = member unrelatedId "apps" "deployment" [] native
             registry entries = Map.fromList
@@ -1212,6 +1220,12 @@ dataFenceTests = testGroup "data fence"
           Left reason -> assertBool "dependent Deployment was not discovered"
             (resourceIdText clientId `T.isInfixOf` reason)
           Right _ -> assertFailure "dependent Deployment lacks a stop control"
+        case discoverWriterCandidatesForRoutes statefulId [serviceId] cluster "data-pvc"
+          (declarations [stateful, service, routeClient])
+          (registry [stateful, service, routeClient]) of
+          Left reason -> assertBool "Service-dependent Deployment was not discovered"
+            (resourceIdText clientId `T.isInfixOf` reason)
+          Right _ -> assertFailure "Service-dependent Deployment lacks a stop control"
         case discoverWriterCandidates statefulId cluster "data-pvc"
           (declarations [stateful, directMount]) (registry [stateful, directMount]) of
           Left reason -> assertBool "direct PVC mount was not discovered"

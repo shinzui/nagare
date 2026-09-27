@@ -83,6 +83,8 @@ Inherited: manual receipts and expiry validation, PostgreSQL scratch restore, an
 
 2026-09-27 Service endpoint evidence: reviewed Kubernetes fence intent can now pin the database Service UID, cluster IP, and selector, and admission checks its accepted association with the root StatefulSet. Native exclusion reads the exact Service plus every EndpointSlice and legacy Endpoints address for it, counting unready entries; a recording test keeps exclusion false after Pod drain until its Service route is empty. A disposable `k3d-ep160-svc` cluster showed a live Service endpoint before Pod deletion and an EndpointSlice with `endpoints: null` plus an Endpoints object without `subsets` after deletion. The parser and focused `cabal test nagarectl-test --test-options='-p "data fence"' --test-show-details=failures` test cover those shapes. This is read-only route evidence: Service selector changes and new endpoints can still race, and non-mounting database clients need engine or network write exclusion. The production provider and reviewed recovery command are still absent, so M1 remains open.
 
+2026-09-27 accepted route discovery: the native writer inventory now walks both the StatefulSet root and its reviewed Service as dependency roots. A recording fixture proves that a Deployment depending only on the Service is discovered and refused before acquisition because Deployment stop control remains unsupported. This closes an omission in candidate enumeration, but it does not yet quiesce those clients or prove external writers excluded.
+
 
 ## Surprises & Discoveries
 

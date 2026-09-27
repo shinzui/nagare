@@ -8,6 +8,7 @@ module Nagare.Inventory.DataFence.WriterInventory
   ( WriterKind (..)
   , WriterCandidate (..)
   , discoverWriterCandidates
+  , discoverWriterCandidatesForRoutes
   ) where
 
 import Control.Monad (forM, unless)
@@ -54,14 +55,22 @@ discoverWriterCandidates
   :: ResourceId -> ResourceId -> Text -> [Declaration]
   -> Map ResourceId (ManagedResource, ByteString)
   -> Either Text [WriterCandidate]
-discoverWriterCandidates target cluster claim declarations native = do
+discoverWriterCandidates target = discoverWriterCandidatesForRoutes target []
+
+-- | Route resources are additional dependency roots. Database clients often
+-- consume the Service rather than depend directly on the StatefulSet.
+discoverWriterCandidatesForRoutes
+  :: ResourceId -> [ResourceId] -> ResourceId -> Text -> [Declaration]
+  -> Map ResourceId (ManagedResource, ByteString)
+  -> Either Text [WriterCandidate]
+discoverWriterCandidatesForRoutes target routes cluster claim declarations native = do
   unless (not (T.null claim)) (Left "fenced PVC name is empty")
   let byId = Map.fromList [(declarationId declaration, declaration)
         | declaration <- declarations]
   unless (length declarations == Map.size byId)
     (Left "accepted writer inventory has duplicate resource identities")
-  unless (Map.member target byId)
-    (Left "fenced writer target is absent from accepted declarations")
+  unless (all (`Map.member` byId) (target : routes))
+    (Left "fenced writer target or Service route is absent from accepted declarations")
   let missingNative = [declarationId declaration
         | declaration@(Managed member) <- declarations
         , inCluster cluster (address member)
@@ -69,7 +78,7 @@ discoverWriterCandidates target cluster claim declarations native = do
   unless (null missingNative)
     (Left ("accepted Kubernetes writer inventory lacks native evidence: "
       <> T.intercalate "," (map resourceIdText missingNative)))
-  let affected = dependentClosure target declarations
+  let affected = dependentClosure (Set.fromList (target : routes)) declarations
       relevant =
         [(resource, member, bytes)
         | (resource, (member, bytes)) <- Map.toAscList native
@@ -115,8 +124,8 @@ discoverWriterCandidates target cluster claim declarations native = do
       <> T.intercalate "," uncontrolled))
   pure candidates
 
-dependentClosure :: ResourceId -> [Declaration] -> Set ResourceId
-dependentClosure target declarations = go (Set.singleton target)
+dependentClosure :: Set ResourceId -> [Declaration] -> Set ResourceId
+dependentClosure roots declarations = go roots
   where
     go known =
       let added = Set.fromList

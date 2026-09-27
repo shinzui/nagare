@@ -73,12 +73,14 @@ validatedIntent exclusion record = do
       && fenceAccepted record == exclusionAccepted exclusion)
     (Left "Kubernetes fence context or accepted revisions changed")
   intent <- decodeKubernetesFenceIntent record
-  candidates <- discoverWriterCandidates
-    (kubernetesDependencyRoot intent) (kubernetesCluster intent)
+  validateServiceAssociation exclusion intent
+  candidates <- discoverWriterCandidatesForRoutes
+    (kubernetesDependencyRoot intent)
+    (maybe [] (pure . serviceResource) (kubernetesService intent))
+    (kubernetesCluster intent)
     (guardClaimName (kubernetesMountGuard intent))
     (exclusionDeclarations exclusion) (exclusionNative exclusion)
   validateKubernetesWriterInventory intent candidates
-  validateServiceAssociation exclusion intent
   pure intent
 
 validateServiceAssociation :: KubernetesExclusion -> KubernetesFenceIntent
