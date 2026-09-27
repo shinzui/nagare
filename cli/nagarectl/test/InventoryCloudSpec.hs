@@ -135,6 +135,7 @@ fakePulumi logPath =
   unlines
     [ "#!/usr/bin/env bash"
     , "set -euo pipefail"
+    , "test \"${PULUMI_BACKEND_URL:-}\" = gs://example-state"
     , "printf '%s\\n' \"$*\" >> " <> show logPath
     , "case \" $* \" in"
     , "  *\" version \"*) printf '%s\\n' 'v3.255.0' ;;"

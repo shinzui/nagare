@@ -174,8 +174,9 @@ runPulumi config = runPulumiWith config []
 runPulumiWith :: PulumiRuntimeConfig -> [(String, String)] -> [String] -> IO (Either Text (ExitCode, String, String))
 runPulumiWith config additions arguments = do
   environment <- getEnvironment
-  let names = map fst additions
-      childEnvironment = additions <> filter ((`notElem` names) . fst) environment
+  let overrides = ("PULUMI_BACKEND_URL", T.unpack (runtimeBackend config)) : additions
+      names = map fst overrides
+      childEnvironment = overrides <> filter ((`notElem` names) . fst) environment
       command = (proc (runtimePulumiExecutable config) (["-C", runtimePulumiDirectory config] <> arguments)) {env = Just childEnvironment}
   first (\(err :: IOException) -> "could not run Pulumi: " <> T.pack (show err)) <$> try (readCreateProcessWithExitCode command "")
 

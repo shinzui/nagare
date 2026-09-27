@@ -14,6 +14,7 @@ async function observeProgram(variant: string): Promise<void> {
         "gcp:zone": "us-west1-a",
         "nagare:imageBucket": "example-images",
     };
+    if (variant.includes("foundation-managed")) config["nagare:manageProjectApis"] = "false";
     if (variant.includes("image") || variant.includes("cdn-")) config["nagare:nagareImageSelfLink"] = "projects/example-project/global/images/nagare-image";
     if (variant.includes("cache")) config["nagare:enableNixCache"] = "true";
     if (variant.includes("cdn-legacy")) {
@@ -125,21 +126,25 @@ async function main(): Promise<void> {
         return;
     }
     const base = runVariant("base");
+    const foundationManaged = runVariant("foundation-managed");
     const image = runVariant("image");
     const cache = runVariant("cache");
     const legacyCdn = runVariant("cdn-legacy");
     const prepareCdn = runVariant("cdn-prepare");
     const managerCdn = runVariant("cdn-manager");
-    for (const [label, registrations] of Object.entries({ base, image, cache, legacyCdn, prepareCdn, managerCdn })) {
+    for (const [label, registrations] of Object.entries({ base, foundationManaged, image, cache, legacyCdn, prepareCdn, managerCdn })) {
         assert(names(registrations).size === registrations.length, `${label} contains duplicate native registrations`);
     }
     verifyGuardedVariant("base", base);
+    verifyGuardedVariant("foundation-managed", foundationManaged);
     verifyGuardedVariant("image", image);
     verifyGuardedVariant("cache", cache);
     verifyGuardedVariant("cdn-legacy", legacyCdn);
     verifyGuardedVariant("cdn-prepare", prepareCdn);
     verifyGuardedVariant("cdn-manager", managerCdn);
     assert(base.length === 31, `base cloud topology changed: expected 31 registrations, got ${base.length}`);
+    assert(foundationManaged.length === base.length - 7,
+        "foundation-managed topology must omit the seven API registrations owned by the reviewed foundation");
     assert(image.length === base.length + 2, "image-enabled topology must add the instance component and GCE instance");
     assert(cache.length === base.length + 3, "cache-enabled topology must add its bucket, IAM member, and HMAC key");
     assert(legacyCdn.length === base.length + 14, "legacy-CDN topology registration delta changed");

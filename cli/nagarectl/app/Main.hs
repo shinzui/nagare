@@ -6422,7 +6422,9 @@ prepareInfraMutation mctx = do
       (gcloudAccount, adc) <- observeAdcForProject
       warnings <- either dieT pure (validateAdc (profile ^. #project) gcloudAccount adc)
       printPreflightWarnings warnings
-  workspace <- ensurePulumiForContext contextName profile
+  workspace <- case profile ^. #mode of
+    Cloud -> selectReviewedPulumiForContext contextName profile
+    Local -> ensurePulumiForContext contextName profile
   case profile ^. #mode of
     Local -> TIO.putStrLn "context guard: local mode; no GCP project to confine"
     Cloud -> do
