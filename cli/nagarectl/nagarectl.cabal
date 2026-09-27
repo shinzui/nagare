@@ -94,6 +94,8 @@ library
     Nagare.Inventory.Adapters.CdnRuntime
     Nagare.Inventory.Adapters.Cloudflare
     Nagare.Inventory.Adapters.CloudflareRuntime
+    Nagare.Inventory.Adapters.Foundation
+    Nagare.Inventory.Adapters.FoundationRuntime
     Nagare.Inventory.Adapters.GitHubRelease
     Nagare.Inventory.Adapters.GitHubReleaseRuntime
     Nagare.Inventory.Adapters.BrokerRuntime
@@ -112,6 +114,7 @@ library
     Nagare.Inventory.Bootstrap
     Nagare.Inventory.Cache
     Nagare.Inventory.Cloud
+    Nagare.Inventory.Foundation
     Nagare.Inventory.CollectionPolicy
     Nagare.Inventory.Command
     Nagare.Inventory.Components.Auth

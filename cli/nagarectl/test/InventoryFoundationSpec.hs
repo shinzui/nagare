@@ -1,21 +1,28 @@
 module InventoryFoundationSpec (inventoryFoundationTests) where
 
 import Data.Generics.Labels ()
-import Data.Aeson (object, (.=))
+import Data.Aeson (eitherDecodeStrict, object, (.=))
+import Data.ByteString.Char8 qualified as BC
+import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Bootstrap (bootstrapCandidateScopeVectorDigest, bootstrapMarkerValue, bootstrapScopeVectorDigest, compileBootstrapStamp, verifyBootstrapStampPayload)
+import Nagare.Inventory.Adapter (Adapter (..), AdapterExecution (AdapterEffectCompleted), OperationAction (CreateResource), PlannedOperation (..), PreparedNative (..), RecoveryDecision (RecoveryProvedComplete))
+import Nagare.Inventory.Adapters.Foundation (FoundationAdapterOps (..), FoundationNativePlan (..), FoundationObservation (..), FoundationTarget (..), foundationTargetDigest, mkFoundationAdapter)
+import Nagare.Inventory.Adapters.FoundationRuntime (GcloudRunner (..), mkFoundationRuntimeOps)
 import Nagare.Inventory.Components.Foundation
 import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.Foundation (FoundationDeclarationBundle (..), FoundationResource (..), compileFoundationScope)
+import Nagare.Inventory.Journal (mkOperationId)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.KubernetesSources (validateSuppliedKubernetesMembers)
 import Nagare.Inventory.Store (ScopeRevision (..))
 import Nagare.Platform.Status (ReleaseIdentity (..))
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes
-import Nagare.Resource.Policy (RecoveryClass (Idempotent))
+import Nagare.Resource.Policy (RecoveryClass (Idempotent), LifecyclePolicy (Protect, Retain), DataPolicy (Stateless), Sensitivity (Public))
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue, encodeCanonicalScope)
@@ -25,7 +32,108 @@ import System.FilePath ((</>))
 
 inventoryFoundationTests :: TestTree
 inventoryFoundationTests = testGroup "cluster foundation inventory"
-  [ testCase "platform namespaces and personal Job quota form one bound bundle" $ do
+  [ testCase "cloud foundation composes before a cluster exists and preserves unrelated scopes" $ do
+      let owner = ok (mkScopeId Platform "cloud-foundation")
+          appOwner = ok (mkScopeId Application "unrelated")
+          project = known "acme-prod"
+          api = FoundationResource (ok (mkLogicalKey "storage-api")) (known "service")
+            (CloudService project (known "storage.googleapis.com")) (contentDigest "storage-api")
+            Retain Stateless Public [] (SourceLocation "target" "storage-api")
+          apiId = mintResourceId owner (foundationLogicalKey api) (foundationRole api)
+          bucket = FoundationResource (ok (mkLogicalKey "state")) (known "bucket")
+            (GlobalBucket (known "acme-prod-nagare-state")) (contentDigest "state-bucket")
+            Protect Stateless Public [OrderedAfter apiId] (SourceLocation "target" "state-bucket")
+          bundle = FoundationDeclarationBundle 1 owner project (api :| [bucket])
+          binding = ContextBinding (ok (mkContextId "fixture")) project
+          appScope = ok (mkScopeDeclaration appOwner [ResourceBundle [] [] [] [] [] []])
+          snapshot = ok (mkScopeSnapshot binding
+            (Map.singleton appOwner (ok (mkScopeGeneration 4), appScope)) Map.empty)
+      foundationScope <- expectRight (compileFoundationScope bundle)
+      let candidate = ok (composeInventory snapshot (ReplaceScope foundationScope :| []))
+          members = [resource | Managed resource <- inventoryDeclarations (candidateInventory candidate)]
+      length members @?= 2
+      all ((== CloudFoundationExecutor) . (^. #executor)) members @?= True
+      candidateGenerations candidate Map.! appOwner @?= ok (mkScopeGeneration 4)
+      let wrongProject = bundle {foundationResources = api
+            {foundationAddress = CloudService (known "other-project") (known "storage.googleapis.com")} :| [bucket]}
+      assertBool "foreign-project API was accepted" (either (const True) (const False)
+        (compileFoundationScope wrongProject))
+  , testCase "foundation review retains exact gcloud intent and recovers a proved write" $ do
+      let owner = ok (mkScopeId Platform "cloud-foundation")
+          resource = mintResourceId owner (ok (mkLogicalKey "state")) (known "bucket")
+          target = FoundationBucket (known "acme-prod") (known "acme-prod-nagare-state")
+            (known "us-west1") Nothing
+          operation = PlannedOperation (ok (mkOperationId "op-state-create"))
+            CreateResource CloudFoundationExecutor (resource :| []) (contentDigest "review-input") []
+            Idempotent
+          physical = ok (mkPhysicalIdentity "gs://acme-prod-nagare-state")
+      state <- newIORef (FoundationAbsent (contentDigest "absence"))
+      calls <- newIORef (0 :: Int)
+      let ops = FoundationAdapterOps
+            { foundationInspect = \_ -> readIORef state
+            , foundationMutate = \_ -> do
+                writeIORef calls 1
+                writeIORef state (FoundationPresent physical (foundationTargetDigest target))
+                pure AdapterEffectCompleted
+            }
+          adapter = mkFoundationAdapter (Map.singleton resource target) ops
+      prepared <- adapterPrepare adapter operation >>= expectRight
+      plan <- expectRight (eitherDecodeStrict (preparedNativeBytes prepared))
+      foundationPlanCommands (plan :: FoundationNativePlan) @?=
+        [["gcloud", "storage", "buckets", "create", "gs://acme-prod-nagare-state",
+          "--project=acme-prod", "--location=us-west1", "--uniform-bucket-level-access",
+          "--public-access-prevention"],
+         ["gcloud", "storage", "buckets", "update", "gs://acme-prod-nagare-state",
+          "--versioning", "--uniform-bucket-level-access", "--public-access-prevention"]]
+      adapterPreflight adapter operation prepared >>= (@?= Right ())
+      adapterExecute adapter operation prepared >>= (@?= AdapterEffectCompleted)
+      readIORef calls >>= (@?= 1)
+      recovery <- adapterRecover adapter operation prepared
+      case recovery of
+        RecoveryProvedComplete _ -> pure ()
+        other -> assertFailure ("unproved foundation write: " <> show other)
+      adapterExecute adapter operation prepared >>= (@?= AdapterEffectCompleted)
+      readIORef calls >>= (@?= 1)
+      writeIORef state (FoundationForeign physical "wrong project")
+      assertBool "foreign bucket passed preflight" . either (const True) (const False)
+        =<< adapterPreflight adapter operation prepared
+  , testCase "cloud bucket observation distinguishes absence, foreign ownership, and failure" $ do
+      let target = FoundationBucket (known "acme-prod") (known "acme-prod-nagare-state")
+            (known "us-west1") Nothing
+          projectNumber = Right "12345"
+          bucketList = Right "[]"
+          runner listResult describedResult = GcloudRunner
+            { gcloudCapture = \args -> pure $ case args of
+                ["projects", "describe", _, _] -> projectNumber
+                ["storage", "buckets", "list", _, _] -> listResult
+                ["storage", "buckets", "describe", _, "--raw", "--format=json"] -> describedResult
+                _ -> Left "unexpected gcloud observation"
+            , gcloudEffect = \_ -> pure (Left "mutation was not expected")
+            }
+          inspect selected = foundationInspect (mkFoundationRuntimeOps selected) target
+          listed = Right "[{\"name\":\"acme-prod-nagare-state\"}]"
+          bucket owner = Right (BC.pack ("{\"projectNumber\":\"" <> owner
+            <> "\",\"location\":\"US-WEST1\",\"versioning\":{\"enabled\":true},"
+            <> "\"iamConfiguration\":{\"uniformBucketLevelAccess\":{\"enabled\":true},"
+            <> "\"publicAccessPrevention\":\"enforced\"}}"))
+      inspect (runner bucketList (Left "no describe")) >>= \case
+        FoundationAbsent _ -> pure ()
+        other -> assertFailure ("confirmed absence was lost: " <> show other)
+      inspect (runner listed (bucket "99999")) >>= \case
+        FoundationForeign _ _ -> pure ()
+        other -> assertFailure ("foreign bucket was accepted: " <> show other)
+      inspect (runner (Left "permission denied") (Left "no describe")) >>= \case
+        FoundationUnavailable _ -> pure ()
+        other -> assertFailure ("unknown observation became absence: " <> show other)
+      inspect (runner listed (bucket "12345")) >>= \case
+        FoundationPresent _ digest -> digest @?= foundationTargetDigest target
+        other -> assertFailure ("matching bucket did not converge: " <> show other)
+      let unversioned = Right "{\"projectNumber\":\"12345\",\"location\":\"US-WEST1\",\"iamConfiguration\":{\"uniformBucketLevelAccess\":{\"enabled\":true},\"publicAccessPrevention\":\"enforced\"}}"
+      inspect (runner listed unversioned) >>= \case
+        FoundationPresent _ digest -> assertBool "unversioned bucket was treated as converged"
+          (digest /= foundationTargetDigest target)
+        other -> assertFailure ("unversioned bucket could not be reviewed for update: " <> show other)
+  , testCase "platform namespaces and personal Job quota form one bound bundle" $ do
       (bundle, native) <- compileFoundation foundationInput >>= expectRight
       length (declarations bundle) @?= 3
       Map.size native @?= 3

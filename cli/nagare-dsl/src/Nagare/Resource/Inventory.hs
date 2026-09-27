@@ -72,7 +72,7 @@ import Nagare.Resource.Policy
 import Nagare.Resource.Reference
 import Nagare.Resource.Types
 
-data Executor = KubernetesExecutor | PulumiExecutor | HostExecutor | ArtifactExecutor | CacheExecutor | BrokerExecutor | HelmExecutor | CdnExecutor
+data Executor = KubernetesExecutor | PulumiExecutor | CloudFoundationExecutor | HostExecutor | ArtifactExecutor | CacheExecutor | BrokerExecutor | HelmExecutor | CdnExecutor
   deriving stock (Eq, Ord, Show, Generic)
 
 -- | Closed, versioned alternatives. Native bytes are referenced by content identity.
@@ -292,7 +292,8 @@ validateDeclaration d@(Managed r) = [err m | m <- issues]
     delegatedFields = map nameText (concatMap (NE.toList . (^. #fields)) (r ^. #delegations))
     executorMatches = case r ^. #address of
       Kubernetes {} -> r ^. #executor == KubernetesExecutor
-      GlobalBucket {} -> r ^. #executor == PulumiExecutor
+      GlobalBucket {} -> r ^. #executor `elem` [PulumiExecutor, CloudFoundationExecutor]
+      CloudService {} -> r ^. #executor == CloudFoundationExecutor
       CloudInstance {} -> r ^. #executor == PulumiExecutor
       PulumiUrn {} -> r ^. #executor == PulumiExecutor
       Host {} -> r ^. #executor == HostExecutor

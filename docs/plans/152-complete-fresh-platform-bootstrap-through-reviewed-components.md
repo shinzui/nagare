@@ -49,6 +49,8 @@ Inherited baseline: commits `9c308390`, `28e05b72`, and `09d83188` supplied expl
 
 2026-09-26 handoff: Bootstrap reviews now record `nagare-bootstrap:<payloadId>` in the immutable review document. Public bootstrap apply requires that review class, and generic inventory resume/recovery also checks a bootstrap review against the currently selected payload and context pin before adapters are created. This protects prerequisite-only stages that have no final marker. The public planning path still needs real prerequisite stages before the Kubernetes version read.
 
+2026-09-26 handoff: A cloud foundation stage now compiles the seven required project APIs and the deduplicated GCS state buckets as platform resources with a dedicated executor. The public bootstrap planner uses the local inventory journal for that first stage, before a Pulumi backend or Kubernetes API exists. Apply retains its review and receipts and migrates the local history to the configured GCS inventory store after convergence. Named initialization and context selection defer their API and state-bucket effects to this review. A recording public-command fixture planned eight resources from an empty cloud context, applied the local-store variant, verified the accepted/converged head, and refused a changed backend URL without a provider write. M1 remains open for the Pulumi, artifact, host, cluster, and local stage builders; M2 remains open for public interruption/resume and native final-marker proof.
+
 
 ## Surprises & Discoveries
 
@@ -61,6 +63,8 @@ Inherited baseline: commits `9c308390`, `28e05b72`, and `09d83188` supplied expl
 
 2026-09-26: A new cloud context can still create its GCS Pulumi state bucket through `bootstrapGcsIfNeeded` during `init` or `context create`, before any inventory review. `ensurePulumiForContext` then selects the configured backend. M1 must move that first bucket effect into an explicit reviewed stage or a reviewed adoption handoff; merely adding later cloud declarations would leave the fresh-bootstrap acceptance gap open.
 
+2026-09-26: Pulumi and inventory backend URLs can name the same global GCS bucket. The first foundation candidate initially minted two resource IDs for that one address; it now deduplicates by bucket name. The runtime distinguishes a successful project-scoped list showing absence from a failed list, asserts the target project number before any bucket update or IAM grant, and treats an uncertain write as unresolved. A changed backend URL is checked against the retained foundation declaration before an execution adapter is used.
+
 
 ## Decision Log
 
@@ -71,11 +75,13 @@ Inherited baseline: commits `9c308390`, `28e05b72`, and `09d83188` supplied expl
 
 2026-09-26: Bind the final marker to platform scope revisions and payload identity. Application, standalone, and publication revisions remain independently owned; changing one does not alter platform bootstrap completion. The marker scope is excluded from its own digest to avoid a self-reference.
 
+2026-09-26: Put pre-Pulumi APIs and state buckets under a dedicated cloud-foundation executor. Publish that first review to the local context inventory store, then use the existing conditional history migration after the bucket receipt is accepted. The Pulumi backend cannot be opened to store the review that creates its own bucket.
+
 
 ## Outcomes & Retrospective
 
 
-Implementation remains partial. Marker identity and scope-vector checks and targeted Pulumi operations have focused test and build evidence; no public fresh-bootstrap or native marker acceptance run has been performed. Inherited capabilities are credited in Progress and must not be presented as newly completed work.
+Implementation remains partial. Marker identity and scope-vector checks and targeted Pulumi operations have focused test and build evidence. The first cloud foundation stage has a public recording fixture and focused tests; it is not a full cloud, host, local, or native marker acceptance run. Inherited capabilities are credited in Progress and must not be presented as newly completed work.
 
 
 ## Context and Orientation

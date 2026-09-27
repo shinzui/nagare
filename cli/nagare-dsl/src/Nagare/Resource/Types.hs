@@ -162,6 +162,7 @@ data ContextBinding = ContextBinding {identity :: !ContextId, project :: !Name}
 data ProviderAddress
   = Kubernetes ResourceId Text Name (Maybe Name) Name
   | GlobalBucket Name
+  | CloudService Name Name
   | CloudInstance Name Name Name
   | PulumiUrn Text
   | Host ResourceId Name
@@ -205,6 +206,7 @@ canonicalClaim =
   CanonicalClaim . \case
     Kubernetes cluster group kind namespace n -> ["kubernetes", resourceIdText cluster, T.toLower group, nameText kind, maybe "" nameText namespace, nameText n]
     GlobalBucket n -> ["bucket", nameText n]
+    CloudService project service -> ["cloud-service", nameText project, nameText service]
     CloudInstance p z n -> ["instance", nameText p, nameText z, nameText n]
     PulumiUrn n -> ["pulumi", n]
     Host cluster n -> ["host", resourceIdText cluster, nameText n]

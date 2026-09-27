@@ -746,6 +746,7 @@ withAdapterEnv transaction operation action = do
     executorChild executor = case executor of
       KubernetesExecutor -> "kubernetes"
       PulumiExecutor -> "pulumi"
+      CloudFoundationExecutor -> "cloud-foundation"
       HostExecutor -> "host"
       ArtifactExecutor -> "artifact"
       CacheExecutor -> "cache"

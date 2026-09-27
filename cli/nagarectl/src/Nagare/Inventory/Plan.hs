@@ -959,6 +959,7 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
       let digest = contentDigest (canonicalBytes (toJSON (Managed resource)))
           recovery = case (resource ^. #executor, resource ^. #dataPolicy) of
             (CdnExecutor, _) -> VerifyBeforeRetry
+            (CloudFoundationExecutor, _) -> VerifyBeforeRetry
             (_, Stateless) -> Idempotent
             (_, Durable _) -> VerifyBeforeRetry
        in mkPlanned action (resource ^. #executor) (resource ^. #identity :| []) digest recovery
