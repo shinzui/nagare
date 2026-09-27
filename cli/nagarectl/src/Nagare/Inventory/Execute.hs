@@ -471,7 +471,7 @@ recordOperatorRecovery store registry input takeOver = do
                 | adapterIdentity adapter /= reviewAdapterIdentity reviewOperation
                   || adapterVersion adapter /= reviewAdapterVersion reviewOperation ->
                     pure (failure "adapter-version" "recovery adapter differs from the issued review")
-                | Left reason <- selectedFence registry reviewOperation prepared ->
+                | Left reason <- selectedFence registry reviewed reviewOperation prepared ->
                     pure (failure "data-fence-capability" reason)
                 | otherwise -> do
                     let operation = reviewPlannedOperation reviewOperation
@@ -520,7 +520,7 @@ runOperations locked registry transaction reviewed initialEvents operations = go
                 | adapterIdentity adapter /= reviewAdapterIdentity reviewOperation
                   || adapterVersion adapter /= reviewAdapterVersion reviewOperation ->
                     pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
-                | Left _ <- selectedFence registry reviewOperation prepared ->
+                | Left _ <- selectedFence registry reviewed reviewOperation prepared ->
                     pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
                 | otherwise -> do
                     decision <- withAdapterEnv transaction operation
@@ -541,7 +541,7 @@ runOperations locked registry transaction reviewed initialEvents operations = go
       case (lookupAdapter registry (plannedExecutor operation), preparedFor reviewed reviewOperation) of
         (Left _, _) -> pure (Just (StoppedAmbiguous transaction operationId))
         (_, Left _) -> pure (Just (StoppedAmbiguous transaction operationId))
-        (Right adapter, Right prepared) -> case selectedFence registry reviewOperation prepared of
+        (Right adapter, Right prepared) -> case selectedFence registry reviewed reviewOperation prepared of
           Left _ -> pure (Just (StoppedFailed transaction operationId
             (KnownNoEffect "reviewed data fence capability changed")))
           Right fenceSelection -> executePrepared events rest operation
@@ -650,7 +650,7 @@ preflightOperations registry reviewed previous = fmap concat $ forM (reviewOpera
       (Right adapter, Right prepared)
         | adapterIdentity adapter /= reviewAdapterIdentity reviewOperation || adapterVersion adapter /= reviewAdapterVersion reviewOperation ->
             pure [AdmissionError "adapter-version" "review adapter identity or version differs from the active registry"]
-        | otherwise -> case selectedFence registry reviewOperation prepared of
+        | otherwise -> case selectedFence registry reviewed reviewOperation prepared of
             Left reason -> pure [AdmissionError "data-fence-capability" reason]
             Right _ -> do
               result <- adapterPreflight adapter operation prepared
@@ -674,25 +674,25 @@ preparedFor reviewed reviewOperation = do
   unless (contentDigest bytes == digest) (Left "native bundle digest changed")
   pure (PreparedNative bytes (reviewPublicSummary reviewOperation))
 
-selectedFence :: AdapterRegistry -> ReviewOperation -> PreparedNative
+selectedFence :: AdapterRegistry -> ReviewedPlan -> ReviewOperation -> PreparedNative
   -> Either Text (Maybe (DataFenceRecord, DataFenceControls))
-selectedFence registry reviewed prepared =
-  case lookupAdapterFence registry (plannedExecutor (reviewPlannedOperation reviewed)) of
+selectedFence registry plan operation prepared = do
+  saved <- reviewedFenceRecord plan operation
+  case lookupAdapterFence registry (plannedExecutor (reviewPlannedOperation operation)) of
     Nothing
-      | isNothing (reviewFenceCapability reviewed)
-        && isNothing (reviewFenceDigest reviewed)
-        && isNothing (reviewFenceSummary reviewed) -> Right Nothing
+      | isNothing saved -> Right Nothing
       | otherwise -> Left "review requires an unavailable data fence capability"
-    Just hook -> do
-      selected <- fenceForOperation hook (reviewPlannedOperation reviewed) prepared
-      case (reviewFenceCapability reviewed, reviewFenceDigest reviewed, selected) of
+    Just hook -> case (reviewFenceCapability operation, reviewFenceDigest operation, saved) of
         (Nothing, Nothing, Nothing)
-          | isNothing (reviewFenceSummary reviewed) -> Right Nothing
-        (Just capability, Just digest, Just intent@(record, _))
+          | isNothing (reviewFenceSummary operation) -> Right Nothing
+        (Just capability, Just digest, Just record)
           | capability == fenceCapability hook
           , isNothing (fenceTransaction record)
           , digest == dataFenceIntentDigest record
-          , isJust (reviewFenceSummary reviewed) -> Right (Just intent)
+          , isJust (reviewFenceSummary operation) -> do
+              controls <- fenceFromReviewedRecord hook record
+                (reviewPlannedOperation operation) prepared
+              Right (Just (record, controls))
         _ -> Left "data fence capability or reviewed intent changed"
 
 appendEvent :: LockedStore s -> TransactionId -> Maybe OperationId -> OperationState -> Text -> IO (Either StoreError JournalEvent)

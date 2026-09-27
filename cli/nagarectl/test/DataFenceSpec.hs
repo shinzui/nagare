@@ -1839,11 +1839,12 @@ dataFenceTests = testGroup "data fence"
               AdapterFence
                 { fenceCapability = "recorded-fence-v1"
                 , fenceForOperation = \_ _ -> Right (Just
-                    (request {fenceContext = fixtureBinding, fenceAccepted = desired}, controls))
+                    (request {fenceContext = fixtureBinding, fenceAccepted = desired}))
+                , fenceFromReviewedRecord = \_ _ _ -> Right controls
                 })
             effect _ _ = recordStep "effect" >> pure AdapterEffectCompleted
             recovery _ _ = pure RecoverySafeToRetry
-        (reviewed, registry) <- preparedFixtureWithRegistry store effect recovery customize
+        (reviewed, _) <- preparedFixtureWithRegistry store effect recovery customize
         assertBool "review must bind the fence capability" (any
           ((== Just "recorded-fence-v1") . reviewFenceCapability)
           (reviewOperations (reviewedDocument reviewed)))
@@ -1878,7 +1879,21 @@ dataFenceTests = testGroup "data fence"
                     Right _ -> assertFailure "public review supplied a private fence"
               _ -> assertFailure "published review lacks one fenced operation"
           _ -> assertFailure "review lacks one fence digest"
-        outcome <- applyReviewed store registry reviewed >>= right
+        let expected = request
+              { fenceContext = fixtureBinding
+              , fenceAccepted = reviewDesiredRevisions (reviewedDocument reviewed)
+              }
+            fresh = known (withAdapterFence
+              (recordingRegistryWith (\_ _ -> pure (Right ())) effect recovery)
+              KubernetesExecutor AdapterFence
+                { fenceCapability = "recorded-fence-v1"
+                , fenceForOperation = \_ _ -> Left
+                    "planning capture must not run during apply"
+                , fenceFromReviewedRecord = \saved _ _ ->
+                    if saved == expected then Right controls
+                    else Left "apply did not use the exact reviewed fence record"
+                })
+        outcome <- applyReviewed store fresh reviewed >>= right
         case outcome of
           Converged _ -> pure ()
           _ -> assertFailure "fenced reviewed operation did not converge"
@@ -1905,7 +1920,8 @@ dataFenceTests = testGroup "data fence"
               AdapterFence
                 { fenceCapability = "recorded-fence-v1"
                 , fenceForOperation = \_ _ -> Right (Just
-                    (request {fenceContext = fixtureBinding, fenceAccepted = desired}, controls))
+                    (request {fenceContext = fixtureBinding, fenceAccepted = desired}))
+                , fenceFromReviewedRecord = \_ _ _ -> Right controls
                 })
         (reviewed, _) <- preparedFixtureWithRegistry store effect recovery customize
         let plain = recordingRegistryWith (\_ _ -> pure (Right ())) effect recovery
@@ -1918,12 +1934,10 @@ dataFenceTests = testGroup "data fence"
               (known (mkPhysicalIdentity "substituted-uid")) physical
             altered = known (withAdapterFence plain KubernetesExecutor AdapterFence
               { fenceCapability = "recorded-fence-v1"
-              , fenceForOperation = \_ _ -> Right (Just
-                  (request
-                    { fenceContext = fixtureBinding
-                    , fenceAccepted = reviewDesiredRevisions (reviewedDocument reviewed)
-                    , fencePhysical = changedPhysical
-                    }, controls))
+              , fenceForOperation = \_ _ -> Left "planning hook must not run during apply"
+              , fenceFromReviewedRecord = \saved _ _ ->
+                  if fencePhysical saved == changedPhysical then Right controls
+                  else Left "reviewed physical target differs from provider expectation"
               })
         substituted <- applyReviewed store altered reviewed
         case substituted of
@@ -1932,12 +1946,11 @@ dataFenceTests = testGroup "data fence"
           Right _ -> assertFailure "fenced review admitted a substituted target"
         let provider = known (withAdapterFence plain KubernetesExecutor AdapterFence
               { fenceCapability = "recorded-fence-v1"
-              , fenceForOperation = \_ _ -> Right (Just
-                  (request
-                    { fenceContext = fixtureBinding
-                    , fenceAccepted = reviewDesiredRevisions (reviewedDocument reviewed)
-                    , fenceProviderIntent = Just (object ["version" .= (1 :: Int)])
-                    }, controls))
+              , fenceForOperation = \_ _ -> Left "planning hook must not run during apply"
+              , fenceFromReviewedRecord = \saved _ _ ->
+                  if fenceProviderIntent saved == Just (object ["version" .= (1 :: Int)])
+                    then Right controls
+                    else Left "reviewed provider intent differs from provider expectation"
               })
         substitutedProvider <- applyReviewed store provider reviewed
         case substitutedProvider of
@@ -1959,7 +1972,10 @@ dataFenceTests = testGroup "data fence"
               AdapterFence
                 { fenceCapability = "recorded-fence-v1"
                 , fenceForOperation = \_ _ -> Right (Just
-                    (request {fenceContext = fixtureBinding, fenceAccepted = desired}, controls))
+                  (request
+                    { fenceContext = fixtureBinding
+                    , fenceAccepted = desired}))
+                , fenceFromReviewedRecord = \_ _ _ -> Right controls
                 })
         (reviewed, registry) <- preparedFixtureWithRegistry store effect recovery customize
         outcome <- applyReviewed store registry reviewed >>= right

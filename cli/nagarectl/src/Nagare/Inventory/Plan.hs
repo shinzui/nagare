@@ -41,6 +41,7 @@ module Nagare.Inventory.Plan
   , ReviewedPlan
   , reviewedDocument
   , reviewedNativeBundles
+  , reviewedFenceRecord
   , prepareReview
   , prepareReviewWithPayloadIdentity
   , reviewDigest
@@ -1082,8 +1083,18 @@ reviewBundleNative = bundleNative
 -- record is never taken from current provider state or the public directory.
 reviewBundleFenceRecord :: ReviewBundle -> ReviewOperation
   -> Either Text (Maybe DataFenceRecord)
-reviewBundleFenceRecord bundle operation = do
-  unless (operation `elem` reviewOperations (bundleDocument bundle))
+reviewBundleFenceRecord bundle = fenceRecordFromMembers
+  (bundleDocument bundle) (bundleNative bundle)
+
+reviewedFenceRecord :: ReviewedPlan -> ReviewOperation
+  -> Either Text (Maybe DataFenceRecord)
+reviewedFenceRecord (ReviewedPlan document members) =
+  fenceRecordFromMembers document members
+
+fenceRecordFromMembers :: ReviewDocument -> Map ContentDigest ByteString
+  -> ReviewOperation -> Either Text (Maybe DataFenceRecord)
+fenceRecordFromMembers document members operation = do
+  unless (operation `elem` reviewOperations document)
     (Left "data fence operation is absent from this review")
   case (reviewFenceCapability operation, reviewFenceDigest operation,
       reviewFenceSummary operation) of
@@ -1091,7 +1102,7 @@ reviewBundleFenceRecord bundle operation = do
     (Just capability, Just digest, Just summary)
       | not (T.null capability) && not (T.null summary) -> do
           bytes <- maybe (Left "reviewed data fence private member is absent") Right
-            (Map.lookup digest (bundleNative bundle))
+            (Map.lookup digest members)
           unless (contentDigest bytes == digest)
             (Left "reviewed data fence private member digest changed")
           record <- first T.pack (eitherDecodeStrict' bytes)
@@ -1293,7 +1304,7 @@ prepareReviewWithPayloadIdentity payloadIdentity registry snapshot proposal = do
               Just fence -> case fenceForOperation fence operation prepared of
                 Left reason -> Left (PrepareRefused (plannedOperationId operation) reason)
                 Right Nothing -> Right Nothing
-                Right (Just (record, _)) -> Right (Just (fenceCapability fence, record))
+                Right (Just record) -> Right (Just (fenceCapability fence, record))
             let bytes = preparedNativeBytes prepared
                 digest = contentDigest bytes
             fenceMember <- traverse (\(_, record) -> do

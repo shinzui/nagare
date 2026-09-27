@@ -155,13 +155,15 @@ data Adapter = Adapter
   , adapterRecover :: !(PlannedOperation -> PreparedNative -> IO RecoveryDecision)
   }
 
--- | A pure, reviewed selection of an optional live-data fence. The returned
--- controls perform provider I/O only when the transaction runner invokes
--- them after persisting its fence reservation.
+-- | Planning captures a private fence record once. Apply reconstructs controls
+-- from that exact saved record; it must not recapture provider intent from a
+-- later observation. Controls perform provider I/O only after admission.
 data AdapterFence = AdapterFence
   { fenceCapability :: !Text
   , fenceForOperation :: !(PlannedOperation -> PreparedNative
-      -> Either Text (Maybe (DataFenceRecord, DataFenceControls)))
+      -> Either Text (Maybe DataFenceRecord))
+  , fenceFromReviewedRecord :: !(DataFenceRecord -> PlannedOperation
+      -> PreparedNative -> Either Text DataFenceControls)
   }
 
 instance ToJSON ResourceObservation where toJSON = genericToJSON defaultOptions
