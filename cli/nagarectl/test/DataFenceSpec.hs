@@ -75,12 +75,16 @@ dataFenceTests = testGroup "data fence"
                 (known (mkName "statefulset"))
               route = mintResourceId fenceOwner (known (mkLogicalKey "database-route"))
                 (known (mkName "service"))
-              member resource group kind name value =
+              client = mintResourceId fenceOwner (known (mkLogicalKey "client"))
+                (known (mkName "deployment"))
+              schedule = mintResourceId fenceOwner (known (mkLogicalKey "backup"))
+                (known (mkName "cronjob"))
+              member resource group kind name deps value =
                 let bytes = BL.toStrict (encode value)
                  in (resource, (ManagedResource resource fenceOwner KubernetesExecutor
                       (Kubernetes cluster group (known (mkName kind))
                         (Just (known (mkName namespace))) (known (mkName name)))
-                      [] (NativeObject (contentDigest bytes)) Retain Stateless Public [] []
+                      [] (NativeObject (contentDigest bytes)) Retain Stateless Public deps []
                       (SourceLocation "native-exclusion-fixture" kind), bytes))
               getJson :: String -> String -> IO Value
               getJson kind name = do
@@ -96,14 +100,21 @@ dataFenceTests = testGroup "data fence"
               captureRequest = KubernetesCaptureRequest fixtureBinding Map.empty
                 "native-exclusion-session" target root (Just engine) (Just route)
                 "fixture://recovery" (contentDigest "fixture-recovery")
-                "system:serviceaccount:kube-system:statefulset-controller" Nothing
+                "system:serviceaccount:kube-system:statefulset-controller"
+                (Just "system:serviceaccount:kube-system:replicaset-controller") Nothing
           claim <- getJson "pvc" "data-pvc"
           stateful <- getJson "statefulset" "database"
           service <- getJson "service" "database"
+          deployment <- getJson "deployment" "database-client"
+          cronjob <- getJson "cronjob" "nagare-dbbackup-database"
           let acceptedNative = Map.fromList
-                [ member target "" "persistentvolumeclaim" "data-pvc" claim
-                , member root "apps" "statefulset" "database" stateful
-                , member route "" "service" "database" service
+                [ member target "" "persistentvolumeclaim" "data-pvc" [] claim
+                , member root "apps" "statefulset" "database" [] stateful
+                , member route "" "service" "database" [] service
+                , member client "apps" "deployment" "database-client"
+                    [OrderedAfter route] deployment
+                , member schedule "batch" "cronjob" "nagare-dbbackup-database"
+                    [OrderedAfter root] cronjob
                 ]
               declarations = [Managed resource | (resource, _) <- Map.elems acceptedNative]
           record <- captureKubernetesFence (kubectlKubernetesCaptureTransport config)
@@ -269,7 +280,7 @@ dataFenceTests = testGroup "data fence"
               , "specDigest" .= contentDigest "fixture-stateful-spec"
               , "mountsTarget" .= True]
             provider = object
-              [ "version" .= (2 :: Int)
+              [ "version" .= (3 :: Int)
               , "provider" .= ("kubernetes" :: Text)
               , "cluster" .= clusterId
               , "dependencyRoot" .= writer
@@ -366,13 +377,73 @@ dataFenceTests = testGroup "data fence"
               , "replicas" .= (1 :: Int)
               , "specDigest" .= contentDigest "fixture-deployment-spec"
               , "selector" .= Map.singleton ("app" :: Text) ("client" :: Text)
-              , "mountsTarget" .= True]
+              , "mountsTarget" .= True
+              , "replicaSet" .= object
+                  [ "name" .= ("client-abc123" :: Text)
+                  , "uid" .= ("ffffffff-1111-2222-3333-444444444444" :: Text)]]
+            deploymentProvider = case provider of
+              Object fields -> Object (KM.insert "replicaSetControllerPrincipal"
+                (String "system:serviceaccount:kube-system:replicaset-controller") fields)
+              other -> other
             deploymentNative = native
-              {fenceSavedWriters = Map.singleton writer savedDeployment}
+              {fenceSavedWriters = Map.singleton writer savedDeployment
+              , fenceProviderIntent = Just deploymentProvider}
         deploymentIntent <- right (decodeKubernetesFenceIntent deploymentNative)
         map fst (kubernetesDeploymentWriters deploymentIntent) @?= [writer]
+        let (deploymentReleasePolicy, _) = mountGuardObjects
+              (kubernetesReleaseMountGuard deploymentIntent)
+        assertBool "release guard lacks the exact ReplicaSet owner permit"
+          ("ffffffff-1111-2222-3333-444444444444" `T.isInfixOf`
+            T.pack (show deploymentReleasePolicy))
+        assertBool "release guard lacks the authenticated ReplicaSet controller"
+          ("system:serviceaccount:kube-system:replicaset-controller"
+            `T.isInfixOf` T.pack (show deploymentReleasePolicy))
+        let missingReplicaSet = deploymentNative
+              { fenceSavedWriters = Map.singleton writer (case savedDeployment of
+                  Object fields -> Object (KM.delete "replicaSet" fields)
+                  other -> other) }
+        case decodeKubernetesFenceIntent missingReplicaSet of
+          Left _ -> pure ()
+          Right _ -> assertFailure "PVC-mounting Deployment omitted its ReplicaSet"
+        let oldProvider = native {fenceProviderIntent = Just (case provider of
+              Object fields -> Object (KM.insert "version" (toJSON (2 :: Int)) fields)
+              other -> other)}
+        case decodeKubernetesFenceIntent oldProvider of
+          Left _ -> pure ()
+          Right _ -> assertFailure "old Kubernetes fence intent bypassed release pinning"
         length (deploymentWriterGuardObjects
           (kubernetesMountGuard deploymentIntent)) @?= 6
+        let deploymentPin = known (Deployment.mkDeploymentWriterPin
+              "restore-space" "client" writerUid 1
+              (contentDigest "fixture-deployment-spec")
+              (Map.singleton "app" "client"))
+            replicaSet controlled name uid = object
+              [ "metadata" .= object
+                  [ "namespace" .= ("restore-space" :: Text)
+                  , "name" .= (name :: Text)
+                  , "uid" .= (uid :: Text)
+                  , "ownerReferences" .= [object
+                      [ "kind" .= ("Deployment" :: Text)
+                      , "name" .= ("client" :: Text)
+                      , "uid" .= (writerUid :: Text)
+                      , "controller" .= controlled]]]
+              , "spec" .= object ["replicas" .= (1 :: Int)]]
+            firstReplicaSet = replicaSet True "client-abc123"
+              "ffffffff-1111-2222-3333-444444444444"
+            secondReplicaSet = replicaSet True "client-def456"
+              "eeeeeeee-1111-2222-3333-444444444444"
+        Deployment.parseActiveDeploymentReplicaSet deploymentPin
+          (object ["items" .= [firstReplicaSet]]) @?=
+            Right (Just ("client-abc123", "ffffffff-1111-2222-3333-444444444444"))
+        case Deployment.parseActiveDeploymentReplicaSet deploymentPin
+            (object ["items" .= [firstReplicaSet, secondReplicaSet]]) of
+          Left _ -> pure ()
+          Right _ -> assertFailure "two active ReplicaSets were captured as exact"
+        case Deployment.parseActiveDeploymentReplicaSet deploymentPin
+            (object ["items" .= [replicaSet False "client-abc123"
+              "ffffffff-1111-2222-3333-444444444444"]]) of
+          Left _ -> pure ()
+          Right _ -> assertFailure "non-controller ReplicaSet was captured"
         let deploymentCandidate = candidate
               { candidateKind = DeploymentWriter
               , candidateAddress = Kubernetes clusterId "apps"
@@ -471,7 +542,7 @@ dataFenceTests = testGroup "data fence"
             deploymentId = mintResourceId fenceOwner
               (known (mkLogicalKey "database-client")) (known (mkName "deployment"))
             provider = object
-              [ "version" .= (2 :: Int)
+              [ "version" .= (3 :: Int)
               , "provider" .= ("kubernetes" :: Text)
               , "cluster" .= cluster
               , "dependencyRoot" .= writer
@@ -907,7 +978,7 @@ dataFenceTests = testGroup "data fence"
             captureRequest = KubernetesCaptureRequest binding Map.empty
               "restore-session" target writer (Just Postgres) (Just serviceId)
               "gs://fixture/recovery" (contentDigest "recovery")
-              "system:serviceaccount:kube-system:statefulset-controller" Nothing
+              "system:serviceaccount:kube-system:statefulset-controller" Nothing Nothing
         writeIORef liveWriterImage "redis:8"
         driftedEngine <- captureKubernetesFence captureTransport declarations
           acceptedNative captureRequest

@@ -145,10 +145,56 @@ $env_yaml
       - name: data
         persistentVolumeClaim:
           claimName: data-pvc
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: database-client
+  namespace: $namespace
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: database-client
+  template:
+    metadata:
+      labels:
+        app: database-client
+    spec:
+      containers:
+      - name: client
+        image: busybox:1.36
+        command: ["sh", "-c", "touch /mount/client-marker && sleep 3600"]
+        volumeMounts:
+        - name: data
+          mountPath: /mount
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: data-pvc
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: nagare-dbbackup-database
+  namespace: $namespace
+spec:
+  schedule: "0 0 1 1 *"
+  suspend: false
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: backup
+            image: busybox:1.36
+            command: ["sh", "-c", "sleep 30"]
 EOF
   kubectl --context "$context" apply -f "$probe_root/$engine.yaml"
   kubectl --context "$context" -n "$namespace" rollout status statefulset/database --timeout=180s
-  kubectl --context "$context" -n "$namespace" get pvc,service,statefulset,pod -o wide \
+  kubectl --context "$context" -n "$namespace" rollout status deployment/database-client --timeout=180s
+  kubectl --context "$context" -n "$namespace" get pvc,service,statefulset,deployment,cronjob,pod -o wide \
     >"$evidence_root/$engine-before.txt"
   (
     cd "$repo_root/cli/nagarectl"
@@ -160,7 +206,7 @@ EOF
   )
   cp "$repo_root/cli/nagarectl/dist-newstyle/build/aarch64-osx/ghc-9.12.4/nagarectl-0.4.0/t/nagarectl-test/test/nagarectl-0.4.0-nagarectl-test.log" \
     "$evidence_root/$engine-test.log"
-  kubectl --context "$context" -n "$namespace" get pvc,service,statefulset,pod -o wide \
+  kubectl --context "$context" -n "$namespace" get pvc,service,statefulset,deployment,cronjob,pod -o wide \
     >"$evidence_root/$engine-after.txt"
 done
 git -C "$repo_root" rev-parse HEAD >"$evidence_root/base-revision.txt"

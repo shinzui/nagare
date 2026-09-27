@@ -86,6 +86,12 @@ data RawDeploymentWriter = RawDeploymentWriter
   , rawDeploymentSpecDigest :: !ContentDigest
   , rawDeploymentSelector :: !(Map.Map Text Text)
   , rawDeploymentMountsTarget :: !Bool
+  , rawDeploymentReplicaSet :: !(Maybe RawReplicaSet)
+  }
+
+data RawReplicaSet = RawReplicaSet
+  { rawReplicaSetName :: !Text
+  , rawReplicaSetUid :: !Text
   }
 
 data RawSavedWriter
@@ -95,7 +101,7 @@ data RawSavedWriter
 
 data WriterPin
   = PinnedStateful !StatefulWriterPin
-  | PinnedDeployment !Deployment.DeploymentWriterPin
+  | PinnedDeployment !Deployment.DeploymentWriterPin !(Maybe RawReplicaSet)
   | PinnedScheduled !ScheduledWriterPin
 
 data RawRestoreJob = RawRestoreJob
@@ -118,7 +124,8 @@ decodeKubernetesFenceIntent :: DataFenceRecord
 decodeKubernetesFenceIntent record = do
   source <- maybe (Left "data fence lacks Kubernetes provider intent") Right
     (fenceProviderIntent record)
-  (cluster, root, volume, controllerPrincipal, rawEngine, restoreJob, rawService) <- first T.pack
+  (cluster, root, volume, controllerPrincipal, replicaSetPrincipal, rawEngine,
+    restoreJob, rawService) <- first T.pack
     (parseEither parseProvider source)
   databaseEngine <- traverse (\token -> maybe
     (Left "reviewed database engine is unsupported") Right (parseEngine token)) rawEngine
@@ -161,7 +168,13 @@ decodeKubernetesFenceIntent record = do
         unless (not (rawDeploymentMountsTarget deployment)
             || rawDeploymentNamespace deployment == rawNamespace volume)
           (Left "Kubernetes PVC writer belongs to another namespace")
-        pure (resource, PinnedDeployment pin,
+        let replicaSet = rawDeploymentReplicaSet deployment
+        unless (if rawDeploymentMountsTarget deployment
+            && rawDeploymentReplicas deployment > 0
+          then maybe False (const True) replicaSet
+          else isNothing replicaSet)
+          (Left "reviewed PVC-mounting Deployment lacks an exact ReplicaSet")
+        pure (resource, PinnedDeployment pin replicaSet,
           rawDeploymentMountsTarget deployment)
       RawScheduled schedule -> do
         pin <- mkScheduledWriterPin (rawScheduleNamespace schedule)
@@ -174,7 +187,7 @@ decodeKubernetesFenceIntent record = do
   let statefulWriters = [(resource, pin)
         | (resource, PinnedStateful pin, _) <- writers]
       deploymentWriters = [(resource, pin)
-        | (resource, PinnedDeployment pin, _) <- writers]
+        | (resource, PinnedDeployment pin _, _) <- writers]
       scheduledWriters = [(resource, pin)
         | (resource, PinnedScheduled pin, _) <- writers]
   let serviceIds = maybe Set.empty (Set.singleton . serviceResource) service
@@ -212,7 +225,16 @@ decodeKubernetesFenceIntent record = do
     (serviceNamespace pin) (serviceName pin) (serviceUid pin)) service
   releasePermits <- traverse (\(_, pin) -> mkPodOwnerPermit "StatefulSet"
     (writerName pin) (writerUid pin) controllerPrincipal) statefulWriters
-  let releaseGuard = releaseMountGuard mountGuard releasePermits
+  replicaSetPermits <- forM
+    [replicaSet | (_, PinnedDeployment _ (Just replicaSet), True) <- writers]
+    $ \replicaSet -> do
+      principal <- maybe
+        (Left "PVC-mounting Deployment lacks a ReplicaSet controller principal")
+        Right replicaSetPrincipal
+      mkPodOwnerPermit "ReplicaSet" (rawReplicaSetName replicaSet)
+        (rawReplicaSetUid replicaSet) principal
+  let releaseGuard = releaseMountGuard mountGuard
+        (releasePermits <> replicaSetPermits)
   validateBacking (rawBacking volume)
   pure (KubernetesFenceIntent cluster root databaseEngine (rawResource volume)
     mountGuard releaseGuard (rawBacking volume)
@@ -227,7 +249,7 @@ validateKubernetesWriterInventory :: KubernetesFenceIntent
 validateKubernetesWriterInventory intent candidates = do
   let pinned = Map.fromList ([(resource, PinnedStateful pin)
         | (resource, pin) <- kubernetesStatefulWriters intent]
-        <> [(resource, PinnedDeployment pin)
+        <> [(resource, PinnedDeployment pin Nothing)
         | (resource, pin) <- kubernetesDeploymentWriters intent]
         <> [(resource, PinnedScheduled pin)
         | (resource, pin) <- kubernetesScheduledWriters intent])
@@ -242,7 +264,7 @@ validateKubernetesWriterInventory intent candidates = do
     unless (case pin of
         PinnedStateful stateful -> candidateKind candidate == StatefulSetWriter
           && matchesWriterAddress intent stateful (candidateAddress candidate)
-        PinnedDeployment deployment -> candidateKind candidate == DeploymentWriter
+        PinnedDeployment deployment _ -> candidateKind candidate == DeploymentWriter
           && matchesDeploymentAddress intent deployment (candidateAddress candidate)
         PinnedScheduled scheduled -> candidateKind candidate == CronJobWriter
           && matchesScheduleAddress intent scheduled (candidateAddress candidate))
@@ -357,16 +379,20 @@ validateReviewedDatabaseEngine reviewed bytes = do
     (Left "reviewed database engine differs from accepted native evidence")
 
 parseProvider :: Value
-  -> Parser (ResourceId, ResourceId, RawVolume, Text, Maybe Text, Maybe RawRestoreJob, Maybe RawService)
+  -> Parser (ResourceId, ResourceId, RawVolume, Text, Maybe Text, Maybe Text,
+      Maybe RawRestoreJob, Maybe RawService)
 parseProvider = withObject "Kubernetes fence intent" $ \o -> do
-  onlyKeys ["version", "provider", "cluster", "dependencyRoot", "volume", "statefulControllerPrincipal", "databaseEngine", "restoreJob", "service"] o
+  onlyKeys ["version", "provider", "cluster", "dependencyRoot", "volume",
+    "statefulControllerPrincipal", "replicaSetControllerPrincipal",
+    "databaseEngine", "restoreJob", "service"] o
   version <- o .: "version" :: Parser Int
-  unless (version == 2) (fail "unsupported Kubernetes fence intent version")
+  unless (version == 3) (fail "unsupported Kubernetes fence intent version")
   provider <- o .: "provider" :: Parser Text
   unless (provider == "kubernetes") (fail "data fence provider is not Kubernetes")
-  (,,,,,,) <$> o .: "cluster" <*> o .: "dependencyRoot"
+  (,,,,,,,) <$> o .: "cluster" <*> o .: "dependencyRoot"
     <*> (o .: "volume" >>= parseVolume)
     <*> o .: "statefulControllerPrincipal"
+    <*> o .:? "replicaSetControllerPrincipal"
     <*> o .:? "databaseEngine"
     <*> (o .:? "restoreJob" >>= traverse parseJob)
     <*> (o .:? "service" >>= traverse parseService)
@@ -406,11 +432,13 @@ parseSavedWriter = withObject "saved Kubernetes writer" $ \o -> do
         <*> o .: "uid" <*> o .: "replicas" <*> o .: "specDigest"
         <*> o .: "mountsTarget")
     "Deployment" -> do
-      onlyKeys ["kind", "namespace", "name", "uid", "replicas", "specDigest", "selector", "mountsTarget"] o
+      onlyKeys ["kind", "namespace", "name", "uid", "replicas", "specDigest",
+        "selector", "mountsTarget", "replicaSet"] o
       RawDeployment <$> (RawDeploymentWriter <$> o .: "namespace"
         <*> o .: "name" <*> o .: "uid" <*> o .: "replicas"
         <*> o .: "specDigest" <*> o .: "selector"
-        <*> o .: "mountsTarget")
+        <*> o .: "mountsTarget"
+        <*> (o .:? "replicaSet" >>= traverse parseReplicaSet))
     "CronJob" -> do
       onlyKeys ["kind", "namespace", "name", "uid", "suspend", "specDigest", "mountsTarget"] o
       RawScheduled <$> (RawSchedule <$> o .: "namespace" <*> o .: "name"
@@ -423,6 +451,11 @@ parseJob = withObject "Kubernetes restore Job" $ \o -> do
   onlyKeys ["name", "uid", "controllerPrincipal"] o
   RawRestoreJob <$> o .: "name" <*> o .: "uid"
     <*> o .: "controllerPrincipal"
+
+parseReplicaSet :: Value -> Parser RawReplicaSet
+parseReplicaSet = withObject "reviewed Deployment ReplicaSet" $ \o -> do
+  onlyKeys ["name", "uid"] o
+  RawReplicaSet <$> o .: "name" <*> o .: "uid"
 
 onlyKeys :: [Key] -> KM.KeyMap Value -> Parser ()
 onlyKeys allowed fields = unless (all (`elem` allowed) (KM.keys fields))

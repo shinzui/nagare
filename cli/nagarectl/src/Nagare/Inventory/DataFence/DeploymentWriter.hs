@@ -19,6 +19,7 @@ module Nagare.Inventory.DataFence.DeploymentWriter
   , restoreDeploymentWriter
   , observeDeploymentWriterRelease
   , parseDeploymentDrain
+  , parseActiveDeploymentReplicaSet
   ) where
 
 import Control.Exception (IOException, try)
@@ -81,6 +82,39 @@ data DeploymentWriterTransport = DeploymentWriterTransport
   , listDeploymentReplicaSets :: !(Text -> IO (Either Text Value))
   , listDeploymentPods :: !(Text -> IO (Either Text Value))
   }
+
+-- | A PVC-mounting Deployment needs an exact ReplicaSet owner permit while
+-- its saved replicas return under the release admission overlay. Capture
+-- refuses a rolling or otherwise ambiguous controller state.
+parseActiveDeploymentReplicaSet :: DeploymentWriterPin -> Value
+  -> Either Text (Maybe (Text, Text))
+parseActiveDeploymentReplicaSet pin _ | writerSavedReplicas pin == 0 =
+  Right Nothing
+parseActiveDeploymentReplicaSet pin listed = do
+  replicaSets <- listItems "ReplicaSetList" listed
+  active <- fmap concat $ forM replicaSets $ \item -> do
+    root <- asObject "ReplicaSet" item
+    metadata <- jsonObject "metadata" root
+    unless (jsonText "namespace" metadata == Right (writerNamespace pin))
+      (Left "ReplicaSet list contains another namespace")
+    references <- optionalArray "ownerReferences" metadata
+    if not (any (\reference -> ownedBy "Deployment" (writerName pin)
+        (writerUid pin) reference && case reference of
+          Object fields -> KM.lookup "controller" fields == Just (Bool True)
+          _ -> False) references)
+      then pure []
+      else do
+        spec <- jsonObject "spec" root
+        replicas <- jsonInt "replicas" spec
+        if replicas == 0 then pure [] else do
+          name <- jsonText "name" metadata
+          uid <- jsonText "uid" metadata
+          unless (validUid uid && (writerName pin <> "-") `T.isPrefixOf` name)
+            (Left "owned ReplicaSet identity is malformed")
+          pure [(name, uid)]
+  case active of
+    [replicaSet] -> Right (Just replicaSet)
+    _ -> Left "PVC-mounting Deployment has no unique active ReplicaSet"
 
 -- | UID and resourceVersion tests make the scale effect conditional at the
 -- API server. A lost acknowledgement leaves durable fence recovery to a new

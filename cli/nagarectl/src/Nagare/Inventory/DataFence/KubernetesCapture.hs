@@ -54,6 +54,7 @@ data KubernetesCaptureRequest = KubernetesCaptureRequest
   , captureRecoveryArtifact :: !Text
   , captureRecoveryDigest :: !ContentDigest
   , captureStatefulControllerPrincipal :: !Text
+  , captureReplicaSetControllerPrincipal :: !(Maybe Text)
   , captureRestoreJob :: !(Maybe (Text, Text, Text))
   }
 
@@ -152,7 +153,7 @@ captureKubernetesFence transport declarations native request = do
                                     )
                                 provider =
                                   object
-                                    ( [ "version" .= (2 :: Int)
+                                    ( [ "version" .= (3 :: Int)
                                       , "provider" .= ("kubernetes" :: Text)
                                       , "cluster" .= cluster
                                       , "dependencyRoot" .= root
@@ -171,6 +172,9 @@ captureKubernetesFence transport declarations native request = do
                                       ]
                                         <> maybe [] (\engine ->
                                           ["databaseEngine" .= engineToken engine]) databaseEngine
+                                        <> maybe [] (\principal ->
+                                          ["replicaSetControllerPrincipal" .= principal])
+                                          (captureReplicaSetControllerPrincipal request)
                                         <> maybe
                                           []
                                           ( \(_, _, value) ->
@@ -306,6 +310,10 @@ captureWriter transport candidate = case candidateAddress candidate of
           ns
           nativeName
       _ -> pure (Left "accepted writer has no capture control")
+    replicaSets <- if candidateKind candidate == DeploymentWriter && mounted
+      then Deployment.listDeploymentReplicaSets
+        (captureDeploymentTransport transport) ns
+      else pure (Right (object ["items" .= ([] :: [Value])]))
     pure $ do
       value <- current
       metadata <- objectField "metadata" =<< asObject "writer" value
@@ -337,7 +345,7 @@ captureWriter transport candidate = case candidateAddress candidate of
             (Left "Deployment selector expressions lack a drain proof")
           selector <- textMap =<< objectField "matchLabels" selectorRoot
           digest <- Deployment.digestDeploymentWriterSpec value
-          _ <-
+          pin <-
             Deployment.mkDeploymentWriterPin
               ns
               nativeName
@@ -345,9 +353,12 @@ captureWriter transport candidate = case candidateAddress candidate of
               replicas
               digest
               selector
+          replicaSet <- if mounted then
+              Deployment.parseActiveDeploymentReplicaSet pin =<< replicaSets
+            else Right Nothing
           pure
             ( object
-                [ "kind" .= ("Deployment" :: Text)
+                ( [ "kind" .= ("Deployment" :: Text)
                 , "namespace" .= ns
                 , "name" .= nativeName
                 , "uid" .= uid
@@ -355,7 +366,10 @@ captureWriter transport candidate = case candidateAddress candidate of
                 , "specDigest" .= digest
                 , "selector" .= selector
                 , "mountsTarget" .= mounted
-                ]
+                ] <> if mounted then ["replicaSet" .= fmap
+                  (\(replicaName, replicaUid) -> object
+                    ["name" .= replicaName, "uid" .= replicaUid]) replicaSet]
+                  else [] )
             )
         CronJobWriter -> do
           suspend <- case KM.lookup "suspend" spec of
