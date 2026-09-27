@@ -118,8 +118,37 @@ registerMaintenanceFence config binding accepted scopes declarations native regi
             Right pin -> observePostgresClients
               (kubectlPostgresMaintenanceTransport config)
               (networkNamespace pin) (networkPodName pin) (networkPodUid pin)
+        resolve record operation prepared = case do
+          replay record operation prepared
+          proof <- requireSelected operation
+          pin <- pinFor proof
+          pure (proof, pin) of
+            Left reason -> pure (RecoveryUnresolved reason)
+            Right (proof, pin) -> do
+              let transport = kubectlPostgresMaintenanceTransport config
+              stopped <- terminateMarkedPostgresClients transport
+                (networkNamespace pin) (networkPodName pin) (networkPodUid pin)
+                (maintenanceSourceSession proof)
+              case stopped of
+                Left reason -> pure (RecoveryUnresolved reason)
+                Right () -> do
+                  observed <- observePostgresClients transport
+                    (networkNamespace pin) (networkPodName pin) (networkPodUid pin)
+                  pure $ case observed of
+                    Left reason -> RecoveryUnresolved reason
+                    Right False -> RecoveryUnresolved
+                      "maintenance PostgreSQL client backends remain after termination"
+                    Right True -> case canonicalValue (object
+                      [ "session" .= maintenanceSourceSession proof
+                      , "podUid" .= physicalIdentityText
+                          (maintenanceSourcePodUid proof)
+                      , "recoveryReceiptDigest" .= digestText
+                          (maintenanceSourceRecoveryReceiptDigest proof)
+                      , "terminalOutcome" .= ("operator-terminated" :: Text) ]) of
+                        Left reason -> RecoveryUnresolved reason
+                        Right bytes -> RecoveryProvedComplete (contentDigest bytes)
         factory = KubernetesFenceFactory config binding accepted declarations native
-          selectRequest replay verify
+          selectRequest replay verify (Just resolve)
         selectPin record operation prepared = do
           replay record operation prepared
           requireSelected operation >>= pinFor

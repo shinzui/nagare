@@ -550,7 +550,7 @@ recordOperatorRecovery store registry input takeOver = do
             | fencePhase active `elem`
                 [FenceChanging, FenceUnresolved, FenceVerifying, FenceReleasing] -> do
                 decision <- withAdapterEnv transaction operation
-                  (adapterRecover adapter operation prepared)
+                  (resolveReviewedEffect adapter operation prepared active)
                 case decision of
                   RecoveryProvedComplete proof -> do
                     recovered <- recoverDataFence lock controls token
@@ -564,7 +564,7 @@ recordOperatorRecovery store registry input takeOver = do
           ForwardFencedRelease
             | fencePhase active == FenceReleasing -> do
                 decision <- withAdapterEnv transaction operation
-                  (adapterRecover adapter operation prepared)
+                  (resolveReviewedEffect adapter operation prepared active)
                 case decision of
                   RecoveryProvedComplete proof -> do
                     recovered <- forwardRecoverDataFenceRelease lock controls token
@@ -575,6 +575,11 @@ recordOperatorRecovery store registry input takeOver = do
                     "adapter has not proved the fenced data effect complete")
           _ -> pure (failure "data-fence"
             "recovery action does not match the durable data fence phase")
+    resolveReviewedEffect adapter operation prepared active =
+      case lookupAdapterFence registry (plannedExecutor operation)
+          >>= fenceResolveUncertainEffect of
+        Just resolve -> resolve active operation prepared
+        Nothing -> adapterRecover adapter operation prepared
     continueAfterPreflight :: forall s. LockedStore s -> FenceToken
       -> DataFenceControls -> Adapter -> PlannedOperation -> PreparedNative
       -> IO (Either (NonEmpty AdmissionError) ())
@@ -594,8 +599,16 @@ recordOperatorRecovery store registry input takeOver = do
                   _ <- markDataFenceUnresolved lock token
                   pure (failure "adapter-recovery" reason)
                 Right proof -> finishFenced lock token controls proof
-            _ -> do
+            AdapterEffectAmbiguous reason -> do
               _ <- markDataFenceUnresolved lock token
+              _ <- appendEvent lock transaction (Just operationId) Ambiguous
+                ("fenced adapter result was ambiguous: " <> reason)
+              pure (failure "adapter-recovery"
+                "fenced data effect is not proved complete")
+            AdapterEffectFailed failureClass -> do
+              _ <- markDataFenceUnresolved lock token
+              _ <- appendEvent lock transaction (Just operationId) Ambiguous
+                ("fenced adapter execution stopped: " <> showText failureClass)
               pure (failure "adapter-recovery"
                 "fenced data effect is not proved complete")
     finishFenced :: forall s. LockedStore s -> FenceToken -> DataFenceControls
@@ -722,10 +735,10 @@ runOperations locked registry transaction reviewed initialEvents operations = go
                                 (Nothing, KnownNoEffect _, Right _) ->
                                   StoppedFailed transaction operationId failureClass
                                 _ -> StoppedAmbiguous transaction operationId
-                            AdapterEffectAmbiguous _ -> do
+                            AdapterEffectAmbiguous reason -> do
                               markUnknown activeFence
                               _ <- appendEvent locked transaction (Just operationId) Ambiguous
-                                "adapter result was ambiguous"
+                                ("adapter result was ambiguous: " <> reason)
                               pure (Just (StoppedAmbiguous transaction operationId))
                             AdapterEffectCompleted -> do
                               verification <- withAdapterEnv transaction operation

@@ -482,7 +482,7 @@ dataFenceTests = testGroup "data fence"
                     modifyIORef' captures (+ 1)
                     pure (Right (Just (reviewedRequest accepted)))
                   else pure (Right Nothing))
-                replay (\_ -> Right <$> reviewedMarker)
+                replay (\_ -> Right <$> reviewedMarker) Nothing
               planningRegistry = known (registerKubernetesDataFence
                 selectedFactory baseRegistry)
           beforeReview <- readStoreSnapshot reviewStore >>= right
@@ -2710,6 +2710,7 @@ dataFenceTests = testGroup "data fence"
                     pure (Right (Just
                       (request {fenceContext = fixtureBinding, fenceAccepted = desired})))
                 , fenceFromReviewedRecord = \_ _ _ -> Right controls
+                , fenceResolveUncertainEffect = Nothing
                 })
             effect _ _ = recordStep "effect" >> pure AdapterEffectCompleted
             recovery _ _ = pure RecoverySafeToRetry
@@ -2762,6 +2763,7 @@ dataFenceTests = testGroup "data fence"
                 , fenceFromReviewedRecord = \saved _ _ ->
                     if saved == expected then Right controls
                     else Left "apply did not use the exact reviewed fence record"
+                , fenceResolveUncertainEffect = Nothing
                 })
         outcome <- applyReviewed store fresh reviewed >>= right
         readIORef captures >>= (@?= 1)
@@ -2793,6 +2795,7 @@ dataFenceTests = testGroup "data fence"
                 , fenceForOperation = \_ _ -> pure (Right (Just
                     (request {fenceContext = fixtureBinding, fenceAccepted = desired})))
                 , fenceFromReviewedRecord = \_ _ _ -> Right controls
+                , fenceResolveUncertainEffect = Nothing
                 })
         (reviewed, _) <- preparedFixtureWithRegistry store effect recovery customize
         let plain = recordingRegistryWith (\_ _ -> pure (Right ())) effect recovery
@@ -2810,6 +2813,7 @@ dataFenceTests = testGroup "data fence"
               , fenceFromReviewedRecord = \saved _ _ ->
                   if fencePhysical saved == changedPhysical then Right controls
                   else Left "reviewed physical target differs from provider expectation"
+              , fenceResolveUncertainEffect = Nothing
               })
         substituted <- applyReviewed store altered reviewed
         case substituted of
@@ -2824,6 +2828,7 @@ dataFenceTests = testGroup "data fence"
                   if fenceProviderIntent saved == Just (object ["version" .= (1 :: Int)])
                     then Right controls
                     else Left "reviewed provider intent differs from provider expectation"
+              , fenceResolveUncertainEffect = Nothing
               })
         substitutedProvider <- applyReviewed store provider reviewed
         case substitutedProvider of
@@ -2849,6 +2854,7 @@ dataFenceTests = testGroup "data fence"
                 , fenceForOperation = \_ _ -> pure (Right (Just
                   (request {fenceContext = fixtureBinding, fenceAccepted = desired})))
                 , fenceFromReviewedRecord = \_ _ _ -> Right controls
+                , fenceResolveUncertainEffect = Nothing
                 })
         (reviewed, registry) <- preparedFixtureWithRegistry store effect recovery customize
         outcome <- applyReviewed store registry reviewed >>= right
@@ -2895,6 +2901,7 @@ dataFenceTests = testGroup "data fence"
                     { fenceContext = fixtureBinding
                     , fenceAccepted = desired})))
                 , fenceFromReviewedRecord = \_ _ _ -> Right controls
+                , fenceResolveUncertainEffect = Nothing
                 })
         (reviewed, registry) <- preparedFixtureWithRegistry store effect recovery customize
         outcome <- applyReviewed store registry reviewed >>= right
@@ -2927,6 +2934,52 @@ dataFenceTests = testGroup "data fence"
         case lostJournal of
           StoppedAmbiguous _ _ -> pure ()
           _ -> assertFailure "safe-to-retry replayed after verified fence release"
+        readIORef effects >>= (@?= 1)
+        readIORef restored >>= (@?= 1)
+    , testCase "only explicit recovery invokes a reviewed fenced resolver" $ do
+        store <- newMemoryStore
+        effects <- newIORef (0 :: Int)
+        resolutions <- newIORef (0 :: Int)
+        released <- newIORef False
+        restored <- newIORef (0 :: Int)
+        let controls = fixtureControls released restored (pure (Right physical))
+            effect _ _ = do
+              modifyIORef' effects (+ 1)
+              pure (AdapterEffectAmbiguous "terminal parent died")
+            recovery _ _ = pure (RecoveryUnresolved "explicit session recovery required")
+            customize desired registry = known (withAdapterFence registry
+              KubernetesExecutor AdapterFence
+                { fenceCapability = "recorded-fence-v1"
+                , fenceForOperation = \_ _ -> pure (Right (Just
+                  (request {fenceContext = fixtureBinding,
+                    fenceAccepted = desired})))
+                , fenceFromReviewedRecord = \_ _ _ -> Right controls
+                , fenceResolveUncertainEffect = Just (\_ _ _ -> do
+                    modifyIORef' resolutions (+ 1)
+                    pure (RecoveryProvedComplete (contentDigest "terminated-client")))
+                })
+        (reviewed, registry) <- preparedFixtureWithRegistry store effect recovery customize
+        applied <- applyReviewed store registry reviewed >>= right
+        (transaction, operation) <- case applied of
+          StoppedAmbiguous value selected -> pure (value, selected)
+          _ -> assertFailure "ambiguous effect did not hold its fence"
+            >> error "transaction"
+        resumeTransaction store registry transaction >>= \case
+          Left errors -> assertBool "ordinary resume escaped the active fence"
+            (any ((== "active-data-fence") . admissionErrorCode) errors)
+          Right _ -> assertFailure "ordinary resume completed uncertain effect"
+        readIORef resolutions >>= (@?= 0)
+        let decision = OperatorRecoveryInput transaction operation
+              (known (mkContentDigest (T.drop 3 (transactionIdText transaction))))
+              VerifyFencedEffect
+        recordOperatorRecovery store registry decision False >>= right
+        readIORef resolutions >>= (@?= 1)
+        readHead store >>= right >>= maybe
+          (assertFailure "head missing" >> error "head")
+          (\headValue -> headDataFence headValue @?= Nothing)
+        resumeTransaction store registry transaction >>= right >>= \case
+          Converged _ -> pure ()
+          _ -> assertFailure "explicit recovery did not converge"
         readIORef effects >>= (@?= 1)
         readIORef restored >>= (@?= 1)
   ]
