@@ -5,8 +5,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cluster_name="ep160-shutdown-$$"
 namespace="ep160-engine-shutdown"
 probe_root="$(mktemp -d)"
-evidence_root="$repo_root/.tmp/$cluster_name"
-mkdir -p "$evidence_root"
+evidence_root="$(mktemp -d "${TMPDIR:-/tmp}/$cluster_name.XXXXXX")"
 export KUBECONFIG="$probe_root/kubeconfig"
 created=0
 
