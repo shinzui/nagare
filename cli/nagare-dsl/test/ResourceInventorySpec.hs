@@ -198,6 +198,11 @@ resourceInventoryTests =
     , testCase "global buckets collide across scopes" $ do
         let bucket owner = Managed (resource owner "bucket" (GlobalBucket (n "shared")) (NativeObject digest) & #executor .~ PulumiExecutor)
         rejects "claim-conflict" (compileScopes [scope p [bucket p], scope a [bucket a]])
+    , testCase "cloud stack has one project-scoped foundation claim" $ do
+        let stack owner = Managed (resource owner "stack"
+              (CloudStack (n "acme-prod") (n "fresh")) (NativeObject digest)
+              & #executor .~ CloudFoundationExecutor)
+        rejects "claim-conflict" (compileScopes [scope p [stack p], scope a [stack a]])
     , testCase "duplicate logical IDs fail before map construction" $
         rejects "duplicate-id" (mkScopeDeclaration a [bundle [service a "same" "first", service a "same" "second"]])
     , testCase "unselected platform bytes and generation remain identical" $ do

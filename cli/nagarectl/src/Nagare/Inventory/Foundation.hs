@@ -56,6 +56,7 @@ compileFoundationScope bundle
     wrongAddress resource = case foundationAddress resource of
       GlobalBucket {} -> False
       CloudService project _ -> project /= foundationProject bundle
+      CloudStack project _ -> project /= foundationProject bundle
       _ -> True
     resourceBundle = ResourceBundle
       { declarations = map (Managed . managedResource) (NE.toList (foundationResources bundle))
@@ -84,9 +85,9 @@ compileFoundationScope bundle
 -- context. The digest comparison prevents a changed region or member policy
 -- from silently changing a retained review's native effects.
 foundationTargetsFromDeclarations
-  :: Name -> Name -> Maybe Name -> Maybe Text -> [Declaration]
+  :: Name -> Name -> Maybe Name -> Maybe Text -> Maybe (ProviderAddress, FoundationTarget) -> [Declaration]
   -> Either Text (Map ResourceId FoundationTarget)
-foundationTargetsFromDeclarations project location backendBucket member declarations =
+foundationTargetsFromDeclarations project location backendBucket member stackTarget declarations =
   Map.fromList <$> traverse target foundationMembers
   where
     foundationMembers = [resource | Managed resource <- declarations,
@@ -98,6 +99,13 @@ foundationTargetsFromDeclarations project location backendBucket member declarat
         CloudService targetProject service
           | targetProject == project -> Right (FoundationService project service)
           | otherwise -> Left "reviewed foundation service belongs to another project"
+        CloudStack declaredProject declaredStack -> case stackTarget of
+          Just (CloudStack expectedProject expectedStack,
+            value@(FoundationStack targetProject targetStack _ _ _ _ _))
+            | declaredProject == project && expectedProject == project
+                && targetProject == project && declaredStack == expectedStack
+                && declaredStack == targetStack -> Right value
+          _ -> Left "reviewed foundation stack differs from the selected context"
         _ -> Left "reviewed foundation address is unsupported"
       unless (resource ^. #spec == NativeObject (foundationTargetDigest value))
         (Left "reviewed foundation target digest differs from the selected context")

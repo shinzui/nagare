@@ -294,6 +294,7 @@ validateDeclaration d@(Managed r) = [err m | m <- issues]
       Kubernetes {} -> r ^. #executor == KubernetesExecutor
       GlobalBucket {} -> r ^. #executor `elem` [PulumiExecutor, CloudFoundationExecutor]
       CloudService {} -> r ^. #executor == CloudFoundationExecutor
+      CloudStack {} -> r ^. #executor == CloudFoundationExecutor
       CloudInstance {} -> r ^. #executor == PulumiExecutor
       PulumiUrn {} -> r ^. #executor == PulumiExecutor
       Host {} -> r ^. #executor == HostExecutor

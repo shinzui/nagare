@@ -219,6 +219,7 @@ import Nagare.Init
   , requiredInitTools
   , resolveInitBase
   , runPreflight
+  , seedKeys
   , seedPulumiConfig
   , writeTargetEnv
   )
@@ -245,7 +246,7 @@ import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps (..), Kubernet
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), mkKubernetesRuntimeOpsWithCacheKey, observeKubernetesHealth, readBackupReceiptFromCompletedPod)
 import Nagare.Inventory.Adapters.Pulumi (mkPulumiAdapter)
 import Nagare.Inventory.Adapters.PulumiRuntime
-import Nagare.Inventory.Adapters.Foundation (FoundationTarget (..), foundationTargetDigest, mkFoundationAdapter)
+import Nagare.Inventory.Adapters.Foundation (FoundationAdapterOps (..), FoundationObservation (..), FoundationTarget (..), foundationTargetDigest, mkFoundationAdapter)
 import Nagare.Inventory.Adapters.FoundationRuntime (mkFoundationRuntimeOps, realGcloudRunner)
 import Nagare.Inventory.Artifact qualified as InventoryArtifact
 import Nagare.Inventory.Artifact (ArtifactDeclarationBundle (..), ArtifactExecutionSpec (..), ArtifactKind (..), ArtifactResourceSpec (..))
@@ -4595,20 +4596,31 @@ ensurePulumiForContext :: ContextName -> TargetProfile -> IO PlatformWorkspace
 ensurePulumiForContext = ensurePulumiForContextWithInstallNotice True
 
 ensurePulumiForContextWithInstallNotice :: Bool -> ContextName -> TargetProfile -> IO PlatformWorkspace
-ensurePulumiForContextWithInstallNotice announceInstall name tp = do
+ensurePulumiForContextWithInstallNotice announceInstall =
+  ensurePulumiForContextWithPolicy announceInstall True
+
+selectReviewedPulumiForContext :: ContextName -> TargetProfile -> IO PlatformWorkspace
+selectReviewedPulumiForContext = ensurePulumiForContextWithPolicy True False
+
+ensurePulumiForContextWithPolicy :: Bool -> Bool -> ContextName -> TargetProfile -> IO PlatformWorkspace
+ensurePulumiForContextWithPolicy announceInstall createMissing name tp = do
   (paths, workspace) <- resolvePlatformWorkspace name
   -- EP-121: a source checkout's own `just` recipes run Pulumi in its infra/pulumi,
   -- so it must read the same context-owned stack config as the workspace.
   when (paths ^. #rootSource == SourceRoot) $
     linkContextStackConfig name (paths ^. #pulumiDir) >>= either dieT (const (pure ()))
-  ensurePulumiInWorkspaceWithInstallNotice announceInstall name tp workspace
+  ensurePulumiInWorkspaceWithPolicy announceInstall createMissing name tp workspace
   pure workspace
 
 ensurePulumiInWorkspace :: ContextName -> TargetProfile -> PlatformWorkspace -> IO ()
 ensurePulumiInWorkspace = ensurePulumiInWorkspaceWithInstallNotice True
 
 ensurePulumiInWorkspaceWithInstallNotice :: Bool -> ContextName -> TargetProfile -> PlatformWorkspace -> IO ()
-ensurePulumiInWorkspaceWithInstallNotice announceInstall name tp workspace = do
+ensurePulumiInWorkspaceWithInstallNotice announceInstall =
+  ensurePulumiInWorkspaceWithPolicy announceInstall True
+
+ensurePulumiInWorkspaceWithPolicy :: Bool -> Bool -> ContextName -> TargetProfile -> PlatformWorkspace -> IO ()
+ensurePulumiInWorkspaceWithPolicy announceInstall createMissing name tp workspace = do
   stateRoot <- nagareStateDir
   let penv = pulumiEnvFor stateRoot (contextNameText name) tp
       stack = penv ^. #stack
@@ -4640,6 +4652,8 @@ ensurePulumiInWorkspaceWithInstallNotice announceInstall name tp workspace = do
   selected <- pulumiQuiet ["-C", pulumiDir, "stack", "select", T.unpack stack]
   case selected of
     ExitSuccess -> pure ()
+    ExitFailure _ | not createMissing ->
+      dieT "reviewed Pulumi stack is absent or unavailable; plan and apply the cloud foundation stage"
     ExitFailure _ -> do
       _ <- pulumiQuiet ["-C", pulumiDir, "stack", "init", T.unpack stack]
       void (pulumiQuiet ["-C", pulumiDir, "stack", "select", T.unpack stack])
@@ -4781,7 +4795,7 @@ runPlatformBootstrapPlan mctx output = do
   foundationPending <- cloudFoundationPending active
   if foundationPending
     then do
-      let stageTarget = localFoundationTarget active
+      stageTarget <- foundationStageTarget active
       snapshot <- Inventory.loadTargetSnapshot stageTarget
       candidate <- buildCloudFoundationCandidate active paths workspace snapshot
       Inventory.planInventoryCandidateWithPayloadIdentity
@@ -4801,25 +4815,42 @@ runPlatformBootstrapApply mctx reviewDirectory yes = do
   let foundationStage = any ((== ResourceInventory.CloudFoundationExecutor)
         . InventoryAdapter.plannedExecutor . InventoryPlan.reviewPlannedOperation)
         (InventoryPlan.reviewOperations (InventoryPlan.reviewBundleDocument publicBundle))
-      stageTarget = if foundationStage then localFoundationTarget active else active
+  stageTarget <- if foundationStage then foundationStageTarget active else pure active
   Inventory.applyInventoryWithFactory (\bundle -> do
     unless ("nagare-bootstrap:" `T.isPrefixOf`
         InventoryPlan.reviewPayloadIdentity (InventoryPlan.reviewBundleDocument bundle))
       (dieT "platform bootstrap apply requires a payload-bound bootstrap review")
     inventoryExecutionRegistry mctx bundle) stageTarget reviewDirectory yes
-  when (foundationStage && effectiveInventoryStore (active ^. #profile) == InventoryStoreGcs) $ do
+  when (foundationStage && effectiveInventoryStore (active ^. #profile) == InventoryStoreGcs
+      && effectiveInventoryStore (stageTarget ^. #profile) == InventoryStoreLocal) $ do
     migrated <- Inventory.migrateTargetStore stageTarget InventoryStoreGcs False
     either (dieT . T.pack . show) TIO.putStrLn migrated
 
 localFoundationTarget :: ActiveTarget -> ActiveTarget
 localFoundationTarget active = active & #profile . #inventoryStore .~ InventoryStoreLocal
 
+foundationStageTarget :: ActiveTarget -> IO ActiveTarget
+foundationStageTarget active
+  | effectiveInventoryStore (active ^. #profile) == InventoryStoreLocal = pure active
+  | otherwise = do
+      let localTarget = localFoundationTarget active
+      opened <- Inventory.openTargetStoreReadOnly localTarget
+      case opened of
+        Left (InventoryStore.StoreConditionFailed "inventory store is not initialized") ->
+          pure localTarget
+        Left err -> dieT (T.pack (show err))
+        Right store -> do
+          headValue <- InventoryStore.readHead store >>= either (dieT . T.pack . show) pure
+          pure $ case headValue of
+            Just value | isJust (InventoryStore.headMigration value) -> active
+            _ -> localTarget
+
 cloudFoundationPending :: ActiveTarget -> IO Bool
 cloudFoundationPending active
   | active ^. #profile . #mode /= Cloud = pure False
   | effectiveInventoryStore (active ^. #profile) == InventoryStoreLocal = do
       snapshot <- Inventory.loadTargetSnapshot active
-      pure (Map.notMember foundationOwner (ResourceInventory.snapshotScopes snapshot))
+      not <$> foundationScopeReady active snapshot
   | otherwise = do
       let localTarget = localFoundationTarget active
       local <- Inventory.openTargetStoreReadOnly localTarget
@@ -4829,16 +4860,58 @@ cloudFoundationPending active
         Right store -> do
           headResult <- InventoryStore.readHead store >>= either (dieT . T.pack . show) pure
           case headResult of
-            Just headValue | isJust (InventoryStore.headMigration headValue) -> pure False
+            Just headValue | isJust (InventoryStore.headMigration headValue) -> do
+              snapshot <- Inventory.loadTargetSnapshot active
+              not <$> foundationScopeReady active snapshot
             _ -> do
               snapshot <- Inventory.loadTargetSnapshot localTarget
               if Map.member foundationOwner (ResourceInventory.snapshotScopes snapshot)
                 then do
                   migrated <- Inventory.migrateTargetStore localTarget InventoryStoreGcs False
-                  either (dieT . T.pack . show) (const (pure False)) migrated
+                  either (dieT . T.pack . show) (const (pure ())) migrated
+                  current <- Inventory.loadTargetSnapshot active
+                  not <$> foundationScopeReady active current
                 else pure True
   where
     foundationOwner = either (error . T.unpack) (\owner -> owner)
+      (Resource.mkScopeId Resource.Platform "cloud-foundation")
+
+foundationScopeReady :: ActiveTarget -> ResourceInventory.ScopeSnapshot -> IO Bool
+foundationScopeReady active snapshot = case Map.lookup owner (ResourceInventory.snapshotScopes snapshot) of
+  Nothing -> pure False
+  Just (_, scope) -> do
+    (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+    let profile = active ^. #profile
+        declarations = concatMap (^. #declarations) (ResourceInventory.scopeBundles scope)
+    project <- either dieT pure (Resource.mkName (profile ^. #project))
+    location <- either dieT pure (Resource.mkName (profile ^. #region))
+    backendBucket <- foundationPulumiBucket active
+    stackTarget <- foundationStackTarget active workspace
+    let stackName = case stackTarget of
+          FoundationStack _ name _ _ _ _ _ -> name
+          _ -> error "foundationStackTarget did not return a stack"
+        stackId = Resource.mintResourceId owner
+          (either (error . T.unpack) (\key -> key) (Resource.mkLogicalKey "pulumi-stack")) stackName
+    expectedBuckets <- foundationBucketNames active
+    case InventoryFoundation.foundationTargetsFromDeclarations
+      project location backendBucket (profile ^. #pulumiBackendMember)
+      (Just (foundationStackAddress project stackName, stackTarget)) declarations of
+      Left _ -> pure False
+      Right targets -> do
+        let declared = Map.lookup stackId targets == Just stackTarget
+              && Set.fromList [Resource.nameText bucket
+                | FoundationBucket _ bucket _ _ <- Map.elems targets] == expectedBuckets
+              && Set.fromList [Resource.nameText service
+                | FoundationService _ service <- Map.elems targets] == Set.fromList requiredApis
+        if not declared then pure False else do
+          let runtime = mkFoundationRuntimeOps realGcloudRunner
+          observations <- traverse (\target ->
+            (,) target <$> foundationInspect runtime target) (Map.elems targets)
+          pure (all (\(target, state) -> case state of
+            FoundationPresent _ digest -> digest == foundationTargetDigest target
+            _ -> False) observations)
+  where
+    owner = either (error . T.unpack) (\scope -> scope)
       (Resource.mkScopeId Resource.Platform "cloud-foundation")
 
 buildCloudFoundationCandidate
@@ -4867,6 +4940,7 @@ buildCloudFoundationCandidate active paths workspace snapshot = do
         (either (error . T.unpack) (\key -> key) (Resource.mkLogicalKey "storage.googleapis.com"))
         (either (error . T.unpack) (\name -> name) (Resource.mkName "storage.googleapis.com"))
   backendBucket <- foundationPulumiBucket active
+  stackTarget <- foundationStackTarget active workspace
   bucketNames <- foundationBucketNames active
   buckets <- forM (Set.toAscList bucketNames) $ \bucketText -> do
     bucket <- either dieT pure (Resource.mkName bucketText)
@@ -4878,7 +4952,19 @@ buildCloudFoundationCandidate active paths workspace snapshot = do
       ResourcePolicy.Protect ResourcePolicy.Stateless ResourcePolicy.Public
       [ResourceReference.OrderedAfter storageApi]
       (Resource.SourceLocation "context-profile" ("state-bucket:" <> bucketText)))
-  resources <- case serviceResources <> buckets of
+  stackName <- either dieT pure (Resource.mkName (contextNameText (active ^. #contextName)))
+  let stackDependency = case backendBucket of
+        Nothing -> storageApi
+        Just bucket -> Resource.mintResourceId owner
+          (either (error . T.unpack) (\key -> key) (Resource.mkLogicalKey
+            ("state-" <> Resource.nameText bucket))) bucket
+      stackResource = InventoryFoundation.FoundationResource
+        (either (error . T.unpack) (\key -> key) (Resource.mkLogicalKey "pulumi-stack")) stackName
+        (foundationStackAddress project stackName) (foundationTargetDigest stackTarget)
+        ResourcePolicy.Protect ResourcePolicy.Stateless ResourcePolicy.Public
+        [ResourceReference.OrderedAfter stackDependency]
+        (Resource.SourceLocation "context-profile" "pulumi-stack")
+  resources <- case serviceResources <> buckets <> [stackResource] of
     firstResource : rest -> pure (firstResource NE.:| rest)
     [] -> dieT "cloud foundation has no required resources"
   scope <- either (dieT . T.pack . show) pure
@@ -5729,7 +5815,7 @@ inventoryExecutionRegistry mctx bundle = do
         if null registrations
           then pure (Inventory.executionBlockedAdapterFor ResourceInventory.PulumiExecutor)
           else inventoryPulumiAdapter active workspace binding scopes allRegistrations
-      foundation <- inventoryFoundationAdapter active binding declarations
+      foundation <- inventoryFoundationAdapter active workspace binding declarations
         (selected ResourceInventory.CloudFoundationExecutor)
       artifact <-
         if Map.null artifactSpecs
@@ -5968,7 +6054,7 @@ inventoryPlanRegistryWithNative active workspace suppliedNative candidate histor
     if null registrations
       then pure (Inventory.manifestAdapterFor history ResourceInventory.PulumiExecutor)
       else inventoryPulumiAdapter active workspace (ResourceInventory.inventoryBinding inventory) scopes allRegistrations
-  foundation <- inventoryFoundationAdapter active (ResourceInventory.inventoryBinding inventory)
+  foundation <- inventoryFoundationAdapter active workspace (ResourceInventory.inventoryBinding inventory)
     declarations (selected ResourceInventory.CloudFoundationExecutor)
   let artifact =
         if Map.null artifactSpecs
@@ -5993,9 +6079,9 @@ inventoryPlanRegistryWithNative active workspace suppliedNative candidate histor
   either dieT pure (InventoryAdapter.mkAdapterRegistry adapters)
 
 inventoryFoundationAdapter
-  :: ActiveTarget -> Resource.ContextBinding -> [ResourceInventory.Declaration]
+  :: ActiveTarget -> PlatformWorkspace -> Resource.ContextBinding -> [ResourceInventory.Declaration]
   -> Set.Set Resource.ResourceId -> IO InventoryAdapter.Adapter
-inventoryFoundationAdapter active binding declarations selectedResources
+inventoryFoundationAdapter active workspace binding declarations selectedResources
   | Set.null selectedResources = pure
       (Inventory.executionBlockedAdapterFor ResourceInventory.CloudFoundationExecutor)
   | otherwise = do
@@ -6006,8 +6092,13 @@ inventoryFoundationAdapter active binding declarations selectedResources
       unless (project == binding ^. #project)
         (dieT "reviewed cloud foundation belongs to another target project")
       backendBucket <- foundationPulumiBucket active
+      stackTarget <- foundationStackTarget active workspace
+      let stackName = case stackTarget of
+            FoundationStack _ name _ _ _ _ _ -> name
+            _ -> error "foundationStackTarget did not return a stack"
       targets <- either dieT pure (InventoryFoundation.foundationTargetsFromDeclarations
-        project location backendBucket (active ^. #profile . #pulumiBackendMember) declarations)
+        project location backendBucket (active ^. #profile . #pulumiBackendMember)
+        (Just (foundationStackAddress project stackName, stackTarget)) declarations)
       expectedBuckets <- foundationBucketNames active
       let reviewedBuckets = Set.fromList
             [Resource.nameText bucket | FoundationBucket _ bucket _ _ <- Map.elems targets]
@@ -6028,6 +6119,21 @@ foundationPulumiBucket active
       Just <$> either dieT pure (Resource.mkName bucket)
   where
     profile = active ^. #profile
+
+foundationStackAddress :: Resource.Name -> Resource.Name -> Resource.ProviderAddress
+foundationStackAddress = Resource.CloudStack
+
+foundationStackTarget :: ActiveTarget -> PlatformWorkspace -> IO FoundationTarget
+foundationStackTarget active workspace = do
+  let profile = active ^. #profile
+      context = contextNameText (active ^. #contextName)
+  stateRoot <- nagareStateDir
+  project <- either dieT pure (Resource.mkName (profile ^. #project))
+  stack <- either dieT pure (Resource.mkName context)
+  bucket <- foundationPulumiBucket active
+  let environment = pulumiEnvFor stateRoot context profile
+  pure (FoundationStack project stack (environment ^. #backendUrl)
+    (workspace ^. #pulumiDir) (environment ^. #home) bucket (seedKeys profile))
 
 foundationBucketNames :: ActiveTarget -> IO (Set.Set Text)
 foundationBucketNames active = do
@@ -7001,11 +7107,7 @@ runContext mctx = \case
             if pending
               then TIO.putStrLn "Cloud foundation awaits a reviewed platform bootstrap plan."
               else do
-                workspace <- ensurePulumiForContext name tp
-                s <- seedPulumiConfig (workspace ^. #pulumiDir) False (contextNameText name) tp
-                case s of
-                  Right () -> pure ()
-                  Left (k, code) -> dieT (namedSeedFailure (contextNameText name) k code)
+                void (selectReviewedPulumiForContext name tp)
         TIO.putStrLn ("Switched to context '" <> contextNameText name <> "'")
       else dieT ("no such context: " <> contextNameText name)
   ContextShow mname -> do

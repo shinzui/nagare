@@ -49,20 +49,35 @@ inventoryFoundationTests = testGroup "cluster foundation inventory"
             (FoundationBucket project backend location (Just member))
           journalResource = resource "journal" journal
             (FoundationBucket project journal location Nothing)
+          stack = known "fresh"
+          stackAddress = CloudStack project stack
+          stackTarget = FoundationStack project stack "file:///tmp/state" "/tmp/program"
+            "/tmp/home" Nothing [("nagare:manageProjectApis", "false")]
+          stackResource = FoundationResource (ok (mkLogicalKey "pulumi-stack")) stack
+            stackAddress (foundationTargetDigest stackTarget) Protect Stateless Public []
+            (SourceLocation "target" "pulumi-stack")
           scope = ok (compileFoundationScope (FoundationDeclarationBundle 1 owner project
-            (backendResource :| [journalResource])))
+            (backendResource :| [journalResource, stackResource])))
           declarations = concatMap (^. #declarations) (scopeBundles scope)
       targets <- expectRight (foundationTargetsFromDeclarations project location
-        (Just backend) (Just member) declarations)
+        (Just backend) (Just member) (Just (stackAddress, stackTarget)) declarations)
       Map.lookup (mintResourceId owner (foundationLogicalKey backendResource)
         (foundationRole backendResource)) targets
         @?= Just (FoundationBucket project backend location (Just member))
       Map.lookup (mintResourceId owner (foundationLogicalKey journalResource)
         (foundationRole journalResource)) targets
         @?= Just (FoundationBucket project journal location Nothing)
+      Map.lookup (mintResourceId owner (foundationLogicalKey stackResource)
+        (foundationRole stackResource)) targets @?= Just stackTarget
       assertBool "changed member was accepted" (either (const True) (const False)
         (foundationTargetsFromDeclarations project location (Just backend)
-          (Just "serviceAccount:other@acme-prod.iam.gserviceaccount.com") declarations))
+          (Just "serviceAccount:other@acme-prod.iam.gserviceaccount.com")
+          (Just (stackAddress, stackTarget)) declarations))
+      assertBool "changed stack config was accepted" (either (const True) (const False)
+        (foundationTargetsFromDeclarations project location (Just backend) (Just member)
+          (Just (stackAddress, FoundationStack project stack "file:///tmp/state"
+            "/tmp/program" "/tmp/home" Nothing [("nagare:manageProjectApis", "true")]))
+          declarations))
   , testCase "cloud foundation composes before a cluster exists and preserves unrelated scopes" $ do
       let owner = ok (mkScopeId Platform "cloud-foundation")
           appOwner = ok (mkScopeId Application "unrelated")
@@ -140,6 +155,8 @@ inventoryFoundationTests = testGroup "cluster foundation inventory"
                 ["storage", "buckets", "describe", _, "--raw", "--format=json"] -> describedResult
                 _ -> Left "unexpected gcloud observation"
             , gcloudEffect = \_ -> pure (Left "mutation was not expected")
+            , pulumiCapture = \_ _ -> pure (Left "Pulumi was not expected")
+            , pulumiEffect = \_ _ -> pure (Left "Pulumi was not expected")
             }
           inspect selected = foundationInspect (mkFoundationRuntimeOps selected) target
           listed = Right "[{\"name\":\"acme-prod-nagare-state\"}]"

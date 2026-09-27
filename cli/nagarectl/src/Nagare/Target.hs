@@ -980,6 +980,8 @@ resolveActiveTarget arg = do
         & #externalDomainTlsEnabled .~ (storedProfile ^. #externalDomainTlsEnabled)
         & #inventoryStore .~ (storedProfile ^. #inventoryStore)
         & #inventoryStoreUrl .~ (storedProfile ^. #inventoryStoreUrl)
+        & #pulumiBackend .~ (storedProfile ^. #pulumiBackend)
+        & #pulumiBackendUrl .~ (storedProfile ^. #pulumiBackendUrl)
         & #pulumiBackendMember .~ (storedProfile ^. #pulumiBackendMember)))
 
 -- | Back-compat entry point for consumers that only need the target bundle.

@@ -249,6 +249,7 @@ parseClaim parts = fmap canonicalClaim $ case parts of
   ["kubernetes", c, g, k, ns, n] -> Kubernetes <$> resource c <*> pure g <*> name k <*> (if ns == "" then pure Nothing else Just <$> name ns) <*> name n
   ["bucket", n] -> GlobalBucket <$> name n
   ["cloud-service", project, service] -> CloudService <$> name project <*> name service
+  ["cloud-stack", project, stack] -> CloudStack <$> name project <*> name stack
   ["instance", p, z, n] -> CloudInstance <$> name p <*> name z <*> name n
   ["pulumi", n] -> pure (PulumiUrn n)
   ["host", c, n] -> Host <$> resource c <*> name n

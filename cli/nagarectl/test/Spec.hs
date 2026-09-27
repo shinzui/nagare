@@ -1751,6 +1751,9 @@ targetProfileTests =
       , "NAGARE_DATA_DISK_SIZE_GB"
       , "NAGARE_TARGET_PLATFORM"
       , "NAGARE_LOCAL_OBJECT_STORE"
+      , "NAGARE_PULUMI_BACKEND"
+      , "NAGARE_PULUMI_BACKEND_URL"
+      , "NAGARE_PULUMI_BACKEND_MEMBER"
       , "NAGARE_INVENTORY_STORE"
       , "NAGARE_INVENTORY_STORE_URL"
       , "NAGARE_PLATFORM_VERSION"
@@ -1804,6 +1807,8 @@ contextResolutionTests =
                 unlines
                   [ "export CLOUDSDK_CORE_PROJECT=labs-proj"
                   , "export CLOUDSDK_COMPUTE_REGION=europe-west1"
+                  , "export NAGARE_PULUMI_BACKEND=local"
+                  , "export NAGARE_PULUMI_BACKEND_URL=file:///labs/state"
                   ]
               writeContext "prod" "export CLOUDSDK_CORE_PROJECT=prod-proj\n"
 
@@ -1816,6 +1821,13 @@ contextResolutionTests =
               atLabs <- resolveActiveTarget Nothing
               contextNameText (atLabs ^. #contextName) @?= "labs"
               atLabs ^. #profile . #project @?= "labs-proj"
+              setEnv "NAGARE_PULUMI_BACKEND" "gcs"
+              setEnv "NAGARE_PULUMI_BACKEND_URL" "gs://foreign-state/nagare/labs"
+              pinned <- resolveActiveTarget Nothing
+              pinned ^. #profile . #pulumiBackend @?= PulumiBackendLocal
+              pinned ^. #profile . #pulumiBackendUrl @?= "file:///labs/state"
+              clearResolutionEnv
+              setEnv "NAGARE_CONTEXT" "labs"
 
               tpProd <- resolveActiveContext (Just "prod")
               tpProd ^. #project @?= "prod-proj"
@@ -1950,6 +1962,9 @@ contextResolutionTests =
       , "NAGARE_DATA_DISK_SIZE_GB"
       , "NAGARE_TARGET_PLATFORM"
       , "NAGARE_LOCAL_OBJECT_STORE"
+      , "NAGARE_PULUMI_BACKEND"
+      , "NAGARE_PULUMI_BACKEND_URL"
+      , "NAGARE_PULUMI_BACKEND_MEMBER"
       , "NAGARE_INVENTORY_STORE"
       , "NAGARE_INVENTORY_STORE_URL"
       ]

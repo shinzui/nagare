@@ -32,6 +32,9 @@ data FoundationTarget
   -- ^ Target project, bucket, location, optional bucket-scoped member.
   | FoundationService !Name !Name
   -- ^ Target project and API service.
+  | FoundationStack !Name !Name !Text !FilePath !FilePath !(Maybe Name) ![(Text, Text)]
+  -- ^ Project, stack, backend URL, program directory, Pulumi home, optional
+  -- GCS backend bucket, and the exact plain-text config to seed.
   deriving stock (Eq, Show, Generic)
 
 data FoundationNativePlan = FoundationNativePlan
@@ -185,6 +188,11 @@ commands target = case target of
         <> maybe [] (\value -> [bucketIamArgs (nameText bucket) value]) member)
   FoundationService project service ->
     [["gcloud", "services", "enable", nameText service, "--project=" <> nameText project]]
+  FoundationStack _ stack _ pulumiDir _ _ config ->
+    ["pulumi", "-C", T.pack pulumiDir, "stack", "init", nameText stack,
+      "--yes", "--no-select"]
+    : [["pulumi", "-C", T.pack pulumiDir, "config", "set", "--stack",
+        nameText stack, key, value] | (key, value) <- config]
 
 canonicalBytes :: Value -> ByteString
 canonicalBytes = either (error . T.unpack) id . canonicalValue
@@ -196,6 +204,10 @@ instance ToJSON FoundationTarget where
        "location" .= location, "member" .= member]
     FoundationService project service -> object
       ["kind" .= ("service" :: Text), "project" .= project, "service" .= service]
+    FoundationStack project stack backend pulumiDir pulumiHome bucket config -> object
+      ["kind" .= ("stack" :: Text), "project" .= project, "stack" .= stack,
+       "backend" .= backend, "pulumiDir" .= pulumiDir, "pulumiHome" .= pulumiHome,
+       "bucket" .= bucket, "config" .= config]
 
 instance FromJSON FoundationTarget where
   parseJSON = withObject "foundation target" $ \o -> do
@@ -204,6 +216,9 @@ instance FromJSON FoundationTarget where
       "bucket" -> FoundationBucket <$> o .: "project" <*> o .: "bucket"
         <*> o .: "location" <*> o .:? "member"
       "service" -> FoundationService <$> o .: "project" <*> o .: "service"
+      "stack" -> FoundationStack <$> o .: "project" <*> o .: "stack"
+        <*> o .: "backend" <*> o .: "pulumiDir" <*> o .: "pulumiHome"
+        <*> o .:? "bucket" <*> o .: "config"
       _ -> fail "unknown foundation target kind"
 
 instance ToJSON FoundationNativePlan where
