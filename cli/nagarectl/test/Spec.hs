@@ -59,6 +59,7 @@ import InventoryStatusSpec (inventoryStatusTests)
 import InventorySpec (inventoryTests)
 import InventoryTransactionSpec (inventoryTransactionTests, runInventoryLockHoldProbe, runInventoryLockProbe)
 import DataFenceSpec (dataFenceTests)
+import InventoryMaintenanceSpec (inventoryMaintenanceTests)
 import Nagare.App
   ( AppSummary (..)
   , LogTarget (..)
@@ -485,6 +486,7 @@ main = do
             , inventoryTests
             , inventoryTransactionTests
             , dataFenceTests
+            , inventoryMaintenanceTests
             , inventoryIntegrationTests
             , platformTests
             , platformCutoverTests

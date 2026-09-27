@@ -52,6 +52,8 @@ Inherited: aggregate hooks already declare affected resources and reviewed per-t
 
 Native access-policy probe (2026-09-27): an isolated `ep161-maintenance-probe` namespace on the local k3s cluster ran two `postgres:18` Pods. Before an Ingress-denying NetworkPolicy selected the server, `pg_isready` from the client reached Pod IP `10.42.0.67:5432`; afterwards it returned no response. `pg_isready` through the server Pod's Unix socket still succeeded under the same policy. The repeatable `KUBECONFIG=/tmp/nagare-mp23-ep155-23001-6cpu-v2/config/nagare/kubeconfigs/local.yaml scripts/probe-ep161-maintenance-network.sh local` passed in a second disposable namespace with the same assertions and requested namespace cleanup. This proves the local CNI can support the proposed client-exclusion/authorized-local-client split. It does not prove exact accepted writer draining, policy-edit authority, durable review, Pod replacement safety, or parent-death recovery.
 
+The first provider piece, `MaintenanceNetwork`, now renders a session/Pod-UID-bound deny-ingress policy, rejects changed or terminating native objects, and uses UID/resourceVersion preconditions on removal. Its focused maintenance test covers a lost create acknowledgement, unchanged replay, and refusal to delete a drifted policy. The module is not yet attached to the DataFence callbacks or a public operation, so it does not advance either milestone by itself. EP-160 M1's accepted library command-service fixture remains valid; public live restore and interactive session registration belong to the still-open consumer outcomes.
+
 
 
 
