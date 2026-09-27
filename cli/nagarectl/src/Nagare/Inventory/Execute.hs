@@ -57,7 +57,12 @@ data AdmissionError = AdmissionError
   }
   deriving stock (Eq, Show, Generic)
 
-data RecoveryAction = AcceptAdapterProof | RetryAfterAdapterProof
+data RecoveryAction
+  = AcceptAdapterProof
+  | RetryAfterAdapterProof
+  | ContinueFencedOperation
+  | VerifyFencedEffect
+  | ForwardFencedRelease
   deriving stock (Eq, Show)
 
 data OperatorRecoveryInput = OperatorRecoveryInput
@@ -81,6 +86,9 @@ instance FromJSON OperatorRecoveryInput where
     decision <- case action of
       "accept-adapter-proof" -> pure AcceptAdapterProof
       "retry-after-adapter-proof" -> pure RetryAfterAdapterProof
+      "continue-fenced-operation" -> pure ContinueFencedOperation
+      "verify-fenced-effect" -> pure VerifyFencedEffect
+      "forward-fenced-release" -> pure ForwardFencedRelease
       _ -> fail "unsupported operator recovery action"
     OperatorRecoveryInput <$> o .: "transaction" <*> o .: "operation"
       <*> o .: "review" <*> pure decision
@@ -437,8 +445,12 @@ recordOperatorRecovery store registry input takeOver = do
         (Right (Just headValue), Right events)
           | headActiveTransaction headValue /= Just (transactionIdText transaction) ->
               pure (failure "inactive-transaction" "operator recovery requires the active transaction")
-          | isJust (headDataFence headValue) ->
+          | isJust (headDataFence headValue)
+              && not (fencedAction (recoveryAction input)) ->
               pure (failure "active-data-fence" "recover and release the data fence before recording adapter recovery")
+          | isNothing (headDataFence headValue)
+              && fencedAction (recoveryAction input) ->
+              pure (failure "data-fence" "reviewed transaction has no active data fence")
           | Just (recoveryReview input) /= transactionDigest transaction ->
               pure (failure "recovery-review" "decision file review digest differs from transaction")
           | not (recoverableState (Map.lookup operationId (operationStates transaction events))) ->
@@ -448,11 +460,12 @@ recordOperatorRecovery store registry input takeOver = do
               case claimed of
                 Left err -> pure (Left err)
                 Right () -> do
-                  result <- inspectRecovery lock
+                  result <- inspectRecovery lock (headDataFence headValue)
                   released <- releaseClaim lock transaction False
                   pure $ if released then result else failure "executor-claim" "could not release operator recovery claim"
-    inspectRecovery :: forall s. LockedStore s -> IO (Either (NonEmpty AdmissionError) ())
-    inspectRecovery lock = do
+    inspectRecovery :: forall s. LockedStore s -> Maybe DataFenceRecord
+      -> IO (Either (NonEmpty AdmissionError) ())
+    inspectRecovery lock activeFence = do
       bundle <- loadPublishedReview store (recoveryReview input)
       snapshot <- readStoreSnapshot store
       case (bundle, snapshot) of
@@ -471,9 +484,16 @@ recordOperatorRecovery store registry input takeOver = do
                 | adapterIdentity adapter /= reviewAdapterIdentity reviewOperation
                   || adapterVersion adapter /= reviewAdapterVersion reviewOperation ->
                     pure (failure "adapter-version" "recovery adapter differs from the issued review")
-                | Left reason <- selectedFence registry reviewed reviewOperation prepared ->
-                    pure (failure "data-fence-capability" reason)
-                | otherwise -> do
+                | otherwise -> case selectedFence registry reviewed reviewOperation prepared of
+                  Left reason -> pure (failure "data-fence-capability" reason)
+                  Right (Just (saved, controls)) | Just active <- activeFence
+                    , sameReviewedFence transaction saved active ->
+                      recoverFenced lock adapter (reviewPlannedOperation reviewOperation)
+                        prepared active controls
+                  Right _ | isJust activeFence || fencedAction (recoveryAction input) ->
+                    pure (failure "data-fence-capability"
+                      "active data fence differs from the private reviewed member")
+                  Right selection -> do
                     let operation = reviewPlannedOperation reviewOperation
                     decision <- withAdapterEnv transaction operation
                       (adapterRecover adapter operation prepared)
@@ -482,11 +502,111 @@ recordOperatorRecovery store registry input takeOver = do
                         appended <- appendEvent lock transaction (Just operationId)
                           (Completed proof) "operator accepted adapter recovery proof"
                         pure (first (\err -> AdmissionError "journal" (showText err) :| []) (() <$ appended))
-                      (RetryAfterAdapterProof, RecoverySafeToRetry) -> do
-                        appended <- appendEvent lock transaction (Just operationId)
-                          (OperatorResolved "adapter-proved-safe-retry") "operator selected adapter-proved safe retry"
-                        pure (first (\err -> AdmissionError "journal" (showText err) :| []) (() <$ appended))
+                      (RetryAfterAdapterProof, RecoverySafeToRetry)
+                        | isNothing selection -> do
+                            appended <- appendEvent lock transaction (Just operationId)
+                              (OperatorResolved "adapter-proved-safe-retry") "operator selected adapter-proved safe retry"
+                            pure (first (\err -> AdmissionError "journal" (showText err) :| []) (() <$ appended))
                       _ -> pure (failure "unsupported-recovery" "adapter did not prove the operator's requested action")
+    recoverFenced :: forall s. LockedStore s -> Adapter -> PlannedOperation
+      -> PreparedNative -> DataFenceRecord -> DataFenceControls
+      -> IO (Either (NonEmpty AdmissionError) ())
+    recoverFenced lock adapter operation prepared active controls = do
+      resumed <- resumeDataFence lock (fenceSession active)
+      case resumed of
+        Left reason -> pure (failure "data-fence" reason)
+        Right token -> case recoveryAction input of
+          ContinueFencedOperation
+            | fencePhase active `elem` [FenceAcquiring, FenceExcluded] -> do
+                acquired <- if fencePhase active == FenceAcquiring
+                  then resumeDataFenceAcquisition lock controls token
+                  else pure (Right ())
+                case acquired of
+                  Left reason -> pure (failure "data-fence" reason)
+                  Right () -> do
+                    preflight <- adapterPreflight adapter operation prepared
+                    case preflight of
+                      Left reason -> pure (failure "preflight" reason)
+                      Right () -> continueAfterPreflight lock token controls
+                        adapter operation prepared
+          VerifyFencedEffect
+            | fencePhase active `elem`
+                [FenceChanging, FenceUnresolved, FenceVerifying, FenceReleasing] -> do
+                decision <- withAdapterEnv transaction operation
+                  (adapterRecover adapter operation prepared)
+                case decision of
+                  RecoveryProvedComplete proof -> do
+                    recovered <- recoverDataFence lock controls token
+                    case recovered of
+                      Left reason -> pure (failure "data-fence" reason)
+                      Right () | fencePhase active == FenceReleasing ->
+                        appendFencedCompletion lock proof
+                      Right () -> completeFenced lock token controls proof
+                  _ -> pure (failure "adapter-recovery"
+                    "adapter has not proved the fenced data effect complete")
+          ForwardFencedRelease
+            | fencePhase active == FenceReleasing -> do
+                decision <- withAdapterEnv transaction operation
+                  (adapterRecover adapter operation prepared)
+                case decision of
+                  RecoveryProvedComplete proof -> do
+                    recovered <- forwardRecoverDataFenceRelease lock controls token
+                    case recovered of
+                      Left reason -> pure (failure "data-fence" reason)
+                      Right () -> appendFencedCompletion lock proof
+                  _ -> pure (failure "adapter-recovery"
+                    "adapter has not proved the fenced data effect complete")
+          _ -> pure (failure "data-fence"
+            "recovery action does not match the durable data fence phase")
+    continueAfterPreflight :: forall s. LockedStore s -> FenceToken
+      -> DataFenceControls -> Adapter -> PlannedOperation -> PreparedNative
+      -> IO (Either (NonEmpty AdmissionError) ())
+    continueAfterPreflight lock token controls adapter operation prepared = do
+      started <- beginDataChange lock controls token
+      case started of
+        Left reason -> pure (failure "data-fence" reason)
+        Right () -> do
+          effect <- withAdapterEnv transaction operation
+            (adapterExecute adapter operation prepared)
+          case effect of
+            AdapterEffectCompleted -> do
+              verified <- withAdapterEnv transaction operation
+                (adapterVerify adapter operation prepared)
+              case verified of
+                Left reason -> do
+                  _ <- markDataFenceUnresolved lock token
+                  pure (failure "adapter-recovery" reason)
+                Right proof -> finishFenced lock token controls proof
+            _ -> do
+              _ <- markDataFenceUnresolved lock token
+              pure (failure "adapter-recovery"
+                "fenced data effect is not proved complete")
+    finishFenced :: forall s. LockedStore s -> FenceToken -> DataFenceControls
+      -> ContentDigest -> IO (Either (NonEmpty AdmissionError) ())
+    finishFenced lock token controls proof = do
+      verified <- verifyDataChange lock controls token
+      case verified of
+        Left reason -> pure (failure "data-fence" reason)
+        Right () -> completeFenced lock token controls proof
+    completeFenced :: forall s. LockedStore s -> FenceToken -> DataFenceControls
+      -> ContentDigest -> IO (Either (NonEmpty AdmissionError) ())
+    completeFenced lock token controls proof = do
+      released <- releaseDataFence lock controls token
+      case released of
+        Left reason -> pure (failure "data-fence" reason)
+        Right () -> appendFencedCompletion lock proof
+    appendFencedCompletion :: forall s. LockedStore s -> ContentDigest
+      -> IO (Either (NonEmpty AdmissionError) ())
+    appendFencedCompletion lock proof = do
+      appended <- appendEvent lock transaction (Just operationId)
+        (Completed proof) "reviewed fenced effect and writer release proved"
+      pure (first (\err -> AdmissionError "journal" (showText err) :| []) (() <$ appended))
+    fencedAction action = action `elem`
+      [ContinueFencedOperation, VerifyFencedEffect, ForwardFencedRelease]
+    sameReviewedFence selectedTransaction saved active =
+      fenceTransaction active == Just (transactionIdText selectedTransaction)
+        && active {fenceTransaction = Nothing, fencePhase = fencePhase saved,
+          fenceAcquiredAt = fenceAcquiredAt saved} == saved
     recoverableState state = case state of
       Just IntentRecorded -> True
       Just Ambiguous -> True
@@ -532,7 +652,11 @@ runOperations locked registry transaction reviewed initialEvents operations = go
                         case appended of
                           Left _ -> pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
                           Right event -> go (events <> [event]) rest
-                      RecoverySafeToRetry -> executeOne events reviewOperation rest
+                      RecoverySafeToRetry
+                        | isNothing (reviewFenceDigest reviewOperation) ->
+                            executeOne events reviewOperation rest
+                        | otherwise -> pure (Just (StoppedAmbiguous transaction
+                            (plannedOperationId operation)))
                       RecoveryUnresolved _ ->
                         pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
     executeOne events reviewOperation rest = do

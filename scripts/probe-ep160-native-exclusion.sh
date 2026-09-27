@@ -164,7 +164,7 @@ spec:
       containers:
       - name: client
         image: busybox:1.36
-        command: ["sh", "-c", "touch /mount/client-marker && sleep 3600"]
+        command: ["sh", "-c", "printf stale > /mount/recovery-marker && sleep 3600"]
         volumeMounts:
         - name: data
           mountPath: /mount
@@ -190,6 +190,50 @@ spec:
           - name: backup
             image: busybox:1.36
             command: ["sh", "-c", "sleep 30"]
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ep160-marker
+  namespace: $namespace
+spec:
+  suspend: true
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: marker
+        image: busybox:1.36
+        command: ["sh", "-c", "printf ep160-recovered-$engine > /mount/recovery-marker"]
+        volumeMounts:
+        - name: data
+          mountPath: /mount
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: data-pvc
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ep160-reviewed-marker
+  namespace: $namespace
+spec:
+  suspend: true
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: marker
+        image: busybox:1.36
+        command: ["sh", "-c", "printf ep160-reviewed-$engine > /mount/reviewed-marker"]
+        volumeMounts:
+        - name: data
+          mountPath: /mount
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: data-pvc
 EOF
   kubectl --context "$context" apply -f "$probe_root/$engine.yaml"
   kubectl --context "$context" -n "$namespace" rollout status statefulset/database --timeout=180s
@@ -201,6 +245,9 @@ EOF
     NAGARE_EP160_EXCLUSION_CONTEXT="$context" \
       NAGARE_EP160_EXCLUSION_NAMESPACE="$namespace" \
       NAGARE_EP160_EXCLUSION_ENGINE="$engine" \
+      NAGARE_EP160_EXCLUSION_NODE="k3d-$node" \
+      NAGARE_EP160_EXCLUSION_PV_PATH="/tmp/$pv" \
+      NAGARE_EP160_EVIDENCE_ROOT="$evidence_root" \
       cabal test nagarectl-test --test-options='-p "data fence"' \
         --test-show-details=failures
   )

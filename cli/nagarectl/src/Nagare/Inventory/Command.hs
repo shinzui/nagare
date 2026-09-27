@@ -499,7 +499,7 @@ recoverInventoryWithFactory registryFor target transactionToken operationToken d
   bundle <- loadPublishedReview store (recoveryReview input) >>= either (dieText . showText) pure
   registry <- registryFor bundle
   recordOperatorRecovery store registry input takeOver >>= either (dieText . showText . NE.toList) pure
-  TIO.putStrLn "Adapter-proved recovery decision recorded; run inventory resume --yes for the transaction"
+  TIO.putStrLn "Reviewed recovery action completed; inspect inventory status, then run inventory resume --yes for the transaction"
 
 exportInventory :: ActiveTarget -> FilePath -> IO ()
 exportInventory target output = do

@@ -28,6 +28,7 @@ import Nagare.Inventory.DataFence.DeploymentWriter qualified as Deployment
 import Nagare.Inventory.DataFence.GuardAuthority
 import Nagare.Inventory.DataFence.KubernetesExclusion
 import Nagare.Inventory.DataFence.KubernetesCapture
+import Nagare.Inventory.DataFence.KubernetesAdapter
 import Nagare.Inventory.DataFence.MountGuard
 import Nagare.Inventory.DataFence.MountGuardRuntime
 import Nagare.Inventory.DataFence.KubernetesIntent
@@ -38,13 +39,19 @@ import Nagare.Inventory.DataFence.VolumeState
 import Nagare.Inventory.DataFence.WriterInventory
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute
-  ( AdmissionError (..), TransactionResult (..), admit, applyReviewed, execute, resumeTransaction )
+  ( AdmissionError (..), OperatorRecoveryInput (..), RecoveryAction (..)
+  , TransactionResult (..), admit, applyReviewed, execute
+  , recordOperatorRecovery, resumeTransaction )
+import Nagare.Inventory.Journal (FailureClass (..), transactionIdText)
+import Nagare.Inventory.Adapter (OperationAction (..), PlannedOperation (..), ResourceObservation (..))
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
 import InventoryTransactionSpec
   ( fixtureBinding, preparedFixtureWithRegistry, recordingRegistryWith )
 import Nagare.Resource.Inventory
-import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (Retain), Sensitivity (Public))
+import Nagare.Resource.Policy
+  ( DataPolicy (Stateless), LifecyclePolicy (Retain)
+  , RecoveryClass (VerifyBeforeRetry), Sensitivity (Public) )
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import System.Environment (lookupEnv)
@@ -60,9 +67,16 @@ dataFenceTests = testGroup "data fence"
       selectedContext <- lookupEnv "NAGARE_EP160_EXCLUSION_CONTEXT"
       selectedNamespace <- lookupEnv "NAGARE_EP160_EXCLUSION_NAMESPACE"
       selectedEngine <- lookupEnv "NAGARE_EP160_EXCLUSION_ENGINE"
-      case (selectedContext, selectedNamespace, selectedEngine) of
-        (Nothing, Nothing, Nothing) -> pure ()
-        (Just contextName, Just namespaceName, Just engineName) -> do
+      selectedNode <- lookupEnv "NAGARE_EP160_EXCLUSION_NODE"
+      selectedVolumePath <- lookupEnv "NAGARE_EP160_EXCLUSION_PV_PATH"
+      selectedEvidenceRoot <- lookupEnv "NAGARE_EP160_EVIDENCE_ROOT"
+      case (selectedContext, selectedNamespace, selectedEngine,
+          selectedNode, selectedVolumePath) of
+        (Nothing, Nothing, Nothing, Nothing, Nothing) -> pure ()
+        (Just contextName, Just namespaceName, Just engineName,
+          Just nodeName, Just volumePath) -> do
+          evidenceRoot <- maybe (assertFailure "native evidence root is missing"
+            >> error "evidence root") pure selectedEvidenceRoot
           engine <- case engineName of
             "postgres" -> pure Postgres
             "redis" -> pure Redis
@@ -82,10 +96,13 @@ dataFenceTests = testGroup "data fence"
                 (known (mkName "cronjob"))
               member resource group kind name deps value =
                 let bytes = BL.toStrict (encode value)
+                    spec = if kind == "statefulset"
+                      then StatefulSet 1 [] (contentDigest bytes)
+                      else NativeObject (contentDigest bytes)
                  in (resource, (ManagedResource resource fenceOwner KubernetesExecutor
                       (Kubernetes cluster group (known (mkName kind))
                         (Just (known (mkName namespace))) (known (mkName name)))
-                      [] (NativeObject (contentDigest bytes)) Retain Stateless Public deps []
+                      [] spec Retain Stateless Public deps []
                       (SourceLocation "native-exclusion-fixture" kind), bytes))
               getJson :: String -> String -> IO Value
               getJson kind name = do
@@ -98,16 +115,26 @@ dataFenceTests = testGroup "data fence"
                   Right value -> pure value
               config = KubernetesRuntimeConfig context (T.pack contextName)
                 (pure (Right ()))
-              captureRequest = KubernetesCaptureRequest fixtureBinding Map.empty
-                "native-exclusion-session" target root (Just engine) (Just route)
-                "fixture://recovery" (contentDigest "fixture-recovery")
-                "system:serviceaccount:kube-system:statefulset-controller"
-                (Just "system:serviceaccount:kube-system:replicaset-controller") Nothing
           claim <- getJson "pvc" "data-pvc"
           stateful <- getJson "statefulset" "database"
           service <- getJson "service" "database"
           deployment <- getJson "deployment" "database-client"
           cronjob <- getJson "cronjob" "nagare-dbbackup-database"
+          markerJob <- getJson "job" "ep160-marker"
+          let markerUid = case markerJob of
+                Object fields -> case KM.lookup "metadata" fields of
+                  Just (Object metadata) -> case KM.lookup "uid" metadata of
+                    Just (String uid) -> uid
+                    _ -> error "marker Job has no UID"
+                  _ -> error "marker Job has no metadata"
+                _ -> error "marker Job is malformed"
+              captureRequest = KubernetesCaptureRequest fixtureBinding Map.empty
+                "native-exclusion-session" target root (Just engine) (Just route)
+                "fixture://recovery" (contentDigest "fixture-recovery")
+                "system:serviceaccount:kube-system:statefulset-controller"
+                (Just "system:serviceaccount:kube-system:replicaset-controller")
+                (Just ("ep160-marker", markerUid,
+                  "system:serviceaccount:kube-system:job-controller"))
           let acceptedNative = Map.fromList
                 [ member target "" "persistentvolumeclaim" "data-pvc" [] claim
                 , member root "apps" "statefulset" "database" [] stateful
@@ -122,7 +149,12 @@ dataFenceTests = testGroup "data fence"
             declarations acceptedNative captureRequest >>= right
           verifications <- newIORef (0 :: Int)
           let provider = kubectlKubernetesExclusion config Map.empty declarations acceptedNative
-              verify _ = modifyIORef' verifications (+ 1) >> pure (Right True)
+              verify _ = do
+                modifyIORef' verifications (+ 1)
+                (code, output, _) <- readProcessWithExitCode "docker"
+                  ["exec", nodeName, "cat", volumePath <> "/recovery-marker"] ""
+                pure (Right (code == ExitSuccess
+                  && output == "ep160-recovered-" <> engineName))
               controls = kubernetesDataFenceControls provider verify
           validateFenceInputs controls record >>= right
           let protectedGuard = kubernetesMountGuard
@@ -194,7 +226,8 @@ dataFenceTests = testGroup "data fence"
           runKube ["delete", "clusterrolebinding", "ep160-guard-collection-editor"] ""
           runKube ["delete", "clusterrole", "ep160-guard-collection-editor"] ""
           pollAuthority True (10 :: Int)
-          withSystemTempDirectory "nagare-native-fence" $ \rootPath -> do
+          reviewOnly <- lookupEnv "NAGARE_EP160_REVIEW_ONLY"
+          when (reviewOnly /= Just "1") $ withSystemTempDirectory "nagare-native-fence" $ \rootPath -> do
             store <- openFilesystemStore rootPath >>= right
             _ <- initializeStore store fixtureBinding "native-fixture" >>= right
             let interrupted = controls
@@ -296,6 +329,21 @@ dataFenceTests = testGroup "data fence"
             pollAcquired (120 :: Int)
             observeFencePhysical freshControls record >>= right
               >>= (@?= fencePhysical record)
+            verifyRecoveredData freshControls record >>= right >>= (@?= False)
+            _ <- withProcessLock reopened (\locked ->
+              beginDataChange locked freshControls token) >>= right >>= right
+            wrongMarker <- withProcessLock reopened (\locked ->
+              verifyDataChange locked freshControls token) >>= right
+            wrongMarker @?= Left "restored data and health are not verified"
+            refusedRelease <- withProcessLock reopened (\locked ->
+              releaseDataFence locked freshControls token) >>= right
+            refusedRelease @?= Left "data fence requires verified recovery before writer release"
+            runKube ["-n", namespaceName, "patch", "job", "ep160-marker",
+              "--type=merge", "-p", "{\"spec\":{\"suspend\":false}}"] ""
+            runKube ["-n", namespaceName, "wait", "job/ep160-marker",
+              "--for=condition=Complete", "--timeout=120s"] ""
+            runKube ["-n", namespaceName, "delete", "job", "ep160-marker",
+              "--cascade=foreground", "--wait=true"] ""
             _ <- withProcessLock reopened (\locked ->
               recoverDataFence locked freshControls token) >>= right >>= right
             let interruptedRelease = freshControls
@@ -331,6 +379,218 @@ dataFenceTests = testGroup "data fence"
             readIORef verifications >>= \count ->
               assertBool "native fence released without recovered-data verification"
                 (count >= 2)
+          reviewedJob <- getJson "job" "ep160-reviewed-marker"
+          let reviewedJobUid = case reviewedJob of
+                Object fields -> case KM.lookup "metadata" fields of
+                  Just (Object metadata) -> case KM.lookup "uid" metadata of
+                    Just (String uid) -> uid
+                    _ -> error "reviewed marker Job has no UID"
+                  _ -> error "reviewed marker Job has no metadata"
+                _ -> error "reviewed marker Job is malformed"
+              reviewedRequest accepted = captureRequest
+                { captureAccepted = accepted
+                , captureSession = "reviewed-native-session"
+                , captureRestoreJob = Just ("ep160-reviewed-marker", reviewedJobUid,
+                    "system:serviceaccount:kube-system:job-controller")
+                }
+              reviewedMarker = do
+                (code, output, _) <- readProcessWithExitCode "docker"
+                  ["exec", nodeName, "cat", volumePath <> "/reviewed-marker"] ""
+                pure (code == ExitSuccess && output == "ep160-reviewed-" <> engineName)
+              operationId = mintResourceId fenceOwner
+                (known (mkLogicalKey "reviewed-marker")) (known (mkName "proof"))
+              markerOperation = DeclaredOperation operationId (target :| [])
+                [ContentInput (contentDigest "ep160-reviewed-marker")]
+                VerifyBeforeRetry RestoreData
+              baseBundle = ResourceBundle declarations [] [] [] [] []
+              reviewedBundle = ResourceBundle declarations [] [] []
+                [markerOperation] []
+          baseScope <- right (mkScopeDeclaration fenceOwner [baseBundle])
+          nextScope <- right (mkScopeDeclaration fenceOwner [reviewedBundle])
+          snapshot <- right (mkScopeSnapshot fixtureBinding
+            (Map.singleton fenceOwner (known (mkScopeGeneration 1), baseScope))
+            Map.empty)
+          seedScope <- right (mkScopeDeclaration
+            (known (mkScopeId Standalone "fixture-seed")) [])
+          baseCandidate <- right (composeInventory snapshot
+            (ReplaceScope seedScope :| []))
+          candidate <- right (composeInventory snapshot (ReplaceScope nextScope :| []))
+          let reviewRoot = evidenceRoot <> "/" <> engineName <> "-review-store"
+          reviewStore <- openFilesystemStore reviewRoot >>= right
+          _ <- initializeStore reviewStore fixtureBinding "reviewed-native-fixture" >>= right
+          _ <- seedInventoryHistory reviewStore baseCandidate >>= right
+          history <- loadInventoryHistory reviewStore >>= right
+          let required = requiredResources (observationRequirements candidate history)
+              observed = known (observationSet
+                [(resource, ObservedPresent (Map.findWithDefault
+                    (known (mkPhysicalIdentity "fixture-observed")) resource
+                    (fencePhysical record))) | resource <- Set.toAscList required])
+          proposal <- right (planChanges candidate noLifecycleDecisions history observed)
+          captures <- newIORef (0 :: Int)
+          effects <- newIORef (0 :: Int)
+          let accepted = proposalDesired proposal
+              proof = contentDigest "ep160-reviewed-marker-proof"
+              isMarker operation = plannedAction operation == RunDeclaredOperation
+                && target `elem` toList (plannedResources operation)
+              effect operation _
+                | isMarker operation = do
+                    modifyIORef' effects (+ 1)
+                    runKube ["-n", namespaceName, "patch", "job",
+                      "ep160-reviewed-marker", "--type=merge", "-p",
+                      "{\"spec\":{\"suspend\":false}}"] ""
+                    runKube ["-n", namespaceName, "wait",
+                      "job/ep160-reviewed-marker", "--for=condition=Complete",
+                      "--timeout=120s"] ""
+                    let podField path = readProcessWithExitCode "kubectl"
+                          ["--context", contextName, "-n", namespaceName,
+                            "get", "pod", "-l",
+                            "batch.kubernetes.io/job-name=ep160-reviewed-marker",
+                            "-o", "jsonpath=" <> path] ""
+                    (accountCode, account, accountError) <- podField
+                      "{.items[0].spec.serviceAccountName}"
+                    assertEqual accountError ExitSuccess accountCode
+                    account @?= "default"
+                    (ownerCode, ownerUid, ownerError) <- podField
+                      "{.items[0].metadata.ownerReferences[0].uid}"
+                    assertEqual ownerError ExitSuccess ownerCode
+                    ownerUid @?= T.unpack reviewedJobUid
+                    runKube ["-n", namespaceName, "delete", "job",
+                      "ep160-reviewed-marker", "--cascade=foreground",
+                      "--wait=true"] ""
+                    pure (AdapterEffectAmbiguous "fixture lost marker write acknowledgement")
+                | otherwise = pure (AdapterEffectFailed
+                    (KnownNoEffect "unexpected reviewed operation"))
+              recover operation _
+                | isMarker operation = do
+                    good <- reviewedMarker
+                    pure (if good then RecoveryProvedComplete proof
+                      else RecoveryUnresolved "reviewed marker is missing or wrong")
+                | otherwise = pure (RecoveryUnresolved "unexpected reviewed operation")
+              baseRegistry = recordingRegistryWith (\_ _ -> pure (Right ()))
+                effect recover
+              replay saved operation _ = do
+                unless (isMarker operation
+                    && fenceSession saved == "reviewed-native-session"
+                    && fenceTargets saved == Set.singleton target
+                    && fencePhysical saved == fencePhysical record)
+                  (Left "reviewed marker operation or target identity changed")
+              selectedFactory = KubernetesFenceFactory config fixtureBinding accepted
+                declarations acceptedNative
+                (\operation _ -> if isMarker operation then do
+                    modifyIORef' captures (+ 1)
+                    pure (Right (Just (reviewedRequest accepted)))
+                  else pure (Right Nothing))
+                replay (\_ -> Right <$> reviewedMarker)
+              planningRegistry = known (registerKubernetesDataFence
+                selectedFactory baseRegistry)
+          beforeReview <- readStoreSnapshot reviewStore >>= right
+          plannedReview <- prepareReview planningRegistry beforeReview proposal >>= right
+          reviewId <- publishReview reviewStore plannedReview >>= right
+          let publicPath = evidenceRoot <> "/" <> engineName <> "-public-review"
+          _ <- writeReviewBundle publicPath plannedReview >>= right
+          publicReview <- loadReviewBundle publicPath >>= right
+          reviewBundleNative publicReview @?= Map.empty
+          readIORef captures >>= (@?= 1)
+          freshStore <- openFilesystemStore reviewRoot >>= right
+          privateReview <- loadPublishedReview freshStore reviewId >>= right
+          case [selected | selected <- reviewOperations (reviewBundleDocument privateReview),
+              isMarker (reviewPlannedOperation selected)] of
+            [selected] -> case reviewBundleFenceRecord privateReview selected of
+              Right (Just saved) -> do
+                fenceSession saved @?= "reviewed-native-session"
+                fencePhysical saved @?= fencePhysical record
+              _ -> assertFailure "private reviewed fence member is missing"
+            _ -> assertFailure "saved review lacks one marker operation"
+          readySnapshot <- readStoreSnapshot freshStore >>= right
+          reviewed <- right (verifyReview readySnapshot privateReview)
+          let replayFactory = selectedFactory
+                { factorySelect = \_ _ -> pure (Left
+                    "planning capture must not run during apply") }
+              replayRegistry = known (registerKubernetesDataFence
+                replayFactory baseRegistry)
+          missing <- applyReviewed freshStore baseRegistry reviewed
+          case missing of
+            Left errors -> assertBool "missing native capability admitted review"
+              (any ((== "data-fence-capability") . admissionErrorCode) errors)
+            Right _ -> assertFailure "review applied without its native fence"
+          wrongRevision <- applyReviewed freshStore
+            (known (registerKubernetesDataFence
+              (replayFactory {factoryAccepted = Map.empty}) baseRegistry)) reviewed
+          case wrongRevision of
+            Left errors -> assertBool "changed accepted revision admitted review"
+              (any ((== "data-fence-capability") . admissionErrorCode) errors)
+            Right _ -> assertFailure "review applied with changed revisions"
+          wrongContext <- applyReviewed freshStore
+            (known (registerKubernetesDataFence (replayFactory
+              { factoryBinding = ContextBinding
+                  (known (mkContextId "foreign-fence")) (known (mkName "project"))
+              }) baseRegistry)) reviewed
+          case wrongContext of
+            Left errors -> assertBool "changed context admitted review"
+              (any ((== "data-fence-capability") . admissionErrorCode) errors)
+            Right _ -> assertFailure "review applied in another context"
+          let wrongPhysical = Map.insert target
+                (known (mkPhysicalIdentity "foreign-pvc-uid")) (fencePhysical record)
+              wrongTargetFactory = replayFactory {factoryReplay = \saved operation prepared -> do
+                replay saved operation prepared
+                unless (fencePhysical saved == wrongPhysical)
+                  (Left "reviewed target incarnation changed")}
+          wrongTarget <- applyReviewed freshStore
+            (known (registerKubernetesDataFence wrongTargetFactory baseRegistry)) reviewed
+          case wrongTarget of
+            Left errors -> assertBool "changed target admitted review"
+              (any ((== "data-fence-capability") . admissionErrorCode) errors)
+            Right _ -> assertFailure "review applied to another target"
+          readIORef effects >>= (@?= 0)
+          outcome <- applyReviewed freshStore replayRegistry reviewed >>= right
+          (transaction, selectedOperation) <- case outcome of
+            StoppedAmbiguous transaction operation -> pure (transaction, operation)
+            _ -> assertFailure "lost marker acknowledgement did not stop review"
+              >> error "transaction"
+          recoveringStore <- openFilesystemStore reviewRoot >>= right
+          let pollRecovered 0 = assertFailure "reviewed native fence did not recover"
+              pollRecovered attempts = do
+                current <- readHead recoveringStore >>= right >>= maybe
+                  (assertFailure "reviewed native head disappeared" >> error "head") pure
+                case headDataFence current of
+                  Nothing -> pure ()
+                  Just active -> do
+                    action <- case fencePhase active of
+                      FenceAcquiring -> pure ContinueFencedOperation
+                      FenceExcluded -> pure ContinueFencedOperation
+                      FenceChanging -> pure VerifyFencedEffect
+                      FenceUnresolved -> pure VerifyFencedEffect
+                      FenceVerifying -> pure VerifyFencedEffect
+                      FenceReleasing -> do
+                        state <- observeKubernetesRelease
+                          (kubectlKubernetesExclusion config accepted
+                            declarations acceptedNative) active >>= right
+                        pure (if state == WritersPartlyReleased
+                          then ForwardFencedRelease else VerifyFencedEffect)
+                    let decision = OperatorRecoveryInput transaction selectedOperation
+                          reviewId action
+                    attempt <- recordOperatorRecovery recoveringStore replayRegistry
+                      decision False
+                    case attempt of
+                      Left errors -> assertBool "reviewed recovery refused unexpectedly"
+                        (all ((`elem` ["data-fence", "adapter-recovery"])
+                          . admissionErrorCode) (toList errors))
+                      Right () -> pure ()
+                    threadDelay 1000000
+                    pollRecovered (attempts - 1)
+          pollRecovered (180 :: Int)
+          resumeTransaction recoveringStore replayRegistry transaction >>= right >>= \case
+            Converged _ -> pure ()
+            _ -> assertFailure "reviewed native transaction did not converge"
+          readIORef captures >>= (@?= 1)
+          readIORef effects >>= (@?= 1)
+          writeFile (evidenceRoot <> "/" <> engineName <> "-review.txt")
+            ("review=" <> show reviewId <> "\ntransaction=" <> show transaction
+              <> "\noperation=" <> show selectedOperation
+              <> "\nstore=" <> reviewRoot <> "\npublic=" <> publicPath
+              <> "\nclaimUid=" <> show (Map.lookup target (fencePhysical record))
+              <> "\nwriterUid=" <> show (Map.lookup root (fencePhysical record))
+              <> "\nrestoreJobUid=" <> T.unpack reviewedJobUid <> "\n")
         _ -> assertFailure "native exclusion context, namespace, and engine must be set together"
     , testCase "engine shutdown observes a clean exit on an explicitly selected native fixture" $ do
       selectedContext <- lookupEnv "NAGARE_EP160_SHUTDOWN_CONTEXT"
@@ -2554,6 +2814,52 @@ dataFenceTests = testGroup "data fence"
             (any ((== "data-fence-capability") . admissionErrorCode) errors)
           Right _ -> assertFailure "fenced review admitted substituted provider intent"
         readIORef effects >>= (@?= 0)
+    , testCase "reviewed acquisition continues after drain without a second data effect" $ do
+        store <- newMemoryStore
+        drainReady <- newIORef False
+        effects <- newIORef (0 :: Int)
+        released <- newIORef False
+        restored <- newIORef (0 :: Int)
+        let base = fixtureControls released restored (pure (Right physical))
+            controls = base {stopFenceWriters = \_ -> do
+              ready <- readIORef drainReady
+              pure (if ready then Right () else Left "writer is still draining")}
+            effect _ _ = modifyIORef' effects (+ 1) >> pure AdapterEffectCompleted
+            recovery _ _ = pure RecoverySafeToRetry
+            customize desired registry = known (withAdapterFence registry KubernetesExecutor
+              AdapterFence
+                { fenceCapability = "recorded-fence-v1"
+                , fenceForOperation = \_ _ -> pure (Right (Just
+                  (request {fenceContext = fixtureBinding, fenceAccepted = desired})))
+                , fenceFromReviewedRecord = \_ _ _ -> Right controls
+                })
+        (reviewed, registry) <- preparedFixtureWithRegistry store effect recovery customize
+        outcome <- applyReviewed store registry reviewed >>= right
+        (transaction, operation) <- case outcome of
+          StoppedAmbiguous value selected -> pure (value, selected)
+          _ -> assertFailure "draining fence did not stop the reviewed effect"
+            >> error "transaction"
+        current <- readHead store >>= right >>= maybe
+          (assertFailure "head missing" >> error "head") pure
+        fmap fencePhase (headDataFence current) @?= Just FenceAcquiring
+        readIORef effects >>= (@?= 0)
+        let decision = OperatorRecoveryInput transaction operation
+              (known (mkContentDigest (T.drop 3 (transactionIdText transaction))))
+              ContinueFencedOperation
+        pending <- recordOperatorRecovery store registry decision False
+        case pending of
+          Left errors -> assertBool "ongoing drain was not kept fenced"
+            (any ((== "data-fence") . admissionErrorCode) errors)
+          Right () -> assertFailure "draining writer admitted a data effect"
+        readIORef effects >>= (@?= 0)
+        writeIORef drainReady True
+        recordOperatorRecovery store registry decision False >>= right
+        readIORef effects >>= (@?= 1)
+        readIORef restored >>= (@?= 1)
+        resumeTransaction store registry transaction >>= right >>= \case
+          Converged _ -> pure ()
+          _ -> assertFailure "recovered reviewed transaction did not converge"
+        readIORef effects >>= (@?= 1)
     , testCase "ambiguous reviewed effect keeps its fence and refuses replay" $ do
         store <- newMemoryStore
         effects <- newIORef (0 :: Int)
@@ -2575,8 +2881,8 @@ dataFenceTests = testGroup "data fence"
                 })
         (reviewed, registry) <- preparedFixtureWithRegistry store effect recovery customize
         outcome <- applyReviewed store registry reviewed >>= right
-        transaction <- case outcome of
-          StoppedAmbiguous value _ -> pure value
+        (transaction, selectedOperation) <- case outcome of
+          StoppedAmbiguous value selected -> pure (value, selected)
           _ -> assertFailure "ambiguous effect did not stop the transaction" >> error "transaction"
         fenced <- readHead store >>= right >>= maybe
           (assertFailure "head missing" >> error "head") pure
@@ -2586,8 +2892,26 @@ dataFenceTests = testGroup "data fence"
           Left errors -> assertBool "ordinary resume bypassed the unresolved fence"
             (any ((== "active-data-fence") . admissionErrorCode) errors)
           Right _ -> assertFailure "ambiguous fenced effect resumed"
+        let decision = OperatorRecoveryInput transaction selectedOperation
+              (known (mkContentDigest (T.drop 3 (transactionIdText transaction))))
+              VerifyFencedEffect
+        unproved <- recordOperatorRecovery store registry decision False
+        case unproved of
+          Left errors -> assertBool "safe-to-retry was mistaken for effect proof"
+            (any ((== "adapter-recovery") . admissionErrorCode) errors)
+          Right () -> assertFailure "unproved effect released the data fence"
+        token <- withProcessLock store (\locked ->
+          resumeDataFence locked "restore-session") >>= right >>= right
+        _ <- withProcessLock store (\locked ->
+          recoverDataFence locked controls token) >>= right >>= right
+        _ <- withProcessLock store (\locked ->
+          releaseDataFence locked controls token) >>= right >>= right
+        lostJournal <- resumeTransaction store registry transaction >>= right
+        case lostJournal of
+          StoppedAmbiguous _ _ -> pure ()
+          _ -> assertFailure "safe-to-retry replayed after verified fence release"
         readIORef effects >>= (@?= 1)
-        readIORef restored >>= (@?= 0)
+        readIORef restored >>= (@?= 1)
   ]
 
 fixtureControls :: IORef Bool -> IORef Int

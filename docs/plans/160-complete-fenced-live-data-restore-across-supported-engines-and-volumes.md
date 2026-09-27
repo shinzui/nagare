@@ -22,6 +22,11 @@ provenance:
       at: 2026-09-27T13:04:28Z
       mode: "update"
       note: "Prohibit GKE, correct finite M1 closure criteria, and record execution audit limitations."
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-27T13:52:50Z
+      mode: "implement"
+      note: "Implement and verify M1 saved-review Kubernetes fence registration and durable recovery"
 ---
 
 # Complete fenced live data restore across supported engines and volumes
@@ -42,15 +47,19 @@ An operator can restore PostgreSQL, Redis, ClickHouse, and application volumes t
 ## Progress
 
 
-- [ ] M1: The production shared fence is bound to saved reviews, proves supported local k3s writer exclusion and durable interruption/recovery, and releases only after real verification, satisfying the six closure criteria below. Full restore commands/content belong to M2/M3; cloud integration belongs to EP-156.
+- [x] M1: The production shared fence is bound to saved reviews, proves supported local k3s writer exclusion and durable interruption/recovery, and releases only after real verification, satisfying the six closure criteria below. Full restore commands/content belong to M2/M3; cloud integration belongs to EP-156.
 - [ ] M2: Reviewed scratch and live-target restore work for PostgreSQL, Redis, and ClickHouse with integrity checks, explicit recovery, and wrong-incarnation refusal.
 - [ ] M3: Reviewed live-target volume restore preserves exact PVC identity and writer exclusion, with content verification and interruption recovery.
 
 Inherited: manual receipts and expiry validation, PostgreSQL scratch restore, and separate-PVC scratch volume restore are implemented. Live --into-live volume behavior was removed pending a safe replacement. These delivered scratch paths remain regression baselines, not new milestones.
 
-**Current handoff and finite M1 boundary — 2026-09-27.** This instruction supersedes every older “M1 remains open” list below. Preserve the implemented controls and native evidence; do not restart their work. Finish the production fence factory/registration and saved-review replay/recovery path, then prove its verification gate with an actual bounded fixture write and readback on local k3s. A callback returning constant success is insufficient. Full database restore semantics, engine-specific restored-content checks, and public `db restore --into-live` belong to M2; live-volume restore and its public command belong to M3. Their absence must not keep the shared-contract milestone open. They still block completion of this plan and release readiness.
+**Finite M1 boundary — 2026-09-27.** This instruction supersedes every older “M1 remains open” list below. Preserve the implemented controls and native evidence; do not restart their work. Finish the production fence factory/registration and saved-review replay/recovery path, then prove its verification gate with an actual bounded fixture write and readback on local k3s. A callback returning constant success is insufficient. Full database restore semantics, engine-specific restored-content checks, and public `db restore --into-live` belong to M2; live-volume restore and its public command belong to M3. Their absence must not keep the shared-contract milestone open. They still block completion of this plan and release readiness.
 
 Use the six M1 closure criteria in Plan of Work as the finite acceptance boundary. Cloud controller identity and GCS integration are EP-156 obligations on the actual GCP/NixOS/k3s stack. An unavailable cloud context is not an M1 blocker. Reuse unaffected PostgreSQL/Redis/ClickHouse exclusion evidence and add only the missing assertions. A discovered bug that violates a closure criterion must be fixed; a new provider or generalized security requirement must not be silently added. The earlier hour estimates mixed shared-contract, restore, and erroneous provider work and are superseded; report the specific remaining criterion and evidence, not a repeated rolling ETA.
+
+**M1 accepted — 2026-09-27.** Candidate base revision `f79329f0d0f694f365555cbe34491937ae8572bb` plus the M1 changes in this commit. `KubernetesAdapter.registerKubernetesDataFence` attaches native controls to `KubernetesExecutor`; planning captures the native fence once, publishes its private member, and apply reconstructs controls from the saved record. The fresh-store command-service fixture refuses absent capability, changed accepted revision, context, or target before any effect. On disposable local k3d/k3s `ep160-ex-23315`, `NAGARE_EP160_REVIEW_ONLY=1 bash scripts/probe-ep160-native-exclusion.sh postgres` passed all 30 selected data-fence tests. Its saved review was `ec327465836d612d2c0c0a921780ddeffa83bc244d9abac48a194546f08d28a6`, transaction `tx-ec327465836d612d2c0c0a921780ddeffa83bc244d9abac48a194546f08d28a6`, operation `op-5d0358f680886a06cde07ad3`, PVC UID `e9414327-55dc-4cc1-9457-a4e34c39af58`, database StatefulSet UID `cd8b3bca-e704-42f4-aa96-a4c01b5d8c0e`, and restore Job UID `3bc1d493-147f-44ad-a34c-f97fe2ba2cb5`. The actual Job Pod ran as the namespace `default` service account and carried that Job owner UID. The private saved review, native members, journal, and before/after controller observations remain under `/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/ep160-ex-23315.15D22G/postgres-review-store` and its parent evidence directory; the public exported review has no private native members. The cluster was deleted after the run.
+
+The reviewed fixture ran one UID-bound PVC marker write inside the acquired fence, deliberately lost its acknowledgement, reopened the store, and recovered through `recordOperatorRecovery`. It read the exact marker bytes from the backing volume before release, recorded one effect, then restored the original database/client replicas and unsuspended schedule. The earlier full native marker probe at `/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/ep160-ex-75963.MLOx2J` also refused a wrong marker before release. The retained Redis/ClickHouse mounted-Job proof is `ep160-ex-64754` at `/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/ep160-ex-64754.tMoo5P`; the guard-authority exact-name and collection-delete probes are recorded below. Focused tests cover interrupted acquisition, ambiguous effect, release and partial forward recovery, two-client object-store conflict, and admission while fenced. At this boundary the full `nagarectl-test` suite passed 892 tests, `cabal build exe:nagarectl`, `bash scripts/check-haskell-style.sh`, and `git diff --check` passed. This accepts the shared fence and bounded marker verification only; M2/M3 restore content and public live restore modes remain open.
 
 **Historical implementation evidence.** The dated entries below preserve implementation and provider findings, not a current ordered backlog. Earlier GKE clauses have been removed as scope errors; this does not erase the local native proof. Older requirements for a full recovered-content verifier or live restore in M1 are superseded by the M1/M2/M3 boundary above.
 
@@ -280,6 +289,17 @@ Run from the repository root in the existing development environment. A newly na
 
 Expected result: selected tests and build exit zero; refusal fixtures prove zero unintended effects. At a milestone boundary also run the affected full suite, `bash scripts/check-haskell-style.sh`, and, when user docs change, `okf validate docs/user --strict --profile mori/user-documentation-profile.dhall --profile-enforce --log-enforce`. For M1, record the saved-review command-service fixture invocation and private review path. For M2/M3, add the exact public restore-command native fixture invocations before recording their acceptance.
 
+The existing reviewed recovery command accepts a version 1 decision file with the exact transaction, operation, and review digest. For a fenced operation, use `continue-fenced-operation` while acquiring or excluded, `verify-fenced-effect` after a started or uncertain effect, or `forward-fenced-release` for an observed partial writer release. The provider must prove the action against the saved private fence and actual target before the journal advances. For example:
+
+```json
+{"version":1,"transaction":"tx-ec327465836d612d2c0c0a921780ddeffa83bc244d9abac48a194546f08d28a6","operation":"op-5d0358f680886a06cde07ad3","review":"ec327465836d612d2c0c0a921780ddeffa83bc244d9abac48a194546f08d28a6","action":"verify-fenced-effect"}
+```
+
+```bash
+nagarectl inventory recover "$TRANSACTION" --operation "$OPERATION" --decision "$DECISION_FILE"
+nagarectl inventory resume "$TRANSACTION" --yes
+```
+
 
 **M2/M3 command work, not M1 closure:** Keep the current restore commands and implement their reviewed live-target mode. The new `--recovery-backup` input names a verified pre-change recovery artifact distinct from the selected restore source, unless the accepted recovery policy proves the same artifact is sufficient. The following are required interfaces after implementation, against an explicitly selected disposable context:
 
@@ -318,3 +338,5 @@ Completed [EP-146](146-reconcile-cloud-host-and-artifact-resources-through-inven
 
 
 2026-09-27: Remove every invented GKE requirement, withdraw the GKE access question, define six finite M1 closure criteria, and keep engine restore, volume recovery, and actual cloud integration in M2, M3, and EP-156 respectively. Existing local evidence and all full-release safety gates are retained.
+
+2026-09-27: Accept M1 after a saved-review local k3s marker write/readback, fresh-store recovery, exact restore Pod identity and guard-authority checks, retained cross-engine exclusion evidence, and the affected full test/build/style gates. M2 and M3 remain open.

@@ -129,6 +129,7 @@ library
     Nagare.Inventory.Components.Upstream
     Nagare.Inventory.Database
     Nagare.Inventory.DataFence
+    Nagare.Inventory.DataFence.KubernetesAdapter
     Nagare.Inventory.DataFence.MountGuard
     Nagare.Inventory.DataFence.MountGuardRuntime
     Nagare.Inventory.DataFence.GuardAuthority

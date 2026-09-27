@@ -2173,7 +2173,7 @@ opts =
                     <*> strOption (long "operation" <> metavar "OPERATION")
                     <*> strOption (long "decision" <> metavar "FILE")
                     <*> switch (long "take-over") <**> helper)
-                    (progDesc "Record an adapter-proved recovery decision for one uncertain operation"))
+                    (progDesc "Recover one uncertain reviewed operation using adapter and native proof"))
                 <> command
                   "export"
                   (info (InventoryExport <$> strOption (long "out" <> metavar "DIRECTORY") <**> helper) (progDesc "Export the complete private inventory store under lock"))
