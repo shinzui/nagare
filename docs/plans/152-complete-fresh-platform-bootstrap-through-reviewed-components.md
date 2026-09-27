@@ -57,6 +57,10 @@ Inherited baseline: commits `9c308390`, `28e05b72`, and `09d83188` supplied expl
 
 2026-09-26 evidence for candidate source revision `443a1b15`: `cabal test nagarectl-test --test-show-details=failures -v0`, focused inventory tests, `cabal build exe:nagarectl -v0`, `bash scripts/test-bootstrap-foundation-public.sh <built nagarectl>`, `bash scripts/test-inventory-entrypoint-guards.sh <built nagarectl>`, `bash scripts/check-haskell-style.sh`, and `git diff --check` passed. The public fixture recorded a grant to the Pulumi bucket and refused changed stored member and backend URL before provider writes. The two-bucket focused test proved that the inventory bucket received no grant. This is foundation and registration-contract evidence, not a complete cloud stage.
 
+2026-09-26 continuation: The foundation scope now owns the Pulumi stack and its exact plain-text seed config as a ninth reviewed resource. Its target binds the selected context, backend URL, workspace, home, backend bucket, and seed values. The public context-selection path requires that reviewed stack rather than creating or reseeding it. Foundation readiness inspects physical services, buckets, stack, and config, so observed drift returns to a focused review. The Pulumi backend selection is pinned from the stored context even if the shell names another backend. M1 still needs the cloud, artifact, host, cluster, and local stage builders; M2 still needs public interruption/resume and native final-marker proof.
+
+2026-09-26 evidence for candidate source revision `1c4e7723`: `cabal test nagare-dsl-test --test-show-details=failures -v0`, `cabal test nagarectl-test --test-show-details=failures -v0`, `cabal build exe:nagarectl -v0`, `bash scripts/test-bootstrap-foundation-public.sh <built nagarectl>`, `bash scripts/test-inventory-entrypoint-guards.sh <built nagarectl>`, `bash scripts/check-haskell-style.sh`, and `git diff --check` passed. The isolated public fixture planned nine resources before a Pulumi call or Kubernetes read, applied all foundation operations with a recording cloud provider, planned one reviewed service repair after an observed API drift, and initialized a separate real local Pulumi stack with the seeded config. This is not native GCS stack or complete cloud-stage evidence.
+
 
 ## Surprises & Discoveries
 
@@ -76,6 +80,8 @@ Inherited baseline: commits `9c308390`, `28e05b72`, and `09d83188` supplied expl
 2026-09-26: The named initialization and context-selection paths now defer first cloud writes, but unnamed legacy `init` still uses its old direct API and bucket setup. Its admitted-context guard remains intact. Resolve that remaining fresh legacy path before claiming every bootstrap entrypoint is reviewed. The optional backend IAM member is now retained in the context and reviewed with the Pulumi bucket; a distinct inventory bucket does not receive that grant.
 
 2026-09-26: The Pulumi program requires declarations for every registered provider or component resource, even when a saved preview targets one URN. Filtering the runtime bundle to only selected operations makes the guard fail before a review can be prepared. The adapter now receives all composed registrations; a later native fixture must confirm the complete cloud topology and per-operation mutation boundary.
+
+2026-09-26: An isolated native Pulumi experiment applied two saved plans for independent component targets in sequence from one initial stack snapshot. A parent-child variant refused a child-only targeted preview before its parent existed: the diagnostic named the missing dependency target. The cloud builder therefore has to stage dependent provider resources in order; same-stage independent targets still need topology and convergence proof in Nagare's actual program.
 
 
 ## Decision Log
