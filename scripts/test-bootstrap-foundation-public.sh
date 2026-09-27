@@ -18,6 +18,9 @@ export NAGARE_MODE=cloud
 export NAGARE_PULUMI_BACKEND=gcs
 export NAGARE_PULUMI_BACKEND_URL=
 export NAGARE_INVENTORY_STORE_URL=
+export GOOGLE_APPLICATION_CREDENTIALS="$fixture_root/adc.json"
+printf '{"type":"authorized_user","quota_project_id":"fixture-project","account":"fixture@example.invalid"}\n' \
+  > "$GOOGLE_APPLICATION_CREDENTIALS"
 mkdir -p "$XDG_CONFIG_HOME/nagare/contexts" "$fixture_root/bin"
 cat > "$XDG_CONFIG_HOME/nagare/contexts/fresh.env" <<'EOF'
 CLOUDSDK_CORE_PROJECT=fixture-project
@@ -31,6 +34,8 @@ cat > "$fixture_root/bin/gcloud" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$XDG_STATE_HOME/gcloud.log"
 case "$*" in
+  "auth list --filter=status:ACTIVE --format=value(account)") printf 'fixture@example.invalid\n' ;;
+  "config get-value project") printf 'fixture-project\n' ;;
   "projects describe fixture-project --format=value(projectNumber)") printf '12345\n' ;;
   "services list --enabled --project=fixture-project --format=json") printf '[]\n' ;;
   "storage buckets list --project=fixture-project --format=json(name)") printf '[]\n' ;;
@@ -82,6 +87,8 @@ cat > "$fixture_root/bin/gcloud" <<'EOF'
 set -euo pipefail
 printf '%s\n' "$*" >> "$XDG_STATE_HOME/gcloud-apply.log"
 case "$*" in
+  "auth list --filter=status:ACTIVE --format=value(account)") printf 'fixture@example.invalid\n' ;;
+  "config get-value project") printf 'fixture-project\n' ;;
   "projects describe fixture-project --format=value(projectNumber)") printf '12345\n' ;;
   "services list --enabled --project=fixture-project --format=json")
     python3 - "$XDG_STATE_HOME/enabled-services" <<'PY'
@@ -144,6 +151,19 @@ case "${3:-} ${4:-}" in
     fi
     ;;
   "stack init") touch "$XDG_STATE_HOME/stack-created" ;;
+  "stack select") test -e "$XDG_STATE_HOME/stack-created" ;;
+  "stack export")
+    python3 - "$XDG_STATE_HOME/applied-urns" <<'PY'
+import json
+import pathlib
+import sys
+path = pathlib.Path(sys.argv[1])
+urns = path.read_text().splitlines() if path.exists() else []
+print(json.dumps({"deployment": {"resources": [
+    {"urn": urn, "id": f"fixture-{index}"} for index, urn in enumerate(urns)
+]}}))
+PY
+    ;;
   "config set")
     printf '%s\t%s\n' "$7" "$8" >> "$XDG_STATE_HOME/pulumi-config.tsv" ;;
   "config --json")
@@ -160,10 +180,68 @@ if path.exists():
 print(json.dumps(values))
 PY
     ;;
+  "preview --json")
+    test -s "${NAGARE_RESOURCE_DECLARATIONS:?}"
+    python3 - "$NAGARE_RESOURCE_DECLARATIONS" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    registrations = json.load(source)["registrations"]
+assert len(registrations) == 24, registrations
+assert sum(registration["class"] == "managed" for registration in registrations) in (1, 10, 19, 24)
+PY
+    if [[ " $* " == *" --expect-no-changes "* ]]; then
+      printf '{"steps":[]}\n'
+      exit 0
+    fi
+    plan=''
+    target=''
+    while test "$#" -gt 0; do
+      case "$1" in
+        --save-plan) shift; plan="$1" ;;
+        --target) shift; target="$1" ;;
+      esac
+      shift
+    done
+    test -n "$plan"
+    test -n "$target"
+    printf 'reviewed-cloud-plan' > "$plan"
+    python3 - "$target" <<'PY'
+import json
+import sys
+print(json.dumps({"steps": [{"op": "create", "urn": sys.argv[1], "replaceReasons": []}]}))
+PY
+    ;;
+  "up --plan")
+    plan="$5"
+    test "$(cat "$plan")" = reviewed-cloud-plan
+    target=''
+    while test "$#" -gt 0; do
+      if test "$1" = --target; then shift; target="$1"; break; fi
+      shift
+    done
+    test -n "$target"
+    if ! grep -Fqx "$target" "$XDG_STATE_HOME/applied-urns" 2>/dev/null; then
+      printf '%s\n' "$target" >> "$XDG_STATE_HOME/applied-urns"
+    fi
+    if [[ "$target" == *"nagare:env:NagarePerimeter::nagare" ]]; then
+      touch "$XDG_STATE_HOME/root-applied"
+    fi
+    printf 'reviewed cloud root applied\n'
+    ;;
+  "version ") printf 'v3.255.0\n' ;;
   *) printf 'unexpected pulumi command: %s\n' "$*" >&2; exit 38 ;;
 esac
 EOF
 chmod +x "$fixture_root/bin/pulumi"
+cat > "$fixture_root/bin/npm" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+test "$1" = ci
+mkdir -p node_modules/@pulumi/pulumi
+printf '{"name":"@pulumi/pulumi"}\n' > node_modules/@pulumi/pulumi/package.json
+EOF
+chmod +x "$fixture_root/bin/npm"
 "$nagarectl_bin" --context freshlocal platform bootstrap plan --out "$fixture_root/local-review" > "$fixture_root/local-out" 2>&1 || {
   cat "$fixture_root/local-out" >&2
   exit 1
@@ -242,6 +320,104 @@ assert "compute.googleapis.com" in str(operations[0]["operation"]["resources"]),
 PY
 cp "$fixture_root/enabled-services.saved" "$XDG_STATE_HOME/enabled-services"
 printf 'an observed foundation drift planned a focused reviewed repair\n'
+
+"$nagarectl_bin" --context freshlocal platform bootstrap plan --out "$fixture_root/cloud-root-review" \
+  > "$fixture_root/cloud-root-out" 2>&1 || {
+  cat "$fixture_root/cloud-root-out" >&2
+  exit 1
+}
+python3 - "$fixture_root/cloud-root-review/review.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    review = json.load(source)
+operations = review["operations"]
+assert len(operations) == 1, operations
+assert operations[0]["operation"]["executor"] == "PulumiExecutor", operations
+assert operations[0]["operation"]["resources"] == ["platform:cloud/nagare/nagare"], operations
+PY
+printf 'the next public review admitted only the Pulumi perimeter root\n'
+"$nagarectl_bin" --context freshlocal platform bootstrap apply "$fixture_root/cloud-root-review" --yes \
+  > "$fixture_root/cloud-root-apply-out" 2>&1 || {
+  cat "$fixture_root/cloud-root-apply-out" >&2
+  exit 1
+}
+test -e "$XDG_STATE_HOME/root-applied"
+"$nagarectl_bin" --context freshlocal platform bootstrap plan --out "$fixture_root/cloud-layer-review" \
+  > "$fixture_root/cloud-layer-out" 2>&1 || {
+  cat "$fixture_root/cloud-layer-out" >&2
+  exit 1
+}
+python3 - "$fixture_root/cloud-layer-review/review.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    review = json.load(source)
+operations = review["operations"]
+assert len(operations) == 9, operations
+assert {operation["operation"]["executor"] for operation in operations} == {"PulumiExecutor"}, operations
+assert all("platform:cloud/nagare/nagare" not in operation["operation"]["resources"] for operation in operations)
+PY
+printf 'the next cloud layer planned nine child resources after the root receipt\n'
+layer_review="$fixture_root/cloud-layer-review"
+for layer in 1 2 3; do
+  "$nagarectl_bin" --context freshlocal platform bootstrap apply "$layer_review" --yes \
+    > "$fixture_root/cloud-layer-$layer-apply-out" 2>&1 || {
+    cat "$fixture_root/cloud-layer-$layer-apply-out" >&2
+    exit 1
+  }
+  if test "$layer" -lt 3; then
+    next_layer=$((layer + 1))
+    layer_review="$fixture_root/cloud-layer-$next_layer-review"
+    "$nagarectl_bin" --context freshlocal platform bootstrap plan --out "$layer_review" \
+      > "$fixture_root/cloud-layer-$next_layer-out" 2>&1 || {
+      cat "$fixture_root/cloud-layer-$next_layer-out" >&2
+      exit 1
+    }
+    python3 - "$layer_review/review.json" "$next_layer" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    review = json.load(source)
+operations = review["operations"]
+expected = {2: 9, 3: 5}[int(sys.argv[2])]
+assert len(operations) == expected, operations
+assert {operation["operation"]["executor"] for operation in operations} == {"PulumiExecutor"}, operations
+PY
+  fi
+done
+test "$(wc -l < "$XDG_STATE_HOME/applied-urns")" -eq 24
+python3 - "$XDG_STATE_HOME/nagare/freshlocal/inventory/head.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    head = json.load(source)
+assert head["activeTransaction"] is None, head
+assert head["accepted"] == head["converged"], head
+assert len(head["accepted"]) == 2, head
+PY
+printf 'four public cloud reviews converged all 24 foundation-managed Pulumi registrations\n'
+cp "$XDG_STATE_HOME/applied-urns" "$fixture_root/applied-urns.saved"
+sed '/::nagare-network-fw-web$/d' "$fixture_root/applied-urns.saved" \
+  > "$XDG_STATE_HOME/applied-urns"
+"$nagarectl_bin" --context freshlocal platform bootstrap plan --out "$fixture_root/cloud-drift-review" \
+  > "$fixture_root/cloud-drift-out" 2>&1 || {
+  cat "$fixture_root/cloud-drift-out" >&2
+  exit 1
+}
+python3 - "$fixture_root/cloud-drift-review/review.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    review = json.load(source)
+operations = review["operations"]
+assert len(operations) == 1, operations
+assert operations[0]["operation"]["resources"] == [
+    "platform:cloud/nagare-network-fw-web/nagare-network-fw-web"
+], operations
+PY
+cp "$fixture_root/applied-urns.saved" "$XDG_STATE_HOME/applied-urns"
+printf 'an observed Pulumi absence planned one reviewed cloud repair\n'
 
 # A separate context exercises the same reviewed stack operation with the
 # actual Pulumi CLI and an isolated file backend. No cloud provider is used.

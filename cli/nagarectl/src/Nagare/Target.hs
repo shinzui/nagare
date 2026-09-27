@@ -978,6 +978,8 @@ resolveActiveTarget arg = do
       pure (ActiveTarget name (profile
         & #platformVersion .~ (storedProfile ^. #platformVersion)
         & #externalDomainTlsEnabled .~ (storedProfile ^. #externalDomainTlsEnabled)
+        & #nixCacheEnabled .~ (storedProfile ^. #nixCacheEnabled)
+        & #nixCacheBucket .~ (storedProfile ^. #nixCacheBucket)
         & #inventoryStore .~ (storedProfile ^. #inventoryStore)
         & #inventoryStoreUrl .~ (storedProfile ^. #inventoryStoreUrl)
         & #pulumiBackend .~ (storedProfile ^. #pulumiBackend)

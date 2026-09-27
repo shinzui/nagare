@@ -4803,10 +4803,19 @@ runPlatformBootstrapPlan mctx output = do
         ("nagare-bootstrap:" <> manifest ^. #payloadId) stageTarget candidate output
     else do
       snapshot <- Inventory.loadTargetSnapshot active
-      (candidate, native) <- buildPlatformCandidate active paths workspace snapshot
-      Inventory.planInventoryCandidateWithPayloadIdentity
-        (inventoryPlanRegistryWithNative active workspace native)
-        ("nagare-bootstrap:" <> manifest ^. #payloadId) active candidate output
+      when (active ^. #profile . #mode == Cloud)
+        (void (selectReviewedPulumiForContext (active ^. #contextName) (active ^. #profile)))
+      cloudStage <- buildCloudStageCandidate active workspace snapshot
+      case cloudStage of
+        Just candidate -> do
+          Inventory.planInventoryCandidateWithPayloadIdentity
+            (inventoryPlanRegistry active workspace)
+            ("nagare-bootstrap:" <> manifest ^. #payloadId) active candidate output
+        Nothing -> do
+          (candidate, native) <- buildPlatformCandidate active paths workspace snapshot
+          Inventory.planInventoryCandidateWithPayloadIdentity
+            (inventoryPlanRegistryWithNative active workspace native)
+            ("nagare-bootstrap:" <> manifest ^. #payloadId) active candidate output
 
 runPlatformBootstrapApply :: Maybe String -> FilePath -> Bool -> IO ()
 runPlatformBootstrapApply mctx reviewDirectory yes = do
@@ -4972,6 +4981,101 @@ buildCloudFoundationCandidate active paths workspace snapshot = do
       (InventoryFoundation.FoundationDeclarationBundle 1 owner project resources))
   either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
+
+loadCloudCatalog :: PlatformWorkspace -> IO (ByteString, InventoryCloud.CloudCatalog)
+loadCloudCatalog workspace = do
+  let catalogPath = workspace ^. #pulumiDir </> "resource-catalog.json"
+  bytes <- try (BS.readFile catalogPath) >>= \case
+    Left (err :: IOException) -> dieT
+      ("could not read reviewed cloud resource catalog: " <> T.pack (show err))
+    Right contents -> pure contents
+  catalog <- either dieT pure (InventoryCloud.decodeCloudCatalog bytes)
+  pure (bytes, catalog)
+
+-- Admit one dependency layer per review. Every member of an admitted layer
+-- has its own journal operation; later registrations remain explicit native
+-- bookkeeping until their prerequisites have receipts.
+buildCloudStageCandidate
+  :: ActiveTarget -> PlatformWorkspace -> ResourceInventory.ScopeSnapshot
+  -> IO (Maybe ResourceInventory.CompositionCandidate)
+buildCloudStageCandidate active workspace snapshot
+  | active ^. #profile . #mode /= Cloud = pure Nothing
+  | otherwise = do
+      (catalogBytes, catalog) <- loadCloudCatalog workspace
+      let profile = active ^. #profile
+          owner = either (error . T.unpack) (\scope -> scope)
+            (Resource.mkScopeId Resource.Platform "cloud")
+          entries = InventoryCloud.selectedCloudCatalog (profile ^. #nixCacheEnabled) catalog
+          acceptedMembers = case Map.lookup owner (ResourceInventory.snapshotScopes snapshot) of
+            Nothing -> []
+            Just (_, scope) -> [member
+              | bundle <- ResourceInventory.scopeBundles scope
+              , ResourceInventory.Managed member <- ResourceInventory.declarations bundle]
+          acceptedUrns = Set.fromList [urn
+            | member <- acceptedMembers, Resource.PulumiUrn urn <- [member ^. #address]]
+      stack <- either dieT pure (Resource.mkName
+        (contextNameText (active ^. #contextName)))
+      project <- either dieT pure (Resource.mkName (profile ^. #project))
+      context <- either dieT pure (Resource.mkContextId
+        (contextNameText (active ^. #contextName)))
+      catalogUrns <- either dieT pure
+        (traverse (InventoryCloud.cloudCatalogUrn stack catalog) entries)
+      let expectedUrns = Set.fromList catalogUrns
+      unless (Set.isSubsetOf acceptedUrns expectedUrns
+          && length acceptedMembers == Set.size acceptedUrns)
+        (dieT "accepted cloud scope differs from the selected Pulumi resource catalog")
+      exported <- try (readProcessWithExitCode "pulumi"
+        ["-C", workspace ^. #pulumiDir, "stack", "export", "--stack",
+         T.unpack (Resource.nameText stack), "--show-secrets=false"] "") >>= \case
+        Left (err :: IOException) -> dieT
+          ("could not inspect reviewed cloud stack: " <> T.pack (show err))
+        Right (ExitFailure code, _, err) -> dieT
+          ("reviewed cloud stack export failed (exit " <> T.pack (show code) <> "): " <> T.pack err)
+        Right (ExitSuccess, out, _) -> pure out
+      physical <- either dieT pure
+        (decodePhysicalResources (TE.encodeUtf8 (T.pack exported)))
+      let missingLayers = [InventoryCloud.catalogLayer entry
+            | (entry, urn) <- zip entries catalogUrns,
+              not (Set.member urn acceptedUrns) || Map.notMember urn physical]
+      case missingLayers of
+        [] -> pure Nothing
+        _ -> do
+          let nextLayer = minimum missingLayers
+              admitted = [entry | entry <- entries,
+                InventoryCloud.catalogLayer entry <= nextLayer]
+              resourceId entry = Resource.mintResourceId owner
+                (either (error . T.unpack) (\key -> key)
+                  (Resource.mkLogicalKey (Resource.nameText (InventoryCloud.catalogNativeName entry))))
+                (InventoryCloud.catalogNativeName entry)
+              stackOwner = either (error . T.unpack) (\scope -> scope)
+                (Resource.mkScopeId Resource.Platform "cloud-foundation")
+              stackId = Resource.mintResourceId stackOwner
+                (either (error . T.unpack) (\key -> key) (Resource.mkLogicalKey "pulumi-stack")) stack
+              intentDigest = InventoryDigest.contentDigest
+                (catalogBytes <> TE.encodeUtf8 (T.pack (show (seedKeys profile))))
+          resources <- forM admitted $ \entry -> do
+            urn <- either dieT pure (InventoryCloud.cloudCatalogUrn stack catalog entry)
+            key <- either dieT pure (Resource.mkLogicalKey
+              (Resource.nameText (InventoryCloud.catalogNativeName entry)))
+            let predecessors = [resourceId prior | prior <- admitted,
+                  InventoryCloud.catalogLayer prior < InventoryCloud.catalogLayer entry]
+                dependencies = map ResourceReference.OrderedAfter
+                  (if null predecessors then [stackId] else predecessors)
+            pure (InventoryCloud.CloudResource key
+              (InventoryCloud.catalogNativeName entry)
+              (InventoryCloud.PulumiAddress urn) [] intentDigest
+              ResourcePolicy.Protect ResourcePolicy.Stateless ResourcePolicy.Public
+              dependencies
+              (Resource.SourceLocation "infra/pulumi/resource-catalog.json"
+                (Resource.nameText (InventoryCloud.catalogNativeName entry)))
+              (InventoryCloud.catalogNativeType entry)
+              (InventoryCloud.catalogNativeName entry) urn
+              InventoryCloud.ManagedRegistration)
+          scope <- either (dieT . T.pack . show) pure (InventoryCloud.compileCloudScope
+            (InventoryCloud.CloudDeclarationBundle 1 context project stack owner resources))
+          Just <$> either (dieT . T.pack . show) pure
+            (ResourceInventory.composeInventory snapshot
+              (ResourceInventory.ReplaceScope scope NE.:| []))
 
 -- Keep payload paths explicit so a fresh context compiles one immutable
 -- release against the complete selected inventory snapshot.
@@ -6383,13 +6487,25 @@ inventoryPulumiAdapter active workspace binding scopes registrations = do
   let profile = active ^. #profile
       context = contextNameText (active ^. #contextName)
       pulumiEnvironment = pulumiEnvFor stateRoot context profile
+      cloudOwner = either (error . T.unpack) (\owner -> owner)
+        (Resource.mkScopeId Resource.Platform "cloud")
+      hasCloudScope = any ((== cloudOwner) . ResourceInventory.scopeId) scopes
+  allRegistrations <- if profile ^. #mode == Cloud && hasCloudScope
+    then do
+      (catalogBytes, catalog) <- loadCloudCatalog workspace
+      bookkeeping <- either dieT pure (InventoryCloud.cloudBookkeepingRegistrations
+        stackName (profile ^. #nixCacheEnabled) catalog
+        (InventoryDigest.contentDigest catalogBytes) registrations)
+      pure (registrations <> bookkeeping)
+    else pure registrations
+  let
       declarationBundle =
         InventoryCloud.encodeRegistrationBundle
           (binding ^. #identity)
           (binding ^. #project)
           stackName
           (map ResourceInventory.scopeId scopes)
-          registrations
+          allRegistrations
       config =
         PulumiRuntimeConfig
           { runtimeContext = context
@@ -6402,9 +6518,9 @@ inventoryPulumiAdapter active workspace binding scopes registrations = do
           , runtimePulumiDirectory = workspace ^. #pulumiDir
           , runtimeStackConfig = stackConfig
           , runtimeDeclarationBundle = declarationBundle
-          , runtimeRegistrations = registrations
+          , runtimeRegistrations = allRegistrations
           }
-  pure (mkPulumiAdapter registrations (mkPulumiRuntimeOps config))
+  pure (mkPulumiAdapter allRegistrations (mkPulumiRuntimeOps config))
 
 -- | Compose the release and project/ADC guards before any standalone
 -- infrastructure mutation. ADC is validated before workspace preparation,

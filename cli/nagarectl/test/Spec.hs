@@ -1823,9 +1823,13 @@ contextResolutionTests =
               atLabs ^. #profile . #project @?= "labs-proj"
               setEnv "NAGARE_PULUMI_BACKEND" "gcs"
               setEnv "NAGARE_PULUMI_BACKEND_URL" "gs://foreign-state/nagare/labs"
+              setEnv "NAGARE_NIX_CACHE_ENABLED" "1"
+              setEnv "NAGARE_NIX_CACHE_BUCKET" "foreign-cache"
               pinned <- resolveActiveTarget Nothing
               pinned ^. #profile . #pulumiBackend @?= PulumiBackendLocal
               pinned ^. #profile . #pulumiBackendUrl @?= "file:///labs/state"
+              pinned ^. #profile . #nixCacheEnabled @?= False
+              pinned ^. #profile . #nixCacheBucket @?= "labs-proj-nagare-nix-cache"
               clearResolutionEnv
               setEnv "NAGARE_CONTEXT" "labs"
 

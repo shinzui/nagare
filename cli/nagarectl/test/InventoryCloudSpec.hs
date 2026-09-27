@@ -45,6 +45,19 @@ inventoryCloudTests =
         nestedScope <- expectRight (compileCloudScope nestedBundle)
         registrationsFromDeclarations [managed | resourceBundle <- scopeBundles nestedScope, managed <- declarations resourceBundle]
           @?= Right [registration {registrationPulumiUrn = nestedUrn}]
+    , testCase "cloud catalog builds nested URNs and excludes admitted registrations" $ do
+        catalog <- expectRight (decodeCloudCatalog (BC.pack
+          "{\"version\":1,\"project\":\"nagare\",\"foundationManaged\":[{\"type\":\"nagare:env:NagarePerimeter\",\"name\":\"nagare\",\"parent\":null,\"layer\":0},{\"type\":\"gcp:storage/bucket:Bucket\",\"name\":\"nagare-images\",\"parent\":\"nagare\",\"layer\":1}],\"nixCacheEnabled\":[{\"type\":\"nagare:env:NagareNixCache\",\"name\":\"nagare-nix-cache\",\"parent\":null,\"layer\":2}]}"))
+        length (selectedCloudCatalog False catalog) @?= 2
+        length (selectedCloudCatalog True catalog) @?= 3
+        let image = last (catalogFoundationManaged catalog)
+        imageUrn <- expectRight (cloudCatalogUrn (name "dev") catalog image)
+        imageUrn @?= "urn:pulumi:dev::nagare::nagare:env:NagarePerimeter$gcp:storage/bucket:Bucket::nagare-images"
+        let admitted = registration {registrationPulumiUrn = imageUrn}
+        bookkeeping <- expectRight (cloudBookkeepingRegistrations
+          (name "dev") False catalog (contentDigest "catalog") [admitted])
+        length bookkeeping @?= 1
+        map registrationPulumiName bookkeeping @?= [name "nagare"]
     , testCase "registration parity refuses an undeclared native object" $ do
         let foreignRegistration = registration {registrationResource = resource "platform:cloud/foreign/bucket"}
         case validateNativeRegistrationParity [registration] [registration, foreignRegistration] of

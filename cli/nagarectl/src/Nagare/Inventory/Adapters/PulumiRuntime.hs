@@ -7,6 +7,7 @@
 module Nagare.Inventory.Adapters.PulumiRuntime
   ( PulumiRuntimeConfig (..)
   , mkPulumiRuntimeOps
+  , decodePhysicalResources
   )
 where
 

@@ -1,10 +1,11 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 type Registration = { pulumiType: string; pulumiName: string };
+type CatalogEntry = { type: string; name: string; parent: string | null; layer: number };
 
 async function observeProgram(variant: string): Promise<void> {
     const observed: Registration[] = [];
@@ -127,16 +128,18 @@ async function main(): Promise<void> {
     }
     const base = runVariant("base");
     const foundationManaged = runVariant("foundation-managed");
+    const foundationManagedCache = runVariant("foundation-managed-cache");
     const image = runVariant("image");
     const cache = runVariant("cache");
     const legacyCdn = runVariant("cdn-legacy");
     const prepareCdn = runVariant("cdn-prepare");
     const managerCdn = runVariant("cdn-manager");
-    for (const [label, registrations] of Object.entries({ base, foundationManaged, image, cache, legacyCdn, prepareCdn, managerCdn })) {
+    for (const [label, registrations] of Object.entries({ base, foundationManaged, foundationManagedCache, image, cache, legacyCdn, prepareCdn, managerCdn })) {
         assert(names(registrations).size === registrations.length, `${label} contains duplicate native registrations`);
     }
     verifyGuardedVariant("base", base);
     verifyGuardedVariant("foundation-managed", foundationManaged);
+    verifyGuardedVariant("foundation-managed-cache", foundationManagedCache);
     verifyGuardedVariant("image", image);
     verifyGuardedVariant("cache", cache);
     verifyGuardedVariant("cdn-legacy", legacyCdn);
@@ -145,6 +148,30 @@ async function main(): Promise<void> {
     assert(base.length === 31, `base cloud topology changed: expected 31 registrations, got ${base.length}`);
     assert(foundationManaged.length === base.length - 7,
         "foundation-managed topology must omit the seven API registrations owned by the reviewed foundation");
+    const catalog = JSON.parse(readFileSync(join(__dirname, "../../resource-catalog.json"), "utf8")) as {
+        version: number;
+        foundationManaged: CatalogEntry[];
+        nixCacheEnabled: CatalogEntry[];
+    };
+    assert(catalog.version === 1, "cloud resource catalog version changed");
+    const catalogNames = catalog.foundationManaged.map(({ type, name }) => `${type}::${name}`).sort();
+    const nativeNames = foundationManaged.map(({ pulumiType, pulumiName }) => `${pulumiType}::${pulumiName}`).sort();
+    assert(JSON.stringify(catalogNames) === JSON.stringify(nativeNames),
+        "reviewed cloud catalog differs from registrations in the actual Pulumi program");
+    const withCache = catalog.foundationManaged.concat(catalog.nixCacheEnabled);
+    const cacheNames = withCache.map(({ type, name }) => `${type}::${name}`).sort();
+    const nativeCacheNames = foundationManagedCache.map(({ pulumiType, pulumiName }) => `${pulumiType}::${pulumiName}`).sort();
+    assert(JSON.stringify(cacheNames) === JSON.stringify(nativeCacheNames),
+        "reviewed cloud cache catalog differs from registrations in the actual Pulumi program");
+    const byName = new Map(withCache.map((entry) => [entry.name, entry]));
+    assert(byName.size === withCache.length, "cloud catalog has duplicate logical names");
+    for (const entry of withCache) {
+        assert(Number.isInteger(entry.layer) && entry.layer >= 0, `invalid layer for ${entry.name}`);
+        if (entry.parent === null) continue;
+        const parent = byName.get(entry.parent);
+        assert(parent !== undefined && parent.layer < entry.layer,
+            `cloud catalog parent must be in an earlier layer: ${entry.name}`);
+    }
     assert(image.length === base.length + 2, "image-enabled topology must add the instance component and GCE instance");
     assert(cache.length === base.length + 3, "cache-enabled topology must add its bucket, IAM member, and HMAC key");
     assert(legacyCdn.length === base.length + 14, "legacy-CDN topology registration delta changed");

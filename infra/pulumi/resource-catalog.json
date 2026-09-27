@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "project": "nagare",
+  "foundationManaged": [
+    {"type": "nagare:env:NagarePerimeter", "name": "nagare", "parent": null, "layer": 0},
+    {"type": "nagare:net:NagareNetwork", "name": "nagare-network", "parent": "nagare", "layer": 1},
+    {"type": "gcp:compute/address:Address", "name": "nagare-ip", "parent": "nagare", "layer": 1},
+    {"type": "gcp:compute/disk:Disk", "name": "nagare-data", "parent": "nagare", "layer": 1},
+    {"type": "gcp:compute/resourcePolicy:ResourcePolicy", "name": "nagare-data-snapshots", "parent": "nagare", "layer": 1},
+    {"type": "gcp:serviceaccount/account:Account", "name": "nagare-sa", "parent": "nagare", "layer": 1},
+    {"type": "gcp:storage/bucket:Bucket", "name": "nagare-backups", "parent": "nagare", "layer": 1},
+    {"type": "gcp:storage/bucket:Bucket", "name": "nagare-images", "parent": "nagare", "layer": 1},
+    {"type": "gcp:dns/managedZone:ManagedZone", "name": "nagare-zone", "parent": "nagare", "layer": 1},
+    {"type": "gcp:artifactregistry/repository:Repository", "name": "nagare-registry", "parent": "nagare", "layer": 1},
+    {"type": "gcp:compute/network:Network", "name": "nagare-network-net", "parent": "nagare-network", "layer": 2},
+    {"type": "gcp:compute/diskResourcePolicyAttachment:DiskResourcePolicyAttachment", "name": "nagare-data-snapshot-attach", "parent": "nagare", "layer": 2},
+    {"type": "gcp:projects/iAMMember:IAMMember", "name": "nagare-iam-ar", "parent": "nagare", "layer": 2},
+    {"type": "gcp:projects/iAMMember:IAMMember", "name": "nagare-iam-dns-read", "parent": "nagare", "layer": 2},
+    {"type": "gcp:storage/bucketIAMMember:BucketIAMMember", "name": "nagare-backups-iam", "parent": "nagare", "layer": 2},
+    {"type": "gcp:dns/dnsManagedZoneIamMember:DnsManagedZoneIamMember", "name": "nagare-iam-dns-zone", "parent": "nagare", "layer": 2},
+    {"type": "gcp:dns/recordSet:RecordSet", "name": "nagare-apex", "parent": "nagare", "layer": 2},
+    {"type": "gcp:dns/recordSet:RecordSet", "name": "nagare-wildcard", "parent": "nagare", "layer": 2},
+    {"type": "nagare:env:NagareNixCache", "name": "nagare-nix-cache", "parent": null, "layer": 2},
+    {"type": "gcp:compute/subnetwork:Subnetwork", "name": "nagare-network-subnet", "parent": "nagare-network", "layer": 3},
+    {"type": "gcp:compute/firewall:Firewall", "name": "nagare-network-fw-web", "parent": "nagare-network", "layer": 3},
+    {"type": "gcp:compute/firewall:Firewall", "name": "nagare-network-fw-iap-ssh", "parent": "nagare-network", "layer": 3},
+    {"type": "gcp:compute/firewall:Firewall", "name": "nagare-network-fw-lb-health", "parent": "nagare-network", "layer": 3},
+    {"type": "gcp:compute/firewall:Firewall", "name": "nagare-network-fw-tailscale", "parent": "nagare-network", "layer": 3}
+  ],
+  "nixCacheEnabled": [
+    {"type": "gcp:storage/bucket:Bucket", "name": "nagare-nix-cache-bucket", "parent": "nagare-nix-cache", "layer": 3},
+    {"type": "gcp:storage/bucketIAMMember:BucketIAMMember", "name": "nagare-nix-cache-bucket-iam", "parent": "nagare-nix-cache", "layer": 4},
+    {"type": "gcp:storage/hmacKey:HmacKey", "name": "nagare-nix-cache-hmac", "parent": "nagare-nix-cache", "layer": 4}
+  ]
+}
