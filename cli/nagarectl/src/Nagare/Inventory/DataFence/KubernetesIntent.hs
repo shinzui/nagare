@@ -18,6 +18,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.DataFence.MountGuard
+import Nagare.Inventory.DataFence.ServiceState
 import Nagare.Inventory.DataFence.StatefulWriter
 import Nagare.Inventory.DataFence.VolumeState (VolumeBacking (..))
 import Nagare.Inventory.DataFence.WriterInventory
@@ -32,6 +33,7 @@ data KubernetesFenceIntent = KubernetesFenceIntent
   , kubernetesVolumeBacking :: !VolumeBacking
   , kubernetesStatefulWriters :: ![(ResourceId, StatefulWriterPin)]
   , kubernetesWriterMountsTarget :: !(Map.Map ResourceId Bool)
+  , kubernetesService :: !(Maybe ServicePin)
   }
   deriving stock (Eq, Show)
 
@@ -60,13 +62,25 @@ data RawRestoreJob = RawRestoreJob
   , rawJobPrincipal :: !Text
   }
 
+data RawService = RawService
+  { rawServiceResource :: !ResourceId
+  , rawServiceNamespace :: !Text
+  , rawServiceName :: !Text
+  , rawServiceUid :: !Text
+  , rawServiceClusterIP :: !Text
+  , rawServiceSelector :: !(Map.Map Text Text)
+  }
+
 decodeKubernetesFenceIntent :: DataFenceRecord
   -> Either Text KubernetesFenceIntent
 decodeKubernetesFenceIntent record = do
   source <- maybe (Left "data fence lacks Kubernetes provider intent") Right
     (fenceProviderIntent record)
-  (cluster, root, volume, restoreJob) <- first T.pack
+  (cluster, root, volume, restoreJob, rawService) <- first T.pack
     (parseEither parseProvider source)
+  service <- traverse (\raw -> mkServicePin (rawServiceResource raw)
+    (rawServiceNamespace raw) (rawServiceName raw) (rawServiceUid raw)
+    (rawServiceClusterIP raw) (rawServiceSelector raw)) rawService
   unless (Set.member root (Set.union (fenceTargets record)
       (fenceAffected record)))
     (Left "Kubernetes dependency root is outside the fenced target and writers")
@@ -90,10 +104,18 @@ decodeKubernetesFenceIntent record = do
         || rawWriterNamespace raw == rawNamespace volume)
       (Left "Kubernetes PVC writer belongs to another namespace")
     pure ((resource, pin), (resource, rawWriterMountsTarget raw))
+  let serviceIds = maybe Set.empty (Set.singleton . serviceResource) service
+  unless (Set.null (Set.intersection serviceIds
+      (Set.union (fenceTargets record) (fenceAffected record))))
+    (Left "Kubernetes Service overlaps a fenced target or writer")
+  unless (maybe True (\pin -> fmap physicalIdentityText
+      (Map.lookup (serviceResource pin) (fencePhysical record))
+        == Just (serviceUid pin)) service)
+    (Left "Kubernetes Service UID differs from durable physical identity")
   unless (Map.keysSet (fenceSavedWriters record) == fenceAffected record
       && Map.keysSet (fencePhysical record)
-        == Set.union (fenceTargets record) (fenceAffected record))
-    (Left "Kubernetes fence does not bind exactly every target and writer")
+        == Set.unions [fenceTargets record, fenceAffected record, serviceIds])
+    (Left "Kubernetes fence does not bind exactly every target, writer, and Service")
   restorePermit <- traverse (\job -> mkPodOwnerPermit "Job" (rawJobName job)
     (rawJobUid job) (rawJobPrincipal job)) restoreJob
   -- A saved StatefulSet must not be permitted here: a foreign scale-up could
@@ -110,7 +132,7 @@ decodeKubernetesFenceIntent record = do
   pure (KubernetesFenceIntent cluster root (rawResource volume)
     mountGuard (rawBacking volume)
     (map fst writers)
-    (Map.fromList (map snd writers)))
+    (Map.fromList (map snd writers)) service)
 
 -- | Reconcile the saved writer pins with the complete accepted native
 -- discovery before any provider mutation. Dependency clients and direct PVC
@@ -155,16 +177,23 @@ validateBacking (LocalVolume path node) = do
   pure ()
 
 parseProvider :: Value
-  -> Parser (ResourceId, ResourceId, RawVolume, Maybe RawRestoreJob)
+  -> Parser (ResourceId, ResourceId, RawVolume, Maybe RawRestoreJob, Maybe RawService)
 parseProvider = withObject "Kubernetes fence intent" $ \o -> do
-  onlyKeys ["version", "provider", "cluster", "dependencyRoot", "volume", "restoreJob"] o
+  onlyKeys ["version", "provider", "cluster", "dependencyRoot", "volume", "restoreJob", "service"] o
   version <- o .: "version" :: Parser Int
   unless (version == 1) (fail "unsupported Kubernetes fence intent version")
   provider <- o .: "provider" :: Parser Text
   unless (provider == "kubernetes") (fail "data fence provider is not Kubernetes")
-  (,,,) <$> o .: "cluster" <*> o .: "dependencyRoot"
+  (,,,,) <$> o .: "cluster" <*> o .: "dependencyRoot"
     <*> (o .: "volume" >>= parseVolume)
     <*> (o .:? "restoreJob" >>= traverse parseJob)
+    <*> (o .:? "service" >>= traverse parseService)
+
+parseService :: Value -> Parser RawService
+parseService = withObject "Kubernetes fence Service" $ \o -> do
+  onlyKeys ["resource", "namespace", "name", "uid", "clusterIP", "selector"] o
+  RawService <$> o .: "resource" <*> o .: "namespace" <*> o .: "name"
+    <*> o .: "uid" <*> o .: "clusterIP" <*> o .: "selector"
 
 parseVolume :: Value -> Parser RawVolume
 parseVolume = withObject "Kubernetes fence volume" $ \o -> do

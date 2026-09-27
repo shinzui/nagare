@@ -22,6 +22,7 @@ import Nagare.Inventory.DataFence.KubernetesExclusion
 import Nagare.Inventory.DataFence.MountGuard
 import Nagare.Inventory.DataFence.MountGuardRuntime
 import Nagare.Inventory.DataFence.KubernetesIntent
+import Nagare.Inventory.DataFence.ServiceState
 import Nagare.Inventory.DataFence.StatefulWriter
 import Nagare.Inventory.DataFence.VolumeState
 import Nagare.Inventory.DataFence.WriterInventory
@@ -140,12 +141,76 @@ dataFenceTests = testGroup "data fence"
         case decodeKubernetesFenceIntent extraField of
           Left _ -> pure ()
           Right _ -> assertFailure "unknown native intent field was accepted"
+    , testCase "service evidence counts unready and legacy endpoints" $ do
+        servicePin <- right (mkServicePin target "restore-space" "database"
+          "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" "10.0.0.9"
+          (Map.singleton "nagare.dev/database" "database"))
+        let service = object
+              [ "metadata" .= object
+                  [ "namespace" .= ("restore-space" :: Text)
+                  , "name" .= ("database" :: Text)
+                  , "uid" .= ("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" :: Text)]
+              , "spec" .= object
+                  [ "clusterIP" .= ("10.0.0.9" :: Text)
+                  , "selector" .= object
+                      ["nagare.dev/database" .= ("database" :: Text)]]]
+            emptySlices = object ["items" .= ([] :: [Value])]
+            endpointSlice = object
+              [ "metadata" .= object
+                  [ "namespace" .= ("restore-space" :: Text)
+                  , "name" .= ("database-slice" :: Text)
+                  , "uid" .= ("11111111-2222-3333-4444-555555555555" :: Text)
+                  , "labels" .= object
+                      ["kubernetes.io/service-name" .= ("database" :: Text)]]
+              , "endpoints" .= [object
+                  [ "addresses" .= (["10.1.2.3"] :: [Text])
+                  , "conditions" .= object ["ready" .= False]]]
+              ]
+            slice = object ["items" .= [endpointSlice]]
+            legacy = object
+              [ "metadata" .= object
+                  [ "namespace" .= ("restore-space" :: Text)
+                  , "name" .= ("database" :: Text)]
+              , "subsets" .= [object
+                  ["notReadyAddresses" .= [object
+                    ["ip" .= ("10.1.2.4" :: Text)]]]]]
+        empty <- right (parseServiceEvidence servicePin service emptySlices Nothing)
+        serviceHasNoEndpoints empty @?= True
+        let drainedSlice = case endpointSlice of
+              Object fields -> Object (KM.delete "endpoints" fields)
+              other -> other
+        drained <- right (parseServiceEvidence servicePin service
+          (object ["items" .= [drainedSlice]]) Nothing)
+        serviceHasNoEndpoints drained @?= True
+        let nullSlice = case endpointSlice of
+              Object fields -> Object (KM.insert "endpoints" Null fields)
+              other -> other
+            unrelatedSlice = object ["metadata" .= object
+              ["namespace" .= ("restore-space" :: Text)]]
+        nullObserved <- right (parseServiceEvidence servicePin service
+          (object ["items" .= [nullSlice, unrelatedSlice]]) Nothing)
+        serviceHasNoEndpoints nullObserved @?= True
+        observed <- right (parseServiceEvidence servicePin service slice (Just legacy))
+        length (serviceSliceEndpoints observed) @?= 1
+        length (serviceLegacyEndpoints observed) @?= 1
+        serviceHasNoEndpoints observed @?= False
+        let changed = case service of
+              Object fields | Just (Object spec) <- KM.lookup "spec" fields ->
+                Object (KM.insert "spec" (Object (KM.insert "selector" (object
+                  ["nagare.dev/database" .= ("other" :: Text)]) spec)) fields)
+              other -> other
+        case parseServiceEvidence servicePin changed emptySlices Nothing of
+          Left _ -> pure ()
+          Right _ -> assertFailure "changed Service selector was accepted"
     , testCase "native Kubernetes exclusion guards before scaling and waits for drain" $ do
         let pvcUid = "11111111-2222-3333-4444-555555555555"
             pvUid = "66666666-7777-8888-9999-000000000000"
             writerUid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+            serviceUid = "99999999-8888-7777-6666-555555555555"
             cluster = mintResourceId fenceOwner
               (known (mkLogicalKey "cluster")) (known (mkName "cluster"))
+            serviceId = mintResourceId fenceOwner
+              (known (mkLogicalKey "service")) (known (mkName "service"))
             provider = object
               [ "version" .= (1 :: Int)
               , "provider" .= ("kubernetes" :: Text)
@@ -161,7 +226,15 @@ dataFenceTests = testGroup "data fence"
                   , "backing" .= object
                       [ "kind" .= ("csi" :: Text)
                       , "driver" .= ("example.csi" :: Text)
-                      , "handle" .= ("disk-123" :: Text)]]]
+                      , "handle" .= ("disk-123" :: Text)]]
+              , "service" .= object
+                  [ "resource" .= serviceId
+                  , "namespace" .= ("restore-space" :: Text)
+                  , "name" .= ("database" :: Text)
+                  , "uid" .= (serviceUid :: Text)
+                  , "clusterIP" .= ("10.0.0.9" :: Text)
+                  , "selector" .= object
+                      ["nagare.dev/database" .= ("database" :: Text)]]]
             savedWriter = object
               [ "kind" .= ("StatefulSet" :: Text)
               , "namespace" .= ("restore-space" :: Text)
@@ -174,7 +247,8 @@ dataFenceTests = testGroup "data fence"
             nativeRecord = request
               { fencePhysical = Map.fromList
                   [(target, known (mkPhysicalIdentity pvcUid))
-                  , (writer, known (mkPhysicalIdentity writerUid))]
+                  , (writer, known (mkPhysicalIdentity writerUid))
+                  , (serviceId, known (mkPhysicalIdentity serviceUid))]
               , fenceSavedWriters = Map.singleton writer savedWriter
               , fenceProviderIntent = Just provider
               }
@@ -209,10 +283,31 @@ dataFenceTests = testGroup "data fence"
               , "spec" .= object ["volumes" .= [object
                   ["persistentVolumeClaim" .= object
                     ["claimName" .= ("data-pvc" :: Text)]]]]]
-            nativeWriter = object ["spec" .= object ["template" .= object
-              ["spec" .= object ["volumes" .= [object
-                ["persistentVolumeClaim" .= object
-                  ["claimName" .= ("data-pvc" :: Text)]]]]]]]
+            nativeWriter = object ["spec" .= object
+              [ "serviceName" .= ("database" :: Text)
+              , "template" .= object ["spec" .= object ["volumes" .= [object
+                  ["persistentVolumeClaim" .= object
+                    ["claimName" .= ("data-pvc" :: Text)]]]]]]]
+            nativeService = object ["spec" .= object ["selector" .= object
+              ["nagare.dev/database" .= ("database" :: Text)]]]
+            observedService = object
+              [ "metadata" .= object
+                  [ "namespace" .= ("restore-space" :: Text)
+                  , "name" .= ("database" :: Text)
+                  , "uid" .= (serviceUid :: Text)]
+              , "spec" .= object
+                  [ "clusterIP" .= ("10.0.0.9" :: Text)
+                  , "selector" .= object
+                      ["nagare.dev/database" .= ("database" :: Text)]]]
+            endpointSlice = object
+              [ "metadata" .= object
+                  [ "namespace" .= ("restore-space" :: Text)
+                  , "name" .= ("database-endpoints" :: Text)
+                  , "uid" .= ("77777777-6666-5555-4444-333333333333" :: Text)
+                  , "labels" .= object
+                      ["kubernetes.io/service-name" .= ("database" :: Text)]]
+              , "endpoints" .= [object
+                  ["addresses" .= (["10.1.2.3"] :: [Text])]]]
             member resource kind name value =
               let bytes = BL.toStrict (encode value)
                in (resource, (ManagedResource resource fenceOwner KubernetesExecutor
@@ -223,7 +318,8 @@ dataFenceTests = testGroup "data fence"
                     (SourceLocation "fixture" kind), bytes))
             acceptedNative = Map.fromList
               [member target "persistentvolumeclaim" "data-pvc" (object [])
-              ,member writer "statefulset" "database" nativeWriter]
+              ,member writer "statefulset" "database" nativeWriter
+              ,member serviceId "service" "database" nativeService]
             declarations = [Managed resource | (resource, _) <- Map.elems acceptedNative]
             address (Object fields) = case
               (KM.lookup "kind" fields, KM.lookup "metadata" fields) of
@@ -238,6 +334,7 @@ dataFenceTests = testGroup "data fence"
         writerDenied <- newIORef False
         replicas <- newIORef (1 :: Int)
         drained <- newIORef False
+        endpointsCleared <- newIORef False
         patches <- newIORef (0 :: Int)
         loseDeleteAck <- newIORef True
         let guardTransport = MountGuardTransport
@@ -314,8 +411,27 @@ dataFenceTests = testGroup "data fence"
                         _ -> pure (Left "replica patch lacks a value")
                   _ -> pure (Left "replica patch is malformed")
               }
+            serviceTransport = ServiceTransport
+              { readService = \_ _ -> pure (Right observedService)
+              , listEndpointSlices = \_ -> do
+                  empty <- readIORef endpointsCleared
+                  pure (Right (object ["items" .= if empty then []
+                    else [endpointSlice]]))
+              , readLegacyEndpoints = \_ _ -> pure (Right Nothing)
+              }
             native = mkKubernetesExclusion (binding ^. #identity) Map.empty
-              declarations acceptedNative guardTransport volumeTransport writerTransport
+              declarations acceptedNative guardTransport volumeTransport
+              writerTransport serviceTransport
+        let missingService = nativeRecord
+              { fencePhysical = Map.delete serviceId (fencePhysical nativeRecord)
+              , fenceProviderIntent = Just (case provider of
+                  Object fields -> Object (KM.delete "service" fields)
+                  other -> other)
+              }
+        omitted <- validateKubernetesExclusion native missingService
+        case omitted of
+          Left _ -> pure ()
+          Right () -> assertFailure "StatefulSet fence omitted its Service route"
         validateKubernetesExclusion native nativeRecord >>= right
         refused <- stopKubernetesWriters native nativeRecord
         refused @?= Left "Kubernetes mount admission guard is not enforcing"
@@ -330,6 +446,8 @@ dataFenceTests = testGroup "data fence"
         readIORef patches >>= (@?= 1)
         observeKubernetesExcluded native nativeRecord >>= right >>= (@?= False)
         writeIORef drained True
+        observeKubernetesExcluded native nativeRecord >>= right >>= (@?= False)
+        writeIORef endpointsCleared True
         observeKubernetesExcluded native nativeRecord >>= right >>= (@?= True)
         observeKubernetesPhysical native nativeRecord >>= right
           >>= (@?= fencePhysical nativeRecord)

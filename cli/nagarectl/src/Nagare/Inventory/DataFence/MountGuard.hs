@@ -10,6 +10,7 @@ module Nagare.Inventory.DataFence.MountGuard
   , GuardedStatefulSet (..)
   , guardedStatefulSets
   , mkPodOwnerPermit
+  , validUid
   , mountGuardName
   , guardNamespaceName
   , guardClaimName
