@@ -417,7 +417,21 @@ dataFenceTests = testGroup "data fence"
               "restore-space" "client" writerUid 1
               (contentDigest "fixture-deployment-spec")
               (Map.singleton "app" "client"))
-            replicaSet controlled name uid = object
+            deploymentTemplate = object
+              [ "metadata" .= object ["labels" .= object
+                  ["app" .= ("client" :: Text)]]
+              , "spec" .= object ["containers" .= [object
+                  ["name" .= ("client" :: Text)
+                  , "image" .= ("busybox:1.36" :: Text)]]]]
+            deploymentObject = object ["spec" .= object
+              ["template" .= deploymentTemplate]]
+            replicaTemplate image = object
+              [ "metadata" .= object ["labels" .= object
+                  [ "app" .= ("client" :: Text)
+                  , "pod-template-hash" .= ("abc123" :: Text)]]
+              , "spec" .= object ["containers" .= [object
+                  ["name" .= ("client" :: Text), "image" .= (image :: Text)]]]]
+            replicaSet controlled name uid image = object
               [ "metadata" .= object
                   [ "namespace" .= ("restore-space" :: Text)
                   , "name" .= (name :: Text)
@@ -427,23 +441,30 @@ dataFenceTests = testGroup "data fence"
                       , "name" .= ("client" :: Text)
                       , "uid" .= (writerUid :: Text)
                       , "controller" .= controlled]]]
-              , "spec" .= object ["replicas" .= (1 :: Int)]]
+              , "spec" .= object
+                  [ "replicas" .= (1 :: Int)
+                  , "template" .= replicaTemplate image]]
             firstReplicaSet = replicaSet True "client-abc123"
-              "ffffffff-1111-2222-3333-444444444444"
+              "ffffffff-1111-2222-3333-444444444444" "busybox:1.36"
             secondReplicaSet = replicaSet True "client-def456"
-              "eeeeeeee-1111-2222-3333-444444444444"
-        Deployment.parseActiveDeploymentReplicaSet deploymentPin
+              "eeeeeeee-1111-2222-3333-444444444444" "busybox:1.36"
+        Deployment.parseActiveDeploymentReplicaSet deploymentPin deploymentObject
           (object ["items" .= [firstReplicaSet]]) @?=
             Right (Just ("client-abc123", "ffffffff-1111-2222-3333-444444444444"))
-        case Deployment.parseActiveDeploymentReplicaSet deploymentPin
+        case Deployment.parseActiveDeploymentReplicaSet deploymentPin deploymentObject
             (object ["items" .= [firstReplicaSet, secondReplicaSet]]) of
           Left _ -> pure ()
           Right _ -> assertFailure "two active ReplicaSets were captured as exact"
-        case Deployment.parseActiveDeploymentReplicaSet deploymentPin
+        case Deployment.parseActiveDeploymentReplicaSet deploymentPin deploymentObject
             (object ["items" .= [replicaSet False "client-abc123"
-              "ffffffff-1111-2222-3333-444444444444"]]) of
+              "ffffffff-1111-2222-3333-444444444444" "busybox:1.36"]]) of
           Left _ -> pure ()
           Right _ -> assertFailure "non-controller ReplicaSet was captured"
+        case Deployment.parseActiveDeploymentReplicaSet deploymentPin deploymentObject
+            (object ["items" .= [replicaSet True "client-abc123"
+              "ffffffff-1111-2222-3333-444444444444" "other:latest"]]) of
+          Left _ -> pure ()
+          Right _ -> assertFailure "changed ReplicaSet Pod template was permitted"
         let deploymentCandidate = candidate
               { candidateKind = DeploymentWriter
               , candidateAddress = Kubernetes clusterId "apps"

@@ -86,11 +86,18 @@ data DeploymentWriterTransport = DeploymentWriterTransport
 -- | A PVC-mounting Deployment needs an exact ReplicaSet owner permit while
 -- its saved replicas return under the release admission overlay. Capture
 -- refuses a rolling or otherwise ambiguous controller state.
-parseActiveDeploymentReplicaSet :: DeploymentWriterPin -> Value
+parseActiveDeploymentReplicaSet :: DeploymentWriterPin -> Value -> Value
   -> Either Text (Maybe (Text, Text))
-parseActiveDeploymentReplicaSet pin _ | writerSavedReplicas pin == 0 =
+parseActiveDeploymentReplicaSet pin _ _ | writerSavedReplicas pin == 0 =
   Right Nothing
-parseActiveDeploymentReplicaSet pin listed = do
+parseActiveDeploymentReplicaSet pin deployment listed = do
+  deploymentRoot <- asObject "Deployment" deployment
+  deploymentSpec <- jsonObject "spec" deploymentRoot
+  deploymentTemplate <- jsonObject "template" deploymentSpec
+  expectedMetadata <- jsonObject "metadata" deploymentTemplate
+  expectedLabels <- jsonObject "labels" expectedMetadata
+  unless (not (KM.member "pod-template-hash" expectedLabels))
+    (Left "reviewed Deployment template owns the controller hash label")
   replicaSets <- listItems "ReplicaSetList" listed
   active <- fmap concat $ forM replicaSets $ \item -> do
     root <- asObject "ReplicaSet" item
@@ -111,6 +118,18 @@ parseActiveDeploymentReplicaSet pin listed = do
           uid <- jsonText "uid" metadata
           unless (validUid uid && (writerName pin <> "-") `T.isPrefixOf` name)
             (Left "owned ReplicaSet identity is malformed")
+          template <- jsonObject "template" spec
+          replicaMetadata <- jsonObject "metadata" template
+          replicaLabels <- jsonObject "labels" replicaMetadata
+          unless (case KM.lookup "pod-template-hash" replicaLabels of
+              Just (String hash) -> not (T.null hash)
+              _ -> False)
+            (Left "owned ReplicaSet lacks a controller hash label")
+          let normalizedMetadata = KM.insert "labels"
+                (Object (KM.delete "pod-template-hash" replicaLabels)) replicaMetadata
+          unless (KM.lookup "spec" template == KM.lookup "spec" deploymentTemplate
+              && normalizedMetadata == expectedMetadata)
+            (Left "owned ReplicaSet template differs from reviewed Deployment")
           pure [(name, uid)]
   case active of
     [replicaSet] -> Right (Just replicaSet)

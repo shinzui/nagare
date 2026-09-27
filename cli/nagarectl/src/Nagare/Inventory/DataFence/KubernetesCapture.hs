@@ -354,7 +354,7 @@ captureWriter transport candidate = case candidateAddress candidate of
               digest
               selector
           replicaSet <- if mounted then
-              Deployment.parseActiveDeploymentReplicaSet pin =<< replicaSets
+              Deployment.parseActiveDeploymentReplicaSet pin value =<< replicaSets
             else Right Nothing
           pure
             ( object
