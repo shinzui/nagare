@@ -155,13 +155,14 @@ data Adapter = Adapter
   , adapterRecover :: !(PlannedOperation -> PreparedNative -> IO RecoveryDecision)
   }
 
--- | Planning captures a private fence record once. Apply reconstructs controls
--- from that exact saved record; it must not recapture provider intent from a
--- later observation. Controls perform provider I/O only after admission.
+-- | Planning may read current provider facts to capture one private fence
+-- record. Apply reconstructs controls from that exact saved record; it must
+-- not recapture provider intent from a later observation. Native effects occur
+-- only after admission.
 data AdapterFence = AdapterFence
   { fenceCapability :: !Text
   , fenceForOperation :: !(PlannedOperation -> PreparedNative
-      -> Either Text (Maybe DataFenceRecord))
+      -> IO (Either Text (Maybe DataFenceRecord)))
   , fenceFromReviewedRecord :: !(DataFenceRecord -> PlannedOperation
       -> PreparedNative -> Either Text DataFenceControls)
   }

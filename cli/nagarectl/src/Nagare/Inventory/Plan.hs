@@ -1289,40 +1289,44 @@ prepareReviewWithPayloadIdentity payloadIdentity registry snapshot proposal = do
       Left err -> pure (Left (PrepareRefused (plannedOperationId operation) err))
       Right adapter -> do
         result <- adapterPrepare adapter operation
-        pure $ case result of
+        case result of
           Left (PreparationBlocked barrier) ->
-            Right
+            pure (Right
               ( ReviewOperation operation (adapterIdentity adapter) (adapterVersion adapter)
                   Nothing "review barrier" Nothing Nothing Nothing
               , []
               , Just barrier
-              )
-          Left err -> Left err
+              ))
+          Left err -> pure (Left err)
           Right prepared -> do
             selected <- case lookupAdapterFence registry (plannedExecutor operation) of
-              Nothing -> Right Nothing
-              Just fence -> case fenceForOperation fence operation prepared of
-                Left reason -> Left (PrepareRefused (plannedOperationId operation) reason)
-                Right Nothing -> Right Nothing
-                Right (Just record) -> Right (Just (fenceCapability fence, record))
-            let bytes = preparedNativeBytes prepared
-                digest = contentDigest bytes
-            fenceMember <- traverse (\(_, record) -> do
-              fenceBytes <- first (PrepareRefused (plannedOperationId operation))
-                (canonicalValue (toJSON record))
-              let fenceDigest = dataFenceIntentDigest record
-              unless (contentDigest fenceBytes == fenceDigest)
-                (Left (PrepareRefused (plannedOperationId operation)
-                  "data fence private member differs from reviewed digest"))
-              pure (fenceDigest, fenceBytes)) selected
-            Right
-              ( ReviewOperation operation (adapterIdentity adapter) (adapterVersion adapter)
-                  (Just digest) (preparedPublicSummary prepared) (fmap fst selected)
-                  (dataFenceIntentDigest . snd <$> selected)
-                  (publicFenceSummary . snd <$> selected)
-              , (digest, bytes) : maybe [] (: []) fenceMember
-              , Nothing
-              )
+              Nothing -> pure (Right Nothing)
+              Just fence -> do
+                captured <- fenceForOperation fence operation prepared
+                pure $ case captured of
+                  Left reason -> Left (PrepareRefused (plannedOperationId operation) reason)
+                  Right Nothing -> Right Nothing
+                  Right (Just record) -> Right (Just (fenceCapability fence, record))
+            pure $ do
+              selectedFence <- selected
+              let bytes = preparedNativeBytes prepared
+                  digest = contentDigest bytes
+              fenceMember <- traverse (\(_, record) -> do
+                fenceBytes <- first (PrepareRefused (plannedOperationId operation))
+                  (canonicalValue (toJSON record))
+                let fenceDigest = dataFenceIntentDigest record
+                unless (contentDigest fenceBytes == fenceDigest)
+                  (Left (PrepareRefused (plannedOperationId operation)
+                    "data fence private member differs from reviewed digest"))
+                pure (fenceDigest, fenceBytes)) selectedFence
+              Right
+                ( ReviewOperation operation (adapterIdentity adapter) (adapterVersion adapter)
+                    (Just digest) (preparedPublicSummary prepared) (fmap fst selectedFence)
+                    (dataFenceIntentDigest . snd <$> selectedFence)
+                    (publicFenceSummary . snd <$> selectedFence)
+                , (digest, bytes) : maybe [] (: []) fenceMember
+                , Nothing
+                )
 
     publicFenceSummary record =
       "data fence: acquire, verify, release; session=" <> fenceSession record
