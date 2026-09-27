@@ -61,6 +61,8 @@ Inherited baseline: commits `9c308390`, `28e05b72`, and `09d83188` supplied expl
 
 2026-09-26 evidence for candidate source revision `1c4e7723`: `cabal test nagare-dsl-test --test-show-details=failures -v0`, `cabal test nagarectl-test --test-show-details=failures -v0`, `cabal build exe:nagarectl -v0`, `bash scripts/test-bootstrap-foundation-public.sh <built nagarectl>`, `bash scripts/test-inventory-entrypoint-guards.sh <built nagarectl>`, `bash scripts/check-haskell-style.sh`, and `git diff --check` passed. The isolated public fixture planned nine resources before a Pulumi call or Kubernetes read, applied all foundation operations with a recording cloud provider, planned one reviewed service repair after an observed API drift, and initialized a separate real local Pulumi stack with the seeded config. This is not native GCS stack or complete cloud-stage evidence.
 
+2026-09-26 continuation: Cloud infrastructure preparation now selects the reviewed stack without creating a missing stack outside the foundation review. The Pulumi inventory runtime passes its retained backend URL explicitly to every subprocess. The TypeScript program parity fixture covers the foundation-managed configuration and confirms that disabling Pulumi API ownership removes exactly seven API registrations, leaving 24 other cloud registrations to declare in ordered stages. Candidate source revision `0444fc12` passed `npm test` in `infra/pulumi`, `cabal test nagarectl-test --test-show-details=failures -v0`, `cabal build exe:nagarectl -v0`, the public foundation and entrypoint-guard shell fixtures, Haskell style, and `git diff --check`. The 24-resource cloud candidate and stage dispatch remain unimplemented.
+
 
 ## Surprises & Discoveries
 
