@@ -643,6 +643,9 @@ planChanges candidate decisions history observations = do
         <> [ PlanError "active-transaction" "resume or resolve the active inventory transaction before planning another review" []
            | Just _ <- [headActiveTransaction (historyHead history)]
            ]
+        <> [ PlanError "active-data-fence" "recover and verify the live data fence before planning another review" []
+           | Just _ <- [headDataFence (historyHead history)]
+           ]
         <> [PlanError "base-revision" "candidate base scope generations do not match the accepted store head" [] | candidateBase candidate /= historyGenerations]
         <> [PlanError "reservation-history" "candidate retained address reservations differ from the authoritative store" [] | candidateReservations candidate /= historyReservations history]
         <> [PlanError "retained-reactivation" "a retained logical resource requires a reviewed restore or migration before becoming desired again" retainedReactivations

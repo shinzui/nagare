@@ -234,6 +234,7 @@ assessCollections history inventory observations =
               <> ["dependent-consumers" | not (null consumers)]
               <> ["exact-incarnation-not-present" | retainedObservation finding /= "present"]
               <> ["active-transaction" | isJust (headActiveTransaction (historyHead history))]
+              <> ["active-data-fence" | isJust (headDataFence (historyHead history))]
        in CollectionAssessment resource (null reasons) reasons consumers
             (retainedObservation finding)
 

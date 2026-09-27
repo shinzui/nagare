@@ -1432,7 +1432,7 @@ inventoryTransactionTests =
           assertBool "restore wrote a different context" (isLeft refusedBinding)
           readHead restored >>= (@?= Right Nothing)
           _ <- restoreStoreFor restored backup fixtureBinding >>= expectRight
-          readHead restored >>= expectRight >>= (@?= Just (HeadManifest 1 0 0 fixtureBinding "client-test" Map.empty Map.empty Map.empty Map.empty Nothing Nothing Nothing))
+          readHead restored >>= expectRight >>= (@?= Just (HeadManifest 1 0 0 fixtureBinding "client-test" Map.empty Map.empty Map.empty Map.empty Nothing Nothing Nothing Nothing))
           removeFile (backup </> "head.json")
           incomplete <- newMemoryStore
           refused <- restoreStore incomplete backup

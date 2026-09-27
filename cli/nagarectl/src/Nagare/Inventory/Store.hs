@@ -10,6 +10,8 @@ module Nagare.Inventory.Store
   , MigrationTombstone (..)
   , RetainedIncarnation (..)
   , DeletionTombstone (..)
+  , DataFencePhase (..)
+  , DataFenceRecord (..)
   , HeadManifest (..)
   , hasSubstantiveHistory
   , StoreSnapshot (..)
@@ -129,6 +131,32 @@ data DeletionTombstone = DeletionTombstone
   }
   deriving stock (Eq, Show, Generic)
 
+-- | A live data target stays reserved across process loss. The record is
+-- private inventory history, never part of a public reviewed scope.
+data DataFencePhase
+  = FenceAcquiring
+  | FenceExcluded
+  | FenceChanging
+  | FenceVerifying
+  | FenceUnresolved
+  | FenceReleasing
+  deriving stock (Eq, Show, Generic)
+
+data DataFenceRecord = DataFenceRecord
+  { fenceContext :: !ContextBinding
+  , fenceSession :: !Text
+  , fenceAccepted :: !(Map ScopeId ScopeRevision)
+  , fencePhysical :: !(Map ResourceId PhysicalIdentity)
+  , fenceTargets :: !(Set ResourceId)
+  , fenceAffected :: !(Set ResourceId)
+  , fenceRecoveryArtifact :: !Text
+  , fenceRecoveryDigest :: !ContentDigest
+  , fenceSavedWriters :: !(Map ResourceId Value)
+  , fencePhase :: !DataFencePhase
+  , fenceAcquiredAt :: !Text
+  }
+  deriving stock (Eq, Show, Generic)
+
 data HeadManifest = HeadManifest
   { headSchemaVersion :: !Int
   , headGeneration :: !Integer
@@ -142,6 +170,7 @@ data HeadManifest = HeadManifest
   , headActiveTransaction :: !(Maybe Text)
   , headExecutorClaim :: !(Maybe ExecutorClaim)
   , headMigration :: !(Maybe MigrationTombstone)
+  , headDataFence :: !(Maybe DataFenceRecord)
   }
   deriving stock (Eq, Show, Generic)
 
@@ -160,6 +189,7 @@ hasSubstantiveHistory headValue =
     || isJust (headActiveTransaction headValue)
     || isJust (headExecutorClaim headValue)
     || isJust (headMigration headValue)
+    || isJust (headDataFence headValue)
 
 data StoreSnapshot = StoreSnapshot
   { storeSnapshotHead :: !HeadManifest
@@ -241,6 +271,79 @@ instance FromJSON DeletionTombstone where
     DeletionTombstone <$> o .: "owner" <*> o .: "revision" <*> o .: "physical"
       <*> o .: "deletedAt" <*> o .: "review"
 
+instance ToJSON DataFencePhase where
+  toJSON phase = String $ case phase of
+    FenceAcquiring -> "acquiring"
+    FenceExcluded -> "excluded"
+    FenceChanging -> "changing"
+    FenceVerifying -> "verifying"
+    FenceUnresolved -> "unresolved"
+    FenceReleasing -> "releasing"
+
+instance FromJSON DataFencePhase where
+  parseJSON = withText "DataFencePhase" $ \case
+    "acquiring" -> pure FenceAcquiring
+    "excluded" -> pure FenceExcluded
+    "changing" -> pure FenceChanging
+    "verifying" -> pure FenceVerifying
+    "unresolved" -> pure FenceUnresolved
+    "releasing" -> pure FenceReleasing
+    _ -> fail "unknown data fence phase"
+
+instance ToJSON DataFenceRecord where
+  toJSON fence = object
+    [ "context" .= fenceContext fence
+    , "session" .= fenceSession fence
+    , "accepted" .= [object ["scope" .= scope, "revision" .= revision]
+        | (scope, revision) <- Map.toAscList (fenceAccepted fence)]
+    , "physical" .= [object ["resource" .= resource, "identity" .= physical]
+        | (resource, physical) <- Map.toAscList (fencePhysical fence)]
+    , "targets" .= Set.toAscList (fenceTargets fence)
+    , "affected" .= Set.toAscList (fenceAffected fence)
+    , "recoveryArtifact" .= fenceRecoveryArtifact fence
+    , "recoveryDigest" .= fenceRecoveryDigest fence
+    , "savedWriters" .= [object ["resource" .= resource, "configuration" .= configuration]
+        | (resource, configuration) <- Map.toAscList (fenceSavedWriters fence)]
+    , "phase" .= fencePhase fence
+    , "acquiredAt" .= fenceAcquiredAt fence
+    ]
+
+instance FromJSON DataFenceRecord where
+  parseJSON = withObject "DataFenceRecord" $ \o -> do
+    unless (all (`elem` ["context", "session", "accepted", "physical", "targets", "affected",
+        "recoveryArtifact", "recoveryDigest", "savedWriters", "phase", "acquiredAt"])
+        (KM.keys o)) (fail "data fence has an unknown field")
+    accepted <- uniqueEntries "accepted scope" =<< traverse
+      (withObject "fence scope" (\v -> (,) <$> v .: "scope" <*> v .: "revision"))
+      =<< o .: "accepted"
+    physical <- uniqueEntries "physical resource" =<< traverse
+      (withObject "fence physical" (\v -> (,) <$> v .: "resource" <*> v .: "identity"))
+      =<< o .: "physical"
+    targetList <- o .: "targets"
+    affectedList <- o .: "affected"
+    unless (not (null targetList) && length targetList == Set.size (Set.fromList targetList)
+      && length affectedList == Set.size (Set.fromList affectedList)
+      && Set.fromList (targetList <> affectedList) `Set.isSubsetOf` Map.keysSet physical)
+      (fail "data fence target and affected identities must be complete and unique")
+    saved <- uniqueEntries "saved writer" =<< traverse
+      (withObject "fence writer" (\v -> (,) <$> v .: "resource" <*> v .: "configuration"))
+      =<< o .: "savedWriters"
+    unless (Map.keysSet saved == Set.fromList affectedList)
+      (fail "data fence does not preserve every writer configuration")
+    session <- o .: "session"
+    recovery <- o .: "recoveryArtifact"
+    unless (not (T.null session) && not (T.null recovery) && not (Map.null physical))
+      (fail "data fence lacks its session, recovery artifact, or physical target")
+    DataFenceRecord <$> o .: "context" <*> pure session <*> pure accepted
+      <*> pure physical <*> pure (Set.fromList targetList)
+      <*> pure (Set.fromList affectedList) <*> pure recovery
+      <*> o .: "recoveryDigest" <*> pure saved <*> o .: "phase" <*> o .: "acquiredAt"
+    where
+      uniqueEntries label entries = do
+        let selected = Map.fromList entries
+        unless (length entries == Map.size selected) (fail ("duplicate " <> label))
+        pure selected
+
 instance ToJSON HeadManifest where
   toJSON headValue =
     object
@@ -255,7 +358,8 @@ instance ToJSON HeadManifest where
       , "executorClaim" .= headExecutorClaim headValue
       ] <> ["retained" .= retainedValue (headRetained headValue) | not (Map.null (headRetained headValue))]
         <> ["collected" .= collectedValue (headCollected headValue) | not (Map.null (headCollected headValue))]
-        <> maybe [] (\marker -> ["migration" .= marker]) (headMigration headValue))
+        <> maybe [] (\marker -> ["migration" .= marker]) (headMigration headValue)
+        <> maybe [] (\fence -> ["dataFence" .= fence]) (headDataFence headValue))
     where
       revisionsValue revisions = [object ["scope" .= scope, "revision" .= revision] | (scope, revision) <- Map.toAscList revisions]
       retainedValue entries =
@@ -267,7 +371,7 @@ instance ToJSON HeadManifest where
 
 instance FromJSON HeadManifest where
   parseJSON = withObject "HeadManifest" $ \o -> do
-    let allowed = ["version", "generation", "sequence", "binding", "clientIdentity", "accepted", "converged", "retained", "collected", "activeTransaction", "executorClaim", "migration"]
+    let allowed = ["version", "generation", "sequence", "binding", "clientIdentity", "accepted", "converged", "retained", "collected", "activeTransaction", "executorClaim", "migration", "dataFence"]
     unless (all (`elem` allowed) (KM.keys o)) (fail "head manifest has an unknown field")
     version <- o .: "version"
     unless (version == 1) (fail "unsupported inventory head schema version")
@@ -283,8 +387,14 @@ instance FromJSON HeadManifest where
     active <- o .: "activeTransaction"
     unless (isJust active || all (`Map.member` accepted) (Map.keys converged))
       (fail "converged scopes must also be accepted when no transaction is active")
+    binding <- o .: "binding"
+    fence <- o .:? "dataFence"
+    unless (maybe True (\entry -> fenceContext entry == binding
+      && fenceAccepted entry == accepted
+      && isNothing active) fence)
+      (fail "data fence differs from its context or accepted head, or overlaps a transaction")
     HeadManifest version generation sequenceNumber
-      <$> o .: "binding"
+      <$> pure binding
       <*> o .: "clientIdentity"
       <*> pure accepted
       <*> pure converged
@@ -293,6 +403,7 @@ instance FromJSON HeadManifest where
       <*> pure active
       <*> o .: "executorClaim"
       <*> o .:? "migration"
+      <*> pure fence
     where
       parseRevisions values = do
         revisions <- traverse (withObject "scope revision" (\v -> (,) <$> v .: "scope" <*> v .: "revision")) values
@@ -399,7 +510,7 @@ initializeStore store binding clientIdentity = do
       | headBinding headValue == binding -> pure (Right headValue)
       | otherwise -> pure (Left (StoreConditionFailed "inventory store is bound to a different context or provider target"))
     Right Nothing -> do
-      let initial = HeadManifest 1 0 0 binding clientIdentity Map.empty Map.empty Map.empty Map.empty Nothing Nothing Nothing
+      let initial = HeadManifest 1 0 0 binding clientIdentity Map.empty Map.empty Map.empty Map.empty Nothing Nothing Nothing Nothing
       replaced <- replaceHeadIfGenerationMatches store Nothing initial
       pure (initial <$ replaced)
 
@@ -643,7 +754,8 @@ migrateStore source destination sourceLabel label = do
         Left err -> pure (Left err)
         Right Nothing -> pure (Left (StoreConditionFailed "source inventory store is not initialized"))
         Right (Just oldHead)
-          | isJust (headActiveTransaction oldHead) || isJust (headExecutorClaim oldHead) ->
+          | isJust (headActiveTransaction oldHead) || isJust (headExecutorClaim oldHead)
+              || isJust (headDataFence oldHead) ->
               pure (Left (StoreConditionFailed "source inventory store has an unresolved transaction or executor claim"))
           | otherwise -> do
               keysResult <- listObjectKeys source

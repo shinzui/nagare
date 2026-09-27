@@ -5995,6 +5995,7 @@ runInventoryStatus mctx requested json gcOutput = do
         , "accepted" Aeson..= revisions (fmap fst (InventoryPlan.historyAccepted history))
         , "converged" Aeson..= revisions (InventoryPlan.historyConverged history)
         , "activeTransaction" Aeson..= InventoryStore.headActiveTransaction (InventoryPlan.historyHead history)
+        , "dataFence" Aeson..= fmap publicDataFence (InventoryStore.headDataFence (InventoryPlan.historyHead history))
         , "transactionStatus" Aeson..= transactionStatus
         , "missingProviders" Aeson..= unavailable
         , "missingProviderScopes" Aeson..=
@@ -6016,6 +6017,8 @@ runInventoryStatus mctx requested json gcOutput = do
         else TIO.putStrLn ("Inventory status: " <> T.pack (show (length findings))
           <> " resources; retained: " <> T.pack (show (length retainedFindings))
           <> "; collected: " <> T.pack (show (length collectedEntries))
+          <> "; data fence: " <> maybe "none" (T.pack . show . InventoryStore.fencePhase)
+            (InventoryStore.headDataFence (InventoryPlan.historyHead history))
           <> "; unavailable providers: " <> T.pack (show unavailable))
     (Nothing, Just raw) -> do
       resourceId <- either dieT pure (Resource.mkResourceId (T.pack raw))
@@ -6107,12 +6110,25 @@ runInventoryStoreStatus mctx json = do
           , "headDigest" Aeson..= InventoryDigest.contentDigest rawHead
           , "generation" Aeson..= InventoryStore.headGeneration headValue
           , "activeTransaction" Aeson..= InventoryStore.headActiveTransaction headValue
+          , "dataFence" Aeson..= fmap publicDataFence (InventoryStore.headDataFence headValue)
           , "executorClaim" Aeson..= InventoryStore.headExecutorClaim headValue
           , "migration" Aeson..= InventoryStore.headMigration headValue
           ]
     if json then LBC.putStrLn (Aeson.encode report)
       else TIO.putStrLn ("Inventory store " <> inventoryStoreToken kind <> " at " <> url
-        <> ", generation " <> T.pack (show (InventoryStore.headGeneration headValue)))
+        <> ", generation " <> T.pack (show (InventoryStore.headGeneration headValue))
+        <> ", data fence: " <> maybe "none" (T.pack . show . InventoryStore.fencePhase)
+          (InventoryStore.headDataFence headValue))
+
+publicDataFence :: InventoryStore.DataFenceRecord -> Aeson.Value
+publicDataFence fence = Aeson.object
+  [ "session" Aeson..= InventoryStore.fenceSession fence
+  , "phase" Aeson..= InventoryStore.fencePhase fence
+  , "affected" Aeson..= Set.toAscList (InventoryStore.fenceAffected fence)
+  , "targets" Aeson..= [Aeson.object ["resource" Aeson..= resource, "physical" Aeson..= physical]
+      | (resource, physical) <- Map.toAscList (InventoryStore.fencePhysical fence)]
+  , "recoveryDigest" Aeson..= InventoryStore.fenceRecoveryDigest fence
+  ]
 
 runInventoryStoreMigrate :: Maybe String -> String -> Bool -> Bool -> IO ()
 runInventoryStoreMigrate mctx destination dryRun yes = do

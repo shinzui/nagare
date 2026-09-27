@@ -111,6 +111,7 @@ admit locked registry reviewed = do
               <> [AdmissionError "stale-head" "review was issued against a different head generation or journal sequence" | reviewHeadGeneration document /= headGeneration headValue || reviewHeadSequence document /= headSequence headValue]
               <> [AdmissionError "stale-base" "review base revisions differ from accepted desired state" | reviewBaseRevisions document /= headAccepted headValue]
               <> [AdmissionError "active-transaction" "another transaction is unresolved" | isJust (headActiveTransaction headValue)]
+              <> [AdmissionError "active-data-fence" "a live data target remains fenced; recover and verify it before applying another review" | isJust (headDataFence headValue)]
               <> [AdmissionError "retention-base" "retention proof does not name the accepted scope revision"
                  | (_, proof) <- Map.toAscList (reviewRetentions document)
                  , Map.lookup (retentionOwner proof) (headAccepted headValue) /= Just (retentionRevision proof)]

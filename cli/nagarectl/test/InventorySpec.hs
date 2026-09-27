@@ -60,7 +60,7 @@ inventoryTests =
         doesPathExist output >>= (@?= False)
     , testCase "legacy platform mutation closes after any inventory admission" $ do
         let binding = ContextBinding (ok (mkContextId "legacy-guard")) (ok (mkName "project"))
-            emptyHead = HeadManifest 1 0 0 binding "test" Map.empty Map.empty Map.empty Map.empty Nothing Nothing Nothing
+            emptyHead = HeadManifest 1 0 0 binding "test" Map.empty Map.empty Map.empty Map.empty Nothing Nothing Nothing Nothing
         hasSubstantiveHistory emptyHead @?= False
         hasSubstantiveHistory (emptyHead {headGeneration = 1}) @?= True
         hasSubstantiveHistory (emptyHead {headSequence = 1}) @?= True
@@ -147,7 +147,7 @@ inventoryTests =
               destination <- openTargetStore target
               readHead destination >>= (@?= Right Nothing)
               restoreInventory target backup True
-              readHead destination >>= (@?= Right (Just (HeadManifest 1 0 0 binding "restore-test" Map.empty Map.empty Map.empty Map.empty Nothing Nothing Nothing)))
+              readHead destination >>= (@?= Right (Just (HeadManifest 1 0 0 binding "restore-test" Map.empty Map.empty Map.empty Map.empty Nothing Nothing Nothing Nothing)))
               duplicate <- try (restoreInventory target backup True) :: IO (Either ExitCode ())
               assertBool "occupied destination accepted" (isLeft duplicate)
     ]

@@ -11,6 +11,12 @@ provenance:
     model: "gpt-6-astra"
     harness: "codex-cli"
     at: 2026-09-26T22:14:13Z
+  revisions:
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-27T04:11:42Z
+      mode: "implement"
+      note: "Started durable data-fence protocol and identified engine backup format gaps"
 ---
 
 # Complete fenced live data restore across supported engines and volumes
@@ -33,9 +39,13 @@ An operator can restore PostgreSQL, Redis, ClickHouse, and application volumes t
 
 Inherited: manual receipts and expiry validation, PostgreSQL scratch restore, and separate-PVC scratch volume restore are implemented. Live --into-live volume behavior was removed pending a safe replacement. These delivered scratch paths remain regression baselines, not new milestones.
 
+2026-09-26 work in progress: the private head now carries a conditionally written data-fence record, normal planning/apply and store migration reject an active fence, and read-only status displays its phase and exact identities. `Nagare.Inventory.DataFence` reserves before invoking writer controls and keeps uncertain acquisition, data change, or release visible. Three focused recording-provider tests cover process reopening, target substitution, and lost release acknowledgement; the 15 selected restore tests and transaction selection pass. M1 remains open: no native Kubernetes/database control implements the provider callbacks yet, and no reviewed live restore invokes the fence.
+
 
 ## Surprises & Discoveries
 
+
+2026-09-26: `cli/nagarectl/src/Nagare/Database/Backup.hs` currently concatenates ClickHouse `FORMAT Native` table streams without table names or DDL. The legacy ClickHouse restore renderer only creates a database, so those bytes cannot establish a restored table set. The Redis backup is a whole-instance RDB; the legacy preview's `redis-cli --pipe` cannot load that format and masks a failed command. Both require distinct, verified native procedures before M2 can be accepted. See [ClickHouse's Native format explanation](https://clickhouse.com/resources/engineering/read-clickhouse-native-file) and [Redis persistence documentation](https://redis.io/docs/latest/operate/oss_and_stack/management/persistence/).
 
 
 
@@ -44,6 +54,8 @@ Inherited: manual receipts and expiry validation, PostgreSQL scratch restore, an
 
 
 2026-09-26: Transfer a bounded unfinished EP-148 outcome into its own plan. Preserve delivered behavior and all release gates; no feature is dropped and no prior work is reset.
+
+2026-09-26: Version the ClickHouse backup format so a restore can recover table identity and schema, and refuse older content-only receipts for reviewed restore. Redis RDB restore must load offline into a stopped instance with exact PVC and writer-exclusion proof; a network client command is not sufficient. This follows from the existing backup bytes and keeps unknown data effects fenced.
 
 
 ## Outcomes & Retrospective
