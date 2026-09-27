@@ -10,6 +10,8 @@ module Nagare.Inventory.DataFence.KubernetesExclusion
   , stopKubernetesWriters
   , observeKubernetesPhysical
   , observeKubernetesExcluded
+  , releaseKubernetesWriters
+  , observeKubernetesRelease
   ) where
 
 import Control.Monad (forM, unless)
@@ -19,6 +21,7 @@ import Data.Text (Text)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapters.KubernetesRuntime
   (KubernetesRuntimeConfig (..))
+import Nagare.Inventory.DataFence (WriterReleaseState (..))
 import Nagare.Inventory.DataFence.KubernetesIntent
 import Nagare.Inventory.DataFence.MountGuard (guardClaimName)
 import Nagare.Inventory.DataFence.MountGuardRuntime
@@ -150,3 +153,48 @@ observeKubernetesExcluded exclusion record = case validatedIntent exclusion reco
           evidence <- volume
           guarded <- after
           pure (and stopped && volumeHasNoConsumers evidence && guarded)
+
+-- | Called only from the durable verified-release phase. Each StatefulSet
+-- restore is conditional and restart-safe; guard deletion likewise uses
+-- per-object UID/resourceVersion preconditions. A partial response remains
+-- visible for the separately reviewed forward-recovery operation.
+releaseKubernetesWriters :: KubernetesExclusion -> DataFenceRecord
+  -> IO (Either Text ())
+releaseKubernetesWriters exclusion record = case validatedIntent exclusion record of
+  Left reason -> pure (Left reason)
+  Right intent -> do
+    physical <- observeExactPhysical exclusion intent
+    case physical of
+      Left reason -> pure (Left reason)
+      Right () -> do
+        restored <- forM (kubernetesStatefulWriters intent) $ \(_, pin) ->
+          restoreStatefulWriter (exclusionWriterTransport exclusion) pin
+        case sequence_ restored of
+          Left reason -> pure (Left reason)
+          Right () -> removeMountGuard (exclusionGuardTransport exclusion)
+            (kubernetesMountGuard intent)
+
+observeKubernetesRelease :: KubernetesExclusion -> DataFenceRecord
+  -> IO (Either Text WriterReleaseState)
+observeKubernetesRelease exclusion record = case validatedIntent exclusion record of
+  Left reason -> pure (Left reason)
+  Right intent -> do
+    physical <- observeExactPhysical exclusion intent
+    case physical of
+      Left reason -> pure (Left reason)
+      Right () -> do
+        writers <- forM (kubernetesStatefulWriters intent) $ \(_, pin) ->
+          observeStatefulWriterRelease (exclusionWriterTransport exclusion) pin
+        let mountGuard = kubernetesMountGuard intent
+            transport = exclusionGuardTransport exclusion
+        intact <- observeMountGuard transport mountGuard
+        absent <- observeMountGuardAbsent transport mountGuard
+        pure $ do
+          states <- sequence writers
+          guarded <- intact
+          removed <- absent
+          pure $ if all (== WritersFullyReleased) states && removed
+            then WritersFullyReleased
+            else if all (== WritersStillExcluded) states && guarded
+              then WritersStillExcluded
+              else WritersPartlyReleased

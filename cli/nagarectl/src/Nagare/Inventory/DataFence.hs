@@ -15,6 +15,7 @@ module Nagare.Inventory.DataFence
   , markDataFenceUnresolved
   , recoverDataFence
   , releaseDataFence
+  , forwardRecoverDataFenceRelease
   ) where
 
 import Data.Aeson (toJSON)
@@ -51,6 +52,7 @@ data DataFenceControls = DataFenceControls
   , verifyRecoveredData :: !(DataFenceRecord -> IO (Either Text Bool))
   , restoreFenceWriters :: !(DataFenceRecord -> IO (Either Text ()))
   , observeWritersReleased :: !(DataFenceRecord -> IO (Either Text WriterReleaseState))
+  , forwardRecoverPartlyReleased :: !(Maybe (DataFenceRecord -> IO (Either Text ())))
   }
 
 newtype FenceToken = FenceToken Text
@@ -209,6 +211,37 @@ releaseDataFence locked controls token = do
                 Right () -> finishReleaseObserved False locked controls token record
         (Left reason, _) -> pure (Left reason)
         (_, Left reason) -> pure (Left reason)
+
+-- | A partly released fence needs a separately reviewed forward action. The
+-- provider supplies this callback only when it can conditionally finish the
+-- observed partial state without replaying an uncertain destructive effect.
+-- Recovery never calls it automatically from ordinary release/resume.
+forwardRecoverDataFenceRelease :: LockedStore s -> DataFenceControls
+  -> FenceToken -> IO (Either Text ())
+forwardRecoverDataFenceRelease locked controls token = do
+  current <- matchingFence locked token
+  case current of
+    Left reason -> pure (Left reason)
+    Right record | fencePhase record /= FenceReleasing ->
+      pure (Left "data fence has no partial writer release to recover")
+    Right record -> do
+      physical <- observeFencePhysical controls record
+      case physical of
+        Left reason -> pure (Left reason)
+        Right actual | actual /= fencePhysical record ->
+          pure (Left "data fence physical identities changed during release")
+        Right _ -> do
+          observed <- observeWritersReleased controls record
+          case observed of
+            Left reason -> pure (Left reason)
+            Right WritersPartlyReleased -> case forwardRecoverPartlyReleased controls of
+              Nothing -> pure (Left "provider has no reviewed partial-release recovery")
+              Just forward -> do
+                advanced <- forward record
+                case advanced of
+                  Left reason -> pure (Left reason)
+                  Right () -> finishReleaseObserved False locked controls token record
+            Right _ -> pure (Left "writer release is not partial")
 
 finishRelease :: LockedStore s -> DataFenceControls -> FenceToken
   -> DataFenceRecord -> IO (Either Text ())

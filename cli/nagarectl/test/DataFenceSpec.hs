@@ -225,14 +225,40 @@ dataFenceTests = testGroup "data fence"
         replicas <- newIORef (1 :: Int)
         drained <- newIORef False
         patches <- newIORef (0 :: Int)
+        loseDeleteAck <- newIORef True
         let guardTransport = MountGuardTransport
               { readGuardObject = \kind name ->
                   Right . Map.lookup (kind, name) <$> readIORef objects
               , createGuardObject = \value -> case address value of
                   Nothing -> pure (Left "guard address missing")
-                  Just key -> modifyIORef' objects (Map.insert key value)
-                    >> pure (Right ())
-              , deleteGuardObject = \_ _ _ _ -> pure (Left "unexpected guard delete")
+                  Just key -> case value of
+                    Object fields -> case KM.lookup "metadata" fields of
+                      Just (Object metadata) -> do
+                        let stamped = Object (KM.insert "metadata" (Object
+                              (KM.insert "uid"
+                                (String "bbbbbbbb-2222-3333-4444-555555555555")
+                                (KM.insert "resourceVersion" (String "10") metadata)))
+                              fields)
+                        modifyIORef' objects (Map.insert key stamped)
+                        pure (Right ())
+                      _ -> pure (Left "guard metadata missing")
+                    _ -> pure (Left "guard object missing")
+              , deleteGuardObject = \kind name uid revision -> do
+                  current <- Map.lookup (kind, name) <$> readIORef objects
+                  let pinned = case current of
+                        Just (Object fields) -> case KM.lookup "metadata" fields of
+                          Just (Object metadata) ->
+                            KM.lookup "uid" metadata == Just (String uid)
+                              && KM.lookup "resourceVersion" metadata
+                                == Just (String revision)
+                          _ -> False
+                        _ -> False
+                  if not pinned then pure (Left "guard delete precondition failed") else do
+                    modifyIORef' objects (Map.delete (kind, name))
+                    lost <- readIORef loseDeleteAck
+                    if lost then writeIORef loseDeleteAck False
+                      >> pure (Left "guard delete acknowledgement lost")
+                      else pure (Right ())
               , probeForeignMountDenied = \_ -> Right <$> readIORef guardDenied
               }
             volumeTransport = VolumeTransport
@@ -262,10 +288,16 @@ dataFenceTests = testGroup "data fence"
                             (if desired == 0 && not ready then 1 else 2 :: Int)
                         , "replicas" .= current
                         , "readyReplicas" .= current]]))
-              , patchStatefulWriter = \_ _ _ -> do
-                  modifyIORef' patches (+ 1)
-                  writeIORef replicas 0
-                  pure (Right ())
+              , patchStatefulWriter = \_ _ patch -> case patch of
+                  Array operations | Just (Object lastOperation) <-
+                    listToMaybe (reverse (toList operations)) ->
+                      case KM.lookup "value" lastOperation of
+                        Just (Number count) -> do
+                          modifyIORef' patches (+ 1)
+                          writeIORef replicas (floor count)
+                          pure (Right ())
+                        _ -> pure (Left "replica patch lacks a value")
+                  _ -> pure (Left "replica patch is malformed")
               }
             native = mkKubernetesExclusion (binding ^. #identity) Map.empty
               declarations acceptedNative guardTransport volumeTransport writerTransport
@@ -281,6 +313,16 @@ dataFenceTests = testGroup "data fence"
         observeKubernetesExcluded native nativeRecord >>= right >>= (@?= True)
         observeKubernetesPhysical native nativeRecord >>= right
           >>= (@?= fencePhysical nativeRecord)
+        observeKubernetesRelease native nativeRecord >>= right
+          >>= (@?= WritersStillExcluded)
+        firstRelease <- releaseKubernetesWriters native nativeRecord
+        firstRelease @?= Left "guard delete acknowledgement lost"
+        observeKubernetesRelease native nativeRecord >>= right
+          >>= (@?= WritersPartlyReleased)
+        releaseKubernetesWriters native nativeRecord >>= right
+        observeKubernetesRelease native nativeRecord >>= right
+          >>= (@?= WritersFullyReleased)
+        readIORef patches >>= (@?= 2)
     , testCase "reservation survives a new process and blocks planning until verified release" $
       withSystemTempDirectory "nagare-data-fence" $ \root -> do
         store <- openFilesystemStore root >>= right
@@ -459,6 +501,47 @@ dataFenceTests = testGroup "data fence"
         active <- readHead store >>= right >>= maybe
           (assertFailure "head missing" >> error "head") pure
         fmap fencePhase (headDataFence active) @?= Just FenceReleasing
+    , testCase "explicit forward recovery completes a partial writer release" $ do
+        store <- newMemoryStore
+        _ <- initializeStore store binding "operator-a" >>= right
+        phase <- newIORef (0 :: Int)
+        forwardEffects <- newIORef (0 :: Int)
+        released <- newIORef False
+        restored <- newIORef (0 :: Int)
+        let original = fixtureControls released restored (pure (Right physical))
+            controls = original
+              { restoreFenceWriters = \_ -> writeIORef phase 1
+                  >> pure (Left "first writer restored before response loss")
+              , observeWritersReleased = \_ -> do
+                  value <- readIORef phase
+                  pure (Right (if value == 2 then WritersFullyReleased
+                    else if value == 1 then WritersPartlyReleased
+                    else WritersStillExcluded))
+              , forwardRecoverPartlyReleased = Just (\_ -> do
+                  modifyIORef' forwardEffects (+ 1)
+                  writeIORef phase 2
+                  pure (Right ()))
+              }
+        token <- withProcessLock store (\locked -> acquireDataFence locked controls request)
+          >>= right >>= right
+        _ <- withProcessLock store (\locked -> beginDataChange locked controls token)
+          >>= right >>= right
+        _ <- withProcessLock store (\locked -> verifyDataChange locked controls token)
+          >>= right >>= right
+        _ <- withProcessLock store (\locked -> releaseDataFence locked controls token)
+          >>= right
+        ordinary <- withProcessLock store (\locked ->
+          releaseDataFence locked controls token) >>= right
+        case ordinary of
+          Left _ -> pure ()
+          Right () -> assertFailure "partial release resumed without forward recovery"
+        readIORef forwardEffects >>= (@?= 0)
+        _ <- withProcessLock store (\locked ->
+          forwardRecoverDataFenceRelease locked controls token) >>= right >>= right
+        readIORef forwardEffects >>= (@?= 1)
+        final <- readHead store >>= right >>= maybe
+          (assertFailure "head missing" >> error "head") pure
+        headDataFence final @?= Nothing
     , testCase "changed target identity leaves a durable unresolved fence" $ do
         store <- newMemoryStore
         _ <- initializeStore store binding "operator-a" >>= right
@@ -1015,6 +1098,7 @@ dataFenceTests = testGroup "data fence"
               , observeWritersReleased = \_ -> do
                   wasReleased <- readIORef released
                   pure (Right (if wasReleased then WritersFullyReleased else WritersStillExcluded))
+              , forwardRecoverPartlyReleased = Nothing
               }
             customize desired registry = known (withAdapterFence registry KubernetesExecutor
               AdapterFence
@@ -1149,6 +1233,7 @@ fixtureControls released restored observe = DataFenceControls
   , observeWritersReleased = \_ -> do
       wasReleased <- readIORef released
       pure (Right (if wasReleased then WritersFullyReleased else WritersStillExcluded))
+  , forwardRecoverPartlyReleased = Nothing
   }
 
 request :: DataFenceRecord
