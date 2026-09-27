@@ -18,6 +18,8 @@ project="$(jq -er '.project' <<<"${request}")"
 zone="$(jq -er '.zone' <<<"${request}")"
 instance="$(jq -er '.instanceName' <<<"${request}")"
 destination="$(jq -er '.destination' <<<"${request}")"
+configuration_digest="$(jq -er '.configurationDigest' <<<"${request}")"
+lock_digest="$(jq -er '.lockDigest' <<<"${request}")"
 [ "${version}" = 1 ] || { echo "unsupported host transport version" >&2; exit 2; }
 for value in "${context}" "${attribute}" "${project}" "${zone}" "${instance}" "${destination}"; do
   case "${value}" in ""|*[!A-Za-z0-9._@:-]*) echo "invalid host transport identity: ${value}" >&2; exit 2 ;; esac
@@ -30,6 +32,19 @@ source "${script_dir}/lib/target.sh"
 [ "${project}" = "${TARGET_PROJECT}" ] || { echo "reviewed host project differs from active project" >&2; exit 2; }
 [ "${zone}" = "${TARGET_ZONE}" ] || { echo "reviewed host zone differs from active zone" >&2; exit 2; }
 [ "${instance}" = "${NAGARE_INSTANCE_NAME}" ] || { echo "reviewed host instance differs from active instance" >&2; exit 2; }
+
+check_host_inputs() {
+  local actual_configuration actual_lock
+  [ -f "${NAGARE_HOST_FLAKE}/flake.nix" ] && [ -f "${NAGARE_HOST_FLAKE}/host.nix" ] \
+    && [ -f "${NAGARE_HOST_FLAKE}/flake.lock" ] || {
+    echo "reviewed host source files are missing" >&2; return 2;
+  }
+  actual_configuration="$(cat "${NAGARE_HOST_FLAKE}/flake.nix" "${NAGARE_HOST_FLAKE}/host.nix" | shasum -a 256 | awk '{print $1}')"
+  actual_lock="$(shasum -a 256 "${NAGARE_HOST_FLAKE}/flake.lock" | awk '{print $1}')"
+  [ "${actual_configuration}" = "${configuration_digest}" ] && [ "${actual_lock}" = "${lock_digest}" ] || {
+    echo "host source differs from the reviewed configuration and lock digests" >&2; return 2;
+  }
+}
 
 absence_digest() {
   local value
@@ -76,6 +91,7 @@ observe() {
 
 prepare() {
   local physical rc=0 old new config_ref
+  check_host_inputs
   physical="$(physical_identity)" || rc=$?
   if [ "${rc}" -eq 3 ]; then emit_missing; return; fi
   [ "${rc}" -eq 0 ] || return "${rc}"
@@ -113,6 +129,7 @@ inspect() {
 
 activate() {
   local physical new old output receipt closure proof
+  check_host_inputs
   physical="$(physical_identity)"
   new="$(jq -er '.plan.newClosure' <<<"${request}")"
   old="$(jq -er '.plan.expectedOldClosure' <<<"${request}")"

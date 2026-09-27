@@ -612,6 +612,21 @@ assert operations[0]["operation"]["resources"] == [
 ], operations
 PY
 test ! -e "$NAGARE_TEST_IMAGE_OUTPUT"
+cp "$XDG_CONFIG_HOME/nagare/contexts/freshlocal.env" "$fixture_root/freshlocal.env.saved"
+sed 's/NAGARE_PLATFORM_VERSION=0.4.0/NAGARE_PLATFORM_VERSION=0.4.1/' \
+  "$fixture_root/freshlocal.env.saved" > "$XDG_CONFIG_HOME/nagare/contexts/freshlocal.env"
+if "$nagarectl_bin" --context freshlocal platform bootstrap apply "$fixture_root/build-review" --yes \
+  > "$fixture_root/changed-payload-apply-out" 2>&1; then
+  printf 'changed payload pin unexpectedly applied the reviewed image build\n' >&2
+  exit 1
+fi
+test ! -e "$NAGARE_TEST_IMAGE_OUTPUT"
+if grep -q 'build --builders' "$XDG_STATE_HOME/nix.log"; then
+  printf 'changed payload pin reached the Nix builder\n' >&2
+  exit 1
+fi
+cp "$fixture_root/freshlocal.env.saved" "$XDG_CONFIG_HOME/nagare/contexts/freshlocal.env"
+printf 'changed payload pin refused the retained build review before its provider effect\n'
 "$nagarectl_bin" --context freshlocal platform bootstrap apply "$fixture_root/build-review" --yes \
   > "$fixture_root/build-apply-out" 2>&1 || {
   cat "$fixture_root/build-apply-out" >&2
