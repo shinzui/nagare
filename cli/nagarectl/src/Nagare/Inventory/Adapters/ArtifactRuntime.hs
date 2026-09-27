@@ -170,6 +170,7 @@ expectedPhysical spec = case executionArtifactKind spec of
       OciImageArtifact -> "oci://"
       GcsImageObjectArtifact -> "gcs://"
       GceImageArtifact -> "gce://"
+      KubeconfigArtifact -> "kubeconfig://"
       BuildJobArtifact -> "build-job://"
       TemporaryBuilderArtifact -> "builder://"
       ReleasePayloadArtifact -> "release://"

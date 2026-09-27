@@ -130,6 +130,48 @@ observe_gcs_object() {
   fi
 }
 
+kubeconfig_destination() {
+  local root="${XDG_CONFIG_HOME:-${HOME}/.config}"
+  printf '%s/nagare/kubeconfigs/%s.yaml' "${root}" "${NAGARE_CONTEXT}"
+}
+
+observe_kubeconfig() {
+  [ "${destination}" = "$(kubeconfig_destination)" ] || {
+    echo "kubeconfig destination differs from the selected context" >&2; return 2;
+  }
+  [ ! -L "${destination}" ] || { echo "refusing symlink kubeconfig destination" >&2; return 2; }
+  if [ ! -e "${destination}" ]; then emit_missing; return; fi
+  [ -f "${destination}" ] || { echo "kubeconfig destination is not a regular file" >&2; return 2; }
+  local actual
+  actual="$(shasum -a 256 "${destination}" | awk '{print $1}')"
+  emit_present "kubeconfig://${destination}" "${actual}"
+}
+
+publish_kubeconfig() (
+  [ "${destination}" = "$(kubeconfig_destination)" ] || {
+    echo "kubeconfig destination differs from the selected context" >&2; return 2;
+  }
+  [ -n "${archive}" ] && [[ "${archive}" = /* ]] && [ -f "${archive}" ] && [ ! -L "${archive}" ] || {
+    echo "reviewed prepared kubeconfig is missing or invalid" >&2; return 2;
+  }
+  [ ! -L "${destination}" ] || { echo "refusing symlink kubeconfig destination" >&2; return 2; }
+  local actual parent temporary
+  actual="$(shasum -a 256 "${archive}" | awk '{print $1}')"
+  [ "${actual}" = "${expected}" ] && [ "${source_digest}" = "${expected}" ] || {
+    echo "prepared kubeconfig differs from the reviewed digest" >&2; return 2;
+  }
+  parent="$(dirname "${destination}")"
+  mkdir -p "${parent}"
+  chmod 0700 "${parent}"
+  temporary="$(mktemp "${destination}.tmp.XXXXXX")"
+  trap 'rm -f "${temporary}"' EXIT
+  cp "${archive}" "${temporary}"
+  chmod 0600 "${temporary}"
+  actual="$(shasum -a 256 "${temporary}" | awk '{print $1}')"
+  [ "${actual}" = "${expected}" ] || { echo "staged kubeconfig digest changed" >&2; return 2; }
+  mv "${temporary}" "${destination}"
+)
+
 observe_build_job() {
   local output marker status path digest
   [[ "${destination}" = /* ]] || { echo "build destination must be absolute" >&2; return 2; }
@@ -152,6 +194,7 @@ observe() {
     GceImageArtifact) observe_gce_image ;;
     OciImageArtifact) observe_oci_image ;;
     GcsImageObjectArtifact) observe_gcs_object ;;
+    KubeconfigArtifact) observe_kubeconfig ;;
     BuildJobArtifact) observe_build_job ;;
     *) echo "artifact kind ${kind} has no production transport" >&2; return 2 ;;
   esac
@@ -210,6 +253,7 @@ publish() {
       NAGARE_ARTIFACT_EXPECTED_DIGEST="${expected}" \
         bash "${script_dir}/upload-images.sh" --build-only >&2
       ;;
+    KubeconfigArtifact) publish_kubeconfig ;;
     GceImageArtifact)
       NAGARE_ARTIFACT_DESTINATION="${destination}" \
       NAGARE_ARTIFACT_EXPECTED_DIGEST="sha256:${expected}" \

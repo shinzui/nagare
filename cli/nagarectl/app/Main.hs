@@ -495,6 +495,7 @@ import System.Environment (getEnvironment, lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (ExitFailure, ExitSuccess), exitFailure, exitWith)
 import System.FilePath (dropExtension, takeBaseName, takeDirectory, takeExtension, (</>))
 import System.IO (hFlush, hIsTerminalDevice, hSetEcho, hSetEncoding, stderr, stdin, stdout, utf8)
+import System.IO.Error (isDoesNotExistError)
 import System.IO.Temp (createTempDirectory, withSystemTempDirectory, withTempDirectory)
 import System.Posix.Files (fileMode, getFileStatus, isDirectory, isRegularFile, setFileMode)
 import System.Process
@@ -4830,10 +4831,16 @@ runPlatformBootstrapPlan mctx output = do
                       (inventoryPlanRegistry active workspace)
                       ("nagare-bootstrap:" <> manifest ^. #payloadId) active candidate output
                     Nothing -> do
-                      (candidate, native) <- buildPlatformCandidate active paths workspace snapshot
-                      Inventory.planInventoryCandidateWithPayloadIdentity
-                        (inventoryPlanRegistryWithNative active workspace native)
-                        ("nagare-bootstrap:" <> manifest ^. #payloadId) active candidate output
+                      kubeconfigStage <- buildKubeconfigStageCandidate active workspace snapshot
+                      case kubeconfigStage of
+                        Just candidate -> Inventory.planInventoryCandidateWithPayloadIdentity
+                          (inventoryPlanRegistry active workspace)
+                          ("nagare-bootstrap:" <> manifest ^. #payloadId) active candidate output
+                        Nothing -> do
+                          (candidate, native) <- buildPlatformCandidate active paths workspace snapshot
+                          Inventory.planInventoryCandidateWithPayloadIdentity
+                            (inventoryPlanRegistryWithNative active workspace native)
+                            ("nagare-bootstrap:" <> manifest ^. #payloadId) active candidate output
 
 runPlatformBootstrapApply :: Maybe String -> FilePath -> Bool -> IO ()
 runPlatformBootstrapApply mctx reviewDirectory yes = do
@@ -5339,6 +5346,83 @@ buildHostStageCandidate active _ snapshot
           dieT "accepted host configuration differs from the selected context; use a reviewed host transition"
         Just _ -> pure Nothing
         Nothing -> Just <$> either (dieT . T.pack . show) pure
+          (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
+
+buildKubeconfigStageCandidate
+  :: ActiveTarget -> PlatformWorkspace -> ResourceInventory.ScopeSnapshot
+  -> IO (Maybe ResourceInventory.CompositionCandidate)
+buildKubeconfigStageCandidate active workspace snapshot
+  | active ^. #profile . #mode /= Cloud = pure Nothing
+  | otherwise = do
+      let context = active ^. #contextName
+          contextText = contextNameText context
+      hostName <- readContextHostName context >>= either dieT pure
+      destination <- kubeconfigPath context
+      stateRoot <- nagareStateDir
+      let preparedDir = stateRoot </> T.unpack contextText </> "prepared-kubeconfig"
+      createDirectoryIfMissing True preparedDir
+      setFileMode preparedDir 0o700
+      bytes <- withTempDirectory preparedDir "candidate-" $ \temporary -> do
+        let fetched = temporary </> "kubeconfig.yaml"
+            identity = KubeconfigIdentity contextText hostName
+            ops = defaultFetchOps (workspace ^. #scriptsDir </> "iap-ssh.sh")
+        fetchKubeconfig ops identity (active ^. #profile) fetched >>= either dieT pure
+        BS.readFile fetched
+      let digest = InventoryDigest.contentDigest bytes
+          prepared = preparedDir </> T.unpack (Resource.digestText digest) <> ".yaml"
+      linked <- try (pathIsSymbolicLink prepared) >>= \case
+        Left (err :: IOException) | isDoesNotExistError err -> pure False
+        Left (err :: IOException) -> dieT ("could not inspect prepared kubeconfig: " <> T.pack (show err))
+        Right value -> pure value
+      when linked (dieT "prepared kubeconfig path is a symlink")
+      exists <- doesFileExist prepared
+      if exists then do
+        retained <- BS.readFile prepared
+        unless (retained == bytes) (dieT "prepared kubeconfig digest path contains different bytes")
+      else BS.writeFile prepared bytes
+      setFileMode prepared 0o600
+      owner <- either dieT pure (Resource.mkScopeId Resource.Platform "kubeconfig")
+      key <- either dieT pure (Resource.mkLogicalKey "context-kubeconfig")
+      role <- either dieT pure (Resource.mkName contextText)
+      hostOwner <- either dieT pure (Resource.mkScopeId Resource.Platform "host")
+      hostKey <- either dieT pure (Resource.mkLogicalKey "nixos-system")
+      hostRole <- either dieT pure (Resource.mkName "system")
+      let hostId = Resource.mintResourceId hostOwner hostKey hostRole
+          artifact = ArtifactResourceSpec
+            { artifactLogicalKey = key
+            , artifactRole = role
+            , artifactName = role
+            , artifactDestination = T.pack destination
+            , artifactContentDigest = digest
+            , artifactSpecDigest = digest
+            , artifactKind = InventoryArtifact.KubeconfigArtifact
+            , artifactOwnership = InventoryArtifact.OwnedArtifact
+            , artifactLifecycle = ResourcePolicy.Protect
+            , artifactDataPolicy = ResourcePolicy.Stateless
+            , artifactSensitivity = ResourcePolicy.Secret
+            , artifactDependencies = [ResourceReference.OrderedAfter hostId]
+            , artifactConsumers = InventoryArtifact.ConsumerCompletenessUnknown
+            , artifactPublishOperation = False
+            , artifactSource = Resource.SourceLocation (T.pack prepared) "kubeconfig-prepared-v1"
+            }
+      scope <- either (dieT . T.pack . show) pure (InventoryArtifact.compileArtifactScope
+        (ArtifactDeclarationBundle 1 owner (artifact NE.:| [])))
+      case Map.lookup owner (ResourceInventory.snapshotScopes snapshot) of
+        Just (_, prior) | prior /= scope ->
+          dieT "accepted kubeconfig differs from the selected host; use a reviewed credential transition"
+        _ -> pure ()
+      destinationLinked <- try (pathIsSymbolicLink destination) >>= \case
+        Left (err :: IOException) | isDoesNotExistError err -> pure False
+        Left (err :: IOException) -> dieT ("could not inspect context kubeconfig: " <> T.pack (show err))
+        Right value -> pure value
+      when destinationLinked (dieT "context kubeconfig destination is a symlink")
+      destinationExists <- doesFileExist destination
+      current <- if destinationExists then Just <$> BS.readFile destination else pure Nothing
+      let accepted = Map.member owner (ResourceInventory.snapshotScopes snapshot)
+      case (accepted, current) of
+        (True, Just currentBytes) | InventoryDigest.contentDigest currentBytes == digest -> pure Nothing
+        (True, Just _) -> dieT "accepted context kubeconfig has a different content digest"
+        _ -> Just <$> either (dieT . T.pack . show) pure
           (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
 
 -- Keep payload paths explicit so a fresh context compiles one immutable

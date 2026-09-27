@@ -168,6 +168,17 @@ PY
     fi ;;
   "--project=fixture-project compute instances describe nagare-01 --zone="*" --format=value(id)")
     printf '98765\n' ;;
+  "--project=fixture-project compute start-iap-tunnel nagare-01 22 "*)
+    port=''
+    for argument in "$@"; do
+      case "$argument" in --local-host-port=localhost:*) port="${argument##*:}" ;; esac
+    done
+    test -n "$port"
+    exec python3 -c 'import socket,sys
+s=socket.socket(); s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
+s.bind(("127.0.0.1",int(sys.argv[1]))); s.listen()
+while True:
+    conn,_=s.accept(); conn.close()' "$port" ;;
   *) printf 'unexpected gcloud command: %s\n' "$*" >&2; exit 37 ;;
 esac
 EOF
@@ -589,6 +600,7 @@ case "$*" in
     fi
     printf 'COMMITTED new=%s\n' "$new" ;;
   *"sudo -n true && readlink -f /run/current-system"*) printf '%s\n' "$current" ;;
+  *"sudo cat /etc/rancher/k3s/k3s.yaml"*) cat "$XDG_STATE_HOME/remote-kubeconfig.yaml" ;;
   *"readlink -f /run/current-system"*) printf '%s\n' "$current" ;;
   *) exit 1 ;;
 esac
@@ -803,6 +815,125 @@ PY
 }
 test "$(grep -Fc 'host activate' "$XDG_STATE_HOME/ssh.log")" -eq 1
 printf 'public inventory resume proved guarded host activation after lost commit acknowledgement\n'
+cat > "$XDG_STATE_HOME/remote-kubeconfig.yaml" <<'EOF'
+apiVersion: v1
+kind: Config
+clusters:
+  - name: default
+    cluster:
+      server: https://127.0.0.1:6443
+      certificate-authority-data: Y2E=
+users:
+  - name: default
+    user:
+      client-certificate-data: Y2VydA==
+      client-key-data: a2V5
+contexts:
+  - name: default
+    context:
+      cluster: default
+      user: default
+current-context: default
+EOF
+printf 'fixture-private-key\n' > "$fixture_root/ssh-key"
+chmod 0600 "$fixture_root/ssh-key"
+export SSH_KEY="$fixture_root/ssh-key"
+export ZONE=us-west1-a
+cat > "$fixture_root/bin/socat" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+cat > "$fixture_root/bin/kubectl" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$XDG_STATE_HOME/kubectl.log"
+case "$*" in
+  "config set-cluster "*|"config set-context "*|"config use-context freshlocal") ;;
+  "config current-context") printf 'freshlocal\n' ;;
+  *) printf 'unexpected kubectl command: %s\n' "$*" >&2; exit 43 ;;
+esac
+EOF
+chmod +x "$fixture_root/bin/socat" "$fixture_root/bin/kubectl"
+kubeconfig_destination="$XDG_CONFIG_HOME/nagare/kubeconfigs/freshlocal.yaml"
+"$nagarectl_bin" --context freshlocal platform bootstrap plan --out "$fixture_root/kubeconfig-review" \
+  > "$fixture_root/kubeconfig-plan-out" 2>&1 || {
+  cat "$fixture_root/kubeconfig-plan-out" >&2
+  exit 1
+}
+python3 - "$fixture_root/kubeconfig-review/review.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    review = json.load(source)
+operations = review["operations"]
+assert len(operations) == 1, operations
+assert operations[0]["operation"]["executor"] == "ArtifactExecutor", operations
+assert operations[0]["operation"]["resources"] == [
+    "platform:kubeconfig/context-kubeconfig/freshlocal"
+], operations
+PY
+test ! -e "$kubeconfig_destination"
+export NAGARE_TEST_REAL_MV="$(command -v mv)"
+export NAGARE_TEST_KUBECONFIG_DESTINATION="$kubeconfig_destination"
+cat > "$fixture_root/bin/mv" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+destination="${@: -1}"
+"$NAGARE_TEST_REAL_MV" "$@"
+if test "$destination" = "$NAGARE_TEST_KUBECONFIG_DESTINATION" \
+  && test -e "$XDG_STATE_HOME/fail-kubeconfig-mv-ack"; then
+  printf 'installed\n' >> "$XDG_STATE_HOME/kubeconfig-writes"
+  "$NAGARE_TEST_REAL_MV" "$XDG_STATE_HOME/fail-kubeconfig-mv-ack" \
+    "$XDG_STATE_HOME/failed-kubeconfig-mv-ack"
+  exit 42
+fi
+EOF
+chmod +x "$fixture_root/bin/mv"
+touch "$XDG_STATE_HOME/fail-kubeconfig-mv-ack"
+if "$nagarectl_bin" --context freshlocal platform bootstrap apply "$fixture_root/kubeconfig-review" --yes \
+  > "$fixture_root/kubeconfig-apply-out" 2>&1; then
+  printf 'kubeconfig apply unexpectedly acknowledged a simulated lost result\n' >&2
+  exit 1
+fi
+test -s "$kubeconfig_destination"
+kubeconfig_transaction="$(python3 - "$XDG_STATE_HOME/nagare/freshlocal/inventory/head.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    head = json.load(source)
+assert head["activeTransaction"] is not None, head
+print(head["activeTransaction"])
+PY
+)"
+"$nagarectl_bin" --context freshlocal inventory resume "$kubeconfig_transaction" --yes \
+  > "$fixture_root/kubeconfig-resume-out" 2>&1 || {
+  cat "$fixture_root/kubeconfig-apply-out" >&2
+  cat "$fixture_root/kubeconfig-resume-out" >&2
+  exit 1
+}
+test -s "$kubeconfig_destination"
+test "$(wc -l < "$XDG_STATE_HOME/kubeconfig-writes")" -eq 1
+python3 - "$kubeconfig_destination" <<'PY'
+import os
+import stat
+import sys
+assert stat.S_IMODE(os.stat(sys.argv[1]).st_mode) == 0o600
+PY
+if grep -Eq 'client-key-data|a2V5' "$fixture_root/kubeconfig-review/review.json"; then
+  printf 'public kubeconfig review exposed credential bytes\n' >&2
+  exit 1
+fi
+python3 - "$XDG_STATE_HOME/nagare/freshlocal/inventory/head.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    head = json.load(source)
+assert head["activeTransaction"] is None, head
+assert head["accepted"] == head["converged"], head
+assert len(head["accepted"]) == 6, head
+assert all(entry["scope"]["kind"] == "Platform" for entry in head["accepted"]), head
+PY
+printf 'public inventory resume proved the reviewed kubeconfig install after lost acknowledgement\n'
 
 # A separate context exercises the same reviewed stack operation with the
 # actual Pulumi CLI and an isolated file backend. No cloud provider is used.

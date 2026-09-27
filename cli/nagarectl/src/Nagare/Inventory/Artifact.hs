@@ -32,6 +32,7 @@ data ArtifactKind
   = OciImageArtifact
   | GcsImageObjectArtifact
   | GceImageArtifact
+  | KubeconfigArtifact
   | BuildJobArtifact
   | TemporaryBuilderArtifact
   | ReleasePayloadArtifact
@@ -103,7 +104,7 @@ artifactExecutionSpecsFromDeclarations declarations = Map.fromList <$> traverse 
         pure
           ( resource ^. #identity
           , ArtifactExecutionSpec artifactKind destination contentDigest specDigest hasCompleteConsumers
-              (ociArchiveSource (resource ^. #source))
+              (artifactLocalSource (resource ^. #source))
           )
       _ -> Left ("artifact declaration lacks its typed publication specification: " <> resourceIdText (resource ^. #identity))
 
@@ -167,7 +168,7 @@ executionSpec resource =
     , executionArtifactContentDigest = artifactContentDigest resource
     , executionArtifactSpecDigest = artifactSpecDigest resource
     , executionArtifactConsumersComplete = consumersComplete (artifactConsumers resource)
-    , executionArtifactArchive = ociArchiveSource (artifactSource resource)
+    , executionArtifactArchive = artifactLocalSource (artifactSource resource)
     }
 
 -- | Only an explicit archive source marker enables the generic OCI transport.
@@ -176,6 +177,11 @@ ociArchiveSource :: SourceLocation -> Maybe FilePath
 ociArchiveSource source
   | path source == "oci-archive-v1" = Just (T.unpack (file source))
   | otherwise = Nothing
+
+artifactLocalSource :: SourceLocation -> Maybe FilePath
+artifactLocalSource source
+  | path source == "kubeconfig-prepared-v1" = Just (T.unpack (file source))
+  | otherwise = ociArchiveSource source
 
 consumersComplete :: ConsumerCoverage -> Bool
 consumersComplete KnownConsumers {} = True
@@ -187,6 +193,7 @@ kindName =
     OciImageArtifact -> "oci-image"
     GcsImageObjectArtifact -> "gcs-image-object"
     GceImageArtifact -> "gce-image"
+    KubeconfigArtifact -> "kubeconfig"
     BuildJobArtifact -> "build-job"
     TemporaryBuilderArtifact -> "temporary-builder"
     ReleasePayloadArtifact -> "release-payload"
@@ -197,6 +204,7 @@ kindFromName value = case nameText value of
   "oci-image" -> Right OciImageArtifact
   "gcs-image-object" -> Right GcsImageObjectArtifact
   "gce-image" -> Right GceImageArtifact
+  "kubeconfig" -> Right KubeconfigArtifact
   "build-job" -> Right BuildJobArtifact
   "temporary-builder" -> Right TemporaryBuilderArtifact
   "release-payload" -> Right ReleasePayloadArtifact
