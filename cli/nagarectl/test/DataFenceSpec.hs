@@ -7,6 +7,7 @@ import Data.IORef
 import Data.List (elemIndex, find)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
+import Data.Maybe (listToMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -17,6 +18,7 @@ import Nagare.Inventory.Adapter
 import Nagare.Inventory.DataFence
 import Nagare.Inventory.DataFence.MountGuard
 import Nagare.Inventory.DataFence.MountGuardRuntime
+import Nagare.Inventory.DataFence.StatefulWriter
 import Nagare.Inventory.DataFence.VolumeState
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute
@@ -512,6 +514,76 @@ dataFenceTests = testGroup "data fence"
           emptyPods emptyAttachments of
           Left _ -> pure ()
           Right _ -> assertFailure "replaced PVC UID was accepted"
+    , testCase "StatefulSet writer scale and release require observed convergence" $ do
+        let uid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+        pin <- right (mkStatefulWriterPin "restore-space" "database" uid 2)
+        current <- newIORef (object
+          [ "metadata" .= object
+              [ "namespace" .= ("restore-space" :: Text)
+              , "name" .= ("database" :: Text)
+              , "uid" .= (uid :: Text)
+              , "resourceVersion" .= ("10" :: Text)
+              , "generation" .= (1 :: Int)]
+          , "spec" .= object ["replicas" .= (2 :: Int)]
+          , "status" .= object
+              [ "observedGeneration" .= (1 :: Int)
+              , "replicas" .= (2 :: Int)
+              , "readyReplicas" .= (2 :: Int)]
+          ])
+        patches <- newIORef ([] :: [Value])
+        loseAck <- newIORef True
+        let replaceObject key update (Object fields)
+              | Just (Object nested) <- KM.lookup key fields =
+                  Object (KM.insert key (Object (update nested)) fields)
+            replaceObject _ _ value = value
+            setSpecReplicas replicas = replaceObject "spec"
+              (KM.insert "replicas" (toJSON replicas))
+            setStatus replicas generation = replaceObject "status"
+              (KM.insert "observedGeneration" (toJSON generation)
+                . KM.insert "readyReplicas" (toJSON replicas)
+                . KM.insert "replicas" (toJSON replicas))
+            setMetadata = replaceObject "metadata"
+              (KM.insert "resourceVersion" (String "11")
+                . KM.insert "generation" (toJSON (2 :: Int)))
+            transport = StatefulWriterTransport
+              { readStatefulWriter = \_ _ -> Right <$> readIORef current
+              , patchStatefulWriter = \_ _ patch -> do
+                  modifyIORef' patches (<> [patch])
+                  let requested = case patch of
+                        Array operations | Just (Object lastOp) <-
+                            listToMaybe (reverse (toList operations)) ->
+                              KM.lookup "value" lastOp
+                        _ -> Nothing
+                  case requested of
+                    Just (Number value) -> do
+                      modifyIORef' current (setMetadata . setSpecReplicas value)
+                      lost <- readIORef loseAck
+                      if lost
+                        then writeIORef loseAck False >> pure (Left "response lost")
+                        else pure (Right ())
+                    _ -> pure (Left "patch did not replace replicas")
+              }
+        stopStatefulWriter transport pin >>= (@?= Left "response lost")
+        stopStatefulWriter transport pin >>= (@?= Right ())
+        readIORef patches >>= \values -> length values @?= 1
+        observeStatefulWriterStopped transport pin >>= (@?= Right False)
+        restoreStatefulWriter transport pin >>=
+          (@?= Left "StatefulSet has not finished stopping")
+        modifyIORef' current (setStatus (0 :: Int) (2 :: Int))
+        observeStatefulWriterStopped transport pin >>= (@?= Right True)
+        observeStatefulWriterRelease transport pin >>= (@?= Right WritersStillExcluded)
+        restoreStatefulWriter transport pin >>= (@?= Right ())
+        observeStatefulWriterRelease transport pin >>= (@?= Right WritersPartlyReleased)
+        modifyIORef' current (setStatus (2 :: Int) (2 :: Int))
+        observeStatefulWriterRelease transport pin >>= (@?= Right WritersFullyReleased)
+        restoreStatefulWriter transport pin >>= (@?= Right ())
+        readIORef patches >>= \values -> length values @?= 2
+        modifyIORef' current (replaceObject "metadata"
+          (KM.insert "uid" (String "bbbbbbbb-2222-3333-4444-555555555555")))
+        stopped <- stopStatefulWriter transport pin
+        case stopped of
+          Left _ -> pure ()
+          Right () -> assertFailure "replaced StatefulSet UID was accepted"
     , testCase "reviewed adapter effect runs only inside a verified fence" $ do
         store <- newMemoryStore
         steps <- newIORef ([] :: [Text])
