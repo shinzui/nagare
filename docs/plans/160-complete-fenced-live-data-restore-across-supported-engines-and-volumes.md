@@ -119,6 +119,11 @@ Inherited: manual receipts and expiry validation, PostgreSQL scratch restore, an
 ## Surprises & Discoveries
 
 
+2026-09-27: The only configured GKE context is `gke_tan-cluster_us-west1-a_sennari`; it is not identified as disposable. A read-only `kubectl version` call could not authenticate because the saved gcloud token requires interactive reauthentication. No GKE resource was changed. A disposable, authenticated context is required for the admission and controller-principal probe before M1 acceptance.
+
+2026-09-27: Engine shutdown requests need their own observed completion. PostgreSQL fast shutdown rejects new connections and aborts active transactions, while Redis `SHUTDOWN` stops clients and can leave the server running if a required RDB save fails; Redis `SIGTERM` follows the same shutdown sequence. Therefore a CLI success/connection drop cannot by itself prove durable exclusion; the fenced provider must observe the exact engine Pod gone, volume consumers drained, and the guarded route still closed before data mutation. See [PostgreSQL shutdown modes](https://www.postgresql.org/docs/current/app-pg-ctl.html) and [Redis SHUTDOWN](https://redis.io/docs/latest/commands/shutdown/). ClickHouse shutdown and buffered-insert behavior still need engine-specific proof.
+
+
 2026-09-27: Engine settings cannot substitute for durable connection exclusion. PostgreSQL's `default_transaction_read_only` sets a default for new transactions and can be changed by a session; [PostgreSQL documents that behavior](https://www.postgresql.org/docs/current/runtime-config-client.html). Redis [`CLIENT PAUSE WRITE`](https://redis.io/docs/latest/commands/client-pause/) has a finite timeout and resumes queued writes afterward. These are useful for a bounded drain, but neither alone proves that a fenced target stays unwritable after operator process loss. The native design must still establish and observe a persistent barrier across writer Pods, their routes, and any engine-specific in-flight work before reporting M1 exclusion.
 
 
