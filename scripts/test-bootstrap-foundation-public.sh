@@ -5,13 +5,24 @@ set -euo pipefail
 
 nagarectl_bin="${1:?pass the built nagarectl executable path}"
 real_pulumi="$(command -v pulumi)"
+real_helm="$(command -v helm)"
 fixture_root="$(mktemp -d "${TMPDIR:-/tmp}/nagare-bootstrap-foundation.XXXXXX")"
 trap 'rm -rf "$fixture_root"' EXIT
 
 export XDG_CONFIG_HOME="$fixture_root/config"
 export XDG_STATE_HOME="$fixture_root/state"
 export NAGARE_PLATFORM_ROOT="$(pwd)"
+controller_archive="$NAGARE_PLATFORM_ROOT/cluster/bootstrap/net-certmanager/nagare-net-certmanager-controller.tar.gz"
+if test -L "$controller_archive"; then
+  printf 'controller fixture archive path is a symlink\n' >&2
+  exit 1
+fi
+if test ! -e "$controller_archive"; then
+  printf 'fixture controller image archive\n' > "$controller_archive"
+  trap 'rm -f "$controller_archive"; rm -rf "$fixture_root"' EXIT
+fi
 export PATH="$fixture_root/bin:$PATH"
+export NAGARE_REAL_HELM="$real_helm"
 export CLOUDSDK_CORE_PROJECT=fixture-project
 export CLOUDSDK_COMPUTE_REGION=us-west1
 export NAGARE_MODE=cloud
@@ -88,6 +99,7 @@ set -euo pipefail
 printf '%s\n' "$*" >> "$XDG_STATE_HOME/gcloud-apply.log"
 case "$*" in
   "auth list --filter=status:ACTIVE --format=value(account)") printf 'fixture@example.invalid\n' ;;
+  "auth print-access-token") printf 'fixture-access-token\n' ;;
   "config get-value project") printf 'fixture-project\n' ;;
   "projects describe fixture-project --format=value(projectNumber)") printf '12345\n' ;;
   "services list --enabled --project=fixture-project --format=json")
@@ -850,10 +862,26 @@ printf '%s\n' "$*" >> "$XDG_STATE_HOME/kubectl.log"
 case "$*" in
   "config set-cluster "*|"config set-context "*|"config use-context freshlocal") ;;
   "config current-context") printf 'freshlocal\n' ;;
+  "get nodes -o json --request-timeout=10s")
+    printf '{"items":[{"metadata":{"name":"freshlocal-nagare","labels":{"node-role.kubernetes.io/control-plane":""}}}]}\n' ;;
+  "--context freshlocal version -o json")
+    printf '{"serverVersion":{"gitVersion":"v1.33.0+k3s1"}}\n' ;;
+  "--context freshlocal --request-timeout=10s get "*) ;;
+  "--context freshlocal -n "*" get "*" -o json") printf '{}\n' ;;
   *) printf 'unexpected kubectl command: %s\n' "$*" >&2; exit 43 ;;
 esac
 EOF
 chmod +x "$fixture_root/bin/socat" "$fixture_root/bin/kubectl"
+cat > "$fixture_root/bin/helm" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$XDG_STATE_HOME/helm.log"
+case "$*" in
+  "status "*" -o json") printf 'Error: release: not found\n' >&2; exit 1 ;;
+  *) exec "$NAGARE_REAL_HELM" "$@" ;;
+esac
+EOF
+chmod +x "$fixture_root/bin/helm"
 kubeconfig_destination="$XDG_CONFIG_HOME/nagare/kubeconfigs/freshlocal.yaml"
 "$nagarectl_bin" --context freshlocal platform bootstrap plan --out "$fixture_root/kubeconfig-review" \
   > "$fixture_root/kubeconfig-plan-out" 2>&1 || {
@@ -934,6 +962,90 @@ assert len(head["accepted"]) == 6, head
 assert all(entry["scope"]["kind"] == "Platform" for entry in head["accepted"]), head
 PY
 printf 'public inventory resume proved the reviewed kubeconfig install after lost acknowledgement\n'
+cat > "$fixture_root/bin/skopeo" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$XDG_STATE_HOME/skopeo.log"
+case "$*" in
+  *" inspect --format {{.Digest}} docker-archive:"*)
+    printf 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' ;;
+  "login --username oauth2accesstoken --password-stdin --authfile "*)
+    cat >/dev/null ;;
+  "inspect --authfile "*" --format {{.Digest}} docker://"*)
+    printf 'manifest unknown\n' >&2; exit 1 ;;
+  *) printf 'unexpected skopeo command: %s\n' "$*" >&2; exit 43 ;;
+esac
+EOF
+chmod +x "$fixture_root/bin/skopeo"
+export NAGARE_CLUSTER_SECRETS_DIR="$fixture_root/cluster-secrets"
+mkdir -p "$NAGARE_CLUSTER_SECRETS_DIR"
+touch "$NAGARE_CLUSTER_SECRETS_DIR/grafana-admin.yaml" \
+  "$NAGARE_CLUSTER_SECRETS_DIR/alertmanager-config.yaml"
+cat > "$fixture_root/bin/sops" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+test "$1" = -d
+case "${2##*/}" in
+  grafana-admin.yaml)
+    printf 'apiVersion: v1\nkind: Secret\nmetadata:\n  name: grafana-admin\n  namespace: monitoring\nstringData:\n  admin-user: fixture\n  admin-password: fixture-password\n' ;;
+  alertmanager-config.yaml)
+    printf 'apiVersion: v1\nkind: Secret\nmetadata:\n  name: alertmanager-config\n  namespace: monitoring\nstringData:\n  alertmanager.yaml: fixture\n' ;;
+  *) exit 43 ;;
+esac
+EOF
+chmod +x "$fixture_root/bin/sops"
+export NAGARE_AUTH_EN_IMAGE="fixture.invalid/en@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+export NAGARE_AUTH_SHOMEI_IMAGE="fixture.invalid/shomei@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+export NAGARE_AUTH_ACCESS_IMAGE="fixture.invalid/nagare-access@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+if ! "$nagarectl_bin" --context freshlocal platform bootstrap plan --out "$fixture_root/cluster-review" \
+  > "$fixture_root/cluster-plan-out" 2>&1; then
+  cat "$fixture_root/cluster-plan-out" >&2
+  exit 1
+fi
+python3 - "$fixture_root/cluster-review/review.json" <<'PY'
+import collections
+import glob
+import json
+import os
+import sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    review = json.load(source)
+operations = [item["operation"] for item in review["operations"]]
+assert len(operations) == 203, len(operations)
+assert collections.Counter(item["executor"] for item in operations) == {
+    "KubernetesExecutor": 196,
+    "HelmExecutor": 5,
+    "ArtifactExecutor": 2,
+}
+assert all(entry["scope"]["kind"] == "Platform" for entry in review["desiredRevisions"])
+marker_id = "platform:bootstrap-stamp/bootstrap/version"
+marker_operations = [item for item in operations if marker_id in item["resources"]]
+assert len(marker_operations) == 1, marker_operations
+marker = marker_operations[0]
+assert marker["action"]["tag"] == "CreateResource", marker
+assert set(marker["dependencies"]) == {item["id"] for item in operations if item is not marker}
+managed = []
+for path in glob.glob(os.path.join(os.path.dirname(sys.argv[1]), "scopes", "*.json")):
+    with open(path, encoding="utf-8") as source:
+        scope = json.load(source)
+    assert scope["scope"]["kind"] == "Platform", scope["scope"]
+    managed.extend(declaration["contents"] for bundle in scope["bundles"]
+                   for declaration in bundle["declarations"] if declaration["tag"] == "Managed")
+kubeconfig_id = "platform:kubeconfig/context-kubeconfig/freshlocal"
+edge = {"tag": "OrderedAfter", "contents": kubeconfig_id}
+cluster_members = [resource for resource in managed if resource["executor"] in
+                   ("KubernetesExecutor", "HelmExecutor")]
+assert cluster_members, managed
+assert all(edge in resource["dependencies"] for resource in cluster_members)
+marker_members = [resource for resource in managed if resource["identity"] == marker_id]
+assert len(marker_members) == 1, marker_members
+assert edge in marker_members[0]["dependencies"]
+PY
+if grep -Fq 'fixture-password' "$fixture_root/cluster-review/review.json"; then
+  printf 'public cluster review exposed fixture secret bytes\n' >&2
+  exit 1
+fi
+printf 'public bootstrap planned 203 cluster operations with kubeconfig edges and a final marker\n'
 
 # A separate context exercises the same reviewed stack operation with the
 # actual Pulumi CLI and an isolated file backend. No cloud provider is used.

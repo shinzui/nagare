@@ -5567,8 +5567,31 @@ buildPlatformCandidate active paths workspace snapshot = do
   extra <- case orderedObservabilityScopes <> [observabilityExtra, secretScope] <> cacheScopes of
     firstScope : remaining -> pure (ResourceInventory.ReplaceScope firstScope NE.:| map ResourceInventory.ReplaceScope remaining)
     [] -> dieT "pinned bootstrap component set is empty"
+  let kubeconfigEdges = case profile ^. #mode of
+        Local -> []
+        Cloud ->
+          let owner = either (error . T.unpack) (\scope -> scope) (Resource.mkScopeId Resource.Platform "kubeconfig")
+              key = knownKey "context-kubeconfig"
+              role = knownName (contextNameText (active ^. #contextName))
+          in [ResourceReference.OrderedAfter (Resource.mintResourceId owner key role)]
+      orderCluster resource
+        | resource ^. #executor `elem` [ResourceInventory.KubernetesExecutor, ResourceInventory.HelmExecutor] =
+            resource {ResourceInventory.dependencies = kubeconfigEdges <> resource ^. #dependencies}
+        | otherwise = resource
+      orderClusterDeclaration = \case
+        ResourceInventory.Managed resource -> ResourceInventory.Managed (orderCluster resource)
+        other -> other
+      orderClusterScope scope = ResourceInventory.mkScopeDeclaration
+        (ResourceInventory.scopeId scope)
+        [bundle {ResourceInventory.declarations = map orderClusterDeclaration (ResourceInventory.declarations bundle)}
+        | bundle <- ResourceInventory.scopeBundles scope]
+      orderClusterChange = \case
+        ResourceInventory.ReplaceScope scope -> ResourceInventory.ReplaceScope <$> orderClusterScope scope
+        other -> Right other
+  linkedChanges <- either (dieT . T.pack . show) pure
+    (traverse orderClusterChange (ResourceInventory.candidateChanges base <> extra))
   candidate <- either (dieT . T.pack . show) pure
-    (ResourceInventory.composeInventory unstampedSnapshot (ResourceInventory.candidateChanges base <> extra))
+    (ResourceInventory.composeInventory unstampedSnapshot linkedChanges)
   vectorDigest <- either dieT pure (bootstrapCandidateScopeVectorDigest candidate)
   installedAt <- acceptedBootstrapInstalledAt active snapshot cluster
     (manifest ^. #payloadId) vectorDigest (identityFromPayload manifest) candidate
@@ -5577,7 +5600,8 @@ buildPlatformCandidate active paths workspace snapshot = do
   stamped <- either (dieT . T.pack . show) pure
     (composePlatformChanges snapshot (ResourceInventory.candidateChanges candidate
       <> (ResourceInventory.ReplaceScope stampScope NE.:| [])))
-  let completeNative = Map.union native stampNative
+  let linkedNative = Map.map (\(resource, bytes) -> (orderCluster resource, bytes)) native
+      completeNative = Map.union linkedNative stampNative
   unless (Map.size completeNative == Map.size native + Map.size stampNative)
     (dieT "bootstrap completion marker shares a native identity")
   pure (stamped, completeNative)

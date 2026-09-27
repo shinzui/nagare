@@ -731,26 +731,27 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
       , bundle <- scopeBundles scope
       , operation <- bundle ^. #operations]
     -- Converged scope revisions retain proof of unchanged forward-only
-    -- migrations and hooks after Kubernetes TTL removes their Job objects.
-    provenMigrations =
+    -- operations. Kubernetes TTL can remove migration Jobs, while host
+    -- activation retains its committed closure receipt in the journal.
+    provenOperations =
       Map.fromList
         [ (operation ^. #identity, operation)
         | (scope, (revision, declaration)) <- Map.toAscList (historyAccepted history)
         , Map.lookup scope (historyConverged history) == Just revision
         , bundle <- scopeBundles declaration
         , operation <- bundle ^. #operations
-        , operation ^. #operationKind `elem` [SchemaMigration, PreDeployHook]
+        , operation ^. #operationKind `elem` [SchemaMigration, PreDeployHook, ActivateHost]
         ]
-    migrationIsProven operation =
-      operation ^. #operationKind `elem` [SchemaMigration, PreDeployHook]
-        && Map.lookup (operation ^. #identity) provenMigrations == Just operation
+    operationIsProven operation =
+      operation ^. #operationKind `elem` [SchemaMigration, PreDeployHook, ActivateHost]
+        && Map.lookup (operation ^. #identity) provenOperations == Just operation
     provenMigrationJobs =
       Set.fromList
         [ resource
         | scope <- Map.elems (inventoryScopes (candidateInventory candidate))
         , bundle <- scopeBundles scope
         , operation <- bundle ^. #operations
-        , migrationIsProven operation
+        , operationIsProven operation
         , resource <- NE.toList (operation ^. #affects)
         , Just (Managed affected) <- [Map.lookup resource desiredDeclarations]
         , isMigrationJob (affected ^. #address)
@@ -857,7 +858,7 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
         | bundle <- scopeBundles declaration
         , operation <- bundle ^. #operations
         , any (`Set.member` selectedIds) (NE.toList (operation ^. #affects))
-        , not (migrationIsProven operation)
+        , not (operationIsProven operation)
         ]
     declared operation = do
       executor <- listToMaybe [resource ^. #executor | resourceId <- NE.toList (operation ^. #affects), Just (Managed resource) <- [Map.lookup resourceId desiredDeclarations]]
