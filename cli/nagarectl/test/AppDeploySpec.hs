@@ -1343,6 +1343,11 @@ renderTests =
         (acceptedApplicationReleaseLog releaseSnapshot releasedNative app cluster)
       history ^. #current @?= Just tag
       length (history ^. #releases) @?= 2
+      (_, replayNative) <- either (fail . show) pure
+        (compileApplicationScope (input
+          {scopeRelease = (history, release & #createdAt .~ UTCTime (fromGregorian 2026 6 20) 0)}))
+      Map.lookup (releaseMember ^. #identity) replayNative @?=
+        Map.lookup (releaseMember ^. #identity) releasedNative
       assertBool "missing private release bytes were treated as an empty log"
         (isLeft (acceptedApplicationReleaseLog releaseSnapshot Map.empty app cluster))
       assertBool "malformed accepted release bytes were treated as an empty log"

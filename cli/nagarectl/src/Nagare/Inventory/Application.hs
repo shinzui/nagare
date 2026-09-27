@@ -1472,8 +1472,13 @@ compileApplicationRelease app rollout owner cluster namespaceId imageId priorBun
         (rollout ^. #baseDomain)) (app ^. #service))
     (Left (invalid "release metadata differs from the reviewed application or image"))
   releaseId <- first invalid (releaseResourceId owner app)
-  let bytes = renderReleaseConfigMapWith appDeploymentsPrefix appName ns
-        (addRelease release prior)
+  let recorded = case findRelease tag prior of
+        Just accepted
+          | prior ^. #current == Just tag
+          , (accepted & #createdAt .~ (release ^. #createdAt)) == release -> accepted
+        _ -> release
+      bytes = renderReleaseConfigMapWith appDeploymentsPrefix appName ns
+        (addRelease recorded prior)
   value <- first (invalid . T.pack) (eitherDecodeStrict bytes)
   canonical <- first invalid (canonicalValue value)
   (resource, native) <- first (:| []) (bindKubernetesObject KubernetesInput
