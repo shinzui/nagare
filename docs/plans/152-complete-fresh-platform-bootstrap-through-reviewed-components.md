@@ -67,6 +67,8 @@ Inherited baseline: commits `9c308390`, `28e05b72`, and `09d83188` supplied expl
 
 2026-09-26 evidence for candidate source revision `733906e1`: `npm test` in `infra/pulumi`, `cabal test nagarectl-test --test-show-details=failures -v0`, `cabal build exe:nagarectl -v0`, `bash scripts/test-bootstrap-foundation-public.sh <built nagarectl>`, `bash scripts/test-inventory-entrypoint-guards.sh <built nagarectl>`, `bash scripts/check-haskell-style.sh`, and `git diff --check` passed. The isolated public fixture converged the nine-resource foundation, then four Pulumi reviews with 1, 9, 9, and 5 operations using a recording provider. It verified accepted/converged journal revisions, no repeated root operation in later reviews, and one reviewed repair after removing a physical URN. The same fixture initialized a separate real local Pulumi stack; cloud resource plans and effects were recorded, not native GCP execution. No host or final marker was reached.
 
+2026-09-26 continuation: The public fixture now loses one acknowledgement after the recording Pulumi provider has written a layer-one resource, then resumes the retained bootstrap transaction through `inventory resume --yes`. The adapter's no-change preview proves that operation complete, the journal continues the remaining operations, and the fixture checks that the affected `pulumi up --plan` ran exactly once. Candidate source revision `d748b3fb` passed `bash scripts/test-bootstrap-foundation-public.sh <built nagarectl>`. This is a public cloud-layer recovery proof, not the required foundation, host, cluster, and pre-marker interruption matrix.
+
 
 ## Surprises & Discoveries
 
