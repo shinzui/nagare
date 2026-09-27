@@ -353,6 +353,7 @@ import Nagare.Inventory.Backup
   , parseScheduledBackupReceipt, scheduledReceiptExpectationFromCronJob )
 import Nagare.Inventory.ScheduledReceipt (ScheduledReceiptEvidence (..), inspectScheduledReceipt)
 import Nagare.Inventory.ScheduledStore (ObjectReader (..), StoredObject (..))
+import Nagare.Inventory.ScheduledIngest (scheduledIngestJobSourcePins)
 import Nagare.Resource.Policy qualified as InventoryPolicy
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types qualified as Resource
@@ -5199,6 +5200,30 @@ backupRestoreTests =
           assertBool "changed receipt version bytes were accepted" (isLeft changedReceipt)
           changedObject <- inspectScheduledReceipt (reader False True) expectation runId (T.replicate 64 "a")
           assertBool "changed backup version bytes were accepted" (isLeft changedObject)
+      , testCase "scheduled backup ingestion requires all four source UID pins" $ do
+          let sourceId = "application:demo/database/statefulset" :: Text
+              sourceUid = "22222222-2222-2222-2222-222222222222" :: Text
+              annotations = KeyMap.fromList
+                [ ("nagare.dev/scheduled-receipt-id", Aeson.String "11111111-1111-1111-1111-111111111111")
+                , ("nagare.dev/scheduled-receipt-source-statefulset", Aeson.String sourceId)
+                , ("nagare.dev/scheduled-receipt-source-statefulset-uid", Aeson.String sourceUid)
+                , ("nagare.dev/scheduled-receipt-source-pvc", Aeson.String "application:demo/database/pvc")
+                , ("nagare.dev/scheduled-receipt-source-pvc-uid", Aeson.String sourceUid)
+                , ("nagare.dev/scheduled-receipt-schedule", Aeson.String "application:demo/database/backup")
+                , ("nagare.dev/scheduled-receipt-schedule-uid", Aeson.String sourceUid)
+                , ("nagare.dev/scheduled-receipt-signing", Aeson.String "application:demo/database/signing")
+                , ("nagare.dev/scheduled-receipt-signing-uid", Aeson.String sourceUid)
+                ]
+              job fields = LBS.toStrict (Aeson.encode (Aeson.object
+                [ "kind" Aeson..= ("Job" :: Text)
+                , "metadata" Aeson..= Aeson.object ["annotations" Aeson..= Aeson.Object fields]
+                ]))
+          case scheduledIngestJobSourcePins (job annotations) of
+            Right (Just pins) -> length pins @?= 4
+            other -> assertFailure ("complete scheduled source pins were rejected: " <> show other)
+          assertBool "partial scheduled source pins were accepted" (isLeft
+            (scheduledIngestJobSourcePins (job
+              (KeyMap.delete "nagare.dev/scheduled-receipt-signing-uid" annotations))))
       , testCase "reviewed backup reads back exact stored bytes for both backends" $ do
           let cloud = TE.decodeUtf8 (renderInventoryDbBackupCronJob "personal" "mydb" Postgres "18" tnbGcsBackend 7)
               local = TE.decodeUtf8 (renderInventoryDbBackupCronJob "personal" "mydb" Postgres "18" localMinioBackend 7)

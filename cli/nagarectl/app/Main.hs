@@ -268,6 +268,12 @@ import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Application (ApplicationScopeInput (..), GoogleCdnBinding (..), CloudflareCdnBinding (..), ReviewedCdnBinding (..), DatabaseBinding, ServiceAction (..), acceptedAccessBinding, acceptedApplicationImage, acceptedImageBuildSecrets, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationDeployment, compileServiceActionScope, compileStandaloneServiceWithReleaseAndBuild, compileStandaloneWorkerWithDependenciesAndBuild, databaseRecoveryBindings, hostnameClaimOwned, legacyApplicationReleaseImport, legacyStandaloneReleaseImport, nativeWorkloadOwned, recordReviewedStandaloneOverrides, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
 import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteReleaseLog, acceptedSiteSource, compileServerSitePreviewScopeWithBuild, compileServerSiteRollbackScopeWithBuild, compileServerSiteScopeWithBuild, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteRollbackScopeWithCdn, compileStaticSiteRollbackScopeWithCloudflare, compileStaticSiteScope, compileStaticSiteScopeWithCdn, compileStaticSiteScopeWithCloudflare, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
 import Nagare.Inventory.Backup (ManualBackupRequest (..), BackupSourceProof (..), VolumeSnapshotRequest (..), compileManualBackupScope, compileVolumeSnapshotScope, manualBackupSourceProof)
+import Nagare.Inventory.Backup (scheduledReceiptExpectationFromCronJob)
+import Nagare.Inventory.ScheduledIngest
+  ( ScheduledIngestRequest (..), ScheduledIngestSourceProof (..)
+  , compileScheduledIngestScope, scheduledIngestSourceProof )
+import Nagare.Inventory.ScheduledReceipt (inspectScheduledReceipt)
+import Nagare.Inventory.ScheduledStore (readSecretField, withLocalObjectStore)
 import Nagare.Inventory.Prune (ManualPruneRequest (..), PruneSourceProof (..), compileManualPruneScope, manualPruneSourceProof)
 import Nagare.Inventory.VolumePrune (VolumePruneRequest (..), compileVolumePruneScope)
 import Nagare.Inventory.Restore (ManualRestoreRequest (..), VolumeRestoreRequest (..), compileManualRestoreScope, compileVolumeRestoreScope, manualRestoreTargetProof)
@@ -1068,6 +1074,7 @@ data DbCommand
   | -- | nagarectl db backup NAME [-n NS] [--bucket B] [--keep N] [--dry-run] (EP-47)
     DbBackup DbBackupOpts
   | DbPruneBackup DbPruneBackupOpts
+  | DbBackupReceipts DbBackupReceiptsOpts
   | -- | nagarectl db disable-backup-prune NAME [-n NS] --save-plan DIR
     DbDisableBackupPrune DbNameOpts FilePath
   | -- | nagarectl db restore NAME BACKUP_ID [--into live] [--dry-run] (EP-47)
@@ -1200,6 +1207,15 @@ data DbPruneBackupOpts = DbPruneBackupOpts
   , namespace :: !(Maybe String)
   , bucket :: !(Maybe String)
   , savePlan :: !FilePath
+  }
+  deriving stock (Generic, Show)
+
+data DbBackupReceiptsOpts = DbBackupReceiptsOpts
+  { name :: !String
+  , namespace :: !(Maybe String)
+  , bucket :: !(Maybe String)
+  , backupId :: !(Maybe String)
+  , savePlan :: !(Maybe FilePath)
   }
   deriving stock (Generic, Show)
 
@@ -2016,6 +2032,15 @@ dbPruneBackupOptsParser =
     <*> namespaceOpt
     <*> dbBackupBucketOpt
     <*> strOption (long "save-plan" <> metavar "DIR" <> help "Save the exact backup pruning review")
+
+dbBackupReceiptsOptsParser :: Parser DbBackupReceiptsOpts
+dbBackupReceiptsOptsParser =
+  DbBackupReceiptsOpts
+    <$> dbNameArg
+    <*> namespaceOpt
+    <*> dbBackupBucketOpt
+    <*> optional (strOption (long "backup-id" <> metavar "JOB_UID" <> help "Physical scheduled backup Job UID to ingest"))
+    <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save an exact scheduled receipt ingestion review"))
 
 scopeSelectionParser :: Parser ScopeSelection
 scopeSelectionParser =
@@ -3007,6 +3032,12 @@ opts =
               ( info
                   (Db . DbPruneBackup <$> dbPruneBackupOptsParser <**> helper)
                   (progDesc "Review deletion of one expired manual backup and its exact receipt")
+              )
+            <> command
+              "backup-receipts"
+              ( info
+                  (Db . DbBackupReceipts <$> dbBackupReceiptsOptsParser <**> helper)
+                  (progDesc "List accepted scheduled receipts or save one exact ingestion review")
               )
             <> command
               "disable-backup-prune"
@@ -6356,6 +6387,7 @@ inventoryExecutionRegistry mctx bundle = do
     backupProof <- either dieT pure (manualBackupSourceProof scopeDeclaration)
     restoreProof <- either dieT pure (manualRestoreTargetProof scopeDeclaration)
     pruneProof <- either dieT pure (manualPruneSourceProof scopeDeclaration)
+    scheduledProof <- either dieT pure (scheduledIngestSourceProof scopeDeclaration)
     let jobIds = [member ^. #identity
           | resourceBundle <- ResourceInventory.scopeBundles scopeDeclaration
           , ResourceInventory.Managed member <- ResourceInventory.declarations resourceBundle
@@ -6366,15 +6398,19 @@ inventoryExecutionRegistry mctx bundle = do
           InventoryAdapter.plannedAction operation `elem`
             [InventoryAdapter.CreateResource, InventoryAdapter.RunDeclaredOperation]
             && any (`elem` jobIds) (NE.toList (InventoryAdapter.plannedResources operation))) operations
-    pure (if selectedJob then (catMaybes [backupProof, restoreProof], maybe [] (: []) pruneProof)
-      else ([], []))
-  let backupProofs = concatMap fst sourceProofs
-      pruneProofs = concatMap snd sourceProofs
+    pure (if selectedJob then (catMaybes [backupProof, restoreProof],
+        maybe [] (: []) pruneProof, maybe [] (: []) scheduledProof)
+      else ([], [], []))
+  let backupProofs = concatMap (\(selected, _, _) -> selected) sourceProofs
+      pruneProofs = concatMap (\(_, selected, _) -> selected) sourceProofs
+      scheduledProofs = concatMap (\(_, _, selected) -> selected) sourceProofs
   backupSourceNative <- loadReviewedBackupSourceNative mctx
     document backupProofs
   pruneSourceNative <- loadReviewedPruneSourceNative mctx document pruneProofs
-  let sourceNative = Map.union backupSourceNative pruneSourceNative
-  unless (Map.size sourceNative == Map.size backupSourceNative + Map.size pruneSourceNative)
+  scheduledSourceNative <- loadReviewedScheduledIngestSourceNative mctx document scheduledProofs
+  let sourceNative = Map.unions [backupSourceNative, pruneSourceNative, scheduledSourceNative]
+  unless (Map.size sourceNative == Map.size backupSourceNative + Map.size pruneSourceNative
+      + Map.size scheduledSourceNative)
     (dieT "manual data source native evidence overlaps")
   unless (all (\(resource, member) ->
       maybe True (== member) (Map.lookup resource sourceNative))
@@ -6511,6 +6547,61 @@ loadReviewedBackupSourceNative mctx document proofs = do
       selected = Map.restrictKeys acceptedNative wanted
   unless (Map.keysSet selected == wanted)
     (dieT "manual backup source lacks accepted private native evidence")
+  pure selected
+
+-- The saved scheduled-ingestion review pins the accepted database scope and
+-- all four dependencies. Their native bytes are reloaded only from that exact
+-- accepted revision; the Job annotations pin their observed UIDs at submit.
+loadReviewedScheduledIngestSourceNative
+  :: Maybe String -> InventoryPlan.ReviewDocument -> [ScheduledIngestSourceProof]
+  -> IO (Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString))
+loadReviewedScheduledIngestSourceNative _ _ [] = pure Map.empty
+loadReviewedScheduledIngestSourceNative mctx document proofs = do
+  active <- activeTarget mctx
+  store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+  history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
+  forM_ proofs $ \proof -> do
+    let sources = [(owner, revision, sourceScope) | (owner, (revision, sourceScope)) <-
+          Map.toAscList (InventoryPlan.historyAccepted history),
+          Resource.scopeIdText owner == scheduledSourceScopeName proof]
+    (owner, revision, sourceScope) <- case sources of
+      [single] -> pure single
+      _ -> dieT "scheduled ingestion source scope is no longer uniquely accepted"
+    unless (Resource.generationNumber (InventoryStore.revisionGeneration revision)
+        == scheduledSourceGeneration proof
+        && InventoryStore.revisionDigest revision == scheduledSourceDigest proof
+        && Map.lookup owner (InventoryPlan.reviewDesiredRevisions document) == Just revision)
+      (dieT "scheduled ingestion source scope revision changed after review")
+    let members = [member | bundle <- ResourceInventory.scopeBundles sourceScope,
+          ResourceInventory.Managed member <- ResourceInventory.declarations bundle]
+        one resourceId group kind = length
+          [member | member <- members, member ^. #identity == resourceId,
+            case member ^. #address of
+              Resource.Kubernetes _ api resourceKind _ _ ->
+                api == group && Resource.nameText resourceKind == kind
+              _ -> False] == 1
+    unless (one (scheduledSourceStatefulId proof) "apps" "statefulset"
+        && one (scheduledSourcePvcId proof) "" "persistentvolumeclaim"
+        && one (scheduledSourceScheduleId proof) "batch" "cronjob"
+        && one (scheduledSourceSigningId proof) "" "secret")
+      (dieT "scheduled ingestion source resources changed after review")
+  acceptedSnapshot <- either (dieT . T.pack . show) pure
+    (ResourceInventory.mkScopeSnapshot (InventoryPlan.reviewContextBinding document)
+      (Map.map (\(revision, sourceScope) ->
+        (InventoryStore.revisionGeneration revision, sourceScope))
+        (InventoryPlan.historyAccepted history))
+      (InventoryPlan.historyReservations history))
+  acceptedInventory <- either (dieT . T.pack . show) pure
+    (ResourceInventory.composeSnapshot acceptedSnapshot)
+  (acceptedNative, _) <- InventoryStatus.loadAcceptedNative store history acceptedInventory
+    >>= either dieT pure
+  let wanted = Set.fromList (concat
+        [[scheduledSourceStatefulId proof, scheduledSourcePvcId proof,
+          scheduledSourceScheduleId proof, scheduledSourceSigningId proof]
+          | proof <- proofs])
+      selected = Map.restrictKeys acceptedNative wanted
+  unless (Map.keysSet selected == wanted)
+    (dieT "scheduled ingestion source lacks accepted private native evidence")
   pure selected
 
 -- A saved prune review may execute only while the same backup scope and Job
@@ -10203,6 +10294,13 @@ runDb mctx = \case
   DbPruneBackup o -> runReviewedDbPruneBackupPlan mctx (T.pack (o ^. #name))
     (nsOf (o ^. #namespace)) (T.pack (o ^. #backupId))
     (o ^. #bucket) (o ^. #savePlan)
+  DbBackupReceipts o -> case (o ^. #backupId, o ^. #savePlan) of
+    (Just selected, Just output) -> runReviewedScheduledReceiptPlan mctx
+      (T.pack (o ^. #name)) (nsOf (o ^. #namespace)) (o ^. #bucket)
+      (T.pack selected) output
+    (Nothing, Nothing) -> runListScheduledReceipts mctx
+      (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
+    _ -> dieT "scheduled receipt ingestion requires both --backup-id and --save-plan"
   DbDisableBackupPrune o output ->
     runDisableBackupPrunePlan mctx (T.pack (o ^. #name)) (nsOf (o ^. #namespace)) output
   DbRestore o -> do
@@ -10790,6 +10888,144 @@ runReviewedTaskRunPlan mctx options output = do
       (inventoryExecutionRegistry mctx) active candidate
     Just directory -> Inventory.planInventoryCandidateWith
       (inventoryPlanRegistryWithNative active workspace native) active candidate directory
+
+runListScheduledReceipts :: Maybe String -> Text -> Text -> IO ()
+runListScheduledReceipts mctx database namespaceName = do
+  active <- activeTarget mctx
+  snapshot <- Inventory.loadTargetSnapshot active
+  (cluster, _) <- either dieT pure (acceptedFoundationNamespace snapshot namespaceName)
+  statefulAddress <- either dieT pure (Resource.kubernetesAddress cluster "apps/v1"
+    "StatefulSet" (Just namespaceName) database)
+  let sources = [scope | (_, scope) <- Map.elems
+        (ResourceInventory.snapshotScopes snapshot),
+        bundle <- ResourceInventory.scopeBundles scope,
+        ResourceInventory.Managed member <- ResourceInventory.declarations bundle,
+        member ^. #address == statefulAddress]
+  sourceScope <- case sources of
+    [single] -> pure single
+    _ -> dieT "scheduled receipt listing requires one accepted database source"
+  let rows = [(scope, selected) | (_, scope) <- Map.elems
+        (ResourceInventory.snapshotScopes snapshot),
+        Map.lookup "scheduled.backup.source.scope" (ResourceInventory.scopeOverrides scope)
+          == Just (Resource.scopeIdText (ResourceInventory.scopeId sourceScope)),
+        Just selected <- [Map.lookup "scheduled.backup.id" (ResourceInventory.scopeOverrides scope)]]
+  if null rows then TIO.putStrLn "No accepted scheduled backup receipts."
+    else forM_ rows $ \(scope, selected) -> TIO.putStrLn
+      (selected <> "  " <> Resource.scopeIdText (ResourceInventory.scopeId scope))
+
+runReviewedScheduledReceiptPlan
+  :: Maybe String -> Text -> Text -> Maybe String -> Text -> FilePath -> IO ()
+runReviewedScheduledReceiptPlan mctx database namespaceName bucketArg backupId output = do
+  active <- activeTarget mctx
+  (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+  snapshot <- Inventory.loadTargetSnapshot active
+  (cluster, _) <- either dieT pure (acceptedFoundationNamespace snapshot namespaceName)
+  let findAddress api kind name = either dieT pure
+        (Resource.kubernetesAddress cluster api kind (Just namespaceName) name)
+      members scope address = [member | bundle <- ResourceInventory.scopeBundles scope,
+        ResourceInventory.Managed member <- ResourceInventory.declarations bundle,
+        member ^. #address == address]
+  statefulAddress <- findAddress "apps/v1" "StatefulSet" database
+  let sources = [(scope, member) | (_, scope) <- Map.elems
+        (ResourceInventory.snapshotScopes snapshot),
+        member <- members scope statefulAddress]
+  (sourceScope, stateful) <- case sources of
+    [single] -> pure single
+    _ -> dieT "scheduled receipt requires one accepted database StatefulSet"
+  pvcAddress <- findAddress "v1" "PersistentVolumeClaim" (dbPvcName database)
+  cronAddress <- findAddress "batch/v1" "CronJob" ("nagare-dbbackup-" <> database)
+  signingAddress <- findAddress "v1" "Secret"
+    ("nagare-dbbackup-" <> database <> "-signing")
+  let unique label address = case members sourceScope address of
+        [single] -> pure single
+        _ -> dieT ("scheduled receipt requires one accepted " <> label)
+  pvc <- unique "database PVC" pvcAddress
+  cron <- unique "backup CronJob" cronAddress
+  signing <- unique "backup signing Secret" signingAddress
+  store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+  history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
+  revision <- case Map.lookup (ResourceInventory.scopeId sourceScope)
+    (InventoryPlan.historyAccepted history) of
+    Just (acceptedRevision, acceptedScope) | acceptedScope == sourceScope -> pure acceptedRevision
+    _ -> dieT "scheduled receipt source scope differs from accepted history"
+  acceptedInventory <- either (dieT . T.pack . show) pure
+    (ResourceInventory.composeSnapshot snapshot)
+  (acceptedNative, _) <- InventoryStatus.loadAcceptedNative store history acceptedInventory
+    >>= either dieT pure
+  let sourceIds = map (^. #identity) [stateful, pvc, cron, signing]
+      sourceNative = Map.restrictKeys acceptedNative (Set.fromList sourceIds)
+  unless (Map.size sourceNative == 4)
+    (dieT "scheduled receipt source lacks accepted private native evidence")
+  sourceAdapter <- inventoryKubernetesAdapter active
+    (ResourceInventory.snapshotBinding snapshot)
+    (\_ -> pure (Left "scheduled receipt source observation does not use a cache key")) sourceNative
+  observed <- InventoryAdapter.adapterObserve sourceAdapter sourceIds >>= either dieT pure
+  let physical resource = case Map.lookup resource (InventoryAdapter.observationMap observed) of
+        Just (InventoryAdapter.ObservedPresent uid) -> pure uid
+        _ -> dieT "scheduled receipt source, schedule, or signing key is absent, drifted, or not ready"
+  statefulUid <- physical (stateful ^. #identity)
+  pvcUid <- physical (pvc ^. #identity)
+  cronUid <- physical (cron ^. #identity)
+  signingUid <- physical (signing ^. #identity)
+  (_, cronBytes) <- maybe (dieT "accepted CronJob lacks native bytes") pure
+    (Map.lookup (cron ^. #identity) sourceNative)
+  backend <- resolveStoreBackend mctx bucketArg
+  expectation <- either dieT pure (scheduledReceiptExpectationFromCronJob backend
+    namespaceName database statefulUid pvcUid cronBytes)
+  minio <- case backend of
+    MinioBackend ref -> pure ref
+    GcsBackend {} -> dieT "cloud scheduled receipt ingestion requires exact-generation provider inspection"
+  let contextName = contextNameText (active ^. #contextName)
+  signingResult <- readSecretField contextName namespaceName
+    ("nagare-dbbackup-" <> database <> "-signing") "HMAC_KEY"
+  signingKey <- either dieT pure signingResult
+  candidateResult <- withLocalObjectStore contextName minio $ \reader ->
+    inspectScheduledReceipt reader expectation backupId signingKey
+  evidence <- either dieT pure candidateResult >>= either dieT pure
+  let request = ScheduledIngestRequest
+        { ingestDatabase = database, ingestNamespace = namespaceName
+        , ingestBackupId = backupId, ingestSourceRevision = revision
+        , ingestStatefulUid = statefulUid, ingestPvcUid = pvcUid
+        , ingestScheduleUid = cronUid, ingestSigningUid = signingUid
+        , ingestEvidence = evidence, ingestBackend = backend
+        , ingestSource = Resource.SourceLocation
+            ("db backup-receipts/" <> database) backupId }
+  (receiptScope, receiptNative) <- either (dieT . T.pack . show) pure
+    (compileScheduledIngestScope request sourceScope acceptedNative)
+  case Map.lookup (ResourceInventory.scopeId receiptScope)
+    (ResourceInventory.snapshotScopes snapshot) of
+    Just (_, prior) | prior /= receiptScope -> do
+      let keys = Set.toList (Map.keysSet (ResourceInventory.scopeOverrides prior)
+            `Set.union` Map.keysSet (ResourceInventory.scopeOverrides receiptScope))
+          changed = [key | key <- keys,
+            Map.lookup key (ResourceInventory.scopeOverrides prior)
+              /= Map.lookup key (ResourceInventory.scopeOverrides receiptScope)]
+          beforeDeclarations = concatMap ResourceInventory.declarations
+            (ResourceInventory.scopeBundles prior)
+          afterDeclarations = concatMap ResourceInventory.declarations
+            (ResourceInventory.scopeBundles receiptScope)
+          beforeOperations = concatMap ResourceInventory.operations
+            (ResourceInventory.scopeBundles prior)
+          afterOperations = concatMap ResourceInventory.operations
+            (ResourceInventory.scopeBundles receiptScope)
+      dieT ("scheduled receipt ID already has another accepted intent; changed fields: "
+        <> T.intercalate "," changed
+        <> "; native bundle changed: " <> T.pack (show
+          (ResourceInventory.scopeBundles prior /= ResourceInventory.scopeBundles receiptScope))
+        <> "; declaration changed: " <> T.pack (show
+          (beforeDeclarations /= afterDeclarations))
+        <> "; operation changed: " <> T.pack (show
+          (beforeOperations /= afterOperations))
+        <> "; config digest changed: " <> T.pack (show
+          (ResourceInventory.scopeConfigDigest prior /= ResourceInventory.scopeConfigDigest receiptScope)))
+    _ -> pure ()
+  candidate <- either (dieT . T.pack . show) pure
+    (ResourceInventory.composeInventory snapshot
+      (ResourceInventory.ReplaceScope receiptScope NE.:| []))
+  Inventory.planInventoryCandidateWith
+    (inventoryPlanRegistryWithNative active workspace
+      (Map.union receiptNative sourceNative)) active candidate output
+  TIO.putStrLn "Saved exact scheduled receipt ingestion review. Apply it to verify both stored versions."
 
 runReviewedDbBackupPlan
   :: Maybe String -> Text -> Text -> Maybe String -> Text -> Maybe Text -> FilePath -> IO ()

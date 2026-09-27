@@ -149,6 +149,7 @@ library
     Nagare.Inventory.VolumePrune
     Nagare.Inventory.Restore
     Nagare.Inventory.ScheduledReceipt
+    Nagare.Inventory.ScheduledIngest
     Nagare.Inventory.ScheduledStore
     Nagare.Inventory.Environment
     Nagare.Inventory.ImageBuild

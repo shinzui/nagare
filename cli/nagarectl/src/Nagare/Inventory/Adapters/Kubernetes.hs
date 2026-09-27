@@ -30,6 +30,7 @@ import Nagare.Inventory.Backup
   , manualBackupJobSourcePins, volumeSnapshotJobSourcePins, parseBackupReceipt )
 import Nagare.Inventory.Restore (manualRestoreJobTargetPins, volumeRestoreJobSourcePins)
 import Nagare.Inventory.Prune (manualPruneJobBackupPin)
+import Nagare.Inventory.ScheduledIngest (scheduledIngestJobSourcePins)
 import Nagare.Inventory.VolumePrune (volumePruneJobCredentialPin)
 import Nagare.Inventory.BackendMap (renderBackendMapNative, renderShomeiSettingsNative)
 import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
@@ -205,19 +206,21 @@ mkKubernetesAdapterWithBackupReceipt specs ops readBackupReceipt =
           Just (_, native) -> case (manualBackupJobSourcePins native,
             manualRestoreJobTargetPins native, manualPruneJobBackupPin native,
             volumeSnapshotJobSourcePins native, volumeRestoreJobSourcePins native,
-            volumePruneJobCredentialPin native) of
-            (Left reason, _, _, _, _, _) -> pure (Left reason)
-            (_, Left reason, _, _, _, _) -> pure (Left reason)
-            (_, _, Left reason, _, _, _) -> pure (Left reason)
-            (_, _, _, Left reason, _, _) -> pure (Left reason)
-            (_, _, _, _, Left reason, _) -> pure (Left reason)
-            (_, _, _, _, _, Left reason) -> pure (Left reason)
+            volumePruneJobCredentialPin native,
+            scheduledIngestJobSourcePins native) of
+            (Left reason, _, _, _, _, _, _) -> pure (Left reason)
+            (_, Left reason, _, _, _, _, _) -> pure (Left reason)
+            (_, _, Left reason, _, _, _, _) -> pure (Left reason)
+            (_, _, _, Left reason, _, _, _) -> pure (Left reason)
+            (_, _, _, _, Left reason, _, _) -> pure (Left reason)
+            (_, _, _, _, _, Left reason, _) -> pure (Left reason)
+            (_, _, _, _, _, _, Left reason) -> pure (Left reason)
             (Right backupPins, Right restorePins, Right prunePin, Right volumePins,
-              Right volumeRestorePins, Right volumePruneCredential) -> do
+              Right volumeRestorePins, Right volumePruneCredential, Right scheduledPins) -> do
               checked <- traverse checkOne (maybe [] id backupPins <> maybe [] id restorePins
                 <> maybe [] (: []) prunePin <> maybe [] id volumePins
                 <> maybe [] id volumeRestorePins
-                <> maybe [] (: []) volumePruneCredential)
+                <> maybe [] (: []) volumePruneCredential <> maybe [] id scheduledPins)
               pure (sequence_ checked)
       where
         checkOne (resource, expectedUid) = case Map.lookup resource specs of
