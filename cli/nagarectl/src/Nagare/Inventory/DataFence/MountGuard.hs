@@ -7,16 +7,20 @@ module Nagare.Inventory.DataFence.MountGuard
   , PodOwnerPermit
   , mkMountGuard
   , withGuardedStatefulSets
+  , withGuardedDeployments
   , withGuardedService
   , withGuardedSchedules
   , GuardedStatefulSet (..)
+  , GuardedDeployment (..)
   , GuardedService (..)
   , GuardedSchedule (..)
   , guardedStatefulSets
+  , guardedDeployments
   , guardedService
   , guardedSchedules
   , mkPodOwnerPermit
   , validUid
+  , validGuardSelector
   , mountGuardName
   , guardNamespaceName
   , guardClaimName
@@ -28,6 +32,7 @@ module Nagare.Inventory.DataFence.MountGuard
   , pvMutationGuardObjects
   , namespaceDeleteGuardObjects
   , statefulWriterGuardObjects
+  , deploymentWriterGuardObjects
   , serviceMutationGuardObjects
   , endpointSliceGuardObjects
   , scheduledWriterGuardObjects
@@ -35,6 +40,8 @@ module Nagare.Inventory.DataFence.MountGuard
 
 import Data.Aeson (Value, object, (.=))
 import Data.Char (isAlphaNum, isAscii, isAsciiLower)
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -60,6 +67,7 @@ data MountGuard = MountGuard
   , guardVolumeUid :: !Text
   , guardPermits :: ![PodOwnerPermit]
   , guardWriters :: ![GuardedStatefulSet]
+  , guardDeployments :: ![GuardedDeployment]
   , guardService :: !(Maybe GuardedService)
   , guardSchedules :: ![GuardedSchedule]
   }
@@ -69,6 +77,14 @@ data GuardedStatefulSet = GuardedStatefulSet
   { guardedWriterNamespace :: !Text
   , guardedWriterName :: !Text
   , guardedWriterUid :: !Text
+  }
+  deriving stock (Eq, Show)
+
+data GuardedDeployment = GuardedDeployment
+  { guardedDeploymentNamespace :: !Text
+  , guardedDeploymentName :: !Text
+  , guardedDeploymentUid :: !Text
+  , guardedDeploymentSelector :: !(Map Text Text)
   }
   deriving stock (Eq, Show)
 
@@ -121,7 +137,7 @@ mkMountGuard session namespace claim claimUid volume volumeUid permits = do
   unless (validUid volumeUid) (Left "fenced PV UID is not a canonical Kubernetes UUID")
   MountGuard session <$> mkName namespace <*> mkName claim <*> pure claimUid
     <*> mkName volume <*> pure volumeUid <*> pure permits <*> pure []
-    <*> pure Nothing <*> pure []
+    <*> pure [] <*> pure Nothing <*> pure []
 
 withGuardedStatefulSets :: MountGuard -> [(Text, Text, Text)]
   -> Either Text MountGuard
@@ -140,6 +156,33 @@ withGuardedStatefulSets guard writers = do
 
 guardedStatefulSets :: MountGuard -> [GuardedStatefulSet]
 guardedStatefulSets = guardWriters
+
+withGuardedDeployments :: MountGuard -> [(Text, Text, Text, Map Text Text)]
+  -> Either Text MountGuard
+withGuardedDeployments guard deployments = do
+  validated <- traverse validate deployments
+  let addresses = [(guardedDeploymentNamespace deployment,
+        guardedDeploymentName deployment) | deployment <- validated]
+  unless (length addresses == Set.size (Set.fromList addresses))
+    (Left "fenced Deployment address is duplicated")
+  pure guard {guardDeployments = validated}
+  where
+    validate (namespace, name, uid, selector) = do
+      unless (validDnsLabel namespace && validDnsSubdomain name && validUid uid
+          && validGuardSelector selector)
+        (Left "fenced Deployment address, UID, or selector is malformed")
+      pure (GuardedDeployment namespace name uid selector)
+
+guardedDeployments :: MountGuard -> [GuardedDeployment]
+guardedDeployments = guardDeployments
+
+validGuardSelector :: Map Text Text -> Bool
+validGuardSelector selector = not (Map.null selector)
+  && all (\(key, value) -> valid key && valid value) (Map.toList selector)
+  where
+    valid value = not (T.null value) && T.length value <= 253
+      && T.all (\character -> isAscii character &&
+        (isAlphaNum character || character `elem` ("-_./" :: String))) value
 
 withGuardedService :: MountGuard -> Text -> Text -> Text
   -> Either Text MountGuard
@@ -353,6 +396,69 @@ statefulWriterGuardObjects guard = concatMap renderWriter (guardWriters guard)
               [ "policyName" .= name
               , "validationActions" .= (["Deny"] :: [Text])
               ]]
+
+-- | A Deployment may only scale toward zero. Its ReplicaSets cannot change
+-- their Pod templates, gain or lose the reviewed owner, or create new client
+-- Pods while the fence is active. Existing Pods remain free to terminate.
+deploymentWriterGuardObjects :: MountGuard -> [(Value, Value)]
+deploymentWriterGuardObjects guard = concatMap render (guardDeployments guard)
+  where
+    render deployment =
+      [ mutationGuardObjects guard ("d-" <> key)
+          ["UPDATE", "DELETE"] "apps" "deployments" parentExpression message
+      , mutationGuardObjects guard ("x-" <> key)
+          ["UPDATE", "DELETE"] "apps" "deployments/scale" scaleExpression message
+      , mutationGuardObjects guard ("c-" <> key)
+          ["CREATE"] "" "pods" podExpression
+          "Nagare database client Pod is fenced"
+      , mutationGuardObjects guard ("n-" <> key)
+          ["CREATE"] "apps" "replicasets"
+          ("request.namespace != '" <> guardedDeploymentNamespace deployment
+            <> "' || !" <> owned "object") message
+      , mutationGuardObjects guard ("r-" <> key)
+          ["UPDATE"] "apps" "replicasets" replicaSetExpression message
+      , mutationGuardObjects guard ("z-" <> key)
+          ["DELETE"] "apps" "replicasets"
+          ("request.namespace != '" <> guardedDeploymentNamespace deployment
+            <> "' || !" <> owned "oldObject") message
+      ]
+      where
+        key = T.take 8 (digestText (contentDigest (TE.encodeUtf8
+          (T.intercalate "/" [guardedDeploymentNamespace deployment,
+            guardedDeploymentName deployment, guardedDeploymentUid deployment]))))
+        message = "Nagare database client controller is fenced"
+        address = "oldObject.metadata.namespace != '"
+          <> guardedDeploymentNamespace deployment
+          <> "' || oldObject.metadata.name != '"
+          <> guardedDeploymentName deployment <> "' || "
+        zero = "(!has(object.spec.replicas) || object.spec.replicas == 0)"
+        parentExpression = address
+          <> "(request.operation == 'UPDATE' && " <> zero
+          <> " && object.spec.selector == oldObject.spec.selector"
+          <> " && object.spec.template == oldObject.spec.template"
+          <> " && (!has(oldObject.spec.replicas)"
+          <> " || oldObject.spec.replicas != 0 || object.spec == oldObject.spec))"
+        scaleExpression = address
+          <> "(request.operation == 'UPDATE' && " <> zero <> ")"
+        selector = T.intercalate " && "
+          ["'" <> label <> "' in object.metadata.labels && "
+            <> "object.metadata.labels['" <> label <> "'] == '" <> value <> "'"
+          | (label, value) <- Map.toAscList
+              (guardedDeploymentSelector deployment)]
+        podExpression = "request.namespace != '"
+          <> guardedDeploymentNamespace deployment
+          <> "' || !has(object.metadata.labels) || !(" <> selector <> ")"
+        owned target = "(has(" <> target <> ".metadata.ownerReferences) && "
+          <> target <> ".metadata.ownerReferences.exists(r, "
+          <> "r.kind == 'Deployment' && r.uid == '"
+          <> guardedDeploymentUid deployment <> "'))"
+        replicaSetExpression = "request.namespace != '"
+          <> guardedDeploymentNamespace deployment <> "' || "
+          <> "((!" <> owned "oldObject" <> " && !" <> owned "object" <> ")"
+          <> " || (" <> owned "oldObject" <> " && " <> owned "object"
+          <> " && " <> zero
+          <> " && object.spec.selector == oldObject.spec.selector"
+          <> " && object.spec.template == oldObject.spec.template))"
 
 -- | The Service route cannot be changed or deleted while exclusion is active.
 -- The UID is also observed against the durable pin before every data effect.

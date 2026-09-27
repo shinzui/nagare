@@ -153,16 +153,19 @@ guardObjects guard =
       (pvPolicy, pvBinding) = pvMutationGuardObjects guard
       (namespacePolicy, namespaceBinding) = namespaceDeleteGuardObjects guard
       writerPairs = statefulWriterGuardObjects guard
+      deploymentPairs = deploymentWriterGuardObjects guard
       servicePairs = maybe [] (: []) (serviceMutationGuardObjects guard)
       slicePairs = maybe [] (: []) (endpointSliceGuardObjects guard)
       schedulePairs = scheduledWriterGuardObjects guard
    in [podPolicy, pvcPolicy, pvPolicy, namespacePolicy]
       <> map fst writerPairs
+      <> map fst deploymentPairs
       <> map fst servicePairs
       <> map fst slicePairs
       <> map fst schedulePairs
       <> [podBinding, pvcBinding, pvBinding, namespaceBinding]
       <> map snd writerPairs
+      <> map snd deploymentPairs
       <> map snd servicePairs
       <> map snd slicePairs
       <> map snd schedulePairs
@@ -279,7 +282,7 @@ kubectlMountGuardTransport config = MountGuardTransport
         Right (ExitFailure _, _, errors) ->
           Right ("Nagare live PVC is fenced" `T.isInfixOf` T.pack errors)
     probeScale guard = do
-      results <- forM (guardedStatefulSets guard) $ \writer -> do
+      statefulResults <- forM (guardedStatefulSets guard) $ \writer -> do
         let patch = toJSON
               [ object ["op" .= ("test" :: Text)
                   , "path" .= ("/metadata/uid" :: Text)
@@ -298,7 +301,74 @@ kubectlMountGuardTransport config = MountGuardTransport
           "delete", "statefulset", T.unpack (guardedWriterName writer),
           "--dry-run=server"] ""
         pure $ and <$> traverse denied [parent, scale, deletion]
-      pure (and <$> sequence results)
+      deploymentResults <- forM (guardedDeployments guard) $ \deployment -> do
+        let namespace = T.unpack (guardedDeploymentNamespace deployment)
+            name = T.unpack (guardedDeploymentName deployment)
+            patch = toJSON
+              [ object ["op" .= ("test" :: Text)
+                  , "path" .= ("/metadata/uid" :: Text)
+                  , "value" .= guardedDeploymentUid deployment]
+              , object ["op" .= ("replace" :: Text)
+                  , "path" .= ("/spec/replicas" :: Text)
+                  , "value" .= (1 :: Int)]]
+            selector = guardedDeploymentSelector deployment
+            probeName = T.take 40 (mountGuardName guard) <> "-client-probe"
+            pod = object
+              [ "apiVersion" .= ("v1" :: Text)
+              , "kind" .= ("Pod" :: Text)
+              , "metadata" .= object
+                  [ "name" .= probeName
+                  , "labels" .= selector]
+              , "spec" .= object
+                  [ "containers" .= [object
+                      [ "name" .= ("probe" :: Text)
+                      , "image" .= ("registry.k8s.io/pause:3.9" :: Text)]]]
+              ]
+            replicaSet = object
+              [ "apiVersion" .= ("apps/v1" :: Text)
+              , "kind" .= ("ReplicaSet" :: Text)
+              , "metadata" .= object
+                  [ "name" .= (T.take 40 (mountGuardName guard) <> "-rs-probe")
+                  , "labels" .= selector
+                  , "ownerReferences" .= [object
+                      [ "apiVersion" .= ("apps/v1" :: Text)
+                      , "kind" .= ("Deployment" :: Text)
+                      , "name" .= guardedDeploymentName deployment
+                      , "uid" .= guardedDeploymentUid deployment
+                      , "controller" .= True]]]
+              , "spec" .= object
+                  [ "replicas" .= (0 :: Int)
+                  , "selector" .= object ["matchLabels" .= selector]
+                  , "template" .= object
+                      [ "metadata" .= object ["labels" .= selector]
+                      , "spec" .= object
+                          ["containers" .= [object
+                            [ "name" .= ("probe" :: Text)
+                            , "image" .= ("registry.k8s.io/pause:3.9" :: Text)]]]
+                      ]]
+              ]
+        parent <- invoke ["--namespace", namespace, "patch", "deployment", name,
+          "--type=json", "-p",
+          T.unpack (TE.decodeUtf8 (BL.toStrict (encode patch))),
+          "--dry-run=server"] ""
+        scale <- invoke ["--namespace", namespace, "scale", "deployment", name,
+          "--replicas=1", "--dry-run=server"] ""
+        deletion <- invoke ["--namespace", namespace, "delete", "deployment", name,
+          "--dry-run=server"] ""
+        podCreate <- invoke ["--namespace", namespace, "create", "-f", "-",
+          "--dry-run=server"]
+          (T.unpack (TE.decodeUtf8 (BL.toStrict (encode pod))))
+        replicaSetCreate <- invoke ["--namespace", namespace, "create", "-f", "-",
+          "--dry-run=server"]
+          (T.unpack (TE.decodeUtf8 (BL.toStrict (encode replicaSet))))
+        pure $ and <$> sequence
+          [ deniedWith "Nagare database client controller is fenced" parent
+          , deniedWith "Nagare database client controller is fenced" scale
+          , deniedWith "Nagare database client controller is fenced" deletion
+          , deniedWith "Nagare database client Pod is fenced" podCreate
+          , deniedWith "Nagare database client controller is fenced"
+              replicaSetCreate]
+      pure (and <$> sequence (statefulResults <> deploymentResults))
     probeService guard = case guardedService guard of
       Nothing -> pure (Right True)
       Just service -> do

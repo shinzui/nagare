@@ -143,7 +143,30 @@ dataFenceTests = testGroup "data fence"
                 other -> other)}
         case decodeKubernetesFenceIntent unsupported of
           Left _ -> pure ()
-          Right _ -> assertFailure "unsupported writer control was accepted"
+          Right _ -> assertFailure "Deployment without a selector was accepted"
+        let savedDeployment = object
+              [ "kind" .= ("Deployment" :: Text)
+              , "namespace" .= ("restore-space" :: Text)
+              , "name" .= ("client" :: Text)
+              , "uid" .= (writerUid :: Text)
+              , "replicas" .= (1 :: Int)
+              , "specDigest" .= contentDigest "fixture-deployment-spec"
+              , "selector" .= Map.singleton ("app" :: Text) ("client" :: Text)
+              , "mountsTarget" .= True]
+            deploymentNative = native
+              {fenceSavedWriters = Map.singleton writer savedDeployment}
+        deploymentIntent <- right (decodeKubernetesFenceIntent deploymentNative)
+        map fst (kubernetesDeploymentWriters deploymentIntent) @?= [writer]
+        length (deploymentWriterGuardObjects
+          (kubernetesMountGuard deploymentIntent)) @?= 6
+        let deploymentCandidate = candidate
+              { candidateKind = DeploymentWriter
+              , candidateAddress = Kubernetes clusterId "apps"
+                  (known (mkName "deployment"))
+                  (Just (known (mkName "restore-space")))
+                  (known (mkName "client"))}
+        _ <- right (validateKubernetesWriterInventory deploymentIntent
+          [deploymentCandidate])
         let extraField = native {fenceProviderIntent = Just (case provider of
               Object fields -> Object (KM.insert "unreviewed" (String "value") fields)
               other -> other)}
@@ -217,12 +240,15 @@ dataFenceTests = testGroup "data fence"
             writerUid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
             serviceUid = "99999999-8888-7777-6666-555555555555"
             scheduleUid = "cccccccc-1111-2222-3333-444444444444"
+            deploymentUid = "dddddddd-1111-2222-3333-444444444444"
             cluster = mintResourceId fenceOwner
               (known (mkLogicalKey "cluster")) (known (mkName "cluster"))
             serviceId = mintResourceId fenceOwner
               (known (mkLogicalKey "service")) (known (mkName "service"))
             scheduleId = mintResourceId fenceOwner
               (known (mkLogicalKey "backup-schedule")) (known (mkName "cronjob"))
+            deploymentId = mintResourceId fenceOwner
+              (known (mkLogicalKey "database-client")) (known (mkName "deployment"))
             provider = object
               [ "version" .= (1 :: Int)
               , "provider" .= ("kubernetes" :: Text)
@@ -265,15 +291,28 @@ dataFenceTests = testGroup "data fence"
               , "suspend" .= False
               , "specDigest" .= known (digestScheduledWriterSpec nativeSchedule)
               , "mountsTarget" .= False]
+            savedDeployment = object
+              [ "kind" .= ("Deployment" :: Text)
+              , "namespace" .= ("restore-space" :: Text)
+              , "name" .= ("database-client" :: Text)
+              , "uid" .= (deploymentUid :: Text)
+              , "replicas" .= (1 :: Int)
+              , "specDigest" .= known
+                  (Deployment.digestDeploymentWriterSpec nativeDeployment)
+              , "selector" .= Map.singleton ("app" :: Text)
+                  ("database-client" :: Text)
+              , "mountsTarget" .= False]
             nativeRecord = request
               { fencePhysical = Map.fromList
                   [(target, known (mkPhysicalIdentity pvcUid))
                   , (writer, known (mkPhysicalIdentity writerUid))
                   , (serviceId, known (mkPhysicalIdentity serviceUid))
-                  , (scheduleId, known (mkPhysicalIdentity scheduleUid))]
-              , fenceAffected = Set.fromList [writer, scheduleId]
+                  , (scheduleId, known (mkPhysicalIdentity scheduleUid))
+                  , (deploymentId, known (mkPhysicalIdentity deploymentUid))]
+              , fenceAffected = Set.fromList [writer, scheduleId, deploymentId]
               , fenceSavedWriters = Map.fromList
-                  [(writer, savedWriter), (scheduleId, savedSchedule)]
+                  [(writer, savedWriter), (scheduleId, savedSchedule)
+                  , (deploymentId, savedDeployment)]
               , fenceProviderIntent = Just provider
               }
             pvc = object
@@ -314,6 +353,13 @@ dataFenceTests = testGroup "data fence"
                   ["persistentVolumeClaim" .= object
                     ["claimName" .= ("data-pvc" :: Text)]]]]]]
             nativeWriter = object ["spec" .= writerSpec (1 :: Int)]
+            deploymentSpec replicas = object
+              [ "replicas" .= (replicas :: Int)
+              , "selector" .= object ["matchLabels" .= object
+                  ["app" .= ("database-client" :: Text)]]
+              , "template" .= object ["metadata" .= object ["labels" .= object
+                  ["app" .= ("database-client" :: Text)]]]]
+            nativeDeployment = object ["spec" .= deploymentSpec (1 :: Int)]
             nativeService = object ["spec" .= object ["selector" .= object
               ["nagare.dev/database" .= ("database" :: Text)]]]
             scheduleSpec suspended = object
@@ -344,6 +390,7 @@ dataFenceTests = testGroup "data fence"
                in (resource, (ManagedResource resource fenceOwner KubernetesExecutor
                     (Kubernetes cluster (case kind of
                       "statefulset" -> "apps"
+                      "deployment" -> "apps"
                       "cronjob" -> "batch"
                       _ -> "")
                       (known (mkName kind)) (Just (known (mkName "restore-space")))
@@ -354,11 +401,15 @@ dataFenceTests = testGroup "data fence"
                 "nagare-dbbackup-database" nativeSchedule of
               (resource, (nativeMember, bytes)) ->
                 (resource, (nativeMember {dependencies = [OrderedAfter writer]}, bytes))
+            deploymentMember = case member deploymentId "deployment"
+                "database-client" nativeDeployment of
+              (resource, (nativeMember, bytes)) ->
+                (resource, (nativeMember {dependencies = [OrderedAfter serviceId]}, bytes))
             acceptedNative = Map.fromList
               [member target "persistentvolumeclaim" "data-pvc" (object [])
               ,member writer "statefulset" "database" nativeWriter
               ,member serviceId "service" "database" nativeService
-              ,scheduleMember]
+              ,scheduleMember, deploymentMember]
             declarations = [Managed resource | (resource, _) <- Map.elems acceptedNative]
             address (Object fields) = case
               (KM.lookup "kind" fields, KM.lookup "metadata" fields) of
@@ -379,6 +430,8 @@ dataFenceTests = testGroup "data fence"
         schedulePodPhase <- newIORef ("Running" :: Text)
         schedulePatches <- newIORef (0 :: Int)
         replicas <- newIORef (1 :: Int)
+        deploymentReplicas <- newIORef (1 :: Int)
+        deploymentPatches <- newIORef (0 :: Int)
         drained <- newIORef False
         endpointsCleared <- newIORef False
         patches <- newIORef (0 :: Int)
@@ -460,6 +513,60 @@ dataFenceTests = testGroup "data fence"
                         _ -> pure (Left "replica patch lacks a value")
                   _ -> pure (Left "replica patch is malformed")
               }
+            deploymentTransport = Deployment.DeploymentWriterTransport
+              { Deployment.readDeploymentWriter = \_ _ -> do
+                  desired <- readIORef deploymentReplicas
+                  ready <- readIORef drained
+                  let current = if desired == 0 && ready then 0 else 1 :: Int
+                      generation = if desired == 0 then 2 else 1 :: Int
+                  pure (Right (object
+                    [ "metadata" .= object
+                        [ "namespace" .= ("restore-space" :: Text)
+                        , "name" .= ("database-client" :: Text)
+                        , "uid" .= (deploymentUid :: Text)
+                        , "resourceVersion" .= ("9" :: Text)
+                        , "generation" .= generation]
+                    , "spec" .= deploymentSpec desired
+                    , "status" .= object
+                        [ "observedGeneration" .=
+                            (if desired == 0 && not ready then 1 else generation)
+                        , "replicas" .= current
+                        , "readyReplicas" .= current]]))
+              , Deployment.patchDeploymentWriter = \_ _ patch -> case patch of
+                  Array operations | Just (Object lastOperation) <-
+                    listToMaybe (reverse (toList operations)) ->
+                      case KM.lookup "value" lastOperation of
+                        Just (Number count) -> do
+                          modifyIORef' deploymentPatches (+ 1)
+                          writeIORef deploymentReplicas (floor count)
+                          pure (Right ())
+                        _ -> pure (Left "Deployment replica patch lacks a value")
+                  _ -> pure (Left "Deployment replica patch is malformed")
+              , Deployment.listDeploymentReplicaSets = \_ -> do
+                  desired <- readIORef deploymentReplicas
+                  ready <- readIORef drained
+                  let current = if desired == 0 && ready then 0 else 1 :: Int
+                  pure (Right (object ["items" .= [object
+                    [ "metadata" .= object
+                        [ "namespace" .= ("restore-space" :: Text)
+                        , "name" .= ("database-client-abc" :: Text)
+                        , "uid" .= ("eeeeeeee-1111-2222-3333-444444444444" :: Text)
+                        , "ownerReferences" .= [object
+                            [ "kind" .= ("Deployment" :: Text)
+                            , "name" .= ("database-client" :: Text)
+                            , "uid" .= (deploymentUid :: Text)]]]
+                    , "spec" .= object ["replicas" .= desired]
+                    , "status" .= object ["replicas" .= current]]]]))
+              , Deployment.listDeploymentPods = \_ -> do
+                  ready <- readIORef drained
+                  pure (Right (object ["items" .= if ready then ([] :: [Value])
+                    else [object
+                      [ "metadata" .= object
+                          [ "namespace" .= ("restore-space" :: Text)
+                          , "labels" .= object
+                              ["app" .= ("database-client" :: Text)]]
+                      , "status" .= object ["phase" .= ("Running" :: Text)]]]]))
+              }
             serviceTransport = ServiceTransport
               { readService = \_ _ -> pure (Right observedService)
               , listEndpointSlices = \_ -> do
@@ -520,7 +627,7 @@ dataFenceTests = testGroup "data fence"
               }
             native = mkKubernetesExclusion (binding ^. #identity) Map.empty
               declarations acceptedNative guardTransport volumeTransport
-              writerTransport serviceTransport scheduleTransport
+              writerTransport deploymentTransport serviceTransport scheduleTransport
         let missingService = nativeRecord
               { fencePhysical = Map.delete serviceId (fencePhysical nativeRecord)
               , fenceProviderIntent = Just (case provider of
@@ -534,8 +641,9 @@ dataFenceTests = testGroup "data fence"
         validateKubernetesExclusion native nativeRecord >>= right
         refused <- stopKubernetesWriters native nativeRecord
         refused @?= Left "Kubernetes mount admission guard is not enforcing"
-        readIORef objects >>= \installed -> Map.size installed @?= 20
+        readIORef objects >>= \installed -> Map.size installed @?= 32
         readIORef patches >>= (@?= 0)
+        readIORef deploymentPatches >>= (@?= 0)
         writeIORef guardDenied True
         scaleRefused <- stopKubernetesWriters native nativeRecord
         scaleRefused @?= Left "Kubernetes mount admission guard is not enforcing"
@@ -556,6 +664,7 @@ dataFenceTests = testGroup "data fence"
         stopKubernetesWriters native nativeRecord >>= right
         readIORef schedulePatches >>= (@?= 1)
         readIORef patches >>= (@?= 1)
+        readIORef deploymentPatches >>= (@?= 1)
         observeKubernetesExcluded native nativeRecord >>= right >>= (@?= False)
         writeIORef drained True
         observeKubernetesExcluded native nativeRecord >>= right >>= (@?= False)
@@ -577,6 +686,7 @@ dataFenceTests = testGroup "data fence"
         observeKubernetesRelease native nativeRecord >>= right
           >>= (@?= WritersFullyReleased)
         readIORef patches >>= (@?= 2)
+        readIORef deploymentPatches >>= (@?= 2)
         readIORef schedulePatches >>= (@?= 2)
     , testCase "reservation survives a new process and blocks planning until verified release" $
       withSystemTempDirectory "nagare-data-fence" $ \root -> do
@@ -1286,7 +1396,7 @@ dataFenceTests = testGroup "data fence"
             emptyPods = object ["items" .= ([] :: [Value])]
         pin <- right (Deployment.mkDeploymentWriterPin "restore-space"
           "client" uid 1 (known (Deployment.digestDeploymentWriterSpec
-            (deployment 1 1 1 "old"))))
+            (deployment 1 1 1 "old"))) (Map.singleton "app" "client"))
         current <- newIORef (deployment 1 1 1 "old")
         replicaSets <- newIORef (replicaSet 1 1)
         pods <- newIORef (pod "Running")
@@ -1314,6 +1424,14 @@ dataFenceTests = testGroup "data fence"
             ("differs from reviewed writer intent" `T.isInfixOf` reason)
           Right _ -> assertFailure "changed Deployment template acquired exclusion"
         writeIORef current (deployment 0 0 2 "old")
+        wrongSelector <- right (Deployment.mkDeploymentWriterPin "restore-space"
+          "client" uid 1 (known (Deployment.digestDeploymentWriterSpec
+            (deployment 1 1 1 "old"))) (Map.singleton "app" "other"))
+        Deployment.observeDeploymentWriterStopped transport wrongSelector >>=
+          \case
+            Left reason -> assertBool "changed Deployment selector was accepted"
+              ("selector differs" `T.isInfixOf` reason)
+            Right _ -> assertFailure "changed Deployment selector acquired exclusion"
         Deployment.restoreDeploymentWriter transport pin >>= (@?= Right ())
         Deployment.observeDeploymentWriterRelease transport pin >>=
           (@?= Right WritersPartlyReleased)
@@ -1538,17 +1656,17 @@ dataFenceTests = testGroup "data fence"
         selected <- right (discoverWriterCandidates statefulId cluster "data-pvc"
           (declarations [stateful, unrelated]) (registry [stateful, unrelated]))
         map candidateResource selected @?= [statefulId]
-        case discoverWriterCandidates statefulId cluster "data-pvc"
-          (declarations [stateful, client]) (registry [stateful, client]) of
-          Left reason -> assertBool "dependent Deployment was not discovered"
-            (resourceIdText clientId `T.isInfixOf` reason)
-          Right _ -> assertFailure "dependent Deployment lacks a stop control"
-        case discoverWriterCandidatesForRoutes statefulId [serviceId] cluster "data-pvc"
-          (declarations [stateful, service, routeClient])
-          (registry [stateful, service, routeClient]) of
-          Left reason -> assertBool "Service-dependent Deployment was not discovered"
-            (resourceIdText clientId `T.isInfixOf` reason)
-          Right _ -> assertFailure "Service-dependent Deployment lacks a stop control"
+        dependent <- right (discoverWriterCandidates statefulId cluster "data-pvc"
+          (declarations [stateful, client]) (registry [stateful, client]))
+        assertBool "dependent Deployment was not discovered"
+          (any (\candidate -> candidateResource candidate == clientId
+            && candidateKind candidate == DeploymentWriter) dependent)
+        routed <- right (discoverWriterCandidatesForRoutes statefulId [serviceId]
+          cluster "data-pvc" (declarations [stateful, service, routeClient])
+          (registry [stateful, service, routeClient]))
+        assertBool "Service-dependent Deployment was not discovered"
+          (any (\candidate -> candidateResource candidate == clientId
+            && candidateKind candidate == DeploymentWriter) routed)
         case discoverWriterCandidates statefulId cluster "data-pvc"
           (declarations [stateful, directMount]) (registry [stateful, directMount]) of
           Left reason -> assertBool "direct PVC mount was not discovered"

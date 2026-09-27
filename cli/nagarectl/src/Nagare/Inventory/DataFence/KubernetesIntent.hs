@@ -17,6 +17,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.DataFence.DeploymentWriter qualified as Deployment
 import Nagare.Inventory.DataFence.MountGuard
 import Nagare.Inventory.DataFence.ServiceState
 import Nagare.Inventory.DataFence.ScheduledWriter
@@ -33,6 +34,7 @@ data KubernetesFenceIntent = KubernetesFenceIntent
   , kubernetesMountGuard :: !MountGuard
   , kubernetesVolumeBacking :: !VolumeBacking
   , kubernetesStatefulWriters :: ![(ResourceId, StatefulWriterPin)]
+  , kubernetesDeploymentWriters :: ![(ResourceId, Deployment.DeploymentWriterPin)]
   , kubernetesScheduledWriters :: ![(ResourceId, ScheduledWriterPin)]
   , kubernetesWriterMountsTarget :: !(Map.Map ResourceId Bool)
   , kubernetesService :: !(Maybe ServicePin)
@@ -68,7 +70,25 @@ data RawSchedule = RawSchedule
   , rawScheduleMountsTarget :: !Bool
   }
 
-data RawSavedWriter = RawStateful !RawWriter | RawScheduled !RawSchedule
+data RawDeploymentWriter = RawDeploymentWriter
+  { rawDeploymentNamespace :: !Text
+  , rawDeploymentName :: !Text
+  , rawDeploymentUid :: !Text
+  , rawDeploymentReplicas :: !Int
+  , rawDeploymentSpecDigest :: !ContentDigest
+  , rawDeploymentSelector :: !(Map.Map Text Text)
+  , rawDeploymentMountsTarget :: !Bool
+  }
+
+data RawSavedWriter
+  = RawStateful !RawWriter
+  | RawDeployment !RawDeploymentWriter
+  | RawScheduled !RawSchedule
+
+data WriterPin
+  = PinnedStateful !StatefulWriterPin
+  | PinnedDeployment !Deployment.DeploymentWriterPin
+  | PinnedScheduled !ScheduledWriterPin
 
 data RawRestoreJob = RawRestoreJob
   { rawJobName :: !Text
@@ -108,6 +128,7 @@ decodeKubernetesFenceIntent record = do
     raw <- first T.pack (parseEither parseSavedWriter value)
     let uid = case raw of
           RawStateful writer -> rawWriterUid writer
+          RawDeployment deployment -> rawDeploymentUid deployment
           RawScheduled schedule -> rawScheduleUid schedule
     unless (fmap physicalIdentityText (Map.lookup resource (fencePhysical record))
         == Just uid)
@@ -122,7 +143,18 @@ decodeKubernetesFenceIntent record = do
         unless (not (rawWriterMountsTarget writer)
             || rawWriterNamespace writer == rawNamespace volume)
           (Left "Kubernetes PVC writer belongs to another namespace")
-        pure (resource, Left pin, rawWriterMountsTarget writer)
+        pure (resource, PinnedStateful pin, rawWriterMountsTarget writer)
+      RawDeployment deployment -> do
+        pin <- Deployment.mkDeploymentWriterPin
+          (rawDeploymentNamespace deployment) (rawDeploymentName deployment)
+          (rawDeploymentUid deployment) (rawDeploymentReplicas deployment)
+          (rawDeploymentSpecDigest deployment)
+          (rawDeploymentSelector deployment)
+        unless (not (rawDeploymentMountsTarget deployment)
+            || rawDeploymentNamespace deployment == rawNamespace volume)
+          (Left "Kubernetes PVC writer belongs to another namespace")
+        pure (resource, PinnedDeployment pin,
+          rawDeploymentMountsTarget deployment)
       RawScheduled schedule -> do
         pin <- mkScheduledWriterPin (rawScheduleNamespace schedule)
           (rawScheduleName schedule) (rawScheduleUid schedule)
@@ -130,9 +162,13 @@ decodeKubernetesFenceIntent record = do
         unless (not (rawScheduleMountsTarget schedule)
             || rawScheduleNamespace schedule == rawNamespace volume)
           (Left "Kubernetes PVC writer belongs to another namespace")
-        pure (resource, Right pin, rawScheduleMountsTarget schedule)
-  let statefulWriters = [(resource, pin) | (resource, Left pin, _) <- writers]
-      scheduledWriters = [(resource, pin) | (resource, Right pin, _) <- writers]
+        pure (resource, PinnedScheduled pin, rawScheduleMountsTarget schedule)
+  let statefulWriters = [(resource, pin)
+        | (resource, PinnedStateful pin, _) <- writers]
+      deploymentWriters = [(resource, pin)
+        | (resource, PinnedDeployment pin, _) <- writers]
+      scheduledWriters = [(resource, pin)
+        | (resource, PinnedScheduled pin, _) <- writers]
   let serviceIds = maybe Set.empty (Set.singleton . serviceResource) service
   unless (Set.null (Set.intersection serviceIds
       (Set.union (fenceTargets record) (fenceAffected record))))
@@ -157,7 +193,11 @@ decodeKubernetesFenceIntent record = do
   writerGuard <- withGuardedStatefulSets volumeGuard
     [(writerNamespace pin, writerName pin, writerUid pin)
       | (_, pin) <- statefulWriters]
-  scheduleGuard <- withGuardedSchedules writerGuard
+  deploymentGuard <- withGuardedDeployments writerGuard
+    [(Deployment.writerNamespace pin, Deployment.writerName pin,
+      Deployment.writerUid pin, Deployment.writerSelector pin)
+      | (_, pin) <- deploymentWriters]
+  scheduleGuard <- withGuardedSchedules deploymentGuard
     [(scheduleNamespace pin, scheduleName pin, scheduleUid pin)
       | (_, pin) <- scheduledWriters]
   mountGuard <- maybe (Right scheduleGuard) (\pin -> withGuardedService scheduleGuard
@@ -165,7 +205,7 @@ decodeKubernetesFenceIntent record = do
   validateBacking (rawBacking volume)
   pure (KubernetesFenceIntent cluster root (rawResource volume)
     mountGuard (rawBacking volume)
-    statefulWriters scheduledWriters
+    statefulWriters deploymentWriters scheduledWriters
     (Map.fromList [(resource, mounted) | (resource, _, mounted) <- writers]) service)
 
 -- | Reconcile the saved writer pins with the complete accepted native
@@ -174,9 +214,11 @@ decodeKubernetesFenceIntent record = do
 validateKubernetesWriterInventory :: KubernetesFenceIntent
   -> [WriterCandidate] -> Either Text ()
 validateKubernetesWriterInventory intent candidates = do
-  let pinned = Map.fromList ([(resource, Left pin)
+  let pinned = Map.fromList ([(resource, PinnedStateful pin)
         | (resource, pin) <- kubernetesStatefulWriters intent]
-        <> [(resource, Right pin)
+        <> [(resource, PinnedDeployment pin)
+        | (resource, pin) <- kubernetesDeploymentWriters intent]
+        <> [(resource, PinnedScheduled pin)
         | (resource, pin) <- kubernetesScheduledWriters intent])
       discovered = Map.fromList [(candidateResource candidate, candidate)
         | candidate <- candidates]
@@ -187,9 +229,11 @@ validateKubernetesWriterInventory intent candidates = do
     candidate <- maybe (Left "accepted writer is missing") Right
       (Map.lookup resource discovered)
     unless (case pin of
-        Left stateful -> candidateKind candidate == StatefulSetWriter
+        PinnedStateful stateful -> candidateKind candidate == StatefulSetWriter
           && matchesWriterAddress intent stateful (candidateAddress candidate)
-        Right scheduled -> candidateKind candidate == CronJobWriter
+        PinnedDeployment deployment -> candidateKind candidate == DeploymentWriter
+          && matchesDeploymentAddress intent deployment (candidateAddress candidate)
+        PinnedScheduled scheduled -> candidateKind candidate == CronJobWriter
           && matchesScheduleAddress intent scheduled (candidateAddress candidate))
       (Left "accepted writer controller differs from reviewed fence writer")
     unless (Map.lookup resource (kubernetesWriterMountsTarget intent)
@@ -204,6 +248,15 @@ matchesWriterAddress intent pin (Kubernetes cluster "apps" kind namespace name) 
     && fmap nameText namespace == Just (writerNamespace pin)
     && nameText name == writerName pin
 matchesWriterAddress _ _ _ = False
+
+matchesDeploymentAddress :: KubernetesFenceIntent
+  -> Deployment.DeploymentWriterPin -> ProviderAddress -> Bool
+matchesDeploymentAddress intent pin (Kubernetes cluster "apps" kind namespace name) =
+  cluster == kubernetesCluster intent
+    && nameText kind == "deployment"
+    && fmap nameText namespace == Just (Deployment.writerNamespace pin)
+    && nameText name == Deployment.writerName pin
+matchesDeploymentAddress _ _ _ = False
 
 matchesScheduleAddress :: KubernetesFenceIntent -> ScheduledWriterPin
   -> ProviderAddress -> Bool
@@ -272,6 +325,12 @@ parseSavedWriter = withObject "saved Kubernetes writer" $ \o -> do
       RawStateful <$> (RawWriter <$> o .: "namespace" <*> o .: "name"
         <*> o .: "uid" <*> o .: "replicas" <*> o .: "specDigest"
         <*> o .: "controllerPrincipal"
+        <*> o .: "mountsTarget")
+    "Deployment" -> do
+      onlyKeys ["kind", "namespace", "name", "uid", "replicas", "specDigest", "selector", "mountsTarget"] o
+      RawDeployment <$> (RawDeploymentWriter <$> o .: "namespace"
+        <*> o .: "name" <*> o .: "uid" <*> o .: "replicas"
+        <*> o .: "specDigest" <*> o .: "selector"
         <*> o .: "mountsTarget")
     "CronJob" -> do
       onlyKeys ["kind", "namespace", "name", "uid", "suspend", "specDigest", "mountsTarget"] o

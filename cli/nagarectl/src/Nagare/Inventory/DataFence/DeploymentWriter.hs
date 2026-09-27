@@ -9,6 +9,7 @@ module Nagare.Inventory.DataFence.DeploymentWriter
   , writerUid
   , writerSavedReplicas
   , writerSpecDigest
+  , writerSelector
   , digestDeploymentWriterSpec
   , DeploymentWriterTransport (..)
   , kubectlDeploymentWriterTransport
@@ -36,7 +37,7 @@ import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapters.KubernetesRuntime
   (KubernetesRuntimeConfig (..))
 import Nagare.Inventory.DataFence (WriterReleaseState (..))
-import Nagare.Inventory.DataFence.MountGuard (validUid)
+import Nagare.Inventory.DataFence.MountGuard (validGuardSelector, validUid)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Resource.Types (ContentDigest, mkName)
 import Nagare.Resource.Wire (canonicalValue)
@@ -49,17 +50,21 @@ data DeploymentWriterPin = DeploymentWriterPin
   , writerUid :: !Text
   , writerSavedReplicas :: !Int
   , writerSpecDigest :: !ContentDigest
+  , writerSelector :: !(Map Text Text)
   }
   deriving stock (Eq, Show)
 
 mkDeploymentWriterPin :: Text -> Text -> Text -> Int -> ContentDigest
+  -> Map Text Text
   -> Either Text DeploymentWriterPin
-mkDeploymentWriterPin namespace name uid replicas specDigest = do
+mkDeploymentWriterPin namespace name uid replicas specDigest selector = do
   _ <- mkName namespace
   _ <- mkName name
   unless (validUid uid) (Left "fenced Deployment UID is not a Kubernetes UUID")
   unless (replicas >= 0) (Left "saved Deployment replicas are negative")
-  pure (DeploymentWriterPin namespace name uid replicas specDigest)
+  unless (validGuardSelector selector)
+    (Left "saved Deployment selector is empty or malformed")
+  pure (DeploymentWriterPin namespace name uid replicas specDigest selector)
 
 -- | Preserve the reviewed live controller spec while allowing only the
 -- replica count to move through the fenced stop and release phases.
@@ -194,6 +199,8 @@ observedWriter pin (Object root) = do
       _ -> Left "Deployment selector has a malformed label")
   unless (not (Map.null selectorLabels))
     (Left "Deployment selector has no exact labels")
+  unless (selectorLabels == writerSelector pin)
+    (Left "Deployment selector differs from reviewed writer intent")
   status <- jsonObject "status" root
   statusGeneration <- jsonInteger "observedGeneration" status
   statusReplicas <- jsonOptionalInt "replicas" status
