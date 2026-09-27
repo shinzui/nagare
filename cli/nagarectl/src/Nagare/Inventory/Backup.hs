@@ -7,22 +7,30 @@ module Nagare.Inventory.Backup
   ( ManualBackupRequest (..)
   , BackupSourceProof (..)
   , BackupReceiptExpectation (..)
+  , ScheduledReceiptExpectation (..)
+  , ScheduledBackupReceipt (..)
   , manualBackupSourceProof
   , manualBackupJobSourcePins
   , manualBackupJobReceiptExpectation
   , parseBackupReceipt
   , parseManualBackupReceipt
+  , parseScheduledBackupReceipt
   , compileManualBackupScope
   , VolumeSnapshotRequest (..)
   , volumeSnapshotJobSourcePins
   , compileVolumeSnapshotScope
   ) where
 
+import Crypto.Hash (SHA256)
+import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
 import Data.Aeson (Value (..), eitherDecodeStrict, object, (.=))
+import Data.ByteArray qualified as BA
 import Data.Aeson.Key qualified as K
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BC
+import Data.Char (digitToInt)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
@@ -83,6 +91,27 @@ data BackupReceiptExpectation = BackupReceiptExpectation
   { receiptObjectAddress :: !T.Text
   , receiptAddress :: !T.Text
   , receiptMetadataDigest :: !ContentDigest
+  }
+  deriving stock (Eq, Show)
+
+-- | Values derived from one accepted CronJob's bound native template and an
+-- observed source incarnation. A receipt under a prefix is not authority by
+-- itself; the caller must independently prove this expectation and the private
+-- signing key belong to accepted schedule history.
+data ScheduledReceiptExpectation = ScheduledReceiptExpectation
+  { scheduledObjectPrefix :: !T.Text
+  , scheduledFormat :: !T.Text
+  , scheduledMetadataDigest :: !ContentDigest
+  , scheduledStatefulUid :: !PhysicalIdentity
+  , scheduledPvcUid :: !PhysicalIdentity
+  }
+  deriving stock (Eq, Show)
+
+data ScheduledBackupReceipt = ScheduledBackupReceipt
+  { scheduledJobUid :: !PhysicalIdentity
+  , scheduledObjectAddress :: !T.Text
+  , scheduledSha256 :: !T.Text
+  , scheduledScheduleRevision :: !ContentDigest
   }
   deriving stock (Eq, Show)
 
@@ -251,6 +280,75 @@ parseManualBackupReceipt scope address bytes = do
   where
     required key = maybe (Left ("manual backup scope lacks " <> key)) Right
       (Map.lookup key (scopeOverrides scope))
+
+-- | Verify the version-4 envelope after reading it from one exact object
+-- address. The payload is canonical JSON for HMAC purposes; all fields that
+-- affect restore authority are inside it. A caller must still check the
+-- object-store version and freshly hash the referenced backup bytes.
+parseScheduledBackupReceipt
+  :: ScheduledReceiptExpectation -> T.Text -> T.Text -> ByteString
+  -> Either T.Text ScheduledBackupReceipt
+parseScheduledBackupReceipt expectation receiptAddress signingKeyHex bytes = do
+  unless (T.length signingKeyHex == 64 && T.all lowerHex signingKeyHex)
+    (Left "scheduled receipt signing key is invalid")
+  value <- first T.pack (eitherDecodeStrict bytes)
+  (payload, signature) <- case value of
+    Object root | KM.size root == 3
+      , KM.lookup "version" root == Just (Number 4)
+      , Just body <- KM.lookup "payload" root
+      , Just (String mac) <- KM.lookup "hmacSha256" root -> Right (body, mac)
+    _ -> Left "scheduled receipt has an invalid version or envelope"
+  unless (T.length signature == 64 && T.all lowerHex signature)
+    (Left "scheduled receipt has an invalid HMAC")
+  canonical <- canonicalValue payload
+  let key = BS.pack (hexBytes (T.unpack signingKeyHex))
+      expected = BC.pack (show (hmacGetDigest (hmac key canonical :: HMAC SHA256)))
+  unless (BA.constEq (TE.encodeUtf8 signature) expected)
+    (Left "scheduled receipt HMAC differs from the accepted signing key")
+  (checksum, jobUidText, objectAddress, source, metadata) <- case payload of
+    Object fields | KM.size fields == 5
+      , Just (String sha) <- KM.lookup "sha256" fields
+      , Just (String uid) <- KM.lookup "jobUid" fields
+      , Just (String address) <- KM.lookup "object" fields
+      , Just sourceValue <- KM.lookup "source" fields
+      , Just backupValue <- KM.lookup "backup" fields ->
+          Right (sha, uid, address, sourceValue, backupValue)
+    _ -> Left "scheduled receipt payload has an invalid shape"
+  unless (T.length checksum == 64 && T.all lowerHex checksum)
+    (Left "scheduled receipt has an invalid stored-byte SHA-256")
+  unless (kubernetesUid jobUidText)
+    (Left "scheduled receipt has an invalid physical Job UID")
+  jobUid <- mkPhysicalIdentity jobUidText
+  unless (objectAddress == scheduledObjectPrefix expectation <> jobUidText <> "." <> scheduledFormat expectation
+      && receiptAddress == objectAddress <> ".receipt.json")
+    (Left "scheduled receipt addresses another object or key space")
+  (statefulText, pvcText) <- case source of
+    Object fields | KM.size fields == 2
+      , Just (String stateful) <- KM.lookup "statefulSetUid" fields
+      , Just (String pvc) <- KM.lookup "pvcUid" fields -> Right (stateful, pvc)
+    _ -> Left "scheduled receipt source UIDs are incomplete"
+  statefulUid <- mkPhysicalIdentity statefulText
+  pvcUid <- mkPhysicalIdentity pvcText
+  unless (statefulUid == scheduledStatefulUid expectation
+      && pvcUid == scheduledPvcUid expectation)
+    (Left "scheduled receipt source incarnation differs from accepted evidence")
+  metadataBytes <- canonicalValue metadata
+  unless (contentDigest metadataBytes == scheduledMetadataDigest expectation)
+    (Left "scheduled receipt schedule metadata differs from accepted native evidence")
+  scheduleRevision <- case metadata of
+    Object fields | Just (String revision) <- KM.lookup "scheduleRevision" fields ->
+      mkContentDigest revision
+    _ -> Left "scheduled receipt lacks a schedule revision"
+  pure (ScheduledBackupReceipt jobUid objectAddress checksum scheduleRevision)
+  where
+    lowerHex c = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')
+    hexBytes [] = []
+    hexBytes (high : low : rest) =
+      fromIntegral (digitToInt high * 16 + digitToInt low) : hexBytes rest
+    hexBytes _ = [] -- length is checked before conversion
+    kubernetesUid uid = T.length uid == 36 && and
+      [if position `elem` [8, 13, 18, 23] then character == '-' else lowerHex character
+      | (position, character) <- zip [0 :: Int ..] (T.unpack uid)]
 
 compileManualBackupScope
   :: ManualBackupRequest

@@ -757,7 +757,7 @@ databaseTests =
               backup = either (error . show) id (Yaml.decodeEither' "{\"apiVersion\":\"batch/v1\",\"kind\":\"CronJob\",\"metadata\":{\"name\":\"nagare-dbbackup-pg-main\",\"namespace\":\"personal\"},\"spec\":{\"schedule\":\"17 3 * * *\",\"jobTemplate\":{\"spec\":{\"template\":{\"spec\":{\"serviceAccountName\":\"nagare-dbbackup-pg-main\"}}}}}}")
               wrong = either (error . show) id (Yaml.decodeEither' "{\"apiVersion\":\"batch/v1\",\"kind\":\"CronJob\",\"metadata\":{\"name\":\"other\",\"namespace\":\"personal\"}}")
               (bundle, native) = either (error . show) id (compileDatabaseBundle digest input backup)
-          length native @?= 8
+          length native @?= 9
           case reverse (declarations bundle) of
             Managed cron : _ -> do
               lifecycle cron @?= DeleteWhenUnreferenced
@@ -766,6 +766,7 @@ databaseTests =
                   [ unsafe (databaseResourceId owner (unsafe (mkName "credential")) pgDb)
                   , unsafe (databaseResourceId owner (unsafe (mkName "statefulset")) pgDb)
                   , unsafe (databaseResourceId owner (unsafe (mkName "backup-read-binding")) pgDb)
+                  , unsafe (databaseResourceId owner (unsafe (mkName "backup-signing-key")) pgDb)
                   ]
             _ -> assertFailure "database backup CronJob missing"
           assertBool "wrong CronJob address accepted" (either (const True) (const False) (compileDatabaseBundle digest input wrong))

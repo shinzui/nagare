@@ -75,6 +75,7 @@ import Nagare.Database.Discover (DbRow (..), getDatabase)
 import Nagare.Dsl.Database (Engine (..), dbSecretName, engineImage, parseEngine)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Resource.Canonical (contentDigest)
+import Nagare.Resource.Canonical (canonicalValue)
 import Nagare.Resource.Types (digestText)
 import Nagare.Storage.Snapshot (snapshotTimestamp)
 import System.Exit (exitFailure)
@@ -307,6 +308,7 @@ uploadContainer i =
                        ["fieldPath" .= ("metadata.labels['batch.kubernetes.io/controller-uid']" :: Text)]]
                    ] | BackupDestStamped <- [i ^. #destination], not (i ^. #selfPrune)]
               ++ [plainEnv "BACKUP_SOURCE_NAME" (i ^. #name) | sourceAttested i]
+              ++ [secretEnv "BACKUP_SIGNING_KEY" (i ^. #jobName <> "-signing") "HMAC_KEY" | sourceAttested i]
               ++ maybe [] (\r ->
                    [plainEnv "BACKUP_RECEIPT_METADATA" (r ^. #metadataJson)]
                      ++ case r ^. #destination of
@@ -452,15 +454,24 @@ uploadShell i =
           <> "; test \"$RECEIPT_EXPECTED\" = \"$RECEIPT_ACTUAL\""
           <> "; cat /dump/backup.receipt.readback.json > \"${BACKUP_TERMINATION_LOG_PATH:-/dev/termination-log}\""
           <> "; rm -f /dump/backup.receipt.json /dump/backup.receipt.readback.json"
+          <> (if sourceAttested i then " /dump/backup.payload.json" else "")
     receiptPreamble (FixedReceiptTarget _) = ""
     receiptPreamble BackupObjectReceiptTarget =
       "; BACKUP_RECEIPT_DEST=\"${DEST}.receipt.json\""
+        <> "; printf '{\"sha256\":\"%s\",\"jobUid\":\"%s\",\"object\":\"%s\",\"source\":%s,\"backup\":%s}\\n'"
+        <> " \"$EXPECTED\" \"$BACKUP_RUN_ID\" \"$DEST\" \"$(cat /dump/source.json)\" \"$BACKUP_RECEIPT_METADATA\""
+        <> " > /dump/backup.payload.json"
+        <> "; RECEIPT_SIGNATURE=$(python3 -c 'import hashlib,hmac,json,os; "
+        <> "payload=json.load(open(\"/dump/backup.payload.json\")); "
+        <> "body=json.dumps(payload,sort_keys=True,separators=(\",\",\":\"),ensure_ascii=False).encode(\"utf-8\"); "
+        <> "print(hmac.new(bytes.fromhex(os.environ[\"BACKUP_SIGNING_KEY\"]),body,hashlib.sha256).hexdigest())')"
+        <> "; test ${#RECEIPT_SIGNATURE} -eq 64"
     receiptBody (FixedReceiptTarget _) =
       "printf '{\"version\":1,\"sha256\":\"%s\",\"backup\":%s}\\n'"
         <> " \"$EXPECTED\" \"$BACKUP_RECEIPT_METADATA\""
     receiptBody BackupObjectReceiptTarget =
-      "printf '{\"version\":3,\"sha256\":\"%s\",\"jobUid\":\"%s\",\"object\":\"%s\",\"source\":%s,\"backup\":%s}\\n'"
-        <> " \"$EXPECTED\" \"$BACKUP_RUN_ID\" \"$DEST\" \"$(cat /dump/source.json)\" \"$BACKUP_RECEIPT_METADATA\""
+      "printf '{\"version\":4,\"payload\":%s,\"hmacSha256\":\"%s\"}\\n'"
+        <> " \"$(cat /dump/backup.payload.json)\" \"$RECEIPT_SIGNATURE\""
     -- keep the last $KEEP objects under $PREFIX (newest sort last with reverse sort)
     prune =
       "echo pruning; "
@@ -482,9 +493,11 @@ data BackupCronInputs = BackupCronInputs
 -- schedule), never overlapping (@concurrencyPolicy: Forbid@). The base inputs
 -- determines its own upload verification and pruning policy.
 renderBackupCronJob :: BackupCronInputs -> ByteString
-renderBackupCronJob i =
-  Y.encode $
-    object
+renderBackupCronJob = Y.encode . backupCronJobValue
+
+backupCronJobValue :: BackupCronInputs -> Value
+backupCronJobValue i =
+  object
       [ "apiVersion" .= ("batch/v1" :: Text)
       , "kind" .= ("CronJob" :: Text)
       , "metadata" .= jobMetadata (i ^. #base)
@@ -516,37 +529,43 @@ renderPreviousInventoryDbBackupCronJob = renderDbBackupCronJobWithOptions False 
 
 renderDbBackupCronJobWithOptions :: Bool -> Bool -> Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
 renderDbBackupCronJobWithOptions shouldPrune shouldVerify ns name eng version backend keep =
-  renderBackupCronJob
-    BackupCronInputs
-      { schedule = defaultBackupSchedule
-      , base =
-          BackupJobInputs
-            { namespace = ns
-            , jobName = "nagare-dbbackup-" <> name
-            , engine = eng
-            , clientImage = engineImage eng <> ":" <> version
-            , serviceHost = name
-            , secretName = dbSecretName name
-            , name = name
-            , destination = BackupDestStamped
-            , prefix = storePrefixUrl backend (dbBackupKeyPrefix name)
-            , keep = keep
-            , selfPrune = shouldPrune
-            , verifyStored = shouldVerify
-            , receipt = if shouldVerify then Just scheduledReceipt else Nothing
-            , backend = backend
-            }
-      }
+  renderBackupCronJob $ if shouldVerify then
+    let provisional = withReceipt (T.replicate 64 "0")
+        revision = digestText (contentDigest (either (error . T.unpack) id
+          (canonicalValue (backupCronJobValue provisional))))
+     in withReceipt revision
+    else BackupCronInputs defaultBackupSchedule baseInputs
   where
-    scheduledReceipt = BackupReceipt BackupObjectReceiptTarget
-      (TE.decodeUtf8 (LBS.toStrict (Aeson.encode (object
-        [ "database" .= name
-        , "namespace" .= ns
-        , "engine" .= T.toLower (T.pack (show eng))
-        , "format" .= backupExt eng
-        , "schedule" .= ("nagare-dbbackup-" <> name)
-        , "keep" .= keep
-        ]))))
+    baseInputs = BackupJobInputs
+      { namespace = ns
+      , jobName = "nagare-dbbackup-" <> name
+      , engine = eng
+      , clientImage = engineImage eng <> ":" <> version
+      , serviceHost = name
+      , secretName = dbSecretName name
+      , name = name
+      , destination = BackupDestStamped
+      , prefix = storePrefixUrl backend (dbBackupKeyPrefix name)
+      , keep = keep
+      , selfPrune = shouldPrune
+      , verifyStored = shouldVerify
+      , receipt = Nothing
+      , backend = backend
+      }
+    withReceipt revision =
+      let metadata = object
+            [ "database" .= name
+            , "namespace" .= ns
+            , "engine" .= T.toLower (T.pack (show eng))
+            , "format" .= backupExt eng
+            , "schedule" .= ("nagare-dbbackup-" <> name)
+            , "scheduleRevision" .= revision
+            , "keep" .= keep
+            ]
+          scheduledReceipt = BackupReceipt BackupObjectReceiptTarget
+            (TE.decodeUtf8 (LBS.toStrict (Aeson.encode metadata)))
+       in BackupCronInputs defaultBackupSchedule
+            (baseInputs {receipt = Just scheduledReceipt})
 
 -- ---------------------------------------------------------------------------
 -- Command driver

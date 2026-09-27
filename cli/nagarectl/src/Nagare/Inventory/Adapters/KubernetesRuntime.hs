@@ -683,18 +683,28 @@ materializeCredential native = case eitherDecodeStrict (TE.encodeUtf8 native) of
             Object root -> TE.decodeUtf8 <$> canonicalValue (Object
               (KM.insert "data" (Object (KM.fromList entries)) root))
             _ -> Left "auth credential template is malformed"
-    Right Nothing -> case databaseCredentialKind value of
+    Right Nothing -> case backupSigningCredentialKind value of
       Left reason -> pure (Left reason)
-      Right Nothing -> pure (Right native)
-      Right (Just (dbName, namespace, engine)) -> do
-        generated <- try (readProcessWithExitCode "openssl" ["rand", "-hex", "24"] "")
-        pure $ case generated of
-          Left (_ :: IOException) -> Left "could not generate database credential"
-          Right (ExitFailure _, _, _) -> Left "could not generate database credential"
-          Right (ExitSuccess, output, _) -> do
-            let password = T.strip (T.pack output)
-            unless (T.length password == 48) (Left "database credential generator returned an invalid password")
-            fillCredential value dbName namespace engine password
+      Right (Just ()) -> do
+        generated <- generateAuthKey "HMAC_KEY"
+        pure $ do
+          entry <- generated
+          case value of
+            Object root -> TE.decodeUtf8 <$> canonicalValue (Object
+              (KM.insert "data" (Object (KM.fromList [entry])) root))
+            _ -> Left "backup signing credential template is malformed"
+      Right Nothing -> case databaseCredentialKind value of
+        Left reason -> pure (Left reason)
+        Right Nothing -> pure (Right native)
+        Right (Just (dbName, namespace, engine)) -> do
+          generated <- try (readProcessWithExitCode "openssl" ["rand", "-hex", "24"] "")
+          pure $ case generated of
+            Left (_ :: IOException) -> Left "could not generate database credential"
+            Right (ExitFailure _, _, _) -> Left "could not generate database credential"
+            Right (ExitSuccess, output, _) -> do
+              let password = T.strip (T.pack output)
+              unless (T.length password == 48) (Left "database credential generator returned an invalid password")
+              fillCredential value dbName namespace engine password
 
 -- | The local object's first Secret gets fresh values only at create time.
 -- The second namespace receives those exact values after its reviewed
@@ -833,7 +843,30 @@ generatedCredentialTemplate native = do
   auth <- authCredentialKind value
   database <- databaseCredentialKind value
   minio <- minioCredentialKind value
-  pure (isJust auth || isJust database || isJust minio)
+  signing <- backupSigningCredentialKind value
+  pure (isJust auth || isJust database || isJust minio || isJust signing)
+
+backupSigningCredentialKind :: Value -> Either Text (Maybe ())
+backupSigningCredentialKind value@(Object root) | KM.lookup "kind" root == Just (String "Secret") = do
+  metadata <- metadataOf value
+  annotations <- case KM.lookup "annotations" metadata of
+    Just (Object fields) -> Right fields
+    Nothing -> Right KM.empty
+    _ -> Left "backup signing credential annotations are malformed"
+  case textAt "nagare.dev/backup-signing-template" annotations of
+    Nothing -> Right Nothing
+    Just "v1" -> do
+      database <- case KM.lookup "labels" metadata of
+        Just (Object labels) -> fieldText "nagare.dev/database" labels
+        _ -> Left "backup signing credential lacks database label"
+      name <- fieldText "name" metadata
+      _ <- fieldText "namespace" metadata
+      unless (name == "nagare-dbbackup-" <> database <> "-signing"
+          && not (KM.member "data" root) && not (KM.member "stringData" root))
+        (Left "backup signing credential template has unexpected content")
+      pure (Just ())
+    Just _ -> Left "unknown backup signing credential template"
+backupSigningCredentialKind _ = Right Nothing
 
 databaseCredentialKind :: Value -> Either Text (Maybe (Text, Text, Engine))
 databaseCredentialKind value = case value of
@@ -878,14 +911,17 @@ credentialDataMatches desired observed = case authCredentialKind desired of
   Right (Just keys) -> databaseCredentialKind desired == Right Nothing
     && dataMatches (Set.fromList (map Key.fromText keys)) observed
   Left _ -> False
-  Right Nothing -> case minioCredentialKind desired of
-    Right (Just _) -> case observed of
-      Object root -> case KM.lookup "data" root of
-        Just (Object fields) -> validMinioData fields
-        _ -> False
-      _ -> False
+  Right Nothing -> case backupSigningCredentialKind desired of
+    Right (Just ()) -> backupSigningDataMatches observed
     Left _ -> False
-    Right Nothing -> databaseDataMatches desired observed
+    Right Nothing -> case minioCredentialKind desired of
+      Right (Just _) -> case observed of
+        Object root -> case KM.lookup "data" root of
+          Just (Object fields) -> validMinioData fields
+          _ -> False
+        _ -> False
+      Left _ -> False
+      Right Nothing -> databaseDataMatches desired observed
 
 databaseDataMatches :: Value -> Value -> Bool
 databaseDataMatches desired observed = case databaseCredentialKind desired of
@@ -895,6 +931,19 @@ databaseDataMatches desired observed = case databaseCredentialKind desired of
     let connection = ConnectionParts defaultDbUser "example" "example" "example"
         expected = Set.fromList (map (Key.fromText . fst) (secretKeysFor engine connection))
      in dataMatches expected observed
+
+backupSigningDataMatches :: Value -> Bool
+backupSigningDataMatches (Object root) = case KM.lookup "data" root of
+  Just (Object fields) | Set.fromList (KM.keys fields) == Set.singleton "HMAC_KEY" ->
+    case KM.lookup "HMAC_KEY" fields of
+      Just (String encoded) -> case b64decode encoded of
+        Right key -> T.length key == 64 && T.all lowerHex key
+        Left _ -> False
+      _ -> False
+  _ -> False
+  where
+    lowerHex c = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')
+backupSigningDataMatches _ = False
 
 dataMatches :: Set.Set Key -> Value -> Bool
 dataMatches expected (Object root) = case KM.lookup "data" root of

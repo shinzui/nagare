@@ -346,6 +346,8 @@ import Nagare.Static.Webhook
 import Nagare.Resource.Inventory (Declaration (External, Managed), ResourceBundle (..), declarationId, mkScopeSnapshot, scopeBundles, scopeId)
 import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (DeleteWhenUnreferenced))
 import Nagare.Resource.Inventory qualified as InventoryModel
+import Nagare.Resource.Canonical (canonicalValue, contentDigest)
+import Nagare.Inventory.Backup (ScheduledBackupReceipt (..), ScheduledReceiptExpectation (..), parseScheduledBackupReceipt)
 import Nagare.Resource.Policy qualified as InventoryPolicy
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types qualified as Resource
@@ -431,7 +433,7 @@ import Nagare.Version
   )
 import PlatformCutoverSpec (platformCutoverTests)
 import PlatformSpec (platformTests)
-import System.Directory (createDirectoryIfMissing, createFileLink, doesFileExist, getCurrentDirectory, pathIsSymbolicLink, removeFile, setCurrentDirectory)
+import System.Directory (createDirectoryIfMissing, createFileLink, doesFileExist, findExecutable, getCurrentDirectory, pathIsSymbolicLink, removeFile, setCurrentDirectory)
 import System.Environment (getEnvironment, lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (ExitFailure, ExitSuccess), exitWith)
 import System.FilePath ((<.>), (</>))
@@ -5395,6 +5397,8 @@ backupRestoreTests =
             BS.readFile receiptObject >>= (@?= receiptBytes)
       , testCase "reviewed scheduled backup writes a UID-bound receipt after stored-byte verification" $
           withSystemTempDirectory "nagare-scheduled-backup-receipt" $ \directory -> do
+            realPython <- findExecutable "python3" >>= maybe
+              (assertFailure "scheduled receipt test requires python3" >> pure "") pure
             let dump = directory </> "dump"
                 dataObject = directory </> "backup.gz"
                 receiptObject = directory </> "backup.gz.receipt.json"
@@ -5402,7 +5406,7 @@ backupRestoreTests =
                 runId = "12345678-1234-1234-1234-123456789abc"
                 dataUrl = "gs://test/databases/mydb/" <> runId <> ".sql.gz"
                 receiptUrl = dataUrl <> ".receipt.json"
-                metadata = "{\"database\":\"mydb\",\"schedule\":\"nagare-dbbackup-mydb\"}"
+                metadata = "{\"database\":\"mydb\",\"schedule\":\"nagare-dbbackup-mydb\",\"scheduleRevision\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}"
                 script = T.unpack (T.replace "/dump" (T.pack dump)
                   (uploadShell (backupJobInputsPg & #verifyStored .~ True
                     & #destination .~ BackupDestStamped
@@ -5434,7 +5438,10 @@ backupRestoreTests =
               , "esac"
               ]
             writeFile fakePython $ unlines
-              [ "#!/bin/sh", "set -eu", "cat \"$NAGARE_TEST_SOURCE\"" ]
+              [ "#!/bin/sh", "set -eu"
+              , "case \"$2\" in *urllib.request*) cat \"$NAGARE_TEST_SOURCE\";;"
+              , "*) exec \"$NAGARE_TEST_REAL_PYTHON\" \"$@\";; esac"
+              ]
             mapM_ (`setFileMode` 0o755) [fakeGcloud, fakeGsutil, fakePython]
             parentEnv <- getEnvironment
             let path = maybe "" id (lookup "PATH" parentEnv)
@@ -5443,12 +5450,14 @@ backupRestoreTests =
                    ("PREFIX", "gs://test/databases/mydb/"),
                    ("BACKUP_RUN_ID", runId),
                    ("BACKUP_RECEIPT_METADATA", metadata),
+                   ("BACKUP_SIGNING_KEY", replicate 64 'a'),
                    ("BACKUP_TERMINATION_LOG_PATH", terminationLog),
                    ("NAGARE_TEST_DATA", dataObject),
                    ("NAGARE_TEST_RECEIPT", receiptObject),
                    ("NAGARE_TEST_DATA_URL", dataUrl),
                    ("NAGARE_TEST_RECEIPT_URL", receiptUrl),
-                   ("NAGARE_TEST_SOURCE", source)]
+                   ("NAGARE_TEST_SOURCE", source),
+                   ("NAGARE_TEST_REAL_PYTHON", realPython)]
                 run = readCreateProcessWithExitCode
                   ((proc "/bin/sh" ["-c", script]) {env = Just
                     (receiptEnv <> filter (\(key, _) -> key `notElem` map fst receiptEnv) parentEnv)}) ""
@@ -5464,17 +5473,46 @@ backupRestoreTests =
             hashExit @?= ExitSuccess
             case eitherDecodeStrict receiptBytes of
               Right (Aeson.Object root) -> do
-                KeyMap.lookup "version" root @?= Just (Aeson.Number 3)
-                KeyMap.lookup "sha256" root @?=
-                  Just (Aeson.String (T.pack (takeWhile (/= ' ') hashOutput)))
-                KeyMap.lookup "jobUid" root @?= Just (Aeson.String (T.pack runId))
-                KeyMap.lookup "object" root @?= Just (Aeson.String (T.pack dataUrl))
-                KeyMap.lookup "source" root @?= either (error . show) id (eitherDecodeStrict sourceBytes)
-                case KeyMap.lookup "backup" root of
-                  Just (Aeson.Object backup) ->
-                    KeyMap.lookup "schedule" backup @?= Just (Aeson.String "nagare-dbbackup-mydb")
-                  other -> assertFailure ("scheduled receipt metadata missing: " <> show other)
+                KeyMap.lookup "version" root @?= Just (Aeson.Number 4)
+                case KeyMap.lookup "payload" root of
+                  Just payload@(Aeson.Object fields) -> do
+                    KeyMap.lookup "sha256" fields @?=
+                      Just (Aeson.String (T.pack (takeWhile (/= ' ') hashOutput)))
+                    KeyMap.lookup "jobUid" fields @?= Just (Aeson.String (T.pack runId))
+                    KeyMap.lookup "object" fields @?= Just (Aeson.String (T.pack dataUrl))
+                    KeyMap.lookup "source" fields @?= either (error . show) id (eitherDecodeStrict sourceBytes)
+                    case KeyMap.lookup "backup" fields of
+                      Just (Aeson.Object backup) ->
+                        KeyMap.lookup "schedule" backup @?= Just (Aeson.String "nagare-dbbackup-mydb")
+                      other -> assertFailure ("scheduled receipt metadata missing: " <> show other)
+                    let canonical = either (error . T.unpack) id (canonicalValue payload)
+                        signature = T.pack (show (hmacGetDigest
+                          (hmac (BS.replicate 32 0xaa) canonical :: HMAC SHA256)))
+                    KeyMap.lookup "hmacSha256" root @?= Just (Aeson.String signature)
+                  other -> assertFailure ("scheduled receipt payload missing: " <> show other)
               other -> assertFailure ("scheduled receipt JSON invalid: " <> show other)
+            let metadataValue = either (error . show) id (eitherDecodeStrict (BC.pack metadata))
+                metadataDigest = contentDigest (either (error . T.unpack) id (canonicalValue metadataValue))
+                sourceUid value = either (error . T.unpack) id (Resource.mkPhysicalIdentity value)
+                expectation = ScheduledReceiptExpectation
+                  "gs://test/databases/mydb/" "sql.gz" metadataDigest
+                  (sourceUid "22222222-2222-2222-2222-222222222222")
+                  (sourceUid "11111111-1111-1111-1111-111111111111")
+                accepted = parseScheduledBackupReceipt expectation (T.pack receiptUrl)
+                  (T.replicate 64 "a") receiptBytes
+            case accepted of
+              Left reason -> assertFailure ("signed scheduled receipt was rejected: " <> T.unpack reason)
+              Right checked -> Resource.physicalIdentityText (scheduledJobUid checked) @?= T.pack runId
+            assertBool "foreign receipt address was accepted" (isLeft
+              (parseScheduledBackupReceipt expectation "gs://test/other.receipt.json"
+                (T.replicate 64 "a") receiptBytes))
+            assertBool "changed signing key was accepted" (isLeft
+              (parseScheduledBackupReceipt expectation (T.pack receiptUrl)
+                (T.replicate 64 "b") receiptBytes))
+            assertBool "changed source UID was accepted" (isLeft
+              (parseScheduledBackupReceipt
+                (expectation {scheduledPvcUid = sourceUid "33333333-3333-3333-3333-333333333333"})
+                (T.pack receiptUrl) (T.replicate 64 "a") receiptBytes))
             (duplicate, _, _) <- run
             case duplicate of
               ExitFailure _ -> pure ()

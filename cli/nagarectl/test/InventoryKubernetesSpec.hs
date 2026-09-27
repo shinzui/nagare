@@ -419,8 +419,8 @@ inventoryKubernetesTests =
             (bundle, bound) = ok (compileDatabaseForBackend direct (GcsBackend "project" "bucket"))
             backupBytes = [bytes | (member, bytes) <- Map.elems bound,
               Kubernetes _ "batch" kind _ _ <- [address member], nameText kind == "cronjob"]
-        length (declarations bundle) @?= 8
-        Map.size bound @?= 8
+        length (declarations bundle) @?= 9
+        Map.size bound @?= 9
         length backupBytes @?= 1
         assertBool "reviewed backup can delete unreviewed objects"
           (all (\bytes -> not (BC.isInfixOf "pruning" bytes) && not (BC.isInfixOf "gsutil -m rm -I" bytes)) backupBytes)
@@ -1406,6 +1406,45 @@ inventoryKubernetesTests =
           _ -> assertFailure "Shomei Secret is malformed"
         refused <- materializeCredential (TE.decodeUtf8 (ok (canonicalValue (template "unexpected"))))
         assertBool "unknown auth credential template was accepted" (either (const True) (const False) refused)
+    , testCase "backup signing key is generated only from its retained source template" $ do
+        let template = object
+              [ "apiVersion" .= ("v1" :: Text), "kind" .= ("Secret" :: Text)
+              , "type" .= ("Opaque" :: Text)
+              , "metadata" .= object
+                  [ "name" .= ("nagare-dbbackup-pg-main-signing" :: Text)
+                  , "namespace" .= ("personal" :: Text)
+                  , "labels" .= object ["nagare.dev/database" .= ("pg-main" :: Text)]
+                  , "annotations" .= object ["nagare.dev/backup-signing-template" .= ("v1" :: Text)]
+                  ]]
+            reviewed = TE.decodeUtf8 (ok (canonicalValue template))
+        generatedCredentialTemplate reviewed @?= Right True
+        generated <- materializeCredential reviewed >>= expectRight
+        observed <- either (assertFailure . show) pure
+          (eitherDecodeStrict (TE.encodeUtf8 generated))
+        assertBool "backup signing Secret has no private key"
+          (credentialDataMatches template observed)
+        case observed of
+          Object root -> case KM.lookup "data" root of
+            Just (Object entries) -> case KM.lookup "HMAC_KEY" entries of
+              Just (String encoded) -> case b64decode encoded of
+                Right key -> do
+                  T.length key @?= 64
+                  assertBool "backup signing key is not lowercase hex"
+                    (T.all (\c -> c >= '0' && c <= '9' || c >= 'a' && c <= 'f') key)
+                Left problem -> assertFailure (T.unpack problem)
+              _ -> assertFailure "backup signing key is absent"
+            _ -> assertFailure "backup signing Secret data is absent"
+          _ -> assertFailure "backup signing Secret is malformed"
+        let malformed = object
+              [ "kind" .= ("Secret" :: Text)
+              , "metadata" .= object
+                  [ "name" .= ("nagare-dbbackup-other-signing" :: Text)
+                  , "namespace" .= ("personal" :: Text)
+                  , "labels" .= object ["nagare.dev/database" .= ("pg-main" :: Text)]
+                  , "annotations" .= object ["nagare.dev/backup-signing-template" .= ("v1" :: Text)]
+                  ]]
+        generatedCredentialTemplate (TE.decodeUtf8 (ok (canonicalValue malformed))) @?=
+          Left "backup signing credential template has unexpected content"
     , testCase "cache client fills only the typed generated-key slot after review" $ do
         let template = object
               [ "apiVersion" .= ("v1" :: Text)
@@ -2550,6 +2589,7 @@ inventoryKubernetesTests =
                     , ("rolebinding", "nagare-dbbackup-ep147-full")
                     , ("role", "nagare-dbbackup-ep147-full")
                     , ("serviceaccount", "nagare-dbbackup-ep147-full")
+                    , ("secret", "nagare-dbbackup-ep147-full-signing")
                     ]
             cleanup
             (do

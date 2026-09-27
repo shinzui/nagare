@@ -117,6 +117,17 @@ compileDatabaseBundle digestOf input backupObject = do
         , "kind" .= ("ServiceAccount" :: Text)
         , "metadata" .= metadata
         ]
+      signingObject = object
+        [ "apiVersion" .= ("v1" :: Text)
+        , "kind" .= ("Secret" :: Text)
+        , "type" .= ("Opaque" :: Text)
+        , "metadata" .= object
+            [ "name" .= (accountName <> "-signing")
+            , "namespace" .= namespaceName
+            , "labels" .= object ["nagare.dev/database" .= databaseName]
+            , "annotations" .= object ["nagare.dev/backup-signing-template" .= ("v1" :: Text)]
+            ]
+        ]
       roleObject = object
         [ "apiVersion" .= ("rbac.authorization.k8s.io/v1" :: Text)
         , "kind" .= ("Role" :: Text)
@@ -140,6 +151,21 @@ compileDatabaseBundle digestOf input backupObject = do
   (accountId, accountDeclaration) <- compileCompanion "backup-account" accountObject []
   (roleId, roleDeclaration) <- compileCompanion "backup-read-role" roleObject []
   (bindingId, bindingDeclaration) <- compileCompanion "backup-read-binding" bindingObject [accountId, roleId]
+  signingId <- first invalid (databaseResourceId (directOwnerScope input) (known "backup-signing-key") (directDatabase input))
+  signingDigest <- first invalid (digestOf signingObject)
+  signing <- first single $ compileKubernetesObject KubernetesInput
+    { resourceId = signingId
+    , ownerScope = directOwnerScope input
+    , clusterId = directClusterId input
+    , inputObject = signingObject
+    , objectDigest = signingDigest
+    , lifecyclePolicy = Retain
+    , inputDataPolicy = Durable (directRecoveryIntent input)
+    , inputSensitivity = Secret
+    , sourceLocation = directSourceLocation input
+    }
+  let signingDeclaration = signing
+        {dependencies = map OrderedAfter (maybe [] pure (directNamespaceId input))}
   digest <- first invalid (digestOf backupObject)
   declaration <- first single $ compileKubernetesObject
     KubernetesInput
@@ -159,10 +185,11 @@ compileDatabaseBundle digestOf input backupObject = do
     (Left (invalid "database backup CronJob has an unexpected address"))
   unless (backupUsesAccount accountName backupObject)
     (Left (invalid "database backup CronJob does not use its dedicated source reader account"))
-  let guarded = declaration {dependencies = map OrderedAfter (maybe [] pure (directNamespaceId input) <> [credential, stateful, bindingId])}
+  let guarded = declaration {dependencies = map OrderedAfter (maybe [] pure (directNamespaceId input) <> [credential, stateful, bindingId, signingId])}
   pure ( bundle {declarations = declarations bundle <>
-           map Managed [accountDeclaration, roleDeclaration, bindingDeclaration, guarded]}
-       , native <> [(accountId, accountObject), (roleId, roleObject), (bindingId, bindingObject), (resource, backupObject)] )
+           map Managed [accountDeclaration, roleDeclaration, bindingDeclaration, signingDeclaration, guarded]}
+       , native <> [(accountId, accountObject), (roleId, roleObject), (bindingId, bindingObject)
+           , (signingId, signingObject), (resource, backupObject)] )
   where
     known value = either (error . show) id (mkName value)
     invalid :: Text -> NonEmpty InventoryError
