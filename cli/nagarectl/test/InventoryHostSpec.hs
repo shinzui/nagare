@@ -102,6 +102,7 @@ inventoryHostTests =
                   "deploy@dev-nagare"
                   (contentDigest "configuration")
                   (contentDigest "lock")
+                  False
           writeFile executable body
           setFileMode executable 0o700
           let adapter = mkHostAdapter (mkHostRuntimeOps runtime)

@@ -71,6 +71,8 @@ Inherited baseline: commits `9c308390`, `28e05b72`, and `09d83188` supplied expl
 
 2026-09-26 continuation: The same public fixture now loses the acknowledgement after a foundation API enable has taken effect. `inventory resume --yes` observes that service, records its receipt, finishes the foundation, and the command log shows the affected enable ran once. Candidate source revision `494bfe31` passed `bash scripts/test-bootstrap-foundation-public.sh <built nagarectl>`. The foundation and cloud-layer portions of the interruption matrix have recording-provider evidence; host, cluster, and pre-marker interruption cases and native final-marker proof remain open.
 
+2026-09-26 continuation: The cloud path now inserts reviewed image build and GCE publication stages after the 24 base Pulumi registrations. The first review binds the evaluated Nix output path before the build; the second binds the verified tarball digest and exact project-scoped image destination. The accepted image drives a focused reviewed Pulumi stack-config update and two further Pulumi registrations for the VM component and GCE instance. The public fixture reaches all these stages without an existing Kubernetes API. It loses the GCE registration acknowledgement after the provider write, then resumes from the image digest stamp without repeating registration. A separate host scope depends on the VM, compiles the context's flake and lock digests, and produces guarded creation and activation operations. The fixture commits a host closure while hiding the commit acknowledgement; `inventory resume --yes` verifies the committed closure and finishes without activating twice. M1 remains open for bounded IP/registry/credential/kubeconfig preparation, local-mode stages, and full cluster dispatch. M2 remains open for cluster and pre-marker interruption, changed context/payload proof across these new stages, unchanged idempotent bootstrap, and native final-marker proof. Host drift observation currently confirms VM identity and relies on activation receipts; it does not yet compare the accepted closure on a later plan.
+
 
 ## Surprises & Discoveries
 
@@ -93,6 +95,8 @@ Inherited baseline: commits `9c308390`, `28e05b72`, and `09d83188` supplied expl
 
 2026-09-26: An isolated native Pulumi experiment applied two saved plans for independent component targets in sequence from one initial stack snapshot. A parent-child variant refused a child-only targeted preview before its parent existed: the diagnostic named the missing dependency target. The cloud builder therefore has to stage dependent provider resources in order; same-stage independent targets still need topology and convergence proof in Nagare's actual program.
 
+2026-09-26: The image upload script already built the Nix output inside publication, so the tarball digest was unavailable to a prior immutable review. A reviewed build-job artifact now binds the evaluated output path; the later publication review derives the tarball digest without building. The GCE transport originally passed a bare digest to a script expecting `sha256:<digest>`, exposed by the public apply fixture and corrected. The host transport likewise emitted a prefixed proof that its typed decoder rejected; the lost-acknowledgement fixture exposed and corrected that mismatch.
+
 2026-09-26: The first cloud-layer fixture exposed duplicate primary/alias claims when a Pulumi URN was both the resource address and its native alias. The cloud compiler now omits an alias equal to its primary address. The same fixture exposed an inherited Nix cache flag that changed a named context's registration count from 24 to 27; the selected profile now pins that choice and its bucket to the stored context.
 
 
@@ -113,7 +117,7 @@ Inherited baseline: commits `9c308390`, `28e05b72`, and `09d83188` supplied expl
 ## Outcomes & Retrospective
 
 
-Implementation remains partial. Marker identity and scope-vector checks and targeted Pulumi operations have focused test and build evidence. The first cloud foundation stage has a public recording fixture and focused tests; it is not a full cloud, host, local, or native marker acceptance run. Inherited capabilities are credited in Progress and must not be presented as newly completed work.
+Implementation remains partial. Marker identity and scope-vector checks, targeted Pulumi operations, image publication, and host activation have focused test and public recording-fixture evidence. The recording fixture reaches the VM and host receipts; it is not a local bootstrap, native GCP/cloud-cluster convergence, or final-marker acceptance run. Inherited capabilities are credited in Progress and must not be presented as newly completed work.
 
 
 ## Context and Orientation

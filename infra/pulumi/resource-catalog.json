@@ -31,5 +31,9 @@
     {"type": "gcp:storage/bucket:Bucket", "name": "nagare-nix-cache-bucket", "parent": "nagare-nix-cache", "layer": 3},
     {"type": "gcp:storage/bucketIAMMember:BucketIAMMember", "name": "nagare-nix-cache-bucket-iam", "parent": "nagare-nix-cache", "layer": 4},
     {"type": "gcp:storage/hmacKey:HmacKey", "name": "nagare-nix-cache-hmac", "parent": "nagare-nix-cache", "layer": 4}
+  ],
+  "imageEnabled": [
+    {"key": "nagare-instance", "type": "nagare:compute:NagareInstance", "name": "nagare-01", "parent": "nagare", "layer": 4},
+    {"key": "nagare-instance-vm", "type": "gcp:compute/instance:Instance", "name": "nagare-01", "parent": "nagare-instance", "layer": 5}
   ]
 }

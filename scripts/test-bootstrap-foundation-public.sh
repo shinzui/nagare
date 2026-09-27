@@ -138,10 +138,54 @@ PY
     ;;
   "storage buckets add-iam-policy-binding gs://fixture-project-nagare-pulumi-state "*)
     touch "$XDG_STATE_HOME/member-granted" ;;
+  "storage buckets describe gs://fixture-project-nagare-images --raw --format=value(projectNumber)")
+    printf '12345\n' ;;
+  "--project=fixture-project compute images describe nagare-image-image --format=json")
+    if test -e "$XDG_STATE_HOME/image-created"; then
+      printf '{"description":"nagare-content-digest=%s"}\n' "$(cat "$XDG_STATE_HOME/image-digest")"
+    else
+      printf 'image was not found\n' >&2
+      exit 1
+    fi ;;
+  "--project=fixture-project compute images describe nagare-image-image --format=value(description)")
+    if test -e "$XDG_STATE_HOME/image-created"; then
+      printf 'nagare-content-digest=%s\n' "$(cat "$XDG_STATE_HOME/image-digest")"
+    else exit 1; fi ;;
+  "--project=fixture-project compute images describe nagare-image-image --format=value(selfLink)")
+    printf 'https://www.googleapis.com/compute/v1/projects/fixture-project/global/images/nagare-image-image\n' ;;
+  "--project=fixture-project compute images create nagare-image-image "*)
+    for argument in "$@"; do
+      case "$argument" in
+        nagare-content-digest=*) printf '%s\n' "${argument#nagare-content-digest=}" > "$XDG_STATE_HOME/image-digest" ;;
+      esac
+    done
+    test -s "$XDG_STATE_HOME/image-digest"
+    touch "$XDG_STATE_HOME/image-created"
+    if test -e "$XDG_STATE_HOME/fail-next-image-create"; then
+      mv "$XDG_STATE_HOME/fail-next-image-create" "$XDG_STATE_HOME/failed-image-once"
+      printf 'simulated lost GCE image acknowledgement\n' >&2
+      exit 42
+    fi ;;
+  "--project=fixture-project compute instances describe nagare-01 --zone="*" --format=value(id)")
+    printf '98765\n' ;;
   *) printf 'unexpected gcloud command: %s\n' "$*" >&2; exit 37 ;;
 esac
 EOF
 chmod +x "$fixture_root/bin/gcloud"
+cat > "$fixture_root/bin/gsutil" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$XDG_STATE_HOME/gsutil.log"
+case "$*" in
+  "ls -b gs://fixture-project-nagare-images/") ;;
+  "-q stat gs://fixture-project-nagare-images/nagare-image-image.raw.tar.gz")
+    test -e "$XDG_STATE_HOME/image-object-created" ;;
+  "cp "*" gs://fixture-project-nagare-images/nagare-image-image.raw.tar.gz")
+    touch "$XDG_STATE_HOME/image-object-created" ;;
+  *) printf 'unexpected gsutil command: %s\n' "$*" >&2; exit 37 ;;
+esac
+EOF
+chmod +x "$fixture_root/bin/gsutil"
 cat > "$fixture_root/bin/pulumi" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -173,6 +217,9 @@ PY
     ;;
   "config set")
     printf '%s\t%s\n' "$7" "$8" >> "$XDG_STATE_HOME/pulumi-config.tsv" ;;
+  "config get")
+    test "$5" = imageBucket
+    printf 'fixture-project-nagare-images\n' ;;
   "config --json")
     python3 - "$XDG_STATE_HOME/pulumi-config.tsv" <<'PY'
 import json
@@ -194,8 +241,8 @@ import json
 import sys
 with open(sys.argv[1], encoding="utf-8") as source:
     registrations = json.load(source)["registrations"]
-assert len(registrations) == 24, registrations
-assert sum(registration["class"] == "managed" for registration in registrations) in (1, 10, 19, 24)
+assert len(registrations) in (24, 26), registrations
+assert sum(registration["class"] == "managed" for registration in registrations) in (1, 10, 19, 24, 25, 26)
 PY
     if [[ " $* " == *" --expect-no-changes "* ]]; then
       printf '{"steps":[]}\n'
@@ -478,6 +525,269 @@ assert operations[0]["operation"]["resources"] == [
 PY
 cp "$fixture_root/applied-urns.saved" "$XDG_STATE_HOME/applied-urns"
 printf 'an observed Pulumi absence planned one reviewed cloud repair\n'
+
+# The next public review must bind the Nix output before a remote build.
+mkdir -p "$XDG_CONFIG_HOME/nagare/hosts/freshlocal"
+touch "$XDG_CONFIG_HOME/nagare/hosts/freshlocal/flake.nix" \
+  "$XDG_CONFIG_HOME/nagare/hosts/freshlocal/host.nix"
+export NAGARE_TEST_IMAGE_OUTPUT="$fixture_root/image-output"
+cat > "$fixture_root/bin/nix" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$XDG_STATE_HOME/nix.log"
+case "${1:-} ${2:-}" in
+  "eval --raw") printf '%s' "$NAGARE_TEST_IMAGE_OUTPUT" ;;
+  "config show") printf 'system = aarch64-darwin\n' ;;
+  "build --builders")
+    mkdir -p "$NAGARE_TEST_IMAGE_OUTPUT"
+    printf 'fixture image\n' | gzip > "$NAGARE_TEST_IMAGE_OUTPUT/nagare.raw.tar.gz"
+    printf '%s\n' "$NAGARE_TEST_IMAGE_OUTPUT" ;;
+  "build --no-link") printf '%s\n' "$XDG_STATE_HOME/host-closure" ;;
+  "eval --json")
+    case "$*" in
+      *"authorizedKeys.keys") printf '["ssh-ed25519 fixture-key"]\n' ;;
+      *) printf 'false\n' ;;
+    esac ;;
+  "copy --no-check-sigs") ;;
+  *) printf 'unexpected nix command: %s\n' "$*" >&2; exit 39 ;;
+esac
+EOF
+cat > "$fixture_root/bin/ssh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+logline="$*"
+case "$logline" in
+  *"nagare-safe-activate arm "*) logline='host arm' ;;
+  *"nagare-safe-activate activate "*) logline='host activate' ;;
+  *"nagare-safe-activate commit "*) logline='host commit' ;;
+esac
+printf '%s\n' "$logline" >> "$XDG_STATE_HOME/ssh.log"
+new="$XDG_STATE_HOME/host-closure"
+current='/fixture/old-closure'
+if test -e "$XDG_STATE_HOME/host-activated"; then current="$new"; fi
+case "$*" in
+  *"printf \"current=%s"*)
+    printf 'current=%s\n' "$current"
+    if test -e "$XDG_STATE_HOME/host-committed"; then
+      printf 'profile=%s\ntimer=inactive\n' "$new"
+    elif test -e "$XDG_STATE_HOME/host-armed"; then
+      printf 'profile=/fixture/old-closure\ntimer=active\n'
+    else
+      printf 'profile=/fixture/old-closure\ntimer=inactive\n'
+    fi ;;
+  *"nagare-safe-activate arm "*)
+    touch "$XDG_STATE_HOME/host-armed"
+    printf 'ARMED\n' ;;
+  *"nagare-safe-activate activate "*)
+    touch "$XDG_STATE_HOME/host-activated"
+    printf 'ACTIVATED\n' ;;
+  *"nagare-safe-activate commit "*)
+    mv "$XDG_STATE_HOME/host-armed" "$XDG_STATE_HOME/host-committed"
+    if test -e "$XDG_STATE_HOME/fail-host-commit-ack"; then
+      mv "$XDG_STATE_HOME/fail-host-commit-ack" "$XDG_STATE_HOME/failed-host-commit-ack"
+      exit 42
+    fi
+    printf 'COMMITTED new=%s\n' "$new" ;;
+  *"sudo -n true && readlink -f /run/current-system"*) printf '%s\n' "$current" ;;
+  *"readlink -f /run/current-system"*) printf '%s\n' "$current" ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$fixture_root/bin/nix" "$fixture_root/bin/ssh"
+"$nagarectl_bin" --context freshlocal platform bootstrap plan --out "$fixture_root/build-review" \
+  > "$fixture_root/build-plan-out" 2>&1 || {
+  cat "$fixture_root/build-plan-out" >&2
+  exit 1
+}
+python3 - "$fixture_root/build-review/review.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    review = json.load(source)
+operations = review["operations"]
+assert len(operations) == 1, operations
+assert operations[0]["operation"]["executor"] == "ArtifactExecutor", operations
+assert operations[0]["operation"]["resources"] == [
+    "platform:host-image-build/host-image/host-image-build"
+], operations
+PY
+test ! -e "$NAGARE_TEST_IMAGE_OUTPUT"
+"$nagarectl_bin" --context freshlocal platform bootstrap apply "$fixture_root/build-review" --yes \
+  > "$fixture_root/build-apply-out" 2>&1 || {
+  cat "$fixture_root/build-apply-out" >&2
+  exit 1
+}
+test -s "$NAGARE_TEST_IMAGE_OUTPUT/nagare.raw.tar.gz"
+printf 'public bootstrap reviewed the Nix image build before its first build effect\n'
+"$nagarectl_bin" --context freshlocal platform bootstrap plan --out "$fixture_root/image-review" \
+  > "$fixture_root/image-plan-out" 2>&1 || {
+  cat "$fixture_root/image-plan-out" >&2
+  exit 1
+}
+python3 - "$fixture_root/image-review/review.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    review = json.load(source)
+operations = review["operations"]
+assert len(operations) == 1, operations
+assert operations[0]["operation"]["executor"] == "ArtifactExecutor", operations
+assert operations[0]["operation"]["resources"] == [
+    "platform:host-image/gce-image/nagare-image-image"
+], operations
+PY
+test ! -e "$XDG_STATE_HOME/image-created"
+printf 'public bootstrap bound the built tarball digest to a separate GCE image review\n'
+touch "$XDG_STATE_HOME/fail-next-image-create"
+if "$nagarectl_bin" --context freshlocal platform bootstrap apply "$fixture_root/image-review" --yes \
+  > "$fixture_root/image-apply-out" 2>&1; then
+  printf 'GCE image apply unexpectedly acknowledged a simulated lost result\n' >&2
+  exit 1
+fi
+image_transaction="$(python3 - "$XDG_STATE_HOME/nagare/freshlocal/inventory/head.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    head = json.load(source)
+assert head["activeTransaction"] is not None, head
+print(head["activeTransaction"])
+PY
+)"
+"$nagarectl_bin" --context freshlocal inventory resume "$image_transaction" --yes \
+  > "$fixture_root/image-resume-out" 2>&1 || {
+  cat "$fixture_root/image-resume-out" >&2
+  tail -30 "$XDG_STATE_HOME/gcloud-apply.log" >&2
+  tail -30 "$XDG_STATE_HOME/gsutil.log" >&2 2>/dev/null || true
+  exit 1
+}
+test -e "$XDG_STATE_HOME/image-created"
+test -e "$XDG_STATE_HOME/image-object-created"
+test "$(grep -Fc 'compute images create nagare-image-image' "$XDG_STATE_HOME/gcloud-apply.log")" -eq 1
+printf 'public inventory resume proved GCE image publication without repeating registration\n'
+"$nagarectl_bin" --context freshlocal platform bootstrap plan --out "$fixture_root/image-config-review" \
+  > "$fixture_root/image-config-plan-out" 2>&1 || {
+  cat "$fixture_root/image-config-plan-out" >&2
+  exit 1
+}
+python3 - "$fixture_root/image-config-review/review.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    review = json.load(source)
+operations = review["operations"]
+assert len(operations) == 1, operations
+assert operations[0]["operation"]["executor"] == "CloudFoundationExecutor", operations
+assert operations[0]["operation"]["resources"] == [
+    "platform:cloud-foundation/pulumi-stack/freshlocal"
+], operations
+PY
+"$nagarectl_bin" --context freshlocal platform bootstrap apply "$fixture_root/image-config-review" --yes \
+  > "$fixture_root/image-config-apply-out" 2>&1 || {
+  cat "$fixture_root/image-config-apply-out" >&2
+  exit 1
+}
+grep -Fq $'nagare:nagareImageSelfLink\thttps://www.googleapis.com/compute/v1/projects/fixture-project/global/images/nagare-image-image' \
+  "$XDG_STATE_HOME/pulumi-config.tsv"
+"$nagarectl_bin" --context freshlocal platform bootstrap plan --out "$fixture_root/vm-component-review" \
+  > "$fixture_root/vm-component-plan-out" 2>&1 || {
+  cat "$fixture_root/vm-component-plan-out" >&2
+  exit 1
+}
+python3 - "$fixture_root/vm-component-review/review.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    review = json.load(source)
+operations = review["operations"]
+assert len(operations) == 1, operations
+assert operations[0]["operation"]["executor"] == "PulumiExecutor", operations
+assert operations[0]["operation"]["resources"] == [
+    "platform:cloud/nagare-instance/nagare-01"
+], operations
+PY
+"$nagarectl_bin" --context freshlocal platform bootstrap apply "$fixture_root/vm-component-review" --yes \
+  > "$fixture_root/vm-component-apply-out" 2>&1 || {
+  cat "$fixture_root/vm-component-apply-out" >&2
+  exit 1
+}
+"$nagarectl_bin" --context freshlocal platform bootstrap plan --out "$fixture_root/vm-instance-review" \
+  > "$fixture_root/vm-instance-plan-out" 2>&1 || {
+  cat "$fixture_root/vm-instance-plan-out" >&2
+  exit 1
+}
+python3 - "$fixture_root/vm-instance-review/review.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    review = json.load(source)
+operations = review["operations"]
+assert len(operations) == 1, operations
+assert operations[0]["operation"]["executor"] == "PulumiExecutor", operations
+assert operations[0]["operation"]["resources"] == [
+    "platform:cloud/nagare-instance-vm/nagare-01"
+], operations
+PY
+"$nagarectl_bin" --context freshlocal platform bootstrap apply "$fixture_root/vm-instance-review" --yes \
+  > "$fixture_root/vm-instance-apply-out" 2>&1 || {
+  cat "$fixture_root/vm-instance-apply-out" >&2
+  exit 1
+}
+test "$(wc -l < "$XDG_STATE_HOME/applied-urns")" -eq 26
+printf 'reviewed image config enabled and converged both VM registrations\n'
+printf 'hostName = "freshlocal-nagare";\n' > "$XDG_CONFIG_HOME/nagare/hosts/freshlocal/host.nix"
+printf '{}\n' > "$XDG_CONFIG_HOME/nagare/hosts/freshlocal/flake.lock"
+printf 'ssh-ed25519 fixture-key fixture@example.invalid\n' > "$fixture_root/operator.pub"
+export NAGARE_SSH_PUBLIC_KEY_FILE="$fixture_root/operator.pub"
+cat > "$fixture_root/bin/nagarectl" <<'EOF'
+#!/usr/bin/env bash
+if test "$*" = 'host name'; then
+  printf 'freshlocal-nagare\n'
+else
+  printf 'unexpected nested nagarectl command: %s\n' "$*" >&2
+  exit 44
+fi
+EOF
+chmod +x "$fixture_root/bin/nagarectl"
+"$nagarectl_bin" --context freshlocal platform bootstrap plan --out "$fixture_root/host-review" \
+  > "$fixture_root/host-plan-out" 2>&1 || {
+  cat "$fixture_root/host-plan-out" >&2
+  exit 1
+}
+python3 - "$fixture_root/host-review/review.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    review = json.load(source)
+operations = review["operations"]
+assert {operation["operation"]["executor"] for operation in operations} == {"HostExecutor"}, operations
+assert any(operation["operation"]["action"]["tag"] == "RunDeclaredOperation" for operation in operations), operations
+PY
+printf 'public bootstrap planned guarded host activation after the VM receipts\n'
+touch "$XDG_STATE_HOME/fail-host-commit-ack"
+if "$nagarectl_bin" --context freshlocal platform bootstrap apply "$fixture_root/host-review" --yes \
+  > "$fixture_root/host-apply-out" 2>&1; then
+  printf 'host apply unexpectedly acknowledged a simulated lost commit result\n' >&2
+  exit 1
+fi
+test -e "$XDG_STATE_HOME/host-committed"
+host_transaction="$(python3 - "$XDG_STATE_HOME/nagare/freshlocal/inventory/head.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    head = json.load(source)
+assert head["activeTransaction"] is not None, head
+print(head["activeTransaction"])
+PY
+)"
+"$nagarectl_bin" --context freshlocal inventory resume "$host_transaction" --yes \
+  > "$fixture_root/host-resume-out" 2>&1 || {
+  cat "$fixture_root/host-apply-out" >&2
+  cat "$fixture_root/host-resume-out" >&2
+  tail -25 "$XDG_STATE_HOME/ssh.log" >&2
+  exit 1
+}
+test "$(grep -Fc 'host activate' "$XDG_STATE_HOME/ssh.log")" -eq 1
+printf 'public inventory resume proved guarded host activation after lost commit acknowledgement\n'
 
 # A separate context exercises the same reviewed stack operation with the
 # actual Pulumi CLI and an isolated file backend. No cloud provider is used.

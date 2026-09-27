@@ -48,16 +48,26 @@ inventoryCloudTests =
     , testCase "cloud catalog builds nested URNs and excludes admitted registrations" $ do
         catalog <- expectRight (decodeCloudCatalog (BC.pack
           "{\"version\":1,\"project\":\"nagare\",\"foundationManaged\":[{\"type\":\"nagare:env:NagarePerimeter\",\"name\":\"nagare\",\"parent\":null,\"layer\":0},{\"type\":\"gcp:storage/bucket:Bucket\",\"name\":\"nagare-images\",\"parent\":\"nagare\",\"layer\":1}],\"nixCacheEnabled\":[{\"type\":\"nagare:env:NagareNixCache\",\"name\":\"nagare-nix-cache\",\"parent\":null,\"layer\":2}]}"))
-        length (selectedCloudCatalog False catalog) @?= 2
-        length (selectedCloudCatalog True catalog) @?= 3
+        length (selectedCloudCatalog False False catalog) @?= 2
+        length (selectedCloudCatalog True False catalog) @?= 3
         let image = last (catalogFoundationManaged catalog)
         imageUrn <- expectRight (cloudCatalogUrn (name "dev") catalog image)
         imageUrn @?= "urn:pulumi:dev::nagare::nagare:env:NagarePerimeter$gcp:storage/bucket:Bucket::nagare-images"
         let admitted = registration {registrationPulumiUrn = imageUrn}
         bookkeeping <- expectRight (cloudBookkeepingRegistrations
-          (name "dev") False catalog (contentDigest "catalog") [admitted])
+          (name "dev") False False catalog (contentDigest "catalog") [admitted])
         length bookkeeping @?= 1
         map registrationPulumiName bookkeeping @?= [name "nagare"]
+    , testCase "image catalog keeps distinct keys for component and VM with one native name" $ do
+        catalog <- expectRight (decodeCloudCatalog (BC.pack
+          "{\"version\":1,\"project\":\"nagare\",\"foundationManaged\":[{\"type\":\"nagare:env:NagarePerimeter\",\"name\":\"nagare\",\"parent\":null,\"layer\":0}],\"nixCacheEnabled\":[],\"imageEnabled\":[{\"key\":\"nagare-instance\",\"type\":\"nagare:compute:NagareInstance\",\"name\":\"nagare-01\",\"parent\":\"nagare\",\"layer\":4},{\"key\":\"nagare-instance-vm\",\"type\":\"gcp:compute/instance:Instance\",\"name\":\"nagare-01\",\"parent\":\"nagare-instance\",\"layer\":5}]}"))
+        let selected = selectedCloudCatalog False True (withCloudInstanceName (name "custom-host") catalog)
+        length selected @?= 3
+        let vm = last selected
+        catalogNativeName vm @?= name "custom-host"
+        catalogKey vm @?= name "nagare-instance-vm"
+        urn <- expectRight (cloudCatalogUrn (name "dev") catalog vm)
+        urn @?= "urn:pulumi:dev::nagare::nagare:env:NagarePerimeter$nagare:compute:NagareInstance$gcp:compute/instance:Instance::custom-host"
     , testCase "registration parity refuses an undeclared native object" $ do
         let foreignRegistration = registration {registrationResource = resource "platform:cloud/foreign/bucket"}
         case validateNativeRegistrationParity [registration] [registration, foreignRegistration] of

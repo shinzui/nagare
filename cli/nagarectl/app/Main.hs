@@ -4812,10 +4812,28 @@ runPlatformBootstrapPlan mctx output = do
             (inventoryPlanRegistry active workspace)
             ("nagare-bootstrap:" <> manifest ^. #payloadId) active candidate output
         Nothing -> do
-          (candidate, native) <- buildPlatformCandidate active paths workspace snapshot
-          Inventory.planInventoryCandidateWithPayloadIdentity
-            (inventoryPlanRegistryWithNative active workspace native)
-            ("nagare-bootstrap:" <> manifest ^. #payloadId) active candidate output
+          imageBuild <- buildImageBuildStageCandidate active workspace snapshot
+          case imageBuild of
+            Just candidate -> Inventory.planInventoryCandidateWithPayloadIdentity
+              (inventoryPlanRegistry active workspace)
+              ("nagare-bootstrap:" <> manifest ^. #payloadId) active candidate output
+            Nothing -> do
+              imagePublication <- buildImagePublicationStageCandidate active workspace snapshot
+              case imagePublication of
+                Just candidate -> Inventory.planInventoryCandidateWithPayloadIdentity
+                  (inventoryPlanRegistry active workspace)
+                  ("nagare-bootstrap:" <> manifest ^. #payloadId) active candidate output
+                Nothing -> do
+                  hostStage <- buildHostStageCandidate active workspace snapshot
+                  case hostStage of
+                    Just candidate -> Inventory.planInventoryCandidateWithPayloadIdentity
+                      (inventoryPlanRegistry active workspace)
+                      ("nagare-bootstrap:" <> manifest ^. #payloadId) active candidate output
+                    Nothing -> do
+                      (candidate, native) <- buildPlatformCandidate active paths workspace snapshot
+                      Inventory.planInventoryCandidateWithPayloadIdentity
+                        (inventoryPlanRegistryWithNative active workspace native)
+                        ("nagare-bootstrap:" <> manifest ^. #payloadId) active candidate output
 
 runPlatformBootstrapApply :: Maybe String -> FilePath -> Bool -> IO ()
 runPlatformBootstrapApply mctx reviewDirectory yes = do
@@ -4895,7 +4913,10 @@ foundationScopeReady active snapshot = case Map.lookup owner (ResourceInventory.
     project <- either dieT pure (Resource.mkName (profile ^. #project))
     location <- either dieT pure (Resource.mkName (profile ^. #region))
     backendBucket <- foundationPulumiBucket active
-    stackTarget <- foundationStackTarget active workspace
+    imageLink <- foundationImageLink active
+      (concatMap (concatMap ResourceInventory.declarations . ResourceInventory.scopeBundles . snd)
+        (Map.elems (ResourceInventory.snapshotScopes snapshot)))
+    stackTarget <- foundationStackTarget active workspace imageLink
     let stackName = case stackTarget of
           FoundationStack _ name _ _ _ _ _ -> name
           _ -> error "foundationStackTarget did not return a stack"
@@ -4949,7 +4970,10 @@ buildCloudFoundationCandidate active paths workspace snapshot = do
         (either (error . T.unpack) (\key -> key) (Resource.mkLogicalKey "storage.googleapis.com"))
         (either (error . T.unpack) (\name -> name) (Resource.mkName "storage.googleapis.com"))
   backendBucket <- foundationPulumiBucket active
-  stackTarget <- foundationStackTarget active workspace
+  imageLink <- foundationImageLink active
+    (concatMap (concatMap ResourceInventory.declarations . ResourceInventory.scopeBundles . snd)
+      (Map.elems (ResourceInventory.snapshotScopes snapshot)))
+  stackTarget <- foundationStackTarget active workspace imageLink
   bucketNames <- foundationBucketNames active
   buckets <- forM (Set.toAscList bucketNames) $ \bucketText -> do
     bucket <- either dieT pure (Resource.mkName bucketText)
@@ -5001,11 +5025,18 @@ buildCloudStageCandidate
 buildCloudStageCandidate active workspace snapshot
   | active ^. #profile . #mode /= Cloud = pure Nothing
   | otherwise = do
-      (catalogBytes, catalog) <- loadCloudCatalog workspace
+      (catalogBytes, rawCatalog) <- loadCloudCatalog workspace
       let profile = active ^. #profile
+          catalog = InventoryCloud.withCloudInstanceName
+            (either (error . T.unpack) (\name -> name) (Resource.mkName (profile ^. #instanceName))) rawCatalog
+      imageLink <- foundationImageLink active
+        (concatMap (concatMap ResourceInventory.declarations . ResourceInventory.scopeBundles . snd)
+          (Map.elems (ResourceInventory.snapshotScopes snapshot)))
+      let
           owner = either (error . T.unpack) (\scope -> scope)
             (Resource.mkScopeId Resource.Platform "cloud")
-          entries = InventoryCloud.selectedCloudCatalog (profile ^. #nixCacheEnabled) catalog
+          entries = InventoryCloud.selectedCloudCatalog
+            (profile ^. #nixCacheEnabled) (isJust imageLink) catalog
           acceptedMembers = case Map.lookup owner (ResourceInventory.snapshotScopes snapshot) of
             Nothing -> []
             Just (_, scope) -> [member
@@ -5045,25 +5076,28 @@ buildCloudStageCandidate active workspace snapshot
                 InventoryCloud.catalogLayer entry <= nextLayer]
               resourceId entry = Resource.mintResourceId owner
                 (either (error . T.unpack) (\key -> key)
-                  (Resource.mkLogicalKey (Resource.nameText (InventoryCloud.catalogNativeName entry))))
+                  (Resource.mkLogicalKey (Resource.nameText (InventoryCloud.catalogKey entry))))
                 (InventoryCloud.catalogNativeName entry)
               stackOwner = either (error . T.unpack) (\scope -> scope)
                 (Resource.mkScopeId Resource.Platform "cloud-foundation")
               stackId = Resource.mintResourceId stackOwner
                 (either (error . T.unpack) (\key -> key) (Resource.mkLogicalKey "pulumi-stack")) stack
-              intentDigest = InventoryDigest.contentDigest
-                (catalogBytes <> TE.encodeUtf8 (T.pack (show (seedKeys profile))))
+              intentDigest entry = InventoryDigest.contentDigest
+                (catalogBytes <> TE.encodeUtf8 (T.pack (show
+                  (seedKeys profile <> [ ("nagare:nagareImageSelfLink", link)
+                    | entry `elem` InventoryCloud.catalogImageEnabled catalog
+                    , link <- maybe [] pure imageLink]))))
           resources <- forM admitted $ \entry -> do
             urn <- either dieT pure (InventoryCloud.cloudCatalogUrn stack catalog entry)
             key <- either dieT pure (Resource.mkLogicalKey
-              (Resource.nameText (InventoryCloud.catalogNativeName entry)))
+              (Resource.nameText (InventoryCloud.catalogKey entry)))
             let predecessors = [resourceId prior | prior <- admitted,
                   InventoryCloud.catalogLayer prior < InventoryCloud.catalogLayer entry]
                 dependencies = map ResourceReference.OrderedAfter
                   (if null predecessors then [stackId] else predecessors)
             pure (InventoryCloud.CloudResource key
               (InventoryCloud.catalogNativeName entry)
-              (InventoryCloud.PulumiAddress urn) [] intentDigest
+              (InventoryCloud.PulumiAddress urn) [] (intentDigest entry)
               ResourcePolicy.Protect ResourcePolicy.Stateless ResourcePolicy.Public
               dependencies
               (Resource.SourceLocation "infra/pulumi/resource-catalog.json"
@@ -5076,6 +5110,236 @@ buildCloudStageCandidate active workspace snapshot
           Just <$> either (dieT . T.pack . show) pure
             (ResourceInventory.composeInventory snapshot
               (ResourceInventory.ReplaceScope scope NE.:| []))
+
+-- The image output path is derivation-addressed and can be evaluated before a
+-- build. Its build is a separate reviewed artifact effect. A subsequent review
+-- can bind the resulting tarball digest to GCE image publication.
+buildImageBuildStageCandidate
+  :: ActiveTarget -> PlatformWorkspace -> ResourceInventory.ScopeSnapshot
+  -> IO (Maybe ResourceInventory.CompositionCandidate)
+buildImageBuildStageCandidate active workspace snapshot
+  | active ^. #profile . #mode /= Cloud = pure Nothing
+  | otherwise = do
+      hostRoot <- hostConfigDir (active ^. #contextName)
+      evaluated <- try (readCreateProcessWithExitCode
+        ((proc "nix" ["eval", "--raw", ".#packages.x86_64-linux.nagare-image"])
+          {cwd = Just hostRoot}) "") >>= \case
+        Left (err :: IOException) -> dieT ("could not evaluate reviewed host image: " <> T.pack (show err))
+        Right (ExitFailure code, _, err) -> dieT
+          ("host image evaluation failed (exit " <> T.pack (show code) <> "): " <> T.pack err)
+        Right (ExitSuccess, out, _) -> pure (T.strip (T.pack out))
+      unless (T.isPrefixOf "/" evaluated && not (T.any (`elem` ['\n', '\r', '\t']) evaluated))
+        (dieT "host image evaluation did not return one absolute output path")
+      let pathDigest = InventoryDigest.contentDigest (TE.encodeUtf8 evaluated)
+      owner <- either dieT pure (Resource.mkScopeId Resource.Platform "host-image-build")
+      key <- either dieT pure (Resource.mkLogicalKey "host-image")
+      role <- either dieT pure (Resource.mkName "host-image-build")
+      cloudOwner <- either dieT pure (Resource.mkScopeId Resource.Platform "cloud")
+      bucketKey <- either dieT pure (Resource.mkLogicalKey "nagare-images")
+      bucketName <- either dieT pure (Resource.mkName "nagare-images")
+      let bucketId = Resource.mintResourceId cloudOwner bucketKey bucketName
+          buildSpec = ArtifactResourceSpec
+            { artifactLogicalKey = key
+            , artifactRole = role
+            , artifactName = role
+            , artifactDestination = evaluated
+            , artifactContentDigest = pathDigest
+            , artifactSpecDigest = pathDigest
+            , artifactKind = InventoryArtifact.BuildJobArtifact
+            , artifactOwnership = InventoryArtifact.OwnedArtifact
+            , artifactLifecycle = ResourcePolicy.Retain
+            , artifactDataPolicy = ResourcePolicy.Stateless
+            , artifactSensitivity = ResourcePolicy.Private
+            , artifactDependencies = [ResourceReference.OrderedAfter bucketId]
+            , artifactConsumers = InventoryArtifact.ConsumerCompletenessUnknown
+            , artifactPublishOperation = False
+            , artifactSource = Resource.SourceLocation (T.pack hostRoot) "nix-image-output"
+            }
+      scope <- either (dieT . T.pack . show) pure (InventoryArtifact.compileArtifactScope
+        (ArtifactDeclarationBundle 1 owner (buildSpec NE.:| [])))
+      case Map.lookup owner (ResourceInventory.snapshotScopes snapshot) of
+        Just (_, prior) | prior /= scope ->
+          dieT "accepted host image build differs from this immutable output path"
+        _ -> pure ()
+      let accepted = Map.member owner (ResourceInventory.snapshotScopes snapshot)
+      present <- if not accepted then pure False else do
+        result <- runHostImageProbe active workspace hostRoot "--inspect-build"
+        case T.splitOn "\t" result of
+          ["nagare-build", status, observedPath, observedDigest]
+            | observedPath == evaluated
+            , observedDigest == Resource.digestText pathDigest
+            , status `elem` ["present", "missing"] -> pure (status == "present")
+          _ -> dieT "host image build inspection differs from the reviewed output"
+      if present then pure Nothing else Just <$> either (dieT . T.pack . show) pure
+        (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
+
+runHostImageProbe :: ActiveTarget -> PlatformWorkspace -> FilePath -> String -> IO Text
+runHostImageProbe active workspace hostRoot option = do
+  environment <- getEnvironment
+  let selected = [("NAGARE_CONTEXT", T.unpack (contextNameText (active ^. #contextName)))
+        , ("NAGARE_HOST_FLAKE", hostRoot)]
+      names = map fst selected
+      process :: CreateProcess
+      process = (proc "bash" [workspace ^. #scriptsDir </> "upload-images.sh", option])
+        {env = Just (selected <> filter ((`notElem` names) . fst) environment)}
+  try (readCreateProcessWithExitCode process "") >>= \case
+    Left (err :: IOException) -> dieT ("could not inspect host image: " <> T.pack (show err))
+    Right (ExitFailure code, _, err) -> dieT
+      ("host image inspection failed (exit " <> T.pack (show code) <> "): " <> T.pack err)
+    Right (ExitSuccess, out, _) -> pure (T.strip (T.pack out))
+
+buildImagePublicationStageCandidate
+  :: ActiveTarget -> PlatformWorkspace -> ResourceInventory.ScopeSnapshot
+  -> IO (Maybe ResourceInventory.CompositionCandidate)
+buildImagePublicationStageCandidate active workspace snapshot
+  | active ^. #profile . #mode /= Cloud = pure Nothing
+  | otherwise = do
+      hostRoot <- hostConfigDir (active ^. #contextName)
+      description <- runHostImageProbe active workspace hostRoot "--describe-build"
+      (storePath, imageName, imageDigest) <- case T.splitOn "\t" description of
+        ["nagare-image", path, name, digest]
+          | T.isPrefixOf "/" path, T.isPrefixOf "nagare-image-" name ->
+              (,,) path name <$> either dieT pure (Resource.mkContentDigest digest)
+        _ -> dieT "built host image description is invalid"
+      buildOwner <- either dieT pure (Resource.mkScopeId Resource.Platform "host-image-build")
+      buildKey <- either dieT pure (Resource.mkLogicalKey "host-image")
+      buildRole <- either dieT pure (Resource.mkName "host-image-build")
+      let buildId = Resource.mintResourceId buildOwner buildKey buildRole
+          acceptedBuild = [resource
+            | Just (_, scope) <- [Map.lookup buildOwner (ResourceInventory.snapshotScopes snapshot)]
+            , bundle <- ResourceInventory.scopeBundles scope
+            , ResourceInventory.Managed resource <- ResourceInventory.declarations bundle
+            , resource ^. #identity == buildId]
+      unless (case acceptedBuild of
+        [resource] -> resource ^. #address == Resource.Artifact buildRole
+          (InventoryDigest.contentDigest (TE.encodeUtf8 storePath))
+        _ -> False)
+        (dieT "host image publication requires the accepted reviewed build output")
+      let project = active ^. #profile . #project
+          destination = "projects/" <> project <> "/global/images/" <> imageName
+          pathDigest = InventoryDigest.contentDigest (TE.encodeUtf8 storePath)
+      owner <- either dieT pure (Resource.mkScopeId Resource.Platform "host-image")
+      key <- either dieT pure (Resource.mkLogicalKey "gce-image")
+      role <- either dieT pure (Resource.mkName imageName)
+      cloudOwner <- either dieT pure (Resource.mkScopeId Resource.Platform "cloud")
+      bucketKey <- either dieT pure (Resource.mkLogicalKey "nagare-images")
+      bucketName <- either dieT pure (Resource.mkName "nagare-images")
+      let resourceId = Resource.mintResourceId owner key role
+          bucketId = Resource.mintResourceId cloudOwner bucketKey bucketName
+          imageSpec = ArtifactResourceSpec
+            { artifactLogicalKey = key
+            , artifactRole = role
+            , artifactName = role
+            , artifactDestination = destination
+            , artifactContentDigest = imageDigest
+            , artifactSpecDigest = pathDigest
+            , artifactKind = InventoryArtifact.GceImageArtifact
+            , artifactOwnership = InventoryArtifact.OwnedArtifact
+            , artifactLifecycle = ResourcePolicy.Retain
+            , artifactDataPolicy = ResourcePolicy.Stateless
+            , artifactSensitivity = ResourcePolicy.Private
+            , artifactDependencies = map ResourceReference.OrderedAfter [bucketId, buildId]
+            , artifactConsumers = InventoryArtifact.ConsumerCompletenessUnknown
+            , artifactPublishOperation = False
+            , artifactSource = Resource.SourceLocation (T.pack hostRoot) "gce-image-from-nix"
+            }
+      scope <- either (dieT . T.pack . show) pure (InventoryArtifact.compileArtifactScope
+        (ArtifactDeclarationBundle 1 owner (imageSpec NE.:| [])))
+      case Map.lookup owner (ResourceInventory.snapshotScopes snapshot) of
+        Just (_, prior) | prior /= scope ->
+          dieT "accepted GCE image differs from this immutable host image build"
+        _ -> pure ()
+      let accepted = Map.member owner (ResourceInventory.snapshotScopes snapshot)
+      present <- if not accepted then pure False else
+        observeReviewedGceImage active workspace resourceId destination imageDigest pathDigest
+      if present then pure Nothing else Just <$> either (dieT . T.pack . show) pure
+        (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
+
+observeReviewedGceImage
+  :: ActiveTarget -> PlatformWorkspace -> Resource.ResourceId -> Text
+  -> Resource.ContentDigest -> Resource.ContentDigest -> IO Bool
+observeReviewedGceImage active workspace resourceId destination contentDigest specDigest = do
+  environment <- getEnvironment
+  hostRoot <- hostConfigDir (active ^. #contextName)
+  let selected = [("NAGARE_CONTEXT", T.unpack (contextNameText (active ^. #contextName)))
+        , ("NAGARE_HOST_FLAKE", hostRoot)
+        , ("NAGARE_INVENTORY_ADAPTER_CHILD", "artifact")]
+      names = map fst selected
+      process :: CreateProcess
+      process = (proc (workspace ^. #scriptsDir </> "inventory-artifact-transport.sh") ["observe"])
+        {env = Just (selected <> filter ((`notElem` names) . fst) environment)}
+      request = Aeson.object
+        ["version" Aeson..= (1 :: Int)
+        , "resource" Aeson..= resourceId
+        , "kind" Aeson..= InventoryArtifact.GceImageArtifact
+        , "destination" Aeson..= destination
+        , "expectedDigest" Aeson..= contentDigest
+        , "specDigest" Aeson..= specDigest
+        , "archive" Aeson..= Aeson.Null
+        , "plan" Aeson..= Aeson.Null]
+  result <- try (readCreateProcessWithExitCode process
+    (T.unpack (TE.decodeUtf8 (LBS.toStrict (Aeson.encode request))))) >>= \case
+    Left (err :: IOException) -> dieT ("could not observe reviewed GCE image: " <> T.pack (show err))
+    Right (ExitFailure code, _, err) -> dieT
+      ("reviewed GCE image observation failed (exit " <> T.pack (show code) <> "): " <> T.pack err)
+    Right (ExitSuccess, out, _) -> either (dieT . T.pack) pure
+      (Aeson.eitherDecodeStrict' (BC.pack out) :: Either String Aeson.Value)
+  case result of
+    Aeson.Object fields -> case (AesonMap.lookup "tag" fields, AesonMap.lookup "contents" fields) of
+      (Just (Aeson.String "TransportMissing"), _) -> pure False
+      (Just (Aeson.String "TransportPresent"), Just contents) ->
+        case Aeson.fromJSON contents :: Aeson.Result [Text] of
+          Aeson.Success [physical, digest]
+            | physical == "gce://" <> destination
+            , digest == Resource.digestText contentDigest -> pure True
+          _ -> dieT "reviewed GCE image has a different physical identity or content digest"
+      _ -> dieT "reviewed GCE image observation is unavailable or unowned"
+    _ -> dieT "reviewed GCE image observation is invalid"
+
+buildHostStageCandidate
+  :: ActiveTarget -> PlatformWorkspace -> ResourceInventory.ScopeSnapshot
+  -> IO (Maybe ResourceInventory.CompositionCandidate)
+buildHostStageCandidate active _ snapshot
+  | active ^. #profile . #mode /= Cloud = pure Nothing
+  | otherwise = do
+      hostRoot <- hostConfigDir (active ^. #contextName)
+      hostName <- readContextHostName (active ^. #contextName) >>= either dieT pure
+      flake <- BS.readFile (hostRoot </> "flake.nix")
+      hostModule <- BS.readFile (hostRoot </> "host.nix")
+      lock <- BS.readFile (hostRoot </> "flake.lock")
+      let configurationDigest = InventoryDigest.contentDigest (flake <> hostModule)
+          lockDigest = InventoryDigest.contentDigest lock
+          specDigest = InventoryDigest.contentDigest
+            (TE.encodeUtf8 (Resource.digestText configurationDigest
+              <> ":" <> Resource.digestText lockDigest))
+      owner <- either dieT pure (Resource.mkScopeId Resource.Platform "host")
+      key <- either dieT pure (Resource.mkLogicalKey "nixos-system")
+      role <- either dieT pure (Resource.mkName "system")
+      provider <- either dieT pure (Resource.mkName hostName)
+      cloudOwner <- either dieT pure (Resource.mkScopeId Resource.Platform "cloud")
+      vmKey <- either dieT pure (Resource.mkLogicalKey "nagare-instance-vm")
+      vmName <- either dieT pure (Resource.mkName (active ^. #profile . #instanceName))
+      let vmId = Resource.mintResourceId cloudOwner vmKey vmName
+          resource = InventoryHost.HostResourceSpec
+            { InventoryHost.hostLogicalKey = key
+            , InventoryHost.hostRole = role
+            , InventoryHost.hostProviderName = provider
+            , InventoryHost.hostSpecDigest = specDigest
+            , InventoryHost.hostLifecycle = ResourcePolicy.Protect
+            , InventoryHost.hostDataPolicy = ResourcePolicy.Stateless
+            , InventoryHost.hostSensitivity = ResourcePolicy.Private
+            , InventoryHost.hostDependencies = [ResourceReference.OrderedAfter vmId]
+            , InventoryHost.hostSource = Resource.SourceLocation (T.pack (hostRoot </> "host.nix")) "nixos-system"
+            }
+      scope <- either (dieT . T.pack . show) pure (InventoryHost.compileHostScope
+        (InventoryHost.HostDeclarationBundle 1 owner vmId (resource NE.:| [])
+          configurationDigest lockDigest))
+      case Map.lookup owner (ResourceInventory.snapshotScopes snapshot) of
+        Just (_, prior) | prior /= scope ->
+          dieT "accepted host configuration differs from the selected context; use a reviewed host transition"
+        Just _ -> pure Nothing
+        Nothing -> Just <$> either (dieT . T.pack . show) pure
+          (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
 
 -- Keep payload paths explicit so a fresh context compiles one immutable
 -- release against the complete selected inventory snapshot.
@@ -5330,11 +5594,11 @@ runInventoryStatus mctx requested json gcOutput = do
   pulumi <- if null registrations
     then pure (Inventory.executionBlockedAdapterFor ResourceInventory.PulumiExecutor)
     else inventoryPulumiAdapter active workspace binding scopes registrations
-  let artifact = if Map.null artifactSpecs
-        then Inventory.executionBlockedAdapterFor ResourceInventory.ArtifactExecutor
+  artifact <- if Map.null artifactSpecs
+        then pure (Inventory.executionBlockedAdapterFor ResourceInventory.ArtifactExecutor)
         else inventoryArtifactAdapter active workspace artifactSpecs
   host <- maybe (pure (Inventory.executionBlockedAdapterFor ResourceInventory.HostExecutor))
-    (inventoryHostAdapter active workspace) hostInputs
+    (inventoryHostAdapter active workspace (hostScopeAccepted history)) hostInputs
   (cache, cacheKey) <- inventoryCacheAdapter active workspace binding cacheSpecs
   broker <- inventoryBrokerAdapter active binding topicSpecs
     (Map.union (acceptedTopicResources history)
@@ -5924,8 +6188,9 @@ inventoryExecutionRegistry mctx bundle = do
       artifact <-
         if Map.null artifactSpecs
           then pure (Inventory.executionBlockedAdapterFor ResourceInventory.ArtifactExecutor)
-          else pure (inventoryArtifactAdapter active workspace artifactSpecs)
-      host <- maybe (pure (Inventory.executionBlockedAdapterFor ResourceInventory.HostExecutor)) (inventoryHostAdapter active workspace) hostInputs
+          else inventoryArtifactAdapter active workspace artifactSpecs
+      host <- maybe (pure (Inventory.executionBlockedAdapterFor ResourceInventory.HostExecutor))
+        (inventoryHostAdapter active workspace False) hostInputs
       (cache, cacheKey) <- inventoryCacheAdapter active workspace binding cacheSpecs
       acceptedTopics <- if Map.null topicSpecs then pure Map.empty else do
         historyStore <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
@@ -6160,11 +6425,12 @@ inventoryPlanRegistryWithNative active workspace suppliedNative candidate histor
       else inventoryPulumiAdapter active workspace (ResourceInventory.inventoryBinding inventory) scopes allRegistrations
   foundation <- inventoryFoundationAdapter active workspace (ResourceInventory.inventoryBinding inventory)
     declarations (selected ResourceInventory.CloudFoundationExecutor)
-  let artifact =
+  artifact <-
         if Map.null artifactSpecs
-          then Inventory.manifestAdapterFor history ResourceInventory.ArtifactExecutor
+          then pure (Inventory.manifestAdapterFor history ResourceInventory.ArtifactExecutor)
           else inventoryArtifactAdapter active workspace artifactSpecs
-  host <- maybe (pure (Inventory.manifestAdapterFor history ResourceInventory.HostExecutor)) (inventoryHostAdapter active workspace) hostInputs
+  host <- maybe (pure (Inventory.manifestAdapterFor history ResourceInventory.HostExecutor))
+    (inventoryHostAdapter active workspace (hostScopeAccepted history)) hostInputs
   (cache, cacheKey) <- if Map.null cacheSpecs
     then pure (Inventory.manifestAdapterFor history ResourceInventory.CacheExecutor, \_ -> pure (Left "cache output resolver is not installed"))
     else inventoryCacheAdapter active workspace (ResourceInventory.inventoryBinding inventory) cacheSpecs
@@ -6196,7 +6462,8 @@ inventoryFoundationAdapter active workspace binding declarations selectedResourc
       unless (project == binding ^. #project)
         (dieT "reviewed cloud foundation belongs to another target project")
       backendBucket <- foundationPulumiBucket active
-      stackTarget <- foundationStackTarget active workspace
+      imageLink <- foundationImageLink active declarations
+      stackTarget <- foundationStackTarget active workspace imageLink
       let stackName = case stackTarget of
             FoundationStack _ name _ _ _ _ _ -> name
             _ -> error "foundationStackTarget did not return a stack"
@@ -6227,8 +6494,8 @@ foundationPulumiBucket active
 foundationStackAddress :: Resource.Name -> Resource.Name -> Resource.ProviderAddress
 foundationStackAddress = Resource.CloudStack
 
-foundationStackTarget :: ActiveTarget -> PlatformWorkspace -> IO FoundationTarget
-foundationStackTarget active workspace = do
+foundationStackTarget :: ActiveTarget -> PlatformWorkspace -> Maybe Text -> IO FoundationTarget
+foundationStackTarget active workspace imageLink = do
   let profile = active ^. #profile
       context = contextNameText (active ^. #contextName)
   stateRoot <- nagareStateDir
@@ -6237,7 +6504,24 @@ foundationStackTarget active workspace = do
   bucket <- foundationPulumiBucket active
   let environment = pulumiEnvFor stateRoot context profile
   pure (FoundationStack project stack (environment ^. #backendUrl)
-    (workspace ^. #pulumiDir) (environment ^. #home) bucket (seedKeys profile))
+    (workspace ^. #pulumiDir) (environment ^. #home) bucket
+    (seedKeys profile <> maybe [] (\link -> [("nagare:nagareImageSelfLink", link)]) imageLink))
+
+foundationImageLink :: ActiveTarget -> [ResourceInventory.Declaration] -> IO (Maybe Text)
+foundationImageLink active declarations = do
+  owner <- either dieT pure (Resource.mkScopeId Resource.Platform "host-image")
+  let project = active ^. #profile . #project
+      prefix = "projects/" <> project <> "/global/images/"
+      images = [(resource ^. #address, resource ^. #spec)
+        | ResourceInventory.Managed resource <- declarations
+        , resource ^. #owner == owner]
+  case images of
+    [] -> pure Nothing
+    [(Resource.Artifact name _, ResourceInventory.ArtifactPublication kind destination _ _)]
+      | Resource.nameText kind == "gce-image"
+      , destination == prefix <> Resource.nameText name ->
+          pure (Just ("https://www.googleapis.com/compute/v1/" <> destination))
+    _ -> dieT "accepted host image has no unique GCE destination for Pulumi config"
 
 foundationBucketNames :: ActiveTarget -> IO (Set.Set Text)
 foundationBucketNames active = do
@@ -6442,19 +6726,26 @@ inventoryBrokerAdapter active binding specs accepted
             }
       pure (mkTopicAdapter accepted specs (BrokerRuntime.topicRuntimeOps config))
 
-inventoryArtifactAdapter :: ActiveTarget -> PlatformWorkspace -> Map.Map Resource.ResourceId InventoryArtifact.ArtifactExecutionSpec -> InventoryAdapter.Adapter
-inventoryArtifactAdapter active workspace specs =
-  mkArtifactAdapter specs (mkArtifactRuntimeOps config)
-  where
-    config =
-      ArtifactRuntimeConfig
+inventoryArtifactAdapter :: ActiveTarget -> PlatformWorkspace -> Map.Map Resource.ResourceId InventoryArtifact.ArtifactExecutionSpec -> IO InventoryAdapter.Adapter
+inventoryArtifactAdapter active workspace specs = do
+  hostRoot <- hostConfigDir (active ^. #contextName)
+  let config = ArtifactRuntimeConfig
         { runtimeArtifactExecutable = workspace ^. #scriptsDir </> "inventory-artifact-transport.sh"
-        , runtimeArtifactEnvironment = [("NAGARE_CONTEXT", T.unpack (contextNameText (active ^. #contextName)))]
+        , runtimeArtifactEnvironment =
+            [("NAGARE_CONTEXT", T.unpack (contextNameText (active ^. #contextName)))
+            , ("NAGARE_HOST_FLAKE", hostRoot)]
         , runtimeArtifactSpecs = specs
         }
+  pure (mkArtifactAdapter specs (mkArtifactRuntimeOps config))
 
-inventoryHostAdapter :: ActiveTarget -> PlatformWorkspace -> (Resource.ContentDigest, Resource.ContentDigest) -> IO InventoryAdapter.Adapter
-inventoryHostAdapter active workspace (configurationDigest, lockDigest) = do
+hostScopeAccepted :: InventoryPlan.InventoryHistory -> Bool
+hostScopeAccepted history = Map.member owner (InventoryPlan.historyAccepted history)
+  where
+    owner = either (error . T.unpack) (\scope -> scope)
+      (Resource.mkScopeId Resource.Platform "host")
+
+inventoryHostAdapter :: ActiveTarget -> PlatformWorkspace -> Bool -> (Resource.ContentDigest, Resource.ContentDigest) -> IO InventoryAdapter.Adapter
+inventoryHostAdapter active workspace accepted (configurationDigest, lockDigest) = do
   hostName <- readContextHostName (active ^. #contextName) >>= either dieT pure
   hostRoot <- hostConfigDir (active ^. #contextName)
   context <- either dieT pure (Resource.mkContextId (contextNameText (active ^. #contextName)))
@@ -6475,6 +6766,7 @@ inventoryHostAdapter active workspace (configurationDigest, lockDigest) = do
           , runtimeHostDestination = "deploy@" <> hostName
           , runtimeHostConfigurationDigest = configurationDigest
           , runtimeHostLockDigest = lockDigest
+          , runtimeHostAccepted = accepted
           }
   pure (mkHostAdapter (mkHostRuntimeOps config))
 
@@ -6492,9 +6784,13 @@ inventoryPulumiAdapter active workspace binding scopes registrations = do
       hasCloudScope = any ((== cloudOwner) . ResourceInventory.scopeId) scopes
   allRegistrations <- if profile ^. #mode == Cloud && hasCloudScope
     then do
-      (catalogBytes, catalog) <- loadCloudCatalog workspace
+      (catalogBytes, rawCatalog) <- loadCloudCatalog workspace
+      imageLink <- foundationImageLink active
+        (concatMap ResourceInventory.declarations (concatMap ResourceInventory.scopeBundles scopes))
+      let catalog = InventoryCloud.withCloudInstanceName
+            (either (error . T.unpack) (\name -> name) (Resource.mkName (profile ^. #instanceName))) rawCatalog
       bookkeeping <- either dieT pure (InventoryCloud.cloudBookkeepingRegistrations
-        stackName (profile ^. #nixCacheEnabled) catalog
+        stackName (profile ^. #nixCacheEnabled) (isJust imageLink) catalog
         (InventoryDigest.contentDigest catalogBytes) registrations)
       pure (registrations <> bookkeeping)
     else pure registrations

@@ -26,6 +26,8 @@ if [ "${1:-}" = config ]; then
   printf '%s\n' 'system = aarch64-darwin'
 elif [ "${1:-}" = build ]; then
   printf '%s\n' "$NAGARE_TEST_STORE_PATH"
+elif [ "${1:-}" = eval ]; then
+  printf '%s' "$NAGARE_TEST_STORE_PATH"
 else
   exit 2
 fi
@@ -93,6 +95,25 @@ grep -q 'requires the artifact adapter child marker' "$work/reentry.err"
 NAGARE_INVENTORY_TRANSACTION=tx-test NAGARE_INVENTORY_ADAPTER_CHILD=artifact \
   bash scripts/upload-images.sh --dry-run >"$work/artifact-child.out"
 grep -q '^context: labs$' "$work/artifact-child.out"
+
+reviewed_path_digest="$(printf '%s' "$NAGARE_TEST_STORE_PATH" | shasum -a 256 | awk '{print $1}')"
+NAGARE_INVENTORY_TRANSACTION=tx-test NAGARE_INVENTORY_ADAPTER_CHILD=artifact \
+  NAGARE_ARTIFACT_DESTINATION="$NAGARE_TEST_STORE_PATH" \
+  NAGARE_ARTIFACT_EXPECTED_DIGEST="$reviewed_path_digest" \
+  bash scripts/upload-images.sh --inspect-build >"$work/inspect-build.out"
+grep -Fqx "$(printf 'nagare-build\tpresent\t%s\t%s' "$NAGARE_TEST_STORE_PATH" "$reviewed_path_digest")" "$work/inspect-build.out"
+NAGARE_INVENTORY_TRANSACTION=tx-test NAGARE_INVENTORY_ADAPTER_CHILD=artifact \
+  NAGARE_ARTIFACT_DESTINATION="$NAGARE_TEST_STORE_PATH" \
+  NAGARE_ARTIFACT_EXPECTED_DIGEST="$reviewed_path_digest" \
+  bash scripts/upload-images.sh --build-only >"$work/build-only.out"
+grep -Fqx "$(printf 'nagare-build\tpresent\t%s\t%s' "$NAGARE_TEST_STORE_PATH" "$reviewed_path_digest")" "$work/build-only.out"
+bash scripts/upload-images.sh --describe-build >"$work/describe-build.out"
+tarball_digest="$(shasum -a 256 "$NAGARE_TEST_STORE_PATH/nagare.raw.tar.gz" | awk '{print $1}')"
+grep -Fqx "$(printf 'nagare-image\t%s\tnagare-image-image\t%s' "$NAGARE_TEST_STORE_PATH" "$tarball_digest")" "$work/describe-build.out"
+if grep -Eq 'gsutil cp|compute images create' "$work/tools.log"; then
+  printf 'reviewed build prerequisite published an image\n' >&2
+  exit 1
+fi
 
 same_output="$(bash scripts/upload-images.sh --dry-run)"
 grep -q '^context: labs$' <<<"$same_output"

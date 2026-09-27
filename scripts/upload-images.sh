@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Build the Nagare NixOS GCE image on the remote x86_64-linux builder, upload
-# the tarball to the image bucket, register it as a GCE image, and write its
-# self-link to Pulumi config key `nagareImageSelfLink` (consumed by EP-2's
-# instance component).
+# the tarball to the image bucket, and register it as a GCE image. Reviewed
+# bootstrap separates the build, publication, and Pulumi image-config effects.
+# The legacy direct path still writes `nagareImageSelfLink` itself.
 #
 # Idempotent: existing GCS objects and registered GCE images are reused; only
 # missing artifacts trigger writes. A rebuilt image gets a new content hash and
@@ -15,9 +15,15 @@ if [ -n "${NAGARE_INVENTORY_TRANSACTION:-}" ] && [ "${NAGARE_INVENTORY_ADAPTER_C
 fi
 
 DRY_RUN=0
+BUILD_MODE=publish
 ALLOW_SHARED_BUILDER=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --inspect-build|--describe-build|--build-only)
+      [ "${BUILD_MODE}" = publish ] || { echo "choose one build mode" >&2; exit 2; }
+      BUILD_MODE="${1#--}"
+      shift
+      ;;
     --dry-run)
       DRY_RUN=1
       shift
@@ -28,7 +34,7 @@ while [ "$#" -gt 0 ]; do
       shift 2
       ;;
     *)
-      echo "usage: $0 [--dry-run] [--allow-shared-builder PROJECT]" >&2
+      echo "usage: $0 [--dry-run|--inspect-build|--describe-build|--build-only] [--allow-shared-builder PROJECT]" >&2
       exit 2
       ;;
   esac
@@ -149,26 +155,59 @@ fi
 _require_target_project
 show_builder_selection >&2
 
+image_build_path() {
+  (cd "${NAGARE_HOST_FLAKE}" && nix eval --raw ".#${ATTR}")
+}
+
+check_reviewed_build() {
+  local path="$1" digest
+  digest="$(printf '%s' "${path}" | shasum -a 256 | awk '{print $1}')"
+  if [ -n "${NAGARE_ARTIFACT_DESTINATION:-}" ] || [ -n "${NAGARE_ARTIFACT_EXPECTED_DIGEST:-}" ]; then
+    [ "${NAGARE_ARTIFACT_DESTINATION:-}" = "${path}" ] || {
+      echo "refusing build: output path differs from the reviewed destination" >&2; return 2;
+    }
+    [ "${NAGARE_ARTIFACT_EXPECTED_DIGEST:-}" = "${digest}" ] || {
+      echo "refusing build: output path digest differs from the review" >&2; return 2;
+    }
+  fi
+  printf '%s' "${digest}"
+}
+
+build_present() {
+  local path="$1" q
+  [ -d "${path}" ] && return 0
+  q="$(printf '%q' "${path}")"
+  ssh -F "${SSH_CONFIG}" "${BUILDER_ALIAS}" "test -d ${q}" 2>/dev/null
+}
+
+if [ "${BUILD_MODE}" = inspect-build ]; then
+  store_path="$(image_build_path)"
+  reviewed_digest="$(check_reviewed_build "${store_path}")"
+  if build_present "${store_path}"; then build_status=present; else build_status=missing; fi
+  printf 'nagare-build\t%s\t%s\t%s\n' "${build_status}" "${store_path}" "${reviewed_digest}"
+  exit 0
+fi
+
 # Private scratch file for nix build's stderr. A fixed /tmp path is
 # world-predictable and shared between concurrent runs and users.
 NIX_BUILD_ERR="$(mktemp -t nagare-nix-build.XXXXXX)"
 
-BUCKET="$(pulumi --cwd "${PULUMI_DIR}" config get imageBucket)"
-if [ -z "${BUCKET}" ]; then
-  echo "imageBucket not set in Pulumi config. Run: pulumi --cwd infra/pulumi config set imageBucket <name>" >&2
-  exit 2
+if [ "${BUILD_MODE}" = publish ]; then
+  BUCKET="$(pulumi --cwd "${PULUMI_DIR}" config get imageBucket)"
+  if [ -z "${BUCKET}" ]; then
+    echo "imageBucket not set in Pulumi config. Run: pulumi --cwd infra/pulumi config set imageBucket <name>" >&2
+    exit 2
+  fi
+  log "Target bucket: gs://${BUCKET}/"
+  if ! gsutil ls -b "gs://${BUCKET}/" >/dev/null 2>&1; then
+    echo "refusing to publish: inventory-owned image bucket gs://${BUCKET}/ does not exist" >&2
+    echo "create or adopt the declared cloud foundation first; upload-images.sh never owns the bucket" >&2
+    exit 2
+  fi
+  # GCS bucket names are global. Assert project ownership before publication.
+  _require_bucket_in_target_project "${BUCKET}" \
+    "set a unique nagare:imageBucket with 'pulumi --cwd infra/pulumi config set imageBucket <unique-name>'."
 fi
-log "Target bucket: gs://${BUCKET}/"
-if ! gsutil ls -b "gs://${BUCKET}/" >/dev/null 2>&1; then
-  echo "refusing to publish: inventory-owned image bucket gs://${BUCKET}/ does not exist" >&2
-  echo "create or adopt the declared cloud foundation first; upload-images.sh never owns the bucket" >&2
-  exit 2
-fi
-# GCS bucket names are GLOBAL, so a pre-existing same-named bucket in a FOREIGN
-# project would answer "yes, it exists" and then receive the multi-gigabyte host
-# image. Assert ownership by project number before anything else (EP-113).
-_require_bucket_in_target_project "${BUCKET}" \
-  "set a unique nagare:imageBucket with 'pulumi --cwd infra/pulumi config set imageBucket <unique-name>'."
 
 # Build the image by FULL attribute path so aarch64-darwin offloads to the
 # x86_64-linux remote builder. If the local copy-back over IAP-SSH drops on a
@@ -271,7 +310,31 @@ tarball_digest() {
   printf 'sha256:%s\n' "${value}"
 }
 
+if [ "${BUILD_MODE}" = describe-build ]; then
+  store_path="$(image_build_path)"
+  build_present "${store_path}" || { echo "host image build is absent" >&2; exit 2; }
+  tarball="$(locate_tarball "${store_path}")"
+  verify_tarball "${tarball}"
+  content_digest="$(tarball_digest "${tarball}")"
+  printf 'nagare-image\t%s\t%s\t%s\n' "${store_path}" "${OUTPUT}-$(image_hash "${store_path}")" "${content_digest#sha256:}"
+  exit 0
+fi
+
+if [ "${BUILD_MODE}" = build-only ]; then
+  reviewed_path="$(image_build_path)"
+  check_reviewed_build "${reviewed_path}" >/dev/null
+fi
 store_path="$(build_image)"
+if [ "${BUILD_MODE}" = build-only ]; then
+  [ "${store_path}" = "${reviewed_path}" ] || {
+    echo "refusing build: Nix returned a different output path from the review" >&2; exit 2;
+  }
+  reviewed_digest="$(check_reviewed_build "${store_path}")"
+  tarball="$(locate_tarball "${store_path}")"
+  verify_tarball "${tarball}"
+  printf 'nagare-build\tpresent\t%s\t%s\n' "${store_path}" "${reviewed_digest}"
+  exit 0
+fi
 hash="$(image_hash "${store_path}")"
 image_name="${OUTPUT}-${hash}"
 gs_uri="gs://${BUCKET}/${image_name}.raw.tar.gz"

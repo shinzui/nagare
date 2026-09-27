@@ -34,7 +34,7 @@ source "${script_dir}/lib/target.sh"
 absence_digest() {
   local value
   value="$(printf 'host-absence:%s:%s:%s' "${project}" "${zone}" "${instance}" | shasum -a 256 | awk '{print $1}')"
-  printf 'sha256:%s' "${value}"
+  printf '%s' "${value}"
 }
 
 physical_identity() {
@@ -102,7 +102,7 @@ inspect() {
     emit_state HostTransportArmed "${physical}" "${current}"
   elif [ "${current}" = "${new}" ] && [ "${profile}" = "${new}" ]; then
     proof_line="nagare-host-observation\tcommitted\t${physical}\t${new}\tfresh-login"
-    proof="sha256:$(printf '%b' "${proof_line}" | shasum -a 256 | awk '{print $1}')"
+    proof="$(printf '%b' "${proof_line}" | shasum -a 256 | awk '{print $1}')"
     emit_state HostTransportCommitted "${physical}" "${current}" "${proof}"
   elif [ "${current}" = "${old}" ]; then
     emit_state HostTransportBefore "${physical}" "${current}"
@@ -123,7 +123,7 @@ activate() {
   receipt="$(grep '^nagare-host-activation[[:space:]]' <<<"${output}" | tail -n 1)"
   closure="$(awk -F '\t' '$1 == "nagare-host-activation" && $2 == "committed" && $4 == "fresh-login" { print $3 }' <<<"${receipt}")"
   [ "${closure}" = "${new}" ] || { echo "host activation did not return the reviewed committed closure" >&2; return 1; }
-  proof="sha256:$(printf '%s' "${receipt}" | shasum -a 256 | awk '{print $1}')"
+  proof="$(printf '%s' "${receipt}" | shasum -a 256 | awk '{print $1}')"
   emit_state HostTransportCommitted "${physical}" "${closure}" "${proof}"
 }
 

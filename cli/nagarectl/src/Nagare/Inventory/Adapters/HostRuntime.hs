@@ -37,6 +37,7 @@ data HostRuntimeConfig = HostRuntimeConfig
   , runtimeHostDestination :: !Text
   , runtimeHostConfigurationDigest :: !ContentDigest
   , runtimeHostLockDigest :: !ContentDigest
+  , runtimeHostAccepted :: !Bool
   }
   deriving stock (Eq, Show)
 
@@ -79,13 +80,17 @@ observeResources config resources = do
     observation <- response
     value <- case observation of
       HostTransportMissing proof -> Right (ConfirmedAbsent proof)
-      HostTransportPrepared physical _ _ -> Right (ObservedPresent physical)
+      HostTransportPrepared physical _ _ -> Right
+        (if runtimeHostAccepted config then ObservedPresent physical
+         else ConfirmedAbsent (contentDigest (TE.encodeUtf8
+           ("host-activation-absent:" <> physicalIdentityText physical))))
       _ -> Left "host observe transport returned an activation state"
     observationSet [(resource, value) | resource <- resources]
 
 preparePlan :: HostRuntimeConfig -> PlannedOperation -> IO (Either Text HostActivationPlan)
 preparePlan config operation
-  | plannedAction operation /= RunDeclaredOperation = pure (Left "host runtime only executes explicit activation operations")
+  | plannedAction operation `notElem` [CreateResource, RunDeclaredOperation] =
+      pure (Left "host runtime only executes reviewed creation or activation operations")
   | null (NE.toList (plannedResources operation)) = pure (Left "host activation names no resources")
   | otherwise = do
       response <- runTransport config "prepare" Nothing
@@ -140,9 +145,10 @@ runTransport config action plan = case canonicalValue (toJSON (request config pl
   Left err -> pure (Left err)
   Right bytes -> do
     environment <- getEnvironment
-    let additions = runtimeHostEnvironment config
-        names = map fst additions
-        childEnvironment = additions <> filter ((`notElem` names) . fst) environment
+    let marker = ("NAGARE_INVENTORY_ADAPTER_CHILD", "host")
+        additions = filter ((/= fst marker) . fst) (runtimeHostEnvironment config)
+        names = map fst (marker : additions)
+        childEnvironment = marker : additions <> filter ((`notElem` names) . fst) environment
         command = (proc (runtimeHostExecutable config) [action]) {env = Just childEnvironment}
     result <- try (readCreateProcessWithExitCode command (T.unpack (TE.decodeUtf8 bytes)))
     pure $ case result of

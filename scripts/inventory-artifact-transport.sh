@@ -130,11 +130,29 @@ observe_gcs_object() {
   fi
 }
 
+observe_build_job() {
+  local output marker status path digest
+  [[ "${destination}" = /* ]] || { echo "build destination must be absolute" >&2; return 2; }
+  output="$(NAGARE_ARTIFACT_DESTINATION="${destination}" \
+    NAGARE_ARTIFACT_EXPECTED_DIGEST="${expected}" \
+    bash "${script_dir}/upload-images.sh" --inspect-build)"
+  IFS=$'\t' read -r marker status path digest <<<"${output}"
+  [ "${marker}" = nagare-build ] && [ "${path}" = "${destination}" ] && [ "${digest}" = "${expected}" ] || {
+    echo "build observation differs from the reviewed output" >&2; return 2;
+  }
+  case "${status}" in
+    present) emit_present "build-job://${destination}" "${digest}" ;;
+    missing) emit_missing ;;
+    *) echo "invalid build observation status" >&2; return 2 ;;
+  esac
+}
+
 observe() {
   case "${kind}" in
     GceImageArtifact) observe_gce_image ;;
     OciImageArtifact) observe_oci_image ;;
     GcsImageObjectArtifact) observe_gcs_object ;;
+    BuildJobArtifact) observe_build_job ;;
     *) echo "artifact kind ${kind} has no production transport" >&2; return 2 ;;
   esac
 }
@@ -187,9 +205,14 @@ publish_oci_archive() (
 
 publish() {
   case "${kind}" in
-    GceImageArtifact)
+    BuildJobArtifact)
       NAGARE_ARTIFACT_DESTINATION="${destination}" \
       NAGARE_ARTIFACT_EXPECTED_DIGEST="${expected}" \
+        bash "${script_dir}/upload-images.sh" --build-only >&2
+      ;;
+    GceImageArtifact)
+      NAGARE_ARTIFACT_DESTINATION="${destination}" \
+      NAGARE_ARTIFACT_EXPECTED_DIGEST="sha256:${expected}" \
         bash "${script_dir}/upload-images.sh" >&2
       ;;
     OciImageArtifact)

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 type Registration = { pulumiType: string; pulumiName: string };
-type CatalogEntry = { type: string; name: string; parent: string | null; layer: number };
+type CatalogEntry = { key?: string; type: string; name: string; parent: string | null; layer: number };
 
 async function observeProgram(variant: string): Promise<void> {
     const observed: Registration[] = [];
@@ -129,17 +129,19 @@ async function main(): Promise<void> {
     const base = runVariant("base");
     const foundationManaged = runVariant("foundation-managed");
     const foundationManagedCache = runVariant("foundation-managed-cache");
+    const foundationManagedImage = runVariant("foundation-managed-image");
     const image = runVariant("image");
     const cache = runVariant("cache");
     const legacyCdn = runVariant("cdn-legacy");
     const prepareCdn = runVariant("cdn-prepare");
     const managerCdn = runVariant("cdn-manager");
-    for (const [label, registrations] of Object.entries({ base, foundationManaged, foundationManagedCache, image, cache, legacyCdn, prepareCdn, managerCdn })) {
+    for (const [label, registrations] of Object.entries({ base, foundationManaged, foundationManagedCache, foundationManagedImage, image, cache, legacyCdn, prepareCdn, managerCdn })) {
         assert(names(registrations).size === registrations.length, `${label} contains duplicate native registrations`);
     }
     verifyGuardedVariant("base", base);
     verifyGuardedVariant("foundation-managed", foundationManaged);
     verifyGuardedVariant("foundation-managed-cache", foundationManagedCache);
+    verifyGuardedVariant("foundation-managed-image", foundationManagedImage);
     verifyGuardedVariant("image", image);
     verifyGuardedVariant("cache", cache);
     verifyGuardedVariant("cdn-legacy", legacyCdn);
@@ -152,6 +154,7 @@ async function main(): Promise<void> {
         version: number;
         foundationManaged: CatalogEntry[];
         nixCacheEnabled: CatalogEntry[];
+        imageEnabled: CatalogEntry[];
     };
     assert(catalog.version === 1, "cloud resource catalog version changed");
     const catalogNames = catalog.foundationManaged.map(({ type, name }) => `${type}::${name}`).sort();
@@ -163,12 +166,18 @@ async function main(): Promise<void> {
     const nativeCacheNames = foundationManagedCache.map(({ pulumiType, pulumiName }) => `${pulumiType}::${pulumiName}`).sort();
     assert(JSON.stringify(cacheNames) === JSON.stringify(nativeCacheNames),
         "reviewed cloud cache catalog differs from registrations in the actual Pulumi program");
-    const byName = new Map(withCache.map((entry) => [entry.name, entry]));
-    assert(byName.size === withCache.length, "cloud catalog has duplicate logical names");
-    for (const entry of withCache) {
+    const withImage = catalog.foundationManaged.concat(catalog.imageEnabled);
+    const imageNames = withImage.map(({ type, name }) => `${type}::${name}`).sort();
+    const nativeImageNames = foundationManagedImage.map(({ pulumiType, pulumiName }) => `${pulumiType}::${pulumiName}`).sort();
+    assert(JSON.stringify(imageNames) === JSON.stringify(nativeImageNames),
+        "reviewed cloud image catalog differs from registrations in the actual Pulumi program");
+    const allEntries = catalog.foundationManaged.concat(catalog.nixCacheEnabled, catalog.imageEnabled);
+    const byKey = new Map(allEntries.map((entry) => [entry.key ?? entry.name, entry]));
+    assert(byKey.size === allEntries.length, "cloud catalog has duplicate logical keys");
+    for (const entry of allEntries) {
         assert(Number.isInteger(entry.layer) && entry.layer >= 0, `invalid layer for ${entry.name}`);
         if (entry.parent === null) continue;
-        const parent = byName.get(entry.parent);
+        const parent = byKey.get(entry.parent);
         assert(parent !== undefined && parent.layer < entry.layer,
             `cloud catalog parent must be in an earlier layer: ${entry.name}`);
     }
