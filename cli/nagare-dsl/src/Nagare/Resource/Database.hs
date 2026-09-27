@@ -8,12 +8,13 @@ module Nagare.Resource.Database
   , compileDatabaseBundle
   ) where
 
-import Data.Aeson (Value)
+import Data.Aeson (Value (..), object, toJSON, (.=))
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Nagare.Dsl.Database (Database (..), engineMemoryConfig)
-import Nagare.Dsl.Database.Render (databaseCredentialTemplate, databaseObjects)
-import Nagare.Dsl.Prelude
+import Nagare.Dsl.Database.Render (databaseCredentialTemplate, databaseObjects, dbPvcName)
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types (databaseNameText, namespaceText)
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Resource.Inventory
@@ -107,6 +108,38 @@ compileDatabaseBundle digestOf input backupObject = do
   resource <- first invalid (databaseResourceId (directOwnerScope input) role (directDatabase input))
   credential <- first invalid (databaseResourceId (directOwnerScope input) (known "credential") (directDatabase input))
   stateful <- first invalid (databaseResourceId (directOwnerScope input) (known "statefulset") (directDatabase input))
+  let accountName = "nagare-dbbackup-" <> databaseNameText (directDatabase input ^. #name)
+      databaseName = databaseNameText (directDatabase input ^. #name)
+      namespaceName = namespaceText (directDatabase input ^. #namespace)
+      metadata = object ["name" .= accountName, "namespace" .= namespaceName]
+      accountObject = object
+        [ "apiVersion" .= ("v1" :: Text)
+        , "kind" .= ("ServiceAccount" :: Text)
+        , "metadata" .= metadata
+        ]
+      roleObject = object
+        [ "apiVersion" .= ("rbac.authorization.k8s.io/v1" :: Text)
+        , "kind" .= ("Role" :: Text)
+        , "metadata" .= metadata
+        , "rules" .= toJSON
+            [ object ["apiGroups" .= toJSON (["apps"] :: [Text]), "resources" .= toJSON (["statefulsets"] :: [Text])
+                , "resourceNames" .= toJSON [databaseName], "verbs" .= toJSON (["get"] :: [Text])]
+            , object ["apiGroups" .= toJSON ([""] :: [Text]), "resources" .= toJSON (["persistentvolumeclaims"] :: [Text])
+                , "resourceNames" .= toJSON [dbPvcName databaseName], "verbs" .= toJSON (["get"] :: [Text])]
+            ]
+        ]
+      bindingObject = object
+        [ "apiVersion" .= ("rbac.authorization.k8s.io/v1" :: Text)
+        , "kind" .= ("RoleBinding" :: Text)
+        , "metadata" .= metadata
+        , "subjects" .= toJSON [object
+            ["kind" .= ("ServiceAccount" :: Text), "name" .= accountName, "namespace" .= namespaceName]]
+        , "roleRef" .= object ["apiGroup" .= ("rbac.authorization.k8s.io" :: Text)
+            , "kind" .= ("Role" :: Text), "name" .= accountName]
+        ]
+  (accountId, accountDeclaration) <- compileCompanion "backup-account" accountObject []
+  (roleId, roleDeclaration) <- compileCompanion "backup-read-role" roleObject []
+  (bindingId, bindingDeclaration) <- compileCompanion "backup-read-binding" bindingObject [accountId, roleId]
   digest <- first invalid (digestOf backupObject)
   declaration <- first single $ compileKubernetesObject
     KubernetesInput
@@ -124,8 +157,12 @@ compileDatabaseBundle digestOf input backupObject = do
   expectedNamespace <- first invalid (mkName (namespaceText (directDatabase input ^. #namespace)))
   unless (address declaration == Kubernetes (directClusterId input) "batch" (known "cronjob") (Just expectedNamespace) expectedName)
     (Left (invalid "database backup CronJob has an unexpected address"))
-  let guarded = declaration {dependencies = map OrderedAfter (maybe [] pure (directNamespaceId input) <> [credential, stateful])}
-  pure (bundle {declarations = declarations bundle <> [Managed guarded]}, native <> [(resource, backupObject)])
+  unless (backupUsesAccount accountName backupObject)
+    (Left (invalid "database backup CronJob does not use its dedicated source reader account"))
+  let guarded = declaration {dependencies = map OrderedAfter (maybe [] pure (directNamespaceId input) <> [credential, stateful, bindingId])}
+  pure ( bundle {declarations = declarations bundle <>
+           map Managed [accountDeclaration, roleDeclaration, bindingDeclaration, guarded]}
+       , native <> [(accountId, accountObject), (roleId, roleObject), (bindingId, bindingObject), (resource, backupObject)] )
   where
     known value = either (error . show) id (mkName value)
     invalid :: Text -> NonEmpty InventoryError
@@ -133,3 +170,28 @@ compileDatabaseBundle digestOf input backupObject = do
       & #scopes .~ [directOwnerScope input]
       & #sources .~ [directSourceLocation input])
     single err = err :| []
+    backupUsesAccount accountName (Object root)
+      | Just (Object cronSpec) <- KeyMap.lookup "spec" root
+      , Just (Object jobTemplate) <- KeyMap.lookup "jobTemplate" cronSpec
+      , Just (Object jobSpec) <- KeyMap.lookup "spec" jobTemplate
+      , Just (Object podTemplate) <- KeyMap.lookup "template" jobSpec
+      , Just (Object podSpec) <- KeyMap.lookup "spec" podTemplate =
+          KeyMap.lookup "serviceAccountName" podSpec == Just (String accountName)
+    backupUsesAccount _ _ = False
+    compileCompanion roleName value predecessors = do
+      companionId <- first invalid (databaseResourceId (directOwnerScope input) (known roleName) (directDatabase input))
+      companionDigest <- first invalid (digestOf value)
+      companion <- first single $ compileKubernetesObject
+        KubernetesInput
+          { resourceId = companionId
+          , ownerScope = directOwnerScope input
+          , clusterId = directClusterId input
+          , inputObject = value
+          , objectDigest = companionDigest
+          , lifecyclePolicy = DeleteWhenUnreferenced
+          , inputDataPolicy = Stateless
+          , inputSensitivity = Private
+          , sourceLocation = directSourceLocation input
+          }
+      pure (companionId, companion
+        {dependencies = map OrderedAfter (maybe [] pure (directNamespaceId input) <> predecessors)})

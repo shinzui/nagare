@@ -419,8 +419,8 @@ inventoryKubernetesTests =
             (bundle, bound) = ok (compileDatabaseForBackend direct (GcsBackend "project" "bucket"))
             backupBytes = [bytes | (member, bytes) <- Map.elems bound,
               Kubernetes _ "batch" kind _ _ <- [address member], nameText kind == "cronjob"]
-        length (declarations bundle) @?= 5
-        Map.size bound @?= 5
+        length (declarations bundle) @?= 8
+        Map.size bound @?= 8
         length backupBytes @?= 1
         assertBool "reviewed backup can delete unreviewed objects"
           (all (\bytes -> not (BC.isInfixOf "pruning" bytes) && not (BC.isInfixOf "gsutil -m rm -I" bytes)) backupBytes)
@@ -2547,6 +2547,9 @@ inventoryKubernetesTests =
                     , ("pvc", "nagare-db-ep147-full-data")
                     , ("secret", "nagare-db-ep147-full")
                     , ("cronjob", "nagare-dbbackup-ep147-full")
+                    , ("rolebinding", "nagare-dbbackup-ep147-full")
+                    , ("role", "nagare-dbbackup-ep147-full")
+                    , ("serviceaccount", "nagare-dbbackup-ep147-full")
                     ]
             cleanup
             (do

@@ -212,12 +212,49 @@ backupJobSpecValue i =
   dataMovementJobSpec
     DataMovementJob
       { templateLabels = Just (labelsValue i)
+      , serviceAccountName = if sourceAttested i then Just (i ^. #jobName) else Nothing
       , backoffLimit = 2
       , hostAliases = storeHostAliases (i ^. #backend)
-      , initContainers = [dumpContainer i]
+      , initContainers = [sourceProbeContainer i | sourceAttested i] <> [dumpContainer i]
       , containers = [uploadContainer i]
       , volumes = [object ["name" .= ("dump" :: Text), "emptyDir" .= object []]]
       }
+
+-- | Only reviewed schedules use a dedicated account to observe their source.
+-- A manual backup already pins the source through its accepted review.
+sourceAttested :: BackupJobInputs -> Bool
+sourceAttested i = case i ^. #receipt of
+  Just (BackupReceipt BackupObjectReceiptTarget _) -> True
+  _ -> False
+
+-- | Capture the actual source incarnation before the database dump starts.
+-- The same read runs after stored-byte verification, rejecting a replacement
+-- that occurred while this Job was active. The account can read only these two
+-- named objects in its namespace.
+sourceProbeContainer :: BackupJobInputs -> Value
+sourceProbeContainer i =
+  object
+    [ "name" .= ("source" :: Text)
+    , "image" .= storeImage (i ^. #backend)
+    , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
+    , "args" .= toJSON [sourceProbeShell <> " > /dump/source.json"]
+    , "env" .= toJSON [plainEnv "BACKUP_SOURCE_NAME" (i ^. #name)]
+    , "volumeMounts" .= toJSON [dumpMount]
+    ]
+
+sourceProbeShell :: Text
+sourceProbeShell =
+  "python3 -c 'import json,os,ssl,urllib.request; "
+    <> "p=\"/var/run/secrets/kubernetes.io/serviceaccount/\"; "
+    <> "ns=open(p+\"namespace\").read().strip(); "
+    <> "token=open(p+\"token\").read().strip(); "
+    <> "ctx=ssl.create_default_context(cafile=p+\"ca.crt\"); "
+    <> "base=\"https://\"+os.environ[\"KUBERNETES_SERVICE_HOST\"]+\":\"+os.environ.get(\"KUBERNETES_SERVICE_PORT_HTTPS\",\"443\"); "
+    <> "name=os.environ[\"BACKUP_SOURCE_NAME\"]; "
+    <> "paths={\"statefulSetUid\":\"/apis/apps/v1/namespaces/\"+ns+\"/statefulsets/\"+name,"
+    <> "\"pvcUid\":\"/api/v1/namespaces/\"+ns+\"/persistentvolumeclaims/nagare-db-\"+name+\"-data\"}; "
+    <> "result={key:json.load(urllib.request.urlopen(urllib.request.Request(base+path,headers={\"Authorization\":\"Bearer \"+token}),context=ctx,timeout=20))[\"metadata\"][\"uid\"] for key,path in paths.items()}; "
+    <> "assert all(result.values()); print(json.dumps(result,sort_keys=True,separators=(\",\",\":\")))'"
 
 jobMetadata :: BackupJobInputs -> Value
 jobMetadata i =
@@ -269,6 +306,7 @@ uploadContainer i =
                    , "valueFrom" .= object ["fieldRef" .= object
                        ["fieldPath" .= ("metadata.labels['batch.kubernetes.io/controller-uid']" :: Text)]]
                    ] | BackupDestStamped <- [i ^. #destination], not (i ^. #selfPrune)]
+              ++ [plainEnv "BACKUP_SOURCE_NAME" (i ^. #name) | sourceAttested i]
               ++ maybe [] (\r ->
                    [plainEnv "BACKUP_RECEIPT_METADATA" (r ^. #metadataJson)]
                      ++ case r ^. #destination of
@@ -391,6 +429,11 @@ uploadShell i =
       <> "ACTUAL=$(" <> storeCpToStdout backend "\"$DEST\""
       <> " | sha256sum | cut -d' ' -f1); test ${#ACTUAL} -eq 64; "
       <> "test \"$EXPECTED\" = \"$ACTUAL\""
+      <> (if sourceAttested i then
+            "; " <> sourceProbeShell <> " > /dump/source-after.json; "
+              <> "test \"$(sha256sum < /dump/source.json)\" = \"$(sha256sum < /dump/source-after.json)\"; "
+              <> "rm -f /dump/source-after.json"
+          else "")
       <> receiptUpload
       <> "; rm -f /dump/backup.gz"
     receiptUpload = case i ^. #receipt of
@@ -416,8 +459,8 @@ uploadShell i =
       "printf '{\"version\":1,\"sha256\":\"%s\",\"backup\":%s}\\n'"
         <> " \"$EXPECTED\" \"$BACKUP_RECEIPT_METADATA\""
     receiptBody BackupObjectReceiptTarget =
-      "printf '{\"version\":2,\"sha256\":\"%s\",\"jobUid\":\"%s\",\"object\":\"%s\",\"backup\":%s}\\n'"
-        <> " \"$EXPECTED\" \"$BACKUP_RUN_ID\" \"$DEST\" \"$BACKUP_RECEIPT_METADATA\""
+      "printf '{\"version\":3,\"sha256\":\"%s\",\"jobUid\":\"%s\",\"object\":\"%s\",\"source\":%s,\"backup\":%s}\\n'"
+        <> " \"$EXPECTED\" \"$BACKUP_RUN_ID\" \"$DEST\" \"$(cat /dump/source.json)\" \"$BACKUP_RECEIPT_METADATA\""
     -- keep the last $KEEP objects under $PREFIX (newest sort last with reverse sort)
     prune =
       "echo pruning; "

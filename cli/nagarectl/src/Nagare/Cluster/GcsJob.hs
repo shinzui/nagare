@@ -294,6 +294,8 @@ storeRmStdin (MinioBackend ref) =
 data DataMovementJob = DataMovementJob
   { templateLabels :: !(Maybe Value)
   -- ^ optional pod-template @metadata.labels@ (snapshot omits these)
+  , serviceAccountName :: !(Maybe Text)
+  -- ^ a dedicated account when a reviewed Job needs bounded API reads
   , hostAliases :: !(Maybe Value)
   -- ^ the pod @hostAliases@: 'Just' 'metadataHostAliases' for the GCS backend
   -- (so ADC reaches the metadata server), 'Nothing' for the MinIO backend.
@@ -329,6 +331,7 @@ dataMovementJobSpec j =
               ++ [ "spec"
                      .= object
                        ( ["restartPolicy" .= ("Never" :: Text)]
+                           ++ maybe [] (\account -> ["serviceAccountName" .= account]) (j ^. #serviceAccountName)
                            ++ maybe [] (\ha -> ["hostAliases" .= ha]) (j ^. #hostAliases)
                            ++ ["initContainers" .= toJSON (j ^. #initContainers) | not (null (j ^. #initContainers))]
                            ++ [ "containers" .= toJSON (j ^. #containers)

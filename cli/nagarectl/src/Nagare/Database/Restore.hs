@@ -102,6 +102,7 @@ renderRestoreJob i =
           .= dataMovementJobSpec
             DataMovementJob
               { templateLabels = Just labels
+              , serviceAccountName = Nothing
               , backoffLimit = 0
               , hostAliases = storeHostAliases (i ^. #backend)
               , initContainers = [downloadContainer i]

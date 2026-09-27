@@ -83,6 +83,7 @@ renderStorageRestoreJob i =
           .= dataMovementJobSpec
             DataMovementJob
               { templateLabels = Nothing
+              , serviceAccountName = Nothing
               , backoffLimit = 0
               , hostAliases = storeHostAliases (i ^. #backend)
               , initContainers = []
@@ -173,6 +174,7 @@ renderReviewedVolumeRestoreJob input = Y.encode $ object
       , "labels" .= object ["nagare.dev/managed-by" .= ("nagarectl" :: Text)] ]
   , "spec" .= dataMovementJobSpec DataMovementJob
       { templateLabels = Nothing
+      , serviceAccountName = Nothing
       , backoffLimit = 0
       , hostAliases = storeHostAliases backend
       , initContainers = []

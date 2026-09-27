@@ -147,6 +147,7 @@ jobValue i =
         .= dataMovementJobSpec
           DataMovementJob
             { templateLabels = Nothing
+            , serviceAccountName = Nothing
             , backoffLimit = 0
             , hostAliases = storeHostAliases (i ^. #backend)
             , initContainers = []
@@ -210,6 +211,7 @@ renderReviewedSnapshotJob input = Y.encode $ object
       ]
   , "spec" .= dataMovementJobSpec DataMovementJob
       { templateLabels = Nothing
+      , serviceAccountName = Nothing
       , backoffLimit = 0
       , hostAliases = storeHostAliases backend
       , initContainers = []

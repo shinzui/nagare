@@ -51,6 +51,7 @@ renderPruneJobWithLabel label inputs = Y.encode $ object
       ]
   , "spec" .= dataMovementJobSpec DataMovementJob
       { templateLabels = Just labels
+      , serviceAccountName = Nothing
       , hostAliases = storeHostAliases (inputs ^. #backend)
       , initContainers = []
       , containers = [object

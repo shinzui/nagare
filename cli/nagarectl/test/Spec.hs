@@ -431,7 +431,7 @@ import Nagare.Version
   )
 import PlatformCutoverSpec (platformCutoverTests)
 import PlatformSpec (platformTests)
-import System.Directory (createDirectoryIfMissing, createFileLink, doesFileExist, getCurrentDirectory, pathIsSymbolicLink, setCurrentDirectory)
+import System.Directory (createDirectoryIfMissing, createFileLink, doesFileExist, getCurrentDirectory, pathIsSymbolicLink, removeFile, setCurrentDirectory)
 import System.Environment (getEnvironment, lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (ExitFailure, ExitSuccess), exitWith)
 import System.FilePath ((<.>), (</>))
@@ -5409,6 +5409,9 @@ backupRestoreTests =
                     & #receipt .~ Just (BackupReceipt BackupObjectReceiptTarget (T.pack metadata)))))
                 fakeGcloud = directory </> "gcloud"
                 fakeGsutil = directory </> "gsutil"
+                fakePython = directory </> "python3"
+                source = directory </> "source.json"
+                sourceBytes = "{\"pvcUid\":\"11111111-1111-1111-1111-111111111111\",\"statefulSetUid\":\"22222222-2222-2222-2222-222222222222\"}\n"
             createDirectoryIfMissing True dump
             writeFile fakeGcloud $ unlines
               [ "#!/bin/sh", "set -eu"
@@ -5430,7 +5433,9 @@ backupRestoreTests =
               , "  *) exit 3;;"
               , "esac"
               ]
-            mapM_ (`setFileMode` 0o755) [fakeGcloud, fakeGsutil]
+            writeFile fakePython $ unlines
+              [ "#!/bin/sh", "set -eu", "cat \"$NAGARE_TEST_SOURCE\"" ]
+            mapM_ (`setFileMode` 0o755) [fakeGcloud, fakeGsutil, fakePython]
             parentEnv <- getEnvironment
             let path = maybe "" id (lookup "PATH" parentEnv)
                 receiptEnv =
@@ -5442,11 +5447,14 @@ backupRestoreTests =
                    ("NAGARE_TEST_DATA", dataObject),
                    ("NAGARE_TEST_RECEIPT", receiptObject),
                    ("NAGARE_TEST_DATA_URL", dataUrl),
-                   ("NAGARE_TEST_RECEIPT_URL", receiptUrl)]
+                   ("NAGARE_TEST_RECEIPT_URL", receiptUrl),
+                   ("NAGARE_TEST_SOURCE", source)]
                 run = readCreateProcessWithExitCode
                   ((proc "/bin/sh" ["-c", script]) {env = Just
                     (receiptEnv <> filter (\(key, _) -> key `notElem` map fst receiptEnv) parentEnv)}) ""
             BS.writeFile (dump </> "backup.sql") "scheduled receipt source\n"
+            BS.writeFile source sourceBytes
+            BS.writeFile (dump </> "source.json") sourceBytes
             (created, _, createError) <- run
             assertBool ("scheduled receipt upload failed: " <> createError) (created == ExitSuccess)
             receiptBytes <- BS.readFile receiptObject
@@ -5456,11 +5464,12 @@ backupRestoreTests =
             hashExit @?= ExitSuccess
             case eitherDecodeStrict receiptBytes of
               Right (Aeson.Object root) -> do
-                KeyMap.lookup "version" root @?= Just (Aeson.Number 2)
+                KeyMap.lookup "version" root @?= Just (Aeson.Number 3)
                 KeyMap.lookup "sha256" root @?=
                   Just (Aeson.String (T.pack (takeWhile (/= ' ') hashOutput)))
                 KeyMap.lookup "jobUid" root @?= Just (Aeson.String (T.pack runId))
                 KeyMap.lookup "object" root @?= Just (Aeson.String (T.pack dataUrl))
+                KeyMap.lookup "source" root @?= either (error . show) id (eitherDecodeStrict sourceBytes)
                 case KeyMap.lookup "backup" root of
                   Just (Aeson.Object backup) ->
                     KeyMap.lookup "schedule" backup @?= Just (Aeson.String "nagare-dbbackup-mydb")
@@ -5470,6 +5479,12 @@ backupRestoreTests =
             case duplicate of
               ExitFailure _ -> pure ()
               ExitSuccess -> assertFailure "duplicate scheduled run replaced an existing object"
+            removeFile dataObject
+            removeFile receiptObject
+            BS.writeFile source "{\"pvcUid\":\"33333333-3333-3333-3333-333333333333\",\"statefulSetUid\":\"22222222-2222-2222-2222-222222222222\"}\n"
+            (changedSource, _, _) <- run
+            assertBool "source replacement completed a scheduled receipt" (changedSource /= ExitSuccess)
+            doesFileExist receiptObject >>= (@?= False)
       , testCase "backup Jobs wait for the server and retry" $ do
           let y = TE.decodeUtf8 (renderBackupJob backupJobInputsPg)
           assertBool "waits for the server before the dump" ("until pg_isready -q -h mydb" `T.isInfixOf` y)
