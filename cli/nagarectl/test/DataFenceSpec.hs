@@ -232,6 +232,7 @@ dataFenceTests = testGroup "data fence"
                   Nothing -> pure (Left "guard address missing")
                   Just key -> modifyIORef' objects (Map.insert key value)
                     >> pure (Right ())
+              , deleteGuardObject = \_ _ _ _ -> pure (Left "unexpected guard delete")
               , probeForeignMountDenied = \_ -> Right <$> readIORef guardDenied
               }
             volumeTransport = VolumeTransport
@@ -641,6 +642,7 @@ dataFenceTests = testGroup "data fence"
                     else do
                       modifyIORef' objects (Map.insert (address value) value)
                       pure (Right ())
+              , deleteGuardObject = \_ _ _ _ -> pure (Left "unexpected guard delete")
               , probeForeignMountDenied = \_ -> Right <$> readIORef denied
               }
         firstInstall <- installMountGuard transport guard
@@ -666,6 +668,80 @@ dataFenceTests = testGroup "data fence"
           Left _ -> pure ()
           Right () -> assertFailure "changed policy was accepted on restart"
         readIORef creates >>= (@?= 9)
+    , testCase "guard removal is conditional and resumes a lost acknowledgement" $ do
+        mountGuard <- right (mkMountGuard "restore-session" "restore-space" "data-pvc"
+          "11111111-2222-3333-4444-555555555555" "pv-data"
+          "66666666-7777-8888-9999-000000000000" [])
+        let rendered = concatMap (\(policy, bindingValue) -> [policy, bindingValue])
+              [ mountGuardObjects mountGuard
+              , pvcMutationGuardObjects mountGuard
+              , pvMutationGuardObjects mountGuard
+              , namespaceDeleteGuardObjects mountGuard]
+            address (Object fields) = case
+              (KM.lookup "kind" fields, KM.lookup "metadata" fields) of
+              (Just (String kind), Just (Object metadata)) -> case
+                KM.lookup "name" metadata of
+                  Just (String name) -> Just (kind, name)
+                  _ -> Nothing
+              _ -> Nothing
+            address _ = Nothing
+            stamped (Object fields) = case KM.lookup "metadata" fields of
+              Just (Object metadata) -> Object (KM.insert "metadata"
+                (Object (KM.insert "uid"
+                  (String "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+                  (KM.insert "resourceVersion" (String "42") metadata))) fields)
+              _ -> error "guard metadata missing"
+            stamped _ = error "guard object missing"
+            entries = [(key, stamped value) | value <- rendered
+              , Just key <- [address value]]
+        length entries @?= 8
+        objects <- newIORef (Map.fromList entries)
+        deletes <- newIORef ([] :: [Text])
+        loseFirst <- newIORef True
+        let transport = MountGuardTransport
+              { readGuardObject = \kind name ->
+                  Right . Map.lookup (kind, name) <$> readIORef objects
+              , createGuardObject = \_ -> pure (Left "unexpected guard create")
+              , deleteGuardObject = \kind name uid revision -> do
+                  current <- Map.lookup (kind, name) <$> readIORef objects
+                  let pinned = case current of
+                        Just (Object fields) -> case KM.lookup "metadata" fields of
+                          Just (Object metadata) ->
+                            KM.lookup "uid" metadata == Just (String uid)
+                              && KM.lookup "resourceVersion" metadata
+                                == Just (String revision)
+                          _ -> False
+                        _ -> False
+                  if not pinned then pure (Left "delete precondition changed") else do
+                    modifyIORef' objects (Map.delete (kind, name))
+                    modifyIORef' deletes (<> [kind])
+                    lost <- readIORef loseFirst
+                    if lost then writeIORef loseFirst False
+                      >> pure (Left "delete acknowledgement lost")
+                      else pure (Right ())
+              , probeForeignMountDenied = \_ -> pure (Right False)
+              }
+        let firstKey = case reverse rendered of
+              firstObject : _ -> address firstObject
+              [] -> Nothing
+        key <- maybe (assertFailure "guard key missing" >> error "key") pure firstKey
+        modifyIORef' objects (Map.adjust (\value -> case value of
+          Object fields -> Object (KM.insert "spec" (object []) fields)
+          other -> other) key)
+        drifted <- removeMountGuard transport mountGuard
+        case drifted of
+          Left _ -> pure ()
+          Right () -> assertFailure "drifted guard was deleted"
+        readIORef deletes >>= (@?= [])
+        writeIORef objects (Map.fromList entries)
+        lost <- removeMountGuard transport mountGuard
+        lost @?= Left "delete acknowledgement lost"
+        readIORef deletes >>= \kinds -> case kinds of
+          firstKind : _ -> firstKind @?= "ValidatingAdmissionPolicyBinding"
+          [] -> assertFailure "no binding delete occurred"
+        removeMountGuard transport mountGuard >>= right
+        observeMountGuardAbsent transport mountGuard >>= (@?= Right True)
+        readIORef deletes >>= \kinds -> length kinds @?= 8
     , testCase "exact volume evidence counts every Pod and attachment consumer" $ do
         mountGuard <- right (mkMountGuard "restore-session" "restore-space" "data-pvc"
           "11111111-2222-3333-4444-555555555555" "pv-data"
@@ -741,6 +817,7 @@ dataFenceTests = testGroup "data fence"
               { readGuardObject = \kind name ->
                   pure (Right (find ((== Just (kind, name)) . address) guardObjects))
               , createGuardObject = \_ -> pure (Left "unexpected create")
+              , deleteGuardObject = \_ _ _ _ -> pure (Left "unexpected guard delete")
               , probeForeignMountDenied = \_ -> atomicModifyIORef' probes $ \values ->
                   case values of
                     next : rest -> (rest, Right next)

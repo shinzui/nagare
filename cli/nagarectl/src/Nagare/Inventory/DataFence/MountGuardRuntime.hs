@@ -6,6 +6,8 @@ module Nagare.Inventory.DataFence.MountGuardRuntime
   , kubectlMountGuardTransport
   , installMountGuard
   , observeMountGuard
+  , removeMountGuard
+  , observeMountGuardAbsent
   ) where
 
 import Control.Exception (IOException, try)
@@ -27,6 +29,7 @@ import System.Process (readProcessWithExitCode)
 data MountGuardTransport = MountGuardTransport
   { readGuardObject :: !(Text -> Text -> IO (Either Text (Maybe Value)))
   , createGuardObject :: !(Value -> IO (Either Text ()))
+  , deleteGuardObject :: !(Text -> Text -> Text -> Text -> IO (Either Text ()))
   , probeForeignMountDenied :: !(MountGuard -> IO (Either Text Bool))
   }
 
@@ -73,6 +76,52 @@ observeMountGuard transport guard = do
     Right matches | not (and matches) -> pure (Right False)
     Right _ -> probeForeignMountDenied transport guard
 
+-- | Only the explicit verified-release path may call this. Bindings go first
+-- so no policy can remain unexpectedly active after release. Each deletion is
+-- conditional on the current UID and resourceVersion; an uncertain response
+-- is resolved by re-reading the object on restart.
+removeMountGuard :: MountGuardTransport -> MountGuard -> IO (Either Text ())
+removeMountGuard transport guard = removeAll (reverse (guardObjects guard))
+  where
+    removeAll [] = do
+      absent <- observeMountGuardAbsent transport guard
+      pure $ case absent of
+        Right True -> Right ()
+        Right False -> Left "Kubernetes mount guard removal is not yet observed"
+        Left reason -> Left reason
+    removeAll (expected : rest) = case objectAddress expected of
+      Left reason -> pure (Left reason)
+      Right (kind, name) -> do
+        current <- readGuardObject transport kind name
+        case current of
+          Left reason -> pure (Left reason)
+          Right Nothing -> removeAll rest
+          Right (Just observed) -> case do
+            matchingObject expected observed
+            metadata <- case observed of
+              Object root -> objectField "metadata" root
+              _ -> Left "mount guard object is not a JSON object"
+            uid <- textField "uid" metadata
+            revision <- textField "resourceVersion" metadata
+            pure (uid, revision) of
+              Left reason -> pure (Left reason)
+              Right (uid, revision) -> do
+                deleted <- deleteGuardObject transport kind name uid revision
+                case deleted of
+                  Left reason -> pure (Left reason)
+                  Right () -> removeAll rest
+
+observeMountGuardAbsent :: MountGuardTransport -> MountGuard
+  -> IO (Either Text Bool)
+observeMountGuardAbsent transport guard = do
+  observed <- forM (guardObjects guard) $ \expected ->
+    case objectAddress expected of
+      Left reason -> pure (Left reason)
+      Right (kind, name) -> do
+        current <- readGuardObject transport kind name
+        pure (maybe True (const False) <$> current)
+  pure (and <$> sequence observed)
+
 guardObjects :: MountGuard -> [Value]
 guardObjects guard =
   let (podPolicy, podBinding) = mountGuardObjects guard
@@ -114,7 +163,7 @@ textField key root = case KM.lookup (Key.fromText key) root of
   _ -> Left ("mount guard " <> key <> " is missing")
 
 kubectlMountGuardTransport :: KubernetesRuntimeConfig -> MountGuardTransport
-kubectlMountGuardTransport config = MountGuardTransport readOne createOne probe
+kubectlMountGuardTransport config = MountGuardTransport readOne createOne deleteOne probe
   where
     invoke arguments input = do
       guarded <- runtimeGuard config
@@ -142,6 +191,26 @@ kubectlMountGuardTransport config = MountGuardTransport readOne createOne probe
         Left reason -> Left reason
         Right (ExitSuccess, _, _) -> Right ()
         Right (ExitFailure _, _, _) -> Left "could not create mount guard object"
+    deleteOne kind name uid revision = case kind of
+      "ValidatingAdmissionPolicy" -> invokeDelete "validatingadmissionpolicies" name uid revision
+      "ValidatingAdmissionPolicyBinding" ->
+        invokeDelete "validatingadmissionpolicybindings" name uid revision
+      _ -> pure (Left "unsupported mount guard kind for conditional deletion")
+    invokeDelete plural name uid revision = do
+      let path = "/apis/admissionregistration.k8s.io/v1/" <> plural <> "/" <> name
+          options = object
+            [ "apiVersion" .= ("meta.k8s.io/v1" :: Text)
+            , "kind" .= ("DeleteOptions" :: Text)
+            , "preconditions" .= object
+                [ "uid" .= uid
+                , "resourceVersion" .= revision]
+            ]
+      result <- invoke ["delete", "--raw", T.unpack path, "-f", "-"]
+        (T.unpack (TE.decodeUtf8 (BL.toStrict (encode options))))
+      pure $ case result of
+        Left reason -> Left reason
+        Right (ExitSuccess, _, _) -> Right ()
+        Right (ExitFailure _, _, _) -> Left "conditional mount guard deletion failed"
     probe guard = do
       let name = mountGuardName guard <> "-foreign-probe"
           pod = object
