@@ -391,6 +391,8 @@ resumeTransactionWithTakeover store registry transaction takeOver = do
                   if transactionConverged transaction events
                     then pure (Right (Converged transaction))
                     else pure (failure "inactive-transaction" "transaction is not active in the store head")
+              | isJust (headDataFence headValue) ->
+                  pure (failure "active-data-fence" "recover and release the active data fence before resuming its reviewed transaction")
               | otherwise -> do
                   claimed <- acquireResumeClaim store transaction headValue takeOver
                   case claimed of
@@ -434,6 +436,8 @@ recordOperatorRecovery store registry input takeOver = do
         (Right (Just headValue), Right events)
           | headActiveTransaction headValue /= Just (transactionIdText transaction) ->
               pure (failure "inactive-transaction" "operator recovery requires the active transaction")
+          | isJust (headDataFence headValue) ->
+              pure (failure "active-data-fence" "recover and release the data fence before recording adapter recovery")
           | Just (recoveryReview input) /= transactionDigest transaction ->
               pure (failure "recovery-review" "decision file review digest differs from transaction")
           | not (recoverableState (Map.lookup operationId (operationStates transaction events))) ->

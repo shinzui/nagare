@@ -10,7 +10,7 @@ import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter (mkAdapterRegistry, observationSet)
 import Nagare.Inventory.DataFence
 import Nagare.Inventory.Digest (contentDigest)
-import Nagare.Inventory.Execute (AdmissionError (..), TransactionResult (..), admit, execute)
+import Nagare.Inventory.Execute (AdmissionError (..), TransactionResult (..), admit, execute, resumeTransaction)
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
 import Nagare.Resource.Inventory
@@ -180,6 +180,14 @@ dataFenceTests = testGroup "data fence"
         case outcome of
           Converged _ -> assertFailure "fenced transaction converged"
           _ -> pure ()
+        transaction <- case outcome of
+          StoppedAmbiguous value _ -> pure value
+          _ -> assertFailure "fenced transaction did not stop unresolved" >> error "transaction"
+        resumed <- resumeTransaction store registry transaction
+        case resumed of
+          Left errors -> assertBool "resume must defer to explicit fence recovery"
+            (any ((== "active-data-fence") . admissionErrorCode) errors)
+          Right _ -> assertFailure "resumed an actively fenced restore"
         fenced <- readHead store >>= right >>= maybe
           (assertFailure "head missing" >> error "head") pure
         headSequence fenced @?= 1
