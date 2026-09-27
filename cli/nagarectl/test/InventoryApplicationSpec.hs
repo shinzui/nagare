@@ -388,7 +388,8 @@ inventoryApplicationTests = testGroup "application inventory compilation"
   , testCase "standalone data planning requires the accepted platform Namespace" $ do
       let checked = either (error . show) id
           owner = checked (mkScopeId Platform "foundation")
-          cluster = mintResourceId owner (checked (mkLogicalKey "cluster"))
+          clusterOwner = checked (mkScopeId Platform "cluster")
+          cluster = mintResourceId clusterOwner (checked (mkLogicalKey "cluster"))
             (checked (mkName "cluster"))
           binding = ContextBinding (checked (mkContextId "fixture")) (checked (mkName "project"))
           empty = either (error . show) id (mkScopeSnapshot binding Map.empty Map.empty)

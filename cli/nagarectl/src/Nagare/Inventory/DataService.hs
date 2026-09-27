@@ -421,6 +421,7 @@ nativeOwned namespaceName addresses resource = case resource ^. #address of
 acceptedFoundationNamespace :: ScopeSnapshot -> T.Text -> Either T.Text (ResourceId, ResourceId)
 acceptedFoundationNamespace snapshot requestedNamespace = do
   foundation <- mkScopeId Platform "foundation"
+  clusterOwner <- mkScopeId Platform "cluster"
   clusterKey <- mkLogicalKey "cluster"
   foundationKey <- mkLogicalKey "foundation"
   clusterRole <- mkName "cluster"
@@ -429,7 +430,7 @@ acceptedFoundationNamespace snapshot requestedNamespace = do
   nativeKind <- mkName "namespace"
   accepted <- maybe (Left "platform foundation scope is absent from accepted inventory history")
     (Right . snd) (Map.lookup foundation (snapshotScopes snapshot))
-  let cluster = mintResourceId foundation clusterKey clusterRole
+  let cluster = mintResourceId clusterOwner clusterKey clusterRole
       namespaceId = mintResourceId foundation foundationKey namespaceRole
       members =
         [ resource
