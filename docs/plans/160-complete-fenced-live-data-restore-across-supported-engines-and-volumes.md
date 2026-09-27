@@ -27,6 +27,11 @@ provenance:
       at: 2026-09-27T13:52:50Z
       mode: "implement"
       note: "Implement and verify M1 saved-review Kubernetes fence registration and durable recovery"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-27T23:06:39Z
+      mode: "implement"
+      note: "Prove second accepted PostgreSQL scheduled receipt through a real scratch restore and content check"
 ---
 
 # Complete fenced live data restore across supported engines and volumes
@@ -56,6 +61,8 @@ Inherited: manual receipts and expiry validation, PostgreSQL scratch restore, an
 Native inherited-consumer control (2026-09-27): in the isolated EP-155 six-CPU v2 fixture `/tmp/nagare-mp23-ep155-23001-6cpu-v2`, the retained PostgreSQL `mp23-pg-a` received one known row `(1, nagare-mp23-hello)`. Installed revision `e97d65e1` saved and applied manual backup transaction `tx-68d6ea37d12c4e93335f3cae58ad51310639db60b6a62fac4d171fb258264b9e`, then saved and applied scratch restore transaction `tx-44845992a651c069c20ed00064cb36d42b64c2cc1754c5171dc634133221f7ad`. Querying `mp23-pg-a_restore_mp23-r-a1` returned the exact row. This validates the inherited public backup/receipt/scratch consumer against the current local platform. It is not a scheduled-receipt consumer or a fenced `--into-live` restore, so M2 remains open.
 
 Scheduled PostgreSQL consumer checkpoint (2026-09-27): after EP-159 accepted the signed `mp23-pg-b` receipt with the producer Job gone, `db restore mp23-pg-b d11f1c6f-9a6a-420a-9df3-e39695abc67e -n personal --restore-id schedv4 --save-plan /tmp/nagare-mp23-ep155-23001-6cpu-v2/app/app-b-scheduled-restore-review` saved an independent scratch review. Its apply converged as `tx-f807ee59696b4dd097beda6f274cad6527aea842bb3ce3435ff938a4bcc9daff`; restore Job UID `ef930b73-79ea-4d9c-84ff-485f566c5177` completed with both exact-version MinIO download and PostgreSQL restore containers exiting zero. `mp23-pg-b_restore_schedv4` contained table `mp23_fixture` and row `(1, scheduled-v2)`, matching the live source. The reviewed download path checks both returned MinIO version IDs and SHA-256 values from accepted ingestion before loading the dump. This proves a local signed scheduled receipt → accepted history → real PostgreSQL scratch restore/content roundtrip. It does not satisfy M2's Redis/ClickHouse or fenced live-target variants, historical schedule replacement, cloud storage, or recovery cases.
+
+Second scheduled PostgreSQL consumer (2026-09-27): candidate `91580b9f` selected accepted receipt `59b73fe4-6989-43c9-8ecc-b5ea066b67df` after its producer Job had been deleted. `db restore mp23-pg-b 59b73fe4-6989-43c9-8ecc-b5ea066b67df -n personal --restore-id schedv4second --save-plan /tmp/nagare-mp23-ep155-23001-6cpu-v2/app/app-b-second-scheduled-restore-review` issued review `1f11890a1bdf47848aac186b11921778da34d67648aaffb8304473cd9bcb3857` and converged as `tx-1f11890a1bdf47848aac186b11921778da34d67648aaffb8304473cd9bcb3857`. A fresh query of isolated database `mp23-pg-b_restore_schedv4second` returned `1|scheduled-v2` from `mp23_fixture`. The selected object and receipt versions differ from the first run. This repeats the exact-version restore consumer on independently accepted producer evidence; M2 live target, Redis/ClickHouse, and recovery variants remain open.
 
 **Finite M1 boundary — 2026-09-27.** This instruction supersedes every older “M1 remains open” list below. Preserve the implemented controls and native evidence; do not restart their work. Finish the production fence factory/registration and saved-review replay/recovery path, then prove its verification gate with an actual bounded fixture write and readback on local k3s. A callback returning constant success is insufficient. Full database restore semantics, engine-specific restored-content checks, and public `db restore --into-live` belong to M2; live-volume restore and its public command belong to M3. Their absence must not keep the shared-contract milestone open. They still block completion of this plan and release readiness.
 
