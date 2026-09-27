@@ -41,11 +41,15 @@ Inherited: manual receipts and expiry validation, PostgreSQL scratch restore, an
 
 2026-09-26 work in progress: the private head now carries a conditionally written data-fence record, normal planning/apply and store migration reject an active fence, and read-only status displays its phase and exact identities. `Nagare.Inventory.DataFence` reserves before invoking writer controls and keeps uncertain acquisition, data change, or release visible. Three focused recording-provider tests cover process reopening, target substitution, and lost release acknowledgement; the 15 selected restore tests and transaction selection pass. M1 remains open: no native Kubernetes/database control implements the provider callbacks yet, and no reviewed live restore invokes the fence.
 
+2026-09-26 native probe: a dedicated `k3d-nagare-data-fence-ep160` cluster (k3s v1.32.5) used namespace `ep160-fence-probe`, StatefulSet UID `dbe60801-35ee-42ff-b9bc-e645b06816d7`, and PVC UID `1bfb6d23-1aea-4582-bc18-d951e7258a27`. A JSON Patch testing the StatefulSet UID and resourceVersion then setting replicas to zero was accepted once; the same stale patch was rejected. After its Pod was observed deleted, a separate Pod mounted the same `ReadWriteOnce` PVC and wrote `foreign` to its file. A fail-closed `ValidatingAdmissionPolicy` denied that new mount. An exception based only on the restore Job owner reference was spoofable; combining the exact suspended Job UID with the authenticated `system:serviceaccount:kube-system:job-controller` principal denied the spoof and allowed the Job Pod to complete and read `foreign`. These are direct k3s observations from temporary manifests under `/tmp/nagare-ep160-*`, not a public reviewed-command fixture or proof for GKE. The disposable cluster was deleted after the probe.
+
 
 ## Surprises & Discoveries
 
 
 2026-09-26: `cli/nagarectl/src/Nagare/Database/Backup.hs` currently concatenates ClickHouse `FORMAT Native` table streams without table names or DDL. The legacy ClickHouse restore renderer only creates a database, so those bytes cannot establish a restored table set. The Redis backup is a whole-instance RDB; the legacy preview's `redis-cli --pipe` cannot load that format and masks a failed command. Both require distinct, verified native procedures before M2 can be accepted. See [ClickHouse's Native format explanation](https://clickhouse.com/resources/engineering/read-clickhouse-native-file) and [Redis persistence documentation](https://redis.io/docs/latest/operate/oss_and_stack/management/persistence/).
+
+2026-09-26: The local-path `ReadWriteOnce` claim admitted a second same-node Pod after the managed writer stopped. An admission rule that permits a Pod by copying its Job owner UID also admits a spoof from a direct Pod creator. The actual k3s Job controller principal is a service account, not `system:kube-controller-manager`; a tested rule required both that principal and the exact suspended Job UID. This needs provider-version and managed-policy drift checks before it becomes a production fence. Kubernetes documents `ValidatingAdmissionPolicy` as stable from v1.30 and exposes `request.userInfo` to its CEL rules: [Validating Admission Policy](https://kubernetes.io/docs/reference/access-authn-authz/validating-admission-policy/).
 
 
 
@@ -56,6 +60,8 @@ Inherited: manual receipts and expiry validation, PostgreSQL scratch restore, an
 2026-09-26: Transfer a bounded unfinished EP-148 outcome into its own plan. Preserve delivered behavior and all release gates; no feature is dropped and no prior work is reset.
 
 2026-09-26: Version the ClickHouse backup format so a restore can recover table identity and schema, and refuse older content-only receipts for reviewed restore. Redis RDB restore must load offline into a stopped instance with exact PVC and writer-exclusion proof; a network client command is not sufficient. This follows from the existing backup bytes and keeps unknown data effects fenced.
+
+2026-09-26: An exact, fail-closed Pod admission guard is required for a live PVC while recovery is active; `ReadWriteOnce` and a scaled-down StatefulSet do not close the mount race. The native probe supports a policy tied to target namespace/PVC and an explicitly suspended restore Job's UID plus controller principal. Treat that mechanism as a candidate until its policy and binding are themselves reviewed, observed, protected against drift, and shown to work on every supported Kubernetes provider. Reforecast M1–M3 at 24–48 active hours, low confidence, after this mount-control discovery.
 
 
 ## Outcomes & Retrospective
