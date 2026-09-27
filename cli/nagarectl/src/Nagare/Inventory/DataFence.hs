@@ -49,7 +49,7 @@ acquireDataFence locked controls requested = do
   case headResult of
     Left reason -> pure (Left reason)
     Right headValue
-      | not (validRequest headValue requested) ->
+      | not (validRequest (lockedStore locked) headValue requested) ->
           pure (Left "data fence request differs from the accepted context, lacks exact identities or saved writers, or another operation is active")
       | otherwise -> do
           validated <- validateFenceInputs controls requested
@@ -263,11 +263,16 @@ writeHead locked headValue fence = do
     (Just (headGeneration headValue)) replacement
   pure $ either (Left . T.pack . show) Right result
 
-validRequest :: HeadManifest -> DataFenceRecord -> Bool
-validRequest headValue requested =
+validRequest :: InventoryStore -> HeadManifest -> DataFenceRecord -> Bool
+validRequest store headValue requested =
   headDataFence headValue == Nothing
-    && headActiveTransaction headValue == Nothing
-    && headExecutorClaim headValue == Nothing
+    && (case fenceTransaction requested of
+      Nothing -> headActiveTransaction headValue == Nothing
+        && headExecutorClaim headValue == Nothing
+      Just transaction -> headActiveTransaction headValue == Just transaction
+        && maybe False (\claim -> claimTransaction claim == transaction
+          && claimClientIdentity claim == maybe (headClientIdentity headValue) id
+            (storeClientIdentity store)) (headExecutorClaim headValue))
     && fenceContext requested == headBinding headValue
     && fenceAccepted requested == headAccepted headValue
     && not (T.null (fenceSession requested))

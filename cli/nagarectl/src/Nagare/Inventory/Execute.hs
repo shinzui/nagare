@@ -297,16 +297,22 @@ execute locked registry executable = do
           case outcome of
             Just result -> releaseClaim locked transaction False >> pure result
             Nothing -> do
-              completed <- appendEvent locked transaction Nothing (Completed (reviewDocumentDigest document)) "transaction converged"
-              case completed of
-                Left _ -> ambiguousFallback transaction document
-                Right _ -> do
-                  finalized <- finalizeCollections locked transaction document
-                  if not finalized
-                    then pure (fallbackResult transaction document)
-                    else do
-                      converged <- releaseClaim locked transaction True
-                      pure $ if converged then Converged transaction else fallbackResult transaction document
+              current <- readHead (lockedStore locked)
+              case current of
+                Right (Just headValue) | isNothing (headDataFence headValue) -> do
+                  completed <- appendEvent locked transaction Nothing (Completed (reviewDocumentDigest document)) "transaction converged"
+                  case completed of
+                    Left _ -> ambiguousFallback transaction document
+                    Right _ -> do
+                      finalized <- finalizeCollections locked transaction document
+                      if not finalized
+                        then pure (fallbackResult transaction document)
+                        else do
+                          converged <- releaseClaim locked transaction True
+                          pure $ if converged then Converged transaction else fallbackResult transaction document
+                _ -> do
+                  _ <- releaseClaim locked transaction False
+                  pure (fallbackResult transaction document)
 
 finalizeCollections :: LockedStore s -> TransactionId -> ReviewDocument -> IO Bool
 finalizeCollections locked transaction document
@@ -698,14 +704,17 @@ releaseClaim locked transaction converged = do
   case headResult of
     Right (Just headValue) | headActiveTransaction headValue == Just (transactionIdText transaction),
       maybe True (\client -> maybe False ((== client) . claimClientIdentity) (headExecutorClaim headValue)) (storeClientIdentity store) -> do
-      let replacement =
-            headValue
-              { headGeneration = headGeneration headValue + 1
-              , headExecutorClaim = Nothing
-              , headActiveTransaction = if converged then Nothing else headActiveTransaction headValue
-              , headConverged = if converged then headAccepted headValue else headConverged headValue
-              }
-      isRight <$> replaceHeadIfGenerationMatches store (Just (headGeneration headValue)) replacement
+      if converged && isJust (headDataFence headValue)
+        then pure False
+        else do
+          let replacement =
+                headValue
+                  { headGeneration = headGeneration headValue + 1
+                  , headExecutorClaim = Nothing
+                  , headActiveTransaction = if converged then Nothing else headActiveTransaction headValue
+                  , headConverged = if converged then headAccepted headValue else headConverged headValue
+                  }
+          isRight <$> replaceHeadIfGenerationMatches store (Just (headGeneration headValue)) replacement
     _ -> pure False
 
 transactionFor :: ReviewDocument -> TransactionId

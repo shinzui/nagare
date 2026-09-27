@@ -10,7 +10,7 @@ import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter (mkAdapterRegistry, observationSet)
 import Nagare.Inventory.DataFence
 import Nagare.Inventory.Digest (contentDigest)
-import Nagare.Inventory.Execute (AdmissionError (..), admit)
+import Nagare.Inventory.Execute (AdmissionError (..), TransactionResult (..), admit, execute)
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
 import Nagare.Resource.Inventory
@@ -114,6 +114,77 @@ dataFenceTests = testGroup "data fence"
           Right _ -> assertFailure "changed target identity acquired fence"
         active <- readHead store >>= right >>= maybe (assertFailure "head missing" >> error "head") pure
         fmap fencePhase (headDataFence active) @?= Just FenceUnresolved
+    , testCase "reviewed transaction may own only its matching fence" $ do
+        store <- newMemoryStore
+        initial <- initializeStore store binding "operator-a" >>= right
+        let transaction = "tx-reviewed-restore"
+            active = initial
+              { headGeneration = 1
+              , headActiveTransaction = Just transaction
+              , headExecutorClaim = Just (ExecutorClaim transaction "operator-a" 1 "time")
+              }
+        _ <- replaceHeadIfGenerationMatches store (Just 0) active >>= right
+        released <- newIORef False
+        restored <- newIORef (0 :: Int)
+        let controls = fixtureControls released restored (pure (Right physical))
+        wrong <- withProcessLock store (\locked -> acquireDataFence locked controls
+          request {fenceTransaction = Just "tx-other"}) >>= right
+        case wrong of
+          Left _ -> pure ()
+          Right _ -> assertFailure "a foreign transaction acquired the fence"
+        _ <- replaceHeadIfGenerationMatches store (Just 1)
+          active {headGeneration = 2, headExecutorClaim =
+            Just (ExecutorClaim transaction "operator-b" 2 "time")} >>= right
+        foreignClaim <- withProcessLock store (\locked -> acquireDataFence locked controls
+          request {fenceTransaction = Just transaction}) >>= right
+        case foreignClaim of
+          Left _ -> pure ()
+          Right _ -> assertFailure "a foreign executor acquired the fence"
+        _ <- replaceHeadIfGenerationMatches store (Just 2)
+          active {headGeneration = 3} >>= right
+        _ <- withProcessLock store (\locked -> acquireDataFence locked controls
+          request {fenceTransaction = Just transaction}) >>= right >>= right
+        fenced <- readHead store >>= right >>= maybe (assertFailure "head missing" >> error "head") pure
+        headActiveTransaction fenced @?= Just transaction
+        fmap fenceTransaction (headDataFence fenced) @?= Just (Just transaction)
+    , testCase "reviewed transaction cannot journal convergence while fenced" $ do
+        store <- newMemoryStore
+        _ <- initializeStore store binding "operator-a" >>= right
+        let scope = known (mkScopeDeclaration fenceOwner [])
+            snapshot = known (mkScopeSnapshot binding Map.empty Map.empty)
+            candidate = known (composeInventory snapshot (ReplaceScope scope :| []))
+            registry = known (mkAdapterRegistry [])
+        history <- loadInventoryHistory store >>= right
+        proposal <- right (planChanges candidate noLifecycleDecisions history
+          (known (observationSet [])))
+        storeSnapshot <- readStoreSnapshot store >>= right
+        review <- prepareReview registry storeSnapshot proposal >>= right
+        _ <- publishReview store review >>= right
+        issued <- readStoreSnapshot store >>= right
+        reviewed <- right (verifyReview issued review)
+        released <- newIORef False
+        restored <- newIORef (0 :: Int)
+        let controls = fixtureControls released restored (pure (Right physical))
+        result <- withProcessLock store $ \locked -> do
+          executable <- admit locked registry reviewed >>= right
+          admitted <- readHead store >>= right >>= maybe
+            (assertFailure "head missing" >> error "head") pure
+          let transaction = maybe (error "transaction missing") id
+                (headActiveTransaction admitted)
+          _ <- acquireDataFence locked controls request
+            { fenceTransaction = Just transaction
+            , fenceAccepted = headAccepted admitted
+            } >>= right
+          execute locked registry executable
+        outcome <- right result
+        case outcome of
+          Converged _ -> assertFailure "fenced transaction converged"
+          _ -> pure ()
+        fenced <- readHead store >>= right >>= maybe
+          (assertFailure "head missing" >> error "head") pure
+        headSequence fenced @?= 1
+        assertBool "transaction remains active" (isJust (headActiveTransaction fenced))
+        assertBool "fence remains active" (isJust (headDataFence fenced))
   ]
 
 fixtureControls :: IORef Bool -> IORef Int
@@ -132,7 +203,7 @@ fixtureControls released restored observe = DataFenceControls
   }
 
 request :: DataFenceRecord
-request = DataFenceRecord binding "restore-session" Map.empty physical
+request = DataFenceRecord binding "restore-session" Nothing Map.empty physical
   (Set.singleton target) (Set.singleton writer) "gs://fixture/recovery"
   (contentDigest "recovery") (Map.singleton writer (object [])) FenceAcquiring ""
 

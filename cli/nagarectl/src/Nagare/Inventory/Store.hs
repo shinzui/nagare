@@ -145,6 +145,7 @@ data DataFencePhase
 data DataFenceRecord = DataFenceRecord
   { fenceContext :: !ContextBinding
   , fenceSession :: !Text
+  , fenceTransaction :: !(Maybe Text)
   , fenceAccepted :: !(Map ScopeId ScopeRevision)
   , fencePhysical :: !(Map ResourceId PhysicalIdentity)
   , fenceTargets :: !(Set ResourceId)
@@ -294,6 +295,7 @@ instance ToJSON DataFenceRecord where
   toJSON fence = object
     [ "context" .= fenceContext fence
     , "session" .= fenceSession fence
+    , "transaction" .= fenceTransaction fence
     , "accepted" .= [object ["scope" .= scope, "revision" .= revision]
         | (scope, revision) <- Map.toAscList (fenceAccepted fence)]
     , "physical" .= [object ["resource" .= resource, "identity" .= physical]
@@ -310,7 +312,7 @@ instance ToJSON DataFenceRecord where
 
 instance FromJSON DataFenceRecord where
   parseJSON = withObject "DataFenceRecord" $ \o -> do
-    unless (all (`elem` ["context", "session", "accepted", "physical", "targets", "affected",
+    unless (all (`elem` ["context", "session", "transaction", "accepted", "physical", "targets", "affected",
         "recoveryArtifact", "recoveryDigest", "savedWriters", "phase", "acquiredAt"])
         (KM.keys o)) (fail "data fence has an unknown field")
     accepted <- uniqueEntries "accepted scope" =<< traverse
@@ -334,7 +336,7 @@ instance FromJSON DataFenceRecord where
     recovery <- o .: "recoveryArtifact"
     unless (not (T.null session) && not (T.null recovery) && not (Map.null physical))
       (fail "data fence lacks its session, recovery artifact, or physical target")
-    DataFenceRecord <$> o .: "context" <*> pure session <*> pure accepted
+    DataFenceRecord <$> o .: "context" <*> pure session <*> o .:? "transaction" <*> pure accepted
       <*> pure physical <*> pure (Set.fromList targetList)
       <*> pure (Set.fromList affectedList) <*> pure recovery
       <*> o .: "recoveryDigest" <*> pure saved <*> o .: "phase" <*> o .: "acquiredAt"
@@ -391,8 +393,9 @@ instance FromJSON HeadManifest where
     fence <- o .:? "dataFence"
     unless (maybe True (\entry -> fenceContext entry == binding
       && fenceAccepted entry == accepted
-      && isNothing active) fence)
-      (fail "data fence differs from its context or accepted head, or overlaps a transaction")
+      && maybe (isNothing active) (\transaction -> active == Just transaction)
+        (fenceTransaction entry)) fence)
+      (fail "data fence differs from its context, accepted head, or linked transaction")
     HeadManifest version generation sequenceNumber
       <$> pure binding
       <*> o .: "clientIdentity"
