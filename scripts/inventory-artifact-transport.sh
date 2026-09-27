@@ -347,8 +347,18 @@ publish_oci_archive() (
       --password-stdin --authfile "${private_dir}/auth.json" "${NAGARE_REGISTRY_HOST}" >/dev/null
     auth_args=(--authfile "${private_dir}/auth.json")
   fi
+  wire_destination="${destination}"
+  if [ "${NAGARE_MODE:-cloud}" = local ] && [ "${NAGARE_REGISTRY_HOST:-}" = k3d-registry.localhost:5000 ] \
+      && [ -n "${NAGARE_LOCAL_REGISTRY_FORWARD:-}" ]; then
+    [[ "${NAGARE_LOCAL_REGISTRY_FORWARD}" =~ ^127\.0\.0\.1:([0-9]{1,5})$ ]] \
+      && [ "${BASH_REMATCH[1]}" -ge 1 ] && [ "${BASH_REMATCH[1]}" -le 65535 ] || {
+      echo "local registry forward must be a loopback host and port" >&2
+      return 2
+    }
+    wire_destination="${NAGARE_LOCAL_REGISTRY_FORWARD}/${destination#"${NAGARE_REGISTRY_HOST}/"}"
+  fi
   skopeo --policy "${policy}" copy --preserve-digests "${tls_args[@]}" "${auth_args[@]}" \
-    "docker-archive:${archive}" "docker://${destination}" >&2
+    "docker-archive:${archive}" "docker://${wire_destination}" >&2
 )
 
 publish() {
