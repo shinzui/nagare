@@ -6,15 +6,18 @@ module Nagare.Inventory.Foundation
   , FoundationDeclarationBundle (..)
   , compileFoundationScope
   , foundationTargetsFromDeclarations
+  , validateFoundationMember
   )
 where
 
 import Data.Generics.Labels ()
+import Data.Char (isControl, isSpace)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
+import Data.Text qualified as T
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapters.Foundation (FoundationTarget (..), foundationTargetDigest)
 import Nagare.Resource.Inventory
@@ -81,15 +84,17 @@ compileFoundationScope bundle
 -- context. The digest comparison prevents a changed region or member policy
 -- from silently changing a retained review's native effects.
 foundationTargetsFromDeclarations
-  :: Name -> Name -> [Declaration] -> Either Text (Map ResourceId FoundationTarget)
-foundationTargetsFromDeclarations project location declarations =
+  :: Name -> Name -> Maybe Name -> Maybe Text -> [Declaration]
+  -> Either Text (Map ResourceId FoundationTarget)
+foundationTargetsFromDeclarations project location backendBucket member declarations =
   Map.fromList <$> traverse target foundationMembers
   where
     foundationMembers = [resource | Managed resource <- declarations,
       resource ^. #executor == CloudFoundationExecutor]
     target resource = do
       value <- case resource ^. #address of
-        GlobalBucket bucket -> Right (FoundationBucket project bucket location Nothing)
+        GlobalBucket bucket -> Right (FoundationBucket project bucket location
+          (if Just bucket == backendBucket then member else Nothing))
         CloudService targetProject service
           | targetProject == project -> Right (FoundationService project service)
           | otherwise -> Left "reviewed foundation service belongs to another project"
@@ -97,3 +102,10 @@ foundationTargetsFromDeclarations project location declarations =
       unless (resource ^. #spec == NativeObject (foundationTargetDigest value))
         (Left "reviewed foundation target digest differs from the selected context")
       pure (resource ^. #identity, value)
+
+validateFoundationMember :: Maybe Text -> Either Text ()
+validateFoundationMember Nothing = Right ()
+validateFoundationMember (Just member)
+  | T.null member || T.any (\character -> isControl character || isSpace character) member =
+      Left "Pulumi backend IAM member must be a nonempty single token"
+  | otherwise = Right ()

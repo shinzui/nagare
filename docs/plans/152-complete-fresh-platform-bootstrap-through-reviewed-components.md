@@ -53,6 +53,8 @@ Inherited baseline: commits `9c308390`, `28e05b72`, and `09d83188` supplied expl
 
 2026-09-26 evidence for candidate source revision `b8b43a6a`: `bash scripts/test-bootstrap-foundation-public.sh <built nagarectl>` used isolated contexts `fresh` (GCS inventory, no cloud objects) and `freshlocal` (local journal, recording gcloud). It observed eight foundation operations, no provider write during planning, a converged apply with one accepted/converged scope, and changed-backend refusal before effects. The fixture and assertions live in `scripts/test-bootstrap-foundation-public.sh`; transient logs were intentionally removed with the fixture. `cabal test nagarectl-test --test-show-details=failures`, focused inventory tests, `cabal build exe:nagarectl`, `bash scripts/test-inventory-entrypoint-guards.sh <built nagarectl>`, and `bash scripts/check-haskell-style.sh` passed. The public fixture does not emulate GCS history migration or prove later stages.
 
+2026-09-26 continuation: The optional Pulumi backend IAM member is now stored in named contexts and bound to the foundation bucket declaration and retained execution target. The grant applies only to the Pulumi state bucket when the inventory journal uses another bucket. The public recording fixture exercises its grant and refuses a changed stored member before writes. Pulumi's seeded config disables its duplicate ownership of the seven foundation-managed APIs. The inventory Pulumi adapter now supplies the complete registration set to the TypeScript guard while targeting individual operations. The later cloud stage still needs to seed that config, construct its complete typed candidate, and prove native targeted previews.
+
 
 ## Surprises & Discoveries
 
@@ -69,7 +71,9 @@ Inherited baseline: commits `9c308390`, `28e05b72`, and `09d83188` supplied expl
 
 2026-09-26: The selected shell can carry a Pulumi backend URL from another context even while the inventory store URL is pinned by the context file. The first public fixture found two different bucket candidates because of this inherited environment value. The foundation review now binds the selected bucket set and the execution adapter checks it again; the fixture clears inherited URLs explicitly. The next cloud stage must account for both foundation API ownership and Pulumi's existing `manageProjectApis` registrations so one provider does not claim the same API twice.
 
-2026-09-26: The named initialization and context-selection paths now defer first cloud writes, but unnamed legacy `init` still uses its old direct API and bucket setup. Its admitted-context guard remains intact. Resolve that remaining fresh legacy path before claiming every bootstrap entrypoint is reviewed. The optional backend IAM member passed to named `init` also needs a retained stage input; the new foundation builder currently has no stored member value to grant.
+2026-09-26: The named initialization and context-selection paths now defer first cloud writes, but unnamed legacy `init` still uses its old direct API and bucket setup. Its admitted-context guard remains intact. Resolve that remaining fresh legacy path before claiming every bootstrap entrypoint is reviewed. The optional backend IAM member is now retained in the context and reviewed with the Pulumi bucket; a distinct inventory bucket does not receive that grant.
+
+2026-09-26: The Pulumi program requires declarations for every registered provider or component resource, even when a saved preview targets one URN. Filtering the runtime bundle to only selected operations makes the guard fail before a review can be prepared. The adapter now receives all composed registrations; a later native fixture must confirm the complete cloud topology and per-operation mutation boundary.
 
 
 ## Decision Log

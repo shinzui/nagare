@@ -278,6 +278,7 @@ testProfile =
     , localObjectStore = ""
     , pulumiBackend = PulumiBackendLocal
     , pulumiBackendUrl = ""
+    , pulumiBackendMember = Nothing
     , inventoryStore = InventoryStoreLocal
     , inventoryStoreUrl = ""
     , acmeEmail = "ops@example.com"

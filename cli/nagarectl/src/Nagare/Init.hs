@@ -67,6 +67,7 @@ import Nagare.Target
   , readContextMap
   , registryPrefix
   , resolveTargetProfile
+  , shellQuote
   )
 import System.Directory (doesFileExist, findExecutable)
 import System.Environment (setEnv, unsetEnv)
@@ -124,6 +125,7 @@ initFlagPairs o =
     , pair "NAGARE_NIX_CACHE_BUCKET" (o ^. #nixCacheBucket)
     , pair "NAGARE_PULUMI_BACKEND" (o ^. #pulumiBackend)
     , pair "NAGARE_PULUMI_BACKEND_URL" (o ^. #pulumiBackendUrl)
+    , pair "NAGARE_PULUMI_BACKEND_MEMBER" (o ^. #pulumiBackendMember)
     , pair "NAGARE_INVENTORY_STORE" (o ^. #inventoryStore)
     , pair "NAGARE_INVENTORY_STORE_URL" (o ^. #inventoryStoreUrl)
     , pair "NAGARE_ACME_EMAIL" (o ^. #acmeEmail)
@@ -333,6 +335,7 @@ renderTargetEnv tp =
     , "export NAGARE_INVENTORY_STORE=" <> inventoryStoreToken (tp ^. #inventoryStore)
     , "export NAGARE_INVENTORY_STORE_URL=" <> tp ^. #inventoryStoreUrl
     ]
+      <> maybe [] (\member -> ["export NAGARE_PULUMI_BACKEND_MEMBER=" <> shellQuote member]) (tp ^. #pulumiBackendMember)
       <> maybe [] (\version -> ["export NAGARE_PLATFORM_VERSION=" <> version]) (tp ^. #platformVersion)
   where
     modeToken Cloud = "cloud"
@@ -340,7 +343,7 @@ renderTargetEnv tp =
     boolToken True = "1"
     boolToken False = "0"
 
--- | The fourteen Pulumi config (key, value) pairs to seed from the profile. Order is
+-- | Pulumi config (key, value) pairs to seed from the profile. Order is
 -- stable for deterministic output. @nagare:imageBucket@ is REQUIRED by the program
 -- (no default), so it is always present here. The four VM-shape values are pinned
 -- so a later change to a program fallback cannot plan an instance replacement
@@ -363,6 +366,7 @@ seedKeys tp =
   , ("nagare:bootDiskType", tp ^. #bootDiskType)
   , ("nagare:bootDiskSizeGb", tp ^. #bootDiskSizeGb)
   , ("nagare:dataDiskSizeGb", tp ^. #dataDiskSizeGb)
+  , ("nagare:manageProjectApis", "false")
   ]
 
 -- | The argv for one @pulumi -C infra/pulumi config set --stack STACK KEY VALUE@.

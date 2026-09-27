@@ -4851,6 +4851,7 @@ buildCloudFoundationCandidate active paths workspace snapshot = do
       && active ^. #profile . #platformVersion == Just (manifest ^. #platformVersion))
     (dieT "cloud foundation requires the selected immutable payload and matching context pin")
   let profile = active ^. #profile
+  either dieT pure (InventoryFoundation.validateFoundationMember (profile ^. #pulumiBackendMember))
   project <- either dieT pure (Resource.mkName (profile ^. #project))
   location <- either dieT pure (Resource.mkName (profile ^. #region))
   owner <- either dieT pure (Resource.mkScopeId Resource.Platform "cloud-foundation")
@@ -4865,11 +4866,13 @@ buildCloudFoundationCandidate active paths workspace snapshot = do
   let storageApi = Resource.mintResourceId owner
         (either (error . T.unpack) (\key -> key) (Resource.mkLogicalKey "storage.googleapis.com"))
         (either (error . T.unpack) (\name -> name) (Resource.mkName "storage.googleapis.com"))
+  backendBucket <- foundationPulumiBucket active
   bucketNames <- foundationBucketNames active
   buckets <- forM (Set.toAscList bucketNames) $ \bucketText -> do
     bucket <- either dieT pure (Resource.mkName bucketText)
     key <- either dieT pure (Resource.mkLogicalKey ("state-" <> bucketText))
-    let target = FoundationBucket project bucket location Nothing
+    let member = if Just bucket == backendBucket then profile ^. #pulumiBackendMember else Nothing
+        target = FoundationBucket project bucket location member
     pure (InventoryFoundation.FoundationResource key bucket
       (Resource.GlobalBucket bucket) (foundationTargetDigest target)
       ResourcePolicy.Protect ResourcePolicy.Stateless ResourcePolicy.Public
@@ -5725,7 +5728,7 @@ inventoryExecutionRegistry mctx bundle = do
       pulumi <-
         if null registrations
           then pure (Inventory.executionBlockedAdapterFor ResourceInventory.PulumiExecutor)
-          else inventoryPulumiAdapter active workspace binding scopes registrations
+          else inventoryPulumiAdapter active workspace binding scopes allRegistrations
       foundation <- inventoryFoundationAdapter active binding declarations
         (selected ResourceInventory.CloudFoundationExecutor)
       artifact <-
@@ -5964,7 +5967,7 @@ inventoryPlanRegistryWithNative active workspace suppliedNative candidate histor
   pulumi <-
     if null registrations
       then pure (Inventory.manifestAdapterFor history ResourceInventory.PulumiExecutor)
-      else inventoryPulumiAdapter active workspace (ResourceInventory.inventoryBinding inventory) scopes registrations
+      else inventoryPulumiAdapter active workspace (ResourceInventory.inventoryBinding inventory) scopes allRegistrations
   foundation <- inventoryFoundationAdapter active (ResourceInventory.inventoryBinding inventory)
     declarations (selected ResourceInventory.CloudFoundationExecutor)
   let artifact =
@@ -5996,12 +5999,15 @@ inventoryFoundationAdapter active binding declarations selectedResources
   | Set.null selectedResources = pure
       (Inventory.executionBlockedAdapterFor ResourceInventory.CloudFoundationExecutor)
   | otherwise = do
+      either dieT pure (InventoryFoundation.validateFoundationMember
+        (active ^. #profile . #pulumiBackendMember))
       project <- either dieT pure (Resource.mkName (active ^. #profile . #project))
       location <- either dieT pure (Resource.mkName (active ^. #profile . #region))
       unless (project == binding ^. #project)
         (dieT "reviewed cloud foundation belongs to another target project")
+      backendBucket <- foundationPulumiBucket active
       targets <- either dieT pure (InventoryFoundation.foundationTargetsFromDeclarations
-        project location declarations)
+        project location backendBucket (active ^. #profile . #pulumiBackendMember) declarations)
       expectedBuckets <- foundationBucketNames active
       let reviewedBuckets = Set.fromList
             [Resource.nameText bucket | FoundationBucket _ bucket _ _ <- Map.elems targets]
@@ -6011,6 +6017,17 @@ inventoryFoundationAdapter active binding declarations selectedResources
         (dieT "reviewed cloud foundation lacks an exact execution target")
       pure (mkFoundationAdapter (Map.restrictKeys targets selectedResources)
         (mkFoundationRuntimeOps realGcloudRunner))
+
+foundationPulumiBucket :: ActiveTarget -> IO (Maybe Resource.Name)
+foundationPulumiBucket active
+  | effectivePulumiBackend profile /= PulumiBackendGcs = pure Nothing
+  | otherwise = do
+      let url = pulumiStateBackendUrl (contextNameText (active ^. #contextName)) profile
+      bucket <- maybe (dieT ("selected Pulumi backend has invalid GCS URL: " <> url)) pure
+        (gcsBucketOfUrl url)
+      Just <$> either dieT pure (Resource.mkName bucket)
+  where
+    profile = active ^. #profile
 
 foundationBucketNames :: ActiveTarget -> IO (Set.Set Text)
 foundationBucketNames active = do
@@ -7285,6 +7302,7 @@ contextEnvPairs o =
     , pair "NAGARE_LOCAL_OBJECT_STORE" (o ^. #localObjectStore)
     , pair "NAGARE_PULUMI_BACKEND" (o ^. #pulumiBackend)
     , pair "NAGARE_PULUMI_BACKEND_URL" (o ^. #pulumiBackendUrl)
+    , pair "NAGARE_PULUMI_BACKEND_MEMBER" (o ^. #pulumiBackendMember)
     , pair "NAGARE_INVENTORY_STORE" (o ^. #inventoryStore)
     , pair "NAGARE_INVENTORY_STORE_URL" (o ^. #inventoryStoreUrl)
     , pair "NAGARE_ACME_EMAIL" (o ^. #acmeEmail)

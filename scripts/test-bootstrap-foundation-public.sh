@@ -66,6 +66,8 @@ printf 'fresh cloud bootstrap planned eight reviewed foundation resources before
 sed 's/NAGARE_INVENTORY_STORE=gcs/NAGARE_INVENTORY_STORE=local/' \
   "$XDG_CONFIG_HOME/nagare/contexts/fresh.env" \
   > "$XDG_CONFIG_HOME/nagare/contexts/freshlocal.env"
+printf '%s\n' 'NAGARE_PULUMI_BACKEND_MEMBER=serviceAccount:deployer@fixture-project.iam.gserviceaccount.com' \
+  >> "$XDG_CONFIG_HOME/nagare/contexts/freshlocal.env"
 cat > "$fixture_root/bin/gcloud" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -104,6 +106,15 @@ PY
     ;;
   "storage buckets update gs://fixture-project-nagare-pulumi-state "*)
     touch "$XDG_STATE_HOME/bucket-updated" ;;
+  "storage buckets get-iam-policy gs://fixture-project-nagare-pulumi-state --format=json")
+    if test -e "$XDG_STATE_HOME/member-granted"; then
+      printf '{"bindings":[{"role":"roles/storage.objectAdmin","members":["serviceAccount:deployer@fixture-project.iam.gserviceaccount.com"]}]}\n'
+    else
+      printf '{"bindings":[]}\n'
+    fi
+    ;;
+  "storage buckets add-iam-policy-binding gs://fixture-project-nagare-pulumi-state "*)
+    touch "$XDG_STATE_HOME/member-granted" ;;
   *) printf 'unexpected gcloud command: %s\n' "$*" >&2; exit 37 ;;
 esac
 EOF
@@ -118,7 +129,24 @@ if NAGARE_PULUMI_BACKEND_URL=gs://changed-state-bucket/nagare/freshlocal \
   printf 'changed backend URL unexpectedly applied the review\n' >&2
   exit 1
 fi
-grep -q 'reviewed cloud foundation buckets differ' "$fixture_root/changed-out"
+grep -Eq 'reviewed cloud foundation buckets differ|reviewed foundation target digest differs' \
+  "$fixture_root/changed-out" || {
+  cat "$fixture_root/changed-out" >&2
+  exit 1
+}
+sed 's/deployer@fixture-project/other@fixture-project/' \
+  "$XDG_CONFIG_HOME/nagare/contexts/freshlocal.env" \
+  > "$fixture_root/changed-member.env"
+cp "$fixture_root/changed-member.env" "$XDG_CONFIG_HOME/nagare/contexts/freshlocal.env"
+if "$nagarectl_bin" --context freshlocal platform bootstrap apply "$fixture_root/local-review" --yes \
+  > "$fixture_root/member-changed-out" 2>&1; then
+  printf 'changed backend member unexpectedly applied the review\n' >&2
+  exit 1
+fi
+sed 's/other@fixture-project/deployer@fixture-project/' \
+  "$XDG_CONFIG_HOME/nagare/contexts/freshlocal.env" \
+  > "$fixture_root/restored-member.env"
+cp "$fixture_root/restored-member.env" "$XDG_CONFIG_HOME/nagare/contexts/freshlocal.env"
 if grep -Eq 'services enable|buckets (create|update)' "$XDG_STATE_HOME/gcloud-apply.log"; then
   printf 'changed backend URL attempted a provider write\n' >&2
   exit 1
@@ -129,6 +157,7 @@ fi
   exit 1
 }
 test -e "$XDG_STATE_HOME/bucket-updated"
+test -e "$XDG_STATE_HOME/member-granted"
 test "$(wc -l < "$XDG_STATE_HOME/enabled-services")" -eq 7
 test "$(grep -c '^storage buckets create ' "$XDG_STATE_HOME/gcloud-apply.log")" -eq 1
 test -e "$XDG_STATE_HOME/nagare/freshlocal/inventory/head.json"

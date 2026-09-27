@@ -608,6 +608,7 @@ initProfile =
     , localObjectStore = ""
     , pulumiBackend = PulumiBackendLocal
     , pulumiBackendUrl = ""
+    , pulumiBackendMember = Nothing
     , inventoryStore = InventoryStoreLocal
     , inventoryStoreUrl = ""
     , acmeEmail = "ops@acme.example"
@@ -666,7 +667,20 @@ initTests =
               , "nagare:bootDiskType"
               , "nagare:bootDiskSizeGb"
               , "nagare:dataDiskSizeGb"
+              , "nagare:manageProjectApis"
               ]
+    , testCase "foundation owns API enablement when Pulumi config is seeded" $
+        lookup "nagare:manageProjectApis" (seedKeys initProfile) @?= Just "false"
+    , testCase "named init retains the reviewed backend IAM member" $ do
+        let contextMap = initContextMap Nothing
+              [("NAGARE_PULUMI_BACKEND_MEMBER", "serviceAccount:deployer@example.iam.gserviceaccount.com")]
+              "0.4.0"
+            profile = profileFromContextMap contextMap
+        profile ^. #pulumiBackendMember
+          @?= Just "serviceAccount:deployer@example.iam.gserviceaccount.com"
+        assertBool "rendered profile includes member"
+          (T.isInfixOf "export NAGARE_PULUMI_BACKEND_MEMBER='serviceAccount:deployer@example.iam.gserviceaccount.com'"
+            (renderTargetEnv profile))
     , testCase "validateVmShape accepts named and custom machine types" $ do
         validateVmShape defaultVmShape @?= Right defaultVmShape
         let custom = defaultVmShape & #machineType .~ "custom-4-8192"
@@ -1645,6 +1659,7 @@ tnbProfile =
     , localObjectStore = ""
     , pulumiBackend = PulumiBackendLocal
     , pulumiBackendUrl = ""
+    , pulumiBackendMember = Nothing
     , inventoryStore = InventoryStoreLocal
     , inventoryStoreUrl = ""
     , acmeEmail = ""

@@ -51,6 +51,7 @@ module Nagare.Target
   , mergeContextOverrides
   , pulumiEnvFor
   , renderContextShellEnv
+  , shellQuote
   , parsePulumiBackendKind
   , pulumiBackendToken
   , defaultGcsPulumiBackendUrl
@@ -526,6 +527,9 @@ data TargetProfile = TargetProfile
   -- ^ NAGARE_PULUMI_BACKEND_URL (EP-93), an explicit @gs://\<bucket>/\<path>@ backend
   -- URL. Default @""@; when empty and the backend is GCS, the URL is derived by
   -- 'defaultGcsPulumiBackendUrl'.
+  , pulumiBackendMember :: !(Maybe Text)
+  -- ^ Optional bucket-scoped IAM member retained for the reviewed cloud
+  -- foundation stage. A missing member grants no additional access.
   , inventoryStore :: !InventoryStoreKind
   -- ^ NAGARE_INVENTORY_STORE; local unless a cloud context explicitly selects GCS.
   , inventoryStoreUrl :: !Text
@@ -652,6 +656,7 @@ renderContextShellEnv name tp penv =
     , line "NAGARE_LOCAL_OBJECT_STORE" (tp ^. #localObjectStore)
     , line "NAGARE_PULUMI_BACKEND" (pulumiBackendToken (effectivePulumiBackend tp))
     , line "NAGARE_PULUMI_BACKEND_URL" (tp ^. #pulumiBackendUrl)
+    , line "NAGARE_PULUMI_BACKEND_MEMBER" (maybe "" (\member -> member) (tp ^. #pulumiBackendMember))
     , line "NAGARE_INVENTORY_STORE" (inventoryStoreToken (effectiveInventoryStore tp))
     , line "NAGARE_INVENTORY_STORE_URL" (tp ^. #inventoryStoreUrl)
     , line "NAGARE_REGISTRY_PREFIX" (registryPrefix tp)
@@ -858,6 +863,7 @@ profileFromContextMap ctx =
       localObjectStore = mapOr ctx "NAGARE_LOCAL_OBJECT_STORE" ""
       pulumiBackend = parsePulumiBackendKind (mapRaw ctx "NAGARE_PULUMI_BACKEND")
       pulumiBackendUrl = mapOr ctx "NAGARE_PULUMI_BACKEND_URL" ""
+      pulumiBackendMember = T.pack <$> mapRaw ctx "NAGARE_PULUMI_BACKEND_MEMBER"
       inventoryStore = parseInventoryStoreKind (mapRaw ctx "NAGARE_INVENTORY_STORE")
       inventoryStoreUrl = mapOr ctx "NAGARE_INVENTORY_STORE_URL" ""
       acmeEmail = mapOr ctx "NAGARE_ACME_EMAIL" ""
@@ -885,6 +891,7 @@ profileFromContextMap ctx =
         , localObjectStore = localObjectStore
         , pulumiBackend = pulumiBackend
         , pulumiBackendUrl = pulumiBackendUrl
+        , pulumiBackendMember = pulumiBackendMember
         , inventoryStore = inventoryStore
         , inventoryStoreUrl = inventoryStoreUrl
         , acmeEmail = acmeEmail
@@ -915,6 +922,7 @@ resolveProfileFrom ctx = do
   localObjectStore <- ctxOr ctx "NAGARE_LOCAL_OBJECT_STORE" ""
   pulumiBackend <- parsePulumiBackendKind <$> ctxRaw ctx "NAGARE_PULUMI_BACKEND"
   pulumiBackendUrl <- ctxOr ctx "NAGARE_PULUMI_BACKEND_URL" ""
+  pulumiBackendMember <- fmap T.pack <$> ctxRaw ctx "NAGARE_PULUMI_BACKEND_MEMBER"
   inventoryStore <- parseInventoryStoreKind <$> ctxRaw ctx "NAGARE_INVENTORY_STORE"
   inventoryStoreUrl <- ctxOr ctx "NAGARE_INVENTORY_STORE_URL" ""
   acmeEmail <- ctxOr ctx "NAGARE_ACME_EMAIL" ""
@@ -943,6 +951,7 @@ resolveProfileFrom ctx = do
       , localObjectStore = localObjectStore
       , pulumiBackend = pulumiBackend
       , pulumiBackendUrl = pulumiBackendUrl
+      , pulumiBackendMember = pulumiBackendMember
       , inventoryStore = inventoryStore
       , inventoryStoreUrl = inventoryStoreUrl
       , acmeEmail = acmeEmail
@@ -970,7 +979,8 @@ resolveActiveTarget arg = do
         & #platformVersion .~ (storedProfile ^. #platformVersion)
         & #externalDomainTlsEnabled .~ (storedProfile ^. #externalDomainTlsEnabled)
         & #inventoryStore .~ (storedProfile ^. #inventoryStore)
-        & #inventoryStoreUrl .~ (storedProfile ^. #inventoryStoreUrl)))
+        & #inventoryStoreUrl .~ (storedProfile ^. #inventoryStoreUrl)
+        & #pulumiBackendMember .~ (storedProfile ^. #pulumiBackendMember)))
 
 -- | Back-compat entry point for consumers that only need the target bundle.
 resolveActiveContext :: Maybe Text -> IO TargetProfile

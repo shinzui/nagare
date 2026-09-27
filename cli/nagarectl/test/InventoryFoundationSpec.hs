@@ -14,7 +14,7 @@ import Nagare.Inventory.Adapters.Foundation (FoundationAdapterOps (..), Foundati
 import Nagare.Inventory.Adapters.FoundationRuntime (GcloudRunner (..), mkFoundationRuntimeOps)
 import Nagare.Inventory.Components.Foundation
 import Nagare.Inventory.Digest (contentDigest)
-import Nagare.Inventory.Foundation (FoundationDeclarationBundle (..), FoundationResource (..), compileFoundationScope)
+import Nagare.Inventory.Foundation (FoundationDeclarationBundle (..), FoundationResource (..), compileFoundationScope, foundationTargetsFromDeclarations, validateFoundationMember)
 import Nagare.Inventory.Journal (mkOperationId)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.KubernetesSources (validateSuppliedKubernetesMembers)
@@ -32,7 +32,38 @@ import System.FilePath ((</>))
 
 inventoryFoundationTests :: TestTree
 inventoryFoundationTests = testGroup "cluster foundation inventory"
-  [ testCase "cloud foundation composes before a cluster exists and preserves unrelated scopes" $ do
+  [ testCase "backend member applies only to the Pulumi bucket" $ do
+      validateFoundationMember (Just "serviceAccount:deployer@acme-prod.iam.gserviceaccount.com") @?= Right ()
+      assertBool "multiline IAM member was accepted" (either (const True) (const False)
+        (validateFoundationMember (Just "serviceAccount:one\nother")))
+      let owner = ok (mkScopeId Platform "cloud-foundation")
+          project = known "acme-prod"
+          location = known "us-west1"
+          backend = known "acme-prod-pulumi"
+          journal = known "acme-prod-inventory"
+          member = "serviceAccount:deployer@acme-prod.iam.gserviceaccount.com"
+          resource key bucket target = FoundationResource (ok (mkLogicalKey key)) bucket
+            (GlobalBucket bucket) (foundationTargetDigest target)
+            Protect Stateless Public [] (SourceLocation "target" key)
+          backendResource = resource "backend" backend
+            (FoundationBucket project backend location (Just member))
+          journalResource = resource "journal" journal
+            (FoundationBucket project journal location Nothing)
+          scope = ok (compileFoundationScope (FoundationDeclarationBundle 1 owner project
+            (backendResource :| [journalResource])))
+          declarations = concatMap (^. #declarations) (scopeBundles scope)
+      targets <- expectRight (foundationTargetsFromDeclarations project location
+        (Just backend) (Just member) declarations)
+      Map.lookup (mintResourceId owner (foundationLogicalKey backendResource)
+        (foundationRole backendResource)) targets
+        @?= Just (FoundationBucket project backend location (Just member))
+      Map.lookup (mintResourceId owner (foundationLogicalKey journalResource)
+        (foundationRole journalResource)) targets
+        @?= Just (FoundationBucket project journal location Nothing)
+      assertBool "changed member was accepted" (either (const True) (const False)
+        (foundationTargetsFromDeclarations project location (Just backend)
+          (Just "serviceAccount:other@acme-prod.iam.gserviceaccount.com") declarations))
+  , testCase "cloud foundation composes before a cluster exists and preserves unrelated scopes" $ do
       let owner = ok (mkScopeId Platform "cloud-foundation")
           appOwner = ok (mkScopeId Application "unrelated")
           project = known "acme-prod"
