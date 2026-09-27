@@ -7,13 +7,15 @@ module Nagare.Inventory.DataFence.GuardAuthority
   , GuardAccessTransport (..)
   , kubectlGuardAccessTransport
   , observeGuardAuthority
+  , workloadServiceAccountPrincipal
   ) where
 
 import Control.Concurrent (forkFinally, newEmptyMVar, putMVar, takeMVar)
 import Control.Exception (IOException, try)
-import Control.Monad (unless)
+import Control.Monad (foldM, unless)
 import Data.Aeson (Value (..), eitherDecodeStrict', encode, object, (.=))
 import Data.Aeson.KeyMap qualified as KM
+import Data.Aeson.Key qualified as Key
 import Data.ByteString.Lazy qualified as BL
 import Data.Char (isAsciiLower, isDigit)
 import Data.Set qualified as Set
@@ -100,6 +102,25 @@ validLabel value = not (T.null value) && T.length value <= 63
   && T.all (\character -> alphaNumeric character || character == '-') value
   where
     alphaNumeric character = isAsciiLower character || isDigit character
+
+-- | Read the effective service-account identity from one accepted or live
+-- controller Pod template. Kubernetes uses the namespace's default account
+-- when serviceAccountName is absent.
+workloadServiceAccountPrincipal :: Text -> [Text] -> Value -> Either Text Text
+workloadServiceAccountPrincipal namespace path value = do
+  unless (validLabel namespace)
+    (Left "workload service-account namespace is malformed")
+  root <- case value of
+    Object fields -> Right fields
+    _ -> Left "workload native object is malformed"
+  podSpec <- foldM (\fields key -> case KM.lookup (Key.fromText key) fields of
+      Just (Object nested) -> Right nested
+      _ -> Left ("workload native object lacks " <> key)) root path
+  account <- case KM.lookup "serviceAccountName" podSpec of
+    Nothing -> Right "default"
+    Just (String name) | validSubdomain name -> Right name
+    _ -> Left "workload service account is malformed"
+  pure ("system:serviceaccount:" <> namespace <> ":" <> account)
 
 kubectlGuardAccessTransport :: KubernetesRuntimeConfig -> GuardAccessTransport
 kubectlGuardAccessTransport config = GuardAccessTransport checkOne

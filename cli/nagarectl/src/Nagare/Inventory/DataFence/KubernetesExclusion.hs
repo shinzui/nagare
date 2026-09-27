@@ -14,7 +14,7 @@ module Nagare.Inventory.DataFence.KubernetesExclusion
   , observeKubernetesRelease
   ) where
 
-import Control.Monad (foldM, forM, unless)
+import Control.Monad (forM, unless)
 import Data.Aeson (Value (..), eitherDecodeStrict')
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
@@ -141,13 +141,8 @@ protectedGuardPrincipals exclusion intent = do
       (_, bytes) <- maybe
         (Left "fenced workload lacks accepted native evidence") Right
         (Map.lookup resource (exclusionNative exclusion))
-      spec <- nativeSpec bytes
-      podSpec <- foldM (flip nativeField) spec path
-      account <- case KM.lookup "serviceAccountName" podSpec of
-        Nothing -> Right "default"
-        Just (String value) | not (T.null value) -> Right value
-        _ -> Left "accepted workload has a malformed service account"
-      pure ("system:serviceaccount:" <> namespace <> ":" <> account)
+      value <- first T.pack (eitherDecodeStrict' bytes)
+      workloadServiceAccountPrincipal namespace ("spec" : path) value
 
 validatedIntent :: KubernetesExclusion -> DataFenceRecord
   -> Either Text KubernetesFenceIntent

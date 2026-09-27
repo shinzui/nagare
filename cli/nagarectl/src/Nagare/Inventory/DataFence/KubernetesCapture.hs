@@ -10,7 +10,7 @@ module Nagare.Inventory.DataFence.KubernetesCapture
 where
 
 import Control.Monad (forM, unless)
-import Data.Aeson (Result (..), Value (..), fromJSON, object, (.=))
+import Data.Aeson (Result (..), Value (..), eitherDecodeStrict', fromJSON, object, (.=))
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
@@ -127,7 +127,7 @@ captureKubernetesFence transport declarations native request = do
                   case candidates of
                     Left reason -> pure (Left reason)
                     Right selected -> do
-                      writers <- forM selected (captureWriter transport)
+                      writers <- forM selected (captureWriter transport native)
                       let assembled = do
                             captured <- sequence writers
                             (_, rootBytes) <- maybe
@@ -289,9 +289,10 @@ captureService transport native cluster (Just resource) =
 
 captureWriter ::
   KubernetesCaptureTransport ->
+  Map ResourceId (ManagedResource, ByteString) ->
   WriterCandidate ->
   IO (Either Text (ResourceId, PhysicalIdentity, Value))
-captureWriter transport candidate = case candidateAddress candidate of
+captureWriter transport native candidate = case candidateAddress candidate of
   Kubernetes _ _ _ (Just namespace) name -> do
     let ns = nameText namespace
         nativeName = nameText name
@@ -325,6 +326,19 @@ captureWriter transport candidate = case candidateAddress candidate of
       uid <- textField "uid" metadata
       physical <- mkPhysicalIdentity uid
       spec <- objectField "spec" =<< asObject "writer" value
+      path <- case candidateKind candidate of
+        StatefulSetWriter -> Right ["spec", "template", "spec"]
+        DeploymentWriter -> Right ["spec", "template", "spec"]
+        CronJobWriter -> Right ["spec", "jobTemplate", "spec", "template", "spec"]
+        _ -> Left "accepted writer has no service-account template"
+      (_, acceptedBytes) <- maybe
+        (Left "accepted writer lacks native evidence") Right
+        (Map.lookup resource native)
+      acceptedValue <- first T.pack (eitherDecodeStrict' acceptedBytes)
+      acceptedPrincipal <- workloadServiceAccountPrincipal ns path acceptedValue
+      livePrincipal <- workloadServiceAccountPrincipal ns path value
+      unless (acceptedPrincipal == livePrincipal)
+        (Left "live writer service account differs from accepted native evidence")
       saved <- case candidateKind candidate of
         StatefulSetWriter -> do
           replicas <- intField "replicas" spec

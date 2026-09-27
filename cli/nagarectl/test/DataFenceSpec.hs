@@ -718,11 +718,11 @@ dataFenceTests = testGroup "data fence"
                   , "containerStatuses" .= [object
                       [ "name" .= ("postgres" :: Text)
                       , "state" .= object ["running" .= object []]]]]]
-            writerSpec replicas image = object
+            writerSpec replicas image account = object
               [ "replicas" .= (replicas :: Int)
               , "serviceName" .= ("database" :: Text)
               , "template" .= object ["spec" .= object
-                  [ "serviceAccountName" .= ("database-account" :: Text)
+                  [ "serviceAccountName" .= (account :: Text)
                   , "containers" .= [object
                       [ "name" .= ("postgres" :: Text)
                       , "image" .= (image :: Text)]]
@@ -733,7 +733,7 @@ dataFenceTests = testGroup "data fence"
               [ "kind" .= ("StatefulSet" :: Text)
               , "metadata" .= object ["labels" .= object
                   ["nagare.dev/database" .= ("database" :: Text)]]
-              , "spec" .= writerSpec (1 :: Int) "postgres:18"]
+              , "spec" .= writerSpec (1 :: Int) "postgres:18" "database-account"]
             deploymentSpec replicas = object
               [ "replicas" .= (replicas :: Int)
               , "selector" .= object ["matchLabels" .= object
@@ -834,6 +834,7 @@ dataFenceTests = testGroup "data fence"
         shutdownCalls <- newIORef (0 :: Int)
         shutdownDenied <- newIORef False
         liveWriterImage <- newIORef ("postgres:18" :: Text)
+        liveWriterAccount <- newIORef ("database-account" :: Text)
         loseDeleteAck <- newIORef True
         loseReleaseDeleteAck <- newIORef False
         let guardTransport = MountGuardTransport
@@ -894,6 +895,7 @@ dataFenceTests = testGroup "data fence"
                   desired <- readIORef replicas
                   ready <- readIORef drained
                   image <- readIORef liveWriterImage
+                  account <- readIORef liveWriterAccount
                   let current = if desired == 0 && ready then 0 else 1 :: Int
                   pure (Right (object
                     [ "kind" .= ("StatefulSet" :: Text)
@@ -905,7 +907,7 @@ dataFenceTests = testGroup "data fence"
                         , "generation" .= (if desired == 0 then 2 else 1 :: Int)
                         , "labels" .= object
                             ["nagare.dev/database" .= ("database" :: Text)]]
-                    , "spec" .= writerSpec desired image
+                    , "spec" .= writerSpec desired image account
                     , "status" .= object
                         [ "observedGeneration" .=
                             (if desired == 0 && not ready then 1 else 2 :: Int)
@@ -1074,6 +1076,12 @@ dataFenceTests = testGroup "data fence"
           Left _ -> pure ()
           Right _ -> assertFailure "live server version drift was captured as accepted"
         writeIORef liveWriterImage "postgres:18"
+        writeIORef liveWriterAccount "unreviewed-account"
+        driftedAccount <- captureKubernetesFence captureTransport declarations
+          acceptedNative captureRequest
+        driftedAccount @?=
+          Left "live writer service account differs from accepted native evidence"
+        writeIORef liveWriterAccount "database-account"
         captured <- captureKubernetesFence captureTransport declarations
           acceptedNative captureRequest >>= right
         captured @?= nativeRecord
