@@ -297,7 +297,7 @@ observationRequirements candidate history =
 -- newly selected consumer before it starts.
 affectedManagedIds :: CompositionCandidate -> InventoryHistory -> Set ResourceId
 affectedManagedIds candidate history =
-  Set.unions [selectedMembers, changedMembers, brokerDependencies,
+  Set.unions [selectedMembers, declaredTargets, changedMembers, brokerDependencies,
     contributionTargets, bootstrapDependencies, collections]
   where
     desired = Map.fromList [(resource ^. #identity, resource)
@@ -311,6 +311,12 @@ affectedManagedIds candidate history =
     selectedMembers = Set.fromList
       [resourceId | (resourceId, resource) <- Map.toAscList (Map.union desired historical)
       , Set.member (resource ^. #owner) selectedScopes]
+    declaredTargets = Set.fromList
+      [target | ReplaceScope scope <- NE.toList (candidateChanges candidate)
+      , bundle <- scopeBundles scope
+      , operation <- bundle ^. #operations
+      , target <- NE.toList (operation ^. #affects)
+      , Map.member target desired]
     changedMembers = Set.fromList
       [resourceId | resourceId <- Set.toAscList (Map.keysSet desired `Set.union` Map.keysSet historical)
       , Map.lookup resourceId desired /= Map.lookup resourceId historical]
@@ -753,7 +759,7 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
       forwardOnly operation
         && Map.lookup (operation ^. #identity) provenOperations == Just operation
     forwardOnly operation = operation ^. #operationKind `elem`
-      [SchemaMigration, PreDeployHook, ActivateHost]
+      [SchemaMigration, PreDeployHook, ActivateHost, MaintainData]
       || (operation ^. #operationKind == PublishRelease
           && all isArtifact (NE.toList (operation ^. #affects)))
     isArtifact resourceId = case Map.lookup resourceId oldDeclarations of

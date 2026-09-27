@@ -59,7 +59,7 @@ import Nagare.Resource.Kubernetes
 import Nagare.Resource.Policy
 import Nagare.Resource.Reference (Dependency (..))
 import Nagare.Resource.Types
-import Nagare.Resource.Wire (canonicalValue)
+import Nagare.Resource.Wire (canonicalValue, encodeCanonicalScope)
 import Nagare.Storage.Discover (pvcName)
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -1096,9 +1096,44 @@ inventoryKubernetesTests =
                   , maintenanceSourceRecoveryDigest = contentDigest "accepted-backup"
                   , maintenanceSourceRecoveryJob = job ^. #identity
                   , maintenanceSourceRecoveryJobUid = completedPhysical })
-                assertBool "maintenance operation could not compose with accepted database"
-                  (not (isLeft (composeInventory restoreSnapshot
-                    (ReplaceScope maintenanceScope :| []))))
+                let maintenanceCandidate = ok (composeInventory restoreSnapshot
+                      (ReplaceScope maintenanceScope :| []))
+                maintenanceStore <- newMemoryStore
+                _ <- initializeStore maintenanceStore restoreBinding "maintenance-plan"
+                  >>= expectRight
+                emptyMaintenanceHistory <- loadInventoryHistory maintenanceStore >>= expectRight
+                let maintenanceHistory = emptyMaintenanceHistory
+                      { historyAccepted = Map.fromList
+                          [ (scopeId databaseScope, (sourceRevision request, databaseScope))
+                          , (scopeId backupScope, (maintenanceRecoveryRevision maintenanceRequest,
+                              backupScope)) ] }
+                    maintenanceObservations = ok (observationSet
+                      [(statefulId, ObservedPresent (sourceStatefulUid request))])
+                    maintenanceProposal = ok (planChanges maintenanceCandidate
+                      noLifecycleDecisions maintenanceHistory maintenanceObservations)
+                assertBool "operation-only maintenance scope was omitted by planner"
+                  (any ((== OpenMaintenanceSession) . plannedAction)
+                    (proposalOperations maintenanceProposal))
+                let maintenanceRevision = ScopeRevision (ok (mkScopeGeneration 1))
+                      (contentDigest (encodeCanonicalScope maintenanceScope))
+                    replaySnapshot = ok (mkScopeSnapshot restoreBinding (Map.fromList
+                      [ (scopeId databaseScope, (ok (mkScopeGeneration 3), databaseScope))
+                      , (scopeId backupScope, (ok (mkScopeGeneration 1), backupScope))
+                      , (scopeId maintenanceScope,
+                          (ok (mkScopeGeneration 1), maintenanceScope)) ]) Map.empty)
+                    replayCandidate = ok (composeInventory replaySnapshot
+                      (ReplaceScope maintenanceScope :| []))
+                    replayHistory = maintenanceHistory
+                      { historyAccepted = Map.insert (scopeId maintenanceScope)
+                          (maintenanceRevision, maintenanceScope)
+                          (historyAccepted maintenanceHistory)
+                      , historyConverged = Map.singleton (scopeId maintenanceScope)
+                          maintenanceRevision }
+                    replayProposal = ok (planChanges replayCandidate
+                      noLifecycleDecisions replayHistory maintenanceObservations)
+                assertBool "completed maintenance session would replay from the same scope"
+                  (all ((/= OpenMaintenanceSession) . plannedAction)
+                    (proposalOperations replayProposal))
                 assertBool "maintenance accepted a recovery for another run"
                   (isLeft (compileMaintenanceScope
                     (maintenanceRequest {maintenanceRecoveryId = "another"})

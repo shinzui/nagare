@@ -56,6 +56,8 @@ The first provider piece, `MaintenanceNetwork`, now renders a session/Pod-UID-bo
 
 The next contract slice adds a distinct `MaintainData` declared operation and `OpenMaintenanceSession` planned action. `compileMaintenanceScope` produces an operation-only scope over the existing accepted StatefulSet, with the exact source/PVC/Pod UIDs, source revision, recovery revision, and completed recovery Job identity in private overrides. It refuses a recovery reference from another source incarnation, a different cluster, or missing accepted native bytes. The existing Kubernetes adapter still refuses this new action, and no public command saves or applies it yet. This is planning groundwork; M1 and M2 remain open until the end-to-end native session and recovery fixture passes.
 
+Planner tracing exposed a general operation-only scope omission: replacing such a scope selected no managed member, so its declared operation was silently dropped. The planner now selects affected members from the replaced scope for observation and emits the maintenance action. `MaintainData` is treated as a completed one-shot operation after convergence, so a later review of the same accepted scope cannot reopen its terminal. The focused fixture checks both initial planning and that non-replay condition.
+
 
 
 
