@@ -5,7 +5,7 @@ usage() {
   cat <<'EOF'
 Usage: scripts/rehearse-managed-resources.sh --phase plan|apply|verify \
   --mode local|cloud --context NAME --expected-cluster CLUSTER \
-  [--kube-context NAME] [--expected-project PROJECT] [--candidate COMPILED_DIRECTORY] \
+  [--kube-context NAME] [--kube-cluster NAME] [--expected-project PROJECT] [--candidate COMPILED_DIRECTORY] \
   --evidence-dir DIRECTORY [--private-store-export DIRECTORY] [--yes]
 
 Plan and verify require a candidate compiled by nagarectl inventory compile.
@@ -32,6 +32,7 @@ phase=""
 mode=""
 context=""
 kube_context=""
+kube_cluster=""
 expected_cluster=""
 expected_project=""
 candidate=""
@@ -40,13 +41,14 @@ private_store_export=""
 yes=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --phase|--mode|--context|--kube-context|--expected-cluster|--expected-project|--candidate|--evidence-dir|--private-store-export)
+    --phase|--mode|--context|--kube-context|--kube-cluster|--expected-cluster|--expected-project|--candidate|--evidence-dir|--private-store-export)
       [[ $# -ge 2 ]] || die "$1 requires a value"
       case "$1" in
         --phase) phase="$2" ;;
         --mode) mode="$2" ;;
         --context) context="$2" ;;
         --kube-context) kube_context="$2" ;;
+        --kube-cluster) kube_cluster="$2" ;;
         --expected-cluster) expected_cluster="$2" ;;
         --expected-project) expected_project="$2" ;;
         --candidate) candidate="$2" ;;
@@ -64,6 +66,7 @@ done
 [[ "$mode" == local || "$mode" == cloud ]] || die "--mode must be local or cloud"
 [[ -n "$context" && -n "$expected_cluster" && -n "$evidence_dir" ]] || die "context, expected cluster, and evidence directory are required"
 kube_context="${kube_context:-$context}"
+kube_cluster="${kube_cluster:-$expected_cluster}"
 if [[ "$mode" == cloud ]]; then
   [[ -n "$expected_project" ]] || die "cloud mode requires --expected-project"
 else
@@ -105,23 +108,23 @@ else
 fi
 cluster="$(kubectl config view -o json | jq -er --arg context "$kube_context" \
   '[.contexts[] | select(.name == $context) | .context.cluster] | if length == 1 then .[0] else error("context has no unique cluster") end')"
-[[ "$cluster" == "$expected_cluster" ]] || die "Kubernetes context $kube_context selects cluster $cluster, expected $expected_cluster"
+[[ "$cluster" == "$kube_cluster" ]] || die "Kubernetes context $kube_context selects cluster $cluster, expected $kube_cluster"
 
 if [[ "$phase" == plan ]]; then
   [[ ! -e "$evidence_dir" ]] || die "evidence directory already exists; refusing to replace a review or completed evidence"
   mkdir -m 700 -p "$evidence_dir"
   jq -n -S --arg context "$context" --arg kubeContext "$kube_context" --arg mode "$mode" \
-    --arg project "$expected_project" --arg cluster "$cluster" \
+    --arg project "$expected_project" --arg cluster "$expected_cluster" --arg kubeCluster "$kube_cluster" \
     '{schemaVersion: 1, context: $context, kubeContext: $kubeContext, mode: $mode,
       expectedProject: (if $mode == "cloud" then $project else null end),
-      expectedCluster: $cluster}' > "$evidence_dir/target.json"
+      expectedCluster: $cluster, kubeCluster: $kubeCluster}' > "$evidence_dir/target.json"
   "$cli" version --json | jq -S . > "$evidence_dir/operator-version.json"
   printf '%s\n' "$guard_json" | jq -S . > "$evidence_dir/context-guard.json"
   candidate_digest="$(cat "$candidate/candidate.sha256")"
   [[ "$candidate_digest" == "$(sha256_file "$candidate/candidate.json")" ]] || die "candidate manifest digest differs from candidate.sha256"
   cp "$candidate/candidate.json" "$evidence_dir/candidate.json"
   printf '%s\n' "$candidate_digest" > "$evidence_dir/candidate.sha256"
-  printf 'Target: context=%s mode=%s project=%s cluster=%s\n' "$context" "$mode" "${expected_project:-none}" "$cluster"
+  printf 'Target: context=%s mode=%s project=%s cluster=%s\n' "$context" "$mode" "${expected_project:-none}" "$expected_cluster"
   printf 'Declared inventory: %s (sha256 %s)\n' "$evidence_dir/candidate.json" "$candidate_digest"
   "$cli" --context "$context" inventory plan --inventory "$candidate" --out "$evidence_dir/review"
   review_digest="$(cat "$evidence_dir/review/review.sha256")"
@@ -136,9 +139,10 @@ fi
 [[ -f "$evidence_dir/operator-version.json" ]] || die "evidence directory has no operator identity"
 cmp -s "$evidence_dir/operator-version.json" <("$cli" version --json | jq -S .) \
   || die "operator version or source revision changed since review"
-jq -e --arg context "$context" --arg kubeContext "$kube_context" --arg mode "$mode" --arg project "$expected_project" --arg cluster "$cluster" \
+jq -e --arg context "$context" --arg kubeContext "$kube_context" --arg kubeCluster "$kube_cluster" --arg mode "$mode" --arg project "$expected_project" --arg cluster "$expected_cluster" \
   '.schemaVersion == 1 and .context == $context and .mode == $mode
     and .kubeContext == $kubeContext
+    and .kubeCluster == $kubeCluster
     and .expectedProject == (if $mode == "cloud" then $project else null end)
     and .expectedCluster == $cluster' "$evidence_dir/target.json" >/dev/null \
   || die "saved target differs from requested context, project, or cluster"
@@ -148,7 +152,7 @@ jq -e --arg context "$context" --arg kubeContext "$kube_context" --arg mode "$mo
 if [[ "$phase" == apply ]]; then
   jq -e '.state == "planned"' "$evidence_dir/run.json" >/dev/null || die "review is not in planned state"
   printf 'Applying reviewed context=%s project=%s cluster=%s review=%s\n' \
-    "$context" "${expected_project:-none}" "$cluster" "$(jq -r '.reviewDigest' "$evidence_dir/run.json")"
+    "$context" "${expected_project:-none}" "$expected_cluster" "$(jq -r '.reviewDigest' "$evidence_dir/run.json")"
   jq -S '.state = "applying"' "$evidence_dir/run.json" > "$evidence_dir/run.tmp"
   mv "$evidence_dir/run.tmp" "$evidence_dir/run.json"
   "$cli" --context "$context" inventory apply "$evidence_dir/review" --yes

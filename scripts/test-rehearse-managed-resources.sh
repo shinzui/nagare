@@ -96,6 +96,28 @@ fi
 "$runner" --phase apply "${distinct[@]}" --yes >/dev/null
 "$runner" --phase verify "${distinct[@]}" --candidate "$test_root/candidate" >/dev/null
 
+aliased=(--mode local --context demo --kube-context demo \
+  --kube-cluster fixture-cluster --expected-cluster k3d-physical \
+  --evidence-dir "$test_root/aliased-cluster")
+"$runner" --phase plan "${aliased[@]}" --candidate "$test_root/candidate" >/dev/null
+jq -e '.kubeContext == "demo" and .kubeCluster == "fixture-cluster"
+  and .expectedCluster == "k3d-physical"' \
+  "$test_root/aliased-cluster/target.json" >/dev/null
+if "$runner" --phase apply --mode local --context demo --kube-context demo \
+  --kube-cluster wrong-cluster --expected-cluster k3d-physical \
+  --evidence-dir "$test_root/aliased-cluster" --yes >/dev/null 2>&1; then
+  printf 'changed Kubernetes cluster alias was accepted after review\n' >&2
+  exit 1
+fi
+if "$runner" --phase apply --mode local --context demo --kube-context demo \
+  --kube-cluster fixture-cluster --expected-cluster wrong-physical-cluster \
+  --evidence-dir "$test_root/aliased-cluster" --yes >/dev/null 2>&1; then
+  printf 'changed physical cluster was accepted after review\n' >&2
+  exit 1
+fi
+"$runner" --phase apply "${aliased[@]}" --yes >/dev/null
+"$runner" --phase verify "${aliased[@]}" --candidate "$test_root/candidate" >/dev/null
+
 if "$runner" --phase plan --mode local --context demo --expected-cluster wrong-cluster \
   --candidate "$test_root/candidate" --evidence-dir "$test_root/wrong-cluster" >/dev/null 2>&1; then
   printf 'wrong cluster was accepted\n' >&2

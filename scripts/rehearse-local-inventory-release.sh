@@ -76,7 +76,7 @@ else
   [[ -f "$evidence_dir/local-health.json" ]] \
     || die "saved local fixture health evidence is missing"
 fi
-for tool in jq kubectl docker; do
+for tool in jq kubectl docker k3d; do
   command -v "$tool" >/dev/null 2>&1 || die "$tool is required"
 done
 cli="${NAGARECTL_BIN:-nagarectl}"
@@ -105,14 +105,26 @@ jq -e --arg context "$context" \
   <<<"$guard" >/dev/null || die "selected Nagare context is not local and confined"
 kube_context="$(kubectl config current-context)" \
   || die "no selected Kubernetes context"
-[[ "$kube_context" == "$cluster" ]] \
-  || die "Kubernetes context $kube_context differs from expected local cluster $cluster"
+[[ "$kube_context" == "$context" ]] \
+  || die "selected Kubernetes context $kube_context differs from Nagare context $context"
 selected_cluster="$(kubectl config view -o json | jq -er --arg context "$kube_context" \
   '[.contexts[] | select(.name == $context) | .context.cluster]
     | if length == 1 then .[0] else error("context has no unique cluster") end')" \
   || die "Kubernetes context $kube_context is missing or ambiguous"
-[[ "$selected_cluster" == "$cluster" ]] \
-  || die "Kubernetes context $kube_context selects $selected_cluster, expected $cluster"
+kube_endpoint="$(kubectl config view -o json | jq -c --arg cluster "$selected_cluster" \
+  '[.clusters[] | select(.name == $cluster) | .cluster
+    | {server, ca: .["certificate-authority-data"]}]
+    | if length == 1 then .[0] else error("context has no unique endpoint") end')" \
+  || die "selected Kubernetes cluster has no unique endpoint"
+k3d_endpoint="$(k3d kubeconfig get "${cluster#k3d-}" \
+  | kubectl config view --kubeconfig /dev/stdin -o json \
+  | jq -c --arg cluster "$cluster" \
+    '[.clusters[] | select(.name == $cluster) | .cluster
+      | {server, ca: .["certificate-authority-data"]}]
+      | if length == 1 then .[0] else error("k3d cluster has no unique endpoint") end')" \
+  || die "expected k3d cluster $cluster has no kubeconfig"
+[[ "$kube_endpoint" == "$k3d_endpoint" ]] \
+  || die "Kubernetes context $kube_context does not select the exact k3d cluster $cluster"
 
 kubectl --context "$kube_context" get --raw=/readyz >/dev/null \
   || die "Kubernetes API is not ready for $kube_context"
@@ -157,7 +169,8 @@ jq -n -S --arg context "$context" --arg cluster "$cluster" \
       "local-registry", "object-store", "object-store-bucket"]}' > "$tmp_health"
 
 args=(--phase "$phase" --mode local --context "$context"
-  --kube-context "$kube_context" --expected-cluster "$cluster" --evidence-dir "$evidence_dir")
+  --kube-context "$kube_context" --kube-cluster "$selected_cluster"
+  --expected-cluster "$cluster" --evidence-dir "$evidence_dir")
 if [[ "$phase" == apply ]]; then
   args+=(--yes)
 else
