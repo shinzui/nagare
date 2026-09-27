@@ -17,6 +17,11 @@ provenance:
       at: 2026-09-26T22:23:39Z
       mode: "update"
       note: "Cascade EP-148 decomposition: assign remaining feature, cutover, and proof ownership without weakening release acceptance"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-27T13:29:05Z
+      mode: "update"
+      note: "Apply Codex execution-log diagnosis, fixed outcome ownership, production-path checkpoints, and restore/maintenance handoff without expanding release scope"
 ---
 
 # Gate the inventory release on complete immutable evidence
@@ -71,6 +76,10 @@ cli/nagarectl/src/Nagare/Inventory/Adapters/GitHubRelease.hs and GitHubReleaseRu
 
 ## Plan of Work
 
+**Early schema, late final acceptance.** Before EP-155/156 collect expensive native runs, implement/check the existing evidence index against representative local/cloud/native/coverage manifests and its missing-input tests with their producers. Bind the agreed schema and identity fields in those runners; do not redesign the evidence format after final provider proof. Final candidate assembly remains last, after complete matching evidence exists. Reuse the existing publisher and projector.
+
+**Closure discipline (2026-09-27).** Consume the existing child assertions and finite command catalogue. The final rehearsal must report each missing or failing existing assertion with its owner. Reuse matching targeted evidence only under the recorded candidate/fixture binding; collect the required final manifests for the same release candidate. A newly noticed implementation defect still blocks its existing assertion, while a new feature/provider/security guarantee is a product-scope proposal, not an automatic new release condition. The parent execution-log audit is explanatory history and is not another evidence artifact or release gate.
+
 
 M1 defines a versioned public evidence index over local and GCP run manifests, native-system output/rehearsal manifests, exact coverage result, and the candidate source/payload identity. Reuse the current projector for exact committed receipts and secret-safe fields. Extend schema/assembly/publisher validation together for the declared evidence asset shape. Require every supported system in release.json, both scenario modes, and complete command coverage. Different revisions, missing receipts, uncommitted journal objects, incomplete coverage, secret canaries, missing native runs, and absent cloud proof all fail before publication. Cached artifacts or prior provider probes cannot be relabeled as final candidate evidence. Same-tag retries retain exact bytes and physical IDs.
 
@@ -111,4 +120,9 @@ Work against isolated test state and exact named contexts. Preserve immutable re
 ## Interfaces and Dependencies
 
 
-Completed EP-146/147/149/151 are implementation prerequisites. [EP-153](153-close-managed-command-coverage-for-the-inventory-release.md) owns coverage, [EP-154](154-validate-installed-inventory-packages-on-every-supported-system.md) native artifacts, [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md) local evidence, and [EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md) cloud evidence. These interfaces can be implemented/tested offline before providers finish; all are mandatory final inputs. [EP-152](152-complete-fresh-platform-bootstrap-through-reviewed-components.md) bootstrap and [EP-158](158-complete-reviewed-access-and-cdn-operations.md), [EP-159](159-complete-scheduled-backup-receipts-and-exact-retention-pruning.md), [EP-160](160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md), and [EP-161](161-provide-scoped-interactive-maintenance-with-durable-recovery.md) promised behavior must be accepted for parent closure. Initial estimate: 4–8 active hours after evidence inputs are available, low confidence; assess missing-input rejection first. This estimate excludes public release publication and does not waive any gate.
+Completed EP-146/147/149/151 are implementation prerequisites. [EP-153](153-close-managed-command-coverage-for-the-inventory-release.md) owns coverage, [EP-154](154-validate-installed-inventory-packages-on-every-supported-system.md) native artifacts, [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md) local evidence, and [EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md) cloud evidence. These interfaces can be implemented/tested offline before providers finish; all are mandatory final inputs. [EP-152](152-complete-fresh-platform-bootstrap-through-reviewed-components.md) bootstrap and [EP-158](158-complete-reviewed-access-and-cdn-operations.md), [EP-159](159-complete-scheduled-backup-receipts-and-exact-retention-pruning.md), [EP-160](160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md), and [EP-161](161-provide-scoped-interactive-maintenance-with-durable-recovery.md) promised behavior must be accepted for parent closure. Historical, uncalibrated estimate (not a current delivery forecast): 4–8 active hours after evidence inputs are available, low confidence; assess missing-input rejection first. This estimate excludes public release publication and does not waive any gate.
+
+
+## Revision Notes
+
+2026-09-27: Apply the execution-log diagnosis to the existing outcome: drive implementation through its production command/recovery fixture, make handoffs and known ownership explicit, and prevent new requirements from entering through an open-ended audit. Existing functionality and final release acceptance remain required.

@@ -17,6 +17,11 @@ provenance:
       at: 2026-09-27T13:04:28Z
       mode: "update"
       note: "Consume bounded EP-160 M1 and prohibit GKE dependencies."
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-27T13:29:05Z
+      mode: "update"
+      note: "Apply Codex execution-log diagnosis, fixed outcome ownership, production-path checkpoints, and restore/maintenance handoff without expanding release scope"
 ---
 
 # Provide scoped interactive maintenance with durable recovery
@@ -40,6 +45,8 @@ Inherited: aggregate hooks already declare affected resources and reviewed per-t
 
 
 ## Surprises & Discoveries
+
+2026-09-27: The plan formerly assumed the shared fence also supplied a usable native shell handoff. Source inspection shows its current Kubernetes policy is an offline data fence. A usable engine with one authorized client needs a distinct observed access policy under the same durable lifecycle. This unresolved implementation is owned here and must be tested before completing the rest of the session wrapper.
 
 
 
@@ -74,6 +81,12 @@ A maintenance receipt states who/what was authorized to open a session, the exac
 
 
 ## Plan of Work
+
+**Scheduling correction.** Begin the representative PostgreSQL maintenance/session-recovery fixture after EP-160 M1 and its first demonstrated authorized-engine handoff in M2; do not wait for all Redis/ClickHouse restore variants or volume M3. An existing verified manual recovery receipt can support that first fixture. This tests the shared interface early enough to correct it before multiplying implementations. Remaining engines, scheduled recovery references, and complete session acceptance still belong here.
+
+**Resolve the native handoff first (2026-09-27).** The current `DataFence/KubernetesExclusion.hs` provider shuts down the database, requires zero StatefulSet replicas, no Service endpoints, and no PVC consumers. A database shell cannot use that acquired state as if the original engine were still reachable. Reuse the durable `DataFence` reservation, immutable review, recovery phases, and guarded release; implement an operation-specific maintenance access policy in this plan. Prove a running engine on the exact accepted data identity, the sole authorized session's access, exclusion of ordinary clients/schedules/controllers, and observation/termination of any surviving authorized process before release. A transient engine, if required by the chosen protocol, must be declared and identity-bound before mutation. Restarting ordinary writers or removing the guards just to open the terminal is not a valid handoff.
+
+Before implementing all terminal/process helpers, drive one real PostgreSQL public saved-session → authorized client → known data change → client termination → re-observation → release fixture. Inject parent death while the remote client survives and recover that same session. State the concrete permitted engine/client and observation mechanism alongside this fixture; then extend the working protocol to Redis and ClickHouse. Reuse native controls where their preconditions fit. Do not add a generic security framework, a second lock, or a parallel session database. Required shared callback extensions belong to this consuming outcome and preserve EP-160 M1's accepted semantics; this is not permission to reopen M1 or demand that it implement maintenance.
 
 
 M1 adds an explicit saved-review/session identity to db shell and each existing exec-like or user-supplied migration route enumerated by EP-153. Bind context, accepted resource set, native workload identity, client mode, and recovery preconditions before starting the subprocess. Mutating interactive database sessions require the shared fence and an adequate pre-change recovery reference; classify the session as potentially mutating unless a provider-enforced read-only mode is proved. The one authorized session receives access while other managed writers remain excluded. A changed or foreign Pod cannot replace the reviewed target silently. Use the shared durable context writer exclusion, even though this conservatively blocks unrelated managed mutation for the session duration; narrower concurrent writer scheduling is outside this plan. Do not invent a maintenance-specific lock or liveness timeout.
@@ -131,4 +144,9 @@ Use isolated test state and exact disposable resource identities. Retain the sav
 The corrected EP-160 M1 handoff is its six shared-contract closure criteria on local k3s, not complete engine restore or cloud integration. Consume that fence after its acceptance; do not add a GKE provider, credential, or validation dependency. GKE use and provisioning are explicitly prohibited. Actual GCP/NixOS/k3s integration remains EP-156.
 
 
-Completed [EP-146](146-reconcile-cloud-host-and-artifact-resources-through-inventory-adapters.md), [EP-147](147-compile-cluster-bootstrap-into-owned-resource-components.md), [EP-149](149-explain-drift-and-execute-reviewed-adoption-migration-and-retirement.md), and [EP-151](151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes.md) provide prerequisites. [EP-160](160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md) owns DataFence and the mandatory M1 integration handoff: maintenance fixture and UI work may start against its agreed contract, but live admission cannot ship before that contract's exclusion/recovery proof passes. This is an integration dependency, not a hard requirement to finish every restore engine first. [EP-153](153-close-managed-command-coverage-for-the-inventory-release.md) owns the finite entrypoint audit; [EP-159](159-complete-scheduled-backup-receipts-and-exact-retention-pruning.md) supplies scheduled recovery references where selected. [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md)/[EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md) integrate native sessions and [EP-157](157-gate-the-inventory-release-on-complete-immutable-evidence.md) gates readiness. Initial estimate: 8–16 active hours after the shared fence contract is available, low confidence, excluding integrated runs. Reforecast after the first pseudo-terminal/process-death probe; inability to identify a surviving remote client is an unresolved implementation requirement.
+Completed [EP-146](146-reconcile-cloud-host-and-artifact-resources-through-inventory-adapters.md), [EP-147](147-compile-cluster-bootstrap-into-owned-resource-components.md), [EP-149](149-explain-drift-and-execute-reviewed-adoption-migration-and-retirement.md), and [EP-151](151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes.md) provide prerequisites. [EP-160](160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md) owns DataFence and the mandatory M1 integration handoff: maintenance fixture and UI work may start against its agreed contract, but live admission cannot ship before that contract's exclusion/recovery proof passes. This is an integration dependency, not a hard requirement to finish every restore engine first. [EP-153](153-close-managed-command-coverage-for-the-inventory-release.md) owns the finite entrypoint audit; [EP-159](159-complete-scheduled-backup-receipts-and-exact-retention-pruning.md) supplies scheduled recovery references where selected. [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md)/[EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md) integrate native sessions and [EP-157](157-gate-the-inventory-release-on-complete-immutable-evidence.md) gates readiness. Historical, uncalibrated estimate (not a current delivery forecast): 8–16 active hours after the shared fence contract is available, low confidence, excluding integrated runs. Reforecast after the first pseudo-terminal/process-death probe; inability to identify a surviving remote client is an unresolved implementation requirement.
+
+
+## Revision Notes
+
+2026-09-27: Apply the execution-log diagnosis to the existing outcome: drive implementation through its production command/recovery fixture, make handoffs and known ownership explicit, and prevent new requirements from entering through an open-ended audit. Existing functionality and final release acceptance remain required.

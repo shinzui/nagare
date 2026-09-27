@@ -17,6 +17,11 @@ provenance:
       at: 2026-09-26T22:23:39Z
       mode: "update"
       note: "Cascade EP-148 decomposition: assign remaining feature, cutover, and proof ownership without weakening release acceptance"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-27T13:38:39Z
+      mode: "update"
+      note: "Schedule an early installed-package check before feature/provider runs and retain full final-candidate acceptance"
 ---
 
 # Validate installed inventory packages on every supported system
@@ -71,6 +76,8 @@ nix/platform-package.nix, nix/nagare-packages.nix, nix/haskell-packages.nix, nix
 
 ## Plan of Work
 
+**Early package checkpoint.** Before feature owners start lengthy native scenarios, run one installed operator/developer smoke outside the source checkout using the existing clone-free runner. Prove required runtime resources resolve; repair packaging assumptions immediately. This is preparation within M1, not completion of M1/M2. After feature and command integration stabilizes, run all required native gates for the final candidate. Do not defer the first installed execution until the end, or repeatedly run final multi-system gates after each small feature edit.
+
 
 M1 traces the runtime resources used by bootstrap, application/data commands, publication, store recovery, and provider transports into installed outputs. Test from a directory outside the checkout with isolated operator state and an exact candidate flake reference. The developer package includes only its needed tools; the operator includes platform tools. Invalid explicit payload roots must fail instead of silently finding the source checkout. Negative public-API and secret-exclusion checks remain required.
 
@@ -114,3 +121,8 @@ Work against isolated test state and exact named contexts. Preserve immutable re
 
 
 Use completed EP-146/147/149/151 implementations. [EP-152](152-complete-fresh-platform-bootstrap-through-reviewed-components.md) and the delivered EP-148 baseline plus [EP-158](158-complete-reviewed-access-and-cdn-operations.md), [EP-159](159-complete-scheduled-backup-receipts-and-exact-retention-pruning.md), [EP-160](160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md), and [EP-161](161-provide-scoped-interactive-maintenance-with-durable-recovery.md) supply the command code to package; [EP-153](153-close-managed-command-coverage-for-the-inventory-release.md) supplies the registration inventory. These are integration dependencies: packaging repairs can begin now, but final evidence must cover the final code. [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md)/[EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md) consume installed candidates, and [EP-157](157-gate-the-inventory-release-on-complete-immutable-evidence.md) consumes native evidence. Initial estimate: 4–8 active hours excluding runner queues, low confidence; reforecast after the first full native gate on each system.
+
+
+## Revision Notes
+
+2026-09-27: Require the first installed-package smoke before lengthy feature/provider scenarios while preserving full native validation for the final candidate; this changes execution order, not acceptance.

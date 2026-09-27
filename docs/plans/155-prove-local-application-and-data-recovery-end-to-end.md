@@ -17,6 +17,11 @@ provenance:
       at: 2026-09-26T22:23:39Z
       mode: "update"
       note: "Cascade EP-148 decomposition: assign remaining feature, cutover, and proof ownership without weakening release acceptance"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-27T13:29:05Z
+      mode: "update"
+      note: "Apply Codex execution-log diagnosis, fixed outcome ownership, production-path checkpoints, and restore/maintenance handoff without expanding release scope"
 ---
 
 # Prove local application and data recovery end to end
@@ -71,6 +76,10 @@ cli/nagarectl/test/InventoryIntegrationSpec.hs currently injects loss at each op
 
 ## Plan of Work
 
+**Early fixture handoff.** Prepare the existing scenario health checks and first installed platform/application path before broad recovery implementation. Add each new feature assertion to that same scenario as its command becomes usable. Agree its run identity and evidence shape with EP-157 before collecting expensive native results. Finish transferred native bindings and the complete final-candidate scenario later; beginning fixture work does not require all feature plans to be Complete.
+
+**Execution order within the existing milestones (2026-09-27).** Build/run the smallest production path of the already specified fixture first: accepted platform → application with database → unchanged replay with app/owner isolation. Record the exact failing assertion, then wire or fix that path before adding every scenario variant. Grow this same fixture through the remaining M1/M2 assertions; this intermediate result never closes either full milestone. Native lifecycle work transferred here is real implementation, not a short final smoke: bind one retained PostgreSQL rename to create/migrate/content verification/retire, and enumerate the existing catalogue's eligible database/broker companions, topic, schedule, and preview cleanup cases before implementing their native bindings. A missing binding maps to one of those obligations; a new provider or operation is a scope proposal. Consume EP-160/161's accepted recovery-process policies and evidence rather than inventing a second fence or pulling their unresolved protocols into this fixture.
+
 
 M1 checks fixture health once before publishing reviews: reachable Kubernetes API, ready Knative admission, working registry/image access, and a ready object store. The earlier local cluster had a crash-looping Knative webhook and an unavailable pinned MinIO image; resolve those specific fixture failures rather than loop on failed deployment. Use Mori and upstream sources before changing any dependency/image version. Create one platform plus app A and app B, protected routing/auth, database and backup, broker topic, scheduled task and one-off/hook Job, preview, Runtime/Preview/Secret channels, and image publication. Use the existing offline Cloudflare transport proof for that provider; local recording CDN checks must never be described as live DNS proof. EP-156 supplies the live Google path. Expose public-command assertions for app-only updates, preserved other-owner revisions, environment survival, and exact native membership.
 
@@ -113,4 +122,9 @@ Work against isolated test state and exact named contexts. Preserve immutable re
 ## Interfaces and Dependencies
 
 
-Completed EP-146/147/149/151 are hard prerequisites. [EP-152](152-complete-fresh-platform-bootstrap-through-reviewed-components.md) supplies bootstrap, [EP-154](154-validate-installed-inventory-packages-on-every-supported-system.md) installed candidates, and the delivered EP-148 baseline plus [EP-158](158-complete-reviewed-access-and-cdn-operations.md), [EP-159](159-complete-scheduled-backup-receipts-and-exact-retention-pruning.md), [EP-160](160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md), and [EP-161](161-provide-scoped-interactive-maintenance-with-durable-recovery.md) actual operational commands. Fixture and fault-test development starts now. Shared provider assertions require working command paths, not administrative closure of their feature plan, so feature plans can cite these results without a cycle. Accept this plan only when its full scenario and transferred native binding obligations pass. [EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md) reuses the fixture contract and [EP-157](157-gate-the-inventory-release-on-complete-immutable-evidence.md) consumes the evidence. Initial estimate: 4–12 active hours excluding EP-158–161 implementation and fixture outages, low confidence; revise after the first health preflight and whole-scenario run.
+Completed EP-146/147/149/151 are hard prerequisites. [EP-152](152-complete-fresh-platform-bootstrap-through-reviewed-components.md) supplies bootstrap, [EP-154](154-validate-installed-inventory-packages-on-every-supported-system.md) installed candidates, and the delivered EP-148 baseline plus [EP-158](158-complete-reviewed-access-and-cdn-operations.md), [EP-159](159-complete-scheduled-backup-receipts-and-exact-retention-pruning.md), [EP-160](160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md), and [EP-161](161-provide-scoped-interactive-maintenance-with-durable-recovery.md) actual operational commands. Fixture and fault-test development starts now. Shared provider assertions require working command paths, not administrative closure of their feature plan, so feature plans can cite these results without a cycle. Accept this plan only when its full scenario and transferred native binding obligations pass. [EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md) reuses the fixture contract and [EP-157](157-gate-the-inventory-release-on-complete-immutable-evidence.md) consumes the evidence. The initial 4–12-hour range is historical and does not establish an estimate for the inherited native migration/collection implementation. Re-estimate only after the first production scenario and the enumerated binding gaps are known.
+
+
+## Revision Notes
+
+2026-09-27: Apply the execution-log diagnosis to the existing outcome: drive implementation through its production command/recovery fixture, make handoffs and known ownership explicit, and prevent new requirements from entering through an open-ended audit. Existing functionality and final release acceptance remain required.

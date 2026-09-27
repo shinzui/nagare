@@ -11,6 +11,12 @@ provenance:
     model: "gpt-6-astra"
     harness: "codex-cli"
     at: 2026-09-26T22:14:13Z
+  revisions:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-27T13:29:05Z
+      mode: "update"
+      note: "Apply Codex execution-log diagnosis, fixed outcome ownership, production-path checkpoints, and restore/maintenance handoff without expanding release scope"
 ---
 
 # Complete reviewed access and CDN operations
@@ -67,6 +73,8 @@ cli/nagarectl/src/Nagare/Access/Grants.hs contains runAccessGrant/runAccessRevok
 
 ## Plan of Work
 
+**First implementation checkpoint (2026-09-27).** Use the existing command service to prove one public grant → saved review → apply → observed tuple → lost-response recovery → revoke roundtrip against the bounded HTTP fixture. Resolve the actual upstream tuple observation/write semantics through Mori before designing retries. Extend that working path to portal synchronization and M2's existing CDN cases. Do not finish an entire new access/CDN abstraction layer before this command path runs. The command proofs close this plan's stated milestones; full native local/Google evidence remains with EP-155/156 and Cloudflare retains its accepted offline proof.
+
 
 M1 introduces reviewed access operation compilation in cli/nagarectl/src/Nagare/Inventory/Access.hs (new). Bind a grant to the accepted auth owner, exact protected hostname, user/subject, relation, endpoint, and observed current tuple. Preserve the existing logical access tuple semantics. Grant/revoke changes must be journaled; verify the exact tuple after a write and use observation to recover an uncertain response. Do not infer an API's concurrency or idempotency guarantees: inspect its registered source through Mori and test its actual behavior before enabling retries. Portal sync composes the complete accepted contribution set through the existing owner, retaining unrelated backend and portal entries. It must not rebuild authority from a partial live listing. Add saved review support to existing access commands, then remove their duplicate live paths once proved. Refuse unknown owners, stale inputs, foreign hostname claims, and missing private credentials before effects.
 
@@ -121,4 +129,9 @@ Use isolated test state and exact disposable resource identities. Retain the sav
 ## Interfaces and Dependencies
 
 
-Completed [EP-146](146-reconcile-cloud-host-and-artifact-resources-through-inventory-adapters.md), [EP-147](147-compile-cluster-bootstrap-into-owned-resource-components.md), [EP-149](149-explain-drift-and-execute-reviewed-adoption-migration-and-retirement.md), and [EP-151](151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes.md) supply the adapters, ownership, lifecycle, and shared store. Own the access/CDN implementation and its focused tests; [EP-153](153-close-managed-command-coverage-for-the-inventory-release.md) consumes its registration and user documentation, [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md) and [EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md) consume working commands, and [EP-157](157-gate-the-inventory-release-on-complete-immutable-evidence.md) checks the complete release. No new work depends on EP-148 being marked Complete. Initial estimate: 6–12 active engineering hours, low confidence, excluding integrated provider runs. Reforecast after the first reviewed grant/revoke roundtrip if the access API lacks the required observation or conditional-write capability.
+Completed [EP-146](146-reconcile-cloud-host-and-artifact-resources-through-inventory-adapters.md), [EP-147](147-compile-cluster-bootstrap-into-owned-resource-components.md), [EP-149](149-explain-drift-and-execute-reviewed-adoption-migration-and-retirement.md), and [EP-151](151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes.md) supply the adapters, ownership, lifecycle, and shared store. Own the access/CDN implementation and its focused tests; [EP-153](153-close-managed-command-coverage-for-the-inventory-release.md) consumes its registration and user documentation, [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md) and [EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md) consume working commands, and [EP-157](157-gate-the-inventory-release-on-complete-immutable-evidence.md) checks the complete release. No new work depends on EP-148 being marked Complete. Historical, uncalibrated estimate (not a current delivery forecast): 6–12 active engineering hours, low confidence, excluding integrated provider runs. Reforecast after the first reviewed grant/revoke roundtrip if the access API lacks the required observation or conditional-write capability.
+
+
+## Revision Notes
+
+2026-09-27: Apply the execution-log diagnosis to the existing outcome: drive implementation through its production command/recovery fixture, make handoffs and known ownership explicit, and prevent new requirements from entering through an open-ended audit. Existing functionality and final release acceptance remain required.

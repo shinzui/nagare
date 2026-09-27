@@ -11,6 +11,12 @@ provenance:
     model: "gpt-6-astra"
     harness: "codex-cli"
     at: 2026-09-26T22:14:13Z
+  revisions:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-27T13:29:05Z
+      mode: "update"
+      note: "Apply Codex execution-log diagnosis, fixed outcome ownership, production-path checkpoints, and restore/maintenance handoff without expanding release scope"
 ---
 
 # Complete scheduled backup receipts and exact retention pruning
@@ -64,6 +70,10 @@ cli/nagare-dsl/src/Nagare/Resource/Database.hs owns database declarations. cli/n
 
 
 ## Plan of Work
+
+**Cross-plan order.** This plan need not finish every engine before EP-160 starts M2. EP-159 owns the receipt envelope, scheduled delegation, and producer formats; EP-160 owns consuming each format and proving recovered content. For each engine, agree those concrete fields/procedures and run a producer/consumer roundtrip before expanding schedule variants. Preserve manual receipt compatibility. This is early verification of existing acceptance and does not make all of EP-160 a hard dependency of this plan.
+
+**First implementation checkpoint (2026-09-27).** Prove one PostgreSQL scheduled Job → verified object/receipt → Job cleanup → public receipt ingestion path using the existing receipt/store/command service, then exercise its actual restore consumer with EP-160 M2 before extending receipt production to Redis and ClickHouse. The current `compileManualRestoreScope` expects an accepted backup scope containing one Job; merely parsing a scheduled receipt does not meet that consumer contract. Provide the compatible source binding rather than fabricating a surviving Job. Check restore/session dependency protection before finishing pruning. Engine formats and their real restore compatibility remain explicit acceptance, not an assumption from a successful upload. Reuse the same path and failure points for the other engines; do not build a parallel scheduler, receipt authority, or inventory. This orders the current M1/M2 work without dropping any engine, retention, interruption, or cloud assertion.
 
 
 M1 extends the accepted CronJob declaration with bounded delegation: its controller may create backups only for that source, schedule revision, private storage capability, and dedicated object-key space. Give each execution a stable run identity tied to the actual Job incarnation; a timestamp alone is insufficient. The receipt identifies the accepted schedule revision, logical source resource, observed source incarnation, exact object key/version, stored-byte digest, engine/format, completion result, and explicit retention policy. Keep reusable credentials out of it. Reuse or version the manual receipt format compatibly; existing manual receipts must still decode and restore.
@@ -119,4 +129,9 @@ Use isolated test state and exact disposable resource identities. Retain the sav
 ## Interfaces and Dependencies
 
 
-Completed [EP-146](146-reconcile-cloud-host-and-artifact-resources-through-inventory-adapters.md), [EP-147](147-compile-cluster-bootstrap-into-owned-resource-components.md), [EP-149](149-explain-drift-and-execute-reviewed-adoption-migration-and-retirement.md), and [EP-151](151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes.md) provide prerequisites. This plan owns the scheduled receipt extension, delegation, ingestion, and retention selection. [EP-160](160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md) consumes the receipt selector and dependency rules and must not invent another backup format; existing manual receipts let restore work start before this plan finishes. [EP-161](161-provide-scoped-interactive-maintenance-with-durable-recovery.md) consumes backup/recovery references where maintenance requires them. [EP-153](153-close-managed-command-coverage-for-the-inventory-release.md) owns global registration coverage, and [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md)/[EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md) own combined native scenarios. Initial estimate: 8–16 active hours, low confidence, excluding integration fixtures. Reforecast after one scheduled run proves durable ingestion after Job cleanup; missing object-version or controller-source evidence is a named design blocker.
+Completed [EP-146](146-reconcile-cloud-host-and-artifact-resources-through-inventory-adapters.md), [EP-147](147-compile-cluster-bootstrap-into-owned-resource-components.md), [EP-149](149-explain-drift-and-execute-reviewed-adoption-migration-and-retirement.md), and [EP-151](151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes.md) provide prerequisites. This plan owns the scheduled receipt extension, delegation, ingestion, and retention selection. [EP-160](160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md) consumes the receipt selector and dependency rules and must not invent another backup format; existing manual receipts let restore work start before this plan finishes. [EP-161](161-provide-scoped-interactive-maintenance-with-durable-recovery.md) consumes backup/recovery references where maintenance requires them. [EP-153](153-close-managed-command-coverage-for-the-inventory-release.md) owns global registration coverage, and [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md)/[EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md) own combined native scenarios. Historical, uncalibrated estimate (not a current delivery forecast): 8–16 active hours, low confidence, excluding integration fixtures. Reforecast after one scheduled run proves durable ingestion after Job cleanup; missing object-version or controller-source evidence is a named design blocker.
+
+
+## Revision Notes
+
+2026-09-27: Apply the execution-log diagnosis to the existing outcome: drive implementation through its production command/recovery fixture, make handoffs and known ownership explicit, and prevent new requirements from entering through an open-ended audit. Existing functionality and final release acceptance remain required.
