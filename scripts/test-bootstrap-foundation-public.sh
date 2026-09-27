@@ -227,6 +227,12 @@ PY
     if [[ "$target" == *"nagare:env:NagarePerimeter::nagare" ]]; then
       touch "$XDG_STATE_HOME/root-applied"
     fi
+    if test -e "$XDG_STATE_HOME/fail-next-up"; then
+      mv "$XDG_STATE_HOME/fail-next-up" "$XDG_STATE_HOME/failed-up-once"
+      printf '%s\n' "$target" > "$XDG_STATE_HOME/failed-target"
+      printf 'simulated lost Pulumi acknowledgement\n' >&2
+      exit 41
+    fi
     printf 'reviewed cloud root applied\n'
     ;;
   "version ") printf 'v3.255.0\n' ;;
@@ -361,11 +367,39 @@ PY
 printf 'the next cloud layer planned nine child resources after the root receipt\n'
 layer_review="$fixture_root/cloud-layer-review"
 for layer in 1 2 3; do
-  "$nagarectl_bin" --context freshlocal platform bootstrap apply "$layer_review" --yes \
-    > "$fixture_root/cloud-layer-$layer-apply-out" 2>&1 || {
-    cat "$fixture_root/cloud-layer-$layer-apply-out" >&2
-    exit 1
-  }
+  if test "$layer" -eq 1; then
+    touch "$XDG_STATE_HOME/fail-next-up"
+    if "$nagarectl_bin" --context freshlocal platform bootstrap apply "$layer_review" --yes \
+      > "$fixture_root/cloud-layer-$layer-apply-out" 2>&1; then
+      printf 'cloud apply unexpectedly acknowledged a simulated lost result\n' >&2
+      exit 1
+    fi
+    test -s "$XDG_STATE_HOME/failed-target"
+    transaction="$(python3 - "$XDG_STATE_HOME/nagare/freshlocal/inventory/head.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    head = json.load(source)
+assert head["activeTransaction"] is not None, head
+print(head["activeTransaction"])
+PY
+)"
+    "$nagarectl_bin" --context freshlocal inventory resume "$transaction" --yes \
+      > "$fixture_root/cloud-layer-$layer-resume-out" 2>&1 || {
+      cat "$fixture_root/cloud-layer-$layer-resume-out" >&2
+      exit 1
+    }
+    failed_target="$(cat "$XDG_STATE_HOME/failed-target")"
+    test "$(grep -Fc " up --plan " "$XDG_STATE_HOME/pulumi.log")" -ge 2
+    test "$(grep -F " up --plan " "$XDG_STATE_HOME/pulumi.log" | grep -Fc "$failed_target")" -eq 1
+    printf 'public inventory resume proved a lost Pulumi acknowledgement without repeating its write\n'
+  else
+    "$nagarectl_bin" --context freshlocal platform bootstrap apply "$layer_review" --yes \
+      > "$fixture_root/cloud-layer-$layer-apply-out" 2>&1 || {
+      cat "$fixture_root/cloud-layer-$layer-apply-out" >&2
+      exit 1
+    }
+  fi
   if test "$layer" -lt 3; then
     next_layer=$((layer + 1))
     layer_review="$fixture_root/cloud-layer-$next_layer-review"
