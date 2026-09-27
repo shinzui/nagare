@@ -269,12 +269,14 @@ import Nagare.Inventory.Application (ApplicationScopeInput (..), GoogleCdnBindin
 import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteReleaseLog, acceptedSiteSource, compileServerSitePreviewScopeWithBuild, compileServerSiteRollbackScopeWithBuild, compileServerSiteScopeWithBuild, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteRollbackScopeWithCdn, compileStaticSiteRollbackScopeWithCloudflare, compileStaticSiteScope, compileStaticSiteScopeWithCdn, compileStaticSiteScopeWithCloudflare, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
 import Nagare.Inventory.Backup (ManualBackupRequest (..), BackupSourceProof (..), VolumeSnapshotRequest (..), compileManualBackupScope, compileVolumeSnapshotScope, manualBackupSourceProof)
 import Nagare.Inventory.Backup
-  ( ScheduledBackupReceipt (..), scheduledReceiptExpectationFromCronJob )
+  ( ScheduledBackupReceipt (..), ScheduledReceiptExpectation (..)
+  , scheduledReceiptExpectationFromCronJob )
 import Nagare.Inventory.ScheduledIngest
   ( ScheduledIngestRequest (..), ScheduledIngestSourceProof (..)
   , compileScheduledIngestScope, scheduledIngestSourceProof )
 import Nagare.Inventory.ScheduledReceipt (ScheduledReceiptEvidence (..), inspectScheduledReceipt)
-import Nagare.Inventory.ScheduledStore (readSecretField, withLocalObjectStore)
+import Nagare.Inventory.ScheduledStore
+  ( ObjectReader (..), readSecretField, withLocalObjectStore )
 import Nagare.Inventory.Prune (ManualPruneRequest (..), PruneSourceProof (..), compileManualPruneScope, manualPruneSourceProof)
 import Nagare.Inventory.VolumePrune (VolumePruneRequest (..), compileVolumePruneScope)
 import Nagare.Inventory.Restore (ManualRestoreRequest (..), VolumeRestoreRequest (..), compileManualRestoreScope, compileVolumeRestoreScope, manualRestoreTargetProof)
@@ -10300,7 +10302,7 @@ runDb mctx = \case
       (T.pack (o ^. #name)) (nsOf (o ^. #namespace)) (o ^. #bucket)
       (T.pack selected) output
     (Nothing, Nothing) -> runListScheduledReceipts mctx
-      (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
+      (T.pack (o ^. #name)) (nsOf (o ^. #namespace)) (o ^. #bucket)
     _ -> dieT "scheduled receipt ingestion requires both --backup-id and --save-plan"
   DbDisableBackupPrune o output ->
     runDisableBackupPrunePlan mctx (T.pack (o ^. #name)) (nsOf (o ^. #namespace)) output
@@ -10890,29 +10892,114 @@ runReviewedTaskRunPlan mctx options output = do
     Just directory -> Inventory.planInventoryCandidateWith
       (inventoryPlanRegistryWithNative active workspace native) active candidate directory
 
-runListScheduledReceipts :: Maybe String -> Text -> Text -> IO ()
-runListScheduledReceipts mctx database namespaceName = do
+runListScheduledReceipts :: Maybe String -> Text -> Text -> Maybe String -> IO ()
+runListScheduledReceipts mctx database namespaceName bucketArg = do
   active <- activeTarget mctx
   snapshot <- Inventory.loadTargetSnapshot active
   (cluster, _) <- either dieT pure (acceptedFoundationNamespace snapshot namespaceName)
-  statefulAddress <- either dieT pure (Resource.kubernetesAddress cluster "apps/v1"
-    "StatefulSet" (Just namespaceName) database)
-  let sources = [scope | (_, scope) <- Map.elems
-        (ResourceInventory.snapshotScopes snapshot),
-        bundle <- ResourceInventory.scopeBundles scope,
+  let findAddress api kind name = either dieT pure
+        (Resource.kubernetesAddress cluster api kind (Just namespaceName) name)
+      members scope address = [member | bundle <- ResourceInventory.scopeBundles scope,
         ResourceInventory.Managed member <- ResourceInventory.declarations bundle,
-        member ^. #address == statefulAddress]
-  sourceScope <- case sources of
+        member ^. #address == address]
+  statefulAddress <- findAddress "apps/v1" "StatefulSet" database
+  let sources = [(scope, member) | (_, scope) <- Map.elems
+        (ResourceInventory.snapshotScopes snapshot),
+        member <- members scope statefulAddress]
+  (sourceScope, stateful) <- case sources of
     [single] -> pure single
     _ -> dieT "scheduled receipt listing requires one accepted database source"
-  let rows = [(scope, selected) | (_, scope) <- Map.elems
+  pvcAddress <- findAddress "v1" "PersistentVolumeClaim" (dbPvcName database)
+  cronAddress <- findAddress "batch/v1" "CronJob" ("nagare-dbbackup-" <> database)
+  signingAddress <- findAddress "v1" "Secret"
+    ("nagare-dbbackup-" <> database <> "-signing")
+  let unique label address = case members sourceScope address of
+        [single] -> pure single
+        _ -> dieT ("scheduled receipt listing requires one accepted " <> label)
+  pvc <- unique "database PVC" pvcAddress
+  cron <- unique "backup CronJob" cronAddress
+  signing <- unique "backup signing Secret" signingAddress
+  store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+  history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
+  acceptedInventory <- either (dieT . T.pack . show) pure
+    (ResourceInventory.composeSnapshot snapshot)
+  (acceptedNative, _) <- InventoryStatus.loadAcceptedNative store history acceptedInventory
+    >>= either dieT pure
+  let sourceIds = map (^. #identity) [stateful, pvc, cron, signing]
+      sourceNative = Map.restrictKeys acceptedNative (Set.fromList sourceIds)
+  unless (Map.size sourceNative == 4)
+    (dieT "scheduled receipt listing lacks accepted private native evidence")
+  sourceAdapter <- inventoryKubernetesAdapter active
+    (ResourceInventory.snapshotBinding snapshot)
+    (\_ -> pure (Left "scheduled receipt listing does not use a cache key")) sourceNative
+  observed <- InventoryAdapter.adapterObserve sourceAdapter sourceIds >>= either dieT pure
+  let physical resource = case Map.lookup resource (InventoryAdapter.observationMap observed) of
+        Just (InventoryAdapter.ObservedPresent uid) -> pure uid
+        _ -> dieT "scheduled receipt listing source, schedule, or signing key is absent or drifted"
+  statefulUid <- physical (stateful ^. #identity)
+  pvcUid <- physical (pvc ^. #identity)
+  _ <- physical (cron ^. #identity)
+  _ <- physical (signing ^. #identity)
+  (_, cronBytes) <- maybe (dieT "accepted CronJob lacks native bytes") pure
+    (Map.lookup (cron ^. #identity) sourceNative)
+  backend <- resolveStoreBackend mctx bucketArg
+  expectation <- either dieT pure (scheduledReceiptExpectationFromCronJob backend
+    namespaceName database statefulUid pvcUid cronBytes)
+  minio <- case backend of
+    MinioBackend ref -> pure ref
+    GcsBackend {} -> dieT "cloud scheduled receipt listing requires exact-generation provider inspection"
+  signingKey <- readSecretField (contextNameText (active ^. #contextName))
+    namespaceName ("nagare-dbbackup-" <> database <> "-signing") "HMAC_KEY"
+    >>= either dieT pure
+  let accepted = Map.fromList [(selected, Resource.scopeIdText (ResourceInventory.scopeId scope))
+        | (_, scope) <- Map.elems
         (ResourceInventory.snapshotScopes snapshot),
         Map.lookup "scheduled.backup.source.scope" (ResourceInventory.scopeOverrides scope)
           == Just (Resource.scopeIdText (ResourceInventory.scopeId sourceScope)),
         Just selected <- [Map.lookup "scheduled.backup.id" (ResourceInventory.scopeOverrides scope)]]
-  if null rows then TIO.putStrLn "No accepted scheduled backup receipts."
-    else forM_ rows $ \(scope, selected) -> TIO.putStrLn
-      (selected <> "  " <> Resource.scopeIdText (ResourceInventory.scopeId scope))
+      prefix = scheduledObjectPrefix expectation
+      bucketPrefix = "s3://" <> minio ^. #bucket <> "/"
+  keyPrefix <- maybe (dieT "accepted schedule has another local bucket") pure
+    (T.stripPrefix bucketPrefix prefix)
+  listed <- withLocalObjectStore (contextNameText (active ^. #contextName)) minio
+    $ \reader -> do
+      keys <- listObjectKeys reader keyPrefix
+      case keys of
+        Left reason -> pure (Left reason)
+        Right allKeys -> do
+          let objectSuffix = "." <> scheduledFormat expectation
+              receiptSuffix = objectSuffix <> ".receipt.json"
+              classify key = do
+                suffix <- T.stripPrefix keyPrefix key
+                case T.stripSuffix receiptSuffix suffix of
+                  Just selected -> Just (selected, False)
+                  Nothing -> fmap (\selected -> (selected, True))
+                    (T.stripSuffix objectSuffix suffix)
+              recognized = [(selected, isObject) | key <- allKeys,
+                Just (selected, isObject) <- [classify key]]
+              unknown = [key | key <- allKeys, isNothing (classify key)]
+              candidates = Set.toAscList (Set.fromList
+                (Map.keys accepted <> map fst recognized))
+              hasPart selected isObject = (selected, isObject) `elem` recognized
+          rows <- forM candidates $ \selected -> do
+            let objectPresent = hasPart selected True
+                receiptPresent = hasPart selected False
+                acceptedScope = Map.lookup selected accepted
+            status <- case (objectPresent, receiptPresent) of
+              (False, False) -> pure "accepted; provider objects are missing"
+              (True, False) -> pure "unresolved: backup object has no receipt"
+              (False, True) -> pure "unresolved: receipt has no backup object"
+              (True, True) -> do
+                inspected <- inspectScheduledReceipt reader expectation selected signingKey
+                pure $ case (acceptedScope, inspected) of
+                  (Just scope, Right _) -> "accepted " <> scope
+                  (Nothing, Right _) -> "verified; ingestion pending"
+                  (_, Left reason) -> "unresolved: " <> reason
+            pure (selected <> "  " <> status)
+          pure (Right (rows <> map ("unresolved provider key: " <>) unknown))
+  rows <- either dieT pure listed >>= either dieT pure
+  if null rows then TIO.putStrLn "No scheduled backup objects or accepted receipts."
+    else mapM_ TIO.putStrLn rows
 
 runReviewedScheduledReceiptPlan
   :: Maybe String -> Text -> Text -> Maybe String -> Text -> FilePath -> IO ()

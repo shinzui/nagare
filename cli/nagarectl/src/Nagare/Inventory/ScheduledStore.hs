@@ -5,6 +5,7 @@ module Nagare.Inventory.ScheduledStore
   ( StoredObject (..)
   , ObjectReader (..)
   , withLocalObjectStore
+  , parseObjectList
   , readSecretField
   ) where
 
@@ -14,6 +15,7 @@ import Data.Aeson.Key qualified as K
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString.Char8 qualified as BC
 import Data.Char (isAlphaNum)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -34,8 +36,9 @@ data StoredObject = StoredObject
   }
   deriving stock (Eq, Show)
 
-newtype ObjectReader = ObjectReader
-  { readObjectToFile :: Text -> Maybe Text -> FilePath -> IO (Either Text StoredObject)
+data ObjectReader = ObjectReader
+  { readObjectToFile :: !(Text -> Maybe Text -> FilePath -> IO (Either Text StoredObject))
+  , listObjectKeys :: !(Text -> IO (Either Text [Text]))
   }
 
 -- | The callback must consume files before returning; the port-forward and
@@ -54,7 +57,8 @@ withLocalObjectStore context ref action = do
           case ready >>= parseForwardPort . T.pack of
             Nothing -> pure (Left "local object-store port-forward did not become ready")
             Just port -> Right <$> action (ObjectReader
-              (readViaCurl ref user port scratch)))
+              (readViaCurl ref user port scratch)
+              (listViaCurl ref user port scratch)))
         :: IO (Either IOException (Either Text a))
       pure (either (Left . const "local object-store read failed") id result)
 
@@ -165,6 +169,72 @@ oneHeader name raw = case [T.strip value
     , Just value <- [T.stripPrefix ":" rest]] of
   [value] | not (T.null value) -> Right value
   _ -> Left ("local object-store response lacks one " <> name <> " header")
+
+-- | A listing is useful only when it is complete. A truncated or malformed
+-- page cannot silently hide an orphan or authorize a later prune decision.
+listViaCurl :: MinioRef -> Text -> Text -> FilePath -> Text
+  -> IO (Either Text [Text])
+listViaCurl ref user port scratch prefix
+  | T.null prefix || T.any (\character -> not (isAlphaNum character
+      || character `elem` ("/-_." :: String))) prefix =
+      pure (Left "scheduled object prefix has unsupported URL characters")
+  | otherwise = do
+      let url = "http://127.0.0.1:" <> port <> "/" <> bucket ref
+            <> "/?list-type=2&prefix=" <> prefix
+          output = scratch <> "/listing.xml"
+          config = "user = \"" <> quoteConfig user <> "\"\n"
+          arguments = ["--silent", "--show-error", "--fail", "--aws-sigv4"
+            , "aws:amz:us-east-1:s3", "--config", "-", "--output", output
+            , T.unpack url]
+      outcome <- try (readCreateProcessWithExitCode (proc "curl" arguments)
+        (T.unpack config)) :: IO (Either IOException (ExitCode, String, String))
+      case outcome of
+        Left _ -> pure (Left "could not invoke local object-store listing")
+        Right (ExitFailure _, _, _) -> pure (Left "local object-store listing is unavailable")
+        Right (ExitSuccess, _, _) -> do
+          body <- try (BC.readFile output) :: IO (Either IOException BC.ByteString)
+          pure (either (Left . const "local object-store listing cannot be read")
+            (parseObjectList prefix) body)
+
+parseObjectList :: Text -> BC.ByteString -> Either Text [Text]
+parseObjectList prefix raw = do
+  body <- first (const "local object-store listing is not UTF-8")
+    (TE.decodeUtf8' raw)
+  unless ("<ListBucketResult" `T.isInfixOf` body
+      && "</ListBucketResult>" `T.isInfixOf` body)
+    (Left "local object-store listing has no result envelope")
+  truncated <- oneElement "IsTruncated" body
+  unless (truncated == "false")
+    (Left "local object-store listing is incomplete")
+  countText <- oneElement "KeyCount" body
+  count <- case reads (T.unpack countText) of
+    [(number, "")] | number >= (0 :: Int) -> Right number
+    _ -> Left "local object-store listing has an invalid key count"
+  contents <- xmlElements "Contents" body
+  keys <- traverse (oneElement "Key") contents
+  unless (length keys == count && Set.size (Set.fromList keys) == count
+      && all (\key -> prefix `T.isPrefixOf` key &&
+        T.all (\character -> isAlphaNum character
+          || character `elem` ("/-_." :: String)) key) keys)
+    (Left "local object-store listing has invalid or duplicate keys")
+  pure keys
+  where
+    oneElement name body = case xmlElements name body of
+      Right [value] -> Right value
+      _ -> Left ("local object-store listing lacks one " <> name)
+    xmlElements :: Text -> Text -> Either Text [Text]
+    xmlElements name body = go body []
+      where
+        openTag = "<" <> name <> ">"
+        closeTag = "</" <> name <> ">"
+        go remaining found = case T.breakOn openTag remaining of
+          (_, suffix) | T.null suffix -> Right (reverse found)
+          (_, suffix) ->
+            let afterOpen = T.drop (T.length openTag) suffix
+                (value, closing) = T.breakOn closeTag afterOpen
+             in if T.null closing
+                  then Left "local object-store listing has an unterminated element"
+                  else go (T.drop (T.length closeTag) closing) (value : found)
 
 quoteConfig :: Text -> Text
 quoteConfig = T.concatMap $ \case

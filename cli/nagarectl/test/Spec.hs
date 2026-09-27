@@ -352,7 +352,7 @@ import Nagare.Inventory.Backup
   ( ScheduledBackupReceipt (..), ScheduledReceiptExpectation (..)
   , parseScheduledBackupReceipt, scheduledReceiptExpectationFromCronJob )
 import Nagare.Inventory.ScheduledReceipt (ScheduledReceiptEvidence (..), inspectScheduledReceipt)
-import Nagare.Inventory.ScheduledStore (ObjectReader (..), StoredObject (..))
+import Nagare.Inventory.ScheduledStore (ObjectReader (..), StoredObject (..), parseObjectList)
 import Nagare.Inventory.ScheduledIngest (scheduledIngestJobSourcePins)
 import Nagare.Resource.Policy qualified as InventoryPolicy
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
@@ -5175,7 +5175,8 @@ backupRestoreTests =
               expectation = ScheduledReceiptExpectation
                 "s3://nagare-backups/databases/mydb/" "sql.gz"
                 (contentDigest (canonical metadata)) uid uid
-              reader changeExactReceipt changeExactObject = ObjectReader $ \address selected path -> do
+              reader changeExactReceipt changeExactObject = ObjectReader
+                (\address selected path -> do
                 let (version, bytes) = if address == receiptAddress
                       then ("receipt-version", if changeExactReceipt
                           && selected == Just "receipt-version"
@@ -5188,7 +5189,8 @@ backupRestoreTests =
                   then pure (Left "missing exact object")
                   else do
                     BS.writeFile path bytes
-                    pure (Right (StoredObject version (fromIntegral (BS.length bytes))))
+                    pure (Right (StoredObject version (fromIntegral (BS.length bytes)))))
+                (\_ -> pure (Left "listing is unused by this test"))
           verified <- inspectScheduledReceipt (reader False False) expectation runId (T.replicate 64 "a")
           case verified of
             Left reason -> assertFailure ("exact scheduled backup was rejected: " <> T.unpack reason)
@@ -5200,6 +5202,21 @@ backupRestoreTests =
           assertBool "changed receipt version bytes were accepted" (isLeft changedReceipt)
           changedObject <- inspectScheduledReceipt (reader False True) expectation runId (T.replicate 64 "a")
           assertBool "changed backup version bytes were accepted" (isLeft changedObject)
+      , testCase "scheduled backup listing refuses incomplete provider pages" $ do
+          let prefix = "databases/mydb/"
+              key = prefix <> "11111111-1111-1111-1111-111111111111.sql.gz"
+              response truncated count contents = BC.pack
+                ("<ListBucketResult><IsTruncated>" <> truncated
+                  <> "</IsTruncated><KeyCount>" <> count
+                  <> "</KeyCount>" <> contents <> "</ListBucketResult>")
+              item = "<Contents><Key>" <> T.unpack key <> "</Key></Contents>"
+          parseObjectList prefix (response "false" "1" item) @?= Right [key]
+          assertBool "a truncated listing hid another object" (isLeft
+            (parseObjectList prefix (response "true" "1" item)))
+          assertBool "a wrong key count hid another object" (isLeft
+            (parseObjectList prefix (response "false" "2" item)))
+          assertBool "a duplicate key was accepted" (isLeft
+            (parseObjectList prefix (response "false" "2" (item <> item))))
       , testCase "scheduled backup ingestion requires all four source UID pins" $ do
           let sourceId = "application:demo/database/statefulset" :: Text
               sourceUid = "22222222-2222-2222-2222-222222222222" :: Text
