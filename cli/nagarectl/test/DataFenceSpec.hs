@@ -1783,10 +1783,18 @@ dataFenceTests = testGroup "data fence"
             saved <- right (eitherDecodeStrict' bytes :: Either String DataFenceRecord)
             dataFenceIntentDigest saved @?= digest
             fenceRecoveryArtifact saved @?= "gs://fixture/recovery"
-            withSystemTempDirectory "nagare-public-fence-review" $ \root -> do
-              _ <- writeReviewBundle (root <> "/review") published >>= right
-              public <- loadReviewBundle (root <> "/review") >>= right
-              reviewBundleNative public @?= Map.empty
+            case [operation | operation <- reviewOperations (reviewedDocument reviewed),
+                reviewFenceDigest operation == Just digest] of
+              [operation] -> do
+                reviewBundleFenceRecord published operation @?= Right (Just saved)
+                withSystemTempDirectory "nagare-public-fence-review" $ \root -> do
+                  _ <- writeReviewBundle (root <> "/review") published >>= right
+                  public <- loadReviewBundle (root <> "/review") >>= right
+                  reviewBundleNative public @?= Map.empty
+                  case reviewBundleFenceRecord public operation of
+                    Left _ -> pure ()
+                    Right _ -> assertFailure "public review supplied a private fence"
+              _ -> assertFailure "published review lacks one fenced operation"
           _ -> assertFailure "review lacks one fence digest"
         outcome <- applyReviewed store registry reviewed >>= right
         case outcome of

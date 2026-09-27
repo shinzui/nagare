@@ -36,6 +36,7 @@ module Nagare.Inventory.Plan
   , reviewBundleDocument
   , reviewBundleScopes
   , reviewBundleNative
+  , reviewBundleFenceRecord
   , ReviewError (..)
   , ReviewedPlan
   , reviewedDocument
@@ -1077,6 +1078,29 @@ reviewBundleScopes = bundleScopes
 reviewBundleNative :: ReviewBundle -> Map ContentDigest ByteString
 reviewBundleNative = bundleNative
 
+-- | Reconstruct only a member named by this review's operation. A saved
+-- record is never taken from current provider state or the public directory.
+reviewBundleFenceRecord :: ReviewBundle -> ReviewOperation
+  -> Either Text (Maybe DataFenceRecord)
+reviewBundleFenceRecord bundle operation = do
+  unless (operation `elem` reviewOperations (bundleDocument bundle))
+    (Left "data fence operation is absent from this review")
+  case (reviewFenceCapability operation, reviewFenceDigest operation,
+      reviewFenceSummary operation) of
+    (Nothing, Nothing, Nothing) -> Right Nothing
+    (Just capability, Just digest, Just summary)
+      | not (T.null capability) && not (T.null summary) -> do
+          bytes <- maybe (Left "reviewed data fence private member is absent") Right
+            (Map.lookup digest (bundleNative bundle))
+          unless (contentDigest bytes == digest)
+            (Left "reviewed data fence private member digest changed")
+          record <- first T.pack (eitherDecodeStrict' bytes)
+          canonical <- canonicalValue (toJSON (record :: DataFenceRecord))
+          unless (canonical == bytes && dataFenceIntentDigest record == digest)
+            (Left "reviewed data fence private member is not canonical")
+          Right (Just record)
+    _ -> Left "reviewed data fence capability, digest, or summary is incomplete"
+
 data ReviewError = ReviewError
   { reviewErrorCode :: !Text
   , reviewErrorMessage :: !Text
@@ -1315,16 +1339,12 @@ reviewPrivateDigests document =
     Just digest <- [reviewFenceDigest operation]]
 
 fenceMembersValid :: ReviewDocument -> Map ContentDigest ByteString -> Bool
-fenceMembersValid document members = all valid
-  [digest | operation <- reviewOperations document,
-    Just digest <- [reviewFenceDigest operation]]
+fenceMembersValid document members = all valid (reviewOperations document)
   where
-    valid digest = case Map.lookup digest members of
-      Nothing -> False
-      Just bytes -> case eitherDecodeStrict' bytes of
-        Left _ -> False
-        Right (record :: DataFenceRecord) ->
-          dataFenceIntentDigest record == digest
+    bundle = ReviewBundle document Map.empty members
+    valid operation = case reviewBundleFenceRecord bundle operation of
+      Left _ -> False
+      Right _ -> True
 
 publishReview :: InventoryStore -> ReviewBundle -> IO (Either StoreError ContentDigest)
 publishReview store bundle = do

@@ -105,6 +105,8 @@ Inherited: manual receipts and expiry validation, PostgreSQL scratch restore, an
 
 2026-09-27 private reviewed fence member: `Plan` now publishes the canonical `DataFenceRecord` under the digest already bound in each public review operation, loads that private member on a fresh review read, and rejects a missing or malformed fence member during verification. The exported review directory still contains only the public document and scope members. A focused test reads the published private record, checks its digest and recovery reference, and confirms the exported review omits it; focused data-fence, transaction, and restore groups plus Haskell style pass. The production apply registry must still decode this member into complete provider controls, and native engine/write exclusion and supported-provider proof remain open for M1.
 
+2026-09-27 strict private fence accessor: `reviewBundleFenceRecord` now reconstructs only a fence member named by an operation in the loaded review. It checks complete public fence metadata, private member presence, content digest, canonical encoding, and the record's intent digest; a public export cannot supply the private record. The focused data-fence suite passes. This gives a fresh apply registry an exact reviewed input but does not register the unfinished engine/Kubernetes provider, so M1 remains open.
+
 
 ## Surprises & Discoveries
 
