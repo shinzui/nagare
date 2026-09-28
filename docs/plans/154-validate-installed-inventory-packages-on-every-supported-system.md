@@ -64,6 +64,8 @@ Early installed checkpoint (2026-09-27): `bash scripts/rehearse-clone-free-relea
 
 Installed guard checkpoint (2026-09-28): The same smoke passed from the exact committed flake revision `699ae909e5e0c01cce8be5000af382cbb6a566c8` after the deferred-admission and evidence-boundary changes. `/tmp/nagare-mp23-installed-smoke-699ae909.json` reports `installedSmoke: true`, `aarch64-darwin`, checks for version, context, inventory compilation, payload, operator tools, and local init, and `cloneFree: false` as expected for `--smoke-only`. This verifies packaging for that committed checkpoint, not the still-dirty later retention reporting or a final candidate. M1/M2 remain open for full clone-free typed-config, both native systems, and matching final evidence.
 
+Installed receipt/listing checkpoint (2026-09-28): The bounded smoke passed again from committed flake revision `7f3e2eac22cf01e8555ca4cc9b6e29805d674e27`, after the retention report and exact accepted-receipt listing changes. `/tmp/nagare-mp23-installed-smoke-7f3e2eac.json` binds that revision, reports `installedSmoke: true` on `aarch64-darwin`, and passes version, context, inventory compilation, payload, operator tools, and local init. Its `cloneFree: false` remains expected for `--smoke-only`; this does not satisfy the full clone-free rehearsal, native Linux gate, or final candidate identity. M1/M2 remain open.
+
 
 ## Surprises & Discoveries
 

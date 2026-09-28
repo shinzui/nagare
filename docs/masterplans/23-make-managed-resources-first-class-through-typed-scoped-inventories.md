@@ -346,6 +346,8 @@ EP-160's retained local k3s fixture was reread under the revised isolated-restor
 
 EP-159's scheduled producer fixture now demonstrates a create-only object surviving a failed readback without a receipt: retry refuses overwrite and cannot claim completion. A clean run after explicit orphan removal publishes the signed receipt. Public reviewed orphan resolution and historical schedule/source treatment are still open.
 
+EP-154's exact-revision installed Darwin smoke passed again for `7f3e2eac22cf01e8555ca4cc9b6e29805d674e27`, covering the retention and listing changes in the installed payload. The report is `/tmp/nagare-mp23-installed-smoke-7f3e2eac.json` and remains smoke-only; both native-system and complete clone-free gates await a final candidate.
+
 **Implementation order.** Check current child evidence before rerunning a checkpoint. Preserve concurrent work and already-admitted recovery records. The registry states whole-child ownership, not numerical execution order.
 
 | Order | Work and owner | Required handoff |
