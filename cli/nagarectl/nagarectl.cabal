@@ -151,6 +151,7 @@ library
     Nagare.Inventory.Maintenance
     Nagare.Inventory.LiveRestore
     Nagare.Inventory.LiveRestoreFence
+    Nagare.Inventory.LiveRestorePostgres
     Nagare.Inventory.MaintenanceAdapter
     Nagare.Inventory.MaintenanceFence
     Nagare.Inventory.DataService

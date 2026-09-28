@@ -40,6 +40,7 @@ import Nagare.Inventory.VolumePrune (VolumePruneRequest (..), compileVolumePrune
 import Nagare.Inventory.Restore (ManualRestoreRequest (..), VolumeRestoreRequest (..), compileManualRestoreScope, compileVolumeRestoreScope, manualRestoreJobTargetPins, manualRestoreTargetProof, volumeRestoreJobSourcePins)
 import Nagare.Inventory.Maintenance (MaintenanceRequest (..), MaintenanceSourceProof (..), compileMaintenanceScope, maintenanceSourceProof)
 import Nagare.Inventory.LiveRestore (LiveBackupInput (..), LiveRestoreRequest (..), compileLiveRestoreScope, liveRestoreProof)
+import Nagare.Inventory.LiveRestorePostgres (normalizePostgresDump)
 import Nagare.Inventory.DataService (NativeDataKind (..), compileBackupPruneRemovalScope, compileStandaloneDatabase, compileStatefulSetRestartScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Components.Foundation (compileContributedNamespaces)
@@ -110,7 +111,17 @@ inventoryKubernetesTests :: TestTree
 inventoryKubernetesTests =
   testGroup
     "Kubernetes inventory adapter"
-    [ testCase "Deployment selector change requires replacement review" $ do
+    [ testCase "PostgreSQL live restore compares full dumps across random guard tokens" $ do
+        let source = "-- source\n\\restrict ABC123\nCREATE TABLE t (id integer);\n\\unrestrict ABC123\n"
+            restored = "-- source\n\\restrict XYZ456\nCREATE TABLE t (id integer);\n\\unrestrict XYZ456\n"
+            changed = "-- source\n\\restrict XYZ456\nCREATE TABLE t (id text);\n\\unrestrict XYZ456\n"
+        normalizePostgresDump source @?= normalizePostgresDump restored
+        assertBool "changed PostgreSQL content compared equal"
+          (normalizePostgresDump source /= normalizePostgresDump changed)
+        assertBool "unmatched PostgreSQL guard was ignored"
+          (isLeft (normalizePostgresDump
+            "\\restrict ABC123\nCREATE TABLE t (id integer);\n\\unrestrict OTHER\n"))
+    , testCase "Deployment selector change requires replacement review" $ do
         let deployment selectorValue = object
               [ "apiVersion" .= ("apps/v1" :: Text)
               , "kind" .= ("Deployment" :: Text)

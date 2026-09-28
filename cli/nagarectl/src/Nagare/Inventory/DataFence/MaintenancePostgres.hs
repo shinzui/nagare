@@ -16,7 +16,8 @@ import System.Exit (ExitCode (..))
 import System.Process (readProcessWithExitCode)
 
 data PostgresMaintenanceTransport = PostgresMaintenanceTransport
-  { observePostgresClients :: !(Text -> Text -> Text -> IO (Either Text Bool))
+  { observePostgresPodUid :: !(Text -> Text -> IO (Either Text Text))
+  , observePostgresClients :: !(Text -> Text -> Text -> IO (Either Text Bool))
   , terminateMarkedPostgresClients :: !(Text -> Text -> Text -> Text
       -> IO (Either Text ()))
   }
@@ -27,7 +28,7 @@ data PostgresMaintenanceTransport = PostgresMaintenanceTransport
 kubectlPostgresMaintenanceTransport :: KubernetesRuntimeConfig
   -> PostgresMaintenanceTransport
 kubectlPostgresMaintenanceTransport config = PostgresMaintenanceTransport
-  observe terminateMarked
+  readUid observe terminateMarked
   where
     observe namespace pod uid = do
       before <- readUid namespace pod
