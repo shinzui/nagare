@@ -45,13 +45,17 @@ A production-shaped disposable GCP context proves reviewed cloud/host/cluster/ap
 - [ ] M1: An exact disposable fixture has complete reviewed creation/cleanup membership, then converges through the public installed operator using GCS inventory history.
 - [ ] M2: No-op replay, interruption/host recovery, two-state-root history recovery, data preservation, and exact owned cleanup pass and produce redacted evidence.
 
+2026-09-28 preparation: refreshed `gcloud` and application-default credentials passed read-only checks for `tan-ng-labs`. The standing VM `nagare-01`, node account, registry, `labs.topagentnetwork.net.` zone, and four Nagare buckets remain present. The previously proposed `ep150` fixture names remain absent. A fresh `ep150-preview` context was created only in `/tmp/nagare-mp23-ep156/{config,state}`. Its current bootstrap foundation review is `/tmp/nagare-mp23-ep156/bootstrap-review-isolated`, digest `160eb40b6c63b9314d6b1e53340991b6845d0aeb8ddb7d1cb6919f6b62be4ab6`: two creates, for `tan-ng-labs-ep150-pmkjjpp-state` and the `ep150-preview` Pulumi stack; no project-API or standing-resource write. Nothing in that review has been applied. It is a private development review, not yet the complete M1 creation/cleanup review.
+
+The first attempt exposed two boundaries. The foundation compiler treated already enabled shared-project APIs as newly owned, causing `unverified-owner` refusals. It now excludes only exact already-enabled APIs lacking accepted ownership, retains accepted service declarations, verifies all required APIs before considering foundation ready, and removes dependencies on excluded service declarations. A public fake-provider test covers both a fresh project (nine foundation operations) and an already enabled shared project (two). The workstation also exports active `labs` values that overrode the selected disposable profile during planning: the discarded `/tmp/nagare-mp23-ep156/bootstrap-review` named standing buckets, domain, and VM. The isolated review was generated with `env -i`, retaining only `HOME`, `PATH`, the selected XDG roots, and the exact GCP project. The fixture runner must enforce that isolation and assert the physical names in every saved review before any apply.
+
 Inherited baseline: EP-150 prepared a 27-create, zero-update/delete/import Pulumi preview and unique names in tan-ng-labs. That preview is historical and never applied. The separate state bucket and parent-zone delegation were not covered by those 27 creates. Regenerate current native plans; do not replay a stale /tmp artifact.
 
 
 ## Surprises & Discoveries
 
 
-No new implementation findings in this successor plan. Inherited evidence and known gaps are identified below.
+Current implementation findings are recorded in Progress. The saved cloud foundation review remains unapplied; the separate parent-zone delegation and exact cleanup review are still missing.
 
 
 ## Decision Log

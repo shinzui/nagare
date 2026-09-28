@@ -5062,18 +5062,26 @@ foundationScopeReady active snapshot = case Map.lookup owner (ResourceInventory.
       (Just (foundationStackAddress project stackName, stackTarget)) declarations of
       Left _ -> pure False
       Right targets -> do
-        let declared = Map.lookup stackId targets == Just stackTarget
+        let declaredServices = Set.fromList [Resource.nameText service
+              | FoundationService _ service <- Map.elems targets]
+            declared = Map.lookup stackId targets == Just stackTarget
               && Set.fromList [Resource.nameText bucket
                 | FoundationBucket _ bucket _ _ <- Map.elems targets] == expectedBuckets
-              && Set.fromList [Resource.nameText service
-                | FoundationService _ service <- Map.elems targets] == Set.fromList requiredApis
+              && declaredServices `Set.isSubsetOf` Set.fromList requiredApis
         if not declared then pure False else do
           let runtime = mkFoundationRuntimeOps realGcloudRunner
           observations <- traverse (\target ->
             (,) target <$> foundationInspect runtime target) (Map.elems targets)
+          requiredServices <- forM requiredApis $ \api -> do
+            service <- either dieT pure (Resource.mkName api)
+            let target = FoundationService project service
+            (,) target <$> foundationInspect runtime target
           pure (all (\(target, state) -> case state of
             FoundationPresent _ digest -> digest == foundationTargetDigest target
-            _ -> False) observations)
+            _ -> False) observations
+            && all (\(target, state) -> case state of
+              FoundationPresent _ digest -> digest == foundationTargetDigest target
+              _ -> False) requiredServices)
   where
     owner = either (error . T.unpack) (\scope -> scope)
       (Resource.mkScopeId Resource.Platform "cloud-foundation")
@@ -5092,17 +5100,33 @@ buildCloudFoundationCandidate active paths workspace snapshot = do
   project <- either dieT pure (Resource.mkName (profile ^. #project))
   location <- either dieT pure (Resource.mkName (profile ^. #region))
   owner <- either dieT pure (Resource.mkScopeId Resource.Platform "cloud-foundation")
-  serviceResources <- forM requiredApis $ \api -> do
+  let accepted = Set.fromList [resource ^. #identity
+        | Just (_, scope) <- [Map.lookup owner (ResourceInventory.snapshotScopes snapshot)]
+        , ResourceInventory.Managed resource <-
+            concatMap (^. #declarations) (ResourceInventory.scopeBundles scope)]
+      runtime = mkFoundationRuntimeOps realGcloudRunner
+  serviceResources <- fmap catMaybes $ forM requiredApis $ \api -> do
     service <- either dieT pure (Resource.mkName api)
     key <- either dieT pure (Resource.mkLogicalKey api)
     let target = FoundationService project service
-    pure (InventoryFoundation.FoundationResource key service
-      (Resource.CloudService project service) (foundationTargetDigest target)
-      ResourcePolicy.Retain ResourcePolicy.Stateless ResourcePolicy.Public []
-      (Resource.SourceLocation "context-profile" ("required-api:" <> api)))
+        resourceId = Resource.mintResourceId owner key service
+    observed <- foundationInspect runtime target
+    let alreadyEnabled = case observed of
+          FoundationPresent _ digest -> digest == foundationTargetDigest target
+          _ -> False
+    pure $ if alreadyEnabled && not (Set.member resourceId accepted)
+      then Nothing
+      else Just (InventoryFoundation.FoundationResource key service
+        (Resource.CloudService project service) (foundationTargetDigest target)
+        ResourcePolicy.Retain ResourcePolicy.Stateless ResourcePolicy.Public []
+        (Resource.SourceLocation "context-profile" ("required-api:" <> api)))
   let storageApi = Resource.mintResourceId owner
         (either (error . T.unpack) (\key -> key) (Resource.mkLogicalKey "storage.googleapis.com"))
         (either (error . T.unpack) (\name -> name) (Resource.mkName "storage.googleapis.com"))
+      managesStorageApi = any ((== storageApi) . (\resource ->
+        Resource.mintResourceId owner
+          (InventoryFoundation.foundationLogicalKey resource)
+          (InventoryFoundation.foundationRole resource))) serviceResources
   backendBucket <- foundationPulumiBucket active
   imageLink <- foundationImageLink active
     (concatMap (concatMap ResourceInventory.declarations . ResourceInventory.scopeBundles . snd)
@@ -5117,19 +5141,19 @@ buildCloudFoundationCandidate active paths workspace snapshot = do
     pure (InventoryFoundation.FoundationResource key bucket
       (Resource.GlobalBucket bucket) (foundationTargetDigest target)
       ResourcePolicy.Protect ResourcePolicy.Stateless ResourcePolicy.Public
-      [ResourceReference.OrderedAfter storageApi]
+      [ResourceReference.OrderedAfter storageApi | managesStorageApi]
       (Resource.SourceLocation "context-profile" ("state-bucket:" <> bucketText)))
   stackName <- either dieT pure (Resource.mkName (contextNameText (active ^. #contextName)))
-  let stackDependency = case backendBucket of
-        Nothing -> storageApi
-        Just bucket -> Resource.mintResourceId owner
+  let stackDependencies = case backendBucket of
+        Nothing -> [ResourceReference.OrderedAfter storageApi | managesStorageApi]
+        Just bucket -> [ResourceReference.OrderedAfter (Resource.mintResourceId owner
           (either (error . T.unpack) (\key -> key) (Resource.mkLogicalKey
-            ("state-" <> Resource.nameText bucket))) bucket
+            ("state-" <> Resource.nameText bucket))) bucket)]
       stackResource = InventoryFoundation.FoundationResource
         (either (error . T.unpack) (\key -> key) (Resource.mkLogicalKey "pulumi-stack")) stackName
         (foundationStackAddress project stackName) (foundationTargetDigest stackTarget)
         ResourcePolicy.Protect ResourcePolicy.Stateless ResourcePolicy.Public
-        [ResourceReference.OrderedAfter stackDependency]
+        stackDependencies
         (Resource.SourceLocation "context-profile" "pulumi-stack")
   resources <- case serviceResources <> buckets <> [stackResource] of
     firstResource : rest -> pure (firstResource NE.:| rest)

@@ -48,7 +48,12 @@ case "$*" in
   "auth list --filter=status:ACTIVE --format=value(account)") printf 'fixture@example.invalid\n' ;;
   "config get-value project") printf 'fixture-project\n' ;;
   "projects describe fixture-project --format=value(projectNumber)") printf '12345\n' ;;
-  "services list --enabled --project=fixture-project --format=json") printf '[]\n' ;;
+  "services list --enabled --project=fixture-project --format=json")
+    if [[ "${NAGARE_TEST_ENABLED_APIS:-0}" == 1 ]]; then
+      printf '%s\n' '[{"config":{"name":"compute.googleapis.com"}},{"config":{"name":"dns.googleapis.com"}},{"config":{"name":"storage.googleapis.com"}},{"config":{"name":"artifactregistry.googleapis.com"}},{"config":{"name":"certificatemanager.googleapis.com"}},{"config":{"name":"iam.googleapis.com"}},{"config":{"name":"servicenetworking.googleapis.com"}}]'
+    else
+      printf '[]\n'
+    fi ;;
   "storage buckets list --project=fixture-project --format=json(name)") printf '[]\n' ;;
   *) printf 'unexpected gcloud command: %s\n' "$*" >&2; exit 37 ;;
 esac
@@ -85,6 +90,27 @@ if grep -Eq 'buckets (create|update)|services enable|kubectl|pulumi' "$XDG_STATE
 fi
 test ! -e "$XDG_STATE_HOME/pulumi-plan.log"
 printf 'fresh cloud bootstrap planned nine reviewed foundation resources before Kubernetes\n'
+
+# A fresh context in a shared project must verify already enabled APIs without
+# claiming ownership of their existing project-level service registrations.
+NAGARE_TEST_ENABLED_APIS=1 "$nagarectl_bin" --context fresh platform bootstrap plan \
+  --out "$fixture_root/shared-project-review" > "$fixture_root/shared-project.out" 2>&1 || {
+  cat "$fixture_root/shared-project.out" >&2
+  exit 1
+}
+python3 - "$fixture_root/shared-project-review/review.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as source:
+    review = json.load(source)
+resources = [resource for item in review["operations"]
+             for resource in item["operation"]["resources"]]
+assert len(resources) == 2, resources
+assert all("/pulumi-stack/" in resource or "/state-" in resource
+           for resource in resources), resources
+PY
+printf 'shared-project bootstrap left seven enabled APIs outside the owned fixture\n'
 
 # A second isolated context keeps its inventory journal local so the fixture
 # can exercise public apply without emulating the GCS object store migration.
@@ -1011,12 +1037,11 @@ import sys
 with open(sys.argv[1], encoding="utf-8") as source:
     review = json.load(source)
 operations = [item["operation"] for item in review["operations"]]
-assert len(operations) == 203, len(operations)
-assert collections.Counter(item["executor"] for item in operations) == {
-    "KubernetesExecutor": 196,
-    "HelmExecutor": 5,
-    "ArtifactExecutor": 2,
-}
+counts = collections.Counter(item["executor"] for item in operations)
+assert len(operations) == 211, len(operations)
+assert counts["KubernetesExecutor"] == 204, counts
+assert counts["HelmExecutor"] == 5 and counts["ArtifactExecutor"] == 2, counts
+assert sum(counts.values()) == len(operations), counts
 assert all(entry["scope"]["kind"] == "Platform" for entry in review["desiredRevisions"])
 marker_id = "platform:bootstrap-stamp/bootstrap/version"
 marker_operations = [item for item in operations if marker_id in item["resources"]]
@@ -1045,7 +1070,7 @@ if grep -Fq 'fixture-password' "$fixture_root/cluster-review/review.json"; then
   printf 'public cluster review exposed fixture secret bytes\n' >&2
   exit 1
 fi
-printf 'public bootstrap planned 203 cluster operations with kubeconfig edges and a final marker\n'
+printf 'public bootstrap planned 211 cluster operations with kubeconfig edges and a final marker\n'
 
 # A separate context exercises the same reviewed stack operation with the
 # actual Pulumi CLI and an isolated file backend. No cloud provider is used.
