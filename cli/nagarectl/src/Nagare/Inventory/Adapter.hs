@@ -101,7 +101,8 @@ data MigrationStage
 
 data OperationAction
   = CreateResource | UpdateResource | VerifyResource | AdoptResource | RetireResource
-  | RunDeclaredOperation | OpenMaintenanceSession | MigrateResource !MigrationStage
+  | RunDeclaredOperation | OpenMaintenanceSession | RestoreLiveDatabase
+  | MigrateResource !MigrationStage
   deriving stock (Eq, Ord, Show, Generic)
 
 data PlannedOperation = PlannedOperation

@@ -238,7 +238,7 @@ singleSpec specs operation = do
   unless (plannedExecutor operation == KubernetesExecutor) (Left "operation has a different executor")
   unless (plannedAction operation `elem` [CreateResource, UpdateResource,
       VerifyResource, AdoptResource, RetireResource, RunDeclaredOperation,
-      OpenMaintenanceSession])
+      OpenMaintenanceSession, RestoreLiveDatabase])
     (Left "Kubernetes adapter does not support this action")
   resource <- case (plannedAction operation, NE.toList (plannedResources operation)) of
     (RunDeclaredOperation, affected) -> case
@@ -278,6 +278,9 @@ validateBefore operation resource desiredDigest state =
     (OpenMaintenanceSession, KubernetesPresent _ revision (Just owner) digest)
       | owner == resource && not (T.null revision)
       , digest == desiredDigest -> Right ()
+    (RestoreLiveDatabase, KubernetesPresent _ revision (Just owner) digest)
+      | owner == resource && not (T.null revision)
+      , digest == desiredDigest -> Right ()
     (_, KubernetesUnknown reason) -> Left ("Kubernetes observation unavailable: " <> reason)
     (_, KubernetesNotReady {}) -> Left "Kubernetes object is present but its required condition is not ready"
     (CreateResource, _) -> Left "create requires confirmed absence; an existing object needs reviewed adoption"
@@ -286,6 +289,8 @@ validateBefore operation resource desiredDigest state =
     (RunDeclaredOperation, _) -> Left "declared Job operation requires a completed owned Job"
     (OpenMaintenanceSession, _) ->
       Left "maintenance requires the reviewed present database object"
+    (RestoreLiveDatabase, _) ->
+      Left "live restore requires the reviewed present database object"
     _ -> Left "unsupported Kubernetes action"
 
 buildMutation :: ContextId -> PlannedOperation -> ResourceId -> ManagedResource -> ByteString -> KubernetesState -> Either PrepareError KubernetesMutation

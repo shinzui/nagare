@@ -39,6 +39,7 @@ import Nagare.Inventory.Prune (ManualPruneRequest (..), PruneSourceProof (..), c
 import Nagare.Inventory.VolumePrune (VolumePruneRequest (..), compileVolumePruneScope, volumePruneJobCredentialPin)
 import Nagare.Inventory.Restore (ManualRestoreRequest (..), VolumeRestoreRequest (..), compileManualRestoreScope, compileVolumeRestoreScope, manualRestoreJobTargetPins, manualRestoreTargetProof, volumeRestoreJobSourcePins)
 import Nagare.Inventory.Maintenance (MaintenanceRequest (..), MaintenanceSourceProof (..), compileMaintenanceScope, maintenanceSourceProof)
+import Nagare.Inventory.LiveRestore (LiveBackupInput (..), LiveRestoreRequest (..), compileLiveRestoreScope, liveRestoreProof)
 import Nagare.Inventory.DataService (NativeDataKind (..), compileBackupPruneRemovalScope, compileStandaloneDatabase, compileStatefulSetRestartScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Components.Foundation (compileContributedNamespaces)
@@ -1262,6 +1263,75 @@ inventoryKubernetesTests =
                 assertBool "maintenance accepted missing private recovery native bytes"
                   (isLeft (compileMaintenanceScope maintenanceRequest databaseScope
                     (Map.delete (job ^. #identity) (Map.union backupNative databaseNative))))
+                let recoveryBackupRequest = request
+                      {backupId = "run-002", backupSource = SourceLocation "db backup" "run-002"}
+                    (recoveryBackupScope, recoveryBackupNative) = ok
+                      (compileManualBackupScope recoveryBackupRequest databaseScope databaseNative)
+                    (recoveryBackupJob, recoveryBackupBytes) = case Map.elems recoveryBackupNative of
+                      [entry] -> entry
+                      _ -> error "recovery backup must have one Job"
+                    recoveryMetadata = case eitherDecodeStrict recoveryBackupBytes of
+                      Right recoveryValue -> case receiptMetadataValues recoveryValue of
+                        [metadataJson] -> case
+                            (eitherDecodeStrict (TE.encodeUtf8 metadataJson) :: Either String Value) of
+                          Right value -> value
+                          Left _ -> error "recovery backup metadata is invalid"
+                        _ -> error "recovery backup lacks one receipt metadata value"
+                      Left _ -> error "recovery backup Job is invalid"
+                    recoveryReceipt = BL.toStrict (encode (object
+                      ["version" .= (1 :: Int), "sha256" .= T.replicate 64 "a",
+                        "backup" .= recoveryMetadata]))
+                    recoveryBackupRevision = ScopeRevision (ok (mkScopeGeneration 1))
+                      (contentDigest "accepted-recovery-backup")
+                    liveRequest = LiveRestoreRequest
+                      { liveRestoreDatabase = "pg-main"
+                      , liveRestoreNamespace = "default"
+                      , liveRestoreId = "live-001"
+                      , liveRestoreTargetRevision = sourceRevision request
+                      , liveRestoreStatefulUid = sourceStatefulUid request
+                      , liveRestorePvcUid = sourcePvcUid request
+                      , liveRestorePodUid = ok (mkPhysicalIdentity "database-pod-uid")
+                      , liveRestoreSourceBackup = LiveBackupInput backupScope
+                          (restoreBackupRevision restoreRequest) completedPhysical receiptBytes
+                      , liveRestoreRecoveryBackup = LiveBackupInput recoveryBackupScope
+                          recoveryBackupRevision (ok (mkPhysicalIdentity "recovery-job-uid"))
+                          recoveryReceipt
+                      , liveRestoreBackend = backend
+                      , liveRestoreSource = SourceLocation "db restore" "live-001"
+                      }
+                    liveNative = Map.unions [backupNative, recoveryBackupNative, databaseNative]
+                    liveScope = ok (compileLiveRestoreScope liveRequest databaseScope liveNative)
+                assertBool "live restore has no private canonical proof"
+                  (case liveRestoreProof liveScope of Right (Just _) -> True; _ -> False)
+                assertBool "live restore accepted another recovery incarnation"
+                  (isLeft (compileLiveRestoreScope
+                    (liveRequest {liveRestorePvcUid = ok (mkPhysicalIdentity "other-pvc")})
+                    databaseScope liveNative))
+                assertBool "live restore accepted the same source and recovery backup"
+                  (isLeft (compileLiveRestoreScope
+                    (liveRequest {liveRestoreRecoveryBackup = liveRestoreSourceBackup liveRequest})
+                    databaseScope liveNative))
+                assertBool "live restore accepted missing recovery Job native evidence"
+                  (isLeft (compileLiveRestoreScope liveRequest databaseScope
+                    (Map.delete (recoveryBackupJob ^. #identity) liveNative)))
+                assertBool "live restore proof accepted an unreviewed extra override"
+                  (isLeft (liveRestoreProof (withScopeOverrides
+                    (Map.insert "unreviewed" "value" (scopeOverrides liveScope)) liveScope)))
+                let liveSnapshot = ok (mkScopeSnapshot restoreBinding
+                      (Map.insert (scopeId recoveryBackupScope)
+                        (ok (mkScopeGeneration 1), recoveryBackupScope)
+                        (snapshotScopes restoreSnapshot)) Map.empty)
+                    liveCandidate = ok (composeInventory liveSnapshot
+                      (ReplaceScope liveScope :| []))
+                    liveHistory = maintenanceHistory
+                      { historyAccepted = Map.insert (scopeId recoveryBackupScope)
+                          (recoveryBackupRevision, recoveryBackupScope)
+                          (historyAccepted maintenanceHistory) }
+                    liveProposal = ok (planChanges liveCandidate noLifecycleDecisions
+                      liveHistory maintenanceObservations)
+                assertBool "reviewed live restore was omitted by planner"
+                  (any ((== RestoreLiveDatabase) . plannedAction)
+                    (proposalOperations liveProposal))
                 let restoreOperation = createOperation
                       {plannedResources = restoreJob ^. #identity :| []}
                     restoreAdapter = mkKubernetesAdapter

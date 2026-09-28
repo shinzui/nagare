@@ -767,7 +767,7 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
       forwardOnly operation
         && Map.lookup (operation ^. #identity) provenOperations == Just operation
     forwardOnly operation = operation ^. #operationKind `elem`
-      [SchemaMigration, PreDeployHook, ActivateHost, MaintainData]
+      [SchemaMigration, PreDeployHook, ActivateHost, MaintainData, RestoreLiveData]
       || (operation ^. #operationKind == PublishRelease
           && all isArtifact (NE.toList (operation ^. #affects)))
     isArtifact resourceId = case Map.lookup resourceId oldDeclarations of
@@ -891,8 +891,10 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
     declared operation = do
       executor <- listToMaybe [resource ^. #executor | resourceId <- NE.toList (operation ^. #affects), Just (Managed resource) <- [Map.lookup resourceId desiredDeclarations]]
       let digest = contentDigest (canonicalBytes (toJSON operation))
-      let action = if operation ^. #operationKind == MaintainData
-            then OpenMaintenanceSession else RunDeclaredOperation
+      let action = case operation ^. #operationKind of
+            MaintainData -> OpenMaintenanceSession
+            RestoreLiveData -> RestoreLiveDatabase
+            _ -> RunDeclaredOperation
       pure (operation, mkPlanned action executor (operation ^. #affects) digest (operation ^. #recovery))
     declaredOperations = map addDeclaredDependencies declaredSeeds
     addDeclaredDependencies (operation, planned) =
@@ -1331,10 +1333,11 @@ prepareReviewWithPayloadIdentity payloadIdentity registry snapshot proposal = do
                       "operation selected multiple data fence capabilities")
             pure $ do
               selectedFence <- selected
-              when (plannedAction operation == OpenMaintenanceSession
+              when (plannedAction operation `elem`
+                  [OpenMaintenanceSession, RestoreLiveDatabase]
                   && isNothing selectedFence)
                 (Left (PrepareRefused (plannedOperationId operation)
-                  "interactive maintenance requires a reviewed data fence"))
+                  "database data operation requires a reviewed data fence"))
               let bytes = preparedNativeBytes prepared
                   digest = contentDigest bytes
               fenceMember <- traverse (\(_, record) -> do

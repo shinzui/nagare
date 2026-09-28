@@ -832,9 +832,10 @@ selectedFence :: AdapterRegistry -> ReviewedPlan -> ReviewOperation -> PreparedN
   -> Either Text (Maybe (DataFenceRecord, DataFenceControls))
 selectedFence registry plan operation prepared = do
   saved <- reviewedFenceRecord plan operation
-  when (plannedAction (reviewPlannedOperation operation) == OpenMaintenanceSession
+  when (plannedAction (reviewPlannedOperation operation) `elem`
+      [OpenMaintenanceSession, RestoreLiveDatabase]
       && isNothing saved)
-    (Left "interactive maintenance review has no data fence")
+    (Left "database data operation review has no data fence")
   case (reviewFenceCapability operation, reviewFenceDigest operation, saved) of
     (Nothing, Nothing, Nothing)
       | isNothing (reviewFenceSummary operation) -> Right Nothing

@@ -149,6 +149,7 @@ library
     Nagare.Inventory.DataFence.ServiceState
     Nagare.Inventory.DataFence.ScheduledWriter
     Nagare.Inventory.Maintenance
+    Nagare.Inventory.LiveRestore
     Nagare.Inventory.MaintenanceAdapter
     Nagare.Inventory.MaintenanceFence
     Nagare.Inventory.DataService
