@@ -6,6 +6,7 @@ import Data.Aeson (Value (..), eitherDecode, eitherDecodeStrict', encode, object
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString.Lazy qualified as BL
 import Data.ByteString.Lazy.Char8 qualified as BL8
+import Data.Either (isLeft)
 import Data.Foldable (toList)
 import Data.Generics.Labels ()
 import Data.IORef
@@ -24,6 +25,7 @@ import Nagare.Inventory.Adapter
 import Nagare.Inventory.DataFence
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..))
 import Nagare.Inventory.DataFence.DatabaseShutdown
+import Nagare.Inventory.DataFence.CompletedJob
 import Nagare.Inventory.DataFence.DeploymentWriter qualified as Deployment
 import Nagare.Inventory.DataFence.GuardAuthority
 import Nagare.Inventory.DataFence.KubernetesExclusion
@@ -1394,6 +1396,7 @@ dataFenceTests = testGroup "data fence"
               declarations acceptedNative guardTransport authorityTransport
               volumeTransport
               writerTransport deploymentTransport serviceTransport scheduleTransport
+              completedJobTransport
               shutdownTransport
             authorityTransport = GuardAccessTransport
               (\query -> do
@@ -1403,8 +1406,12 @@ dataFenceTests = testGroup "data fence"
               (\_ -> pure (Right True))
             captureTransport = KubernetesCaptureTransport guardTransport authorityTransport
               volumeTransport
-              writerTransport deploymentTransport scheduleTransport serviceTransport
+              writerTransport deploymentTransport scheduleTransport
+              completedJobTransport serviceTransport
               shutdownTransport
+            completedJobTransport = CompletedJobTransport
+              (\_ _ -> pure (Left "test has no completed Job"))
+              (\_ -> pure (Left "test has no completed Job Pods"))
             shutdownTransport = DatabaseShutdownTransport $ \_ podName podUid engine image -> do
               modifyIORef' shutdownCalls (+ 1)
               denied <- readIORef shutdownDenied
@@ -2665,22 +2672,67 @@ dataFenceTests = testGroup "data fence"
           (declarations [stateful, service, routeClient])
           (registry [stateful, service, routeClient]))
         map candidateResource isolated @?= [statefulId]
-        case discoverWriterCandidatesForIsolatedNetwork statefulId []
-          cluster "data-pvc" (declarations [stateful, directMount])
-          (registry [stateful, directMount]) of
-          Left reason -> assertBool "network isolation hid a direct PVC mount"
-            (resourceIdText mountId `T.isInfixOf` reason)
-          Right _ -> assertFailure "mounted Job bypassed isolated writer discovery"
-        case discoverWriterCandidates statefulId cluster "data-pvc"
-          (declarations [stateful, directMount]) (registry [stateful, directMount]) of
-          Left reason -> assertBool "direct PVC mount was not discovered"
-            (resourceIdText mountId `T.isInfixOf` reason)
-          Right _ -> assertFailure "direct mount Job lacks a stop control"
+        isolatedMount <- right (discoverWriterCandidatesForIsolatedNetwork
+          statefulId [] cluster "data-pvc"
+          (declarations [stateful, directMount])
+          (registry [stateful, directMount]))
+        assertBool "network isolation hid a direct PVC mount"
+          (any (\candidate -> candidateResource candidate == mountId
+            && candidateKind candidate == JobWriter) isolatedMount)
+        direct <- right (discoverWriterCandidates statefulId cluster "data-pvc"
+          (declarations [stateful, directMount]) (registry [stateful, directMount]))
+        assertBool "direct PVC mount was not discovered"
+          (any (\candidate -> candidateResource candidate == mountId
+            && candidateKind candidate == JobWriter) direct)
         case discoverWriterCandidates statefulId cluster "data-pvc"
           (declarations [stateful, directMount]) (registry [stateful]) of
           Left reason -> assertBool "missing accepted native Job was not refused"
             (resourceIdText mountId `T.isInfixOf` reason)
           Right _ -> assertFailure "missing native evidence hid a PVC mount"
+    , testCase "completed Job pin refuses active Pods and changed native identity" $ do
+        let namespace = "restore-space"
+            name = "completed-backup"
+            uid = "eeeeeeee-1111-2222-3333-444444444444" :: Text
+            job :: Text -> Value -> Value
+            job selectedUid specValue = object
+              [ "metadata" .= object
+                  ["namespace" .= namespace, "name" .= name, "uid" .= selectedUid]
+              , "spec" .= specValue
+              , "status" .= object
+                  [ "succeeded" .= (1 :: Int)
+                  , "conditions" .= [object
+                      ["type" .= ("Complete" :: Text), "status" .= ("True" :: Text)]]]
+              ]
+            pod :: Text -> Value
+            pod phase = object
+              [ "metadata" .= object
+                  [ "namespace" .= namespace
+                  , "name" .= ("completed-backup-pod" :: Text)
+                  , "uid" .= ("aaaaeeee-1111-2222-3333-444444444444" :: Text)
+                  , "ownerReferences" .= [object
+                      [ "kind" .= ("Job" :: Text), "name" .= name
+                      , "uid" .= uid, "controller" .= True]]]
+              , "status" .= object ["phase" .= phase]]
+            podList :: Text -> Value
+            podList phase = object ["items" .= [pod phase]]
+        jobState <- newIORef (job uid (object ["parallelism" .= (1 :: Int)]))
+        podState <- newIORef (podList ("Succeeded" :: Text))
+        let transport = CompletedJobTransport
+              (\_ _ -> Right <$> readIORef jobState)
+              (\_ -> Right <$> readIORef podState)
+        pin <- captureCompletedJob transport namespace name >>= right
+        observeCompletedJob transport pin >>= right
+        writeIORef podState (podList ("Running" :: Text))
+        active <- observeCompletedJob transport pin
+        assertBool "active Job Pod was accepted" (isLeft active)
+        writeIORef podState (podList ("Succeeded" :: Text))
+        writeIORef jobState (job "ffffeeee-1111-2222-3333-444444444444"
+          (object ["parallelism" .= (1 :: Int)]))
+        replaced <- observeCompletedJob transport pin
+        assertBool "replacement Job UID was accepted" (isLeft replaced)
+        writeIORef jobState (job uid (object ["parallelism" .= (2 :: Int)]))
+        changed <- observeCompletedJob transport pin
+        assertBool "changed Job spec was accepted" (isLeft changed)
     , testCase "reviewed adapter effect runs only inside a verified fence" $ do
         store <- newMemoryStore
         steps <- newIORef ([] :: [Text])

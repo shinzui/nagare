@@ -148,7 +148,7 @@ nagarectl db list                  # table of all managed databases in a namespa
 nagarectl db create ENGINE NAME    # generate creds + provision Secret, PVC, StatefulSet, Service, CronJob
 nagarectl db get NAME              # detail: engine, version, host, retention, ready, Secret key names
 nagarectl db shell NAME            # interactive psql / redis-cli / clickhouse-client inside the pod
-nagarectl db shell NAME --session-id ID --recovery-backup ID --save-plan DIR  # reviewed PostgreSQL or Redis session
+nagarectl db shell NAME --session-id ID --recovery-backup ID --save-plan DIR  # reviewed database session
 nagarectl db restart NAME          # roll the StatefulSet pod and wait for ready
 nagarectl db delete NAME --save-plan DIR  # save a reviewed retirement; retain provider resources
 nagarectl db backup NAME --backup-id ID --save-plan DIR  # reviewed manual Job
@@ -218,12 +218,11 @@ name. Live `db create` requires both recovery options in every context.
 
 Live create, restart, and retirement use reviewed scopes in every context.
 Direct shell, legacy backup, and legacy restore refuse after inventory
-initialization. Reviewed PostgreSQL and Redis maintenance, manual backup, and
-scratch restore have saved-plan routes. ClickHouse interactive maintenance and
-live-target restore are still pending. Offline `--dry-run` output remains
-available.
+initialization. Reviewed maintenance for PostgreSQL, Redis, and ClickHouse,
+manual backup, and scratch restore have saved-plan routes. Live-target restore
+is still pending. Offline `--dry-run` output remains available.
 
-For an accepted PostgreSQL or Redis database, complete a reviewed manual backup
+For an accepted PostgreSQL, Redis, or ClickHouse database, complete a reviewed manual backup
 first, then save and apply a maintenance session in an interactive terminal:
 
 ```bash

@@ -11531,9 +11531,10 @@ runReviewedDbShellPlan mctx database namespaceName session backupId output = do
   statefulValue <- either (dieT . T.pack) pure
     (Aeson.eitherDecodeStrict' statefulBytes)
   image <- case parseObservedDatabaseServer statefulValue of
-    Right (Just (engine, selected)) | engine `elem` [Postgres, Redis] ->
+    Right (Just (engine, selected))
+      | engine `elem` [Postgres, Redis, ClickHouse] ->
       pure (engine, selected)
-    _ -> dieT "reviewed shell requires an accepted PostgreSQL or Redis server"
+    _ -> dieT "reviewed shell requires an accepted database server"
   liveWriter <- StatefulWriter.readStatefulWriter
     (StatefulWriter.kubectlStatefulWriterTransport config)
     namespaceName database >>= either dieT pure

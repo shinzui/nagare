@@ -20,6 +20,7 @@ import Nagare.Inventory.DataFence.KubernetesCapture
 import Nagare.Inventory.DataFence.KubernetesExclusion
 import Nagare.Inventory.DataFence.KubernetesIntent (decodeKubernetesFenceIntent)
 import Nagare.Inventory.DataFence.MaintenanceNetwork
+import Nagare.Inventory.DataFence.MaintenanceClickHouse
 import Nagare.Inventory.DataFence.MaintenancePostgres
 import Nagare.Inventory.DataFence.MaintenanceRedis
 import Nagare.Inventory.Store (DataFenceRecord (..), ScopeRevision)
@@ -65,8 +66,8 @@ registerKubernetesMaintenanceFence factory selectPin =
             Postgres -> observePostgresClients
               (kubectlPostgresMaintenanceTransport config)
             Redis -> observeRedisClients (kubectlRedisMaintenanceTransport config)
-            ClickHouse -> \_ _ _ -> pure
-              (Left "ClickHouse reviewed maintenance is not implemented")
+            ClickHouse -> observeClickHouseClients
+              (kubectlClickHouseMaintenanceTransport config)
       pure (kubernetesMaintenanceFenceControls
         (kubectlKubernetesExclusion config (factoryAccepted factory)
           (factoryDeclarations factory) (factoryNative factory))

@@ -200,7 +200,7 @@ compileMaintenanceScope request accepted native = do
       && sourcePvc == Just (resourceIdText (pvc ^. #identity))
       && sourcePvcUid == Just (physicalIdentityText (maintenancePvcUid request)))
     (Left (invalid "maintenance recovery belongs to another target incarnation or ID"))
-  unless (maintenanceEngine request `elem` [Postgres, Redis])
+  unless (maintenanceEngine request `elem` [Postgres, Redis, ClickHouse])
     (Left (invalid "reviewed maintenance does not support this database engine"))
   unless (case statefulValue of
       Object root | Just (Object metadata) <- KM.lookup "metadata" root

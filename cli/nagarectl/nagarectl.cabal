@@ -135,6 +135,8 @@ library
     Nagare.Inventory.DataFence.MaintenanceNetwork
     Nagare.Inventory.DataFence.MaintenancePostgres
     Nagare.Inventory.DataFence.MaintenanceRedis
+    Nagare.Inventory.DataFence.MaintenanceClickHouse
+    Nagare.Inventory.DataFence.CompletedJob
     Nagare.Inventory.DataFence.GuardAuthority
     Nagare.Inventory.DataFence.VolumeState
     Nagare.Inventory.DataFence.StatefulWriter

@@ -20,6 +20,7 @@ import Data.Aeson (Value (..), eitherDecodeStrict')
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
+import Data.List (sort)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
@@ -31,6 +32,7 @@ import Nagare.Inventory.Adapters.KubernetesRuntime
   (KubernetesRuntimeConfig (..))
 import Nagare.Inventory.DataFence (DataFenceControls (..), WriterReleaseState (..))
 import Nagare.Inventory.DataFence.DatabaseShutdown
+import Nagare.Inventory.DataFence.CompletedJob
 import Nagare.Inventory.DataFence.DeploymentWriter qualified as Deployment
 import Nagare.Inventory.DataFence.GuardAuthority
 import Nagare.Inventory.DataFence.KubernetesIntent
@@ -59,6 +61,7 @@ data KubernetesExclusion = KubernetesExclusion
   , exclusionDeploymentTransport :: !Deployment.DeploymentWriterTransport
   , exclusionServiceTransport :: !ServiceTransport
   , exclusionScheduleTransport :: !ScheduledWriterTransport
+  , exclusionCompletedJobTransport :: !CompletedJobTransport
   , exclusionShutdownTransport :: !DatabaseShutdownTransport
   }
 
@@ -67,7 +70,8 @@ mkKubernetesExclusion :: ContextId -> Map ScopeId ScopeRevision
   -> MountGuardTransport -> GuardAccessTransport -> VolumeTransport
   -> StatefulWriterTransport
   -> Deployment.DeploymentWriterTransport -> ServiceTransport
-  -> ScheduledWriterTransport -> DatabaseShutdownTransport
+  -> ScheduledWriterTransport -> CompletedJobTransport
+  -> DatabaseShutdownTransport
   -> KubernetesExclusion
 mkKubernetesExclusion = KubernetesExclusion
 
@@ -83,6 +87,7 @@ kubectlKubernetesExclusion config accepted declarations native =
     (Deployment.kubectlDeploymentWriterTransport config)
     (kubectlServiceTransport config)
     (kubectlScheduledWriterTransport config)
+    (kubectlCompletedJobTransport config)
     (kubectlDatabaseShutdownTransport config)
 
 -- | Bind every shared fence callback to the same reviewed Kubernetes
@@ -161,7 +166,9 @@ maintenanceIntent exclusion engine pin record = do
       && all ((== networkNamespace pin) . Deployment.writerNamespace . snd)
         (kubernetesDeploymentWriters intent)
       && all ((== networkNamespace pin) . scheduleNamespace . snd)
-        (kubernetesScheduledWriters intent))
+        (kubernetesScheduledWriters intent)
+      && all ((== networkNamespace pin) . completedJobNamespace . snd)
+        (kubernetesCompletedJobs intent))
     (Left "maintenance policy cannot protect a writer in another namespace")
   accepted <- acceptedDatabaseServer exclusion intent
   image <- case accepted of
@@ -200,6 +207,8 @@ observeProtectedMaintenancePolicy exclusion intent network pin = case
         | (_, selected) <- kubernetesDeploymentWriters intent]
       <> [("batch", "cronjobs", scheduleName selected)
         | (_, selected) <- kubernetesScheduledWriters intent]
+      <> [("batch", "jobs", completedJobName selected)
+        | (_, selected) <- kubernetesCompletedJobs intent]
 
 stopMaintenanceWriters :: KubernetesExclusion -> MaintenanceNetworkTransport
   -> Engine -> MaintenanceNetworkPin -> DataFenceRecord -> IO (Either Text ())
@@ -288,6 +297,9 @@ observeMaintenanceExcluded exclusion network engine observeClients pin record = 
           (map snd (kubernetesScheduledWriters intent))
         volume <- observeVolumeState (exclusionVolumeTransport exclusion)
           guard (kubernetesVolumeBacking intent)
+        completed <- traverse (observeCompletedJob
+          (exclusionCompletedJobTransport exclusion) . snd)
+          (kubernetesCompletedJobs intent)
         observedClients <- observeClients (networkNamespace pin)
           (networkPodName pin) (networkPodUid pin)
         afterGuard <- observeProtectedMountGuard exclusion intent guard
@@ -300,6 +312,7 @@ observeMaintenanceExcluded exclusion network engine observeClients pin record = 
           deploymentStopped <- sequence deployments
           scheduleStopped <- sequence schedules
           evidence <- volume
+          terminalConsumers <- concat <$> sequence completed
           clientsGone <- observedClients
           guarded <- afterGuard
           policy <- afterPolicy
@@ -308,8 +321,9 @@ observeMaintenanceExcluded exclusion network engine observeClients pin record = 
             (Left "maintenance database StatefulSet is not ready")
           unless (and stopped && and deploymentStopped && and scheduleStopped)
             (Left "maintenance managed clients are not stopped")
-          unless (volumePodConsumers evidence
-              == [networkPodName pin <> "/" <> networkPodUid pin]
+          unless (sort (volumePodConsumers evidence)
+              == sort ((networkPodName pin <> "/" <> networkPodUid pin)
+                : terminalConsumers)
               && null (volumeAttachmentConsumers evidence))
             (Left "maintenance PVC has another Pod or attachment consumer")
           unless clientsGone
@@ -390,10 +404,13 @@ protectedWorkloadPrincipals exclusion intent = do
   schedules <- traverse (\(resource, pin) -> acceptedPrincipal resource
     (scheduleNamespace pin) ["jobTemplate", "spec", "template", "spec"])
     (kubernetesScheduledWriters intent)
+  jobs <- traverse (\(resource, pin) -> acceptedPrincipal resource
+    (completedJobNamespace pin) ["template", "spec"])
+    (kubernetesCompletedJobs intent)
   let targetDefault = "system:serviceaccount:"
         <> guardNamespaceName (kubernetesMountGuard intent) <> ":default"
   pure (Set.toAscList (Set.fromList
-    (targetDefault : stateful <> deployments <> schedules)))
+    (targetDefault : stateful <> deployments <> schedules <> jobs)))
   where
     acceptedPrincipal resource namespace path = do
       (_, bytes) <- maybe
@@ -682,6 +699,8 @@ observeExactPhysical exclusion intent = do
       (exclusionDeploymentTransport exclusion) pin
   schedules <- forM (kubernetesScheduledWriters intent) $ \(_, pin) ->
     observeScheduledWriterIdentity (exclusionScheduleTransport exclusion) pin
+  completed <- forM (kubernetesCompletedJobs intent) $ \(_, pin) ->
+    observeCompletedJob (exclusionCompletedJobTransport exclusion) pin
   service <- traverse (observeServiceState (exclusionServiceTransport exclusion))
     (kubernetesService intent)
   pure $ do
@@ -690,6 +709,7 @@ observeExactPhysical exclusion intent = do
     sequence_ writers
     sequence_ deployments
     sequence_ schedules
+    sequence_ completed
     case service of
       Nothing -> Right ()
       Just observed -> () <$ observed
@@ -716,6 +736,8 @@ observeKubernetesExcluded exclusion record = case validatedIntent exclusion reco
             (exclusionDeploymentTransport exclusion) pin
         schedules <- forM (kubernetesScheduledWriters intent) $ \(_, pin) ->
           observeScheduledWriterStopped (exclusionScheduleTransport exclusion) pin
+        completed <- forM (kubernetesCompletedJobs intent) $ \(_, pin) ->
+          observeCompletedJob (exclusionCompletedJobTransport exclusion) pin
         volume <- observeVolumeState (exclusionVolumeTransport exclusion)
           mountGuard (kubernetesVolumeBacking intent)
         service <- case kubernetesService intent of
@@ -728,11 +750,13 @@ observeKubernetesExcluded exclusion record = case validatedIntent exclusion reco
           stopped <- sequence writers
           deploymentStopped <- sequence deployments
           suspended <- sequence schedules
+          terminalConsumers <- concat <$> sequence completed
           evidence <- volume
           serviceEmpty <- service
           guarded <- after
           pure (and stopped && and deploymentStopped && and suspended
-            && volumeHasNoConsumers evidence
+            && sort (volumePodConsumers evidence) == sort terminalConsumers
+            && null (volumeAttachmentConsumers evidence)
             && serviceEmpty && guarded)
 
 -- | The release overlay is observed before acquisition-guard cleanup and

@@ -24,6 +24,7 @@ import Nagare.Inventory.DataFence.KubernetesAdapter
 import Nagare.Inventory.DataFence.KubernetesCapture
 import Nagare.Inventory.DataFence.KubernetesIntent
 import Nagare.Inventory.DataFence.MaintenanceNetwork
+import Nagare.Inventory.DataFence.MaintenanceClickHouse
 import Nagare.Inventory.DataFence.MaintenancePostgres
 import Nagare.Inventory.DataFence.MaintenanceRedis
 import Nagare.Inventory.Digest (contentDigest)
@@ -157,7 +158,9 @@ registerMaintenanceFence config binding accepted scopes declarations native regi
           Redis -> observeRedisClients
             (kubectlRedisMaintenanceTransport config)
             (networkNamespace pin) (networkPodName pin) (networkPodUid pin)
-          ClickHouse -> pure (Left "ClickHouse reviewed maintenance is not implemented")
+          ClickHouse -> observeClickHouseClients
+            (kubectlClickHouseMaintenanceTransport config)
+            (networkNamespace pin) (networkPodName pin) (networkPodUid pin)
         terminateClients proof pin = case maintenanceSourceEngine proof of
           Postgres -> terminateMarkedPostgresClients
             (kubectlPostgresMaintenanceTransport config)
@@ -167,7 +170,10 @@ registerMaintenanceFence config binding accepted scopes declarations native regi
             (kubectlRedisMaintenanceTransport config)
             (networkNamespace pin) (networkPodName pin) (networkPodUid pin)
             (maintenanceSourceSession proof)
-          ClickHouse -> pure (Left "ClickHouse reviewed maintenance is not implemented")
+          ClickHouse -> terminateMarkedClickHouseClients
+            (kubectlClickHouseMaintenanceTransport config)
+            (networkNamespace pin) (networkPodName pin) (networkPodUid pin)
+            (maintenanceSourceSession proof)
     registerKubernetesMaintenanceFence factory selectPin registry
 
 maintenanceProofIndex :: [ScopeDeclaration]

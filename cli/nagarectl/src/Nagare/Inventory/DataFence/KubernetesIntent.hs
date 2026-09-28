@@ -25,6 +25,7 @@ import Data.Vector qualified as V
 import Nagare.Dsl.Database (Engine, engineImage, engineToken, mkEngineVersion, parseEngine)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.DataFence.DeploymentWriter qualified as Deployment
+import Nagare.Inventory.DataFence.CompletedJob
 import Nagare.Inventory.DataFence.MountGuard
 import Nagare.Inventory.DataFence.ServiceState
 import Nagare.Inventory.DataFence.ScheduledWriter
@@ -46,6 +47,7 @@ data KubernetesFenceIntent = KubernetesFenceIntent
   , kubernetesStatefulWriters :: ![(ResourceId, StatefulWriterPin)]
   , kubernetesDeploymentWriters :: ![(ResourceId, Deployment.DeploymentWriterPin)]
   , kubernetesScheduledWriters :: ![(ResourceId, ScheduledWriterPin)]
+  , kubernetesCompletedJobs :: ![(ResourceId, CompletedJobPin)]
   , kubernetesWriterMountsTarget :: !(Map.Map ResourceId Bool)
   , kubernetesService :: !(Maybe ServicePin)
   , kubernetesGuardPrincipals :: ![Text]
@@ -100,11 +102,13 @@ data RawSavedWriter
   = RawStateful !RawWriter
   | RawDeployment !RawDeploymentWriter
   | RawScheduled !RawSchedule
+  | RawCompleted !CompletedJobPin !Bool
 
 data WriterPin
   = PinnedStateful !StatefulWriterPin
   | PinnedDeployment !Deployment.DeploymentWriterPin !(Maybe RawReplicaSet)
   | PinnedScheduled !ScheduledWriterPin
+  | PinnedCompleted !CompletedJobPin
 
 data RawRestoreJob = RawRestoreJob
   { rawJobName :: !Text
@@ -150,6 +154,7 @@ decodeKubernetesFenceIntent record = do
           RawStateful writer -> rawWriterUid writer
           RawDeployment deployment -> rawDeploymentUid deployment
           RawScheduled schedule -> rawScheduleUid schedule
+          RawCompleted pin _ -> completedJobUid pin
     unless (fmap physicalIdentityText (Map.lookup resource (fencePhysical record))
         == Just uid)
       (Left "Kubernetes writer UID differs from durable physical identity")
@@ -187,12 +192,22 @@ decodeKubernetesFenceIntent record = do
             || rawScheduleNamespace schedule == rawNamespace volume)
           (Left "Kubernetes PVC writer belongs to another namespace")
         pure (resource, PinnedScheduled pin, rawScheduleMountsTarget schedule)
+      RawCompleted pin mounted -> do
+        _ <- mkName (completedJobNamespace pin)
+        _ <- mkName (completedJobName pin)
+        unless (validUid (completedJobUid pin))
+          (Left "completed Job UID is malformed")
+        unless (not mounted || completedJobNamespace pin == rawNamespace volume)
+          (Left "completed Job PVC mount belongs to another namespace")
+        pure (resource, PinnedCompleted pin, mounted)
   let statefulWriters = [(resource, pin)
         | (resource, PinnedStateful pin, _) <- writers]
       deploymentWriters = [(resource, pin)
         | (resource, PinnedDeployment pin _, _) <- writers]
       scheduledWriters = [(resource, pin)
         | (resource, PinnedScheduled pin, _) <- writers]
+      completedJobs = [(resource, pin)
+        | (resource, PinnedCompleted pin, _) <- writers]
   let serviceIds = maybe Set.empty (Set.singleton . serviceResource) service
   unless (Set.null (Set.intersection serviceIds
       (Set.union (fenceTargets record) (fenceAffected record))))
@@ -246,7 +261,7 @@ decodeKubernetesFenceIntent record = do
   pure (KubernetesFenceIntent cluster root databaseEngine networkExcluded
     (rawResource volume)
     mountGuard releaseGuard (rawBacking volume)
-    statefulWriters deploymentWriters scheduledWriters
+    statefulWriters deploymentWriters scheduledWriters completedJobs
     (Map.fromList [(resource, mounted) | (resource, _, mounted) <- writers])
     service guardPrincipals)
 
@@ -261,7 +276,9 @@ validateKubernetesWriterInventory intent candidates = do
         <> [(resource, PinnedDeployment pin Nothing)
         | (resource, pin) <- kubernetesDeploymentWriters intent]
         <> [(resource, PinnedScheduled pin)
-        | (resource, pin) <- kubernetesScheduledWriters intent])
+        | (resource, pin) <- kubernetesScheduledWriters intent]
+        <> [(resource, PinnedCompleted pin)
+        | (resource, pin) <- kubernetesCompletedJobs intent])
       discovered = Map.fromList [(candidateResource candidate, candidate)
         | candidate <- candidates]
   unless (length candidates == Map.size discovered
@@ -276,7 +293,9 @@ validateKubernetesWriterInventory intent candidates = do
         PinnedDeployment deployment _ -> candidateKind candidate == DeploymentWriter
           && matchesDeploymentAddress intent deployment (candidateAddress candidate)
         PinnedScheduled scheduled -> candidateKind candidate == CronJobWriter
-          && matchesScheduleAddress intent scheduled (candidateAddress candidate))
+          && matchesScheduleAddress intent scheduled (candidateAddress candidate)
+        PinnedCompleted job -> candidateKind candidate == JobWriter
+          && matchesCompletedAddress intent job (candidateAddress candidate))
       (Left "accepted writer controller differs from reviewed fence writer")
     unless (Map.lookup resource (kubernetesWriterMountsTarget intent)
         == Just (candidateByMount candidate))
@@ -308,6 +327,15 @@ matchesScheduleAddress intent pin (Kubernetes cluster "batch" kind namespace nam
     && fmap nameText namespace == Just (scheduleNamespace pin)
     && nameText name == scheduleName pin
 matchesScheduleAddress _ _ _ = False
+
+matchesCompletedAddress :: KubernetesFenceIntent -> CompletedJobPin
+  -> ProviderAddress -> Bool
+matchesCompletedAddress intent pin (Kubernetes cluster "batch" kind namespace name) =
+  cluster == kubernetesCluster intent
+    && nameText kind == "job"
+    && fmap nameText namespace == Just (completedJobNamespace pin)
+    && nameText name == completedJobName pin
+matchesCompletedAddress _ _ _ = False
 
 validateBacking :: VolumeBacking -> Either Text ()
 validateBacking (CsiVolume driver handle) =
@@ -454,6 +482,10 @@ parseSavedWriter = withObject "saved Kubernetes writer" $ \o -> do
       RawScheduled <$> (RawSchedule <$> o .: "namespace" <*> o .: "name"
         <*> o .: "uid" <*> o .:? "suspend" <*> o .: "specDigest"
         <*> o .: "mountsTarget")
+    "CompletedJob" -> do
+      onlyKeys ["kind", "namespace", "name", "uid", "specDigest", "mountsTarget"] o
+      RawCompleted <$> (CompletedJobPin <$> o .: "namespace" <*> o .: "name"
+        <*> o .: "uid" <*> o .: "specDigest") <*> o .: "mountsTarget"
     _ -> fail "Kubernetes writer has no implemented stop control"
 
 parseJob :: Value -> Parser RawRestoreJob

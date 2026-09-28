@@ -138,12 +138,6 @@ discoverWriterCandidatesWithNetworkPolicy networkExcluded target routes cluster 
   unless (not (maybe False declarationNeedsNativeControl (Map.lookup target byId))
       || Set.member target selectedIds)
     (Left "fenced writer target has no supported native control")
-  let uncontrolled = [resourceIdText (candidateResource candidate)
-        | candidate <- candidates, candidateKind candidate `notElem`
-            [StatefulSetWriter, DeploymentWriter, CronJobWriter]]
-  unless (null uncontrolled)
-    (Left ("accepted writer has no implemented fence control: "
-      <> T.intercalate "," uncontrolled))
   pure candidates
 
 dependentClosure :: Set ResourceId -> [Declaration] -> Set ResourceId

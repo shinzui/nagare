@@ -26,6 +26,7 @@ import Nagare.Inventory.Adapters.KubernetesRuntime
   ( KubernetesRuntimeConfig
   )
 import Nagare.Inventory.DataFence.DeploymentWriter qualified as Deployment
+import Nagare.Inventory.DataFence.CompletedJob
 import Nagare.Inventory.DataFence.GuardAuthority
 import Nagare.Inventory.DataFence.DatabaseShutdown
 import Nagare.Inventory.DataFence.KubernetesExclusion
@@ -67,6 +68,7 @@ data KubernetesCaptureTransport = KubernetesCaptureTransport
   , captureStatefulTransport :: !StatefulWriterTransport
   , captureDeploymentTransport :: !Deployment.DeploymentWriterTransport
   , captureScheduleTransport :: !ScheduledWriterTransport
+  , captureCompletedJobTransport :: !CompletedJobTransport
   , captureServiceTransport :: !ServiceTransport
   , captureShutdownTransport :: !DatabaseShutdownTransport
   }
@@ -82,6 +84,7 @@ kubectlKubernetesCaptureTransport config =
     (kubectlStatefulWriterTransport config)
     (Deployment.kubectlDeploymentWriterTransport config)
     (kubectlScheduledWriterTransport config)
+    (kubectlCompletedJobTransport config)
     (kubectlServiceTransport config)
     (kubectlDatabaseShutdownTransport config)
 
@@ -243,6 +246,7 @@ captureKubernetesFence transport declarations native request = do
                                   (captureDeploymentTransport transport)
                                   (captureServiceTransport transport)
                                   (captureScheduleTransport transport)
+                                  (captureCompletedJobTransport transport)
                                   (captureShutdownTransport transport)
                           checked <- validateKubernetesExclusion validator record
                           pure (record <$ checked)
@@ -313,13 +317,19 @@ captureWriter transport native candidate = case candidateAddress candidate of
           (captureScheduleTransport transport)
           ns
           nativeName
-      _ -> pure (Left "accepted writer has no capture control")
+      JobWriter -> readCompletedJob (captureCompletedJobTransport transport)
+        ns nativeName
+    completed <- if candidateKind candidate == JobWriter
+      then fmap (fmap Just) (captureCompletedJob
+        (captureCompletedJobTransport transport) ns nativeName)
+      else pure (Right Nothing)
     replicaSets <- if candidateKind candidate == DeploymentWriter && mounted
       then Deployment.listDeploymentReplicaSets
         (captureDeploymentTransport transport) ns
       else pure (Right (object ["items" .= ([] :: [Value])]))
     pure $ do
       value <- current
+      completedPin <- completed
       metadata <- objectField "metadata" =<< asObject "writer" value
       exactName ns nativeName metadata
       uid <- textField "uid" metadata
@@ -329,7 +339,7 @@ captureWriter transport native candidate = case candidateAddress candidate of
         StatefulSetWriter -> Right ["spec", "template", "spec"]
         DeploymentWriter -> Right ["spec", "template", "spec"]
         CronJobWriter -> Right ["spec", "jobTemplate", "spec", "template", "spec"]
-        _ -> Left "accepted writer has no service-account template"
+        JobWriter -> Right ["spec", "template", "spec"]
       (_, acceptedBytes) <- maybe
         (Left "accepted writer lacks native evidence") Right
         (Map.lookup resource native)
@@ -406,7 +416,18 @@ captureWriter transport native candidate = case candidateAddress candidate of
                 , "mountsTarget" .= mounted
                 ]
             )
-        _ -> Left "accepted writer has no capture control"
+        JobWriter -> do
+          pin <- maybe (Left "completed Job proof is absent") Right completedPin
+          unless (uid == completedJobUid pin)
+            (Left "completed Job changed during fence capture")
+          pure (object
+            [ "kind" .= ("CompletedJob" :: Text)
+            , "namespace" .= ns
+            , "name" .= nativeName
+            , "uid" .= uid
+            , "specDigest" .= completedJobSpecDigest pin
+            , "mountsTarget" .= mounted
+            ])
       pure (resource, physical, saved)
   _ -> pure (Left "accepted writer has no namespaced Kubernetes address")
 

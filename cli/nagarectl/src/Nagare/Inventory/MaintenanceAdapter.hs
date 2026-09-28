@@ -23,6 +23,7 @@ import Nagare.Inventory.Adapters.KubernetesRuntime
   ( KubernetesRuntimeConfig (..)
   , mkKubernetesRuntimeOpsWithCacheKey, readBackupReceiptFromCompletedPod )
 import Nagare.Inventory.DataFence.MaintenancePostgres
+import Nagare.Inventory.DataFence.MaintenanceClickHouse
 import Nagare.Inventory.DataFence.MaintenanceRedis
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Maintenance
@@ -113,7 +114,8 @@ maintenanceAdapter config scopes native base = base
                 Redis -> "NAGARE_MAINTENANCE_SESSION=" <> marker
                   <> " REDISCLI_AUTH=\"$REDIS_PASSWORD\" exec redis-cli --no-auth-warning --name "
                   <> marker
-                ClickHouse -> "exit 1"
+                ClickHouse -> "NAGARE_MAINTENANCE_SESSION=" <> marker
+                  <> " exec clickhouse-client --user \"$CLICKHOUSE_USER\" --password \"$CLICKHOUSE_PASSWORD\""
               command = (proc "kubectl"
                 ["--context", T.unpack (runtimeKubectlContext config),
                   "--namespace", T.unpack namespace,
@@ -143,8 +145,8 @@ maintenanceAdapter config scopes native base = base
                     (kubectlPostgresMaintenanceTransport config)
                   Redis -> observeRedisClients
                     (kubectlRedisMaintenanceTransport config)
-                  ClickHouse -> \_ _ _ -> pure
-                    (Left "ClickHouse reviewed maintenance is not implemented")
+                  ClickHouse -> observeClickHouseClients
+                    (kubectlClickHouseMaintenanceTransport config)
             clients <- observeClients (maintenanceSourceNamespace proof)
               (maintenanceSourceDatabase proof <> "-0")
               (physicalIdentityText (maintenanceSourcePodUid proof))

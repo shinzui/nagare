@@ -538,7 +538,7 @@ the labels `nagare.dev/managed-by: nagarectl` + `nagare.dev/database=<name>` +
 | `nagarectl db create ENGINE NAME [--version V] [--size Q] [--memory Q] [--config F] --recovery-backup B --recovery-key-version V` | Publish and apply a reviewed database; `--save-plan` saves the review. |
 | `nagarectl db get NAME` | Detail: engine, version, size, in-cluster host, retention, ready, Secret key names. |
 | `nagarectl db shell NAME` | Interactive `psql`/`redis-cli`/`clickhouse-client` inside the pod. |
-| `nagarectl db shell NAME --session-id ID --recovery-backup ID --save-plan DIR` | Save a reviewed PostgreSQL or Redis maintenance session against an accepted database and completed recovery backup; apply separately in an interactive terminal. |
+| `nagarectl db shell NAME --session-id ID --recovery-backup ID --save-plan DIR` | Save a reviewed PostgreSQL, Redis, or ClickHouse maintenance session against an accepted database and completed recovery backup; apply separately in an interactive terminal. |
 | `nagarectl db restart NAME` | Roll the StatefulSet and wait for ready. |
 | `nagarectl db delete NAME --save-plan DIR` | Save a reviewed retirement that retains provider resources; apply separately. |
 | `nagarectl db backup NAME --backup-id ID --save-plan DIR` | Save a reviewed manual backup Job and apply separately. |
