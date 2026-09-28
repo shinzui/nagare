@@ -504,6 +504,8 @@ recoverInventoryWithFactory registryFor target transactionToken operationToken d
       TIO.putStrLn "Terminal scheduled prune review abandoned; exact provider members remain unresolved until a separate reviewed recovery"
     AbandonPartialVolumeRestore ->
       TIO.putStrLn "Terminal volume restore review abandoned; partial scratch PVC remains unresolved until a separate reviewed recovery; use a fresh restore ID"
+    AbandonPartialDatabaseRestore ->
+      TIO.putStrLn "Terminal database restore review abandoned; partial scratch database remains unresolved until a separate reviewed recovery; use a fresh restore ID"
     RecoverFencedBackup ->
       TIO.putStrLn "Reviewed recovery backup proved and original restore review abandoned; inspect inventory status before saving a new review"
     ForwardFencedRelease -> do
