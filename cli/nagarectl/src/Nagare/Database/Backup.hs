@@ -21,6 +21,7 @@ module Nagare.Database.Backup
   , manualDatabaseJobName
   , backupExt
   , backupRawExt
+  , clickHouseSourceAffinity
 
     -- * Schedule
   , defaultBackupSchedule
@@ -73,6 +74,7 @@ import Nagare.Cluster.GcsJob
   )
 import Nagare.Database.Discover (DbRow (..), getDatabase)
 import Nagare.Dsl.Database (Engine (..), dbSecretName, engineImage, parseEngine)
+import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Resource.Canonical (contentDigest)
 import Nagare.Resource.Canonical (canonicalValue)
@@ -132,13 +134,13 @@ manualDatabaseJobName prefix databaseName timestamp =
 backupExt :: Engine -> Text
 backupExt Postgres = "sql.gz"
 backupExt Redis = "rdb.gz"
-backupExt ClickHouse = "native.gz"
+backupExt ClickHouse = "zip.gz"
 
 -- | The uncompressed dump-file extension per engine (the gzip strips the @.gz@).
 backupRawExt :: Engine -> Text
 backupRawExt Postgres = "sql"
 backupRawExt Redis = "rdb"
-backupRawExt ClickHouse = "native"
+backupRawExt ClickHouse = "zip"
 
 -- | The default scheduled-backup cron expression: 03:17 UTC daily (a quiet,
 -- deterministic time; the odd minute avoids a top-of-hour thundering herd).
@@ -216,10 +218,30 @@ backupJobSpecValue i =
       , serviceAccountName = if sourceAttested i then Just (i ^. #jobName) else Nothing
       , backoffLimit = 2
       , hostAliases = storeHostAliases (i ^. #backend)
+      , affinity = if i ^. #engine == ClickHouse then
+          Just (clickHouseSourceAffinity (i ^. #namespace) (i ^. #name)) else Nothing
       , initContainers = [sourceProbeContainer i | sourceAttested i] <> [dumpContainer i]
       , containers = [uploadContainer i]
       , volumes = [object ["name" .= ("dump" :: Text), "emptyDir" .= object []]]
+          <> [object ["name" .= ("source-data" :: Text),
+              "persistentVolumeClaim" .= object ["claimName" .= dbPvcName (i ^. #name)]]
+              | i ^. #engine == ClickHouse]
       }
+
+-- | ClickHouse writes its consistent database archive on the server's data
+-- volume. Read that exact PVC from a Job placed on the server's node; the
+-- accepted source PVC/StatefulSet are independently pinned by the review.
+clickHouseSourceAffinity :: Text -> Text -> Value
+clickHouseSourceAffinity namespaceName databaseName = object
+  [ "podAffinity" .= object
+      [ "requiredDuringSchedulingIgnoredDuringExecution" .= toJSON [object
+          [ "labelSelector" .= object ["matchLabels" .= object
+              [ "nagare.dev/database" .= databaseName
+              , "nagare.dev/engine" .= ("clickhouse" :: Text) ]]
+          , "namespaces" .= toJSON [namespaceName]
+          , "topologyKey" .= ("kubernetes.io/hostname" :: Text) ]]
+      ]
+  ]
 
 -- | Only reviewed schedules use a dedicated account to observe their source.
 -- A manual backup already pins the source through its accepted review.
@@ -281,8 +303,20 @@ dumpContainer i =
     , "image" .= (i ^. #clientImage)
     , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
     , "args" .= toJSON ["set -e; " <> waitForServer (i ^. #engine) (i ^. #serviceHost) <> dumpShell (i ^. #engine) (i ^. #serviceHost)]
-    , "env" .= toJSON (dumpEnv (i ^. #engine) (i ^. #secretName))
-    , "volumeMounts" .= toJSON [dumpMount]
+    , "env" .= toJSON (dumpEnv (i ^. #engine) (i ^. #secretName)
+        <> [backupRunEnv i | i ^. #engine == ClickHouse])
+    , "volumeMounts" .= toJSON (dumpMount :
+        [object ["name" .= ("source-data" :: Text),
+          "mountPath" .= ("/source-data" :: Text)] | i ^. #engine == ClickHouse])
+    ]
+
+backupRunEnv :: BackupJobInputs -> Value
+backupRunEnv i = case i ^. #destination of
+  BackupDestUrl _ -> plainEnv "BACKUP_RUN_ID" (i ^. #jobName)
+  BackupDestStamped -> object
+    [ "name" .= ("BACKUP_RUN_ID" :: Text)
+    , "valueFrom" .= object ["fieldRef" .= object
+        ["fieldPath" .= ("metadata.labels['batch.kubernetes.io/controller-uid']" :: Text)]]
     ]
 
 -- | The upload main container: the backend's data-movement image gzips the
@@ -376,11 +410,14 @@ dumpShell Postgres svc =
 dumpShell Redis svc =
   "redis-cli -h " <> svc <> " -a \"$REDIS_PASSWORD\" --rdb /dump/backup.rdb"
 dumpShell ClickHouse svc =
-  "CH=\"clickhouse-client -h "
-    <> svc
-    <> " --user $CLICKHOUSE_USER --password $CLICKHOUSE_PASSWORD\"; "
-    <> "$CH --query \"SHOW TABLES FROM default\" | while read t; do "
-    <> "$CH --query \"SELECT * FROM default.\\`$t\\` FORMAT Native\"; done > /dump/backup.native"
+  "case \"$BACKUP_RUN_ID\" in ''|*[!a-zA-Z0-9-]*) exit 1;; esac; "
+    <> "ARCHIVE=\"/source-data/backups/${BACKUP_RUN_ID}.zip\"; "
+    <> "test ! -e \"$ARCHIVE\"; "
+    <> "clickhouse-client -h " <> svc
+    <> " --user \"$CLICKHOUSE_USER\" --password \"$CLICKHOUSE_PASSWORD\" "
+    <> "--query \"BACKUP DATABASE default TO File('${BACKUP_RUN_ID}.zip')\"; "
+    <> "test -s \"$ARCHIVE\"; cp \"$ARCHIVE\" /dump/backup.zip; "
+    <> "rm -- \"$ARCHIVE\""
 
 -- | The upload shell: gzip + a backend copy to @$DEST@. Reviewed Jobs and
 -- schedules read back the exact stored bytes and compare SHA-256; fixed-key

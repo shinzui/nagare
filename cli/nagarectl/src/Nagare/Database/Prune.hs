@@ -53,6 +53,7 @@ renderPruneJobWithLabel label inputs = Y.encode $ object
       { templateLabels = Just labels
       , serviceAccountName = Nothing
       , hostAliases = storeHostAliases (inputs ^. #backend)
+      , affinity = Nothing
       , initContainers = []
       , containers = [object
           [ "name" .= ("prune" :: Text)

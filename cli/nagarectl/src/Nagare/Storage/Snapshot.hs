@@ -150,6 +150,7 @@ jobValue i =
             , serviceAccountName = Nothing
             , backoffLimit = 0
             , hostAliases = storeHostAliases (i ^. #backend)
+            , affinity = Nothing
             , initContainers = []
             , containers =
                 [ object
@@ -214,6 +215,7 @@ renderReviewedSnapshotJob input = Y.encode $ object
       , serviceAccountName = Nothing
       , backoffLimit = 0
       , hostAliases = storeHostAliases backend
+      , affinity = Nothing
       , initContainers = []
       , containers = [object
           [ "name" .= ("upload" :: Text)

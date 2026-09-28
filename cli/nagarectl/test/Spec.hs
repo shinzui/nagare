@@ -5085,9 +5085,9 @@ backupRestoreTests =
           assertBool "long restore Job name exceeds the native limit" (T.length restore <= 63)
           assertBool "restore Job loses its timestamp" (T.isSuffixOf "20260610t141503z" restore)
       , testCase "backupExt per engine" $
-          map backupExt [Postgres, Redis, ClickHouse] @?= ["sql.gz", "rdb.gz", "native.gz"]
+          map backupExt [Postgres, Redis, ClickHouse] @?= ["sql.gz", "rdb.gz", "zip.gz"]
       , testCase "backupRawExt per engine" $
-          map backupRawExt [Postgres, Redis, ClickHouse] @?= ["sql", "rdb", "native"]
+          map backupRawExt [Postgres, Redis, ClickHouse] @?= ["sql", "rdb", "zip"]
       , testCase "defaultBackupSchedule is daily 03:17 UTC" $
           defaultBackupSchedule @?= "17 3 * * *"
       ]
@@ -5102,6 +5102,21 @@ backupRestoreTests =
           assertBool "metadata host" ("169.254.169.254" `T.isInfixOf` y)
           assertBool "hostAliases for metadata.google.internal" ("metadata.google.internal" `T.isInfixOf` y)
           assertBool "no self-prune for on-demand" (not ("pruning" `T.isInfixOf` y))
+      , testCase "ClickHouse producer stages a database ZIP from its source PVC" $ do
+          let inputs = backupJobInputsPg
+                { engine = ClickHouse
+                , clientImage = "clickhouse/clickhouse-server:25.8"
+                , serviceHost = "mydb"
+                , destination = BackupDestUrl "s3://nagare-backups/manual-databases/personal/mydb/one.zip.gz"
+                , backend = localMinioBackend
+                }
+              y = TE.decodeUtf8 (renderBackupJob inputs)
+          assertBool "database-native archive" ("BACKUP DATABASE default TO File" `T.isInfixOf` y)
+          assertBool "no concatenated table streams" (not ("FORMAT Native" `T.isInfixOf` y))
+          assertBool "source PVC" ("nagare-db-mydb-data" `T.isInfixOf` y)
+          assertBool "source node placement" ("kubernetes.io/hostname" `T.isInfixOf` y)
+          assertBool "private archive staging" ("/dump/backup.zip" `T.isInfixOf` y)
+          assertBool "temporary server archive cleanup" ("rm --" `T.isInfixOf` y)
       , testCase "renderBackupCronJob wraps the body on a schedule and self-prunes" $ do
           let cron =
                 BackupCronInputs
@@ -5909,6 +5924,29 @@ backupRestoreTests =
           assertBool "verification observes the isolated server"
             (all (`BC.isInfixOf` verify)
               ["mydb-restore-rdbone", "DBSIZE", "loading:0"])
+      , testCase "reviewed ClickHouse scratch restores a pinned database ZIP" $ do
+          let scratch = "mydb_restore_zipone"
+              selected = VerifiedRestoreSource
+                "s3://nagare-backups/databases/mydb/run-001.zip.gz.receipt.json"
+                "receipt-sha" "object-sha" scratch 0 (Just "object-version") (Just "receipt-version")
+              request = restoreJobInputsPg
+                & #engine .~ ClickHouse
+                & #clientImage .~ "clickhouse/clickhouse-server:25.8"
+                & #sourceUrl .~ "s3://nagare-backups/databases/mydb/run-001.zip.gz"
+                & #verifiedSource .~ Just selected
+                & #backend .~ localMinioBackend
+              rendered = renderRestoreJob request
+          assertBool "download verifies exact versions before exposing the ZIP"
+            (all (`BC.isInfixOf` rendered)
+              ["OBJECT_VERSION", "RECEIPT_VERSION", "EXPECTED_BACKUP_SHA256",
+               "EXPECTED_RECEIPT_SHA256", "/dump/backup.zip"])
+          assertBool "restore shares only the accepted source PVC on its node"
+            (all (`BC.isInfixOf` rendered)
+              ["nagare-db-mydb-data", "kubernetes.io/hostname", "/source-data"])
+          assertBool "native database restore targets a separate database once"
+            (all (`BC.isInfixOf` rendered)
+              ["RESTORE DATABASE default AS", "mydb_restore_zipone",
+               "test ! -e", "backoffLimit: 0"])
       , testCase "reviewed scratch restore checks fresh receipt and backup bytes before decompressing" $
           withSystemTempDirectory "nagare-reviewed-restore" $ \directory -> do
             let dump = directory </> "dump"

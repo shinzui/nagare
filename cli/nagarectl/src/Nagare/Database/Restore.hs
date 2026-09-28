@@ -39,9 +39,10 @@ import Nagare.Cluster.GcsJob
   , storeObjectUrl
   , storeShellPreamble
   )
-import Nagare.Database.Backup (backupExt, backupRawExt, dbBackupObjectPath, manualDatabaseJobName)
+import Nagare.Database.Backup (backupExt, backupRawExt, clickHouseSourceAffinity, dbBackupObjectPath, manualDatabaseJobName)
 import Nagare.Database.Discover (DbRow (..), getDatabase)
 import Nagare.Dsl.Database (Engine (..), dbSecretName, engineImage, parseEngine)
+import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Storage.Snapshot (snapshotTimestamp)
 import System.Exit (exitFailure)
@@ -109,9 +110,14 @@ renderRestoreJob i =
               , serviceAccountName = Nothing
               , backoffLimit = 0
               , hostAliases = storeHostAliases (i ^. #backend)
+              , affinity = if i ^. #engine == ClickHouse then
+                  Just (clickHouseSourceAffinity (i ^. #namespace) (i ^. #name)) else Nothing
               , initContainers = [downloadContainer i]
               , containers = [restoreContainer i]
               , volumes = [object ["name" .= ("dump" :: Text), "emptyDir" .= object []]]
+                  <> [object ["name" .= ("source-data" :: Text),
+                      "persistentVolumeClaim" .= object ["claimName" .= dbPvcName (i ^. #name)]]
+                      | i ^. #engine == ClickHouse]
               }
       ]
   where
@@ -175,6 +181,7 @@ renderRedisScratchVerifyJob i scratch = Y.encode $ object
       , serviceAccountName = Nothing
       , backoffLimit = 0
       , hostAliases = storeHostAliases (i ^. #backend)
+      , affinity = Nothing
       , initContainers = []
       , containers = [object
           [ "name" .= ("verify" :: Text)
@@ -288,7 +295,9 @@ restoreContainer i =
     , "env" .= toJSON (restoreEnv (i ^. #engine) (i ^. #secretName)
         <> maybe [] (\source -> [plainEnv "SCRATCH_DATABASE" (source ^. #scratchDatabase)])
              (i ^. #verifiedSource))
-    , "volumeMounts" .= toJSON [dumpMount]
+    , "volumeMounts" .= toJSON (dumpMount :
+        [object ["name" .= ("source-data" :: Text),
+          "mountPath" .= ("/source-data" :: Text)] | i ^. #engine == ClickHouse])
     ]
 
 plainEnv :: Text -> Text -> Value
@@ -363,6 +372,19 @@ verifiedRestoreShell Postgres svc _ =
     <> " -U \"$POSTGRES_USER\" -d \"$SCRATCH_DATABASE\" -f /dump/backup.sql; "
     <> "psql -v ON_ERROR_STOP=1 -h " <> svc
     <> " -U \"$POSTGRES_USER\" -d \"$SCRATCH_DATABASE\" -c '\\dt'"
+verifiedRestoreShell ClickHouse svc source =
+  "set -e; ARCHIVE=\"/source-data/backups/nagare-restore-"
+    <> source ^. #scratchDatabase <> ".zip\"; "
+    <> "test ! -e \"$ARCHIVE\"; cp /dump/backup.zip \"$ARCHIVE\"; "
+    <> "clickhouse-client -h " <> svc
+    <> " --user \"$CLICKHOUSE_USER\" --password \"$CLICKHOUSE_PASSWORD\" "
+    <> "--query \"RESTORE DATABASE default AS \\`" <> source ^. #scratchDatabase
+    <> "\\` FROM File('nagare-restore-" <> source ^. #scratchDatabase <> ".zip')\"; "
+    <> "test \"$(clickhouse-client -h " <> svc
+    <> " --user \"$CLICKHOUSE_USER\" --password \"$CLICKHOUSE_PASSWORD\" "
+    <> "--query \"SELECT count() FROM system.databases WHERE name = '"
+    <> source ^. #scratchDatabase <> "'\")\" = 1; "
+    <> "rm -- \"$ARCHIVE\""
 verifiedRestoreShell _ _ _ = "exit 1"
 
 -- | Legacy read-only Job preview. Reviewed execution uses accepted inventory
@@ -383,15 +405,11 @@ restoreShell Postgres svc live =
     <> "echo restored into \"$T\"; psql -h "
     <> svc
     <> " -U \"$POSTGRES_USER\" -d \"$T\" -c '\\dt'"
-restoreShell ClickHouse svc live =
-  "set -e; T="
-    <> (if live then "default" else "default_restore_scratch")
-    <> "; "
-    <> warn live
-    <> "echo 'ClickHouse restore (validate command live — EP-48): loading /dump/backup.native into '$T; "
-    <> "clickhouse-client -h "
-    <> svc
-    <> " --user \"$CLICKHOUSE_USER\" --password \"$CLICKHOUSE_PASSWORD\" --query \"CREATE DATABASE IF NOT EXISTS $T\""
+restoreShell ClickHouse _ live
+  | live = "echo 'Read-only preview: reviewed ClickHouse live-target restore is unavailable.'"
+  | otherwise =
+      "echo 'Read-only preview: use db restore with --restore-id and --save-plan "
+        <> "for a reviewed ClickHouse scratch database.'"
 restoreShell Redis _ live
   | live = "echo 'Read-only preview: reviewed Redis live-target restore is unavailable.'"
   | otherwise =

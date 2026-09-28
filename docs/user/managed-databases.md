@@ -426,7 +426,14 @@ versions and SHA-256 values, then loads the RDB from the scratch PVC; a Job
 verifies that the isolated server is ready. Query the scratch Pod to check
 application keys before deciding on any live recovery. An uncertain first
 load retains the PVC for explicit recovery instead of overwriting it on a
-retry. A reviewed Redis live-target restore and ClickHouse restore remain open.
+retry. Reviewed live-target restore remains open.
+
+ClickHouse uses a native database backup ZIP, stored as `.zip.gz`. Its reviewed
+scratch restore checks the accepted object and receipt, stages the ZIP through
+the source PVC on the source node, and runs `RESTORE DATABASE default AS` into
+`<database>_restore_<restore-id>`. Compare known tables and rows before any
+live recovery. Older concatenated `.native.gz` backups have no recoverable table
+identity and are refused by this reviewed restore path.
 
 An uninitialized legacy context can still have a scheduled CronJob that
 self-prunes. Inspect its cloud backup objects with:
@@ -436,7 +443,7 @@ gsutil ls gs://tan-nb-exp-nagare-backups/databases/pg-main/   # cloud mode
 ```
 
 The dump is an engine-appropriate logical export (`pg_dump` for Postgres, an RDB
-dump for Redis, a native dump for ClickHouse), gzipped, at
+dump for Redis, a native database backup ZIP for ClickHouse), gzipped, at
 `databases/<name>/<timestamp>.<ext>` in the active store for legacy schedules.
 Legacy scheduled backups keep the newest seven. Reviewed schedules do not
 prune; reviewed manual backups use stable IDs and separate exact pruning
@@ -448,9 +455,8 @@ delays. In cloud mode that key is under
 `gs://<backup-bucket>/`; in local mode it is under `s3://nagare-backups/` on
 MinIO.
 
-Reviewed PostgreSQL restore is **scratch-first** and uses the accepted backup
-receipt and exact object checks shown above. Live-target restore, Redis, and
-ClickHouse require a separate reviewed operation contract. `--into-live` is
+Reviewed PostgreSQL and ClickHouse restore Jobs, and Redis scratch instances,
+use accepted backup receipts and exact object checks shown above. `--into-live` is
 available only in read-only legacy Job preview output.
 
 See [Backups and disaster recovery](backups-and-disaster-recovery.md) and the

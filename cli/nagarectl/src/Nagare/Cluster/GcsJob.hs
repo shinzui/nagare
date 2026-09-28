@@ -301,6 +301,8 @@ data DataMovementJob = DataMovementJob
   -- (so ADC reaches the metadata server), 'Nothing' for the MinIO backend.
   -- Supply @storeHostAliases backend@. When 'Nothing' the key is omitted
   -- entirely, so the rendered pod spec carries no @hostAliases@ at all.
+  , affinity :: !(Maybe Value)
+  -- ^ required source-node placement for jobs that mount a live data PVC
   , initContainers :: ![Value]
   -- ^ zero or more initContainers (db backup/restore have one; volume jobs none)
   , containers :: ![Value]
@@ -332,6 +334,7 @@ dataMovementJobSpec j =
                        ( ["restartPolicy" .= ("Never" :: Text)]
                            ++ maybe [] (\account -> ["serviceAccountName" .= account]) (j ^. #serviceAccountName)
                            ++ maybe [] (\ha -> ["hostAliases" .= ha]) (j ^. #hostAliases)
+                           ++ maybe [] (\a -> ["affinity" .= a]) (j ^. #affinity)
                            ++ ["initContainers" .= toJSON (j ^. #initContainers) | not (null (j ^. #initContainers))]
                            ++ ["containers" .= toJSON (j ^. #containers)]
                            ++ ["volumes" .= toJSON (j ^. #volumes) | not (null (j ^. #volumes))]

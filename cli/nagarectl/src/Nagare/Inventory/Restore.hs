@@ -1,6 +1,6 @@
--- | A reviewed, write-fenced PostgreSQL scratch restore from an accepted
--- manual backup. The fixed Job verifies fresh object bytes before creating a
--- new scratch database; a failed restore requires explicit forward recovery.
+-- | Reviewed scratch restores from accepted manual or scheduled backups.
+-- Each engine checks exact receipt/object bytes before loading separate data;
+-- a failed restore requires explicit forward recovery.
 module Nagare.Inventory.Restore
   ( ManualRestoreRequest (..)
   , manualRestoreJobTargetPins
@@ -161,8 +161,8 @@ compileManualRestoreScope request accepted native = do
   engineName <- metadataText invalid "labels" "nagare.dev/engine" statefulValue
   engine <- maybe (Left (invalid "reviewed scratch restore has an unknown engine")) Right
     (parseEngine engineName)
-  unless (engine `elem` [Postgres, Redis])
-    (Left (invalid "reviewed scratch restore currently supports PostgreSQL and Redis"))
+  unless (engine `elem` [Postgres, Redis, ClickHouse])
+    (Left (invalid "reviewed scratch restore has an unsupported engine"))
   version <- metadataText invalid "annotations" "nagare.dev/version" statefulValue
   scratchSize <- if engine == Redis
     then metadataText invalid "annotations" "nagare.dev/size" statefulValue
@@ -227,6 +227,8 @@ compileManualRestoreScope request accepted native = do
   scratch <- first invalid (case engine of
     Redis -> redisScratchName db (restoreId request)
     _ -> scratchDatabaseName db (restoreId request))
+  when (engine == ClickHouse) $ unless (T.all safeClickHouseIdentifier scratch)
+    (Left (invalid "ClickHouse scratch name contains a character unsafe for its reviewed restore query"))
   owner <- first invalid (mkScopeId Standalone
     ("database-restore-" <> ns <> "-" <> db <> "-" <> restoreId request))
   key <- first invalid (mkLogicalKey (restoreId request))
@@ -300,7 +302,12 @@ scratchDatabaseName :: T.Text -> T.Text -> Either T.Text T.Text
 scratchDatabaseName db restoreKey =
   let chosen = db <> "_restore_" <> restoreKey
    in if T.length chosen <= 63 then Right chosen
-      else Left "database and restore ID exceed PostgreSQL's 63-byte scratch name limit"
+      else Left "database and restore ID exceed the 63-character scratch name limit"
+
+safeClickHouseIdentifier :: Char -> Bool
+safeClickHouseIdentifier c =
+  (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+    || (c >= '0' && c <= '9') || c == '_' || c == '-'
 
 redisScratchName :: T.Text -> T.Text -> Either T.Text T.Text
 redisScratchName db restoreKey =

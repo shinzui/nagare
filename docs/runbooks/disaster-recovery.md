@@ -223,7 +223,7 @@ litestream restore -o /tmp/restore-app.db gcs://$BACKUP_BUCKET/litestream/<app-d
 sqlite3 /tmp/restore-app.db "SELECT count(*) FROM notes;"
 # Managed database (EP-47) into a SCRATCH target, compare, then promote manually.
 # The removed host-side Postgres helpers are no longer a supported restore path.
-# A reviewed PostgreSQL or Redis scratch restore requires an accepted backup receipt.
+# A reviewed PostgreSQL, Redis, or ClickHouse scratch restore requires an accepted backup receipt.
 nagarectl db restore <name> <accepted-backup-id> --restore-id recovery-001 --save-plan ./db-restore
 nagarectl inventory apply ./db-restore --yes
 # App volume (EP-36) into a SCRATCH PVC, eyeball the restored tree, then promote:
@@ -231,7 +231,7 @@ nagarectl inventory apply ./db-restore --yes
 # Use a separately reviewed volume recovery procedure when it is available.
 ```
 
-Observe that scratch PostgreSQL rows or Redis keys match the source at backup
+Observe that scratch PostgreSQL or ClickHouse rows, or Redis keys, match the source at backup
 time. Redis uses a separate PVC-backed scratch StatefulSet named
 `<database>-restore-<restore-id>`. For an app volume, compare the restored file
 tree printed by the Job. The reviewed database restores write only to new
@@ -251,12 +251,13 @@ warns about them).
 **Managed databases (EP-47) are backed up by default.** Each reviewed `nagarectl db
 create` provisions a daily **CronJob** that runs an
 engine-appropriate logical dump (`pg_dump` for Postgres, an RDB dump for Redis, a
-native dump for ClickHouse), gzips it, and uploads it to
+native database backup ZIP for ClickHouse), gzips it, and uploads it to
 `gs://<backupBucket>/databases/<name>/<ts>.<ext>`. Reviewed schedules do not
 prune. Take a manual backup with `nagarectl db backup <name> --backup-id ID
---save-plan DIR` and apply that review. A reviewed PostgreSQL restore needs the
-accepted manual backup ID and a separate `--restore-id ID --save-plan DIR` review;
-it creates a new scratch database. Live-target restore is unavailable. A database
+--save-plan DIR` and apply that review. A reviewed PostgreSQL, Redis, or ClickHouse
+restore needs an accepted manual or scheduled backup ID and a separate
+`--restore-id ID --save-plan DIR` review; it creates separate scratch data.
+Live-target restore is unavailable. A database
 declared `retention = Delete` is treated as throwaway and gets **no** scheduled
 backup.
 
