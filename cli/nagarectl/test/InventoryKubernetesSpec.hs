@@ -45,7 +45,8 @@ import Nagare.Inventory.LiveRestoreSource (verifyLiveStoredFiles)
 import Nagare.Inventory.ScheduledStore (StoredObject (..))
 import Nagare.Inventory.ScheduledPrune
   ( ScheduledPruneCandidate (..), ScheduledPruneRequest (..)
-  , compileScheduledPruneScope )
+  , compileScheduledPruneScope, compileScheduledPruneRecoveryScope
+  , recoverScheduledPruneCandidate )
 import Nagare.Inventory.DataService (NativeDataKind (..), compileBackupPruneRemovalScope, compileStandaloneDatabase, compileStatefulSetRestartScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Components.Foundation (compileContributedNamespaces)
@@ -737,6 +738,44 @@ inventoryKubernetesTests =
           (isLeft (compileScheduledPruneScope
             (scheduledRequest {scheduledPruneCandidate = candidate
               {scheduledPruneObjectVersion = "18"}}) acceptedScheduled finiteNative))
+        let localObject = "s3://bucket/databases/notes/" <> scheduledId <> ".sql.gz"
+            recoveryReceipt = localObject <> ".receipt.json"
+            localCandidate = candidate
+              {scheduledPruneObject = localObject, scheduledPruneReceipt = recoveryReceipt}
+            localFields = Map.insert "scheduled.backup.object" localObject
+              (Map.insert "scheduled.backup.receipt" recoveryReceipt scheduledFields)
+            localAccepted = withScopeOverrides localFields finiteScope
+            recoveryRequest = scheduledRequest
+              {scheduledPruneCandidate = localCandidate
+              , scheduledPruneBackend = MinioBackend
+                  (MinioRef "http://minio:9000" "bucket" "minio-credentials")}
+            (failedLocal, _) = ok
+              (compileScheduledPruneScope recoveryRequest localAccepted finiteNative)
+            failedUid = ok (mkPhysicalIdentity "failed-prune-job-uid")
+            failedReview = contentDigest "failed-prune-review"
+            (recovery, recoveryNative) = ok
+              (compileScheduledPruneRecoveryScope recoveryRequest localAccepted
+                finiteNative failedLocal failedUid failedReview)
+            (_, recoveryBytes) = case Map.elems recoveryNative of
+              [entry] -> entry
+              _ -> error "scheduled prune recovery must bind one Job"
+        recoverScheduledPruneCandidate localAccepted failedLocal
+          (scheduledPruneCompleted localCandidate) @?= Right localCandidate
+        Map.lookup "scheduled.prune.recovery.failed.job.uid" (scopeOverrides recovery)
+          @?= Just "failed-prune-job-uid"
+        assertBool "receipt-only recovery lost the complete-version check"
+          (BC.isInfixOf "list-object-versions" recoveryBytes
+            && BC.isInfixOf "EXPECTED_RECEIPT_VERSION" recoveryBytes
+            && BC.isInfixOf "scheduled-prune-recovery" recoveryBytes)
+        assertBool "recovery accepted another failed object version"
+          (isLeft (compileScheduledPruneRecoveryScope recoveryRequest localAccepted
+            finiteNative (withScopeOverrides
+              (Map.insert "scheduled.prune.object.version" "another-version"
+                (scopeOverrides failedLocal)) failedLocal)
+            failedUid failedReview))
+        assertBool "cloud recovery lacks exact-generation evidence"
+          (isLeft (compileScheduledPruneRecoveryScope scheduledRequest
+            acceptedScheduled finiteNative scheduledScope failedUid failedReview))
         manualPruneJobBackupPin pruneBytes @?= Right
           (Just (finiteJob ^. #identity, pruneVolumeBackupUid pruneRequest))
         volumePruneJobCredentialPin pruneBytes @?= Right Nothing

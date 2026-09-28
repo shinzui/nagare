@@ -5,7 +5,9 @@ module Nagare.Inventory.ScheduledPrune
   ( ScheduledPruneCandidate (..)
   , ScheduledPruneRequest (..)
   , selectScheduledPruneCandidates
+  , recoverScheduledPruneCandidate
   , compileScheduledPruneScope
+  , compileScheduledPruneRecoveryScope
   ) where
 
 import Data.Aeson (Value (..), eitherDecodeStrict, object, (.=))
@@ -25,8 +27,8 @@ import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime)
 import Text.Read (readMaybe)
 import Data.Yaml qualified as Yaml
-import Nagare.Cluster.GcsJob (StoreBackend, storeObjectUrl)
-import Nagare.Database.Prune (PruneJobInputs (..), renderScheduledPruneJob)
+import Nagare.Cluster.GcsJob (StoreBackend (..), storeObjectUrl)
+import Nagare.Database.Prune (PruneJobInputs (..), renderScheduledPruneJob, renderScheduledReceiptRecoveryJob)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types (mkServiceName)
 import Nagare.Inventory.Digest (contentDigest)
@@ -182,6 +184,40 @@ validUid uid = T.length uid == 36 && and
     else lowerHex character
     | (position, character) <- zip [0 :: Int ..] (T.unpack uid)]
 
+-- | Reconstruct only the candidate already named by an immutable failed
+-- review. The data version may now be absent, so ordinary retention selection
+-- cannot authorize recovery from the current-key listing.
+recoverScheduledPruneCandidate
+  :: ScopeDeclaration -> ScopeDeclaration -> UTCTime
+  -> Either Text ScheduledPruneCandidate
+recoverScheduledPruneCandidate backup failed receiptTime = do
+  let backupFields = scopeOverrides backup
+      failedFields = scopeOverrides failed
+      required fields key = maybe (Left ("scheduled recovery lacks " <> key)) Right
+        (Map.lookup key fields)
+  backupId <- required backupFields "scheduled.backup.id"
+  objectAddress <- required backupFields "scheduled.backup.object"
+  receiptAddress <- required backupFields "scheduled.backup.receipt"
+  let (prefix, leaf) = T.breakOnEnd "/" objectAddress
+  format <- maybe (Left "scheduled recovery object has another run key") Right
+    (T.stripPrefix (backupId <> ".") leaf)
+  unless (not (T.null prefix) && not (T.null format))
+    (Left "scheduled recovery object has no accepted prefix or format")
+  candidate <- accepted prefix format (Map.fromList
+    [(objectAddress, receiptTime), (receiptAddress, receiptTime)]) backup
+  let exact =
+        [ ("scheduled.prune.backup.scope", scopeIdText (scopeId backup))
+        , ("scheduled.prune.object", objectAddress)
+        , ("scheduled.prune.object.version", scheduledPruneObjectVersion candidate)
+        , ("scheduled.prune.receipt", receiptAddress)
+        , ("scheduled.prune.receipt.version", scheduledPruneReceiptVersion candidate)
+        ]
+  forM_ exact $ \(key, expected) -> do
+    actual <- required failedFields key
+    unless (actual == expected)
+      (Left ("scheduled recovery changes reviewed " <> key))
+  pure candidate
+
 -- | One selected run becomes one independent, reviewed Job. The existing
 -- prune adapter checks the accepted ingestion Job's UID/native bytes at apply;
 -- the Job itself checks both reviewed provider versions and hashes before the
@@ -191,7 +227,26 @@ compileScheduledPruneScope
   -> Map.Map ResourceId (ManagedResource, ByteString)
   -> Either (NonEmpty InventoryError)
        (ScopeDeclaration, Map.Map ResourceId (ManagedResource, ByteString))
-compileScheduledPruneScope request backup native = do
+compileScheduledPruneScope request backup native =
+  compileScheduledPruneScopeWith Nothing request backup native
+
+compileScheduledPruneRecoveryScope
+  :: ScheduledPruneRequest -> ScopeDeclaration
+  -> Map.Map ResourceId (ManagedResource, ByteString)
+  -> ScopeDeclaration -> PhysicalIdentity -> ContentDigest
+  -> Either (NonEmpty InventoryError)
+       (ScopeDeclaration, Map.Map ResourceId (ManagedResource, ByteString))
+compileScheduledPruneRecoveryScope request backup native failed failedUid reviewDigest =
+  compileScheduledPruneScopeWith (Just (failed, failedUid, reviewDigest))
+    request backup native
+
+compileScheduledPruneScopeWith
+  :: Maybe (ScopeDeclaration, PhysicalIdentity, ContentDigest)
+  -> ScheduledPruneRequest -> ScopeDeclaration
+  -> Map.Map ResourceId (ManagedResource, ByteString)
+  -> Either (NonEmpty InventoryError)
+       (ScopeDeclaration, Map.Map ResourceId (ManagedResource, ByteString))
+compileScheduledPruneScopeWith recovery request backup native = do
   let candidate = scheduledPruneCandidate request
       invalid message = inventoryError "invalid-scheduled-prune" message
         & #scopes .~ [scopeId backup]
@@ -211,6 +266,23 @@ compileScheduledPruneScope request backup native = do
       == Just (scopeIdText (scheduledPrunePolicyScope request))
       && scheduledPruneKeep request > 0)
     (Left (invalid "scheduled prune policy source or keep count is invalid"))
+  case recovery of
+    Nothing -> pure ()
+    Just (failed, _, _) -> do
+      _ <- case scheduledPruneBackend request of
+        MinioBackend {} -> Right ()
+        GcsBackend {} -> Left (invalid "cloud scheduled prune recovery requires exact-generation evidence")
+      checked <- first invalid (recoverScheduledPruneCandidate backup failed
+        (scheduledPruneCompleted candidate))
+      unless (checked == candidate
+          && Map.lookup "scheduled.prune.policy.scope" (scopeOverrides failed)
+            == Just (scopeIdText (scheduledPrunePolicyScope request))
+          && Map.lookup "scheduled.prune.policy.revision" (scopeOverrides failed)
+            == Just (digestText (revisionDigest
+              (scheduledPrunePolicyRevision request)))
+          && Map.lookup "scheduled.prune.policy.keep" (scopeOverrides failed)
+            == Just (T.pack (show (scheduledPruneKeep request))))
+        (Left (invalid "scheduled recovery changes the failed retention candidate or policy"))
   let exact =
         [ ("scheduled.backup.id", backupId)
         , ("scheduled.backup.object", scheduledPruneObject candidate)
@@ -254,15 +326,21 @@ compileScheduledPruneScope request backup native = do
   cluster <- case ingestionJob ^. #address of
     Kubernetes clusterId _ _ _ _ -> Right clusterId
     _ -> Left (invalid "accepted ingestion Job has no Kubernetes address")
+  let ownerPrefix = case recovery of
+        Nothing -> "database-scheduled-prune-"
+        Just _ -> "database-scheduled-prune-recovery-"
   owner <- first invalid (mkScopeId Standalone
-    ("database-scheduled-prune-" <> ns <> "-" <> db <> "-" <> backupId))
+    (ownerPrefix <> ns <> "-" <> db <> "-" <> backupId))
   key <- first invalid (mkLogicalKey backupId)
   jobRole <- first invalid (mkName "job")
   proofRole <- first invalid (mkName "prune")
   let pruneJobId = mintResourceId owner key jobRole
       proofId = mintResourceId owner key proofRole
-      jobName = "nagare-schedprune-" <> T.take 40
-        (digestText (contentDigest (TE.encodeUtf8 (scheduledPruneObject candidate))))
+      jobName = case recovery of
+        Nothing -> "nagare-schedprune-" <> T.take 40
+          (digestText (contentDigest (TE.encodeUtf8 (scheduledPruneObject candidate))))
+        Just _ -> "nagare-schedprune-recover-" <> T.take 35
+          (digestText (contentDigest (TE.encodeUtf8 (scheduledPruneObject candidate))))
       inputs = PruneJobInputs
         { namespace = ns, jobName = jobName
         , objectUrl = scheduledPruneObject candidate
@@ -271,21 +349,31 @@ compileScheduledPruneScope request backup native = do
         , receiptSha256 = scheduledPruneReceiptDigest candidate
         , expiryEpoch = 0
         , backend = scheduledPruneBackend request }
+  let jobManifest = case recovery of
+        Nothing -> renderScheduledPruneJob inputs
+          (scheduledPruneObjectVersion candidate)
+          (scheduledPruneReceiptVersion candidate)
+        Just _ -> renderScheduledReceiptRecoveryJob inputs
+          (scheduledPruneObjectVersion candidate)
+          (scheduledPruneReceiptVersion candidate)
   rendered <- first (invalid . T.pack . show)
-    (Yaml.decodeEither' (renderScheduledPruneJob inputs
-      (scheduledPruneObjectVersion candidate)
-      (scheduledPruneReceiptVersion candidate))
-        :: Either Yaml.ParseException Value)
+    (Yaml.decodeEither' jobManifest :: Either Yaml.ParseException Value)
   annotated <- case rendered of
     Object root | Just (Object metadata) <- KM.lookup "metadata" root ->
-      let annotations = object
+      let annotations = object $
             [ "nagare.dev/prune-backup-scope" .= scopeIdText (scopeId backup)
             , "nagare.dev/prune-backup-job" .=
                 resourceIdText (ingestionJob ^. #identity)
             , "nagare.dev/prune-backup-job-uid" .=
                 physicalIdentityText (scheduledPruneBackupJobUid request)
             , "nagare.dev/scheduled-prune-backup-id" .= backupId
-            ]
+            ] <> case recovery of
+              Nothing -> []
+              Just (failed, failedUid, reviewDigest) ->
+                [ "nagare.dev/scheduled-prune-failed-scope" .= scopeIdText (scopeId failed)
+                , "nagare.dev/scheduled-prune-failed-job-uid" .= physicalIdentityText failedUid
+                , "nagare.dev/scheduled-prune-failed-review" .= digestText reviewDigest
+                ]
        in Right (Object (KM.insert "metadata" (Object
             (KM.insert "annotations" annotations metadata)) root))
     _ -> Left (invalid "scheduled prune Job lacks native metadata")
@@ -324,7 +412,13 @@ compileScheduledPruneScope request backup native = do
         , ("scheduled.prune.object.version", scheduledPruneObjectVersion candidate)
         , ("scheduled.prune.receipt", scheduledPruneReceipt candidate)
         , ("scheduled.prune.receipt.version", scheduledPruneReceiptVersion candidate)
-        ]
+        ] `Map.union` case recovery of
+          Nothing -> Map.empty
+          Just (failed, failedUid, reviewDigest) -> Map.fromList
+            [ ("scheduled.prune.recovery.failed.scope", scopeIdText (scopeId failed))
+            , ("scheduled.prune.recovery.failed.job.uid", physicalIdentityText failedUid)
+            , ("scheduled.prune.recovery.review", digestText reviewDigest)
+            ]
   base <- mkScopeDeclaration owner [ResourceBundle [Managed member] [] [] [] [proof] []]
   pure (withScopeOverrides overrides (withScopeConfigDigest (contentDigest canonical) base),
     Map.singleton pruneJobId (member, bytes))

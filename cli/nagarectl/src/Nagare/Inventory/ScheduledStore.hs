@@ -8,6 +8,7 @@ module Nagare.Inventory.ScheduledStore
   , withLocalObjectStore
   , parseObjectList
   , parseObjectEntries
+  , parseObjectVersions
   , readSecretField
   ) where
 
@@ -50,6 +51,7 @@ data ObjectReader = ObjectReader
   { readObjectToFile :: !(Text -> Maybe Text -> FilePath -> IO (Either Text StoredObject))
   , listObjectKeys :: !(Text -> IO (Either Text [Text]))
   , listObjectEntries :: !(Text -> IO (Either Text [ListedObject]))
+  , listObjectVersions :: !(Text -> IO (Either Text [(Text, Text)]))
   }
 
 -- | The callback must consume files before returning; the port-forward and
@@ -70,7 +72,8 @@ withLocalObjectStore context ref action = do
             Just port -> Right <$> action (ObjectReader
               (readViaCurl ref user port scratch)
               (listViaCurl ref user port scratch parseObjectList)
-              (listViaCurl ref user port scratch parseObjectEntries)))
+              (listViaCurl ref user port scratch parseObjectEntries)
+              (listVersionsViaCurl ref user port scratch)))
         :: IO (Either IOException (Either Text a))
       pure (either (Left . const "local object-store read failed") id result)
 
@@ -208,6 +211,61 @@ listViaCurl ref user port scratch parseListing prefix
           body <- try (BC.readFile output) :: IO (Either IOException BC.ByteString)
           pure (either (Left . const "local object-store listing cannot be read")
             (parseListing prefix) body)
+
+-- | Version listing is a separate S3 operation from current-key listing.
+-- Recovery must prove the reviewed data version is gone, even when a delete
+-- marker hides an older object from ListObjectsV2.
+listVersionsViaCurl :: MinioRef -> Text -> Text -> FilePath -> Text
+  -> IO (Either Text [(Text, Text)])
+listVersionsViaCurl ref user port scratch prefix
+  | T.null prefix || T.any (\character -> not (isAlphaNum character
+      || character `elem` ("/-_." :: String))) prefix =
+      pure (Left "scheduled version prefix has unsupported URL characters")
+  | otherwise = do
+      let url = "http://127.0.0.1:" <> port <> "/" <> bucket ref
+            <> "/?versions&prefix=" <> prefix
+          output = scratch <> "/versions.xml"
+          config = "user = \"" <> quoteConfig user <> "\"\n"
+          arguments = ["--silent", "--show-error", "--fail", "--aws-sigv4"
+            , "aws:amz:us-east-1:s3", "--config", "-", "--output", output
+            , T.unpack url]
+      outcome <- try (readCreateProcessWithExitCode (proc "curl" arguments)
+        (T.unpack config)) :: IO (Either IOException (ExitCode, String, String))
+      case outcome of
+        Left _ -> pure (Left "could not invoke local object-store version listing")
+        Right (ExitFailure _, _, _) -> pure (Left "local object-store version listing is unavailable")
+        Right (ExitSuccess, _, _) -> do
+          body <- try (BC.readFile output) :: IO (Either IOException BC.ByteString)
+          pure (either (Left . const "local object-store version listing cannot be read")
+            (parseObjectVersions prefix) body)
+
+parseObjectVersions :: Text -> BC.ByteString -> Either Text [(Text, Text)]
+parseObjectVersions prefix raw = do
+  body <- first (const "local object-store version listing is not UTF-8")
+    (TE.decodeUtf8' raw)
+  unless ("<ListVersionsResult" `T.isInfixOf` body
+      && "</ListVersionsResult>" `T.isInfixOf` body)
+    (Left "local object-store version listing has no result envelope")
+  truncated <- oneElement "IsTruncated" body
+  unless (truncated == "false")
+    (Left "local object-store version listing is incomplete")
+  versions <- xmlElements "Version" body
+  markers <- xmlElements "DeleteMarker" body
+  entries <- traverse one (versions <> markers)
+  unless (Set.size (Set.fromList entries) == length entries)
+    (Left "local object-store version listing repeats a key/version")
+  pure entries
+  where
+    one value = do
+      key <- oneElement "Key" value
+      version <- oneElement "VersionId" value
+      unless (prefix `T.isPrefixOf` key && not (T.null version)
+          && T.all (\character -> isAlphaNum character
+            || character `elem` ("/-_." :: String)) key
+          && T.all (\character -> isAlphaNum character
+            || character == '-') version)
+        (Left "local object-store version listing has an invalid key or version")
+      pure (key, version)
 
 parseObjectList :: Text -> BC.ByteString -> Either Text [Text]
 parseObjectList prefix raw = do

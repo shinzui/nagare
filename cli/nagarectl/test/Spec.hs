@@ -122,7 +122,7 @@ import Nagare.Database.Backup
   , renderInventoryDbBackupCronJob
   , uploadShell
   )
-import Nagare.Database.Prune (PruneJobInputs (PruneJobInputs), pruneShell, renderPruneJob, renderScheduledPruneJob, scheduledPruneShell)
+import Nagare.Database.Prune (PruneJobInputs (PruneJobInputs), pruneShell, renderPruneJob, renderScheduledPruneJob, renderScheduledReceiptRecoveryJob, scheduledPruneShell, scheduledReceiptRecoveryShell)
 import Nagare.Database.Connection (ConnIdentity (..), connectionEnv, mergeConnectionEnvs)
 import Nagare.Database.Create (DbCreateParams (..), buildDatabase, classifyPasswordObservation, ensureCredential, passwordKey)
 import Nagare.Database.Discover (DbRow (..), dbLabelSelector, extractDbRows, formatDbTable)
@@ -354,7 +354,7 @@ import Nagare.Inventory.Backup
   , parseScheduledBackupReceipt, scheduledReceiptExpectationFromCronJob )
 import Nagare.Inventory.ScheduledReceipt (ScheduledReceiptEvidence (..), inspectScheduledReceipt)
 import Nagare.Inventory.ScheduledPrune (ScheduledPruneCandidate (..), selectScheduledPruneCandidates)
-import Nagare.Inventory.ScheduledStore (ListedObject (..), ObjectReader (..), StoredObject (..), parseObjectEntries, parseObjectList)
+import Nagare.Inventory.ScheduledStore (ListedObject (..), ObjectReader (..), StoredObject (..), parseObjectEntries, parseObjectList, parseObjectVersions)
 import Nagare.Inventory.ScheduledIngest (scheduledIngestJobSourcePins)
 import Nagare.Resource.Policy qualified as InventoryPolicy
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
@@ -5273,6 +5273,7 @@ backupRestoreTests =
                     pure (Right (StoredObject version (fromIntegral (BS.length bytes)))))
                 (\_ -> pure (Left "listing is unused by this test"))
                 (\_ -> pure (Left "timestamp listing is unused by this test"))
+                (\_ -> pure (Left "version listing is unused by this test"))
           verified <- inspectScheduledReceipt (reader False False) expectation runId (T.replicate 64 "a")
           case verified of
             Left reason -> assertFailure ("exact scheduled backup was rejected: " <> T.unpack reason)
@@ -5310,6 +5311,28 @@ backupRestoreTests =
             (isLeft (parseObjectEntries prefix (response "false" "1"
               ("<Contents><Key>" <> T.unpack key
                 <> "</Key><LastModified>yesterday</LastModified></Contents>"))))
+      , testCase "scheduled recovery proves exact object-version absence from a complete list" $ do
+          let prefix = "databases/mydb/"
+              objectKey = prefix <> "backup.rdb.gz"
+              receiptKey = objectKey <> ".receipt.json"
+              entry name key version = "<" <> name <> "><Key>" <> key
+                <> "</Key><VersionId>" <> version <> "</VersionId></" <> name <> ">"
+              response truncated body = TE.encodeUtf8
+                ("<ListVersionsResult><IsTruncated>" <> truncated
+                  <> "</IsTruncated>" <> body <> "</ListVersionsResult>")
+              receiptVersion = entry "Version" receiptKey "receipt-v1"
+              deletedMarker = entry "DeleteMarker" objectKey "marker-v1"
+          parseObjectVersions prefix (response "false"
+            (receiptVersion <> deletedMarker)) @?=
+              Right [(receiptKey, "receipt-v1"), (objectKey, "marker-v1")]
+          assertBool "truncated version list proved object absence" (isLeft
+            (parseObjectVersions prefix (response "true" receiptVersion)))
+          assertBool "duplicate version was accepted" (isLeft
+            (parseObjectVersions prefix (response "false"
+              (receiptVersion <> receiptVersion))))
+          assertBool "missing version ID was accepted" (isLeft
+            (parseObjectVersions prefix (response "false"
+              (entry "Version" objectKey ""))))
       , testCase "scheduled prune selects only older accepted exact pairs" $ do
           let source = unsafe (Resource.mkScopeId Resource.Standalone "scheduled-prune-source")
               oldId = "11111111-1111-1111-1111-111111111111"
@@ -6043,6 +6066,89 @@ backupRestoreTests =
             assertBool ("versioned local prune failed: " <> diagnostic)
               (deleted == ExitSuccess)
             doesFileExist object >>= (@?= False)
+            doesFileExist receipt >>= (@?= False)
+      , testCase "reviewed scheduled partial prune deletes only the remaining receipt version" $
+          withSystemTempDirectory "nagare-partial-scheduled-prune" $ \directory -> do
+            let fakeAws = directory </> "aws"
+                fakeDnf = directory </> "dnf"
+                object = directory </> "backup.rdb.gz"
+                receipt = directory </> "backup.rdb.gz.receipt.json"
+                objectKey = "databases/mydb/run-001.rdb.gz"
+                objectUrl = "s3://nagare-backups/" <> objectKey
+                inputs receiptHash = PruneJobInputs "personal" "nagare-schedprune-recover"
+                  (T.pack objectUrl) (T.pack (objectUrl <> ".receipt.json"))
+                  (T.replicate 64 "a") receiptHash 0 localMinioBackend
+            writeFile fakeAws $ unlines
+              [ "#!/bin/sh", "set -eu"
+              , "if [ \"$1\" = --no-paginate ]; then shift; fi"
+              , "[ \"$1\" = s3api ] || exit 2; ACTION=$2; shift 2"
+              , "KEY=; PREFIX=; VERSION=; OUT="
+              , "while [ \"$#\" -gt 0 ]; do"
+              , "  case \"$1\" in"
+              , "    --key) KEY=$2; shift 2;;"
+              , "    --prefix) PREFIX=$2; shift 2;;"
+              , "    --version-id) VERSION=$2; shift 2;;"
+              , "    --bucket|--query|--output|--endpoint-url) shift 2;;"
+              , "    *) OUT=$1; shift;;"
+              , "  esac"
+              , "done"
+              , "case \"$ACTION\" in"
+              , "  list-object-versions)"
+              , "    printf '{\"IsTruncated\":false,\"Versions\":['"
+              , "    if [ \"$PREFIX\" = \"$NAGARE_TEST_DATA_KEY\" ] && [ -f \"$NAGARE_TEST_DATA\" ]; then"
+              , "      printf '{\"Key\":\"%s\",\"VersionId\":\"v1\"},' \"$NAGARE_TEST_DATA_KEY\""
+              , "    fi"
+              , "    if [ -f \"$NAGARE_TEST_RECEIPT\" ]; then"
+              , "      printf '{\"Key\":\"%s\",\"VersionId\":\"v2\"}' \"$NAGARE_TEST_RECEIPT_KEY\""
+              , "    fi"
+              , "    printf ']}\\n';;"
+              , "  head-object) [ \"$KEY\" = \"$NAGARE_TEST_RECEIPT_KEY\" ] || exit 3;"
+              , "    [ -f \"$NAGARE_TEST_RECEIPT\" ] || exit 4; echo v2;;"
+              , "  get-object) [ \"$KEY:$VERSION\" = \"$NAGARE_TEST_RECEIPT_KEY:v2\" ] || exit 5;"
+              , "    cat \"$NAGARE_TEST_RECEIPT\" > \"$OUT\"; echo '{}' ;;"
+              , "  delete-object) [ \"$KEY:$VERSION\" = \"$NAGARE_TEST_RECEIPT_KEY:v2\" ] || exit 6;"
+              , "    rm \"$NAGARE_TEST_RECEIPT\"; echo '{}' ;;"
+              , "  *) exit 7;;"
+              , "esac"
+              ]
+            writeFile fakeDnf "#!/bin/sh\nexit 0\n"
+            mapM_ (`setFileMode` 0o755) [fakeAws, fakeDnf]
+            parentEnv <- getEnvironment
+            let path = maybe "" id (lookup "PATH" parentEnv)
+                run receiptHash = do
+                  let variables =
+                        [("PATH", directory <> ":" <> path),
+                         ("OBJECT", objectUrl), ("RECEIPT", objectUrl <> ".receipt.json"),
+                         ("EXPECTED_OBJECT_VERSION", "v1"),
+                         ("EXPECTED_RECEIPT_VERSION", "v2"),
+                         ("EXPECTED_RECEIPT_SHA256", T.unpack receiptHash),
+                         ("NAGARE_VERSION_LIST_FILE", directory </> "versions.json"),
+                         ("NAGARE_TEST_DATA", object), ("NAGARE_TEST_RECEIPT", receipt),
+                         ("NAGARE_TEST_DATA_KEY", objectKey),
+                         ("NAGARE_TEST_RECEIPT_KEY", objectKey <> ".receipt.json")]
+                  readCreateProcessWithExitCode
+                    ((proc "/bin/sh" ["-c", T.unpack
+                      (scheduledReceiptRecoveryShell (inputs receiptHash))])
+                      {env = Just (variables <>
+                        filter (\(key, _) -> key `notElem` map fst variables) parentEnv)}) ""
+            BS.writeFile receipt "reviewed remaining receipt"
+            (_, digestOutput, _) <- readCreateProcessWithExitCode
+              (proc "sha256sum" [receipt]) ""
+            let receiptHash = T.pack (takeWhile (/= ' ') digestOutput)
+                manifest = TE.decodeUtf8 (renderScheduledReceiptRecoveryJob
+                  (inputs receiptHash) "v1" "v2")
+            assertBool "recovery Job lacks exact version pins"
+              ("EXPECTED_OBJECT_VERSION" `T.isInfixOf` manifest
+                && "EXPECTED_RECEIPT_VERSION" `T.isInfixOf` manifest)
+            BS.writeFile object "unreviewed older object version"
+            (stillPresent, _, _) <- run receiptHash
+            assertBool "recovery deleted receipt while data key still existed"
+              (stillPresent /= ExitSuccess)
+            doesFileExist receipt >>= (@?= True)
+            removeFile object
+            (recovered, _, diagnostic) <- run receiptHash
+            assertBool ("exact remaining receipt recovery failed: " <> diagnostic)
+              (recovered == ExitSuccess)
             doesFileExist receipt >>= (@?= False)
       ]
   , testGroup

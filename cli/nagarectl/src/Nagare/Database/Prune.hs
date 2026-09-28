@@ -6,9 +6,11 @@ module Nagare.Database.Prune
   ( PruneJobInputs (..)
   , renderPruneJob
   , renderScheduledPruneJob
+  , renderScheduledReceiptRecoveryJob
   , renderVolumePruneJob
   , pruneShell
   , scheduledPruneShell
+  , scheduledReceiptRecoveryShell
   ) where
 
 import Data.Aeson (Value, object, toJSON, (.=))
@@ -37,7 +39,7 @@ data PruneJobInputs = PruneJobInputs
   deriving stock (Generic, Eq, Show)
 
 renderPruneJob :: PruneJobInputs -> ByteString
-renderPruneJob = renderPruneJobWithLabel "nagare.dev/database-prune" Nothing
+renderPruneJob = renderPruneJobWithLabel "nagare.dev/database-prune" Nothing Nothing
 
 -- | Scheduled retention carries the two exact provider versions from the
 -- accepted ingestion scope. A different current version refuses before the
@@ -45,13 +47,20 @@ renderPruneJob = renderPruneJobWithLabel "nagare.dev/database-prune" Nothing
 renderScheduledPruneJob :: PruneJobInputs -> Text -> Text -> ByteString
 renderScheduledPruneJob inputs objectVersion receiptVersion =
   renderPruneJobWithLabel "nagare.dev/scheduled-prune"
-    (Just (objectVersion, receiptVersion)) inputs
+    (Just (objectVersion, receiptVersion)) Nothing inputs
+
+renderScheduledReceiptRecoveryJob :: PruneJobInputs -> Text -> Text -> ByteString
+renderScheduledReceiptRecoveryJob inputs objectVersion receiptVersion =
+  renderPruneJobWithLabel "nagare.dev/scheduled-prune-recovery"
+    (Just (objectVersion, receiptVersion))
+    (Just (scheduledReceiptRecoveryShell inputs)) inputs
 
 renderVolumePruneJob :: PruneJobInputs -> ByteString
-renderVolumePruneJob = renderPruneJobWithLabel "nagare.dev/volume-prune" Nothing
+renderVolumePruneJob = renderPruneJobWithLabel "nagare.dev/volume-prune" Nothing Nothing
 
-renderPruneJobWithLabel :: Text -> Maybe (Text, Text) -> PruneJobInputs -> ByteString
-renderPruneJobWithLabel label pins inputs = Y.encode $ object
+renderPruneJobWithLabel :: Text -> Maybe (Text, Text) -> Maybe Text
+  -> PruneJobInputs -> ByteString
+renderPruneJobWithLabel label pins recoveryShell inputs = Y.encode $ object
   [ "apiVersion" .= ("batch/v1" :: Text)
   , "kind" .= ("Job" :: Text)
   , "metadata" .= object
@@ -69,8 +78,8 @@ renderPruneJobWithLabel label pins inputs = Y.encode $ object
           [ "name" .= ("prune" :: Text)
           , "image" .= storeImage (inputs ^. #backend)
           , "command" .= (["/bin/sh", "-c"] :: [Text])
-          , "args" .= [maybe (pruneShell inputs)
-              (const (scheduledPruneShell inputs)) pins]
+          , "args" .= [maybe (maybe (pruneShell inputs)
+              (const (scheduledPruneShell inputs)) pins) id recoveryShell]
           , "env" .= toJSON (map (uncurry plainEnv)
               [ ("OBJECT", inputs ^. #objectUrl)
               , ("RECEIPT", inputs ^. #receiptUrl)
@@ -102,6 +111,53 @@ pruneShell inputs = pruneShellWithPins inputs False
 -- | Values are supplied by the rendered Job's EXPECTED_*_VERSION env entries.
 scheduledPruneShell :: PruneJobInputs -> Text
 scheduledPruneShell inputs = pruneShellWithPins inputs True
+
+-- | Recovery of an immutable Job that deleted only the data version. The
+-- original review supplies both exact versions and hashes; a complete version
+-- listing must find no data-key version or delete marker before the receipt
+-- can be removed. The ordinary prune Job cannot be replayed after this point.
+scheduledReceiptRecoveryShell :: PruneJobInputs -> Text
+scheduledReceiptRecoveryShell inputs = case inputs ^. #backend of
+  GcsBackend {} -> "exit 1"
+  MinioBackend ref ->
+    "set -eu; " <> storeShellPreamble (inputs ^. #backend)
+      <> "command -v python3 >/dev/null 2>&1; "
+      <> "command -v sha256sum >/dev/null 2>&1 || dnf install -y -q coreutils >/dev/null 2>&1; "
+      <> "STORE_BUCKET='" <> ref ^. #bucket <> "'; STORE_ENDPOINT='"
+      <> ref ^. #endpoint <> "'; "
+      <> "VERSIONS_FILE=${NAGARE_VERSION_LIST_FILE:-/tmp/nagare-version-list.json}; "
+      <> "case \"$OBJECT\" in s3://\"$STORE_BUCKET\"/*) ;; *) exit 1;; esac; "
+      <> "DATA_KEY=${OBJECT#s3://$STORE_BUCKET/}; "
+      <> "RECEIPT_KEY=${RECEIPT#s3://$STORE_BUCKET/}; "
+      <> "test -n \"$DATA_KEY\"; test -n \"$EXPECTED_OBJECT_VERSION\"; "
+      <> "test \"$RECEIPT\" = \"$OBJECT.receipt.json\"; "
+      <> "version_absent() { TARGET_KEY=$1; export TARGET_KEY; "
+      <> "aws --no-paginate s3api list-object-versions --bucket \"$STORE_BUCKET\""
+      <> " --prefix \"$TARGET_KEY\" --output json --endpoint-url \"$STORE_ENDPOINT\""
+      <> " > \"$VERSIONS_FILE\"; "
+      <> "python3 -c 'import json,os,sys; d=json.load(sys.stdin); "
+      <> "assert d.get(\"IsTruncated\") is False; "
+      <> "assert all(v.get(\"Key\") != os.environ[\"TARGET_KEY\"] "
+      <> "for v in d.get(\"Versions\",[])+d.get(\"DeleteMarkers\",[]))'"
+      <> " < \"$VERSIONS_FILE\"; }; "
+      <> "version_absent \"$DATA_KEY\"; "
+      <> "RECEIPT_VERSION=$(aws s3api head-object --bucket \"$STORE_BUCKET\""
+      <> " --key \"$RECEIPT_KEY\" --query VersionId --output text"
+      <> " --endpoint-url \"$STORE_ENDPOINT\"); "
+      <> "test \"$RECEIPT_VERSION\" = \"$EXPECTED_RECEIPT_VERSION\"; "
+      <> "ACTUAL_RECEIPT=$(aws s3api get-object --bucket \"$STORE_BUCKET\""
+      <> " --key \"$RECEIPT_KEY\" --version-id \"$RECEIPT_VERSION\""
+      <> " --endpoint-url \"$STORE_ENDPOINT\" /dev/fd/3 3>&1 1>/dev/null"
+      <> " | sha256sum | cut -d' ' -f1); "
+      <> "test \"$ACTUAL_RECEIPT\" = \"$EXPECTED_RECEIPT_SHA256\"; "
+      <> "version_absent \"$DATA_KEY\"; "
+      <> "test \"$(aws s3api head-object --bucket \"$STORE_BUCKET\""
+      <> " --key \"$RECEIPT_KEY\" --query VersionId --output text"
+      <> " --endpoint-url \"$STORE_ENDPOINT\")\" = \"$RECEIPT_VERSION\"; "
+      <> "aws s3api delete-object --bucket \"$STORE_BUCKET\""
+      <> " --key \"$RECEIPT_KEY\" --version-id \"$RECEIPT_VERSION\""
+      <> " --endpoint-url \"$STORE_ENDPOINT\"; "
+      <> "version_absent \"$RECEIPT_KEY\""
 
 pruneShellWithPins :: PruneJobInputs -> Bool -> Text
 pruneShellWithPins inputs pinned =
