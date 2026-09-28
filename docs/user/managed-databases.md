@@ -420,8 +420,7 @@ uncertain deletion needs explicit recovery; an accepted prune scope prevents
 new reviewed restores even if its Job has not completed. Local MinIO backups
 enable bucket versioning before their create-only upload; older local objects
 without version IDs cannot be pruned by this command. Scheduled backups and
-backups recorded with `retain` remain outside this pruning route. Live
-object-store proof remains open.
+backups recorded with `retain` remain outside this pruning route.
 
 An accepted PostgreSQL backup can be
 restored into a new scratch database through a separate saved review:
@@ -437,9 +436,9 @@ expiry, then creates `<database>_restore_<restore-id>` only if absent. If the
 restore fails after creation, keep the scratch database for explicit forward
 recovery.
 
-In a local context, a PostgreSQL **manual** backup can also be restored into
-the existing live database after a distinct, accepted pre-change manual backup
-has been made. Save the review with both backup IDs:
+In a local context, an accepted PostgreSQL manual or scheduled backup can also
+be restored into the existing live database after a distinct, accepted
+pre-change **manual** backup has been made. Save the review with both backup IDs:
 
 ```bash
 nagarectl db restore pg-main source-001 --into-live \
@@ -448,9 +447,12 @@ nagarectl db restore pg-main source-001 --into-live \
 nagarectl inventory apply ./pg-main-live-restore --yes
 ```
 
-Planning pins the current StatefulSet, PVC, and Pod identities and both completed
-backup Jobs. It checks the two stored receipts and archives, then saves their
-exact MinIO version IDs and hashes. Apply rechecks those inputs, excludes other
+Planning pins the current StatefulSet, PVC, and Pod identities and both accepted
+backup scopes. For a scheduled source, it also binds the accepted CronJob and
+signing Secret identities and checks the completed ingestion Job's readback;
+the producer Job may already have been deleted. It checks both stored receipts
+and archives, then saves their exact MinIO version IDs and hashes. Apply
+rechecks those inputs, excludes other
 database clients and writers, and loads the source SQL in one PostgreSQL
 transaction. A fresh logical dump must match the source before the fence
 releases and the prior writer configuration returns. Replanning the same
@@ -464,9 +466,9 @@ pinned pre-change backup, restores it under the active fence if needed, and
 compares a fresh full dump before releasing writers. It abandons the original
 review; save a new review if the source restore is still wanted. A partial
 writer release needs a separate `forward-fenced-release` decision. This live
-path currently supports local PostgreSQL manual backups;
-Redis, ClickHouse, scheduled-backup live selection, cloud GCS, and live volume
-restore remain pending.
+path currently supports local PostgreSQL manual and scheduled source backups
+with a distinct manual recovery backup. Redis, ClickHouse, cloud GCS, and live
+volume restore remain pending.
 
 An accepted Redis backup can use the same reviewed command. It creates a
 separate `<database>-restore-<restore-id>` Service, scratch PVC, and Redis

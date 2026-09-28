@@ -130,7 +130,11 @@ verifyLiveStoredFiles backup receiptObject archiveObject receiptPath archivePath
       && storedLength receiptObject == actualReceiptSize
       && storedLength archiveObject == actualArchiveSize
       && contentDigest receiptBytes == liveBackupReceiptDigest backup
-      && digest == liveBackupSha256 backup)
+      && digest == liveBackupSha256 backup
+      && maybe True (\scheduled ->
+          actualReceiptSize == liveScheduledReceiptLength scheduled
+            && actualArchiveSize == liveScheduledObjectLength scheduled)
+          (liveBackupScheduled backup))
       (Left "live restore stored receipt or archive changed since review")
 
 fileLength :: FilePath -> IO (Either Text Integer)

@@ -161,7 +161,7 @@ Pod. Apply checks that Pod belongs to the exact Job UID and that the receipt
 matches the reviewed address and metadata before recording completion. If the
 Pod receipt is unavailable, completion remains unresolved. This proves what
 the Job read at completion; restore and pruning still need a fresh object read
-and checksum. Live object-store verification remains pending. List cloud backups
+and checksum. List cloud backups
 with `gsutil ls gs://<backup-bucket>/databases/<name>/`, or inspect local MinIO
 through the cluster when running local mode. Expired reviewed manual backups
 can be pruned with `nagarectl db prune-backup NAME BACKUP_ID --save-plan DIR`
@@ -186,7 +186,7 @@ restore Job checks the current receipt and backup bytes against the saved
 checksums, checks expiry again, and creates
 `<database>_restore_<restore-id>` only if absent. A failed restore leaves that
 scratch database for explicit forward recovery. Local PostgreSQL live restore
-from a manual backup is available as a separate fenced review; other engine
+from an accepted manual or scheduled source is available as a separate fenced review; other engine
 live restores, scheduled-backup pruning, and complete cloud provider proof
 remain pending.
 
@@ -206,7 +206,8 @@ ingestion after producer Job cleanup and a real key-content restore; Redis
 live-target restore remains unavailable.
 
 For a local PostgreSQL live restore, first make and check a distinct manual
-backup of the current database. Then save a review naming the older source and
+backup of the current database. Then save a review naming the older accepted
+manual or scheduled source and
 the pre-change recovery backup:
 
 ```bash
@@ -224,8 +225,11 @@ prove its outcome. Use a `verify-fenced-effect` recovery decision to prove the
 source landed, or `recover-fenced-backup` to restore and prove the pinned
 pre-change content under the same fence. The latter abandons the original
 review after writer release; it does not mark the source restore complete.
-Use `forward-fenced-release` if the writer release is observed partial. Other
-engines, scheduled-backup live selection, cloud GCS,
+For a scheduled source, planning also checks the accepted CronJob, signing
+Secret, signed receipt, and ingestion Job readback after producer Job cleanup.
+The pre-change recovery backup must still be manual. Use
+`forward-fenced-release` if the writer release is observed partial. Other
+engines, cloud GCS,
 and live volume overwrite remain pending. The old
 `db restore NAME BACKUP_ID --dry-run` output renders a Job but does not submit
 it. A database declared `retention = Delete` is treated as throwaway and gets **no**

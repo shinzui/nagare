@@ -5,6 +5,7 @@
 module Nagare.Inventory.LiveRestore
   ( LiveBackupInput (..)
   , LiveBackupProof (..)
+  , LiveScheduledProof (..)
   , LiveStoreProof (..)
   , LiveRestoreRequest (..)
   , LiveRestoreProof (..)
@@ -13,7 +14,7 @@ module Nagare.Inventory.LiveRestore
   , compileLiveRestoreScope
   ) where
 
-import Data.Aeson (FromJSON (..), ToJSON (..), Value (..), defaultOptions,
+import Data.Aeson (FromJSON (..), ToJSON (..), Value (..), Options (..), defaultOptions,
   eitherDecodeStrict', genericParseJSON, genericToJSON)
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
@@ -27,13 +28,15 @@ import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime)
 import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
 import Data.Time.Format (defaultTimeLocale, parseTimeM)
+import Text.Read (readMaybe)
 import Nagare.Cluster.GcsJob (MinioRef (..), StoreBackend (..), storeObjectUrl)
 import Nagare.Database.Backup (backupExt, manualBackupObjectPath)
 import Nagare.Dsl.Database (Engine (Postgres), engineToken, parseEngine)
 import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (mkServiceName)
-import Nagare.Inventory.Backup (parseManualBackupReceipt)
+import Nagare.Inventory.Backup (parseManualBackupReceipt,
+  scheduledReceiptExpectationFromCronJob, ScheduledReceiptExpectation (..))
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Store (ScopeRevision (..))
 import Nagare.Resource.Inventory
@@ -64,10 +67,31 @@ data LiveBackupProof = LiveBackupProof
   , liveBackupObjectVersionProof :: !Text
   , liveBackupReceiptVersionProof :: !Text
   , liveBackupExpiryEpoch :: !Integer
+  , liveBackupScheduled :: !(Maybe LiveScheduledProof)
   }
   deriving stock (Generic, Eq, Show)
 
-instance ToJSON LiveBackupProof where toJSON = genericToJSON defaultOptions
+-- | The accepted receipt-ingestion Job is a distinct attestation of a
+-- scheduled producer run. Its termination message binds exact store versions
+-- and the archive SHA. The underlying producer Job may have been collected.
+data LiveScheduledProof = LiveScheduledProof
+  { liveScheduledCron :: !ResourceId
+  , liveScheduledCronUid :: !PhysicalIdentity
+  , liveScheduledSigning :: !ResourceId
+  , liveScheduledSigningUid :: !PhysicalIdentity
+  , liveScheduledJobReceiptDigest :: !ContentDigest
+  , liveScheduledObjectPrefix :: !Text
+  , liveScheduledFormat :: !Text
+  , liveScheduledObjectLength :: !Integer
+  , liveScheduledReceiptLength :: !Integer
+  }
+  deriving stock (Generic, Eq, Show)
+
+instance ToJSON LiveScheduledProof where toJSON = genericToJSON defaultOptions
+instance FromJSON LiveScheduledProof where parseJSON = genericParseJSON defaultOptions
+
+instance ToJSON LiveBackupProof where
+  toJSON = genericToJSON defaultOptions {omitNothingFields = True}
 instance FromJSON LiveBackupProof where parseJSON = genericParseJSON defaultOptions
 
 data LiveStoreProof = LiveStoreProof
@@ -157,14 +181,25 @@ liveRestoreProof scope = case Map.lookup "live.restore.proof" (scopeOverrides sc
     backend <- liveStoreBackend (liveRestoreProofStore proof)
     let validBackup backup = do
           _ <- mkServiceName (liveBackupId backup)
-          let expected = storeObjectUrl backend (manualBackupObjectPath
-                (liveRestoreProofDatabase proof) (liveRestoreProofNamespace proof)
-                (liveBackupId backup) (backupExt Postgres))
+          let expected = case liveBackupScheduled backup of
+                Nothing -> storeObjectUrl backend (manualBackupObjectPath
+                  (liveRestoreProofDatabase proof) (liveRestoreProofNamespace proof)
+                  (liveBackupId backup) (backupExt Postgres))
+                Just scheduled -> liveScheduledObjectPrefix scheduled
+                  <> liveBackupId backup <> "." <> liveScheduledFormat scheduled
           unless (liveBackupObject backup == expected
               && liveBackupReceipt backup == expected <> ".receipt.json"
               && not (T.null (liveBackupObjectVersionProof backup))
               && not (T.null (liveBackupReceiptVersionProof backup))
-              && liveBackupExpiryEpoch backup >= 0)
+              && liveBackupExpiryEpoch backup >= 0
+              && maybe True (\scheduled -> liveBackupExpiryEpoch backup == 0
+                && liveScheduledFormat scheduled == "sql.gz"
+                && liveScheduledObjectLength scheduled > 0
+                && liveScheduledReceiptLength scheduled > 0
+                && case backend of
+                  MinioBackend ref -> ("s3://" <> bucket ref <> "/")
+                    `T.isPrefixOf` liveScheduledObjectPrefix scheduled
+                  GcsBackend {} -> False) (liveBackupScheduled backup))
             (Left "live restore backup proof has another object or expiry")
     validBackup (liveRestoreProofSource proof)
     validBackup (liveRestoreProofRecovery proof)
@@ -266,7 +301,11 @@ validateBackup :: (Text -> NonEmpty InventoryError) -> LiveRestoreRequest
   -> ScopeDeclaration -> Map ResourceId (ManagedResource, ByteString)
   -> ManagedResource -> ManagedResource -> LiveBackupInput
   -> Either (NonEmpty InventoryError) LiveBackupProof
-validateBackup invalid request target native stateful pvc backup = do
+validateBackup invalid request target native stateful pvc backup
+  | Map.member "scheduled.backup.id"
+      (scopeOverrides (liveBackupScope backup)) =
+        validateScheduledBackup invalid request target native stateful pvc backup
+  | otherwise = do
   let scope = liveBackupScope backup
       fields = scopeOverrides scope
       required key = maybe (Left (invalid ("live backup lacks " <> key))) Right
@@ -348,4 +387,140 @@ validateBackup invalid request target native stateful pvc backup = do
     , liveBackupObjectVersionProof = liveBackupObjectVersion backup
     , liveBackupReceiptVersionProof = liveBackupReceiptVersion backup
     , liveBackupExpiryEpoch = expiryEpoch
+    , liveBackupScheduled = Nothing
+    }
+
+validateScheduledBackup :: (Text -> NonEmpty InventoryError)
+  -> LiveRestoreRequest -> ScopeDeclaration
+  -> Map ResourceId (ManagedResource, ByteString)
+  -> ManagedResource -> ManagedResource -> LiveBackupInput
+  -> Either (NonEmpty InventoryError) LiveBackupProof
+validateScheduledBackup invalid request target native stateful pvc backup = do
+  let scope = liveBackupScope backup
+      fields = scopeOverrides scope
+      required key = maybe (Left (invalid ("scheduled live backup lacks " <> key)))
+        Right (Map.lookup key fields)
+      expectedScope = scopeIdText (scopeId target)
+      expectedGeneration = T.pack (show (generationNumber
+        (revisionGeneration (liveRestoreTargetRevision request))))
+      expectedRevision = digestText
+        (revisionDigest (liveRestoreTargetRevision request))
+      select kind name = [member | bundle <- scopeBundles target,
+        Managed member <- declarations bundle,
+        case member ^. #address of
+          Kubernetes _ group actual (Just namespace) selected ->
+            group == (if kind == "cronjob" then "batch" else "")
+              && nameText actual == kind
+              && nameText namespace == liveRestoreNamespace request
+              && nameText selected == name
+          _ -> False]
+      one label members = case members of
+        [single] -> Right single
+        _ -> Left (invalid ("scheduled live backup lacks one " <> label))
+      nativeBytes member = case Map.lookup (member ^. #identity) native of
+        Just (bound, bytes) | bound == member -> Right bytes
+        _ -> Left (invalid "scheduled live backup lacks accepted native bytes")
+  unless (Map.lookup "scheduled.backup.source.scope" fields == Just expectedScope
+      && Map.lookup "scheduled.backup.source.generation" fields
+        == Just expectedGeneration
+      && Map.lookup "scheduled.backup.source.revision" fields
+        == Just expectedRevision
+      && Map.lookup "scheduled.backup.source.statefulset" fields
+        == Just (resourceIdText (stateful ^. #identity))
+      && Map.lookup "scheduled.backup.source.statefulset.uid" fields
+        == Just (physicalIdentityText (liveRestoreStatefulUid request))
+      && Map.lookup "scheduled.backup.source.pvc" fields
+        == Just (resourceIdText (pvc ^. #identity))
+      && Map.lookup "scheduled.backup.source.pvc.uid" fields
+        == Just (physicalIdentityText (liveRestorePvcUid request)))
+    (Left (invalid "scheduled live backup belongs to another target incarnation"))
+  backupId <- required "scheduled.backup.id"
+  objectUrl <- required "scheduled.backup.object"
+  receiptUrl <- required "scheduled.backup.receipt"
+  objectVersion <- required "scheduled.backup.object.version"
+  receiptVersion <- required "scheduled.backup.receipt.version"
+  checksum <- required "scheduled.backup.object.sha256"
+  receiptDigest <- required "scheduled.backup.receipt.digest"
+    >>= first invalid . mkContentDigest
+  objectLength <- required "scheduled.backup.object.length"
+    >>= maybe (Left (invalid "scheduled backup object length is malformed"))
+      Right . readMaybe . T.unpack
+  receiptLength <- required "scheduled.backup.receipt.length"
+    >>= maybe (Left (invalid "scheduled backup receipt length is malformed"))
+      Right . readMaybe . T.unpack
+  cron <- one "CronJob" (select "cronjob"
+    ("nagare-dbbackup-" <> liveRestoreDatabase request))
+  signing <- one "signing Secret" (select "secret"
+    ("nagare-dbbackup-" <> liveRestoreDatabase request <> "-signing"))
+  cronBytes <- nativeBytes cron
+  _ <- nativeBytes signing
+  cronUid <- required "scheduled.backup.schedule.uid"
+    >>= first invalid . mkPhysicalIdentity
+  signingUid <- required "scheduled.backup.signing.uid"
+    >>= first invalid . mkPhysicalIdentity
+  unless (Map.lookup "scheduled.backup.schedule" fields
+      == Just (resourceIdText (cron ^. #identity))
+      && Map.lookup "scheduled.backup.signing" fields
+        == Just (resourceIdText (signing ^. #identity)))
+    (Left (invalid "scheduled live backup attestation identities changed"))
+  expectation <- first invalid (scheduledReceiptExpectationFromCronJob
+    (liveRestoreBackend request) (liveRestoreNamespace request)
+    (liveRestoreDatabase request) (liveRestoreStatefulUid request)
+    (liveRestorePvcUid request) cronBytes)
+  let expectedObject = scheduledObjectPrefix expectation <> backupId
+        <> "." <> scheduledFormat expectation
+  unless (objectUrl == expectedObject && receiptUrl == expectedObject <> ".receipt.json"
+      && objectVersion == liveBackupObjectVersion backup
+      && receiptVersion == liveBackupReceiptVersion backup
+      && objectLength > 0 && receiptLength > 0
+      && T.length checksum == 64
+      && T.all (\character -> character `elem` (['0'..'9'] <> ['a'..'f'])) checksum)
+    (Left (invalid "scheduled live backup store identity changed"))
+  message <- first (invalid . T.pack)
+    (eitherDecodeStrict' (liveBackupReceiptBytes backup))
+  unless (case message of
+      Object root -> KM.size root == 3
+        && KM.lookup "objectVersion" root == Just (String objectVersion)
+        && KM.lookup "receiptVersion" root == Just (String receiptVersion)
+        && KM.lookup "sha256" root == Just (String checksum)
+      _ -> False)
+    (Left (invalid "scheduled ingestion Job readback differs from accepted versions"))
+  job <- one "ingestion Job" [member | bundle <- scopeBundles scope,
+    Managed member <- declarations bundle,
+    case member ^. #address of
+      Kubernetes _ "batch" kind (Just namespace) _ ->
+        nameText kind == "job"
+          && nameText namespace == liveRestoreNamespace request
+      _ -> False]
+  _ <- nativeBytes job
+  unless (case (stateful ^. #address, job ^. #address) of
+      (Kubernetes targetCluster _ _ _ _, Kubernetes backupCluster _ _ _ _) ->
+        targetCluster == backupCluster
+      _ -> False)
+    (Left (invalid "scheduled ingestion Job belongs to another cluster"))
+  pure LiveBackupProof
+    { liveBackupScopeId = scopeId scope
+    , liveBackupScopeRevision = liveBackupRevision backup
+    , liveBackupJob = job ^. #identity
+    , liveBackupPhysical = liveBackupJobUid backup
+    , liveBackupId = backupId
+    , liveBackupObject = objectUrl
+    , liveBackupReceipt = receiptUrl
+    , liveBackupReceiptDigest = receiptDigest
+    , liveBackupSha256 = checksum
+    , liveBackupObjectVersionProof = objectVersion
+    , liveBackupReceiptVersionProof = receiptVersion
+    , liveBackupExpiryEpoch = 0
+    , liveBackupScheduled = Just LiveScheduledProof
+        { liveScheduledCron = cron ^. #identity
+        , liveScheduledCronUid = cronUid
+        , liveScheduledSigning = signing ^. #identity
+        , liveScheduledSigningUid = signingUid
+        , liveScheduledJobReceiptDigest = contentDigest
+            (liveBackupReceiptBytes backup)
+        , liveScheduledObjectPrefix = scheduledObjectPrefix expectation
+        , liveScheduledFormat = scheduledFormat expectation
+        , liveScheduledObjectLength = objectLength
+        , liveScheduledReceiptLength = receiptLength
+        }
     }

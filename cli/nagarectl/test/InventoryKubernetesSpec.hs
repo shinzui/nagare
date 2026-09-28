@@ -31,7 +31,7 @@ import Nagare.Dsl.Task.Render (renderTask)
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes
-import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), backupReceiptFromPodList, cacheClientDataMatches, certificateReady, collectionDeleteRequest, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, credentialDataMatches, deploymentAvailable, deploymentSelectorReplacement, desiredFieldsMatch, generatedCredentialTemplate, jobCompleted, knativeReady, materializeCacheKey, materializeCredential, mkKubernetesRuntimeOps, observeCacheClientOutput, parseObserved, readinessForAddress, statefulSetImmutableReplacement, statefulSetReady, supportedUpdateAddress, withoutCacheClientData)
+import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), backupReceiptFromPodList, cacheClientDataMatches, certificateReady, collectionDeleteRequest, completedJobContainerMessageFromPodList, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, credentialDataMatches, deploymentAvailable, deploymentSelectorReplacement, desiredFieldsMatch, generatedCredentialTemplate, jobCompleted, knativeReady, materializeCacheKey, materializeCredential, mkKubernetesRuntimeOps, observeCacheClientOutput, parseObserved, readinessForAddress, statefulSetImmutableReplacement, statefulSetReady, supportedUpdateAddress, withoutCacheClientData)
 import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
 import Nagare.Inventory.Database (compileDatabaseForBackend)
 import Nagare.Inventory.Backup (ManualBackupRequest (..), BackupReceiptExpectation (..), BackupSourceProof (..), VolumeSnapshotRequest (..), compileManualBackupScope, compileVolumeSnapshotScope, manualBackupJobReceiptExpectation, manualBackupJobSourcePins, manualBackupSourceProof, parseBackupReceipt, parseManualBackupReceipt, volumeSnapshotJobSourcePins)
@@ -39,7 +39,7 @@ import Nagare.Inventory.Prune (ManualPruneRequest (..), PruneSourceProof (..), c
 import Nagare.Inventory.VolumePrune (VolumePruneRequest (..), compileVolumePruneScope, volumePruneJobCredentialPin)
 import Nagare.Inventory.Restore (ManualRestoreRequest (..), VolumeRestoreRequest (..), compileManualRestoreScope, compileVolumeRestoreScope, manualRestoreJobTargetPins, manualRestoreTargetProof, volumeRestoreJobSourcePins)
 import Nagare.Inventory.Maintenance (MaintenanceRequest (..), MaintenanceSourceProof (..), compileMaintenanceScope, maintenanceSourceProof)
-import Nagare.Inventory.LiveRestore (LiveBackupInput (..), LiveBackupProof (..), LiveRestoreRequest (..), LiveRestoreProof (..), compileLiveRestoreScope, liveRestoreProof)
+import Nagare.Inventory.LiveRestore (LiveBackupInput (..), LiveBackupProof (..), LiveScheduledProof (..), LiveRestoreRequest (..), LiveRestoreProof (..), compileLiveRestoreScope, liveRestoreProof)
 import Nagare.Inventory.LiveRestorePostgres (normalizePostgresDump)
 import Nagare.Inventory.LiveRestoreSource (verifyLiveStoredFiles)
 import Nagare.Inventory.ScheduledStore (StoredObject (..))
@@ -1113,6 +1113,21 @@ inventoryKubernetesTests =
                                   "message" .= TE.decodeUtf8 receiptBytes]]]]]]
                 backupReceiptFromPodList completedPhysical
                   (object ["items" .= [podReceipt]]) @?= Right receiptBytes
+                let verifyPod = object
+                      [ "metadata" .= object ["ownerReferences" .=
+                          [object ["kind" .= ("Job" :: Text), "uid" .=
+                            ("backup-job-uid" :: Text), "controller" .= True]]]
+                      , "status" .= object
+                          [ "phase" .= ("Succeeded" :: Text)
+                          , "containerStatuses" .=
+                              [object ["name" .= ("verify" :: Text), "state" .= object
+                                ["terminated" .= object ["exitCode" .= (0 :: Int),
+                                  "message" .= TE.decodeUtf8 receiptBytes]]]]]]
+                completedJobContainerMessageFromPodList completedPhysical
+                  "verify" (object ["items" .= [verifyPod]]) @?= Right receiptBytes
+                assertBool "wrong completed Job container was accepted"
+                  (isLeft (completedJobContainerMessageFromPodList
+                    completedPhysical "upload" (object ["items" .= [verifyPod]])))
                 assertBool "receipt from another Job UID was accepted"
                   (isLeft (backupReceiptFromPodList (ok (mkPhysicalIdentity "other-job"))
                     (object ["items" .= [podReceipt]])))
@@ -1325,6 +1340,19 @@ inventoryKubernetesTests =
                     archiveData = "fixed archive bytes"
                     pinnedSource = sourceProof
                       {liveBackupSha256 = digestText (contentDigest archiveData)}
+                    scheduledProof = LiveScheduledProof
+                        { liveScheduledCron = liveBackupJob sourceProof
+                        , liveScheduledCronUid = liveBackupPhysical sourceProof
+                        , liveScheduledSigning = liveBackupJob sourceProof
+                        , liveScheduledSigningUid = liveBackupPhysical sourceProof
+                        , liveScheduledJobReceiptDigest = contentDigest "readback"
+                        , liveScheduledObjectPrefix = "s3://backups/databases/pg-main/"
+                        , liveScheduledFormat = "sql.gz"
+                        , liveScheduledObjectLength = fromIntegral (BS.length archiveData)
+                        , liveScheduledReceiptLength = fromIntegral (BS.length receiptBytes)
+                        }
+                    scheduledSource = pinnedSource
+                      {liveBackupScheduled = Just scheduledProof}
                 withSystemTempDirectory "nagare-live-source" $ \scratch -> do
                   let receiptPath = scratch <> "/receipt.json"
                       archivePath = scratch <> "/archive.gz"
@@ -1338,6 +1366,14 @@ inventoryKubernetesTests =
                   BS.writeFile archivePath archiveData
                   verifyLiveStoredFiles pinnedSource receiptObject archiveObject
                     receiptPath archivePath >>= (@?= Right ())
+                  verifyLiveStoredFiles scheduledSource receiptObject archiveObject
+                    receiptPath archivePath >>= (@?= Right ())
+                  assertBool "scheduled proof accepted a changed stored length"
+                    . isLeft =<< verifyLiveStoredFiles
+                      (scheduledSource {liveBackupScheduled = Just
+                        (scheduledProof {liveScheduledReceiptLength =
+                          fromIntegral (BS.length receiptBytes) + 1})})
+                      receiptObject archiveObject receiptPath archivePath
                   assertBool "different stored archive version passed live restore"
                     . isLeft =<< verifyLiveStoredFiles pinnedSource receiptObject
                       (archiveObject {storedVersion = "replacement"})

@@ -21,7 +21,7 @@ import Nagare.Inventory.Adapters.Kubernetes
   (KubernetesAdapterOps (..), KubernetesState (..))
 import Nagare.Inventory.Adapters.KubernetesRuntime
   (KubernetesRuntimeConfig (..), mkKubernetesRuntimeOpsWithCacheKey,
-    readBackupReceiptFromCompletedPod)
+    readBackupReceiptFromCompletedPod, readCompletedJobContainerMessage)
 import Nagare.Inventory.DataFence.MaintenancePostgres
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (..))
@@ -69,14 +69,31 @@ liveRestoreRuntime config scopes native base =
       verified <- present (liveBackupJob backup) (liveBackupPhysical backup)
       case verified of
         Left reason -> pure (Left reason)
-        Right () -> do
-          receipt <- readBackupReceiptFromCompletedPod config
-            (Map.restrictKeys native (Set.singleton (liveBackupJob backup)))
-            (liveBackupJob backup) (liveBackupPhysical backup)
-          pure $ do
-            bytes <- receipt
-            unless (contentDigest bytes == liveBackupReceiptDigest backup)
-              (Left "live restore completed Job receipt changed since review")
+        Right () -> case liveBackupScheduled backup of
+          Nothing -> do
+            receipt <- readBackupReceiptFromCompletedPod config
+              (Map.restrictKeys native (Set.singleton (liveBackupJob backup)))
+              (liveBackupJob backup) (liveBackupPhysical backup)
+            pure $ do
+              bytes <- receipt
+              unless (contentDigest bytes == liveBackupReceiptDigest backup)
+                (Left "live restore completed Job receipt changed since review")
+          Just scheduled -> do
+            cron <- present (liveScheduledCron scheduled)
+              (liveScheduledCronUid scheduled)
+            signing <- present (liveScheduledSigning scheduled)
+              (liveScheduledSigningUid scheduled)
+            case cron >> signing of
+              Left reason -> pure (Left reason)
+              Right () -> do
+                message <- readCompletedJobContainerMessage config
+                  (Map.restrictKeys native (Set.singleton (liveBackupJob backup)))
+                  (liveBackupJob backup) (liveBackupPhysical backup) "verify"
+                pure $ do
+                  bytes <- message
+                  unless (contentDigest bytes
+                      == liveScheduledJobReceiptDigest scheduled)
+                    (Left "scheduled ingestion Job readback changed since review")
 
     exactTarget proof = do
       stateful <- present (liveRestoreProofStateful proof)

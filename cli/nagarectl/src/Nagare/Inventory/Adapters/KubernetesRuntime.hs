@@ -17,7 +17,9 @@ module Nagare.Inventory.Adapters.KubernetesRuntime
   , confirmInventoryFieldOwnershipFor
   , jobCompleted
   , readBackupReceiptFromCompletedPod
+  , readCompletedJobContainerMessage
   , backupReceiptFromPodList
+  , completedJobContainerMessageFromPodList
   , crdEstablished
   , certificateReady
   , knativeReady
@@ -543,6 +545,14 @@ readBackupReceiptFromCompletedPod
   -> PhysicalIdentity
   -> IO (Either Text ByteString)
 readBackupReceiptFromCompletedPod config specs resource physical =
+  readCompletedJobContainerMessage config specs resource physical "upload"
+
+readCompletedJobContainerMessage
+  :: KubernetesRuntimeConfig
+  -> Map ResourceId (ManagedResource, ByteString)
+  -> ResourceId -> PhysicalIdentity -> Text
+  -> IO (Either Text ByteString)
+readCompletedJobContainerMessage config specs resource physical containerName =
   case Map.lookup resource specs of
     Just (declaration, _) -> case address declaration of
       Kubernetes _ "batch" kind (Just namespace) name | nameText kind == "job" -> do
@@ -557,12 +567,17 @@ readBackupReceiptFromCompletedPod config specs resource physical =
               (code, output, _) <- result
               unless (code == ExitSuccess) (Left "Kubernetes backup Pod receipt read failed")
               pods <- first T.pack (eitherDecodeStrict' (TE.encodeUtf8 (T.pack output)))
-              backupReceiptFromPodList physical pods
+              completedJobContainerMessageFromPodList physical containerName pods
       _ -> pure (Left "backup receipt resource is not a namespaced Job")
     Nothing -> pure (Left "backup receipt Job lacks its bound native object")
 
 backupReceiptFromPodList :: PhysicalIdentity -> Value -> Either Text ByteString
-backupReceiptFromPodList physical (Object root) = case KM.lookup "items" root of
+backupReceiptFromPodList physical =
+  completedJobContainerMessageFromPodList physical "upload"
+
+completedJobContainerMessageFromPodList
+  :: PhysicalIdentity -> Text -> Value -> Either Text ByteString
+completedJobContainerMessageFromPodList physical containerName (Object root) = case KM.lookup "items" root of
   Just (Array items) -> case mapMaybe matchingReceipt (V.toList items) of
     [receipt] -> Right (TE.encodeUtf8 receipt)
     [] -> Left "completed backup Job has no matching upload Pod receipt"
@@ -576,7 +591,7 @@ backupReceiptFromPodList physical (Object root) = case KM.lookup "items" root of
       Object status <- KM.lookup "status" pod
       guard (KM.lookup "phase" status == Just (String "Succeeded"))
       Array containers <- KM.lookup "containerStatuses" status
-      container <- findUpload (V.toList containers)
+      container <- findSelected (V.toList containers)
       Object state <- KM.lookup "state" container
       Object terminated <- KM.lookup "terminated" state
       guard (KM.lookup "exitCode" terminated == Just (Number 0))
@@ -589,10 +604,10 @@ backupReceiptFromPodList physical (Object root) = case KM.lookup "items" root of
         && KM.lookup "uid" owner == Just (String (physicalIdentityText physical))
         && KM.lookup "controller" owner == Just (Bool True)
     ownedByJob _ = False
-    findUpload = foldr (\candidate rest -> case candidate of
-      Object container | KM.lookup "name" container == Just (String "upload") -> Just container
+    findSelected = foldr (\candidate rest -> case candidate of
+      Object container | KM.lookup "name" container == Just (String containerName) -> Just container
       _ -> rest) Nothing
-backupReceiptFromPodList _ _ = Left "Kubernetes Pod list is not an object"
+completedJobContainerMessageFromPodList _ _ _ = Left "Kubernetes Pod list is not an object"
 
 crdEstablished :: Value -> Bool
 crdEstablished = hasCondition "Established"

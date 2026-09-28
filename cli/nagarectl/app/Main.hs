@@ -244,7 +244,7 @@ import Nagare.Inventory.Adapters.HostRuntime
 import Nagare.Inventory.Adapters.Helm (HelmAdapterOps (..), helmStateHealth, mkHelmAdapter)
 import Nagare.Inventory.Adapters.HelmRuntime (HelmRuntimeConfig (..), helmRuntimeOps)
 import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps (..), KubernetesState (..), mkKubernetesAdapterWithBackupReceipt)
-import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), mkKubernetesRuntimeOpsWithCacheKey, observeKubernetesHealth, readBackupReceiptFromCompletedPod)
+import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), mkKubernetesRuntimeOpsWithCacheKey, observeKubernetesHealth, readBackupReceiptFromCompletedPod, readCompletedJobContainerMessage)
 import Nagare.Inventory.Adapters.Pulumi (mkPulumiAdapter)
 import Nagare.Inventory.Adapters.PulumiRuntime
 import Nagare.Inventory.Adapters.Foundation (FoundationAdapterOps (..), FoundationObservation (..), FoundationTarget (..), foundationTargetDigest, mkFoundationAdapter)
@@ -283,7 +283,7 @@ import Nagare.Inventory.Restore (ManualRestoreRequest (..), VolumeRestoreRequest
 import Nagare.Inventory.Maintenance (MaintenanceRequest (..), MaintenanceSourceProof (..), maintenanceSourceProof, compileMaintenanceScope)
 import Nagare.Inventory.MaintenanceAdapter (maintenanceAdapter)
 import Nagare.Inventory.MaintenanceFence (registerMaintenanceFence, selectedMaintenanceProofs)
-import Nagare.Inventory.LiveRestore (LiveBackupInput (..), LiveBackupProof (..), LiveRestoreRequest (..), LiveRestoreProof (..), compileLiveRestoreScope)
+import Nagare.Inventory.LiveRestore (LiveBackupInput (..), LiveBackupProof (..), LiveScheduledProof (..), LiveRestoreRequest (..), LiveRestoreProof (..), compileLiveRestoreScope)
 import Nagare.Inventory.LiveRestoreAdapter (liveRestoreRuntime)
 import Nagare.Inventory.LiveRestoreFence (registerLiveRestoreFence, selectedLiveRestoreProofs)
 import Nagare.Inventory.LiveRestoreSource (captureLiveBackupVersions)
@@ -6667,7 +6667,12 @@ loadReviewedLiveRestoreSourceNative mctx document proofs = do
         && hasMember source (liveBackupJob (liveRestoreProofSource proof))
           "batch" "job"
         && hasMember recovery (liveBackupJob (liveRestoreProofRecovery proof))
-          "batch" "job")
+          "batch" "job"
+        && case liveBackupScheduled (liveRestoreProofSource proof) of
+          Nothing -> True
+          Just scheduled ->
+            hasMember target (liveScheduledCron scheduled) "batch" "cronjob"
+              && hasMember target (liveScheduledSigning scheduled) "" "secret")
       (dieT "live restore accepted source members changed after review")
   acceptedSnapshot <- either (dieT . T.pack . show) pure
     (ResourceInventory.mkScopeSnapshot
@@ -6682,7 +6687,11 @@ loadReviewedLiveRestoreSourceNative mctx document proofs = do
   let wanted = Set.fromList (concat
         [[liveRestoreProofStateful proof, liveRestoreProofPvc proof,
           liveBackupJob (liveRestoreProofSource proof),
-          liveBackupJob (liveRestoreProofRecovery proof)] | proof <- proofs])
+          liveBackupJob (liveRestoreProofRecovery proof)]
+          <> maybe [] (\scheduled ->
+            [liveScheduledCron scheduled, liveScheduledSigning scheduled])
+            (liveBackupScheduled (liveRestoreProofSource proof))
+          | proof <- proofs])
       selected = Map.restrictKeys acceptedNative wanted
   unless (Map.keysSet selected == wanted)
     (dieT "live restore target or backups lack accepted private native evidence")
@@ -11854,7 +11863,18 @@ runReviewedDbRestorePlan mctx database namespaceName backupId restoreKey
         && scheduledSha256 (scheduledReceipt evidence) == objectSha
         && Resource.digestText (scheduledReceiptDigest evidence) == receiptDigest)
       (dieT "scheduled restore provider versions or stored bytes differ from accepted ingestion")
-    pure BS.empty
+    message <- readCompletedJobContainerMessage config backupNative
+      (backupJob ^. #identity) backupUid "verify" >>= either dieT pure
+    readback <- either (dieT . T.pack) pure
+      (Aeson.eitherDecodeStrict' message)
+    unless (case readback of
+        Aeson.Object fields -> AesonMap.size fields == 3
+          && AesonMap.lookup "objectVersion" fields == Just (Aeson.String objectVersion)
+          && AesonMap.lookup "receiptVersion" fields == Just (Aeson.String receiptVersion)
+          && AesonMap.lookup "sha256" fields == Just (Aeson.String objectSha)
+        _ -> False)
+      (dieT "scheduled ingestion Job readback differs from accepted receipt")
+    pure message
   else readBackupReceiptFromCompletedPod config backupNative
     (backupJob ^. #identity) backupUid >>= either dieT pure
   case recoveryBackupId of
@@ -11881,7 +11901,6 @@ runReviewedDbRestorePlan mctx database namespaceName backupId restoreKey
           (Map.union restoreNative selectedNative)) active candidate output
       TIO.putStrLn "Saved reviewed scratch restore. Apply it to verify the backup again and create the fixed scratch target."
     Just recoveryId -> do
-      when scheduled (dieT "reviewed live restore currently requires a manual source backup")
       when (recoveryId == backupId)
         (dieT "reviewed live restore requires a distinct recovery backup")
       recoveryScope <- case [scope
@@ -11944,7 +11963,14 @@ runReviewedDbRestorePlan mctx database namespaceName backupId restoreKey
               selectedScope receiptAddress receipt)
             captureLiveBackupVersions config backend objectAddress receiptAddress
               receipt checksum >>= either dieT pure
-      sourceVersions <- pinVersions backupScope receiptBytes
+      sourceVersions <- if scheduled then do
+        let fields = ResourceInventory.scopeOverrides backupScope
+            required key = maybe (dieT ("scheduled live restore lacks " <> key))
+              pure (Map.lookup key fields)
+        objectVersion <- required "scheduled.backup.object.version"
+        receiptVersion <- required "scheduled.backup.receipt.version"
+        pure (objectVersion, receiptVersion)
+      else pinVersions backupScope receiptBytes
       recoveryVersions <- pinVersions recoveryScope recoveryReceipt
       (_, statefulBytes) <- maybe
         (dieT "live restore target StatefulSet lacks native bytes") pure
