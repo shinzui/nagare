@@ -5,8 +5,10 @@
 module Nagare.Inventory.LiveRestore
   ( LiveBackupInput (..)
   , LiveBackupProof (..)
+  , LiveStoreProof (..)
   , LiveRestoreRequest (..)
   , LiveRestoreProof (..)
+  , liveStoreBackend
   , liveRestoreProof
   , compileLiveRestoreScope
   ) where
@@ -25,7 +27,7 @@ import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime)
 import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
 import Data.Time.Format (defaultTimeLocale, parseTimeM)
-import Nagare.Cluster.GcsJob (StoreBackend, storeObjectUrl)
+import Nagare.Cluster.GcsJob (MinioRef (..), StoreBackend (..), storeObjectUrl)
 import Nagare.Database.Backup (backupExt, manualBackupObjectPath)
 import Nagare.Dsl.Database (Engine (Postgres), engineToken, parseEngine)
 import Nagare.Dsl.Database.Render (dbPvcName)
@@ -44,6 +46,8 @@ data LiveBackupInput = LiveBackupInput
   , liveBackupRevision :: !ScopeRevision
   , liveBackupJobUid :: !PhysicalIdentity
   , liveBackupReceiptBytes :: !ByteString
+  , liveBackupObjectVersion :: !Text
+  , liveBackupReceiptVersion :: !Text
   }
   deriving stock (Eq, Show)
 
@@ -57,12 +61,43 @@ data LiveBackupProof = LiveBackupProof
   , liveBackupReceipt :: !Text
   , liveBackupReceiptDigest :: !ContentDigest
   , liveBackupSha256 :: !Text
+  , liveBackupObjectVersionProof :: !Text
+  , liveBackupReceiptVersionProof :: !Text
   , liveBackupExpiryEpoch :: !Integer
   }
   deriving stock (Generic, Eq, Show)
 
 instance ToJSON LiveBackupProof where toJSON = genericToJSON defaultOptions
 instance FromJSON LiveBackupProof where parseJSON = genericParseJSON defaultOptions
+
+data LiveStoreProof = LiveStoreProof
+  { liveStoreKind :: !Text
+  , liveStoreProject :: !(Maybe Text)
+  , liveStoreBucket :: !Text
+  , liveStoreEndpoint :: !(Maybe Text)
+  , liveStoreSecret :: !(Maybe Text)
+  }
+  deriving stock (Generic, Eq, Show)
+
+instance ToJSON LiveStoreProof where toJSON = genericToJSON defaultOptions
+instance FromJSON LiveStoreProof where parseJSON = genericParseJSON defaultOptions
+
+storeProof :: StoreBackend -> LiveStoreProof
+storeProof (GcsBackend project bucket) = LiveStoreProof
+  "gcs" (Just project) bucket Nothing Nothing
+storeProof (MinioBackend ref) = LiveStoreProof
+  "minio" Nothing (bucket ref) (Just (endpoint ref)) (Just (secretName ref))
+
+liveStoreBackend :: LiveStoreProof -> Either Text StoreBackend
+liveStoreBackend proof = case proof of
+  LiveStoreProof "gcs" (Just project) selectedBucket Nothing Nothing
+    | not (T.null project || T.null selectedBucket) ->
+        Right (GcsBackend project selectedBucket)
+  LiveStoreProof "minio" Nothing selectedBucket (Just selectedEndpoint)
+    (Just selectedSecret)
+    | all (not . T.null) [selectedBucket, selectedEndpoint, selectedSecret] ->
+        Right (MinioBackend (MinioRef selectedEndpoint selectedBucket selectedSecret))
+  _ -> Left "live restore object-store reference is invalid"
 
 data LiveRestoreRequest = LiveRestoreRequest
   { liveRestoreDatabase :: !Text
@@ -91,6 +126,7 @@ data LiveRestoreProof = LiveRestoreProof
   , liveRestoreProofPvc :: !ResourceId
   , liveRestoreProofPvcUid :: !PhysicalIdentity
   , liveRestoreProofPodUid :: !PhysicalIdentity
+  , liveRestoreProofStore :: !LiveStoreProof
   , liveRestoreProofSource :: !LiveBackupProof
   , liveRestoreProofRecovery :: !LiveBackupProof
   }
@@ -118,6 +154,20 @@ liveRestoreProof scope = case Map.lookup "live.restore.proof" (scopeOverrides sc
       && liveBackupScopeId (liveRestoreProofSource proof)
         /= liveBackupScopeId (liveRestoreProofRecovery proof))
       (Left "live restore proof has unsupported engine, session, or recovery")
+    backend <- liveStoreBackend (liveRestoreProofStore proof)
+    let validBackup backup = do
+          _ <- mkServiceName (liveBackupId backup)
+          let expected = storeObjectUrl backend (manualBackupObjectPath
+                (liveRestoreProofDatabase proof) (liveRestoreProofNamespace proof)
+                (liveBackupId backup) (backupExt Postgres))
+          unless (liveBackupObject backup == expected
+              && liveBackupReceipt backup == expected <> ".receipt.json"
+              && not (T.null (liveBackupObjectVersionProof backup))
+              && not (T.null (liveBackupReceiptVersionProof backup))
+              && liveBackupExpiryEpoch backup >= 0)
+            (Left "live restore backup proof has another object or expiry")
+    validBackup (liveRestoreProofSource proof)
+    validBackup (liveRestoreProofRecovery proof)
     owner <- mkScopeId Standalone
       ("database-live-restore-" <> liveRestoreProofNamespace proof <> "-"
         <> liveRestoreProofDatabase proof <> "-" <> liveRestoreProofId proof)
@@ -197,7 +247,8 @@ compileLiveRestoreScope request accepted native = do
         (scopeId accepted) (liveRestoreTargetRevision request)
         (stateful ^. #identity) (liveRestoreStatefulUid request)
         (pvc ^. #identity) (liveRestorePvcUid request)
-        (liveRestorePodUid request) source recovery
+        (liveRestorePodUid request) (storeProof (liveRestoreBackend request))
+        source recovery
   proofBytes <- first invalid (canonicalValue (toJSON proof))
   owner <- first invalid (mkScopeId Standalone
     ("database-live-restore-" <> ns <> "-" <> db <> "-" <> liveRestoreId request))
@@ -247,6 +298,9 @@ validateBackup invalid request target native stateful pvc backup = do
           (liveRestoreNamespace request) backupId (backupExt Postgres))
   unless (objectUrl == expectedObject && receiptUrl == objectUrl <> ".receipt.json")
     (Left (invalid "live backup object or receipt has another address"))
+  unless (not (T.null (liveBackupObjectVersion backup))
+      && not (T.null (liveBackupReceiptVersion backup)))
+    (Left (invalid "live backup lacks exact object-store versions"))
   expiryEpoch <- if expiry == "retain" then Right 0 else
     case parseTimeM True defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ"
       (T.unpack expiry) :: Maybe UTCTime of
@@ -291,5 +345,7 @@ validateBackup invalid request target native stateful pvc backup = do
     , liveBackupReceipt = receiptUrl
     , liveBackupReceiptDigest = contentDigest (liveBackupReceiptBytes backup)
     , liveBackupSha256 = checksum
+    , liveBackupObjectVersionProof = liveBackupObjectVersion backup
+    , liveBackupReceiptVersionProof = liveBackupReceiptVersion backup
     , liveBackupExpiryEpoch = expiryEpoch
     }

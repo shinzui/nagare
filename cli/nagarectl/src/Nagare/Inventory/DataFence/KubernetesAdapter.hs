@@ -5,6 +5,7 @@ module Nagare.Inventory.DataFence.KubernetesAdapter
   ( KubernetesFenceFactory (..)
   , registerKubernetesDataFence
   , registerKubernetesMaintenanceFence
+  , registerKubernetesLiveRestoreFence
   ) where
 
 import Control.Monad (unless)
@@ -58,8 +59,27 @@ registerKubernetesMaintenanceFence :: KubernetesFenceFactory
       -> Either Text (Engine, MaintenanceNetworkPin))
   -> AdapterRegistry -> Either Text AdapterRegistry
 registerKubernetesMaintenanceFence factory selectPin =
-  registerKubernetesFence factory "kubernetes-native-maintenance-fence-v1"
-    (Just OpenMaintenanceSession) $ \record operation prepared -> do
+  registerKubernetesOnlineDatabaseFence factory
+    "kubernetes-native-maintenance-fence-v1" OpenMaintenanceSession selectPin
+
+-- | Live database restore uses the same online writer exclusion, under a
+-- distinct saved capability and action. Its private source proof supplies the
+-- exact Pod pin; apply never discovers a replacement Pod.
+registerKubernetesLiveRestoreFence :: KubernetesFenceFactory
+  -> (DataFenceRecord -> PlannedOperation -> PreparedNative
+      -> Either Text (Engine, MaintenanceNetworkPin))
+  -> AdapterRegistry -> Either Text AdapterRegistry
+registerKubernetesLiveRestoreFence factory selectPin =
+  registerKubernetesOnlineDatabaseFence factory
+    "kubernetes-native-live-restore-fence-v1" RestoreLiveDatabase selectPin
+
+registerKubernetesOnlineDatabaseFence :: KubernetesFenceFactory -> Text
+  -> OperationAction
+  -> (DataFenceRecord -> PlannedOperation -> PreparedNative
+      -> Either Text (Engine, MaintenanceNetworkPin))
+  -> AdapterRegistry -> Either Text AdapterRegistry
+registerKubernetesOnlineDatabaseFence factory capability action selectPin =
+  registerKubernetesFence factory capability (Just action) $ \record operation prepared -> do
       (engine, pin) <- selectPin record operation prepared
       let config = factoryRuntime factory
           observeClients = case engine of

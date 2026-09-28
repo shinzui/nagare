@@ -1293,9 +1293,11 @@ inventoryKubernetesTests =
                       , liveRestorePodUid = ok (mkPhysicalIdentity "database-pod-uid")
                       , liveRestoreSourceBackup = LiveBackupInput backupScope
                           (restoreBackupRevision restoreRequest) completedPhysical receiptBytes
+                          "source-object-version" "source-receipt-version"
                       , liveRestoreRecoveryBackup = LiveBackupInput recoveryBackupScope
                           recoveryBackupRevision (ok (mkPhysicalIdentity "recovery-job-uid"))
-                          recoveryReceipt
+                          recoveryReceipt "recovery-object-version"
+                          "recovery-receipt-version"
                       , liveRestoreBackend = backend
                       , liveRestoreSource = SourceLocation "db restore" "live-001"
                       }
@@ -1314,6 +1316,12 @@ inventoryKubernetesTests =
                 assertBool "live restore accepted missing recovery Job native evidence"
                   (isLeft (compileLiveRestoreScope liveRequest databaseScope
                     (Map.delete (recoveryBackupJob ^. #identity) liveNative)))
+                assertBool "live restore accepted an unversioned source object"
+                  (isLeft (compileLiveRestoreScope
+                    (liveRequest {liveRestoreSourceBackup =
+                      (liveRestoreSourceBackup liveRequest)
+                        {liveBackupObjectVersion = ""}})
+                    databaseScope liveNative))
                 assertBool "live restore proof accepted an unreviewed extra override"
                   (isLeft (liveRestoreProof (withScopeOverrides
                     (Map.insert "unreviewed" "value" (scopeOverrides liveScope)) liveScope)))
