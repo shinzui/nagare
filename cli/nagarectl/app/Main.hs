@@ -5920,6 +5920,18 @@ runInventoryStatus mctx requested json gcOutput = do
       declarations = ResourceInventory.inventoryDeclarations inventory
       scopes = Map.elems (ResourceInventory.inventoryScopes inventory)
       managed = [resource | ResourceInventory.Managed resource <- ResourceInventory.inventoryDeclarations inventory]
+      scheduledBackups = [resource ^. #identity | resource <- managed,
+        Resource.Kubernetes cluster "batch" kind (Just namespaceName) name <-
+          [resource ^. #address],
+        Resource.nameText kind == "cronjob",
+        "nagare-dbbackup-" `T.isPrefixOf` Resource.nameText name,
+        any (\signing -> signing ^. #owner == resource ^. #owner
+          && case signing ^. #address of
+            Resource.Kubernetes signedCluster "v1" signedKind (Just signedNamespace) signedName ->
+              signedCluster == cluster && signedNamespace == namespaceName
+                && Resource.nameText signedKind == "secret"
+                && Resource.nameText signedName == Resource.nameText name <> "-signing"
+            _ -> False) managed]
       byId = Map.fromList [(resource ^. #identity, resource) | resource <- managed]
       ids executor = [resource ^. #identity | resource <- managed, resource ^. #executor == executor]
       retainedIds executor = [resource | (resource, (_, declaration)) <- Map.toAscList (InventoryPlan.historyRetained history),
@@ -6110,6 +6122,12 @@ runInventoryStatus mctx requested json gcOutput = do
             [Aeson.object ["scope" Aeson..= scope, "executor" Aeson..= executor]
             | (scope, executor) <- missingScopes]
         , "providers" Aeson..= providers
+        , "scheduledRetention" Aeson..=
+            [Aeson.object
+              ["schedule" Aeson..= resource,
+               "policy" Aeson..= ("retain-by-default" :: Text),
+               "keepAndExpiry" Aeson..= ("unenforced" :: Text)]
+            | resource <- scheduledBackups]
         , "retained" Aeson..= retainedFindings
         , "collectionAssessments" Aeson..= collectionAssessments
         , "collected" Aeson..=
@@ -6127,6 +6145,8 @@ runInventoryStatus mctx requested json gcOutput = do
           <> "; collected: " <> T.pack (show (length collectedEntries))
           <> "; data fence: " <> maybe "none" (T.pack . show . InventoryStore.fencePhase)
             (InventoryStore.headDataFence (InventoryPlan.historyHead history))
+          <> (if null scheduledBackups then "" else
+                "; scheduled backup keep/expiry: unenforced (retained by default)")
           <> "; unavailable providers: " <> T.pack (show unavailable))
     (Nothing, Just raw) -> do
       resourceId <- either dieT pure (Resource.mkResourceId (T.pack raw))
@@ -11384,6 +11404,8 @@ runListScheduledReceipts mctx database namespaceName bucketArg = do
             pure (selected <> "  " <> status)
           pure (Right (rows <> map ("unresolved provider key: " <>) unknown))
   rows <- either dieT pure listed >>= either dieT pure
+  TIO.putStrLn ("Scheduled retention: keep=" <> T.pack (show (scheduledKeep expectation))
+    <> " and expiry are unenforced; backups are retained by default.")
   if null rows then TIO.putStrLn "No scheduled backup objects or accepted receipts."
     else mapM_ TIO.putStrLn rows
 
@@ -11499,7 +11521,9 @@ runReviewedScheduledReceiptPlan mctx database namespaceName bucketArg backupId o
   Inventory.planInventoryCandidateWith
     (inventoryPlanRegistryWithNative active workspace
       (Map.union receiptNative sourceNative)) active candidate output
-  TIO.putStrLn "Saved exact scheduled receipt ingestion review. Apply it to verify both stored versions."
+  TIO.putStrLn ("Saved exact scheduled receipt ingestion review. Apply it to verify both stored versions. "
+    <> "Scheduled keep=" <> T.pack (show (scheduledKeep expectation))
+    <> " and expiry are unenforced; backups are retained by default.")
 
 runReviewedScheduledPrunePlan
   :: Maybe String -> Text -> Text -> Maybe String -> FilePath -> IO ()

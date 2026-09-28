@@ -32,6 +32,11 @@ provenance:
       at: 2026-09-28T15:02:11Z
       mode: "update"
       note: "Reduce MP-23 lifecycle scope while retaining journal/state, existing recovery, and full supported-feature evidence"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-28T15:35:21Z
+      mode: "implement"
+      note: "Verify committed deferred-admission package in bounded installed Darwin smoke"
 ---
 
 # Validate installed inventory packages on every supported system
@@ -56,6 +61,8 @@ The installed operator and developer packages run the inventory commands outside
 Inherited baseline: Nix fixture-path fixes, Helm/OpenSSL test inputs, example logical keys, and one Darwin CLI package test were delivered in EP-150. Full flake validation remained incomplete at the formatting gate; no Linux success is inferred from Darwin.
 
 Early installed checkpoint (2026-09-27): `bash scripts/rehearse-clone-free-release.sh --version 0.4.0 --flake-ref 'git+file:///Users/shinzui/Keikaku/bokuno/nagare?rev=2717b386f3529e24ad09245f9236e9f2fa972914' --smoke-only --output /tmp/nagare-mp23-installed-smoke-darwin.json` passed on aarch64 Darwin from an isolated home and directory outside the checkout. The report binds revision `2717b386f3529e24ad09245f9236e9f2fa972914` and checks installed CLI/operator version, local context, inventory compilation, payload files, operator Pulumi tools, and a dry-run local recipe. The first full-run attempt exposed an obsolete `deploy --dry-run` fixture, which now requires an accepted image and tag; the bounded smoke uses the existing read-only inventory compiler instead. The report explicitly says `cloneFree: false` so final release assembly cannot count it as a complete rehearsal. M1/M2 remain open: typed-config and every-system native gates, full clone-free rehearsal, and final candidate identity still need proof. Next ordered checkpoint is EP-155's local fixture/health preparation.
+
+Installed guard checkpoint (2026-09-28): The same smoke passed from the exact committed flake revision `699ae909e5e0c01cce8be5000af382cbb6a566c8` after the deferred-admission and evidence-boundary changes. `/tmp/nagare-mp23-installed-smoke-699ae909.json` reports `installedSmoke: true`, `aarch64-darwin`, checks for version, context, inventory compilation, payload, operator tools, and local init, and `cloneFree: false` as expected for `--smoke-only`. This verifies packaging for that committed checkpoint, not the still-dirty later retention reporting or a final candidate. M1/M2 remain open for full clone-free typed-config, both native systems, and matching final evidence.
 
 
 ## Surprises & Discoveries
