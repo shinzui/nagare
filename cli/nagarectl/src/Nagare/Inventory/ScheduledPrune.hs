@@ -73,7 +73,8 @@ data ScheduledPruneRequest = ScheduledPruneRequest
 
 -- | Refuse incomplete, unaccepted, already-pruned-but-visible, or unknown
 -- provider objects. A tie across the retention boundary has no provable
--- newest-N ordering, so it cannot authorize either deletion.
+-- newest-N ordering. Accepted restore dependencies retain their runs while
+-- unrelated older runs may still become exact deletion candidates.
 selectScheduledPruneCandidates
   :: ScopeId -> Text -> Text -> Text -> Int -> Set Text
   -> [ScopeDeclaration] -> [ListedObject]
@@ -114,10 +115,9 @@ selectScheduledPruneCandidates source bucketAddress prefix format keep protected
       | scheduledPruneCompleted boundary == scheduledPruneCompleted next ->
           Left "scheduled backup completion times tie across the retention boundary"
     _ -> pure ()
-  unless (all (\entry -> Set.notMember
-      (scopeIdText (scheduledPruneScope entry)) protected) eligible)
-    (Left "scheduled backup selected for pruning has an accepted dependency")
-  pure (sortOn scheduledPruneCompleted eligible)
+  pure (sortOn scheduledPruneCompleted
+    (filter (\entry -> Set.notMember
+      (scopeIdText (scheduledPruneScope entry)) protected) eligible))
 
 accepted :: Text -> Text -> Map.Map Text UTCTime -> ScopeDeclaration
   -> Either Text ScheduledPruneCandidate

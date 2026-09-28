@@ -178,13 +178,13 @@ pruneShellWithPins inputs pinned =
           <> "\" --endpoint-url \"$STORE_ENDPOINT\""
     -- Deleting a current S3 version can expose an older version. A successful
     -- delete is not completion proof until no object at this exact key is live.
-    -- A listing error is fatal; a sibling with this prefix may cause a safe
-    -- false refusal, never a false success.
+    -- The receipt shares the backup key's prefix, so compare complete keys
+    -- rather than searching for the selected key as a substring.
     verifyAbsent selectedKey = case backend of
       GcsBackend {} -> "true"
       MinioBackend {} ->
         "VISIBLE=$(aws s3api list-objects-v2 --bucket \"$STORE_BUCKET\""
           <> " --prefix \"$" <> selectedKey <> "\" --query 'Contents[].Key'"
           <> " --output text --endpoint-url \"$STORE_ENDPOINT\"); "
-          <> "case \"$VISIBLE\" in *\"$" <> selectedKey
-          <> "\"*) exit 1;; esac"
+          <> "for FOUND in $VISIBLE; do test \"$FOUND\" != \"$"
+          <> selectedKey <> "\"; done"

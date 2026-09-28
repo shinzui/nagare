@@ -5314,6 +5314,7 @@ backupRestoreTests =
           let source = unsafe (Resource.mkScopeId Resource.Standalone "scheduled-prune-source")
               oldId = "11111111-1111-1111-1111-111111111111"
               newId = "22222222-2222-2222-2222-222222222222"
+              newestId = "33333333-3333-3333-3333-333333333333"
               bucketAddress = "s3://backups/"
               keyPrefix = "databases/mydb/"
               objectPrefix = bucketAddress <> keyPrefix
@@ -5339,6 +5340,7 @@ backupRestoreTests =
                       ("scheduled-receipt-" <> runId))) []))
               oldScope = scope oldId
               newScope = scope newId
+              newestScope = scope newestId
               listed =
                 [ ListedObject (objectKey oldId) (completedAt 1)
                 , ListedObject (receiptKey oldId) (completedAt 2)
@@ -5358,9 +5360,16 @@ backupRestoreTests =
               (listed <> [ListedObject (keyPrefix <> "stray") (completedAt 5)])))
           assertBool "a missing receipt passed the complete-listing guard" (isLeft
             (select Set.empty [oldScope, newScope] (init listed)))
-          assertBool "an accepted dependency passed the prune guard" (isLeft
-            (select (Set.singleton (Resource.scopeIdText
-              (InventoryModel.scopeId oldScope))) [oldScope, newScope] listed))
+          let protected = Set.singleton (Resource.scopeIdText
+                (InventoryModel.scopeId oldScope))
+          select protected [oldScope, newScope] listed @?= Right []
+          let third = listed <>
+                [ ListedObject (objectKey newestId) (completedAt 5)
+                , ListedObject (receiptKey newestId) (completedAt 6) ]
+          case select protected [oldScope, newScope, newestScope] third of
+            Right [candidate] -> scheduledPruneId candidate @?= newId
+            other -> assertFailure ("protected run hid an independent candidate: "
+              <> show other)
           case select Set.empty [oldScope, newScope]
               (take 2 listed <> [ListedObject (objectKey newId) (completedAt 2)
                 , ListedObject (receiptKey newId) (completedAt 2)]) of
@@ -5990,7 +5999,9 @@ backupRestoreTests =
               , "    if [ \"$NAGARE_TEST_OLDER\" != 1 ] || [ \"$KEY\" != \"$NAGARE_TEST_KEY\" ]; then"
               , "      rm \"$TARGET\""
               , "    fi; echo '{}' ;;"
-              , "  list-objects-v2) if [ -f \"$TARGET\" ]; then echo \"$KEY$PREFIX\"; else echo None; fi;;"
+              , "  list-objects-v2) if [ -f \"$TARGET\" ]; then echo \"$KEY$PREFIX\";"
+              , "    elif [ \"$PREFIX\" = \"$NAGARE_TEST_KEY\" ] && [ -f \"$NAGARE_TEST_RECEIPT\" ]; then"
+              , "      echo \"$NAGARE_TEST_KEY.receipt.json\"; else echo None; fi;;"
               , "  *) exit 7;;"
               , "esac"
               ]
