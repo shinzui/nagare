@@ -1795,6 +1795,21 @@ inventoryKubernetesTests =
         assertBool "unrelated empty values must retain exact equality" (not (desiredFieldsMatch
           (object ["data" .= object ["value" .= ("" :: Text)]])
           (object ["data" .= object []])))
+    , testCase "omitted false volumeMount readOnly matches Kubernetes default" $ do
+        let workload selectedMount = object ["spec" .= object ["template" .= object ["spec" .= object
+              ["containers" .= [object ["volumeMounts" .= [selectedMount]]]]]]]
+            mount = object ["name" .= ("uploads" :: Text), "mountPath" .= ("/uploads" :: Text)]
+        assertBool "false readOnly should match omission" (desiredFieldsMatch
+          (workload (object ["name" .= ("uploads" :: Text)
+            , "mountPath" .= ("/uploads" :: Text), "readOnly" .= False]))
+          (workload mount))
+        assertBool "true readOnly must still drift" (not (desiredFieldsMatch
+          (workload (object ["name" .= ("uploads" :: Text)
+            , "mountPath" .= ("/uploads" :: Text), "readOnly" .= True]))
+          (workload mount)))
+        assertBool "other false fields must still drift" (not (desiredFieldsMatch
+          (object ["data" .= object ["readOnly" .= False]])
+          (object ["data" .= object []])))
     , testCase "Kubernetes omission of empty Pod hostAliases is not StatefulSet drift" $ do
         let pod aliases = object ["spec" .= object ["template" .= object
               ["spec" .= object aliases]]]

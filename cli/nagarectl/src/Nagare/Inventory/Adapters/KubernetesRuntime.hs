@@ -415,6 +415,9 @@ desiredFieldsMatch desired observed
         Nothing -> (key == "value" && value == String "" && case path of
           "env" : _ -> KM.lookup "valueFrom" observed == Nothing
           _ -> False)
+          || (key == "readOnly" && value == Bool False && case path of
+            "volumeMounts" : _ -> True
+            _ -> False)
           || (key `elem` ["hostAliases", "volumes"]
             && value `elem` [Null, Array V.empty]
             && path == ["spec", "template", "spec"])) (KM.toList desired)
