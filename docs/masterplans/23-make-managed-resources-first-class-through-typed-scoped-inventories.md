@@ -342,6 +342,8 @@ EP-159's public scheduled receipt listing on the retained Redis fixture now repo
 
 EP-159's read-only listing now requires current exact object and receipt evidence to match every accepted ingestion pin before reporting a run as accepted. A focused changed-pin test and the retained Redis public listing pass. Historical schedule revisions, interrupted uploads, cloud exact generations, and final candidate evidence remain open.
 
+EP-160's retained local k3s fixture was reread under the revised isolated-restore contract. PostgreSQL, Redis, and ClickHouse source data remain distinguishable from earlier scratch destinations; Redis's source and scratch StatefulSets and PVCs also have distinct UIDs. A focused adapter test refuses a foreign Redis scratch UID before any provider write. Native destination-interruption recovery, M3 new-PVC proof, and final candidate integration remain open.
+
 **Implementation order.** Check current child evidence before rerunning a checkpoint. Preserve concurrent work and already-admitted recovery records. The registry states whole-child ownership, not numerical execution order.
 
 | Order | Work and owner | Required handoff |

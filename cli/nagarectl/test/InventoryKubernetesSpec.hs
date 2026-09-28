@@ -981,13 +981,15 @@ inventoryKubernetesTests =
               [ (scratchStateful, KubernetesAbsent (contentDigest "absent"))
               , (sourceStateful, observed sourceStateful (sourceStatefulUid backupRequest))
               , (sourcePvc, observed sourcePvc (sourcePvcUid backupRequest)) ])
+            writes <- newIORef (0 :: Int)
             let adapter = mkKubernetesAdapter
                   (Map.unions [restoreNative, backupNative, databaseNative])
                   KubernetesAdapterOps
                     { kubernetesContext = ok (mkContextId "test")
                     , kubernetesObserve = \selected -> Map.findWithDefault
                         (KubernetesUnknown "unbound") selected <$> readIORef states
-                    , kubernetesMutateConditional = \_ -> pure AdapterEffectCompleted }
+                    , kubernetesMutateConditional = \_ -> modifyIORef' writes (+ 1)
+                        >> pure AdapterEffectCompleted }
                 createScratch = createOperation
                   {plannedResources = scratchStateful :| []}
             prepared <- adapterPrepare adapter createScratch >>= expectRight
@@ -996,6 +998,17 @@ inventoryKubernetesTests =
               (observed sourceStateful (ok (mkPhysicalIdentity "replacement-redis"))))
             assertBool "changed Redis source UID reached the scratch initializer"
               . isLeft =<< adapterPreflight adapter createScratch prepared
+            modifyIORef' states (Map.insert sourceStateful
+              (observed sourceStateful (sourceStatefulUid backupRequest))
+              . Map.insert scratchStateful
+                (KubernetesPresent (ok (mkPhysicalIdentity "foreign-scratch")) "2"
+                  (Just scratchStateful) (contentDigest "foreign")))
+            assertBool "foreign Redis scratch destination passed preflight"
+              . isLeft =<< adapterPreflight adapter createScratch prepared
+            adapterExecute adapter createScratch prepared >>= \case
+              AdapterEffectFailed {} -> pure ()
+              other -> assertFailure ("foreign scratch destination was mutated: " <> show other)
+            readIORef writes >>= (@?= 0)
           _ -> assertFailure "Redis restore lacks one source-pinned StatefulSet"
     , testCase "manual database backup binds object and source incarnation into its own Job scope" $ do
         let owner = ok (mkScopeId Standalone "database-pg-main")
