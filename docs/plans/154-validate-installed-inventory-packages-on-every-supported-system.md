@@ -37,6 +37,11 @@ provenance:
       at: 2026-09-28T15:35:21Z
       mode: "implement"
       note: "Verify committed deferred-admission package in bounded installed Darwin smoke"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-28T16:56:05Z
+      mode: "implement"
+      note: "Pass exact-revision Darwin clone-free and typed-config negative package checks"
 ---
 
 # Validate installed inventory packages on every supported system
@@ -68,11 +73,15 @@ Installed receipt/listing checkpoint (2026-09-28): The bounded smoke passed agai
 
 Full clone-free Darwin checkpoint (2026-09-28): `bash scripts/rehearse-clone-free-release.sh --version 0.4.0 --flake-ref 'git+file:///Users/shinzui/Keikaku/bokuno/nagare?rev=ba2161606275c3c0585e5a20bb76a7fbd4207f30' --output /tmp/nagare-mp23-clone-free-ba216160.json` passed outside the checkout with isolated home/config/state. The report binds that exact revision, `aarch64-darwin`, `cloneFree: true`, and version, context, inventory compilation, payload, host config, local/cloud init, context environment, operator recipe, and platform-upgrade checks. Its upgrade dry run remained `planned` with one Pulumi preview and no apply/cloud mutation. M1 still needs the negative package/public-API and secret-exclusion assertions; M2 still needs native `x86_64-linux`, final candidate identity, and the full required gates.
 
+Installed negative-package checkpoint (2026-09-28): Both `nix build --no-link` checks `nagare-clone-free-platform` and `nagarectl-external-config` passed on `aarch64-darwin` from exact committed revision `c7fdb132a22e62b853f666a57714c8ff93553215`. The first exercises installed root discovery, excluded `cluster/secrets`, external context-owned secret resolution, an invalid explicit payload root that now fails before fallback, current reviewed bootstrap recipe guards, and the broader isolated platform fixture. The second compiles a shipped typed config outside the checkout, proves the installed CLI reaches the accepted-foundation boundary with that valid config, rejects an invalid config before provider effects, and proves a caller cannot construct the private `ServiceName` constructor. The wrapper now preserves an explicitly supplied `NAGARE_PLATFORM_ROOT` while defaulting to the installed payload. M1 remains open for the full supported application/data/publication/provider payload matrix; M2 remains open for native Linux and final-candidate gates.
+
 
 ## Surprises & Discoveries
 
 
 2026-09-27: The prior clone-free runner's unqualified `deploy --dry-run` call stopped before typed-config loading because reviewed deploy now requires `--tag` and an accepted `--image-resource`. This was a runner assumption, not evidence of a broken installed CLI. The bounded smoke proves installed inventory compilation; the separate native typed-config checks and complete release rehearsal remain required.
+
+2026-09-28: The older negative package fixture expected `init --dry-run` to emit Pulumi `config set` calls and direct `kubectl` bootstrap recipes. Current init emits context variables and defers cloud state changes to a reviewed platform bootstrap plan; the recipes guard with `nagarectl platform guard` before their reviewed runner. After aligning those assertions, the full fixture passed. Its new invalid-root assertion found a real wrapper defect: `--set NAGARE_PLATFORM_ROOT` erased the caller's explicit root, so an invalid root silently succeeded using the installed payload. `--set-default` fixes this and the exact-revision fixture proves refusal.
 
 
 ## Decision Log
