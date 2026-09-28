@@ -1,7 +1,7 @@
 ---
 title: "Single-node GCP substrate"
 type: Capability
-description: "Provision a rebuildable personal PaaS perimeter on GCP and configure each NixOS k3s host from context-owned operator inputs."
+description: "Provision a rebuildable single-node PaaS perimeter on GCP and configure each NixOS k3s host from context-owned operator inputs."
 generated:
   by: codex/gpt-5
   at: "2026-08-25T20:51:44Z"

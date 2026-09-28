@@ -75,7 +75,7 @@ That leaves these broader PaaS gaps:
 - a general control-plane API and CLI contexts beyond today's static webhook runner (Phase 8),
 - and an optional dashboard or equivalent operator UI (Phase 10).
 
-The roadmap below orders these by leverage for a single-node personal PaaS. It does not try to clone
+The roadmap below orders these by leverage for a single-node PaaS. It does not try to clone
 any one platform's architecture. Nagare should stay Kubernetes/Knative-native and typed-config-first.
 
 
@@ -503,7 +503,7 @@ Why last: a dashboard built too early would either duplicate CLI logic or force 
 
 This order keeps Nagare pragmatic: first make individual apps and static sites pleasant, then add
 stateful resources, then templates, then automation and UI. It also preserves the existing principle
-that Nagare is a typed, Kubernetes-native personal PaaS rather than a clone of any one platform.
+that Nagare is a typed, Kubernetes-native PaaS rather than a clone of any one platform.
 
 
 ## Candidate MasterPlans to Create Next

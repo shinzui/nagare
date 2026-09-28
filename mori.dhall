@@ -10,7 +10,7 @@ in  Schema.Project::{
       , language = Schema.Language.Nix
       , lifecycle = Schema.Lifecycle.Experimental
       , description = Some
-          "Nagare (流れ, \"flow\") — a cheap, single-node personal PaaS on one GCP Compute Engine VM. Pulumi owns cloud resources, NixOS owns the host, k3s owns the cluster, Knative owns app deployment, the VictoriaMetrics/Logs/Traces stack owns observability, and the nagarectl CLI owns the developer experience: one project = one Knative Service, deployed with `nagarectl deploy`."
+          "Nagare (流れ, \"flow\") — a cheap, single-node PaaS on one GCP Compute Engine VM, for personal projects and small-team workplace intranets. Pulumi owns cloud resources, NixOS owns the host, k3s owns the cluster, Knative owns app deployment, the VictoriaMetrics/Logs/Traces stack owns observability, and the nagarectl CLI owns the developer experience: one project = one Knative Service, deployed with `nagarectl deploy`."
       , domains = [ "Infrastructure", "PaaS", "Kubernetes" ]
       , owners = [ "shinzui" ]
       }

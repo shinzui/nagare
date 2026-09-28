@@ -3,14 +3,22 @@
 > **Nagare / 流れ** means "flow." The name fits because the platform is designed
 > around flows: code flows into deployments, traffic flows through Envoy/Kourier
 > into Knative services, and telemetry flows into the Victoria observability
-> stack. The goal is to make deploying and operating personal projects feel
+> stack. The goal is to make deploying and operating many small services feel
 > smooth, lightweight, and continuous.
 
-Nagare is a cheap, single-node **personal PaaS** that runs on one GCP Compute
-Engine instance. It lets you deploy many small projects without thinking about
-servers, while staying simple enough to rebuild the entire system from scratch.
+Nagare is a cheap, single-node **PaaS** that runs on one GCP Compute Engine
+instance. It began as a personal PaaS and is now also intended to run a
+workplace **intranet** for a small team. It lets you deploy many small projects
+without thinking about servers, while staying simple enough to rebuild the
+entire system from scratch.
 
-> **Status:** Active personal-PaaS implementation. The cloud path provisions a
+> **Team operation is in progress.** Nagare was designed around one operator.
+> Multi-operator coordination, named-reviewer approval, shared team access to
+> deployment material, and an explicit availability model are being planned in
+> [MasterPlan 24](docs/masterplans/24-operate-nagare-as-a-team-run-workplace-intranet-paas.md).
+> Until that lands, treat a team installation as operated by one person at a time.
+
+> **Status:** Active PaaS implementation. The cloud path provisions a
 > single GCP/NixOS/k3s host; local mode can now run the app platform on k3d with a
 > local registry and MinIO backup backend. Current operator docs start at
 > [`docs/user/README.md`](docs/user/README.md), goal-oriented walkthroughs start
@@ -21,7 +29,7 @@ servers, while staying simple enough to rebuild the entire system from scratch.
 
 ## What it is
 
-One personal project = one [Knative](https://knative.dev/) Service. A small CLI,
+One project = one [Knative](https://knative.dev/) Service. A small CLI,
 `nagarectl`, hides the Kubernetes details so deploying an app is a single
 command:
 
@@ -49,8 +57,8 @@ Service, wires up secrets and domains, waits for readiness, and prints the URL.
 
 The Victoria stack replaces Prometheus + Loki + Tempo because it has lower
 operational overhead and memory usage — a better fit for a cheap single-node
-box where the goal is "enough visibility to debug personal projects" rather than
-a production observability platform.
+box where the goal is "enough visibility to debug the services it runs" rather
+than a large-scale production observability platform.
 
 ## Architecture
 

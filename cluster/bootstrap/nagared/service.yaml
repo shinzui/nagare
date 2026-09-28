@@ -4,7 +4,7 @@
 # the existing Kourier ingress + cert-manager give it a TLS endpoint, and the
 # DomainMapping below gives it a stable hook URL. GitHub's 10s webhook timeout
 # will mark the delivery failed for a slow deploy, but the deploy still
-# completes — that is acceptable for a personal PaaS.
+# completes — an accepted limitation of the webhook runner.
 #
 # RUNTIME REQUIREMENTS (the image must provide these; this manifest is the
 # starting point, not a turnkey deploy — see README.md):

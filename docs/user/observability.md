@@ -73,7 +73,8 @@ helm upgrade --install victoria-traces vm/victoria-traces-single \
 
 > In the `victoria-metrics-k8s-stack` chart, `vmsingle` and `vmcluster` are
 > **mutually exclusive** — enable `vmsingle` only. Grafana, node-exporter,
-> kube-state-metrics are enabled; alertmanager can stay off for personal use.
+> kube-state-metrics are enabled; alertmanager can stay off for a single-operator
+> installation, but a team that relies on the platform should enable alerting.
 
 ## How apps emit telemetry
 

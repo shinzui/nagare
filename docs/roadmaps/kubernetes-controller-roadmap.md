@@ -128,6 +128,6 @@ reconcile continuously *and* no upstream operator covers it.
    automatic drift remediation (Phase 9). Record that decision in the relevant MasterPlan's Decision
    Log when it happens.
 
-This keeps Nagare on its existing principle: a typed, Kubernetes-native personal PaaS that hides
+This keeps Nagare on its existing principle: a typed, Kubernetes-native PaaS that hides
 Kubernetes rather than exposing it — adding a control plane only when continuous, unattended
 reconciliation is a real requirement, not before.

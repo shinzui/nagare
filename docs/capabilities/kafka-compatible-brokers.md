@@ -58,6 +58,6 @@ the observability stack includes broker scrape and dashboard assets.
 
 - Only the Redpanda provider is implemented. The Tansu shape described in planning material is not a
   capability and is not claimed here.
-- The broker is single-node and non-HA, matching Nagare's personal-platform scope.
+- The broker is single-node and non-HA, matching Nagare's current single-node platform shape.
 - Broker behavior is proven through rendering and fixture-based health parsing; a live failure and
   recovery drill is not part of the default CI suite.

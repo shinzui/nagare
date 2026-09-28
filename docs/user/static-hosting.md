@@ -55,7 +55,7 @@ patch back to a prior image tag.
 
 > **Out of scope:** Workers/`workerd`-style edge JavaScript. Nagare runs a
 > full-stack app as an ordinary origin server (a Node process on Knative), which
-> is the right model for a single-node personal PaaS and covers the application
+> is the right model for a single-node PaaS and covers the application
 > logic you actually write with these frameworks.
 
 ---

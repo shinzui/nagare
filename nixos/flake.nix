@@ -1,5 +1,5 @@
 {
-  description = "NixOS host images and configurations for the Nagare personal PaaS";
+  description = "NixOS host images and configurations for the Nagare PaaS";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";

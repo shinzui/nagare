@@ -11,8 +11,10 @@ generated:
 
 # Nagare operator guide
 
-This is the **operator** documentation for Nagare (流れ, "flow") — the person
-who *runs* the platform. It covers both supported operating targets:
+This is the **operator** documentation for Nagare (流れ, "flow") — the people
+who *run* the platform, whether for personal projects or a team's workplace
+intranet. Nagare's tooling still assumes one operator acts at a time; see
+[MasterPlan 24](../masterplans/24-operate-nagare-as-a-team-run-workplace-intranet-paas.md). It covers both supported operating targets:
 
 - **Cloud mode:** one GCP Compute Engine VM running NixOS/k3s, configured by
   the active target context (or, for back compatibility, `nagare.target.env`).

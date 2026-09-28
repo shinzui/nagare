@@ -1,5 +1,11 @@
 # Nagare: Personal PaaS on GCP with NixOS, k3s, Knative, Envoy, Victoria Stack, and Grafana
 
+> **Scope note (2026-09-28).** This is the original design specification and keeps its original
+> personal-PaaS framing. Nagare is no longer limited to personal use: it is also intended to run a
+> workplace intranet for a small team. Team-operation requirements and the related tooling
+> evaluation are tracked in
+> [MasterPlan 24](masterplans/24-operate-nagare-as-a-team-run-workplace-intranet-paas.md).
+
 ## Project Name
 
 **Nagare** / **流れ**
