@@ -5792,6 +5792,7 @@ backupRestoreTests =
             writeFile fakeGsutil $ unlines
               [ "#!/bin/sh", "set -eu"
               , "[ \"$1\" = cp ] && [ \"$3\" = - ] || exit 2"
+              , "[ \"${NAGARE_TEST_FAIL_READBACK:-}\" != 1 ] || exit 49"
               , "case \"$2\" in"
               , "  \"$NAGARE_TEST_DATA_URL\") cat \"$NAGARE_TEST_DATA\";;"
               , "  \"$NAGARE_TEST_RECEIPT_URL\") cat \"$NAGARE_TEST_RECEIPT\";;"
@@ -5819,13 +5820,23 @@ backupRestoreTests =
                    ("NAGARE_TEST_RECEIPT_URL", receiptUrl),
                    ("NAGARE_TEST_SOURCE", source),
                    ("NAGARE_TEST_REAL_PYTHON", realPython)]
-                run = readCreateProcessWithExitCode
+                run failReadback = readCreateProcessWithExitCode
                   ((proc "/bin/sh" ["-c", script]) {env = Just
-                    (receiptEnv <> filter (\(key, _) -> key `notElem` map fst receiptEnv) parentEnv)}) ""
+                    (("NAGARE_TEST_FAIL_READBACK", failReadback) : receiptEnv
+                      <> filter (\(key, _) -> key `notElem` map fst receiptEnv
+                        && key /= "NAGARE_TEST_FAIL_READBACK") parentEnv)}) ""
             BS.writeFile (dump </> "backup.sql") "scheduled receipt source\n"
             BS.writeFile source sourceBytes
             BS.writeFile (dump </> "source.json") sourceBytes
-            (created, _, createError) <- run
+            (interrupted, _, _) <- run "1"
+            assertBool "readback failure completed a scheduled receipt" (interrupted /= ExitSuccess)
+            doesFileExist dataObject >>= (@?= True)
+            doesFileExist receiptObject >>= (@?= False)
+            (orphanRetry, _, _) <- run ""
+            assertBool "retry overwrote an unreceipted object" (orphanRetry /= ExitSuccess)
+            doesFileExist receiptObject >>= (@?= False)
+            removeFile dataObject
+            (created, _, createError) <- run ""
             assertBool ("scheduled receipt upload failed: " <> createError) (created == ExitSuccess)
             receiptBytes <- BS.readFile receiptObject
             BS.readFile terminationLog >>= (@?= receiptBytes)
@@ -5874,14 +5885,14 @@ backupRestoreTests =
               (parseScheduledBackupReceipt
                 (expectation {scheduledPvcUid = sourceUid "33333333-3333-3333-3333-333333333333"})
                 (T.pack receiptUrl) (T.replicate 64 "a") receiptBytes))
-            (duplicate, _, _) <- run
+            (duplicate, _, _) <- run ""
             case duplicate of
               ExitFailure _ -> pure ()
               ExitSuccess -> assertFailure "duplicate scheduled run replaced an existing object"
             removeFile dataObject
             removeFile receiptObject
             BS.writeFile source "{\"pvcUid\":\"33333333-3333-3333-3333-333333333333\",\"statefulSetUid\":\"22222222-2222-2222-2222-222222222222\"}\n"
-            (changedSource, _, _) <- run
+            (changedSource, _, _) <- run ""
             assertBool "source replacement completed a scheduled receipt" (changedSource /= ExitSuccess)
             doesFileExist receiptObject >>= (@?= False)
       , testCase "backup Jobs wait for the server and retry" $ do

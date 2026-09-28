@@ -344,6 +344,8 @@ EP-159's read-only listing now requires current exact object and receipt evidenc
 
 EP-160's retained local k3s fixture was reread under the revised isolated-restore contract. PostgreSQL, Redis, and ClickHouse source data remain distinguishable from earlier scratch destinations; Redis's source and scratch StatefulSets and PVCs also have distinct UIDs. A focused adapter test refuses a foreign Redis scratch UID before any provider write. Native destination-interruption recovery, M3 new-PVC proof, and final candidate integration remain open.
 
+EP-159's scheduled producer fixture now demonstrates a create-only object surviving a failed readback without a receipt: retry refuses overwrite and cannot claim completion. A clean run after explicit orphan removal publishes the signed receipt. Public reviewed orphan resolution and historical schedule/source treatment are still open.
+
 **Implementation order.** Check current child evidence before rerunning a checkpoint. Preserve concurrent work and already-admitted recovery records. The registry states whole-child ownership, not numerical execution order.
 
 | Order | Work and owner | Required handoff |
