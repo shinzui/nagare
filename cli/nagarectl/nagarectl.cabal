@@ -150,8 +150,10 @@ library
     Nagare.Inventory.DataFence.ScheduledWriter
     Nagare.Inventory.Maintenance
     Nagare.Inventory.LiveRestore
+    Nagare.Inventory.LiveRestoreAdapter
     Nagare.Inventory.LiveRestoreFence
     Nagare.Inventory.LiveRestorePostgres
+    Nagare.Inventory.LiveRestoreSource
     Nagare.Inventory.MaintenanceAdapter
     Nagare.Inventory.MaintenanceFence
     Nagare.Inventory.DataService

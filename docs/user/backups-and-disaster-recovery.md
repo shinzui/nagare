@@ -185,8 +185,10 @@ Planning requires the accepted backup Job and its completed Pod receipt. The
 restore Job checks the current receipt and backup bytes against the saved
 checksums, checks expiry again, and creates
 `<database>_restore_<restore-id>` only if absent. A failed restore leaves that
-scratch database for explicit forward recovery. Reviewed live-target restore,
-scheduled-backup pruning, and complete cloud provider proof remain pending.
+scratch database for explicit forward recovery. Local PostgreSQL live restore
+from a manual backup is available as a separate fenced review; other engine
+live restores, scheduled-backup pruning, and complete cloud provider proof
+remain pending.
 
 For ClickHouse, the same reviewed command downloads a `zip.gz` database archive,
 checks the accepted receipt and object bytes, and uses ClickHouse's native
@@ -203,10 +205,25 @@ PVC for explicit recovery. A local scheduled Redis run has passed receipt
 ingestion after producer Job cleanup and a real key-content restore; Redis
 live-target restore remains unavailable.
 
-Live restore requires an accepted backup and saved scratch review in every
-context. The old `db restore NAME BACKUP_ID --dry-run` output renders a Job but
-does not submit it; `--into-live` has no reviewed live execution path. A
-database declared `retention = Delete` is treated as throwaway and gets **no**
+For a local PostgreSQL live restore, first make and check a distinct manual
+backup of the current database. Then save a review naming the older source and
+the pre-change recovery backup:
+
+```bash
+nagarectl db restore pg-main source-001 --into-live \
+  --recovery-backup prechange-001 --restore-id live-001 \
+  --save-plan ./pg-main-live-restore
+nagarectl inventory apply ./pg-main-live-restore --yes
+```
+
+The review fixes both backup receipts and MinIO versions plus the live
+StatefulSet, PVC, and Pod identities. Apply holds a native writer fence while
+PostgreSQL restores one transaction and compares a fresh full logical dump to
+the source. A lost or failed effect remains fenced until explicit recovery can
+prove its outcome. Other engines, scheduled-backup live selection, cloud GCS,
+and live volume overwrite remain pending. The old
+`db restore NAME BACKUP_ID --dry-run` output renders a Job but does not submit
+it. A database declared `retention = Delete` is treated as throwaway and gets **no**
 scheduled backup.
 
 A volume you don't want backed up (a cache, scratch space) is opted out by

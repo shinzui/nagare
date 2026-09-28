@@ -437,6 +437,29 @@ expiry, then creates `<database>_restore_<restore-id>` only if absent. If the
 restore fails after creation, keep the scratch database for explicit forward
 recovery.
 
+In a local context, a PostgreSQL **manual** backup can also be restored into
+the existing live database after a distinct, accepted pre-change manual backup
+has been made. Save the review with both backup IDs:
+
+```bash
+nagarectl db restore pg-main source-001 --into-live \
+  --recovery-backup prechange-001 --restore-id live-001 \
+  --save-plan ./pg-main-live-restore
+nagarectl inventory apply ./pg-main-live-restore --yes
+```
+
+Planning pins the current StatefulSet, PVC, and Pod identities and both completed
+backup Jobs. It checks the two stored receipts and archives, then saves their
+exact MinIO version IDs and hashes. Apply rechecks those inputs, excludes other
+database clients and writers, and loads the source SQL in one PostgreSQL
+transaction. A fresh logical dump must match the source before the fence
+releases and the prior writer configuration returns. Replanning the same
+completed restore ID verifies the result without rerunning the data change.
+An interrupted or unverified effect keeps the data fence active for explicit
+recovery. This live path currently supports local PostgreSQL manual backups;
+Redis, ClickHouse, scheduled-backup live selection, cloud GCS, and live volume
+restore remain pending.
+
 An accepted Redis backup can use the same reviewed command. It creates a
 separate `<database>-restore-<restore-id>` Service, scratch PVC, and Redis
 StatefulSet. The startup init container checks the accepted receipt and backup
@@ -444,7 +467,7 @@ versions and SHA-256 values, then loads the RDB from the scratch PVC; a Job
 verifies that the isolated server is ready. Query the scratch Pod to check
 application keys before deciding on any live recovery. An uncertain first
 load retains the PVC for explicit recovery instead of overwriting it on a
-retry. Reviewed live-target restore remains open.
+retry. Reviewed Redis live-target restore remains open.
 
 ClickHouse uses a native database backup ZIP, stored as `.zip.gz`. Its reviewed
 scratch restore checks the accepted object and receipt, stages the ZIP through
@@ -474,8 +497,10 @@ delays. In cloud mode that key is under
 MinIO.
 
 Reviewed PostgreSQL and ClickHouse restore Jobs, and Redis scratch instances,
-use accepted backup receipts and exact object checks shown above. `--into-live` is
-available only in read-only legacy Job preview output.
+use accepted backup receipts and exact object checks shown above. Reviewed
+`--into-live` execution currently supports local PostgreSQL manual backups with
+a distinct accepted recovery backup; `--dry-run` still only renders the older
+read-only Job preview.
 
 See [Backups and disaster recovery](backups-and-disaster-recovery.md) and the
 [disaster-recovery runbook](../runbooks/disaster-recovery.md) for the full restore

@@ -147,7 +147,7 @@ liveRestoreProof scope = case Map.lookup "live.restore.proof" (scopeOverrides sc
     _ <- mkServiceName (liveRestoreProofId proof)
     _ <- mkServiceName (liveRestoreProofDatabase proof)
     _ <- mkServiceName (liveRestoreProofNamespace proof)
-    unless (T.length (liveRestoreProofId proof) <= 20
+    unless (T.length (liveRestoreProofId proof) <= 17
       && parseEngine (liveRestoreProofEngine proof) == Just Postgres
       && liveBackupId (liveRestoreProofSource proof)
         /= liveBackupId (liveRestoreProofRecovery proof)
@@ -216,7 +216,7 @@ compileLiveRestoreScope request accepted native = do
   _ <- first invalid (mkServiceName db)
   _ <- first invalid (mkServiceName ns)
   _ <- first invalid (mkServiceName (liveRestoreId request))
-  unless (T.length (liveRestoreId request) <= 20
+  unless (T.length (liveRestoreId request) <= 17
     && scopeKind (scopeId accepted) `elem` [Application, Standalone])
     (Left (invalid "live restore ID or target scope is invalid"))
   stateful <- one "database StatefulSet" (select "apps" "statefulset" db)

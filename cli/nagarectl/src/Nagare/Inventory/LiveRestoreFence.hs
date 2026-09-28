@@ -42,8 +42,9 @@ registerLiveRestoreFence config binding accepted scopes declarations native regi
     let ContextBinding context _ = binding
     unless (runtimeContext config == context)
       (Left "live restore Kubernetes context differs from the reviewed binding")
-    let bySession = Map.fromList
-          [(liveRestoreProofId proof, proof) | proof <- Map.elems proofs]
+    let session proof = "lr-" <> liveRestoreProofId proof
+        bySession = Map.fromList
+          [(session proof, proof) | proof <- Map.elems proofs]
     unless (Map.size bySession == Map.size proofs)
       (Left "live restore review repeats a restore ID")
     let selected operation = Map.lookup (plannedInputDigest operation) proofs
@@ -65,7 +66,7 @@ registerLiveRestoreFence config binding accepted scopes declarations native regi
             (Left "live restore target or backup revision is no longer accepted")
           pure proof
         pinFor proof = mkMaintenanceNetworkPin
-          (liveRestoreProofId proof)
+          (session proof)
           (liveRestoreProofNamespace proof)
           (liveRestoreProofDatabase proof)
           (liveRestoreProofDatabase proof <> "-0")
@@ -80,7 +81,7 @@ registerLiveRestoreFence config binding accepted scopes declarations native regi
           expectedDigest <- proofDigest proof
           unless (kubernetesNetworkExcluded intent
               && fenceContext record == binding
-              && fenceSession record == liveRestoreProofId proof
+              && fenceSession record == session proof
               && fenceTargets record == Set.singleton (liveRestoreProofPvc proof)
               && Map.lookup (liveRestoreProofStateful proof) (fencePhysical record)
                 == Just (liveRestoreProofStatefulUid proof)
@@ -98,7 +99,7 @@ registerLiveRestoreFence config binding accepted scopes declarations native regi
             pure (Just KubernetesCaptureRequest
               { captureBinding = binding
               , captureAccepted = accepted
-              , captureSession = liveRestoreProofId proof
+              , captureSession = session proof
               , captureVolumeResource = liveRestoreProofPvc proof
               , captureDependencyRoot = liveRestoreProofStateful proof
               , captureExpectedDatabaseEngine = Just Postgres

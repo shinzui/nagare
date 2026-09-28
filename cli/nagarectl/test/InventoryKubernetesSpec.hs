@@ -39,8 +39,10 @@ import Nagare.Inventory.Prune (ManualPruneRequest (..), PruneSourceProof (..), c
 import Nagare.Inventory.VolumePrune (VolumePruneRequest (..), compileVolumePruneScope, volumePruneJobCredentialPin)
 import Nagare.Inventory.Restore (ManualRestoreRequest (..), VolumeRestoreRequest (..), compileManualRestoreScope, compileVolumeRestoreScope, manualRestoreJobTargetPins, manualRestoreTargetProof, volumeRestoreJobSourcePins)
 import Nagare.Inventory.Maintenance (MaintenanceRequest (..), MaintenanceSourceProof (..), compileMaintenanceScope, maintenanceSourceProof)
-import Nagare.Inventory.LiveRestore (LiveBackupInput (..), LiveRestoreRequest (..), compileLiveRestoreScope, liveRestoreProof)
+import Nagare.Inventory.LiveRestore (LiveBackupInput (..), LiveBackupProof (..), LiveRestoreRequest (..), LiveRestoreProof (..), compileLiveRestoreScope, liveRestoreProof)
 import Nagare.Inventory.LiveRestorePostgres (normalizePostgresDump)
+import Nagare.Inventory.LiveRestoreSource (verifyLiveStoredFiles)
+import Nagare.Inventory.ScheduledStore (StoredObject (..))
 import Nagare.Inventory.DataService (NativeDataKind (..), compileBackupPruneRemovalScope, compileStandaloneDatabase, compileStatefulSetRestartScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Components.Foundation (compileContributedNamespaces)
@@ -1316,6 +1318,34 @@ inventoryKubernetesTests =
                     liveScope = ok (compileLiveRestoreScope liveRequest databaseScope liveNative)
                 assertBool "live restore has no private canonical proof"
                   (case liveRestoreProof liveScope of Right (Just _) -> True; _ -> False)
+                let liveProof = case liveRestoreProof liveScope of
+                      Right (Just selected) -> selected
+                      _ -> error "live restore proof is absent"
+                    sourceProof = liveRestoreProofSource liveProof
+                    archiveData = "fixed archive bytes"
+                    pinnedSource = sourceProof
+                      {liveBackupSha256 = digestText (contentDigest archiveData)}
+                withSystemTempDirectory "nagare-live-source" $ \scratch -> do
+                  let receiptPath = scratch <> "/receipt.json"
+                      archivePath = scratch <> "/archive.gz"
+                      receiptObject = StoredObject
+                        (liveBackupReceiptVersionProof sourceProof)
+                        (fromIntegral (BS.length receiptBytes))
+                      archiveObject = StoredObject
+                        (liveBackupObjectVersionProof sourceProof)
+                        (fromIntegral (BS.length archiveData))
+                  BS.writeFile receiptPath receiptBytes
+                  BS.writeFile archivePath archiveData
+                  verifyLiveStoredFiles pinnedSource receiptObject archiveObject
+                    receiptPath archivePath >>= (@?= Right ())
+                  assertBool "different stored archive version passed live restore"
+                    . isLeft =<< verifyLiveStoredFiles pinnedSource receiptObject
+                      (archiveObject {storedVersion = "replacement"})
+                      receiptPath archivePath
+                  BS.writeFile archivePath "changed archive"
+                  assertBool "changed stored archive bytes passed live restore"
+                    . isLeft =<< verifyLiveStoredFiles pinnedSource receiptObject
+                      archiveObject receiptPath archivePath
                 assertBool "live restore accepted another recovery incarnation"
                   (isLeft (compileLiveRestoreScope
                     (liveRequest {liveRestorePvcUid = ok (mkPhysicalIdentity "other-pvc")})

@@ -54,7 +54,7 @@ normalizePostgresDump raw = do
 runLivePostgresRestore :: KubernetesRuntimeConfig -> LiveRestoreProof
   -> FilePath -> IO (Either Text ())
 runLivePostgresRestore config proof sourcePath = withPinnedPod config proof $ do
-  let script = "PGAPPNAME=nagare-maintenance-" <> liveRestoreProofId proof
+  let script = "PGAPPNAME=nagare-maintenance-lr-" <> liveRestoreProofId proof
         <> " PGPASSWORD=\"$POSTGRES_PASSWORD\" exec psql -X -1"
         <> " -v ON_ERROR_STOP=1 -U \"$POSTGRES_USER\""
         <> " -d \"$POSTGRES_DB\" -f -"
@@ -93,7 +93,7 @@ runLivePostgresRestore config proof sourcePath = withPinnedPod config proof $ do
 dumpLivePostgres :: KubernetesRuntimeConfig -> LiveRestoreProof
   -> FilePath -> IO (Either Text ())
 dumpLivePostgres config proof outputPath = withPinnedPod config proof $ do
-  let script = "PGAPPNAME=nagare-maintenance-" <> liveRestoreProofId proof
+  let script = "PGAPPNAME=nagare-maintenance-lr-" <> liveRestoreProofId proof
         <> " PGPASSWORD=\"$POSTGRES_PASSWORD\" exec pg_dump"
         <> " --no-owner --no-privileges -U \"$POSTGRES_USER\""
         <> " -d \"$POSTGRES_DB\""

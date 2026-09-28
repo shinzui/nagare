@@ -543,6 +543,7 @@ the labels `nagare.dev/managed-by: nagarectl` + `nagare.dev/database=<name>` +
 | `nagarectl db delete NAME --save-plan DIR` | Save a reviewed retirement that retains provider resources; apply separately. |
 | `nagarectl db backup NAME --backup-id ID --save-plan DIR` | Save a reviewed manual backup Job and apply separately. |
 | `nagarectl db restore NAME BACKUP_ID --restore-id ID --save-plan DIR` | Save a reviewed PostgreSQL or ClickHouse scratch restore Job, or Redis scratch Service/PVC/StatefulSet and verification Job; apply separately. |
+| `nagarectl db restore NAME SOURCE_ID --into-live --recovery-backup RECOVERY_ID --restore-id ID --save-plan DIR` | Save a local PostgreSQL live restore review from two distinct accepted manual backups. Apply separately; the writer fence releases after full logical content verification. |
 
 Database create/backup/restore have read-only legacy Job rendering under
 `--dry-run`; reviewed plans show the actual live operations. An app references a database by name
