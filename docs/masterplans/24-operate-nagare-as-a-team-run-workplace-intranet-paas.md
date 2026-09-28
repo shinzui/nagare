@@ -16,6 +16,11 @@ provenance:
       at: 2026-09-28T15:02:11Z
       mode: "update"
       note: "Constrain tool evaluation to retained journal/state and current engines; add bounded Velero backup assessment without selecting a tool"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-28T18:26:14Z
+      mode: "update"
+      note: "Prioritize K8up backup evaluation and assess the operator concern about Velero project direction"
 ---
 
 # Operate Nagare as a team-run workplace intranet PaaS
@@ -27,7 +32,7 @@ If durable project context changes, update or create ADRs in docs/adr/ in the sa
 
 ## Vision & Scope
 
-**Operator constraints, 2026-09-28.** Keep Nagare's typed scopes and cross-tool journal/state, including the filesystem/GCS protocol. Do not evaluate replacing them as the default recommendation. No Flux, no implicit substitute GitOps platform, and no additional messaging engines. Prioritize current database backup/recovery and Kubernetes/volume backup fit; future database engines inform extension cost but are not implementations required here. Velero is a backup evaluation candidate only, not a selected dependency. The separately authorized MP-23 scope reduction is recorded in that plan; this evaluation neither blocks its release nor silently reopens its deferred features.
+**Operator constraints, 2026-09-28.** Keep Nagare's typed scopes and cross-tool journal/state, including the filesystem/GCS protocol. Do not evaluate replacing them as the default recommendation. No Flux, no implicit substitute GitOps platform, and no additional messaging engines. Prioritize current database backup/recovery and Kubernetes/volume backup fit; future database engines inform extension cost but are not implementations required here. K8up/restic is the primary volume/application-backup evaluation candidate; Velero is a secondary desk comparison because the operator is concerned about its project direction. CloudNativePG/Barman remains the separate PostgreSQL comparison. Evaluate governance, maintenance continuity, release/support policy, roadmap/deprecations, and exit cost alongside recovery behavior. This prioritization selects no dependency and does not establish that either project is safer. The separately authorized MP-23 scope reduction is recorded in that plan; this evaluation neither blocks its release nor silently reopens its deferred features.
 
 Nagare began as a cheap, single-node personal PaaS: one GCP Compute Engine VM running NixOS and
 k3s, with applications deployed as Knative Services through the `nagarectl` CLI. As of 2026-09-28
@@ -181,6 +186,8 @@ operator decides, the tooling boundary between Nagare and established tools (aft
 
 ## Progress
 
+2026-09-28 candidate reprioritization: EP-163 now prioritizes K8up/restic and retains Velero as a secondary desk comparison. The operator's reason is Velero's project direction; M1/M3 must assess that concern using primary evidence for both projects. CloudNativePG/Barman remains the PostgreSQL comparison. No prototype or adoption begins; child statuses remain Not Started.
+
 2026-09-28 scope alignment: MP-23 now has an operator-approved reduction and retains its journal/state. EP-163 is narrowed to explicit tool boundaries and a Velero backup evaluation. This planning update starts no prototype and selects no tool; child statuses remain Not Started.
 
 2026-09-28: MasterPlan created with EP-162 and EP-163. No child plan started. The implementation
@@ -193,6 +200,10 @@ streams listed in Decomposition Strategy are intentionally not yet planned.
 
 
 ## Decision Log
+
+- Decision: Prioritize K8up/restic for volume/application backups; keep Velero as a secondary desk comparison with a prototype only for a concrete unresolved need after project-direction assessment. Keep CloudNativePG/Barman as the PostgreSQL comparison. This supersedes the earlier Velero-first evaluation order.
+  Rationale: The operator prefers K8up because of concerns about Velero's project direction. Compare maintenance continuity and upstream direction explicitly without presenting the concern as a verified technical defect or an adoption decision.
+  Date: 2026-09-28
 
 - Decision: Retain the typed inventory and cross-tool journal/state; evaluate bounded native/database/volume tooling beneath them. No Flux or new messaging engines. Velero is evaluated for backups only, without selection or a dependency on MP-23 release.
   Rationale: These are the operator's clarified constraints. MP-23's separate scope change must not be turned into a new tooling migration project.
@@ -221,5 +232,7 @@ streams listed in Decomposition Strategy are intentionally not yet planned.
 (To be filled during and after implementation.)
 
 ## Revision Notes
+
+2026-09-28: Prioritize K8up/restic, make Velero secondary, and require evidence on project direction and maintenance continuity in EP-163. Preserve the separate PostgreSQL comparison and MP-23 release boundary.
 
 2026-09-28: Align evaluation with the operator-approved MP-23 scope and retained journal/state; exclude Flux/new messaging engines and keep Velero as a backup candidate only.

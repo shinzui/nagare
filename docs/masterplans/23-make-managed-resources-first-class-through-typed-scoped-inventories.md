@@ -196,6 +196,11 @@ provenance:
       at: 2026-09-28T15:26:04Z
       mode: "implement"
       note: "Track deferred-admission and coverage schema checkpoint"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-28T18:26:14Z
+      mode: "update"
+      note: "Prioritize K8up backup evaluation and assess the operator concern about Velero project direction"
 ---
 
 # Make managed resources first-class through typed scoped inventories
@@ -218,7 +223,7 @@ This MasterPlan is a living document. Keep Progress, Surprises & Discoveries, De
 
 Backups are retained by default. Deferred scheduled keep-N/expiry must be visible as unenforced in review, status, and user documentation; operators must account for storage growth. Existing exact reviewed manual pruning is retained only where its current proof applies. EP-153 must prevent new admission through deferred command, library, recipe, and saved-review paths. Recovery of already-admitted transactions remains available under the original identity and evidence checks; scope reduction must never strand partial deletions, live fences, or sessions. Do not delete that recovery code or its history merely because new admissions are deferred.
 
-[EP-163](../plans/163-evaluate-established-tooling-against-nagare-s-managed-resource-layers.md) evaluates external tools beneath this boundary. CloudNativePG/Barman and Velero are candidates, not selected dependencies; Velero is evaluated specifically for backups and recovery. No Flux, implicit replacement GitOps platform, or additional messaging engine is part of this work. Tool evaluation does not gate MP-23, and adoption needs a subsequent decision supported by evidence.
+[EP-163](../plans/163-evaluate-established-tooling-against-nagare-s-managed-resource-layers.md) evaluates external tools beneath this boundary. K8up/restic is the primary volume/application-backup candidate, CloudNativePG/Barman is the separate PostgreSQL comparison, and Velero is a secondary desk comparison because of the operator's concern about its project direction. EP-163 assesses project direction and maintenance continuity alongside recovery behavior; no candidate is a selected dependency. No Flux, implicit replacement GitOps platform, or additional messaging engine is part of this work. Tool evaluation does not gate MP-23, and adoption needs a subsequent decision supported by evidence.
 
 **MANDATORY OPERATOR BOUNDARY — NO GKE (2026-09-27).** Nagare supports local k3d/k3s and k3s on a NixOS VM in GCP Compute Engine. Do not create, start, use, authenticate to, select, or request access to a GKE cluster for this initiative. Existing workstation GKE contexts are unrelated. No child may add GKE credentials, probes, compatibility, or access as a completion gate. EP-156 owns actual GCP/NixOS/k3s and GCS integration; GCP does not mean GKE.
 
@@ -256,7 +261,7 @@ Rejected alternatives were isolated platform/application inventories without sha
 2. Preserve concurrent edits and retained fixture/state identities. Before mutating a selected fixture, inspect its existing transaction/fence/session state through the supported read-only path. An already-admitted operation may need its existing evidence-bound recovery; do not reset its history or treat cancellation as completion.
 3. **Next implementation checkpoint: EP-153's deferred-admission and retained-recovery boundary.** Prove new deferred operations refuse at command and shared saved-review admission while already-admitted records remain recoverable. Use its finite route list and existing fixtures; this is not a new full command audit or a requirement to finish all of EP-153 first. Recheck the older registration fix only if current evidence or changes invalidate it.
 4. Reconcile the bounded EP-154 installed smoke, EP-155 fixture/health, and EP-157 evidence-input checkpoints. Skip accepted outputs whose evidence remains applicable. Then take the first unmet supported assertion in orders 3–4: EP-159 receipts/retention reporting and EP-160 isolated database/new-PVC recovery. Existing three-engine local roundtrips are inputs to this assessment, not work to restart by default. Keep EP-160 M1 accepted.
-5. Continue ready supported platform/access/lifecycle work in order 5 and the complete final-candidate gates in order 6. MP-24/EP-163 research, Velero evaluation, and tool adoption are not prerequisites. Record the exact next child/assertion at every handoff; do not end at a passing partial checkpoint when more authorized work is ready.
+5. Continue ready supported platform/access/lifecycle work in order 5 and the complete final-candidate gates in order 6. MP-24/EP-163 research, K8up/Velero evaluation, and tool adoption are not prerequisites. Record the exact next child/assertion at every handoff; do not end at a passing partial checkpoint when more authorized work is ready.
 
 At each checkpoint handoff, record the accepted output/evidence and next checkpoint in the owning child's living sections and keep the parent's brief Progress snapshot current. Switch children and continue within the authorized MP scope; a partial checkpoint does not mark its whole milestone or child Complete. If blocked, name the missing input and select ready independent work from order 5 or bounded provider preparation. Do not repeat an unchanged failed gate or restart a broad audit. Final acceptance remains order 6 and every active child's revised criteria remain required.
 
@@ -520,6 +525,8 @@ Earlier architecture discoveries remain relevant: derived controller claims must
 
 ## Decision Log
 
+2026-09-28: Synchronize external evaluation priority with MP-24/EP-163: K8up/restic first for volume/application backups, Velero as a secondary desk comparison because the operator is concerned about its project direction, and CloudNativePG/Barman retained for PostgreSQL. This supersedes the earlier Velero-first evaluation emphasis, selects no dependency, and changes no MP-23 feature or release gate.
+
 2026-09-28: The operator authorizes a scope reduction while explicitly retaining the cross-tool journal and state. Keep typed ownership, reviews, conditional filesystem/GCS history, existing engines, verified backups, isolated restores, and full validation of that contract. Defer general live overwrite/automatic recovery cutover, custom interactive maintenance (cancel EP-161), and generalized scheduled retention pruning. EP-153 guards new admission and preserves existing recovery; EP-159 makes retention limits visible; EP-160 retains accepted M1 and narrows M2/M3. This supersedes earlier no-feature-reduction instructions and producer/maintenance scheduling. Historical work is preserved, not declared complete or erased.
 
 2026-09-28: Keep external-tool evaluation independent in MP-24/EP-163. No Flux and no additional messaging engines. Keep the cross-tool journal/state as an architectural constraint. Evaluate CloudNativePG/Barman for PostgreSQL and Velero specifically for backup/recovery fit; the operator's Velero question is an evaluation request, not selection or adoption authorization. Do not make a prototype, tool migration, or new controller a release gate for MP-23.
@@ -591,6 +598,8 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 
 
 ## Revision Notes
+
+2026-09-28: Align the external-tool reference with the operator's K8up-first evaluation preference and Velero project-direction concern; release scope and gates remain as previously agreed.
 
 2026-09-28: Apply the operator-approved reduction to active scope, dependencies, execution order, and release acceptance; keep the cross-tool journal/state and all required proof for retained features. Coordinate affected children and ADR 22. Velero remains a backup evaluation candidate only.
 
