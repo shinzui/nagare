@@ -9,6 +9,7 @@ module Nagare.Storage.Restore
   , renderScratchPvc
   , ReviewedVolumeRestoreInputs (..)
   , renderReviewedVolumeRestoreJob
+  , safeVolumeExtractPython
   , previewStorageRestore
   )
 where
@@ -218,9 +219,99 @@ renderReviewedVolumeRestoreJob input = Y.encode $ object
       <> "test \"$(sha256sum /dump/receipt.json | cut -d' ' -f1)\" = \"$RECEIPT_SHA256\"; "
       <> storeCpToStdout backend "\"$SRC\"" <> " > /dump/archive.tar.gz; "
       <> "test \"$(sha256sum /dump/archive.tar.gz | cut -d' ' -f1)\" = \"$ARCHIVE_SHA256\"; "
-      <> "tar -tzf /dump/archive.tar.gz > /dev/null; "
-      <> "tar -C /restore -xzf /dump/archive.tar.gz; "
-      <> "echo 'verified scratch restore complete'"
+      <> "python3 - /dump/archive.tar.gz /restore <<'NAGARE_VOLUME_EXTRACT'\n"
+      <> safeVolumeExtractPython
+      <> "NAGARE_VOLUME_EXTRACT\n"
+
+-- | Reject links, special files, duplicate paths, escapes, and existing
+-- symlink parents before the first write. Files are copied and fsynced through
+-- no-follow descriptors, then every resulting byte is compared to the
+-- authenticated archive. A failed extraction leaves the reviewed Job failed;
+-- the future live path must keep its data fence until explicit recovery.
+safeVolumeExtractPython :: Text
+safeVolumeExtractPython = T.unlines
+  [ "import hashlib, os, posixpath, shutil, stat, sys, tarfile"
+  , "archive_path, root = sys.argv[1:]"
+  , "root = os.path.realpath(root)"
+  , "def reject(reason):"
+  , "    raise SystemExit('unsafe volume archive: ' + reason)"
+  , "if not os.path.isdir(root):"
+  , "    reject('target volume is not a directory')"
+  , "def sha256_file(path):"
+  , "    digest = hashlib.sha256()"
+  , "    with open(path, 'rb') as source:"
+  , "        for chunk in iter(lambda: source.read(1024 * 1024), b''):"
+  , "            digest.update(chunk)"
+  , "    return digest.digest()"
+  , "with tarfile.open(archive_path, 'r:gz') as archive:"
+  , "    members = []"
+  , "    seen = set()"
+  , "    file_paths = set()"
+  , "    for member in archive.getmembers():"
+  , "        name = member.name"
+  , "        if not name or name.startswith('/') or '\\x00' in name or '..' in name.split('/'):"
+  , "            reject('absolute, empty, or parent path')"
+  , "        normalized = posixpath.normpath(name)"
+  , "        if normalized == '.':"
+  , "            if not member.isdir():"
+  , "                reject('root is not a directory')"
+  , "            continue"
+  , "        if normalized in seen or not (member.isdir() or member.isfile()):"
+  , "            reject('duplicate path or unsupported entry type')"
+  , "        seen.add(normalized)"
+  , "        if member.isfile():"
+  , "            file_paths.add(normalized)"
+  , "        target = os.path.join(root, *normalized.split('/'))"
+  , "        if os.path.commonpath([root, os.path.realpath(target)]) != root:"
+  , "            reject('path leaves target volume')"
+  , "        cursor = root"
+  , "        parts = normalized.split('/')"
+  , "        for index, part in enumerate(parts):"
+  , "            cursor = os.path.join(cursor, part)"
+  , "            if os.path.islink(cursor):"
+  , "                reject('existing symlink in target path')"
+  , "            if index < len(parts) - 1 and os.path.exists(cursor) and not os.path.isdir(cursor):"
+  , "                reject('path parent is not a directory')"
+  , "        if os.path.lexists(target):"
+  , "            existing = os.lstat(target)"
+  , "            if member.isdir() and not stat.S_ISDIR(existing.st_mode):"
+  , "                reject('directory collides with non-directory')"
+  , "            if member.isfile() and (not stat.S_ISREG(existing.st_mode) or existing.st_nlink != 1):"
+  , "                reject('file collides with special or linked target')"
+  , "        members.append((member, target))"
+  , "    for name in seen:"
+  , "        parent = posixpath.dirname(name)"
+  , "        while parent not in ('', '.'):"
+  , "            if parent in file_paths:"
+  , "                reject('file is also an archive path parent')"
+  , "            parent = posixpath.dirname(parent)"
+  , "    for member, target in members:"
+  , "        if member.isdir():"
+  , "            os.makedirs(target, exist_ok=True)"
+  , "            if not os.path.isdir(target):"
+  , "                reject('directory collides with file')"
+  , "            continue"
+  , "        os.makedirs(os.path.dirname(target), exist_ok=True)"
+  , "        source = archive.extractfile(member)"
+  , "        if source is None:"
+  , "            reject('regular file has no content')"
+  , "        flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW"
+  , "        with source, os.fdopen(os.open(target, flags, member.mode & 0o777), 'wb') as dest:"
+  , "            shutil.copyfileobj(source, dest, 1024 * 1024)"
+  , "            dest.flush()"
+  , "            os.fsync(dest.fileno())"
+  , "        os.chmod(target, member.mode & 0o777)"
+  , "        source = archive.extractfile(member)"
+  , "        if source is None:"
+  , "            reject('regular file disappeared during verification')"
+  , "        digest = hashlib.sha256()"
+  , "        with source:"
+  , "            for chunk in iter(lambda: source.read(1024 * 1024), b''):"
+  , "                digest.update(chunk)"
+  , "        if digest.digest() != sha256_file(target):"
+  , "            reject('extracted content differs from archive')"
+  , "print('verified volume archive and extracted files')"
+  ]
 
 -- ---------------------------------------------------------------------------
 -- Read-only preview

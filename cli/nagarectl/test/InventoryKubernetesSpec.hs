@@ -573,7 +573,8 @@ inventoryKubernetesTests =
         assertBool "restore does not verify both current objects before scratch extraction"
           (BC.isInfixOf "RECEIPT_SHA256" restoreBytes
             && BC.isInfixOf "ARCHIVE_SHA256" restoreBytes
-            && BC.isInfixOf "tar -C /restore -xzf" restoreBytes
+            && BC.isInfixOf "python3 - /dump/archive.tar.gz /restore" restoreBytes
+            && BC.isInfixOf "sha256_file(target)" restoreBytes
             && not (BC.isInfixOf (TE.encodeUtf8 (pvcName "notes" "data")) restoreBytes))
         assertBool "changed receipt metadata passed restore compilation"
           (isLeft (compileVolumeRestoreScope

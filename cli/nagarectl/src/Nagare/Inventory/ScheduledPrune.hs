@@ -16,6 +16,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Time (UTCTime)
 import Text.Read (readMaybe)
+import Nagare.Dsl.Prelude
 import Nagare.Inventory.ScheduledStore (ListedObject (..))
 import Nagare.Resource.Inventory (ScopeDeclaration, scopeId, scopeOverrides)
 import Nagare.Resource.Types (ScopeId, scopeIdText)
@@ -52,12 +53,12 @@ selectScheduledPruneCandidates source bucketAddress prefix format keep protected
     (Left "scheduled backup provider listing repeats a key")
   let fields scope = scopeOverrides scope
       sourceName = scopeIdText source
-      matching scope = Map.lookup "scheduled.backup.source.scope" (fields scope)
+      sameSource scope = Map.lookup "scheduled.backup.source.scope" (fields scope)
         == Just sourceName
       pruned = Set.fromList
         [selected | scope <- scopes,
           Just selected <- [Map.lookup "scheduled.prune.backup.scope" (fields scope)]]
-      backups = filter (\scope -> matching scope
+      backups = filter (\scope -> sameSource scope
         && Set.notMember (scopeIdText (scopeId scope)) pruned) scopes
       visible = Map.fromList [(bucketAddress <> listedKey item, listedModified item)
         | item <- listed]

@@ -366,7 +366,7 @@ import Nagare.Storage.Discover
   , formatStorageTable
   , pvcName
   )
-import Nagare.Storage.Restore (StorageRestoreJobInputs (..), renderStorageRestoreJob)
+import Nagare.Storage.Restore (StorageRestoreJobInputs (..), renderStorageRestoreJob, safeVolumeExtractPython)
 import Nagare.Storage.Snapshot
   ( SnapshotJobInputs (..)
   , backupExcludedWarnings
@@ -513,6 +513,7 @@ main = do
             , testGroup "Nagare.App.Deployments" deploymentsTests
             , testGroup "Nagare.Storage.Discover" storageDiscoverTests
             , testGroup "Nagare.Storage.Snapshot" storageSnapshotTests
+            , testGroup "Nagare.Storage.Restore archive" volumeArchiveTests
             , testGroup "GCS data-movement Job hostAliases (EP-1)" gcsJobHostAliasesTests
             , testGroup "Nagare.Cluster.Namespace" namespaceTests
             , testGroup "Nagare.Cluster.CertificatePolicy" certificatePolicyTests
@@ -4903,6 +4904,58 @@ storageRestoreJobInputs =
     , mountPath = "/restore"
     , backend = tnbGcsBackend
     }
+
+volumeArchiveTests :: [TestTree]
+volumeArchiveTests =
+  [ testCase "reviewed volume extraction verifies content and rejects unsafe entries before writing" $
+      withSystemTempDirectory "nagare-volume-archive" $ \scratch -> do
+        let source = scratch </> "source"
+            target = scratch </> "target"
+            validArchive = scratch </> "valid.tar.gz"
+            malicious kind = scratch </> (kind <> ".tar.gz")
+            extract archive = readCreateProcessWithExitCode
+              (proc "python3" ["-c", T.unpack safeVolumeExtractPython, archive, target]) ""
+            makeUnsafe = unlines
+              [ "import io, sys, tarfile"
+              , "kind, path = sys.argv[1:]"
+              , "with tarfile.open(path, 'w:gz') as archive:"
+              , "    safe = tarfile.TarInfo('would-be-partial.txt')"
+              , "    safe.size = 4"
+              , "    archive.addfile(safe, io.BytesIO(b'safe'))"
+              , "    name = '../../outside.txt' if kind == 'escape' else ('would-be-partial.txt/child' if kind == 'parent' else 'link')"
+              , "    member = tarfile.TarInfo(name)"
+              , "    if kind == 'link':"
+              , "        member.type = tarfile.SYMTYPE"
+              , "        member.linkname = '../../outside.txt'"
+              , "        archive.addfile(member)"
+              , "    else:"
+              , "        member.size = 6"
+              , "        archive.addfile(member, io.BytesIO(b'escape'))"
+              ]
+        createDirectoryIfMissing True source
+        createDirectoryIfMissing True target
+        BS.writeFile (source </> "known.txt") "volume-content-v1"
+        (made, _, creationError) <- readCreateProcessWithExitCode
+          (proc "tar" ["-C", source, "-czf", validArchive, "."]) ""
+        made @?= ExitSuccess
+        creationError @?= ""
+        (restored, _, restoreError) <- extract validArchive
+        restored @?= ExitSuccess
+        restoreError @?= ""
+        recovered <- BS.readFile (target </> "known.txt")
+        recovered @?= "volume-content-v1"
+        forM_ ["escape", "link", "parent"] $ \kind -> do
+          (created, _, errorText) <- readCreateProcessWithExitCode
+            (proc "python3" ["-c", makeUnsafe, kind, malicious kind]) ""
+          created @?= ExitSuccess
+          errorText @?= ""
+          (status, _, _) <- extract (malicious kind)
+          assertBool (kind <> " archive was accepted") (status /= ExitSuccess)
+          partial <- doesFileExist (target </> "would-be-partial.txt")
+          assertBool (kind <> " archive wrote before preflight completed") (not partial)
+        outside <- doesFileExist (scratch </> "outside.txt")
+        assertBool "archive escaped the target volume" (not outside)
+  ]
 
 -- | Recurrence guard (EP-1): every GCS data-movement Job renderer must emit the
 -- metadata @hostAliases@ and the @google/cloud-sdk:slim@ image. All four render
