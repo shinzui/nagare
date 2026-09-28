@@ -500,6 +500,8 @@ recoverInventoryWithFactory registryFor target transactionToken operationToken d
   registry <- registryFor bundle
   recordOperatorRecovery store registry input takeOver >>= either (dieText . showText . NE.toList) pure
   case recoveryAction input of
+    AbandonPartialPrune ->
+      TIO.putStrLn "Terminal scheduled prune review abandoned; exact provider members remain unresolved until a separate reviewed recovery"
     RecoverFencedBackup ->
       TIO.putStrLn "Reviewed recovery backup proved and original restore review abandoned; inspect inventory status before saving a new review"
     ForwardFencedRelease -> do

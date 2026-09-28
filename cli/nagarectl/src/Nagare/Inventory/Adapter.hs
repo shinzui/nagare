@@ -142,6 +142,7 @@ data AdapterExecution
 data RecoveryDecision
   = RecoveryProvedComplete !ContentDigest
   | RecoverySafeToRetry
+  | RecoveryTerminalFailure !PhysicalIdentity
   | RecoveryUnresolved !Text
   deriving stock (Eq, Show, Generic)
 

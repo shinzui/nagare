@@ -64,6 +64,7 @@ data RecoveryAction
   | VerifyFencedEffect
   | RecoverFencedBackup
   | ForwardFencedRelease
+  | AbandonPartialPrune
   deriving stock (Eq, Show)
 
 data OperatorRecoveryInput = OperatorRecoveryInput
@@ -91,6 +92,7 @@ instance FromJSON OperatorRecoveryInput where
       "verify-fenced-effect" -> pure VerifyFencedEffect
       "recover-fenced-backup" -> pure RecoverFencedBackup
       "forward-fenced-release" -> pure ForwardFencedRelease
+      "abandon-partial-prune" -> pure AbandonPartialPrune
       _ -> fail "unsupported operator recovery action"
     OperatorRecoveryInput <$> o .: "transaction" <*> o .: "operation"
       <*> o .: "review" <*> pure decision
@@ -476,8 +478,9 @@ recordOperatorRecovery store registry input takeOver = do
                 Right () -> do
                   result <- inspectRecovery lock events (headDataFence headValue)
                   released <- if isRight result && isNothing (headDataFence headValue)
-                    && recoveryAction input == RecoverFencedBackup
-                    && isJust (rollbackProof transaction operationId events)
+                    && (recoveryAction input == AbandonPartialPrune
+                      || (recoveryAction input == RecoverFencedBackup
+                        && isJust (rollbackProof transaction operationId events)))
                     then releaseAbortedClaim lock transaction
                     else do
                       current <- readHead store
@@ -554,6 +557,15 @@ recordOperatorRecovery store registry input takeOver = do
                     decision <- withAdapterEnv transaction operation
                       (adapterRecover adapter operation prepared)
                     case (recoveryAction input, decision) of
+                      (AbandonPartialPrune, RecoveryTerminalFailure physical)
+                        | scheduledPruneOnlyReview published operation -> do
+                            appended <- appendEvent lock transaction (Just operationId)
+                              (OperatorResolved "abandoned-terminal-scheduled-prune")
+                              ("terminal scheduled prune Job " <>
+                                physicalIdentityText physical <>
+                                " abandoned; exact provider members require separate recovery")
+                            pure (first (\err -> AdmissionError "journal"
+                              (showText err) :| []) (() <$ appended))
                       (AcceptAdapterProof, RecoveryProvedComplete proof) -> do
                         appended <- appendEvent lock transaction (Just operationId)
                           (Completed proof) "operator accepted adapter recovery proof"
@@ -564,6 +576,30 @@ recordOperatorRecovery store registry input takeOver = do
                               (OperatorResolved "adapter-proved-safe-retry") "operator selected adapter-proved safe retry"
                             pure (first (\err -> AdmissionError "journal" (showText err) :| []) (() <$ appended))
                       _ -> pure (failure "unsupported-recovery" "adapter did not prove the operator's requested action")
+    scheduledPruneOnlyReview published operation =
+      let reviewed = reviewOperations (reviewBundleDocument published)
+          resource = NE.toList (plannedResources operation)
+          actions = map (plannedAction . reviewPlannedOperation) reviewed
+          oneResource = case resource of
+            [selected] -> all (\entry -> NE.toList
+              (plannedResources (reviewPlannedOperation entry)) == [selected]) reviewed
+            _ -> False
+          scopes = mapMaybe (either (const Nothing) Just . decodeScope)
+            (Map.elems (reviewBundleScopes published))
+          owns selected scope = any (\bundle -> any (\case
+            Resource.Managed member -> member ^. #identity == selected
+            _ -> False) (Resource.declarations bundle)) (Resource.scopeBundles scope)
+          selectedScope = case resource of
+            [selected] -> [scope | scope <- scopes, owns selected scope]
+            _ -> []
+       in plannedAction operation `elem` [CreateResource, RunDeclaredOperation]
+          && length reviewed == 2
+          && Set.fromList actions == Set.fromList [CreateResource, RunDeclaredOperation]
+          && oneResource
+          && case selectedScope of
+            [scope] -> Map.member "scheduled.prune.backup.scope"
+              (Resource.scopeOverrides scope)
+            _ -> False
     recoverFenced :: forall s. LockedStore s -> Adapter -> PlannedOperation
       -> PreparedNative -> DataFenceRecord -> DataFenceControls -> Maybe Text
       -> [JournalEvent]

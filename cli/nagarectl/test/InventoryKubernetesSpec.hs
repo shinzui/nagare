@@ -203,6 +203,16 @@ inventoryKubernetesTests =
               (TE.decodeUtf8 (BL.toStrict (encode (live condition))))
         observe "False" @?= Right (KubernetesNotReady physical "5" Nothing (contentDigest native))
         observe "True" @?= Right (KubernetesPresent physical "5" Nothing (contentDigest native))
+        let failed = object
+              ["apiVersion" .= ("batch/v1" :: Text), "kind" .= ("Job" :: Text),
+               "metadata" .= object
+                 ["name" .= ("work" :: Text), "uid" .= physical,
+                  "resourceVersion" .= ("5" :: Text)],
+               "status" .= object ["conditions" .= [object
+                 ["type" .= ("Failed" :: Text), "status" .= ("True" :: Text)]]]]
+        parseObserved config resource native
+          (TE.decodeUtf8 (BL.toStrict (encode failed))) @?=
+            Right (KubernetesFailed physical "5" Nothing (contentDigest native))
         calls <- newIORef (0 :: Int)
         state <- newIORef (KubernetesAbsent absence)
         let adapter = mkKubernetesAdapter specs (ops state calls)
@@ -250,6 +260,10 @@ inventoryKubernetesTests =
         adapterExecute adapter declaredOperation prepared >>= (@?= AdapterEffectCompleted)
         _ <- adapterVerify adapter declaredOperation prepared >>= expectRight
         readIORef calls >>= (@?= 0)
+        writeIORef state (KubernetesFailed physical "5" (Just resource)
+          (contentDigest jobBytes))
+        adapterRecover adapter declaredOperation prepared >>=
+          (@?= RecoveryTerminalFailure physical)
     , testCase "foreign present object refuses review without mutation" $ do
         state <- newIORef (KubernetesPresent physical "4" Nothing (contentDigest "foreign"))
         calls <- newIORef (0 :: Int)

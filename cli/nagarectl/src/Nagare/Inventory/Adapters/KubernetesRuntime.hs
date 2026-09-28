@@ -478,6 +478,8 @@ parseObserved config resource native response = do
   pure $ if deploymentSelectorReplacement desired observed
       || statefulSetImmutableReplacement desired observed
     then KubernetesReplacementRequired uid revision owner driftDigest
+    else if jobFailed observed
+      then KubernetesFailed uid revision owner driftDigest
     else if not (observedReady observed)
       then KubernetesNotReady uid revision owner driftDigest
     else KubernetesPresent uid revision owner driftDigest
@@ -534,6 +536,12 @@ statefulSetImmutableReplacement desired observed =
 
 jobCompleted :: Value -> Bool
 jobCompleted = hasCondition "Complete"
+
+jobFailed :: Value -> Bool
+jobFailed (Object root)
+  | KM.lookup "kind" root == Just (String "Job") =
+      hasCondition "Failed" (Object root)
+jobFailed _ = False
 
 -- | Read the upload container's terminal copy of the object-store receipt.
 -- The pod must belong to the exact completed Job UID; the caller validates

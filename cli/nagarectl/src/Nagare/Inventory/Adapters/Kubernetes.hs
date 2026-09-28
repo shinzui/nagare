@@ -49,6 +49,7 @@ data KubernetesState
   = KubernetesAbsent !ContentDigest
   | KubernetesPresent !PhysicalIdentity !Text !(Maybe ResourceId) !ContentDigest
   | KubernetesNotReady !PhysicalIdentity !Text !(Maybe ResourceId) !ContentDigest
+  | KubernetesFailed !PhysicalIdentity !Text !(Maybe ResourceId) !ContentDigest
   | KubernetesReplacementRequired !PhysicalIdentity !Text !(Maybe ResourceId) !ContentDigest
   | KubernetesUnknown !Text
   deriving stock (Eq, Show, Generic)
@@ -119,6 +120,12 @@ mkKubernetesAdapterWithBackupReceipt specs ops readBackupReceipt =
         | Just (_, native) <- Map.lookup resource specs
         , digest /= contentDigest native -> ObservedDrifted physical digest
         | otherwise -> ObservedPresent physical
+      KubernetesFailed physical _ owner digest
+        | owner == Nothing -> ObservedUnowned physical
+        | owner /= Just resource -> ObservedForeign physical
+        | Just (_, native) <- Map.lookup resource specs
+        , digest /= contentDigest native -> ObservedDrifted physical digest
+        | otherwise -> ObservedPresent physical
       KubernetesReplacementRequired physical _ owner digest
         | owner == Nothing -> ObservedUnowned physical
         | owner /= Just resource -> ObservedForeign physical
@@ -176,7 +183,17 @@ mkKubernetesAdapterWithBackupReceipt specs ops readBackupReceipt =
               <$> verifiedProof mutation current
             Left _ -> pure $ case requireSameBefore mutation current of
               Right () -> RecoverySafeToRetry
-              Left reason -> RecoveryUnresolved reason
+              Left reason -> case current of
+                KubernetesFailed physical _ (Just owner) digest
+                  | owner == mutationResource mutation
+                    && digest == mutationNativeDigest mutation
+                    && (case mutationAddress mutation of
+                      Kubernetes _ "batch" kind _ _ -> nameText kind == "job"
+                      _ -> False)
+                    && mutationAction mutation `elem`
+                      [CreateResource, RunDeclaredOperation] ->
+                        RecoveryTerminalFailure physical
+                _ -> RecoveryUnresolved reason
     verifiedProof mutation current = case completionProof mutation current of
       Left reason -> pure (Left reason)
       Right jobProof
@@ -283,6 +300,7 @@ validateBefore operation resource desiredDigest state =
       , digest == desiredDigest -> Right ()
     (_, KubernetesUnknown reason) -> Left ("Kubernetes observation unavailable: " <> reason)
     (_, KubernetesNotReady {}) -> Left "Kubernetes object is present but its required condition is not ready"
+    (_, KubernetesFailed {}) -> Left "Kubernetes Job has a terminal failure"
     (CreateResource, _) -> Left "create requires confirmed absence; an existing object needs reviewed adoption"
     (AdoptResource, _) -> Left "adoption requires an unstamped matching object with a physical identity and resourceVersion"
     (UpdateResource, _) -> Left "update requires a present object stamped with this logical identity and resourceVersion"
@@ -471,6 +489,7 @@ completionProof mutation state
         _ -> Left "collection lacks a present historical precondition"
       KubernetesUnknown reason -> Left ("Kubernetes observation unavailable: " <> reason)
       KubernetesNotReady {} -> Left "Kubernetes object remains present but is not ready"
+      KubernetesFailed {} -> Left "Kubernetes Job has a terminal failure"
       _ -> Left "collected Kubernetes object remains present or was replaced"
   | otherwise = case state of
       KubernetesPresent physical _ (Just owner) digest
@@ -478,6 +497,7 @@ completionProof mutation state
             contentDigest <$> canonicalValue (object ["operation" .= mutationOperation mutation, "resource" .= owner, "physicalIdentity" .= physical, "desiredDigest" .= digest])
       KubernetesUnknown reason -> Left ("Kubernetes observation unavailable: " <> reason)
       KubernetesNotReady {} -> Left "Kubernetes object remains present but is not ready"
+      KubernetesFailed {} -> Left "Kubernetes Job has a terminal failure"
       _ -> Left "Kubernetes object is absent, foreign, or differs from the reviewed native object"
 
 summary :: KubernetesMutation -> Text
@@ -492,6 +512,7 @@ instance ToJSON KubernetesState where
     KubernetesAbsent proof -> object ["kind" .= ("absent" :: Text), "proof" .= proof]
     KubernetesPresent physical revision owner digest -> object ["kind" .= ("present" :: Text), "physical" .= physical, "resourceVersion" .= revision, "owner" .= owner, "digest" .= digest]
     KubernetesNotReady physical revision owner digest -> object ["kind" .= ("not-ready" :: Text), "physical" .= physical, "resourceVersion" .= revision, "owner" .= owner, "digest" .= digest]
+    KubernetesFailed physical revision owner digest -> object ["kind" .= ("failed" :: Text), "physical" .= physical, "resourceVersion" .= revision, "owner" .= owner, "digest" .= digest]
     KubernetesReplacementRequired physical revision owner digest -> object ["kind" .= ("replacement-required" :: Text), "physical" .= physical, "resourceVersion" .= revision, "owner" .= owner, "digest" .= digest]
     KubernetesUnknown reason -> object ["kind" .= ("unknown" :: Text), "reason" .= reason]
 
@@ -502,6 +523,7 @@ instance FromJSON KubernetesState where
       "absent" -> KubernetesAbsent <$> o .: "proof"
       "present" -> KubernetesPresent <$> o .: "physical" <*> o .: "resourceVersion" <*> o .: "owner" <*> o .: "digest"
       "not-ready" -> KubernetesNotReady <$> o .: "physical" <*> o .: "resourceVersion" <*> o .: "owner" <*> o .: "digest"
+      "failed" -> KubernetesFailed <$> o .: "physical" <*> o .: "resourceVersion" <*> o .: "owner" <*> o .: "digest"
       "replacement-required" -> KubernetesReplacementRequired <$> o .: "physical" <*> o .: "resourceVersion" <*> o .: "owner" <*> o .: "digest"
       "unknown" -> KubernetesUnknown <$> o .: "reason"
       _ -> fail "unknown Kubernetes state"
