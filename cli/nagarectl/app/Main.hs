@@ -273,7 +273,8 @@ import Nagare.Inventory.Backup
   , scheduledReceiptExpectationFromCronJob )
 import Nagare.Inventory.ScheduledIngest
   ( ScheduledIngestRequest (..), ScheduledIngestSourceProof (..)
-  , compileScheduledIngestScope, scheduledIngestSourceProof )
+  , compileScheduledIngestScope, scheduledIngestEvidenceMatches
+  , scheduledIngestSourceProof )
 import Nagare.Inventory.ScheduledReceipt (ScheduledReceiptEvidence (..), inspectScheduledReceipt)
 import Nagare.Inventory.ScheduledStore
   ( ListedObject (..), ObjectReader (..), StoredObject (..)
@@ -11349,7 +11350,7 @@ runListScheduledReceipts mctx database namespaceName bucketArg = do
   signingKey <- readSecretField (contextNameText (active ^. #contextName))
     namespaceName ("nagare-dbbackup-" <> database <> "-signing") "HMAC_KEY"
     >>= either dieT pure
-  let accepted = Map.fromList [(selected, Resource.scopeIdText (ResourceInventory.scopeId scope))
+  let accepted = Map.fromList [(selected, scope)
         | (_, scope) <- Map.elems
         (ResourceInventory.snapshotScopes snapshot),
         Map.lookup "scheduled.backup.source.scope" (ResourceInventory.scopeOverrides scope)
@@ -11387,18 +11388,23 @@ runListScheduledReceipts mctx database namespaceName bucketArg = do
             let objectPresent = hasPart selected True
                 receiptPresent = hasPart selected False
                 acceptedScope = Map.lookup selected accepted
-                acceptedPrune = maybe False (`Set.member` pruned) acceptedScope
+                acceptedPrune = maybe False
+                  ((`Set.member` pruned) . Resource.scopeIdText . ResourceInventory.scopeId)
+                  acceptedScope
             status <- case (objectPresent, receiptPresent, acceptedPrune) of
               (False, False, True) -> pure "pruned"
               (True, _, True) -> pure "unresolved: pruned backup object reappeared"
               (_, True, True) -> pure "unresolved: pruned receipt reappeared"
-              (False, False, False) -> pure "accepted; provider objects are missing"
+              (False, False, False) -> pure "unresolved: accepted provider objects are missing"
               (True, False, False) -> pure "unresolved: backup object has no receipt"
               (False, True, False) -> pure "unresolved: receipt has no backup object"
               (True, True, False) -> do
                 inspected <- inspectScheduledReceipt reader expectation selected signingKey
                 pure $ case (acceptedScope, inspected) of
-                  (Just scope, Right _) -> "accepted " <> scope
+                  (Just scope, Right evidence)
+                    | scheduledIngestEvidenceMatches scope evidence ->
+                        "accepted " <> Resource.scopeIdText (ResourceInventory.scopeId scope)
+                    | otherwise -> "unresolved: provider versions differ from accepted receipt"
                   (Nothing, Right _) -> "verified; ingestion pending"
                   (_, Left reason) -> "unresolved: " <> reason
             pure (selected <> "  " <> status)

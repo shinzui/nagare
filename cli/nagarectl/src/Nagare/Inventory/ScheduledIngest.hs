@@ -6,6 +6,7 @@ module Nagare.Inventory.ScheduledIngest
   ( ScheduledIngestRequest (..)
   , ScheduledIngestSourceProof (..)
   , scheduledIngestSourceProof
+  , scheduledIngestEvidenceMatches
   , compileScheduledIngestScope
   , scheduledIngestJobSourcePins
   ) where
@@ -86,6 +87,25 @@ scheduledIngestSourceProof scope
     values = scopeOverrides scope
     required key = maybe (Left ("scheduled ingestion lacks " <> key)) Right
       (Map.lookup key values)
+
+-- | A current provider observation must match the exact accepted receipt pins
+-- before a read-only listing may call that backup accepted.
+scheduledIngestEvidenceMatches :: ScopeDeclaration -> ScheduledReceiptEvidence -> Bool
+scheduledIngestEvidenceMatches scope evidence =
+  all (\(key, value) -> Map.lookup key (scopeOverrides scope) == Just value)
+    [ ("scheduled.backup.id", physicalIdentityText (scheduledJobUid receipt))
+    , ("scheduled.backup.object", scheduledObjectAddress receipt)
+    , ("scheduled.backup.object.version", scheduledObjectVersion evidence)
+    , ("scheduled.backup.object.length", T.pack (show (scheduledObjectLength evidence)))
+    , ("scheduled.backup.object.sha256", scheduledSha256 receipt)
+    , ("scheduled.backup.receipt", scheduledObjectAddress receipt <> ".receipt.json")
+    , ("scheduled.backup.receipt.version", scheduledReceiptVersion evidence)
+    , ("scheduled.backup.receipt.length", T.pack (show (scheduledReceiptLength evidence)))
+    , ("scheduled.backup.receipt.digest", digestText (scheduledReceiptDigest evidence))
+    , ("scheduled.backup.schedule.revision", digestText (scheduledScheduleRevision receipt))
+    ]
+  where
+    receipt = scheduledReceipt evidence
 
 compileScheduledIngestScope
   :: ScheduledIngestRequest -> ScopeDeclaration

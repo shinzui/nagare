@@ -340,6 +340,8 @@ That bounded preparation now has a fresh installed Darwin smoke for committed re
 
 EP-159's public scheduled receipt listing on the retained Redis fixture now reports configured keep=7 and expiry as unenforced and states that backups are retained by default. Its review confirmation and inventory status report the same policy; full status could not be run on that older workspace with the changed payload, so matching-candidate status proof remains open. This is a bounded M2 reporting increment, while EP-159 M1 source/schedule-history and cloud receipt cases still need acceptance.
 
+EP-159's read-only listing now requires current exact object and receipt evidence to match every accepted ingestion pin before reporting a run as accepted. A focused changed-pin test and the retained Redis public listing pass. Historical schedule revisions, interrupted uploads, cloud exact generations, and final candidate evidence remain open.
+
 **Implementation order.** Check current child evidence before rerunning a checkpoint. Preserve concurrent work and already-admitted recovery records. The registry states whole-child ownership, not numerical execution order.
 
 | Order | Work and owner | Required handoff |

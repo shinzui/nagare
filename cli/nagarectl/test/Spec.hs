@@ -355,7 +355,8 @@ import Nagare.Inventory.Backup
 import Nagare.Inventory.ScheduledReceipt (ScheduledReceiptEvidence (..), inspectScheduledReceipt)
 import Nagare.Inventory.ScheduledPrune (ScheduledPruneCandidate (..), selectScheduledPruneCandidates)
 import Nagare.Inventory.ScheduledStore (ListedObject (..), ObjectReader (..), StoredObject (..), parseObjectEntries, parseObjectList, parseObjectVersions)
-import Nagare.Inventory.ScheduledIngest (scheduledIngestJobSourcePins)
+import Nagare.Inventory.ScheduledIngest
+  (scheduledIngestEvidenceMatches, scheduledIngestJobSourcePins)
 import Nagare.Resource.Policy qualified as InventoryPolicy
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types qualified as Resource
@@ -5333,6 +5334,36 @@ backupRestoreTests =
           assertBool "missing version ID was accepted" (isLeft
             (parseObjectVersions prefix (response "false"
               (entry "Version" objectKey ""))))
+      , testCase "scheduled listing accepts only its pinned provider receipt" $ do
+          let runId = "11111111-1111-1111-1111-111111111111"
+              object = "s3://backups/databases/mydb/" <> runId <> ".sql.gz"
+              receipt = ScheduledBackupReceipt
+                (unsafe (Resource.mkPhysicalIdentity runId)) object
+                (T.replicate 64 "a") (contentDigest "schedule revision")
+              evidence = ScheduledReceiptEvidence receipt "object-v1" "receipt-v1"
+                123 456 (contentDigest "receipt bytes")
+              pins = Map.fromList
+                [ ("scheduled.backup.id", runId)
+                , ("scheduled.backup.object", object)
+                , ("scheduled.backup.object.version", "object-v1")
+                , ("scheduled.backup.object.length", "123")
+                , ("scheduled.backup.object.sha256", T.replicate 64 "a")
+                , ("scheduled.backup.receipt", object <> ".receipt.json")
+                , ("scheduled.backup.receipt.version", "receipt-v1")
+                , ("scheduled.backup.receipt.length", "456")
+                , ("scheduled.backup.receipt.digest", Resource.digestText
+                    (scheduledReceiptDigest evidence))
+                , ("scheduled.backup.schedule.revision", Resource.digestText
+                    (scheduledScheduleRevision receipt)) ]
+              scope values = InventoryModel.withScopeOverrides values
+                (either (error . show) id (InventoryModel.mkScopeDeclaration
+                  (unsafe (Resource.mkScopeId Resource.Standalone "scheduled-listing")) []))
+          assertBool "exact accepted receipt was unresolved"
+            (scheduledIngestEvidenceMatches (scope pins) evidence)
+          forM_ (Map.keys pins) $ \key ->
+            assertBool ("changed accepted pin was trusted: " <> T.unpack key)
+              (not (scheduledIngestEvidenceMatches
+                (scope (Map.insert key "changed" pins)) evidence))
       , testCase "scheduled prune selects only older accepted exact pairs" $ do
           let source = unsafe (Resource.mkScopeId Resource.Standalone "scheduled-prune-source")
               oldId = "11111111-1111-1111-1111-111111111111"
