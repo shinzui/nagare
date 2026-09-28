@@ -197,7 +197,8 @@ scratch database for explicit forward recovery. If the PostgreSQL or ClickHouse
 scratch Job fails terminally, a version 1 `inventory recover` decision with the
 exact transaction, Job operation, review digest, and action
 `abandon-partial-database-restore` closes only that unaccepted review. The
-partial database remains for separate reviewed recovery; restore again under
+scratch database remains unaccepted for separate reviewed recovery, regardless
+of its observed content; restore again under
 a fresh restore ID. New live database overwrite reviews are deferred.
 
 For ClickHouse, the same reviewed command downloads a `zip.gz` database archive,

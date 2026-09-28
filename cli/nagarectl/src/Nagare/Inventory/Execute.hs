@@ -611,7 +611,7 @@ recordOperatorRecovery store registry input takeOver = do
                               (OperatorResolved "abandoned-terminal-volume-restore")
                               ("terminal volume restore Job " <>
                                 physicalIdentityText physical <>
-                                " abandoned; partial scratch PVC requires separate reviewed recovery")
+                                " abandoned; unaccepted scratch PVC requires separate reviewed recovery")
                             pure (first (\err -> AdmissionError "journal"
                               (showText err) :| []) (() <$ appended))
                       (AbandonPartialDatabaseRestore, RecoveryTerminalFailure physical)
@@ -620,7 +620,7 @@ recordOperatorRecovery store registry input takeOver = do
                               (OperatorResolved "abandoned-terminal-database-restore")
                               ("terminal database restore Job " <>
                                 physicalIdentityText physical <>
-                                " abandoned; scratch database requires separate reviewed recovery")
+                                " abandoned; unaccepted scratch database requires separate reviewed recovery")
                             pure (first (\err -> AdmissionError "journal"
                               (showText err) :| []) (() <$ appended))
                       (AcceptAdapterProof, RecoveryProvedComplete proof) -> do
