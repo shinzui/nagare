@@ -499,7 +499,16 @@ recoverInventoryWithFactory registryFor target transactionToken operationToken d
   bundle <- loadPublishedReview store (recoveryReview input) >>= either (dieText . showText) pure
   registry <- registryFor bundle
   recordOperatorRecovery store registry input takeOver >>= either (dieText . showText . NE.toList) pure
-  TIO.putStrLn "Reviewed recovery action completed; inspect inventory status, then run inventory resume --yes for the transaction"
+  case recoveryAction input of
+    RecoverFencedBackup ->
+      TIO.putStrLn "Reviewed recovery backup proved and original restore review abandoned; inspect inventory status before saving a new review"
+    ForwardFencedRelease -> do
+      current <- readHead store >>= either (dieText . showText) pure
+      case current of
+        Just headValue | headActiveTransaction headValue /= Just (transactionIdText transaction) ->
+          TIO.putStrLn "Reviewed recovery backup released and original restore review abandoned; inspect inventory status before saving a new review"
+        _ -> TIO.putStrLn "Reviewed writer release recovered; inspect inventory status, then resume the transaction"
+    _ -> TIO.putStrLn "Reviewed recovery action completed; inspect inventory status, then resume the transaction"
 
 exportInventory :: ActiveTarget -> FilePath -> IO ()
 exportInventory target output = do

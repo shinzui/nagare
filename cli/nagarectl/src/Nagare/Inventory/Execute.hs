@@ -519,7 +519,14 @@ recordOperatorRecovery store registry input takeOver = do
                   Left reason -> pure (failure "data-fence-capability" reason)
                   Right (Just (saved, controls)) | Just active <- activeFence
                     , sameReviewedFence transaction saved active ->
-                      recoverFenced lock adapter (reviewPlannedOperation reviewOperation)
+                      if recoveryAction input == RecoverFencedBackup
+                        && not (all (\selected ->
+                          plannedOperationId (reviewPlannedOperation selected) == operationId
+                          || plannedAction (reviewPlannedOperation selected) == VerifyResource)
+                          (reviewOperations (reviewedDocument reviewed)))
+                      then pure (failure "recovery-review"
+                        "backup rollback requires a review with no other mutating operations")
+                      else recoverFenced lock adapter (reviewPlannedOperation reviewOperation)
                         prepared active controls (reviewFenceCapability reviewOperation)
                         events
                   Right (Just _) | isNothing activeFence
@@ -1109,8 +1116,9 @@ releaseClaim locked transaction converged = do
           isRight <$> replaceHeadIfGenerationMatches store (Just (headGeneration headValue)) replacement
     _ -> pure False
 
--- | A proved rollback abandons the reviewed change. It clears only the
--- transaction claim; accepted and converged revisions remain as they were.
+-- | A proved rollback abandons the reviewed candidate. The accepted map was
+-- advanced at admission, so restore the prior converged map as well as
+-- clearing the claim. Callers require a review with no other mutating work.
 releaseAbortedClaim :: LockedStore s -> TransactionId -> IO Bool
 releaseAbortedClaim locked transaction = do
   let store = lockedStore locked
@@ -1124,7 +1132,8 @@ releaseAbortedClaim locked transaction = do
           let replacement = headValue
                 { headGeneration = headGeneration headValue + 1
                 , headExecutorClaim = Nothing
-                , headActiveTransaction = Nothing }
+                , headActiveTransaction = Nothing
+                , headAccepted = headConverged headValue }
           isRight <$> replaceHeadIfGenerationMatches store
             (Just (headGeneration headValue)) replacement
     _ -> pure False

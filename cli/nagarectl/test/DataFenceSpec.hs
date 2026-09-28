@@ -3140,7 +3140,8 @@ dataFenceTests = testGroup "data fence"
           (assertFailure "head missing" >> error "head")
           (\headValue -> do
             headDataFence headValue @?= Nothing
-            headActiveTransaction headValue @?= Nothing)
+            headActiveTransaction headValue @?= Nothing
+            headAccepted headValue @?= headConverged headValue)
         readIORef effects >>= (@?= 1)
         readIORef recoveries >>= (@?= 1)
         readIORef restored >>= (@?= 1)
@@ -3210,7 +3211,8 @@ dataFenceTests = testGroup "data fence"
           (assertFailure "head missing" >> error "head")
           (\headValue -> do
             headDataFence headValue @?= Nothing
-            headActiveTransaction headValue @?= Nothing)
+            headActiveTransaction headValue @?= Nothing
+            headAccepted headValue @?= headConverged headValue)
         readIORef effects >>= (@?= 1)
         readIORef recoveries >>= (@?= 1)
   ]
