@@ -24,7 +24,7 @@ module Nagare.Inventory.Backup
 
 import Crypto.Hash (SHA256)
 import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
-import Data.Aeson (Value (..), eitherDecodeStrict, object, (.=))
+import Data.Aeson (Result (..), Value (..), eitherDecodeStrict, fromJSON, object, (.=))
 import Data.ByteArray qualified as BA
 import Data.Aeson.Key qualified as K
 import Data.Aeson.KeyMap qualified as KM
@@ -102,6 +102,7 @@ data BackupReceiptExpectation = BackupReceiptExpectation
 data ScheduledReceiptExpectation = ScheduledReceiptExpectation
   { scheduledObjectPrefix :: !T.Text
   , scheduledFormat :: !T.Text
+  , scheduledKeep :: !Int
   , scheduledMetadataDigest :: !ContentDigest
   , scheduledStatefulUid :: !PhysicalIdentity
   , scheduledPvcUid :: !PhysicalIdentity
@@ -172,7 +173,7 @@ scheduledReceiptExpectationFromCronJob backend namespaceName database statefulUi
     (Left "accepted scheduled backup has another signing key field")
   metadataJson <- plain "BACKUP_RECEIPT_METADATA"
   metadata <- first T.pack (eitherDecodeStrict (TE.encodeUtf8 metadataJson))
-  (format, revision) <- case metadata of
+  (format, revision, keep) <- case metadata of
     Object fields | KM.size fields == 7
       , KM.lookup "database" fields == Just (String database)
       , KM.lookup "namespace" fields == Just (String namespaceName)
@@ -180,13 +181,16 @@ scheduledReceiptExpectationFromCronJob backend namespaceName database statefulUi
       , Just (String engineName) <- KM.lookup "engine" fields
       , Just (String extension) <- KM.lookup "format" fields
       , Just (String digest) <- KM.lookup "scheduleRevision" fields
-      , Just (Number _) <- KM.lookup "keep" fields
+      , Just keepValue <- KM.lookup "keep" fields
+      , Success selectedKeep <- fromJSON keepValue
+      , selectedKeep > (0 :: Int)
       , Just engine <- parseEngine engineName
-      , extension == backupExt engine -> Right (extension, digest)
+      , extension == backupExt engine -> Right (extension, digest, selectedKeep)
     _ -> Left "accepted scheduled backup has invalid receipt metadata"
   _ <- mkContentDigest revision
   metadataBytes <- canonicalValue metadata
-  pure (ScheduledReceiptExpectation prefix format (contentDigest metadataBytes) statefulUid pvcUid)
+  pure (ScheduledReceiptExpectation prefix format keep
+    (contentDigest metadataBytes) statefulUid pvcUid)
   where
     schedule = "nagare-dbbackup-" <> database
     lookupJsonPath [] current = Just current

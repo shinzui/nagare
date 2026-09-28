@@ -353,7 +353,8 @@ import Nagare.Inventory.Backup
   ( ScheduledBackupReceipt (..), ScheduledReceiptExpectation (..)
   , parseScheduledBackupReceipt, scheduledReceiptExpectationFromCronJob )
 import Nagare.Inventory.ScheduledReceipt (ScheduledReceiptEvidence (..), inspectScheduledReceipt)
-import Nagare.Inventory.ScheduledStore (ObjectReader (..), StoredObject (..), parseObjectList)
+import Nagare.Inventory.ScheduledPrune (ScheduledPruneCandidate (..), selectScheduledPruneCandidates)
+import Nagare.Inventory.ScheduledStore (ListedObject (..), ObjectReader (..), StoredObject (..), parseObjectEntries, parseObjectList)
 import Nagare.Inventory.ScheduledIngest (scheduledIngestJobSourcePins)
 import Nagare.Resource.Policy qualified as InventoryPolicy
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
@@ -5149,12 +5150,21 @@ backupRestoreTests =
             Right checked -> do
               scheduledObjectPrefix checked @?= "s3://nagare-backups/databases/mydb/"
               scheduledFormat checked @?= "sql.gz"
+              scheduledKeep checked @?= 7
           assertBool "wrong backend can authorize schedule" (isLeft
             (scheduledReceiptExpectationFromCronJob tnbGcsBackend
               "personal" "mydb" uid uid native))
           assertBool "wrong source name can authorize schedule" (isLeft
             (scheduledReceiptExpectationFromCronJob localMinioBackend
               "personal" "other" uid uid native))
+          let zeroRendered = renderInventoryDbBackupCronJob
+                "personal" "mydb" Postgres "18" localMinioBackend 0
+              zeroValue = either (error . show) id
+                (Yaml.decodeEither' zeroRendered :: Either Yaml.ParseException Aeson.Value)
+              zeroNative = either (error . T.unpack) id (canonicalValue zeroValue)
+          assertBool "zero retention was accepted" (isLeft
+            (scheduledReceiptExpectationFromCronJob localMinioBackend
+              "personal" "mydb" uid uid zeroNative))
       , testCase "scheduled backup inspection binds exact receipt and object versions" $ do
           let runId = "11111111-1111-1111-1111-111111111111"
               sourceUid = "22222222-2222-2222-2222-222222222222"
@@ -5190,7 +5200,7 @@ backupRestoreTests =
                 , "hmacSha256" Aeson..= signature ]))
               uid = either (error . T.unpack) id (Resource.mkPhysicalIdentity sourceUid)
               expectation = ScheduledReceiptExpectation
-                "s3://nagare-backups/databases/mydb/" "sql.gz"
+                "s3://nagare-backups/databases/mydb/" "sql.gz" 7
                 (contentDigest (canonical metadata)) uid uid
               reader changeExactReceipt changeExactObject = ObjectReader
                 (\address selected path -> do
@@ -5208,6 +5218,7 @@ backupRestoreTests =
                     BS.writeFile path bytes
                     pure (Right (StoredObject version (fromIntegral (BS.length bytes)))))
                 (\_ -> pure (Left "listing is unused by this test"))
+                (\_ -> pure (Left "timestamp listing is unused by this test"))
           verified <- inspectScheduledReceipt (reader False False) expectation runId (T.replicate 64 "a")
           case verified of
             Left reason -> assertFailure ("exact scheduled backup was rejected: " <> T.unpack reason)
@@ -5234,6 +5245,74 @@ backupRestoreTests =
             (parseObjectList prefix (response "false" "2" item)))
           assertBool "a duplicate key was accepted" (isLeft
             (parseObjectList prefix (response "false" "2" (item <> item))))
+          let dated = "<Contents><Key>" <> T.unpack key
+                <> "</Key><LastModified>2026-09-27T23:16:27.123Z</LastModified></Contents>"
+          case parseObjectEntries prefix (response "false" "1" dated) of
+            Right [entry] -> listedKey entry @?= key
+            other -> assertFailure ("dated listing was rejected: " <> show other)
+          assertBool "missing provider modification time was accepted for retention"
+            (isLeft (parseObjectEntries prefix (response "false" "1" item)))
+          assertBool "malformed provider modification time was accepted for retention"
+            (isLeft (parseObjectEntries prefix (response "false" "1"
+              ("<Contents><Key>" <> T.unpack key
+                <> "</Key><LastModified>yesterday</LastModified></Contents>"))))
+      , testCase "scheduled prune selects only older accepted exact pairs" $ do
+          let source = unsafe (Resource.mkScopeId Resource.Standalone "scheduled-prune-source")
+              oldId = "11111111-1111-1111-1111-111111111111"
+              newId = "22222222-2222-2222-2222-222222222222"
+              bucketAddress = "s3://backups/"
+              keyPrefix = "databases/mydb/"
+              objectPrefix = bucketAddress <> keyPrefix
+              objectKey runId = keyPrefix <> runId <> ".sql.gz"
+              receiptKey runId = objectKey runId <> ".receipt.json"
+              completedAt seconds = UTCTime (fromGregorian 2026 9 27)
+                (secondsToDiffTime seconds)
+              scope runId = InventoryModel.withScopeOverrides
+                  (Map.fromList
+                    [ ("scheduled.backup.source.scope", Resource.scopeIdText source)
+                    , ("scheduled.backup.id", runId)
+                    , ("scheduled.backup.object", bucketAddress <> objectKey runId)
+                    , ("scheduled.backup.object.version", "object-version-" <> runId)
+                    , ("scheduled.backup.object.length", "123")
+                    , ("scheduled.backup.object.sha256", T.replicate 64 "a")
+                    , ("scheduled.backup.receipt", bucketAddress <> receiptKey runId)
+                    , ("scheduled.backup.receipt.version", "receipt-version-" <> runId)
+                    , ("scheduled.backup.receipt.length", "456")
+                    , ("scheduled.backup.receipt.digest", T.replicate 64 "b")
+                    ])
+                  (either (error . show) id (InventoryModel.mkScopeDeclaration
+                    (unsafe (Resource.mkScopeId Resource.Standalone
+                      ("scheduled-receipt-" <> runId))) []))
+              oldScope = scope oldId
+              newScope = scope newId
+              listed =
+                [ ListedObject (objectKey oldId) (completedAt 1)
+                , ListedObject (receiptKey oldId) (completedAt 2)
+                , ListedObject (objectKey newId) (completedAt 3)
+                , ListedObject (receiptKey newId) (completedAt 4)
+                ]
+              select protected scopes entries = selectScheduledPruneCandidates source
+                bucketAddress objectPrefix "sql.gz" 1 protected scopes entries
+          case select Set.empty [oldScope, newScope] listed of
+            Right [candidate] -> do
+              scheduledPruneId candidate @?= oldId
+              scheduledPruneObjectVersion candidate @?= "object-version-" <> oldId
+              scheduledPruneReceiptVersion candidate @?= "receipt-version-" <> oldId
+            other -> assertFailure ("exact retention candidate was rejected: " <> show other)
+          assertBool "an unknown object passed the complete-listing guard" (isLeft
+            (select Set.empty [oldScope, newScope]
+              (listed <> [ListedObject (keyPrefix <> "stray") (completedAt 5)])))
+          assertBool "a missing receipt passed the complete-listing guard" (isLeft
+            (select Set.empty [oldScope, newScope] (init listed)))
+          assertBool "an accepted dependency passed the prune guard" (isLeft
+            (select (Set.singleton (Resource.scopeIdText
+              (InventoryModel.scopeId oldScope))) [oldScope, newScope] listed))
+          case select Set.empty [oldScope, newScope]
+              (take 2 listed <> [ListedObject (objectKey newId) (completedAt 2)
+                , ListedObject (receiptKey newId) (completedAt 2)]) of
+            Left reason -> assertBool "tie failed for an unrelated reason"
+              ("tie across" `T.isInfixOf` reason)
+            Right _ -> assertFailure "equal completion times crossed the keep boundary"
       , testCase "scheduled backup ingestion requires all four source UID pins" $ do
           let sourceId = "application:demo/database/statefulset" :: Text
               sourceUid = "22222222-2222-2222-2222-222222222222" :: Text
@@ -5660,7 +5739,7 @@ backupRestoreTests =
                 metadataDigest = contentDigest (either (error . T.unpack) id (canonicalValue metadataValue))
                 sourceUid value = either (error . T.unpack) id (Resource.mkPhysicalIdentity value)
                 expectation = ScheduledReceiptExpectation
-                  "gs://test/databases/mydb/" "sql.gz" metadataDigest
+                  "gs://test/databases/mydb/" "sql.gz" 7 metadataDigest
                   (sourceUid "22222222-2222-2222-2222-222222222222")
                   (sourceUid "11111111-1111-1111-1111-111111111111")
                 accepted = parseScheduledBackupReceipt expectation (T.pack receiptUrl)

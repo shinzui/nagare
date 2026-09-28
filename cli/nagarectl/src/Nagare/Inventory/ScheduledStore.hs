@@ -3,9 +3,11 @@
 -- port-forward; curl receives SigV4 credentials on stdin, never on argv.
 module Nagare.Inventory.ScheduledStore
   ( StoredObject (..)
+  , ListedObject (..)
   , ObjectReader (..)
   , withLocalObjectStore
   , parseObjectList
+  , parseObjectEntries
   , readSecretField
   ) where
 
@@ -19,6 +21,8 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import Data.Time (UTCTime)
+import Data.Time.Format (defaultTimeLocale, parseTimeM)
 import Nagare.Cluster.GcsJob (MinioRef (..))
 import Nagare.Dsl.Prelude
 import System.Exit (ExitCode (..))
@@ -36,9 +40,16 @@ data StoredObject = StoredObject
   }
   deriving stock (Eq, Show)
 
+data ListedObject = ListedObject
+  { listedKey :: !Text
+  , listedModified :: !UTCTime
+  }
+  deriving stock (Eq, Show)
+
 data ObjectReader = ObjectReader
   { readObjectToFile :: !(Text -> Maybe Text -> FilePath -> IO (Either Text StoredObject))
   , listObjectKeys :: !(Text -> IO (Either Text [Text]))
+  , listObjectEntries :: !(Text -> IO (Either Text [ListedObject]))
   }
 
 -- | The callback must consume files before returning; the port-forward and
@@ -58,7 +69,8 @@ withLocalObjectStore context ref action = do
             Nothing -> pure (Left "local object-store port-forward did not become ready")
             Just port -> Right <$> action (ObjectReader
               (readViaCurl ref user port scratch)
-              (listViaCurl ref user port scratch)))
+              (listViaCurl ref user port scratch parseObjectList)
+              (listViaCurl ref user port scratch parseObjectEntries)))
         :: IO (Either IOException (Either Text a))
       pure (either (Left . const "local object-store read failed") id result)
 
@@ -172,9 +184,10 @@ oneHeader name raw = case [T.strip value
 
 -- | A listing is useful only when it is complete. A truncated or malformed
 -- page cannot silently hide an orphan or authorize a later prune decision.
-listViaCurl :: MinioRef -> Text -> Text -> FilePath -> Text
-  -> IO (Either Text [Text])
-listViaCurl ref user port scratch prefix
+listViaCurl :: MinioRef -> Text -> Text -> FilePath
+  -> (Text -> BC.ByteString -> Either Text a) -> Text
+  -> IO (Either Text a)
+listViaCurl ref user port scratch parseListing prefix
   | T.null prefix || T.any (\character -> not (isAlphaNum character
       || character `elem` ("/-_." :: String))) prefix =
       pure (Left "scheduled object prefix has unsupported URL characters")
@@ -194,7 +207,7 @@ listViaCurl ref user port scratch prefix
         Right (ExitSuccess, _, _) -> do
           body <- try (BC.readFile output) :: IO (Either IOException BC.ByteString)
           pure (either (Left . const "local object-store listing cannot be read")
-            (parseObjectList prefix) body)
+            (parseListing prefix) body)
 
 parseObjectList :: Text -> BC.ByteString -> Either Text [Text]
 parseObjectList prefix raw = do
@@ -218,23 +231,48 @@ parseObjectList prefix raw = do
           || character `elem` ("/-_." :: String)) key) keys)
     (Left "local object-store listing has invalid or duplicate keys")
   pure keys
+
+-- | Retention uses the provider's completion order, never the random Job UID
+-- or the order in which an operator happened to ingest receipts. A missing or
+-- malformed timestamp therefore makes the entire candidate listing unusable.
+parseObjectEntries :: Text -> BC.ByteString -> Either Text [ListedObject]
+parseObjectEntries prefix raw = do
+  keys <- parseObjectList prefix raw
+  body <- first (const "local object-store listing is not UTF-8")
+    (TE.decodeUtf8' raw)
+  contents <- xmlElements "Contents" body
+  entries <- traverse one contents
+  unless (map listedKey entries == keys)
+    (Left "local object-store listing keys changed during timestamp parsing")
+  pure entries
   where
-    oneElement name body = case xmlElements name body of
-      Right [value] -> Right value
-      _ -> Left ("local object-store listing lacks one " <> name)
-    xmlElements :: Text -> Text -> Either Text [Text]
-    xmlElements name body = go body []
-      where
-        openTag = "<" <> name <> ">"
-        closeTag = "</" <> name <> ">"
-        go remaining found = case T.breakOn openTag remaining of
-          (_, suffix) | T.null suffix -> Right (reverse found)
-          (_, suffix) ->
-            let afterOpen = T.drop (T.length openTag) suffix
-                (value, closing) = T.breakOn closeTag afterOpen
-             in if T.null closing
-                  then Left "local object-store listing has an unterminated element"
-                  else go (T.drop (T.length closeTag) closing) (value : found)
+    one value = do
+      key <- oneElement "Key" value
+      modified <- oneElement "LastModified" value
+      timestamp <- maybe
+        (Left "local object-store listing has an invalid modification time") Right
+        (parseTimeM True defaultTimeLocale "%Y-%m-%dT%H:%M:%S%QZ"
+          (T.unpack modified) :: Maybe UTCTime)
+      pure (ListedObject key timestamp)
+
+oneElement :: Text -> Text -> Either Text Text
+oneElement name body = case xmlElements name body of
+  Right [value] -> Right value
+  _ -> Left ("local object-store listing lacks one " <> name)
+
+xmlElements :: Text -> Text -> Either Text [Text]
+xmlElements name body = go body []
+  where
+    openTag = "<" <> name <> ">"
+    closeTag = "</" <> name <> ">"
+    go remaining found = case T.breakOn openTag remaining of
+      (_, suffix) | T.null suffix -> Right (reverse found)
+      (_, suffix) ->
+        let afterOpen = T.drop (T.length openTag) suffix
+            (value, closing) = T.breakOn closeTag afterOpen
+         in if T.null closing
+              then Left "local object-store listing has an unterminated element"
+              else go (T.drop (T.length closeTag) closing) (value : found)
 
 quoteConfig :: Text -> Text
 quoteConfig = T.concatMap $ \case
