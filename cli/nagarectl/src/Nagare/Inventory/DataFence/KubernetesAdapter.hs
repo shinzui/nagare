@@ -11,6 +11,7 @@ import Control.Monad (unless)
 import Data.ByteString (ByteString)
 import Data.Map.Strict (Map)
 import Data.Text (Text)
+import Nagare.Dsl.Database (Engine (..))
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..))
@@ -20,6 +21,7 @@ import Nagare.Inventory.DataFence.KubernetesExclusion
 import Nagare.Inventory.DataFence.KubernetesIntent (decodeKubernetesFenceIntent)
 import Nagare.Inventory.DataFence.MaintenanceNetwork
 import Nagare.Inventory.DataFence.MaintenancePostgres
+import Nagare.Inventory.DataFence.MaintenanceRedis
 import Nagare.Inventory.Store (DataFenceRecord (..), ScopeRevision)
 import Nagare.Resource.Inventory (Declaration, Executor (KubernetesExecutor), ManagedResource)
 import Nagare.Resource.Types
@@ -52,18 +54,24 @@ registerKubernetesDataFence factory = registerKubernetesFence factory
 -- source proof. It cannot select a replacement Pod during apply or recovery.
 registerKubernetesMaintenanceFence :: KubernetesFenceFactory
   -> (DataFenceRecord -> PlannedOperation -> PreparedNative
-      -> Either Text MaintenanceNetworkPin)
+      -> Either Text (Engine, MaintenanceNetworkPin))
   -> AdapterRegistry -> Either Text AdapterRegistry
 registerKubernetesMaintenanceFence factory selectPin =
   registerKubernetesFence factory "kubernetes-native-maintenance-fence-v1"
     (Just OpenMaintenanceSession) $ \record operation prepared -> do
-      pin <- selectPin record operation prepared
+      (engine, pin) <- selectPin record operation prepared
       let config = factoryRuntime factory
+          observeClients = case engine of
+            Postgres -> observePostgresClients
+              (kubectlPostgresMaintenanceTransport config)
+            Redis -> observeRedisClients (kubectlRedisMaintenanceTransport config)
+            ClickHouse -> \_ _ _ -> pure
+              (Left "ClickHouse reviewed maintenance is not implemented")
       pure (kubernetesMaintenanceFenceControls
         (kubectlKubernetesExclusion config (factoryAccepted factory)
           (factoryDeclarations factory) (factoryNative factory))
         (kubectlMaintenanceNetworkTransport config)
-        (kubectlPostgresMaintenanceTransport config)
+        engine observeClients
         pin (factoryVerify factory))
 
 registerKubernetesFence :: KubernetesFenceFactory -> Text

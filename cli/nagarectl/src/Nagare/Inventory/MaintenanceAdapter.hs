@@ -1,4 +1,4 @@
--- | The reviewed PostgreSQL terminal operation. Preparation keeps the normal
+-- | The reviewed database terminal operation. Preparation keeps the normal
 -- immutable Kubernetes member format; execution is the one authorized local
 -- socket client inside the online data fence.
 module Nagare.Inventory.MaintenanceAdapter
@@ -14,6 +14,7 @@ import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
+import Nagare.Dsl.Database (Engine (..), engineToken)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes
@@ -22,6 +23,7 @@ import Nagare.Inventory.Adapters.KubernetesRuntime
   ( KubernetesRuntimeConfig (..)
   , mkKubernetesRuntimeOpsWithCacheKey, readBackupReceiptFromCompletedPod )
 import Nagare.Inventory.DataFence.MaintenancePostgres
+import Nagare.Inventory.DataFence.MaintenanceRedis
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Maintenance
 import Nagare.Inventory.MaintenanceFence (selectedMaintenanceProofs)
@@ -104,24 +106,30 @@ maintenanceAdapter config scopes native base = base
           let namespace = maintenanceSourceNamespace proof
               pod = maintenanceSourceDatabase proof <> "-0"
               marker = "nagare-maintenance-" <> maintenanceSourceSession proof
-              script = "PGAPPNAME=" <> marker
-                <> " PGPASSWORD=\"$POSTGRES_PASSWORD\" exec psql -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""
+              engine = maintenanceSourceEngine proof
+              script = case engine of
+                Postgres -> "PGAPPNAME=" <> marker
+                  <> " PGPASSWORD=\"$POSTGRES_PASSWORD\" exec psql -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""
+                Redis -> "NAGARE_MAINTENANCE_SESSION=" <> marker
+                  <> " REDISCLI_AUTH=\"$REDIS_PASSWORD\" exec redis-cli --no-auth-warning --name "
+                  <> marker
+                ClickHouse -> "exit 1"
               command = (proc "kubectl"
                 ["--context", T.unpack (runtimeKubectlContext config),
                   "--namespace", T.unpack namespace,
-                  "exec", "-it", T.unpack pod, "--container", "postgres",
+                  "exec", "-it", T.unpack pod, "--container", T.unpack (engineToken engine),
                   "--", "sh", "-c", T.unpack script])
                   {std_in = Inherit, std_out = Inherit, std_err = Inherit}
           started <- try (createProcess command)
           case started of
             Left (_ :: IOException) -> pure (AdapterEffectFailed
-              (KnownNoEffect "could not start reviewed PostgreSQL terminal"))
+              (KnownNoEffect "could not start reviewed database terminal"))
             Right (_, _, _, process) -> do
               outcome <- waitForProcess process
               pure $ case outcome of
                 ExitSuccess -> AdapterEffectCompleted
                 ExitFailure code -> AdapterEffectAmbiguous
-                  ("PostgreSQL terminal exited " <> T.pack (show code)
+                  ("database terminal exited " <> T.pack (show code)
                     <> "; data outcome requires reviewed recovery")
 
     verify operation prepared
@@ -130,14 +138,19 @@ maintenanceAdapter config scopes native base = base
       | otherwise = case proofFor operation of
           Left reason -> pure (Left reason)
           Right proof -> do
-            clients <- observePostgresClients
-              (kubectlPostgresMaintenanceTransport config)
-              (maintenanceSourceNamespace proof)
+            let observeClients = case maintenanceSourceEngine proof of
+                  Postgres -> observePostgresClients
+                    (kubectlPostgresMaintenanceTransport config)
+                  Redis -> observeRedisClients
+                    (kubectlRedisMaintenanceTransport config)
+                  ClickHouse -> \_ _ _ -> pure
+                    (Left "ClickHouse reviewed maintenance is not implemented")
+            clients <- observeClients (maintenanceSourceNamespace proof)
               (maintenanceSourceDatabase proof <> "-0")
               (physicalIdentityText (maintenanceSourcePodUid proof))
             pure $ do
               gone <- clients
-              unless gone (Left "reviewed PostgreSQL session still has client backends")
+              unless gone (Left "reviewed database session still has clients")
               contentDigest <$> canonicalValue (object
                 [ "session" .= maintenanceSourceSession proof
                 , "podUid" .= physicalIdentityText

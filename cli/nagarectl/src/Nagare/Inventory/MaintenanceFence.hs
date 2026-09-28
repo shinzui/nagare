@@ -16,7 +16,7 @@ import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
-import Nagare.Dsl.Database (Engine (Postgres))
+import Nagare.Dsl.Database (Engine (..))
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..))
@@ -25,6 +25,7 @@ import Nagare.Inventory.DataFence.KubernetesCapture
 import Nagare.Inventory.DataFence.KubernetesIntent
 import Nagare.Inventory.DataFence.MaintenanceNetwork
 import Nagare.Inventory.DataFence.MaintenancePostgres
+import Nagare.Inventory.DataFence.MaintenanceRedis
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Maintenance
 import Nagare.Inventory.Store (DataFenceRecord (..), ScopeRevision)
@@ -100,7 +101,8 @@ registerMaintenanceFence config binding accepted scopes declarations native regi
               , captureSession = maintenanceSourceSession proof
               , captureVolumeResource = maintenanceSourcePvc proof
               , captureDependencyRoot = maintenanceSourceStateful proof
-              , captureExpectedDatabaseEngine = Just Postgres
+              , captureExpectedDatabaseEngine = Just
+                  (maintenanceSourceEngine proof)
               , captureServiceResource = Just service
               , captureNetworkExclusion = True
               , captureRecoveryArtifact = artifact proof
@@ -115,9 +117,7 @@ registerMaintenanceFence config binding accepted scopes declarations native regi
           Nothing -> pure (Left "maintenance session is absent from reviewed scopes")
           Just proof -> case pinFor proof of
             Left reason -> pure (Left reason)
-            Right pin -> observePostgresClients
-              (kubectlPostgresMaintenanceTransport config)
-              (networkNamespace pin) (networkPodName pin) (networkPodUid pin)
+            Right pin -> observeClients proof pin
         resolve record operation prepared = case do
           replay record operation prepared
           proof <- requireSelected operation
@@ -125,19 +125,15 @@ registerMaintenanceFence config binding accepted scopes declarations native regi
           pure (proof, pin) of
             Left reason -> pure (RecoveryUnresolved reason)
             Right (proof, pin) -> do
-              let transport = kubectlPostgresMaintenanceTransport config
-              stopped <- terminateMarkedPostgresClients transport
-                (networkNamespace pin) (networkPodName pin) (networkPodUid pin)
-                (maintenanceSourceSession proof)
+              stopped <- terminateClients proof pin
               case stopped of
                 Left reason -> pure (RecoveryUnresolved reason)
                 Right () -> do
-                  observed <- observePostgresClients transport
-                    (networkNamespace pin) (networkPodName pin) (networkPodUid pin)
+                  observed <- observeClients proof pin
                   pure $ case observed of
                     Left reason -> RecoveryUnresolved reason
                     Right False -> RecoveryUnresolved
-                      "maintenance PostgreSQL client backends remain after termination"
+                      "maintenance database clients remain after termination"
                     Right True -> case canonicalValue (object
                       [ "session" .= maintenanceSourceSession proof
                       , "podUid" .= physicalIdentityText
@@ -151,7 +147,27 @@ registerMaintenanceFence config binding accepted scopes declarations native regi
           selectRequest replay verify (Just resolve)
         selectPin record operation prepared = do
           replay record operation prepared
-          requireSelected operation >>= pinFor
+          proof <- requireSelected operation
+          pin <- pinFor proof
+          pure (maintenanceSourceEngine proof, pin)
+        observeClients proof pin = case maintenanceSourceEngine proof of
+          Postgres -> observePostgresClients
+            (kubectlPostgresMaintenanceTransport config)
+            (networkNamespace pin) (networkPodName pin) (networkPodUid pin)
+          Redis -> observeRedisClients
+            (kubectlRedisMaintenanceTransport config)
+            (networkNamespace pin) (networkPodName pin) (networkPodUid pin)
+          ClickHouse -> pure (Left "ClickHouse reviewed maintenance is not implemented")
+        terminateClients proof pin = case maintenanceSourceEngine proof of
+          Postgres -> terminateMarkedPostgresClients
+            (kubectlPostgresMaintenanceTransport config)
+            (networkNamespace pin) (networkPodName pin) (networkPodUid pin)
+            (maintenanceSourceSession proof)
+          Redis -> terminateMarkedRedisClients
+            (kubectlRedisMaintenanceTransport config)
+            (networkNamespace pin) (networkPodName pin) (networkPodUid pin)
+            (maintenanceSourceSession proof)
+          ClickHouse -> pure (Left "ClickHouse reviewed maintenance is not implemented")
     registerKubernetesMaintenanceFence factory selectPin registry
 
 maintenanceProofIndex :: [ScopeDeclaration]

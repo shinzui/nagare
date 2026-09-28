@@ -11531,8 +11531,9 @@ runReviewedDbShellPlan mctx database namespaceName session backupId output = do
   statefulValue <- either (dieT . T.pack) pure
     (Aeson.eitherDecodeStrict' statefulBytes)
   image <- case parseObservedDatabaseServer statefulValue of
-    Right (Just (Postgres, selected)) -> pure selected
-    _ -> dieT "reviewed shell currently requires an accepted PostgreSQL server"
+    Right (Just (engine, selected)) | engine `elem` [Postgres, Redis] ->
+      pure (engine, selected)
+    _ -> dieT "reviewed shell requires an accepted PostgreSQL or Redis server"
   liveWriter <- StatefulWriter.readStatefulWriter
     (StatefulWriter.kubectlStatefulWriterTransport config)
     namespaceName database >>= either dieT pure
@@ -11542,13 +11543,14 @@ runReviewedDbShellPlan mctx database namespaceName session backupId output = do
     namespaceName database (Resource.physicalIdentityText statefulUid)
     1 writerDigest)
   (podName, podUidText) <- DatabaseShutdown.observeDatabasePod
-    (kubectlVolumeTransport config) writerPin Postgres image
+    (kubectlVolumeTransport config) writerPin (fst image) (snd image)
     >>= either dieT pure
   unless (podName == database <> "-0")
-    (dieT "reviewed shell target is not the single accepted PostgreSQL Pod")
+    (dieT "reviewed shell target is not the single accepted database Pod")
   podUid <- either dieT pure (Resource.mkPhysicalIdentity podUidText)
   let request = MaintenanceRequest
-        { maintenanceDatabase = database
+        { maintenanceEngine = fst image
+        , maintenanceDatabase = database
         , maintenanceNamespace = namespaceName
         , maintenanceSession = session
         , maintenanceTargetRevision = targetRevision
@@ -11576,7 +11578,7 @@ runReviewedDbShellPlan mctx database namespaceName session backupId output = do
   Inventory.planInventoryCandidateWith
     (inventoryPlanRegistryWithNative active workspace acceptedNative)
     active candidate output
-  TIO.putStrLn "Saved reviewed PostgreSQL maintenance session. Apply it after inspecting the source and recovery identities."
+  TIO.putStrLn "Saved reviewed database maintenance session. Apply it after inspecting the source and recovery identities."
 
 runReviewedDbRestorePlan
   :: Maybe String -> Text -> Text -> Text -> Text -> Maybe String -> FilePath -> IO ()

@@ -25,7 +25,7 @@ import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
-import Nagare.Dsl.Database (Engine (Postgres))
+import Nagare.Dsl.Database (Engine, engineToken)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapters.KubernetesRuntime
   (KubernetesRuntimeConfig (..))
@@ -38,7 +38,6 @@ import Nagare.Inventory.DataFence.MountGuard
   (MountGuard, guardClaimName, guardNamespaceName)
 import Nagare.Inventory.DataFence.MountGuardRuntime
 import Nagare.Inventory.DataFence.MaintenanceNetwork
-import Nagare.Inventory.DataFence.MaintenancePostgres
 import Nagare.Inventory.DataFence.ServiceState
 import Nagare.Inventory.DataFence.ScheduledWriter
 import Nagare.Inventory.DataFence.StatefulWriter
@@ -103,52 +102,53 @@ kubernetesDataFenceControls exclusion verify = DataFenceControls
   , forwardRecoverPartlyReleased = Just (releaseKubernetesWriters exclusion)
   }
 
--- | Online PostgreSQL maintenance keeps the reviewed database server alive
--- for one local-socket client. The shared durable fence still owns admission;
+-- | Online maintenance keeps the reviewed database server alive
+-- for one client inside its Pod. The shared durable fence still owns admission;
 -- these callbacks replace only its native access policy.
 kubernetesMaintenanceFenceControls :: KubernetesExclusion
-  -> MaintenanceNetworkTransport -> PostgresMaintenanceTransport
+  -> MaintenanceNetworkTransport -> Engine
+  -> (Text -> Text -> Text -> IO (Either Text Bool))
   -> MaintenanceNetworkPin
   -> (DataFenceRecord -> IO (Either Text Bool)) -> DataFenceControls
-kubernetesMaintenanceFenceControls exclusion network postgres pin verify = DataFenceControls
+kubernetesMaintenanceFenceControls exclusion network engine observeClients pin verify = DataFenceControls
   { validateFenceInputs = \record -> do
       checked <- validateKubernetesExclusion exclusion record
       case checked of
         Left reason -> pure (Left reason)
-        Right () -> case maintenanceIntent exclusion pin record of
+        Right () -> case maintenanceIntent exclusion engine pin record of
           Left reason -> pure (Left reason)
           Right (intent, root, image) -> do
-            pod <- observeMaintenancePod exclusion pin intent root image
+            pod <- observeMaintenancePod exclusion engine pin root image
             authority <- observeProtectedMaintenancePolicy exclusion intent network pin
             pure $ do
               pod
               allowed <- authority
               unless allowed (Left "maintenance network policy is editable by a managed writer")
-  , stopFenceWriters = stopMaintenanceWriters exclusion network pin
+  , stopFenceWriters = stopMaintenanceWriters exclusion network engine pin
   , observeFencePhysical = \record -> do
       physical <- observeKubernetesPhysical exclusion record
-      case (physical, maintenanceIntent exclusion pin record) of
+      case (physical, maintenanceIntent exclusion engine pin record) of
         (Left reason, _) -> pure (Left reason)
         (_, Left reason) -> pure (Left reason)
-        (Right identities, Right (intent, root, image)) -> do
-          pod <- observeMaintenancePod exclusion pin intent root image
+        (Right identities, Right (_, root, image)) -> do
+          pod <- observeMaintenancePod exclusion engine pin root image
           pure (identities <$ pod)
-  , observeWritersExcluded = observeMaintenanceExcluded exclusion network postgres pin
+  , observeWritersExcluded = observeMaintenanceExcluded exclusion network engine observeClients pin
   , verifyRecoveredData = verify
-  , restoreFenceWriters = releaseMaintenanceWriters exclusion network pin
-  , observeWritersReleased = observeMaintenanceRelease exclusion network pin
+  , restoreFenceWriters = releaseMaintenanceWriters exclusion network engine pin
+  , observeWritersReleased = observeMaintenanceRelease exclusion network engine pin
   , forwardRecoverPartlyReleased = Just
-      (releaseMaintenanceWriters exclusion network pin)
+      (releaseMaintenanceWriters exclusion network engine pin)
   }
 
-maintenanceIntent :: KubernetesExclusion -> MaintenanceNetworkPin
+maintenanceIntent :: KubernetesExclusion -> Engine -> MaintenanceNetworkPin
   -> DataFenceRecord -> Either Text
        (KubernetesFenceIntent, StatefulWriterPin, Text)
-maintenanceIntent exclusion pin record = do
+maintenanceIntent exclusion engine pin record = do
   intent <- validatedIntent exclusion record
   unless (fenceSession record == networkSession pin
-      && kubernetesDatabaseEngine intent == Just Postgres)
-    (Left "maintenance fence session or PostgreSQL engine changed")
+      && kubernetesDatabaseEngine intent == Just engine)
+    (Left "maintenance fence session or engine changed")
   root <- maybe (Left "maintenance database root is not a saved writer") Right
     (lookup (kubernetesDependencyRoot intent) (kubernetesStatefulWriters intent))
   unless (writerNamespace root == networkNamespace pin
@@ -165,16 +165,17 @@ maintenanceIntent exclusion pin record = do
     (Left "maintenance policy cannot protect a writer in another namespace")
   accepted <- acceptedDatabaseServer exclusion intent
   image <- case accepted of
-    Just (Postgres, value) -> Right value
-    _ -> Left "maintenance accepted PostgreSQL server image is unavailable"
+    Just (acceptedEngine, value) | acceptedEngine == engine -> Right value
+    _ -> Left ("maintenance accepted " <> engineToken engine
+      <> " server image is unavailable")
   pure (intent, root, image)
 
-observeMaintenancePod :: KubernetesExclusion -> MaintenanceNetworkPin
-  -> KubernetesFenceIntent -> StatefulWriterPin -> Text
+observeMaintenancePod :: KubernetesExclusion -> Engine -> MaintenanceNetworkPin
+  -> StatefulWriterPin -> Text
   -> IO (Either Text ())
-observeMaintenancePod exclusion pin _ root image = do
+observeMaintenancePod exclusion engine pin root image = do
   let volume = exclusionVolumeTransport exclusion
-  current <- observeDatabasePod volume root Postgres image
+  current <- observeDatabasePod volume root engine image
   listing <- listNamespacePods volume (networkNamespace pin)
   pure $ do
     (name, uid) <- current
@@ -201,13 +202,13 @@ observeProtectedMaintenancePolicy exclusion intent network pin = case
         | (_, selected) <- kubernetesScheduledWriters intent]
 
 stopMaintenanceWriters :: KubernetesExclusion -> MaintenanceNetworkTransport
-  -> MaintenanceNetworkPin -> DataFenceRecord -> IO (Either Text ())
-stopMaintenanceWriters exclusion network pin record = case
-  maintenanceIntent exclusion pin record of
+  -> Engine -> MaintenanceNetworkPin -> DataFenceRecord -> IO (Either Text ())
+stopMaintenanceWriters exclusion network engine pin record = case
+  maintenanceIntent exclusion engine pin record of
   Left reason -> pure (Left reason)
   Right (intent, root, image) -> do
     physical <- observeExactPhysical exclusion intent
-    pod <- observeMaintenancePod exclusion pin intent root image
+    pod <- observeMaintenancePod exclusion engine pin root image
     case (,) <$> physical <*> pod of
       Left reason -> pure (Left reason)
       Right ((), ()) -> do
@@ -255,10 +256,11 @@ stopMaintenanceWriters exclusion network pin record = case
                     Left reason -> Left reason
 
 observeMaintenanceExcluded :: KubernetesExclusion -> MaintenanceNetworkTransport
-  -> PostgresMaintenanceTransport -> MaintenanceNetworkPin
+  -> Engine -> (Text -> Text -> Text -> IO (Either Text Bool))
+  -> MaintenanceNetworkPin
   -> DataFenceRecord -> IO (Either Text Bool)
-observeMaintenanceExcluded exclusion network postgres pin record = case
-  maintenanceIntent exclusion pin record of
+observeMaintenanceExcluded exclusion network engine observeClients pin record = case
+  maintenanceIntent exclusion engine pin record of
   Left reason -> pure (Left reason)
   Right (intent, root, image) -> do
     let guard = kubernetesMountGuard intent
@@ -271,7 +273,7 @@ observeMaintenanceExcluded exclusion network postgres pin record = case
       Right (_, Nothing, _) -> pure (Left "maintenance ingress policy is absent")
       Right (_, _, False) -> pure (Left "maintenance policy authority is unproved")
       Right (True, Just _, True) -> do
-        pod <- observeMaintenancePod exclusion pin intent root image
+        pod <- observeMaintenancePod exclusion engine pin root image
         rootReady <- observeStatefulWriterRelease
           (exclusionWriterTransport exclusion) root
         let clients = [selected | (resource, selected) <- kubernetesStatefulWriters intent
@@ -286,7 +288,7 @@ observeMaintenanceExcluded exclusion network postgres pin record = case
           (map snd (kubernetesScheduledWriters intent))
         volume <- observeVolumeState (exclusionVolumeTransport exclusion)
           guard (kubernetesVolumeBacking intent)
-        clients <- observePostgresClients postgres (networkNamespace pin)
+        observedClients <- observeClients (networkNamespace pin)
           (networkPodName pin) (networkPodUid pin)
         afterGuard <- observeProtectedMountGuard exclusion intent guard
         afterPolicy <- observeMaintenancePolicy network pin
@@ -298,7 +300,7 @@ observeMaintenanceExcluded exclusion network postgres pin record = case
           deploymentStopped <- sequence deployments
           scheduleStopped <- sequence schedules
           evidence <- volume
-          clientsGone <- clients
+          clientsGone <- observedClients
           guarded <- afterGuard
           policy <- afterPolicy
           authority <- afterAuthority
@@ -311,18 +313,18 @@ observeMaintenanceExcluded exclusion network postgres pin record = case
               && null (volumeAttachmentConsumers evidence))
             (Left "maintenance PVC has another Pod or attachment consumer")
           unless clientsGone
-            (Left "maintenance PostgreSQL client backends remain")
+            (Left "maintenance database clients remain")
           unless (guarded && isJust policy && authority)
             (Left "maintenance mount or network exclusion changed during observation")
           pure True
 
 releaseMaintenanceWriters :: KubernetesExclusion -> MaintenanceNetworkTransport
-  -> MaintenanceNetworkPin -> DataFenceRecord -> IO (Either Text ())
-releaseMaintenanceWriters exclusion network pin record = case
-  maintenanceIntent exclusion pin record of
+  -> Engine -> MaintenanceNetworkPin -> DataFenceRecord -> IO (Either Text ())
+releaseMaintenanceWriters exclusion network engine pin record = case
+  maintenanceIntent exclusion engine pin record of
   Left reason -> pure (Left reason)
-  Right (intent, root, image) -> do
-    pod <- observeMaintenancePod exclusion pin intent root image
+  Right (_, root, image) -> do
+    pod <- observeMaintenancePod exclusion engine pin root image
     case pod of
       Left reason -> pure (Left reason)
       Right () -> do
@@ -332,12 +334,12 @@ releaseMaintenanceWriters exclusion network pin record = case
           Right () -> removeMaintenancePolicy network pin
 
 observeMaintenanceRelease :: KubernetesExclusion -> MaintenanceNetworkTransport
-  -> MaintenanceNetworkPin -> DataFenceRecord -> IO (Either Text WriterReleaseState)
-observeMaintenanceRelease exclusion network pin record = case
-  maintenanceIntent exclusion pin record of
+  -> Engine -> MaintenanceNetworkPin -> DataFenceRecord -> IO (Either Text WriterReleaseState)
+observeMaintenanceRelease exclusion network engine pin record = case
+  maintenanceIntent exclusion engine pin record of
   Left reason -> pure (Left reason)
-  Right (intent, root, image) -> do
-    pod <- observeMaintenancePod exclusion pin intent root image
+  Right (_, root, image) -> do
+    pod <- observeMaintenancePod exclusion engine pin root image
     writers <- observeKubernetesRelease exclusion record
     policy <- observeMaintenancePolicy network pin
     pure $ do

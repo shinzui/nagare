@@ -148,6 +148,7 @@ nagarectl db list                  # table of all managed databases in a namespa
 nagarectl db create ENGINE NAME    # generate creds + provision Secret, PVC, StatefulSet, Service, CronJob
 nagarectl db get NAME              # detail: engine, version, host, retention, ready, Secret key names
 nagarectl db shell NAME            # interactive psql / redis-cli / clickhouse-client inside the pod
+nagarectl db shell NAME --session-id ID --recovery-backup ID --save-plan DIR  # reviewed PostgreSQL or Redis session
 nagarectl db restart NAME          # roll the StatefulSet pod and wait for ready
 nagarectl db delete NAME --save-plan DIR  # save a reviewed retirement; retain provider resources
 nagarectl db backup NAME --backup-id ID --save-plan DIR  # reviewed manual Job
@@ -217,9 +218,27 @@ name. Live `db create` requires both recovery options in every context.
 
 Live create, restart, and retirement use reviewed scopes in every context.
 Direct shell, legacy backup, and legacy restore refuse after inventory
-initialization; reviewed manual backup and scratch restore have saved-plan
-routes below. Interactive maintenance and live-target restore still need
-reviewed operation contracts. Offline `--dry-run` output remains available.
+initialization. Reviewed PostgreSQL and Redis maintenance, manual backup, and
+scratch restore have saved-plan routes. ClickHouse interactive maintenance and
+live-target restore are still pending. Offline `--dry-run` output remains
+available.
+
+For an accepted PostgreSQL or Redis database, complete a reviewed manual backup
+first, then save and apply a maintenance session in an interactive terminal:
+
+```bash
+nagarectl db shell NAME --session-id SESSION --recovery-backup BACKUP_ID \
+  --save-plan ./database-session
+nagarectl inventory apply ./database-session --yes
+```
+
+The session pins the accepted database, PVC, running Pod, and completed recovery
+backup. It excludes managed writers and network clients while the shell is
+active, then checks that the shell's database client has gone before reopening
+writers. If the terminal exits abnormally or is lost, the fence remains active;
+use the exact transaction and operation printed by apply with a reviewed
+`verify-fenced-effect` recovery decision, then resume that transaction. An
+ordinary resume cannot replay an uncertain shell.
 
 `db create` generates the `nagare-db-<name>` Secret, then applies the PVC,
 ClickHouse memory ConfigMap (ClickHouse only), Service, and StatefulSet, then

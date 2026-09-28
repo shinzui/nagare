@@ -1,4 +1,4 @@
--- | Compile one PostgreSQL maintenance session as a reviewed operation over
+-- | Compile one database maintenance session as a reviewed operation over
 -- an existing accepted database. The operation owns no duplicate StatefulSet;
 -- its private fence captures the source and every affected writer at planning.
 module Nagare.Inventory.Maintenance
@@ -19,6 +19,7 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
+import Nagare.Dsl.Database (Engine (..), engineToken, parseEngine)
 import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types (mkServiceName)
@@ -30,7 +31,8 @@ import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
 
 data MaintenanceRequest = MaintenanceRequest
-  { maintenanceDatabase :: !Text
+  { maintenanceEngine :: !Engine
+  , maintenanceDatabase :: !Text
   , maintenanceNamespace :: !Text
   , maintenanceSession :: !Text
   , maintenanceTargetRevision :: !ScopeRevision
@@ -47,7 +49,8 @@ data MaintenanceRequest = MaintenanceRequest
   deriving stock (Eq, Show)
 
 data MaintenanceSourceProof = MaintenanceSourceProof
-  { maintenanceSourceSession :: !Text
+  { maintenanceSourceEngine :: !Engine
+  , maintenanceSourceSession :: !Text
   , maintenanceSourceDatabase :: !Text
   , maintenanceSourceNamespace :: !Text
   , maintenanceSourceScope :: !Text
@@ -77,7 +80,11 @@ maintenanceSourceProof scope
         [(value, "")] | value > 0 -> Right value
         _ -> Left "maintenance target generation is invalid"
       MaintenanceSourceProof
-        <$> (required "maintenance.session" >>= validSession)
+        <$> (case Map.lookup "maintenance.engine" fields of
+          Nothing -> Right Postgres -- accepted sessions before engine was recorded
+          Just token -> maybe (Left "maintenance engine is invalid") Right
+            (parseEngine token))
+        <*> (required "maintenance.session" >>= validSession)
         <*> (required "maintenance.database" >>= validName)
         <*> (required "maintenance.namespace" >>= validName)
         <*> required "maintenance.target.scope"
@@ -193,12 +200,15 @@ compileMaintenanceScope request accepted native = do
       && sourcePvc == Just (resourceIdText (pvc ^. #identity))
       && sourcePvcUid == Just (physicalIdentityText (maintenancePvcUid request)))
     (Left (invalid "maintenance recovery belongs to another target incarnation or ID"))
+  unless (maintenanceEngine request `elem` [Postgres, Redis])
+    (Left (invalid "reviewed maintenance does not support this database engine"))
   unless (case statefulValue of
       Object root | Just (Object metadata) <- KM.lookup "metadata" root
         , Just (Object labels) <- KM.lookup "labels" metadata ->
-            KM.lookup "nagare.dev/engine" labels == Just (String "postgres")
+            KM.lookup "nagare.dev/engine" labels
+              == Just (String (engineToken (maintenanceEngine request)))
       _ -> False)
-    (Left (invalid "reviewed maintenance currently requires PostgreSQL"))
+    (Left (invalid "reviewed maintenance engine differs from accepted database"))
   owner <- first invalid (mkScopeId Standalone
     ("database-maintenance-" <> ns <> "-" <> db <> "-"
       <> maintenanceSession request))
@@ -207,6 +217,7 @@ compileMaintenanceScope request accepted native = do
   let operationId = mintResourceId owner key role
       intent = object
         [ "session" .= maintenanceSession request
+        , "engine" .= engineToken (maintenanceEngine request)
         , "database" .= db
         , "namespace" .= ns
         , "target" .= resourceIdText (stateful ^. #identity)
@@ -232,6 +243,7 @@ compileMaintenanceScope request accepted native = do
         OperatorRecovery MaintainData
       overrides = Map.fromList
         [ ("maintenance.session", maintenanceSession request)
+        , ("maintenance.engine", engineToken (maintenanceEngine request))
         , ("maintenance.database", db)
         , ("maintenance.namespace", ns)
         , ("maintenance.target.scope", expectedSource)

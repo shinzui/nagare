@@ -1167,7 +1167,8 @@ inventoryKubernetesTests =
                   [(statefulId, sourceStatefulUid request),
                    (pvcId, sourcePvcUid request)])
                 let maintenanceRequest = MaintenanceRequest
-                      { maintenanceDatabase = "pg-main"
+                      { maintenanceEngine = Postgres
+                      , maintenanceDatabase = "pg-main"
                       , maintenanceNamespace = "default"
                       , maintenanceSession = "maint-001"
                       , maintenanceTargetRevision = sourceRevision request
@@ -1185,7 +1186,8 @@ inventoryKubernetesTests =
                     maintenanceScope = ok (compileMaintenanceScope maintenanceRequest
                       databaseScope (Map.union backupNative databaseNative))
                 maintenanceSourceProof maintenanceScope @?= Right (Just MaintenanceSourceProof
-                  { maintenanceSourceSession = "maint-001"
+                  { maintenanceSourceEngine = Postgres
+                  , maintenanceSourceSession = "maint-001"
                   , maintenanceSourceDatabase = "pg-main"
                   , maintenanceSourceNamespace = "default"
                   , maintenanceSourceScope = scopeIdText owner
@@ -1203,6 +1205,13 @@ inventoryKubernetesTests =
                   , maintenanceSourceRecoveryJobUid = completedPhysical
                   , maintenanceSourceRecoveryReceiptDigest = contentDigest "completed-receipt"
                   , maintenanceSourceRecoveryId = backupId request })
+                maintenanceSourceProof (withScopeOverrides
+                  (Map.delete "maintenance.engine" (scopeOverrides maintenanceScope))
+                  maintenanceScope) @?= maintenanceSourceProof maintenanceScope
+                assertBool "maintenance accepted a changed engine label"
+                  (isLeft (compileMaintenanceScope
+                    (maintenanceRequest {maintenanceEngine = Redis})
+                    databaseScope (Map.union backupNative databaseNative)))
                 let maintenanceCandidate = ok (composeInventory restoreSnapshot
                       (ReplaceScope maintenanceScope :| []))
                 maintenanceStore <- newMemoryStore
