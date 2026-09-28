@@ -582,6 +582,12 @@ inventoryKubernetesTests =
             (restoreJob, restoreBytes) = case restoreJobs of
               [entry] -> entry
               _ -> error "reviewed volume restore must bind one Job"
+            scratchPvc = case [member | (member, _) <- Map.elems restoreNative,
+              case member ^. #address of
+                Kubernetes _ "" kind _ _ -> nameText kind == "persistentvolumeclaim"
+                _ -> False] of
+              [single] -> single
+              _ -> error "reviewed volume restore must bind one scratch PVC"
         Map.size restoreNative @?= 2
         Map.lookup "volume-restore.backup.sha256" (scopeOverrides restoreScope)
           @?= Just checksum
@@ -599,6 +605,7 @@ inventoryKubernetesTests =
             (restoreRequest {volumeRestoreReceiptBytes = "{}"}) sourceScope accepted))
         restoreStates <- newIORef (Map.fromList
           [ (restoreJob ^. #identity, KubernetesAbsent absence)
+          , (scratchPvc ^. #identity, KubernetesAbsent absence)
           , (pvcId, sourceState (ok (mkPhysicalIdentity "pvc-uid")))
           , (jobId, KubernetesPresent (ok (mkPhysicalIdentity "backup-job-uid"))
               "1" (Just jobId) (contentDigest jobBytes)) ])
@@ -622,6 +629,22 @@ inventoryKubernetesTests =
         adapterExecute restoreAdapter restoreCreate preparedRestore >>= \case
           AdapterEffectFailed {} -> pure ()
           other -> assertFailure ("changed backup Job reached provider: " <> show other)
+        readIORef restoreWrites >>= (@?= 0)
+        modifyIORef' restoreStates (Map.insert jobId
+          (KubernetesPresent (ok (mkPhysicalIdentity "backup-job-uid"))
+            "1" (Just jobId) (contentDigest jobBytes)))
+        let scratchCreate = createOperation
+              {plannedResources = scratchPvc ^. #identity :| []}
+        preparedScratch <- adapterPrepare restoreAdapter scratchCreate >>= expectRight
+        adapterPreflight restoreAdapter scratchCreate preparedScratch >>= expectRight
+        modifyIORef' restoreStates (Map.insert (scratchPvc ^. #identity)
+          (KubernetesPresent (ok (mkPhysicalIdentity "foreign-scratch-pvc"))
+            "2" (Just (scratchPvc ^. #identity)) (contentDigest "foreign")))
+        assertBool "foreign scratch PVC passed restore preflight"
+          . isLeft =<< adapterPreflight restoreAdapter scratchCreate preparedScratch
+        adapterExecute restoreAdapter scratchCreate preparedScratch >>= \case
+          AdapterEffectFailed {} -> pure ()
+          other -> assertFailure ("foreign scratch PVC reached provider: " <> show other)
         readIORef restoreWrites >>= (@?= 0)
         let finiteExpiry = maybe (error "invalid volume expiry") id
               (parseTimeM True defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ"

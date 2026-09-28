@@ -350,6 +350,8 @@ EP-154's exact-revision installed Darwin smoke passed again for `7f3e2eac22cf01e
 
 EP-159's accepted-run listing now falls back to immutable provider version and digest pins when a receipt belongs to an earlier reviewed schedule revision. A focused fixture accepts the exact old pair and rejects changed bytes or a foreign listed address; new unaccepted runs still require the current signed expectation. Native schedule replacement and restore, cloud generations, and final candidate evidence remain open.
 
+EP-160's reviewed new-PVC adapter fixture now refuses a foreign scratch PVC that appears after preparation, with zero provider writes. Native archive content, destination UID, and interrupted extraction recovery still need the public saved-review path before M3 can close.
+
 **Implementation order.** Check current child evidence before rerunning a checkpoint. Preserve concurrent work and already-admitted recovery records. The registry states whole-child ownership, not numerical execution order.
 
 | Order | Work and owner | Required handoff |
