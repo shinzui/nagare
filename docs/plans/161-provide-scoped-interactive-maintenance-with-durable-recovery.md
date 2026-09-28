@@ -27,6 +27,11 @@ provenance:
       at: 2026-09-27T20:53:10Z
       mode: "implement"
       note: "Advance PostgreSQL online fence callbacks and verify native client exclusion"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-28T15:02:11Z
+      mode: "update"
+      note: "Reduce MP-23 lifecycle scope while retaining journal/state, existing recovery, and full supported-feature evidence"
 ---
 
 # Provide scoped interactive maintenance with durable recovery
@@ -36,17 +41,19 @@ This ExecPlan owns unfinished work transferred from EP-148. Keep its living sect
 
 ## Purpose / Big Picture
 
-
-Operators can open an interactive database shell or supported exec/migration session against an explicit owned resource set, with durable admission and recovery records. Concurrent managed mutation is excluded, sessions cannot silently outlive their authority, and exit triggers re-observation before normal work resumes.
-
+**Cancelled/deferred from MP-23 by operator decision on 2026-09-28.** This plan no longer introduces interactive database shells or custom mutating exec/migration sessions as release requirements. Its filename, prior evidence, and delivered recovery code are retained for traceability. Existing statically declared reviewed hooks and read-only inventory inspection remain supported elsewhere. A provider-enforced read-only shell is not a replacement milestone here.
 
 ## Progress
+
+**2026-09-28 scope decision.** [MP-23](../masterplans/23-make-managed-resources-first-class-through-typed-scoped-inventories.md) now retains the cross-tool journal/state, verified backups, and isolated restores while deferring general live overwrite, new interactive mutating maintenance, and generalized scheduled pruning. Historical findings below describe the earlier contract and retain their evidence; their superseded completion requirements do not add work back to this plan. Supported behavior still requires full proof.
+
+Status is Cancelled in the parent registry. The unchecked original milestones below are historical uncompleted outcomes, not active work or claims of completion.
 
 
 - [ ] M1: Reviewed database shells and supported exec/migration entrypoints use an exact scoped maintenance receipt and the shared exclusion contract, preserving private credentials and rejecting concurrent mutation.
 - [ ] M2: Normal exit, nonzero exit, terminal loss, and operator-process death produce durable outcomes, re-observation, and explicit recovery of unresolved sessions without automatic replay.
 
-Inherited: aggregate hooks already declare affected resources and reviewed per-tag Jobs. Database shell currently uses an imperative kubectl exec client and refuses after inventory initialization. This plan replaces that refusal with a supported reviewed session; it does not redo hook compilation.
+Inherited: aggregate hooks already declare affected resources and reviewed per-tag Jobs. Database shell currently uses an imperative kubectl exec client and refuses after inventory initialization. The original proposal would replace that refusal with a supported reviewed session; that release obligation is now deferred. Recorded implementations below remain evidence, not a promise to admit new sessions.
 
 
 ## Surprises & Discoveries
@@ -107,6 +114,8 @@ The ClickHouse checkpoint passed the 908-test `nagarectl-test` suite, executable
 
 ## Decision Log
 
+2026-09-28: Cancel this child as an active MP-23 release workstream under the operator-approved scope reduction. Keep delivered code/evidence and recovery of existing sessions; EP-153 guards new deferred admissions. Earlier expansion and sequencing decisions are historical and superseded.
+
 2026-09-27: Consume EP-160’s corrected finite M1 contract without waiting for M2/M3 or EP-156. Preserve the operator’s explicit no-GKE boundary.
 
 
@@ -114,6 +123,8 @@ The ClickHouse checkpoint passed the 908-test `nagarectl-test` suite, executable
 
 
 ## Outcomes & Retrospective
+
+2026-09-28: Cancelled, not Complete. Prior experiments demonstrated parts of native maintenance but do not require completing a general session manager. Recovery compatibility is retained explicitly rather than discarding unresolved state.
 
 
 
@@ -126,7 +137,7 @@ This plan takes only unfinished work from [EP-148](148-route-application-and-dat
 
 cli/nagarectl/src/Nagare/Inventory/Command.hs supplies the command service; cli/nagarectl/src/Nagare/Inventory/Plan.hs, cli/nagarectl/src/Nagare/Inventory/Execute.hs, cli/nagarectl/src/Nagare/Inventory/Journal.hs, and cli/nagarectl/src/Nagare/Inventory/Store.hs own review, execution, receipts, and history. cli/nagarectl/app/Main.hs is the shared command registration surface. Keep behavior in named modules and preserve concurrent changes to registration and tests. Public output must not contain credentials or private native bundles.
 
-[ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md) requires independent ownership, exact reviewed effects, and full release acceptance despite this split. [ADR 4](../adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md) keeps private history outside immutable payloads. These plans do not relax the existing fresh-context release boundary or the accepted offline-only Cloudflare proof. A refusal protects an unfinished feature but cannot count as its completion.
+[ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md), including its 2026-09-28 scope amendment, requires independent ownership, exact reviewed effects, and full evidence for the revised supported contract. [ADR 4](../adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md) keeps private history outside immutable payloads. These plans do not relax the existing fresh-context release boundary or the accepted offline-only Cloudflare proof. A supported feature cannot close through refusal alone; an explicitly deferred route requires a tested admission guard and recovery compatibility, not a claim of implementation.
 
 cli/nagarectl/src/Nagare/Database/Shell.hs contains runDbShell and per-engine client commands. cli/nagarectl/app/Main.hs guards DbShell and registers operational entrypoints. cli/nagarectl/src/Nagare/Inventory/Application.hs and cli/nagarectl/src/Nagare/Inventory/TaskRun.hs provide existing affected-resource and one-off execution patterns. cli/nagarectl/src/Nagare/Inventory/Execute.hs and cli/nagarectl/src/Nagare/Inventory/Store/Object.hs supply durable execution and remote writer ownership. New cli/nagarectl/src/Nagare/Inventory/Maintenance.hs owns session handling; cli/nagarectl/src/Nagare/Inventory/DataFence.hs, implemented by EP-160, owns the shared exclusion state machine.
 
@@ -135,56 +146,21 @@ A maintenance receipt states who/what was authorized to open a session, the exac
 
 ## Plan of Work
 
-**Scheduling correction.** Begin the representative PostgreSQL maintenance/session-recovery fixture after EP-160 M1 and its first demonstrated authorized-engine handoff in M2; do not wait for all Redis/ClickHouse restore variants or volume M3. An existing verified manual recovery receipt can support that first fixture. This tests the shared interface early enough to correct it before multiplying implementations. Remaining engines, scheduled recovery references, and complete session acceptance still belong here.
+No new implementation is scheduled under this cancelled child. Do not continue all-engine session expansion, terminal tooling, or process-policy generalization to close MP-23.
 
-**Resolve the native handoff first (2026-09-27).** The current `DataFence/KubernetesExclusion.hs` provider shuts down the database, requires zero StatefulSet replicas, no Service endpoints, and no PVC consumers. A database shell cannot use that acquired state as if the original engine were still reachable. Reuse the durable `DataFence` reservation, immutable review, recovery phases, and guarded release; implement an operation-specific maintenance access policy in this plan. Prove a running engine on the exact accepted data identity, the sole authorized session's access, exclusion of ordinary clients/schedules/controllers, and observation/termination of any surviving authorized process before release. A transient engine, if required by the chosen protocol, must be declared and identity-bound before mutation. Restarting ordinary writers or removing the guards just to open the terminal is not a valid handoff.
+[EP-153](153-close-managed-command-coverage-for-the-inventory-release.md) owns the finite withdrawal work: mark new custom interactive mutating maintenance and unscoped exec/migration routes deferred, reject their command/library/recipe and unexecuted saved-review admission before effects, and document that boundary. Preserve existing reviewed static hooks. No unsupported route may silently fall back to imperative exec.
 
-Before implementing all terminal/process helpers, drive one real PostgreSQL public saved-session → authorized client → known data change → client termination → re-observation → release fixture. Inject parent death while the remote client survives and recover that same session. State the concrete permitted engine/client and observation mechanism alongside this fixture; then extend the working protocol to Redis and ClickHouse. Reuse native controls where their preconditions fit. Do not add a generic security framework, a second lock, or a parallel session database. Required shared callback extensions belong to this consuming outcome and preserve EP-160 M1's accepted semantics; this is not permission to reopen M1 or demand that it implement maintenance.
+Keep inspection and evidence-bound recovery of already-admitted sessions. A surviving client must still be observed/terminated under the existing reviewed protocol before writer claims or fences are released; never replay arbitrary interactive commands or clear an unresolved record because this child was cancelled. [EP-160](160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md)'s accepted shared fence remains authoritative. EP-155/156 cover retained recovery compatibility as applicable, without requiring a new maintenance session for every engine or provider.
 
-
-M1 adds an explicit saved-review/session identity to db shell and each existing exec-like or user-supplied migration route enumerated by EP-153. Bind context, accepted resource set, native workload identity, client mode, and recovery preconditions before starting the subprocess. Mutating interactive database sessions require the shared fence and an adequate pre-change recovery reference; classify the session as potentially mutating unless a provider-enforced read-only mode is proved. The one authorized session receives access while other managed writers remain excluded. A changed or foreign Pod cannot replace the reviewed target silently. Use the shared durable context writer exclusion, even though this conservatively blocks unrelated managed mutation for the session duration; narrower concurrent writer scheduling is outside this plan. Do not invent a maintenance-specific lock or liveness timeout.
-
-Keep subprocess and terminal credentials private, including engine clients that accept passwords in arguments. Resolve private access through the existing accepted credential binding without exposing it in public review or logs. Record session start before admitting the terminal. The reviewed per-tag hook path remains valid for statically declared jobs; unknown affected resources or unrestricted migrations refuse until explicitly scoped. Add public inspection/recovery commands for the retained session record and document exact invocation syntax with the implementation.
-
-M2 handles normal exit, nonzero exit, signals, lost terminal, and process death. On ordinary completion, record the exit result, observe the same target incarnation and affected resources, verify the recovery/release criteria, and release through DataFence. A client exit code of zero alone is insufficient; an unknown schema change is not automatically reversible. If the parent dies, a remote interactive process might still run: preserve the active receipt and writer claim, prove that exact client is gone or explicitly terminate it through reviewed recovery, then re-observe before release. Session recovery never reruns arbitrary interactive commands. The existing explicit GCS writer takeover does not itself certify a session ended or permit clearing its fence.
-
-Extend cli/nagarectl/test/InventoryTransactionSpec.hs and add cli/nagarectl/test/InventoryMaintenanceSpec.hs with Cabal/Spec registration. A pseudo-terminal fixture must drive the actual CLI, manipulate known disposable data, and test signals and a surviving child. Exercise local store and shared-store conflict behavior. EP-155/156 incorporate the native session and subsequent clean managed operation without duplicating its state machine.
-
+Any future maintenance feature needs an explicit product decision and bounded native authority/recovery contract. External-tool evaluation in EP-163 may examine available native controls; it neither reactivates this child nor promises a generic interactive session manager.
 
 ## Concrete Steps
 
-
-Run from the repository root in the existing development environment. A newly named test group must be registered and run at least one test; zero selected tests is not passing evidence. No provider mutation is part of these initial checks.
-
-```bash
-# New maintenance group, required before milestone acceptance:
-(cd cli/nagarectl && cabal test nagarectl-test --test-options='-p maintenance' --test-show-details=failures)
-(cd cli/nagarectl && cabal test nagarectl-test --test-options='-p transaction' --test-show-details=failures)
-(cd cli/nagarectl && cabal build exe:nagarectl)
-bash scripts/test-application-entrypoint-guards.sh
-```
-
-Expected result: selected tests and build exit zero; refusal fixtures prove zero unintended effects. At a milestone boundary also run the affected full suite, `bash scripts/check-haskell-style.sh`, and, when user docs change, `okf validate docs/user --strict --profile mori/user-documentation-profile.dhall --profile-enforce --log-enforce`. Add exact public-command native fixture invocations with their saved review paths before recording acceptance.
-
-
-Add the required saved-session form below, preserving the existing database selection syntax. SESSION_ID is a stable operator-supplied ID, RECOVERY_ID identifies an accepted recovery artifact, and REVIEW is a new directory in isolated fixture state:
-
-```bash
-nagarectl db shell "$DB" --session-id "$SESSION_ID" --recovery-backup "$RECOVERY_ID" --save-plan "$REVIEW"
-nagarectl inventory apply "$REVIEW" --yes
-```
-
-The first command saves intent without opening a terminal. Applying that exact review attaches the engine client to the operator's terminal inside the admitted maintenance operation; non-interactive invocation refuses before entry unless an explicitly supported reviewed command mode was selected. Inventory status exposes the active session ID and unresolved outcome. Extend the existing explicit recovery command boundary for session termination/re-observation; it must never silently reopen or replay the terminal.
+There are no new feature steps under this cancelled child. EP-153 must add/refine admission-refusal and previously admitted session-recovery fixtures through the existing command test harness. Use retained private reviews and disposable historical session fixtures; do not launch new live sessions merely to complete this historical plan. Record resulting proof in EP-153 and the integrated evidence owners. Preserve all earlier observations in Surprises & Discoveries.
 
 ## Validation and Acceptance
 
-
-Open a reviewed shell into an accepted disposable database, change a known row/key, close it, and show a durable session receipt plus re-observation. Repeat the usable client path for PostgreSQL, Redis, and ClickHouse. A second operator cannot deploy, restore, prune recovery data, or open another conflicting session while it is active. Replacing the target Pod or losing credential access refuses before entry; no credential canary appears in public output.
-
-Interrupt a terminal and kill the parent while its remote client remains alive. A fresh CLI must report unresolved maintenance, preserve writer exclusion, and require proof of client termination and target re-observation before accepting another operation. Nonzero exit also records the real outcome; neither success nor automatic rollback is fabricated. A native session proof may share EP-155's fixture, but fixture tests that merely launch a fake command cannot satisfy the usable database-shell outcome.
-
-Use focused tests while implementing one coherent milestone, then the affected full suite/build and documentation checks at its acceptance boundary. Repeat broad gates only after a relevant change or failure. Record the exact command, candidate revision, review/transaction IDs, fixture identity, result, and evidence location. Distinguish recording-provider tests from real provider evidence. Shared integration runs may supply the same assertion to several plans; do not wait for administrative plan closure to run them. Keep Progress checkboxes directly under Progress, without nested headings.
-
+Cancellation is a scope decision, not implementation acceptance. EP-153's release acceptance requires that new deferred sessions refuse before effects, static reviewed hooks and read-only inspection still work, and existing sessions cannot be stranded or automatically replayed. An unresolved surviving process continues to block conflicting mutation until evidence-bound recovery succeeds. Existing native tests and receipts may prove these regressions where their inputs still apply. No all-engine new-session or terminal-loss feature matrix is required from this child.
 
 ## Idempotence and Recovery
 
@@ -194,12 +170,10 @@ Use isolated test state and exact disposable resource identities. Retain the sav
 
 ## Interfaces and Dependencies
 
-The corrected EP-160 M1 handoff is its six shared-contract closure criteria on local k3s, not complete engine restore or cloud integration. Consume that fence after its acceptance; do not add a GKE provider, credential, or validation dependency. GKE use and provisioning are explicitly prohibited. Actual GCP/NixOS/k3s integration remains EP-156.
-
-
-Completed [EP-146](146-reconcile-cloud-host-and-artifact-resources-through-inventory-adapters.md), [EP-147](147-compile-cluster-bootstrap-into-owned-resource-components.md), [EP-149](149-explain-drift-and-execute-reviewed-adoption-migration-and-retirement.md), and [EP-151](151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes.md) provide prerequisites. [EP-160](160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md) owns DataFence and the mandatory M1 integration handoff: maintenance fixture and UI work may start against its agreed contract, but live admission cannot ship before that contract's exclusion/recovery proof passes. This is an integration dependency, not a hard requirement to finish every restore engine first. [EP-153](153-close-managed-command-coverage-for-the-inventory-release.md) owns the finite entrypoint audit; [EP-159](159-complete-scheduled-backup-receipts-and-exact-retention-pruning.md) supplies scheduled recovery references where selected. [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md)/[EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md) integrate native sessions and [EP-157](157-gate-the-inventory-release-on-complete-immutable-evidence.md) gates readiness. Historical, uncalibrated estimate (not a current delivery forecast): 8–16 active hours after the shared fence contract is available, low confidence, excluding integrated runs. Reforecast after the first pseudo-terminal/process-death probe; inability to identify a surviving remote client is an unresolved implementation requirement.
-
+This child is Cancelled and no active MP-23 child depends on its completion. EP-153 owns deferred-admission guards and retained session-recovery compatibility; EP-160 owns the accepted shared fence; EP-155/156 supply relevant local/GCS recovery evidence; EP-157 verifies the declared release boundary. Preserve private history and existing backup references. No GKE, new messaging engine, new session store, or external tool is introduced by this decision.
 
 ## Revision Notes
+
+2026-09-28: Cancel new interactive-maintenance delivery; transfer only deferred-route guards and existing recovery compatibility to EP-153.
 
 2026-09-27: Apply the execution-log diagnosis to the existing outcome: drive implementation through its production command/recovery fixture, make handoffs and known ownership explicit, and prevent new requirements from entering through an open-ended audit. Existing functionality and final release acceptance remain required.

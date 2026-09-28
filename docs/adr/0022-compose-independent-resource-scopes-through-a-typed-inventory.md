@@ -15,7 +15,7 @@ related:
 
 ## Status
 
-Accepted as the architecture for MasterPlan 23 on 2026-09-16 following the operator's design discussion. Implementation is not yet complete; the existing command behavior remains as described in the earlier ADRs until its migration is verified.
+Accepted as the architecture for MasterPlan 23 on 2026-09-16 following the operator's design discussion. Implementation is not yet complete; the existing command behavior remains as described in the earlier ADRs until its migration is verified. The 2026-09-28 amendment below is the current MP-23 release boundary and supersedes earlier blanket full-feature acceptance statements where explicitly narrowed.
 
 ## Context
 
@@ -617,3 +617,51 @@ The durable fence is one reservation/review/recovery lifecycle in the inventory 
 A restore or maintenance implementation must bind the selected authorized recovery process, exact data identity, permitted access, observed exclusion of other writers, content/client verification, and process termination or recovery before release. If that operation needs an engine while normal workloads remain stopped, its engine/client access is explicitly reviewed and observed inside the retained fence; starting it is not equivalent to releasing ordinary writers. Required temporary resources are declared under the existing review contract. Reuse the common durable phases and appropriate native controls; do not introduce a second lock/store or silently weaken an offline exclusion predicate to admit every consumer.
 
 EP-160 M2/M3 own restore-specific access and verification. EP-161 owns maintenance engine/client admission and surviving-process recovery. These consumer obligations do not change the six EP-160 M1 closure criteria. Full release acceptance still requires the usable restore and maintenance paths. Prove the first complete operation through saved review, native execution, interruption, verification, and release before multiplying engine/command variants. Trusted cluster administrators remain outside the workload threat boundary; additional providers or broader security promises need an explicit scope decision.
+
+## Amendment — 2026-09-28: retain cross-tool authority and narrow lifecycle scope
+
+The operator explicitly retains Nagare's typed ownership scopes, reviewed native-operation
+boundary, durable cross-tool journal, and filesystem/GCS state. Native tools' state is not a
+substitute for the history that coordinates Pulumi, NixOS, Kubernetes, data, and publication.
+The single-writer/conditional-store contract and recovery rules remain in force; this decision
+does not add a daemon or new coordination service.
+
+MP-23 now requires verified native manual/scheduled backups for the existing PostgreSQL, Redis,
+and ClickHouse engines, isolated database restore destinations, and volume restore to a new PVC.
+General live database/PVC overwrite and automatic recovery promotion/cutover are deferred.
+Custom interactive mutating maintenance and unrestricted exec/migration sessions are deferred;
+EP-161 is Cancelled. Existing static reviewed hooks and read-only inspection remain supported.
+The bounded PostgreSQL rename/native lifecycle verification in EP-155 remains required; it does
+not imply a universal live recovery framework. No new database or messaging engine is added.
+
+Generalized scheduled keep-N/expiry pruning is deferred. Scheduled backup data is retained by
+default, and review/status/user documentation must say the configured policy is not enforced
+for that path. Operators must account for storage growth. Existing supported exact reviewed
+manual pruning retains its evidence and dependency checks; automatic object-store expiry cannot
+silently remove referenced recovery data. EP-159 owns truthful retention reporting and receipt
+correctness, not a new general retention engine.
+
+A scope decision is not a runtime guard. EP-153 must refuse new deferred operations at command,
+library, recipe, and generic saved-review admission, including old reviews that never began.
+Already-admitted transactions remain inspectable and recoverable under their original immutable
+review, physical identities, and observed-effect checks. Preserve partial-prune, live-fence, and
+session recovery code/records; do not clear a writer claim or replay arbitrary effects merely
+because its feature is deferred. Recovery cannot become admission for new unreviewed work.
+
+Release coverage continues to enumerate every route, with finite supported/deferred dispositions
+bound to this decision and the candidate. Supported operations require working behavior; deferred
+routes require refusal and retained-recovery proof. Missing supported behavior cannot be relabelled
+as excluded. All native-system packaging, actual local/GCP integration, independent-scope and
+IR-24 verification cases, and immutable evidence remain mandatory for the revised contract.
+Earlier no-feature-reduction and all-engine maintenance/live-overwrite requirements describe the
+previous scope and are superseded only by these explicit exclusions.
+
+MP-24/EP-163 independently evaluate external tools beneath this architecture. No Flux or implicit
+substitute GitOps platform is selected. CloudNativePG/Barman is a PostgreSQL candidate; Velero is
+a backup/recovery evaluation candidate only. The operator has not selected either, and prototypes
+or adoption do not gate MP-23. Any future tool must have one explicit lifecycle owner with bounded
+delegation, while Nagare binds its external operation identities/results into the retained journal.
+Actual storage support, database consistency, recovery, footprint, and net code/test maintenance
+must justify adoption before adding controllers or changing storage. A new database engine later
+needs its own bounded declaration/adapter/proof; anticipated growth does not justify a generic
+provider or maintenance framework now.

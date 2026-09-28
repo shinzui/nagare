@@ -10,6 +10,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-09-28T14:26:34Z
+  revisions:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-28T15:02:11Z
+      mode: "update"
+      note: "Constrain tool evaluation to retained journal/state and current engines; add bounded Velero backup assessment without selecting a tool"
 ---
 
 # Operate Nagare as a team-run workplace intranet PaaS
@@ -20,6 +26,8 @@ If durable project context changes, update or create ADRs in docs/adr/ in the sa
 
 
 ## Vision & Scope
+
+**Operator constraints, 2026-09-28.** Keep Nagare's typed scopes and cross-tool journal/state, including the filesystem/GCS protocol. Do not evaluate replacing them as the default recommendation. No Flux, no implicit substitute GitOps platform, and no additional messaging engines. Prioritize current database backup/recovery and Kubernetes/volume backup fit; future database engines inform extension cost but are not implementations required here. Velero is a backup evaluation candidate only, not a selected dependency. The separately authorized MP-23 scope reduction is recorded in that plan; this evaluation neither blocks its release nor silently reopens its deferred features.
 
 Nagare began as a cheap, single-node personal PaaS: one GCP Compute Engine VM running NixOS and
 k3s, with applications deployed as Knative Services through the `nagarectl` CLI. As of 2026-09-28
@@ -34,19 +42,20 @@ approval from a named reviewer; operators can be granted and revoked access to t
 deployment material; an installation that holds work data has a reviewed way to move to a new
 platform version; and the availability the platform promises (single node or otherwise) is an
 explicit, documented decision with stated recovery objectives. Each of these capabilities is
-delivered with whatever tooling the evaluation in this initiative selects, whether that is an
-established tool or Nagare's own implementation.
+delivered within the retained typed-inventory and cross-tool journal/state boundary, using
+established tools where a subsequent evidence-backed adoption decision justifies them.
 
 The initiative deliberately starts with evaluation rather than implementation. The first-pass
 research record [RES-3](../research/managed-resource-inventory-scope-and-tooling-overlap.md)
 found that much of MasterPlan 23's managed-resource work appears to overlap established tools
-(Pulumi state, kapp, Flux, Argo CD, CloudNativePG, Velero, K8up, GitHub attestations), but that no
-candidate was actually evaluated. The operator has confirmed that the pros and cons of these
-tools have not yet been investigated in depth. Choosing how to build the team capabilities before
+(including Kubernetes apply and database/volume backup tools), but that no candidate had
+prototype evidence. Its broad overlap list is preliminary research, not a selection list. The
+operator has confirmed that the pros and cons of these tools have not yet been investigated in
+depth. Choosing how to build the team capabilities before
 that evaluation would repeat the mistake RES-3 describes.
 
-In scope: capturing the team's operating requirements; deciding the availability model; a deep,
-prototype-backed evaluation of established tooling against Nagare's managed-resource layers; and,
+In scope: capturing the team's operating requirements; deciding the availability model; a bounded,
+prototype-backed evaluation of tooling beneath Nagare's retained ownership/journal boundary; and,
 after that evaluation, ExecPlans for multi-operator writer exclusion, named-reviewer approval, team
 access to deployment material, and an upgrade path for contexts that hold work data.
 
@@ -79,10 +88,12 @@ ExecPlans for these planned streams, each shaped by the chosen tooling:
 
 1. Multi-operator writer exclusion. Today EP-151's GCS inventory store allows one writer, has no
    lease or liveness detection, and needs an explicit operator takeover; Pulumi's own GCS backend
-   has separate locking. The stream decides one coordination model for all state a team shares.
+   has separate locking. The stream evaluates improvements to that retained coordination contract and its interaction
+   with native tool locks; it does not replace Nagare's journal or conflate native backend state
+   with cross-tool execution history.
 2. Named-reviewer approval. Today a saved review is published by the operator who runs it. The
-   stream binds approval of a change to named reviewers, for example through pull requests if a
-   GitOps tool is selected, or through Nagare's review bundle otherwise.
+   stream binds approval of a change to named reviewers through the reviewed-intent boundary;
+   using pull requests for approval would not itself require a GitOps reconciler.
 3. Team access to deployment material. [ADR 13](../adr/0013-operator-deployment-material-lives-in-a-private-repository-with-remote-state.md)
    places each installation's contexts, host flakes, sops secrets, and recipients in one
    operator's private repository. The stream defines how a team shares, rotates, and revokes that
@@ -98,15 +109,15 @@ Alternatives considered: writing all implementation ExecPlans up front (rejected
 content would be speculative until the tooling is chosen); a single ExecPlan for requirements and
 evaluation (rejected, because the availability decision and the tooling evaluation are
 independently verifiable and the evaluation needs its own prototypes); and folding this work into
-MasterPlan 23 (rejected, because MasterPlan 23 has nine active children and the operator wants to
-research further before changing it).
+MasterPlan 23 (rejected, because its eight remaining active children have a separately agreed
+release boundary, and tool research should not create a new release prerequisite).
 
 Relevant local ADRs, read for this plan:
 [ADR 13](../adr/0013-operator-deployment-material-lives-in-a-private-repository-with-remote-state.md)
 (one operator's private repository and remote Pulumi state, the main single-operator assumption);
 [ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md)
-(the typed inventory, its single-writer store, and review/journal semantics that the evaluation
-compares against tools);
+(the retained typed inventory, single-writer store, and review/journal semantics beneath which
+candidate tools must fit);
 [ADR 9](../adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md)
 (every cloud-mutating path asserts the active context's project; any selected tool must preserve
 this); [ADR 6](../adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md),
@@ -170,6 +181,8 @@ operator decides, the tooling boundary between Nagare and established tools (aft
 
 ## Progress
 
+2026-09-28 scope alignment: MP-23 now has an operator-approved reduction and retains its journal/state. EP-163 is narrowed to explicit tool boundaries and a Velero backup evaluation. This planning update starts no prototype and selects no tool; child statuses remain Not Started.
+
 2026-09-28: MasterPlan created with EP-162 and EP-163. No child plan started. The implementation
 streams listed in Decomposition Strategy are intentionally not yet planned.
 
@@ -180,6 +193,14 @@ streams listed in Decomposition Strategy are intentionally not yet planned.
 
 
 ## Decision Log
+
+- Decision: Retain the typed inventory and cross-tool journal/state; evaluate bounded native/database/volume tooling beneath them. No Flux or new messaging engines. Velero is evaluated for backups only, without selection or a dependency on MP-23 release.
+  Rationale: These are the operator's clarified constraints. MP-23's separate scope change must not be turned into a new tooling migration project.
+  Date: 2026-09-28
+
+- Decision: The 2026-09-28 MP-23 update is separately authorized by the operator. The earlier research-only instruction below remains the boundary for EP-163 itself, not a prohibition on that already-authorized update.
+  Rationale: Evaluation findings and adoption decisions must remain distinct.
+  Date: 2026-09-28
 
 - Decision: Evaluate before planning implementation. Create only the requirements and tooling
   evaluation children now, and add implementation ExecPlans after the operator decides on
@@ -198,3 +219,7 @@ streams listed in Decomposition Strategy are intentionally not yet planned.
 ## Outcomes & Retrospective
 
 (To be filled during and after implementation.)
+
+## Revision Notes
+
+2026-09-28: Align evaluation with the operator-approved MP-23 scope and retained journal/state; exclude Flux/new messaging engines and keep Velero as a backup candidate only.

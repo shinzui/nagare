@@ -27,6 +27,11 @@ provenance:
       at: 2026-09-27T14:15:37Z
       mode: "implement"
       note: "Pass bounded installed Darwin smoke and identify stale full-run typed-config fixture"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-28T15:02:11Z
+      mode: "update"
+      note: "Reduce MP-23 lifecycle scope while retaining journal/state, existing recovery, and full supported-feature evidence"
 ---
 
 # Validate installed inventory packages on every supported system
@@ -41,6 +46,8 @@ The installed operator and developer packages run the inventory commands outside
 
 
 ## Progress
+
+2026-09-28 scope update: no milestone is newly accepted by this edit. Use the revised MP-23 support boundary; historical findings retain their observations but do not reinstate deferred live overwrite, maintenance, or scheduled-pruning requirements.
 
 
 - [ ] M1: Operator/developer package boundaries and installed inventory resources pass clone-free command and missing-resource checks.
@@ -59,6 +66,8 @@ Early installed checkpoint (2026-09-27): `bash scripts/rehearse-clone-free-relea
 
 ## Decision Log
 
+2026-09-28: Align with the operator-approved MP-23 reduction and ADR 22 amendment. Keep complete evidence for supported behavior and explicit guards/recovery compatibility for deferred routes. EP-161 is Cancelled and no longer a completion dependency; earlier full-feature decomposition instructions are superseded.
+
 2026-09-26: Redirect unfinished EP-148 dependencies to EP-158–161 and preserve this plan’s assigned integration, package, or release obligations. EP-148 is superseded history, not a pending completion gate.
 
 
@@ -76,12 +85,14 @@ Remaining-work plan created; no new acceptance run has been performed. Inherited
 
 This plan replaces part of [EP-150](150-integrate-resource-inventories-into-upgrades-and-release-verification.md); its 2026-09-25 implementation is already present. A scope is one owner's desired resource set. The inventory composes all scopes; an immutable review binds exact native inputs, and a private journal records verified operation receipts. Completion of one scope must not change another owner's revision. cli/nagarectl/src/Nagare/Inventory/Command.hs supplies the shared command service; Plan.hs, Execute.hs, and Store.hs in that directory own review, execution, and history. Public evidence must exclude reusable credentials and private native plans.
 
-[ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md) requires complete ownership and reviewed effects. [ADR 6](../adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md) permits this first release to start with fresh contexts while rejecting in-place platform version changes after admission. [ADR 4](../adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md) keeps operator state outside immutable payloads. [ADR 7](../adr/0007-publish-immutable-nix-releases-from-validated-tags.md) requires immutable release evidence. The operator requested decomposition without reduced functionality or validation; temporary refusal of promised behavior is not completion.
+[ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md) requires complete ownership and reviewed effects. [ADR 6](../adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md) permits this first release to start with fresh contexts while rejecting in-place platform version changes after admission. [ADR 4](../adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md) keeps operator state outside immutable payloads. [ADR 7](../adr/0007-publish-immutable-nix-releases-from-validated-tags.md) requires immutable release evidence. The operator's 2026-09-28 MP-23 decision reduces the supported feature set while retaining full validation, typed ownership, and cross-tool journal/state. General live overwrite, new custom interactive mutating maintenance, and generalized scheduled pruning are explicitly deferred. Refusal does not complete a retained feature; deferred routes need tested admission guards and recovery compatibility. Earlier no-reduction instructions are superseded.
 
 nix/platform-package.nix, nix/nagare-packages.nix, nix/haskell-packages.nix, nix/checks/haskell.nix, nix/checks/infra.nix, nix/checks/platform.nix, and nix/checks/scripts.nix define packaging and checks. release.json currently declares x86_64-linux and aarch64-darwin. scripts/check-release.sh, scripts/test-release.sh, and scripts/rehearse-clone-free-release.sh supply existing verification. .github/workflows/release.yml records native Nix output identities. Correct earlier source-relative test assumptions instead of disabling those tests.
 
 
 ## Plan of Work
+
+**Revised packaging boundary (2026-09-28).** Package the supported commands and the guards/retained recovery required by EP-153. Do not remove fence, session, or partial-prune decoders/handlers merely because new admission is deferred. EP-161 no longer supplies a new-session release requirement. All systems in release.json and the complete clone-free native gates remain mandatory.
 
 **Early package checkpoint.** Before feature owners start lengthy native scenarios, run one installed operator/developer smoke outside the source checkout using the existing clone-free runner. Prove required runtime resources resolve; repair packaging assumptions immediately. This is preparation within M1, not completion of M1/M2. After feature and command integration stabilizes, run all required native gates for the final candidate. Do not defer the first installed execution until the end, or repeatedly run final multi-system gates after each small feature edit.
 
@@ -127,9 +138,11 @@ Work against isolated test state and exact named contexts. Preserve immutable re
 ## Interfaces and Dependencies
 
 
-Use completed EP-146/147/149/151 implementations. [EP-152](152-complete-fresh-platform-bootstrap-through-reviewed-components.md) and the delivered EP-148 baseline plus [EP-158](158-complete-reviewed-access-and-cdn-operations.md), [EP-159](159-complete-scheduled-backup-receipts-and-exact-retention-pruning.md), [EP-160](160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md), and [EP-161](161-provide-scoped-interactive-maintenance-with-durable-recovery.md) supply the command code to package; [EP-153](153-close-managed-command-coverage-for-the-inventory-release.md) supplies the registration inventory. These are integration dependencies: packaging repairs can begin now, but final evidence must cover the final code. [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md)/[EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md) consume installed candidates, and [EP-157](157-gate-the-inventory-release-on-complete-immutable-evidence.md) consumes native evidence. Initial estimate: 4–8 active hours excluding runner queues, low confidence; reforecast after the first full native gate on each system.
+Use completed EP-146/147/149/151 implementations. [EP-152](152-complete-fresh-platform-bootstrap-through-reviewed-components.md) and the delivered EP-148 baseline plus [EP-158](158-complete-reviewed-access-and-cdn-operations.md), [EP-159](159-complete-scheduled-backup-receipts-and-exact-retention-pruning.md), and [EP-160](160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md) supply the command code to package; [EP-153](153-close-managed-command-coverage-for-the-inventory-release.md) supplies the registration inventory. These are integration dependencies: packaging repairs can begin now, but final evidence must cover the final code. [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md)/[EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md) consume installed candidates, and [EP-157](157-gate-the-inventory-release-on-complete-immutable-evidence.md) consumes native evidence. Initial estimate: 4–8 active hours excluding runner queues, low confidence; reforecast after the first full native gate on each system.
 
 
 ## Revision Notes
+
+2026-09-28: Align current implementation and acceptance with the reduced MP-23 contract while preserving native evidence requirements and existing transaction recovery.
 
 2026-09-27: Require the first installed-package smoke before lengthy feature/provider scenarios while preserving full native validation for the final candidate; this changes execution order, not acceptance.

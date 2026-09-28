@@ -32,6 +32,11 @@ provenance:
       at: 2026-09-27T23:06:39Z
       mode: "implement"
       note: "Prove second accepted PostgreSQL scheduled receipt through a real scratch restore and content check"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-28T15:02:11Z
+      mode: "update"
+      note: "Reduce MP-23 lifecycle scope while retaining journal/state, existing recovery, and full supported-feature evidence"
 ---
 
 # Complete fenced live data restore across supported engines and volumes
@@ -45,16 +50,16 @@ The supported targets are **local k3d running k3s** and **k3s on a NixOS VM in G
 
 ## Purpose / Big Picture
 
-
-An operator can restore PostgreSQL, Redis, ClickHouse, and application volumes through reviewed operations, including an existing live target. Writers are stopped and their exclusion is proved before data changes; failure leaves a recoverable, visibly fenced target rather than silently reopening it.
-
+An operator can restore verified PostgreSQL, Redis, and ClickHouse backups into isolated database destinations, and application-volume backups into a new PVC. Known content and destination identity are verified while the source remains untouched. The accepted shared fence and recovery of existing operations remain intact; general live overwrite and automatic promotion/cutover are deferred.
 
 ## Progress
 
+**2026-09-28 scope decision.** [MP-23](../masterplans/23-make-managed-resources-first-class-through-typed-scoped-inventories.md) now retains the cross-tool journal/state, verified backups, and isolated restores while deferring general live overwrite, new interactive mutating maintenance, and generalized scheduled pruning. Historical findings below describe the earlier contract and retain their evidence; their superseded completion requirements do not add work back to this plan. Supported behavior still requires full proof.
+
 
 - [x] M1: The production shared fence is bound to saved reviews, proves supported local k3s writer exclusion and durable interruption/recovery, and releases only after real verification, satisfying the six closure criteria below. Full restore commands/content belong to M2/M3; cloud integration belongs to EP-156.
-- [ ] M2: Reviewed scratch and live-target restore work for PostgreSQL, Redis, and ClickHouse with integrity checks, explicit recovery, and wrong-incarnation refusal.
-- [ ] M3: Reviewed live-target volume restore preserves exact PVC identity and writer exclusion, with content verification and interruption recovery.
+- [ ] M2: Reviewed isolated restore works for PostgreSQL, Redis, and ClickHouse with content verification, source preservation, explicit recovery, and wrong-incarnation refusal.
+- [ ] M3: Reviewed restore to a new PVC verifies archive/content and destination identity, preserves the source PVC, and recovers interruption without blind replay.
 
 Inherited: manual receipts and expiry validation, PostgreSQL scratch restore, and separate-PVC scratch volume restore are implemented. Live --into-live volume behavior was removed pending a safe replacement. These delivered scratch paths remain regression baselines, not new milestones.
 
@@ -236,6 +241,8 @@ The reviewed fixture ran one UID-bound PVC marker write inside the acquired fenc
 
 ## Decision Log
 
+2026-09-28: Retain accepted M1 and narrow M2/M3 to isolated database destinations and new-PVC recovery. General live overwrite and automatic promotion are deferred by operator decision. Preserve historical live proofs and recovery code; EP-153 blocks new deferred admissions without stranding active records.
+
 2026-09-27: The operator explicitly prohibits GKE. Remove the invented GKE acceptance/access requirement and use only local k3d/k3s plus GCP Compute Engine/NixOS/k3s. EP-156 retains actual cloud integration. Fix M1 to the six shared-contract closure criteria; production engine restore/content belongs to M2 and live-volume recovery to M3. Preserve safety checks and successful evidence without adding providers, general security projects, or repeated broad validation as new completion gates.
 
 
@@ -266,6 +273,8 @@ The reviewed fixture ran one UID-bound PVC marker write inside the acquired fenc
 
 ## Outcomes & Retrospective
 
+2026-09-28: M1 stays accepted. M2/M3 remain open for reconciliation of recorded isolated-restore evidence with the revised failure/source-preservation assertions and final candidate integration; this edit claims no new completion.
+
 
 
 
@@ -277,7 +286,7 @@ This plan takes only unfinished work from [EP-148](148-route-application-and-dat
 
 cli/nagarectl/src/Nagare/Inventory/Command.hs supplies the command service; cli/nagarectl/src/Nagare/Inventory/Plan.hs, cli/nagarectl/src/Nagare/Inventory/Execute.hs, cli/nagarectl/src/Nagare/Inventory/Journal.hs, and cli/nagarectl/src/Nagare/Inventory/Store.hs own review, execution, receipts, and history. cli/nagarectl/app/Main.hs is the shared command registration surface. Keep behavior in named modules and preserve concurrent changes to registration and tests. Public output must not contain credentials or private native bundles.
 
-[ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md) requires independent ownership, exact reviewed effects, and full release acceptance despite this split. [ADR 4](../adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md) keeps private history outside immutable payloads. These plans do not relax the existing fresh-context release boundary or the accepted offline-only Cloudflare proof. A refusal protects an unfinished feature but cannot count as its completion.
+[ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md), including its 2026-09-28 scope amendment, requires independent ownership, exact reviewed effects, and full evidence for the revised supported contract. [ADR 4](../adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md) keeps private history outside immutable payloads. These plans do not relax the existing fresh-context release boundary or the accepted offline-only Cloudflare proof. A supported feature cannot close through refusal alone; an explicitly deferred route requires a tested admission guard and recovery compatibility, not a claim of implementation.
 
 cli/nagarectl/src/Nagare/Inventory/Restore.hs provides ManualRestoreRequest, compileManualRestoreScope, and compileVolumeRestoreScope. cli/nagarectl/src/Nagare/Database/Restore.hs and cli/nagarectl/src/Nagare/Storage/Restore.hs render the current bounded native restore Jobs. cli/nagarectl/src/Nagare/Inventory/Backup.hs parses checked receipts; cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs and cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesRuntime.hs enforce native UID and receipt checks. cli/nagare-dsl/src/Nagare/Dsl/Database.hs defines the three supported engines. Existing scratch restore does not establish an exclusive live-target fence.
 
@@ -287,7 +296,9 @@ A data fence is durable permission state plus observed provider controls that pr
 ## Plan of Work
 
 
-### M1 — Finite closure criteria
+### M1 — Accepted shared fence; retained closure record
+
+M1 is already accepted. The six criteria and original interface description below preserve its proof; they do not require extending live restore or maintenance in this release. Existing unresolved fences still block conflicting work and retain evidence-bound recovery. M2/M3 have the narrower contract specified below.
 
 
 **1. Reviewed production integration.** The production native fence constructor/factory attaches the implemented controls to the appropriate inventory executor. A saved-review integration fixture exercises real planning capture, private immutable fence-member publication, fresh-process loading, and executor admission. Apply must use the saved intent rather than recapture it. Wrong context, revision, target identity, or missing capability refuses before effects. The fixture may supply a bounded test data operation through the existing command service; do not add a public test-only mutation command or require all live restore CLI modes to close this milestone.
@@ -306,17 +317,21 @@ M1 owns the shared implementation in new cli/nagarectl/src/Nagare/Inventory/Data
 
 Before mutation, enumerate accepted workloads, schedules, hooks, and other managed clients that can write the target. Apply reviewed controls to stop/quiesce them, drain in-flight work, and prevent controller recreation or new connections. Database-native connection/write exclusion and workload/network controls must be established from observed provider facts; a CLI lock, scale-to-zero request without observation, or an advisory database lock is not enough. Volume recovery must account for every mounted writer and attachment. Preserve original writer configuration for a separately verified release. Unsupported or unknown writer control refuses before data mutation and remains an explicit unfulfilled case, not a completed live restore. Fence acquisition may remain in progress across bounded reviews where new provider facts are required. Define and test recovery after each transition before adding engine effects. Expose opaque acquire/verify/recover/release operations consumed by maintenance; callers cannot fabricate a fence proof.
 
-### M2 — Database restore
+### M2 — Isolated database restore
 
+Complete the existing saved-review restore paths for PostgreSQL, Redis, and ClickHouse. Bind the exact manual or accepted EP-159 scheduled receipt, object version/digest, source incarnation, native format, declared destination, and current destination identity. Reuse the recorded native engine roundtrips; an upload or successful Job alone does not prove recoverability. Verify known rows/keys/schema and engine health before recording completion.
 
-M2 extends the current saved-review restore command and Jobs to PostgreSQL, Redis, and ClickHouse, including their scratch isolation and live-target modes. Bind the exact backup receipt, current object version/digest, accepted target revision and physical identities, engine/format compatibility, and recovery requirements. Require a verified pre-change backup or a still-valid rollback target before overwriting live data. Reuse the existing manual source first; consume EP-159 scheduled receipts through the same verified selector once available. Engine-specific restore execution must stay inside the proved fence, verify known content and engine health, and only then permit an explicit release that restores prior writer intent. A changed target, expired or corrupt source, failed restore, lost response, or incomplete verification keeps the fence and requires forward recovery. Do not drop/recreate an uncertain database merely to retry. The distinct engine procedures and their postconditions belong in fixtures and user docs, not a generic success-on-Job-exit rule.
+Use each engine's bounded existing isolation: a distinct scratch database for PostgreSQL/ClickHouse or a separate Redis instance, with reviewed names and collision checks. Isolation means the restore cannot overwrite the source database/data or an unrelated destination; it does not require a new Kubernetes cluster for every restore. Source identity remains bound to the receipt, while the recovery destination has its own declared identity. Refuse a pre-existing or changed destination unless the same already-admitted operation proves its ownership. Keep restored data for inspection; application promotion or automatic traffic/write cutover is outside this milestone.
 
-### M3 — Live-volume restore
+Failure or acknowledgement loss must observe the same destination and exact operation before resuming. Preserve source and backup objects; do not re-run a destructive restore into uncertain data or silently drop a destination to retry. Retain existing live-fence recovery interfaces for already-admitted work, but [EP-153](153-close-managed-command-coverage-for-the-inventory-release.md) must prevent new general live-overwrite admission, including old saved reviews that never began.
 
+### M3 — New-PVC volume restore
 
-M3 restores into an exact accepted live PVC with all writers stopped and attachment state verified. Reuse the existing archive/receipt checks and scratch restore when preparing recovery. Capture the pre-change recovery position, validate archive entries before extraction, and compare known file content after restore. Do not reinterpret a new scratch PVC as successful live-target restoration. Preserve target identity and any retained source/recovery data. A partial extraction remains fenced until an explicit reviewed recovery and verification succeeds.
+Complete the existing separate-PVC path. Declare a new destination PVC and restore Job before effects, validate receipt/object identity and archive safety before extraction, then verify known file content and the observed destination PVC UID. The source PVC and unrelated mounts/files remain unchanged. No physical-identity-preserving overwrite of the live PVC is required or permitted as a newly supported route. Replacement promotion/mount cutover is outside M3.
 
-Extend cli/nagarectl/test/InventoryTransactionSpec.hs and cli/nagarectl/test/InventoryKubernetesSpec.hs, adding a focused DataFenceSpec.hs test group and Cabal/Spec registration. Test each transition with injected failure, live and scheduled writer interference, second-process admission, and source/target substitution. Each engine and live volume need targeted native content/recovery proof. EP-155/156 may provide those runs without a closure prerequisite; final acceptance cannot use recording-only restore success.
+Inject interruption after destination creation, during extraction, and before verification. The journal must expose unresolved work and recover against the exact accepted destination without claiming successful restoration or deleting the source. Preserve original archives and receipts. Reuse the existing safe extraction checks and accepted fence primitives where actually needed; do not force a source outage merely to satisfy the former live-overwrite design.
+
+Extend the existing transaction/Kubernetes/restore fixtures only for these supported assertions and regressions to retained recovery. Native content/recovery proof remains required for every engine and the new-PVC path. EP-155/156 can supply shared runs before administrative plan closure. General live-data procedures, new maintenance process policies, and new tool adapters are deferred, not hidden failures in these milestones.
 
 
 ## Concrete Steps
@@ -346,26 +361,23 @@ nagarectl inventory resume "$TRANSACTION" --yes
 ```
 
 
-**M2/M3 command work, not M1 closure:** Keep the current restore commands and implement their reviewed live-target mode. The new `--recovery-backup` input names a verified pre-change recovery artifact distinct from the selected restore source, unless the accepted recovery policy proves the same artifact is sufficient. The following are required interfaces after implementation, against an explicitly selected disposable context:
+**M2/M3 current command work:** Use the existing isolated restore commands without `--into-live`. Against an explicitly selected disposable context, save a separate review for each destination:
 
 ```bash
-nagarectl db restore "$DB" "$BACKUP_ID" --restore-id restore-fixture-1 --into-live --recovery-backup "$RECOVERY_ID" --save-plan "$REVIEW"
-nagarectl storage restore "$APP" "$VOLUME" "$BACKUP_ID" --restore-id volume-fixture-1 --into-live --recovery-backup "$RECOVERY_ID" --save-plan "$VOLUME_REVIEW"
+nagarectl db restore "$DB" "$BACKUP_ID" --restore-id restore-fixture-1 --save-plan "$REVIEW"
+nagarectl storage restore "$APP" "$VOLUME" "$BACKUP_ID" --restore-id volume-fixture-1 --save-plan "$VOLUME_REVIEW"
 ```
 
-Use a separate review for each fixture. Planning must display source, target, affected writers, recovery reference, and fence/release steps without mutating them. Apply only the inspected saved review with `nagarectl inventory apply "$REVIEW" --yes`; any required staged follow-up review is explicitly linked to the same recovery identity. Read-only inventory status reports an active/unresolved fence. Recovery and fence release use the existing explicit recovery/review boundary, with exact syntax documented when that integration is implemented.
+Inspect the source receipt, destination identity, native format, and verification steps before applying the saved review. Capture source content/UID observations before and after. New `--into-live` admission must refuse under EP-153's release boundary; existing recovery commands above remain for already-admitted operations with their original evidence. Do not turn a historical review into a new live restore.
+
 
 ## Validation and Acceptance
 
+M1 remains accepted under its six recorded criteria. M2/M3 require native backup-to-isolated-destination roundtrips for PostgreSQL, Redis, ClickHouse, and a new PVC. Seed known source rows/keys/files, back up, change the source, restore into the reviewed separate destination, and prove the destination matches the backup while the source retains its changed content and identity. Unrelated application/platform revisions remain fixed. Use manual and scheduled receipts through the shared selector, including scheduled Job cleanup and wrong source/version/format cases.
 
-**M1 acceptance is exactly the six closure criteria in Plan of Work. The following complete restore scenarios are M2/M3 acceptance and remain mandatory before this plan closes.**
+Interrupt after destination creation, during restoration, and before recorded verification. A fresh process must observe the exact unresolved record and recover without blind destructive replay. Corrupt archives, foreign/pre-existing destinations, changed PVC/StatefulSet identity, and missing/wrong-incarnation receipts refuse. A zero exit code without content verification is insufficient. Retain regression proof that previously admitted live fences remain recoverable; new general live overwrite must refuse through all admission routes.
 
-Use disposable databases containing known rows/keys and a PVC containing known files. Back up, change the live content, acquire a reviewed fence, restore, and prove the backed-up content and expected native identity before reopening writers. Run this for all three engines and the volume path. Prove a competing writer cannot write during recovery, and that unrelated application and platform revisions remain fixed. Scratch restores must remain isolated from their source.
-
-Kill the operator or lose the acknowledgement at fence acquisition, after data mutation, during verification, and before release. A fresh process must see the exact unresolved record, refuse conflicting apply/prune/maintenance, and recover without a second destructive restore. Missing or wrong-incarnation backups, changed PVC/StatefulSet identity, failed client drain, foreign mounts, and corrupt archives refuse safely. Restore success requires verified data and the recorded writer-release outcome; no unknown effect can be reported as completed.
-
-Use focused tests while implementing one coherent milestone, then the affected full suite/build and documentation checks at its acceptance boundary. Repeat broad gates only after a relevant change or failure. Record the exact command, candidate revision, review/transaction IDs, fixture identity, result, and evidence location. Distinguish recording-provider tests from real provider evidence. Shared integration runs may supply the same assertion to several plans; do not wait for administrative plan closure to run them. Keep Progress checkboxes directly under Progress, without nested headings.
-
+Run focused tests during implementation and the affected full suite/build/style/docs gates at a coherent acceptance boundary. Record candidate revision, review/transaction IDs, exact fixture/source/destination identities, native observations, and evidence location. EP-155/156 supply full local/GCP integration; recording fixtures cannot substitute for native content proof. No milestone is completed merely by this scope edit.
 
 ## Idempotence and Recovery
 
@@ -376,10 +388,12 @@ Use isolated test state and exact disposable resource identities. Retain the sav
 ## Interfaces and Dependencies
 
 
-Completed [EP-146](146-reconcile-cloud-host-and-artifact-resources-through-inventory-adapters.md), [EP-147](147-compile-cluster-bootstrap-into-owned-resource-components.md), [EP-149](149-explain-drift-and-execute-reviewed-adoption-migration-and-retirement.md), and [EP-151](151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes.md) are hard prerequisites. Own DataFence.hs and its store/admission protocol. [EP-161](161-provide-scoped-interactive-maintenance-with-durable-recovery.md) owns interactive session handling and consumes this fence; agree the opaque contract at M1 and do not require the entire restore plan to close before maintenance starts. [EP-159](159-complete-scheduled-backup-receipts-and-exact-retention-pruning.md) owns scheduled receipt production; manual receipts allow independent restore development. [EP-153](153-close-managed-command-coverage-for-the-inventory-release.md) audits all entrypoints for fence admission. [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md)/[EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md) supply reusable integrated proof, and [EP-157](157-gate-the-inventory-release-on-complete-immutable-evidence.md) keeps the complete release gate. The earlier estimates are superseded by the corrected milestone boundary; reforecast from the remaining named closure criteria after the saved-review local fixture. EP-156 cloud proof must not be pulled back into M1. No required restore feature or release proof is waived.
+Completed [EP-146](146-reconcile-cloud-host-and-artifact-resources-through-inventory-adapters.md), [EP-147](147-compile-cluster-bootstrap-into-owned-resource-components.md), [EP-149](149-explain-drift-and-execute-reviewed-adoption-migration-and-retirement.md), and [EP-151](151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes.md) are hard prerequisites. Own DataFence.hs and its store/admission protocol. EP-161 is Cancelled; preserve its already-recorded session/fence recovery through EP-153 without implementing new maintenance consumers. [EP-159](159-complete-scheduled-backup-receipts-and-exact-retention-pruning.md) owns scheduled receipt production; manual receipts allow independent restore development. [EP-153](153-close-managed-command-coverage-for-the-inventory-release.md) audits all entrypoints for fence admission. [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md)/[EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md) supply reusable integrated proof, and [EP-157](157-gate-the-inventory-release-on-complete-immutable-evidence.md) keeps the complete release gate. The earlier estimates are superseded by the corrected milestone boundary; reforecast from the remaining named closure criteria after the saved-review local fixture. EP-156 cloud proof must not be pulled back into M1. The 2026-09-28 decision defers general live overwrite and automatic promotion; full proof for isolated recovery and retained recovery compatibility remains required.
 
 
 ## Revision Notes
+
+2026-09-28: Replace live-overwrite release obligations and examples with verified isolated restores; retain accepted shared fencing, native engine proof, and existing transaction recovery.
 
 
 2026-09-27: Remove every invented GKE requirement, withdraw the GKE access question, define six finite M1 closure criteria, and keep engine restore, volume recovery, and actual cloud integration in M2, M3, and EP-156 respectively. Existing local evidence and all full-release safety gates are retained.

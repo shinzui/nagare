@@ -11,6 +11,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-09-28T14:26:34Z
+  revisions:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-28T15:02:11Z
+      mode: "update"
+      note: "Constrain tool evaluation to retained journal/state and current engines; add bounded Velero backup assessment without selecting a tool"
 ---
 
 # Evaluate established tooling against Nagare's managed-resource layers
@@ -22,43 +28,36 @@ If durable project context changes, update or create ADRs in docs/adr/ in the sa
 
 ## Purpose / Big Picture
 
-Nagare's managed-resource initiative (MasterPlan 23) has built its own state store, planner,
-Kubernetes executor, backup receipts, retention pruning, data fencing, live restore, fenced
-maintenance sessions, and release evidence. A first-pass review,
-[RES-3](../research/managed-resource-inventory-scope-and-tooling-overlap.md), found that these
-layers appear to overlap established tools, but it evaluated none of them. Nagare will now also be
-run by a team as a workplace intranet PaaS, where colleagues must be able to maintain and audit
-the platform, which raises the stakes of that choice.
+Evaluate whether established database and Kubernetes/volume backup tools would reduce Nagare's long-term maintenance while preserving its developer experience, reliability, and ownership contract. [RES-3](../research/managed-resource-inventory-scope-and-tooling-overlap.md) is a preliminary overlap survey; it does not establish that another tool replaces the guarantees Nagare needs.
 
-After this plan, the operator has a measured, evidence-backed comparison for each layer: the best
-established candidate (or candidates), what it does and does not cover relative to Nagare's own
-implementation, its footprint on a single node, how it would compose with Nagare's typed inventory,
-and what adopting it would retire or cost. The result is a new research record that supersedes
-RES-3 and a recommendation per layer (adopt a tool, keep Nagare's implementation, or combine them)
-that the operator can accept or reject. This plan decides nothing on the operator's behalf and
-changes no production code.
+The operator has decided to retain typed scopes and the cross-tool journal/state, and has separately reduced [MP-23](../masterplans/23-make-managed-resources-first-class-through-typed-scoped-inventories.md). Evaluate tools beneath that boundary. No Flux, implicit substitute GitOps system, additional messaging engine, or new general provider framework. Existing PostgreSQL, Redis, and ClickHouse are the database scope; likely future database engines inform extension cost only.
 
+Velero is specifically a backup/recovery evaluation candidate, not an adoption recommendation or selected dependency. The result is a bounded, evidence-backed comparison of keeping native tools versus delegating specific responsibilities, with exact code/tests that could be retired and new integration/operational costs. This plan changes no production code, does not gate MP-23, and does not reactivate its deferred live overwrite, maintenance, or generalized pruning work.
 
 ## Progress
 
-- [ ] M1: Desk evaluation. For each layer, the current release of every candidate is identified
-  from its authoritative registry or release tags, its documented behavior is summarized against
-  the evaluation questions, and candidates that clearly cannot fit are eliminated with a stated
-  reason.
-- [ ] M2: Local prototypes. Each surviving candidate that would replace a data-safety or ownership
-  layer has a bounded prototype on an isolated k3d cluster with a recorded pass/fail result and
-  measured memory use, and the cluster is removed afterwards.
-- [ ] M3: Scored comparison and recommendation. A research record superseding RES-3 scores every
-  surviving candidate against the team requirements from EP-162 M1, and the recommendation is
-  presented to the operator.
+- [ ] M1: Evaluate the finite candidate boundaries below using current authoritative releases/docs; record coverage, limitations, and eliminations without requiring a replacement for every Nagare layer.
+- [ ] M2: Run bounded local prototypes for credible PostgreSQL and Kubernetes/volume-backup candidates, or record a decisive documented incompatibility; measure operational footprint and recovered content.
+- [ ] M3: Score the surviving choices against EP-162 M1 requirements in a validated research record, distinguish recommendation from adoption, and record the operator's decision.
 
+2026-09-28: This scope update records preliminary Velero desk findings and evaluation criteria only. No candidate has been installed, benchmarked, selected, or accepted; all milestones remain open.
 
 ## Surprises & Discoveries
 
-(None yet.)
+2026-09-28 preliminary Velero backup assessment, not prototype evidence:
 
+- [Filesystem backup documentation](https://velero.io/docs/v1.18/file-system-backup/) describes a beta filesystem path that reads live data rather than a single point-in-time image. It needs node-agent access to the node filesystem, normally as root. It supports `local` volumes but excludes `hostPath`. Nagare configures local-path storage in `nixos/hosts/nagare-01/k3s.nix`; inspect actual PVs and provisioner settings before concluding compatibility from the storage-class name. Do not assume CSI snapshots exist.
+- [Backup hooks](https://velero.io/docs/v1.18/backup-hooks/) can run before/after backup, including filesystem freezing. Inference: hook completion alone is not proof of application-consistent PostgreSQL/Redis/ClickHouse recovery. Compare the current engine-native dump formats and a bounded quiescing procedure; measure required downtime and failure/unfreeze behavior.
+- [Restore reference](https://velero.io/docs/v1.18/restore-reference/) documents skipping existing resources by default, with ServiceAccount handling as an exception. Updating an existing PVC object does not restore its underlying data. Evaluate recovery into a distinct namespace/new PVC and explicit ownership boundaries, not general in-place live restoration.
+- [GCP plugin](https://github.com/velero-io/velero-plugin-for-gcp) and [AWS/S3 plugin](https://github.com/velero-io/velero-plugin-for-aws) are candidate transport integrations for GCS and local MinIO. Verify compatible released versions and credential requirements before a prototype. This establishes a path to investigate, not proved Nagare transport support.
+
+Initial judgment: Velero may simplify Kubernetes resource/volume backup and recovery. Its value for the current local-path installation and database correctness is unresolved. It would not replace Pulumi/NixOS recovery or Nagare's cross-tool state/journal. If compatibility needs a new storage platform or a large custom database-consistency layer, record the added cost and prefer a narrower or rejected role rather than expanding MP-23.
 
 ## Decision Log
+
+- Decision: Keep the cross-tool journal/state and typed ownership as fixed inputs. Exclude Flux and new messaging engines. Prioritize existing native backups, CloudNativePG/Barman for PostgreSQL, and Velero for Kubernetes/volume backups; do not choose a tool before evidence.
+  Rationale: The operator approved reducing MP-23 and explicitly clarified that the Velero question is evaluation only.
+  Date: 2026-09-28
 
 - Decision: Prototype only on a dedicated, disposable local k3d cluster; never on a cloud context
   or on the Nagare local context's own cluster.
@@ -83,7 +82,8 @@ MasterPlan 23 (`docs/masterplans/23-make-managed-resources-first-class-through-t
 adds a *typed inventory*: every managed resource is declared in Haskell with a stable identifier
 and an owner, owners' declarations are composed, and conflicting claims are refused before any
 change. That core lives in `cli/nagare-dsl/src/Nagare/Resource/` and is not in question here. The
-layers under evaluation are in `cli/nagarectl/src/Nagare/Inventory/`:
+implementation surfaces to account for are in `cli/nagarectl/src/Nagare/Inventory/`; listing a
+surface does not authorize replacing it:
 
 - State, review, and execution: `Store.hs`, `Store/` (including the GCS store from EP-151),
   `Plan.hs`, `Journal.hs`, `Execute.hs`, `Adapter.hs`. A *journal* is the durable log of which
@@ -101,16 +101,23 @@ layers under evaluation are in `cli/nagarectl/src/Nagare/Inventory/`:
   `.github/workflows/release.yml`.
 
 The managed databases are PostgreSQL, Redis, and ClickHouse, run as single-replica StatefulSets;
-backups go to GCS in the cloud and MinIO locally. Any candidate must support both object stores and
-the three engines, or state which it covers.
+backups go to GCS in the cloud and MinIO locally. A candidate must identify the exact engines and
+object stores it covers. A PostgreSQL-only tool can be useful; it need not become a universal
+backup framework. Every adoption proposal must state the remaining native paths.
 
-RES-3's candidate list, which this plan starts from and may extend: Pulumi state backends, update
-plans, and the Pulumi Kubernetes provider; kapp (Carvel); Kubernetes server-side apply field
-management; Helm ownership annotations; Flux and Argo CD (GitOps tools, where the desired state is a
-git repository and changes are approved as pull requests); CloudNativePG (a PostgreSQL operator with
-barman-cloud backups, fencing, hibernation, and recovery); K8up and restic retention; Velero;
-object-store lifecycle rules; and GitHub artifact attestations. Redis and ClickHouse have no
-candidate in RES-3; M1 must look for them.
+The finite candidate set and questions are:
+
+| Boundary | Candidate comparison | Scope of decision |
+|---|---|---|
+| Cross-tool identity/review/history | Existing Nagare plus native Pulumi/NixOS/Kubernetes state | Retain; examine adapter interfaces and coordination cost, not wholesale replacement. |
+| PostgreSQL backup/recovery | Current native dump/restore versus CloudNativePG with Barman Cloud | Source consistency, separate-target recovery, GCS/MinIO, controller lifecycle, single-node overhead, and code retired. No HA mandate. |
+| Kubernetes resources and volumes | Current declarations/archive path versus Velero | Actual local-path PV support, consistency, restore collisions, backup catalogue/deletion behavior, and footprint. |
+| Redis/ClickHouse backups | Current native engine formats and existing reviewed transport | Keep as baseline; assess only concrete backup deficiencies. No exhaustive operator search or additional engine. |
+| Retention or backup transport alternative | K8up/restic only if the primary comparisons expose a specific unresolved need | Bounded desk comparison first; no mandatory prototype of every candidate. Object-store lifecycle alone must not erase recovery references. |
+| Kubernetes apply | Existing native executor; optional kapp comparison if a concrete retirement case emerges | Lower priority; not a mandatory migration or prototype. No GitOps-platform substitution. |
+| Release evidence | Existing native/local/cloud proof and immutable evidence | Retain. Artifact attestations may complement provenance; they do not replace behavior proof or create a new project. |
+
+Preserve the single lifecycle-owner rule. A prospective operator owns its generated children through explicit delegation; Nagare declares the parent/interface and records external operation identities and verified results without reproducing a second tool's internal scheduler or backup catalogue. Evaluate whether this actually removes maintenance rather than merely adding another layer.
 
 Relevant ADRs:
 [ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md) (the inventory
@@ -126,75 +133,52 @@ Nix releases, relevant to release evidence).
 
 ## Plan of Work
 
-Milestone 1 is desk research. For each layer listed above, answer these questions for every
-candidate: what exactly it does for the job Nagare's layer does; what it does not do; the current
-release and licence (verify against the authoritative registry or release tags, per the repository
-owner's instructions, and use `mori registry search` to find local source for any candidate that is
-registered); memory and CPU requirements on one node; support for GCS and MinIO; how it records
-ownership and history, and whether that would duplicate or replace Nagare's store and journal; how
-it could sit beneath Nagare's typed declarations (for example, Nagare compiles and validates claims,
-then the tool applies); what multi-operator coordination and approval it offers; and what Nagare
-code, tests, and evidence adopting it would retire. Record results in this plan's Surprises &
-Discoveries as short findings with source links. Eliminate candidates that clearly cannot fit, with
-the reason.
+M1 evaluates the finite boundaries in Context and Orientation. Use Mori first for local dependency sources, then current authoritative release tags/registries and documentation. Record versions/licences, covered data/provider modes, ownership and recovery semantics, single-node footprint, credential needs, and exact Nagare code/test obligations removed versus retained. Existing journal/state is a fixed constraint. A partial tool match is acceptable if its narrower role has value. Do not require every layer to acquire a new tool or expand the candidate list without a concrete question.
 
-Milestone 2 is prototyping. For each surviving candidate that would replace a data-safety or
-ownership layer, run a bounded prototype on a disposable k3d cluster named `mp24-eval` with its own
-MinIO. Each prototype states its promote/discard criterion before it runs. At minimum: for
-PostgreSQL, back up a known row to MinIO, change it, restore, and read the original back, measuring
-the operator's memory; for Kubernetes ownership, deploy two independently owned applications that
-both try to claim one Service and record whether the tool refuses the second, and whether it can
-represent Nagare's authorized contributions to a shared object; for volume backup, back up and
-restore a PVC's contents. Record each result and measurement. Delete the cluster when done. Do not
-change Nagare's source; prototypes live under `docs/spikes/mp24-tooling-evaluation/` as scripts and
-notes.
+For Velero, answer these bounded backup questions before selecting a prototype:
 
-Milestone 3 is the comparison. It may begin only after EP-162 M1 is accepted. Write the next
-research record in `docs/research/` using the research-documents profile (`docs/research/profile.dhall`),
-scoring each surviving candidate per layer against EP-162's requirements (cite each by its use-case
-handle) and the questions above, with a recommendation per layer: adopt, keep Nagare's
-implementation, or combine. State the pros and cons plainly, including where Nagare's own
-implementation is stronger. Mark RES-3 `status: superseded` with `supersededBy` naming the new
-handle, and add both changes to the bundle's `log.md` and `index.md`. Then present the
-recommendation to the operator and record the outcome in MasterPlan 24's Decision Log. Do not edit
-MasterPlan 23.
+1. What actual PV type does the current local-path provisioner create, and which supported backup mode would protect it? Verify kubelet/node-agent path and permissions. Do not install CSI or change the storage platform merely to make the trial pass; report that as a separate cost/decision.
+2. Does the backup capture recoverable application data? Distinguish Kubernetes object backup, filesystem copying, snapshots, and native database dumps. For each claimed engine, state the consistency mechanism and any pause required. A successful upload or Backup status is insufficient.
+3. Can restoration use a separate namespace/new PVC, recover known files/rows, preserve the source, and avoid two controllers owning the same object? Explain treatment of CRDs, generated resources, Secrets, and replayed old desired state.
+4. How are backup completion, external IDs, interruption, and deletion represented in Nagare's existing journal? Can retention avoid deleting objects still needed by accepted or unresolved recovery without a second custom retention engine? Separate Velero repository lifecycle from native backup objects.
+5. What resource and maintenance costs remain: idle/backup/restore CPU, memory, temporary disk, object-store traffic, controller/plugin upgrades, credentials, and a fresh-operator recovery procedure? Compare with today's native commands on the same bounded dataset.
 
+M2 prototypes only candidates that survive those questions, on a dedicated disposable local k3d cluster with its own MinIO. Prioritize at most two primary prototypes: PostgreSQL via CloudNativePG/Barman, and Velero Kubernetes/volume backup. A documented hard incompatibility may eliminate a candidate before installation; record the exact reason rather than designing a new platform to satisfy it. State pass/fail criteria and fixture identity before each run. PostgreSQL must recover known rows into a separate destination after source changes. Velero must recover known files/resources into a separate destination with source preservation, exercise a collision and an interrupted backup/restore, and make any incomplete result visible. Claim database backup coverage only after an engine-native content/consistency test; a PVC-file test is not database proof. Measure idle and active memory/CPU/disk for both the tool and required agents/operators. Capture deletion/retention semantics on disposable backups without enabling production expiry.
+
+Check GCS plugin/configuration and credential support against upstream docs during M1; this local prototype is not GCS proof. A future adoption requires actual Compute Engine/NixOS/k3s/GCS validation under a separately reviewed implementation plan. Never use GKE or touch MP-23's retained local fixtures. Keep prototype scripts/notes under `docs/spikes/mp24-tooling-evaluation/`; remove only this plan's proven-owned disposable resources when finished. An optional kapp or K8up/restic prototype needs a concrete unresolved question and should not become a prerequisite for reporting the two primary results.
+
+M3 begins after EP-162 M1 is accepted. Create the next research record using `docs/research/profile.dhall`, scoring survivors against canonical use-case handles, current single-node constraints, DX, recovery reliability, and net maintenance. Include a responsibility map, retained code, retired code, adoption/migration cost, unresolved provider evidence, and promote/reject criteria. Recommend keep, combine, or adopt only for each tested boundary; no tool is selected by this plan update. Mark RES-3 superseded and update the research bundle log/index only when the validated replacement exists. Present the recommendation and record the operator's decision in MP-24; production adoption and any further MP-23 change require a separate decision.
 
 ## Concrete Steps
 
-All commands run from the repository root unless stated.
+All future prototype commands run with an explicit isolated cluster identity. First list local clusters and refuse to reuse an existing `mp24-eval` without proof it belongs to this plan. Verify current k3d options before creation; do not switch the operator's global kube context. Use an isolated kubeconfig and explicit context in prototype scripts.
 
 ```bash
-k3d cluster create mp24-eval --agents 0
-kubectl config use-context k3d-mp24-eval
-# ... prototype scripts under docs/spikes/mp24-tooling-evaluation/ ...
-k3d cluster delete mp24-eval
+k3d cluster list
+mori registry search velero
+mori registry search cloudnative
 ```
+
+Record exact create, install, backup, restore, inspection, and cleanup commands with versions under `docs/spikes/mp24-tooling-evaluation/` before accepting M2. No cluster creation or installation is performed by this planning update. Validate the eventual research record through its existing profile:
 
 ```bash
 okf id next docs/research --profile docs/research/profile.dhall RES
 okf validate docs/research --profile docs/research/profile.dhall
 ```
 
-Before every prototype command, confirm the current kube context is `k3d-mp24-eval`. Stage only the
-files this plan changes, by explicit path.
-
+Stage only this plan's files by explicit path; preserve concurrent MP-23 implementation and private provider material.
 
 ## Validation and Acceptance
 
-M1 is accepted when every layer has at least one candidate evaluated against every question, with
-current release versions and sources, and every elimination has a reason. M2 is accepted when every
-prototype has a recorded pass/fail against its stated criterion, measured memory use, and the
-cluster has been deleted. M3 is accepted when the new research record validates, RES-3 is marked
-superseded, every score cites an EP-162 requirement, and the operator's decision on the
-recommendation is recorded in MasterPlan 24.
+M1 requires a sourced comparison for each finite boundary above, current release/licence checks for concrete candidates, clear fixed/optional/deferred responsibilities, and documented eliminations. It does not require replacing the journal or finding a new tool for every layer. The Velero result must explicitly state backup scope, actual PV compatibility, consistency limits, GCS evidence level, and whether it reduces net maintenance.
 
+M2 requires pass/fail against predeclared criteria, observed restored content/source preservation, recorded failure behavior and measured footprint for each primary survivor; a decisive incompatibility can be accepted as elimination evidence instead of forcing installation. Account for and remove only the disposable resources created by this evaluation. Kubernetes object success alone is neither volume recovery nor database consistency proof.
+
+M3 requires a validating research record with EP-162 requirement references, justified keep/combine/adopt recommendations, RES-3 supersession metadata/log/index, and a recorded operator decision. No production adoption, new MP-23 release dependency, or unperformed cloud proof may be implied. A recommendation to retain current native tools is a valid outcome.
 
 ## Idempotence and Recovery
 
-Prototypes are disposable: deleting and recreating `mp24-eval` resets them. If a prototype leaves the
-cluster in a bad state, delete it and start again. Documentation steps can be repeated safely.
-
+Keep prototypes in their own kubeconfig/cluster/object-store identities. Record ownership before creation and verify it before cleanup; a pre-existing cluster with the same name is not disposable by assumption. Preserve failed-run evidence privately before removing this plan's resources. Do not reset MP-23 fixtures, cloud contexts, inventory state, or existing backups. Documentation steps are repeatable; candidate versions must be rechecked before any later installation.
 
 ## Interfaces and Dependencies
 
@@ -204,3 +188,7 @@ use case in `docs/use-cases/` from
 EP-162 M2's availability ADR is a soft input, and without it candidates are scored under the
 single-node assumption, stated explicitly. Tools needed locally: k3d, kubectl, Docker (or Colima),
 and the candidate tools' own CLIs.
+
+## Revision Notes
+
+2026-09-28: Bound tool research beneath the retained journal/state; prioritize existing database backup and Velero backup evaluation, exclude Flux/new messaging, and separate preliminary findings from prototypes and adoption.
