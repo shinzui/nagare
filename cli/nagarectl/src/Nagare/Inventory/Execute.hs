@@ -65,6 +65,7 @@ data RecoveryAction
   | RecoverFencedBackup
   | ForwardFencedRelease
   | AbandonPartialPrune
+  | AbandonPartialVolumeRestore
   deriving stock (Eq, Show)
 
 data OperatorRecoveryInput = OperatorRecoveryInput
@@ -93,6 +94,7 @@ instance FromJSON OperatorRecoveryInput where
       "recover-fenced-backup" -> pure RecoverFencedBackup
       "forward-fenced-release" -> pure ForwardFencedRelease
       "abandon-partial-prune" -> pure AbandonPartialPrune
+      "abandon-partial-volume-restore" -> pure AbandonPartialVolumeRestore
       _ -> fail "unsupported operator recovery action"
     OperatorRecoveryInput <$> o .: "transaction" <*> o .: "operation"
       <*> o .: "review" <*> pure decision
@@ -511,7 +513,8 @@ recordOperatorRecovery store registry input takeOver = do
                 Right () -> do
                   result <- inspectRecovery lock events (headDataFence headValue)
                   released <- if isRight result && isNothing (headDataFence headValue)
-                    && (recoveryAction input == AbandonPartialPrune
+                    && (recoveryAction input `elem`
+                      [AbandonPartialPrune, AbandonPartialVolumeRestore]
                       || (recoveryAction input == RecoverFencedBackup
                         && isJust (rollbackProof transaction operationId events)))
                     then releaseAbortedClaim lock transaction
@@ -599,6 +602,15 @@ recordOperatorRecovery store registry input takeOver = do
                                 " abandoned; exact provider members require separate recovery")
                             pure (first (\err -> AdmissionError "journal"
                               (showText err) :| []) (() <$ appended))
+                      (AbandonPartialVolumeRestore, RecoveryTerminalFailure physical)
+                        | volumeRestoreOnlyReview published operation -> do
+                            appended <- appendEvent lock transaction (Just operationId)
+                              (OperatorResolved "abandoned-terminal-volume-restore")
+                              ("terminal volume restore Job " <>
+                                physicalIdentityText physical <>
+                                " abandoned; partial scratch PVC requires separate reviewed recovery")
+                            pure (first (\err -> AdmissionError "journal"
+                              (showText err) :| []) (() <$ appended))
                       (AcceptAdapterProof, RecoveryProvedComplete proof) -> do
                         appended <- appendEvent lock transaction (Just operationId)
                           (Completed proof) "operator accepted adapter recovery proof"
@@ -632,6 +644,45 @@ recordOperatorRecovery store registry input takeOver = do
           && case selectedScope of
             [scope] -> Map.member "scheduled.prune.backup.scope"
               (Resource.scopeOverrides scope)
+            _ -> False
+    volumeRestoreOnlyReview published operation =
+      let reviewed = map reviewPlannedOperation
+            (reviewOperations (reviewBundleDocument published))
+          selected = NE.toList (plannedResources operation)
+          scopes = mapMaybe (either (const Nothing) Just . decodeScope)
+            (Map.elems (reviewBundleScopes published))
+          owns member scope = any (\bundle -> any (\case
+            Resource.Managed resource -> resource ^. #identity == member
+            _ -> False) (Resource.declarations bundle)) (Resource.scopeBundles scope)
+       in case selected of
+            [job] ->
+              let restoreScopes = [scope | scope <- scopes, owns job scope,
+                    all (\key -> Map.member key (Resource.scopeOverrides scope))
+                      ["volume-restore.id", "volume-restore.backup.job.uid",
+                       "volume-restore.target.pvc.uid", "volume-restore.scratch"]]
+                  sameScope scope entry = all (`owns` scope)
+                    (NE.toList (plannedResources entry))
+                  actions = map plannedAction reviewed
+                  created = [member | entry <- reviewed,
+                    plannedAction entry == CreateResource,
+                    member <- NE.toList (plannedResources entry)]
+               in case (restoreScopes, created) of
+                    ([scope], [firstCreated, secondCreated]) ->
+                      let managed = [resource ^. #identity |
+                            bundle <- Resource.scopeBundles scope,
+                            Resource.Managed resource <- Resource.declarations bundle]
+                       in plannedAction operation `elem` [CreateResource, RunDeclaredOperation]
+                      && length reviewed == 3
+                      && length (filter (== CreateResource) actions) == 2
+                      && length (filter (== RunDeclaredOperation) actions) == 1
+                      && job `elem` created
+                      && T.isSuffixOf "/job" (resourceIdText job)
+                      && any (T.isSuffixOf "/pvc" . resourceIdText) created
+                      && firstCreated /= secondCreated
+                      && length managed == 2
+                      && Set.fromList managed == Set.fromList created
+                      && all (sameScope scope) reviewed
+                    _ -> False
             _ -> False
     recoverFenced :: forall s. LockedStore s -> Adapter -> PlannedOperation
       -> PreparedNative -> DataFenceRecord -> DataFenceControls -> Maybe Text

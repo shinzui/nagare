@@ -129,6 +129,14 @@ partial restore needs explicit recovery; `--into-live` is unavailable for live
 execution. The older snapshot and restore renderers are read-only `--dry-run`
 previews.
 
+If extraction fails, keep the failed Job and scratch PVC for inspection. A
+version 1 `inventory recover` decision with the exact transaction, failed Job
+operation, review digest, and action `abandon-partial-volume-restore` closes
+only an adapter-proved terminal restore Job. It leaves the possibly partial PVC
+unaccepted. Recover or retire those provider objects through a separate review,
+then restore again with a fresh restore ID and PVC. Do not retry extraction
+into the partial PVC.
+
 ### Managed databases: backed up by default
 
 See **[Managed databases](managed-databases.md)** for the full guide (declaring a

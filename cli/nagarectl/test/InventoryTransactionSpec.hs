@@ -1411,12 +1411,36 @@ inventoryTransactionTests =
         recordOperatorRecovery store registry input False >>= expectRight
         resumeTransaction store registry transaction >>= expectRight >>= (@?= Converged transaction)
         readIORef attempts >>= (@?= 2)
+    , testCase "terminal volume abandonment refuses an unrelated review" $ do
+        store <- newMemoryStore
+        let failed = ok (mkPhysicalIdentity "failed-job")
+            executeOnce _ _ = pure (AdapterEffectAmbiguous "job failed")
+            recover _ _ = pure (RecoveryTerminalFailure failed)
+        (reviewed, registry) <- preparedFixtureWith store executeOnce recover
+        stopped <- applyReviewed store registry reviewed >>= expectRight
+        (transaction, operation) <- case stopped of
+          StoppedAmbiguous value selected -> pure (value, selected)
+          other -> assertFailure (show other) >> undefined
+        let digest = contentDigest (encodeReviewDocument (reviewedDocument reviewed))
+            decision = OperatorRecoveryInput transaction operation digest
+              AbandonPartialVolumeRestore
+        refused <- recordOperatorRecovery store registry decision False
+        assertBool "terminal result alone authorized an unrelated abandonment" (isLeft refused)
+        readHead store >>= expectRight >>= maybe
+          (assertFailure "head missing")
+          (\headValue -> headActiveTransaction headValue @?= Just (transactionIdText transaction))
     , testCase "operator recovery decision DTO is strict" $ do
         let good = "{\"version\":1,\"transaction\":\"tx-abc\",\"operation\":\"op-def\",\"review\":\""
               <> TE.encodeUtf8 (digestText (contentDigest "sample"))
               <> "\",\"action\":\"accept-adapter-proof\"}"
+            volume = "{\"version\":1,\"transaction\":\"tx-abc\",\"operation\":\"op-def\",\"review\":\""
+              <> TE.encodeUtf8 (digestText (contentDigest "sample"))
+              <> "\",\"action\":\"abandon-partial-volume-restore\"}"
         assertBool "valid decision decodes" (either (const False) (const True) (decodeOperatorRecoveryInput good))
         assertBool "unknown field rejected" (isLeft (decodeOperatorRecoveryInput (BS.init good <> ",\"override\":true}")))
+        assertBool "terminal volume action decodes" (either (const False)
+          ((== AbandonPartialVolumeRestore) . recoveryAction)
+          (decodeOperatorRecoveryInput volume))
     , testCase "resume recovers an ambiguous effect before checking its old precondition" $ do
         store <- newMemoryStore
         effected <- newIORef False
