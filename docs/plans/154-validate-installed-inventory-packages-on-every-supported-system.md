@@ -66,6 +66,8 @@ Installed guard checkpoint (2026-09-28): The same smoke passed from the exact co
 
 Installed receipt/listing checkpoint (2026-09-28): The bounded smoke passed again from committed flake revision `7f3e2eac22cf01e8555ca4cc9b6e29805d674e27`, after the retention report and exact accepted-receipt listing changes. `/tmp/nagare-mp23-installed-smoke-7f3e2eac.json` binds that revision, reports `installedSmoke: true` on `aarch64-darwin`, and passes version, context, inventory compilation, payload, operator tools, and local init. Its `cloneFree: false` remains expected for `--smoke-only`; this does not satisfy the full clone-free rehearsal, native Linux gate, or final candidate identity. M1/M2 remain open.
 
+Full clone-free Darwin checkpoint (2026-09-28): `bash scripts/rehearse-clone-free-release.sh --version 0.4.0 --flake-ref 'git+file:///Users/shinzui/Keikaku/bokuno/nagare?rev=ba2161606275c3c0585e5a20bb76a7fbd4207f30' --output /tmp/nagare-mp23-clone-free-ba216160.json` passed outside the checkout with isolated home/config/state. The report binds that exact revision, `aarch64-darwin`, `cloneFree: true`, and version, context, inventory compilation, payload, host config, local/cloud init, context environment, operator recipe, and platform-upgrade checks. Its upgrade dry run remained `planned` with one Pulumi preview and no apply/cloud mutation. M1 still needs the negative package/public-API and secret-exclusion assertions; M2 still needs native `x86_64-linux`, final candidate identity, and the full required gates.
+
 
 ## Surprises & Discoveries
 

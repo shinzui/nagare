@@ -352,6 +352,8 @@ EP-159's accepted-run listing now falls back to immutable provider version and d
 
 EP-160's reviewed new-PVC adapter fixture now refuses a foreign scratch PVC that appears after preparation, with zero provider writes. Native archive content, destination UID, and interrupted extraction recovery still need the public saved-review path before M3 can close.
 
+EP-154's complete clone-free rehearsal passed on installed `aarch64-darwin` for committed revision `ba2161606275c3c0585e5a20bb76a7fbd4207f30`; `/tmp/nagare-mp23-clone-free-ba216160.json` reports the upgrade dry run planned with one preview and no apply. Negative package checks, native Linux, and final candidate gates remain open.
+
 **Implementation order.** Check current child evidence before rerunning a checkpoint. Preserve concurrent work and already-admitted recovery records. The registry states whole-child ownership, not numerical execution order.
 
 | Order | Work and owner | Required handoff |
