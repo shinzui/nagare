@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
+trap 'echo "clone-free platform check failed at line $LINENO: $BASH_COMMAND" >&2' ERR
 
 mkdir -p isolated/home isolated/config isolated/state isolated/empty
 export HOME="$PWD/isolated/home"
@@ -32,8 +33,14 @@ jq -e '.source == "installed" and (.workspaceRoot | type == "string" and length 
   exit 1
 }
 workspace_root="$(jq -er '.workspaceRoot' root.json)"
-test -f "$workspace_root/cluster/examples/uploads-volume/nagare/Config.hs"
-test ! -e "$workspace_root/cluster/secrets"
+test -f "$workspace_root/cluster/examples/uploads-volume/nagare/Config.hs" || {
+  echo "installed workspace lacks the upload-volume example" >&2
+  exit 1
+}
+test ! -e "$workspace_root/cluster/secrets" || {
+  echo "installed workspace contains cluster secrets" >&2
+  exit 1
+}
 mkdir -p "$XDG_CONFIG_HOME/nagare/cluster-secrets/local"
 resolved_secrets="$({
   export NAGARE_PLATFORM_ROOT="$workspace_root"
@@ -42,8 +49,22 @@ resolved_secrets="$({
   . "$workspace_root/scripts/lib/cluster-secrets.sh"
   nagare_cluster_secrets_dir
 })"
-test "$resolved_secrets" = "$XDG_CONFIG_HOME/nagare/cluster-secrets/local"
-grep -q 'run-reviewed-bootstrap.sh' "$workspace_root/cluster/observability/install.sh"
+test "$resolved_secrets" = "$XDG_CONFIG_HOME/nagare/cluster-secrets/local" || {
+  echo "installed cluster secret resolver selected another directory" >&2
+  exit 1
+}
+grep -q 'run-reviewed-bootstrap.sh' "$workspace_root/cluster/observability/install.sh" || {
+  echo "installed observability launcher lacks the reviewed bootstrap path" >&2
+  exit 1
+}
+mkdir -p invalid-platform-root
+if NAGARE_PLATFORM_ROOT="$PWD/invalid-platform-root" \
+  nagarectl platform root --json > invalid-root.out 2> invalid-root.err; then
+  echo "invalid explicit platform root unexpectedly found the installed payload" >&2
+  exit 1
+fi
+test ! -s invalid-root.out
+grep -q 'release.json' invalid-root.err
 # EP-112: the ACME contact is mandatory. Non-interactively, with
 # no --acme-email, `init` must refuse and name the flag; there is
 # no safe default for somebody's mailbox.
@@ -56,12 +77,12 @@ fi
 grep -q -- '--acme-email' init-no-acme.err
 nagarectl init trial --project example --acme-email ops@example.com \
   --dry-run --skip-preflight > init.out
-grep -q 'config set --stack trial nagare:machineType e2-standard-2' init.out
-grep -q 'config set --stack trial nagare:bootDiskType pd-balanced' init.out
-grep -q 'config set --stack trial nagare:bootDiskSizeGb 100' init.out
-grep -q 'config set --stack trial nagare:dataDiskSizeGb 100' init.out
-grep -q 'DRY RUN: would run:' init.out
-grep -q "$XDG_STATE_HOME/nagare/trial/platform/" init.out
+grep -q 'export NAGARE_MACHINE_TYPE=e2-standard-2' init.out
+grep -q 'export NAGARE_BOOT_DISK_TYPE=pd-balanced' init.out
+grep -q 'export NAGARE_BOOT_DISK_SIZE_GB=100' init.out
+grep -q 'export NAGARE_DATA_DISK_SIZE_GB=100' init.out
+grep -q "DRY RUN.*would write context 'trial'" init.out
+grep -q 'nagarectl platform bootstrap plan --out REVIEW' init.out
 
 # EP-128 / IR-7: named init never inherits another current context or ambient
 # target value. A forced re-init reads only its own stored context and keeps its
@@ -193,25 +214,26 @@ grep -q 'scripts/local-smoke.sh' local-smoke-dry-run.out
 nagare --dry-run cluster-bootstrap > cluster-bootstrap-dry-run.out 2>&1
 grep -q 'scripts/run-reviewed-bootstrap.sh' cluster-bootstrap-dry-run.out
 
-# EP-134 / IR-20: every cloud recipe that mutates Kubernetes proves the ambient
-# kubeconfig belongs to the selected Nagare host before its first write. Local
-# recipes deliberately retain their k3d-only preflight.
-assert_cluster_guard_before() {
+# EP-134 / IR-20: cloud bootstrap recipes validate the selected platform
+# before review; direct deployment validates the cluster before its write.
+assert_guard_before() {
   recipe="$1"
-  first_mutation="$2"
+  guard="$2"
+  first_mutation="$3"
   output="${recipe}-guard-order.out"
-  nagare --dry-run "$recipe" > "$output" 2>&1
-  guard_line="$(grep -n -m1 'nagarectl cluster guard' "$output")"
+  shift 3
+  nagare --dry-run "$recipe" "$@" > "$output" 2>&1
+  guard_line="$(grep -n -m1 "$guard" "$output")"
   mutation_line="$(grep -n -m1 -- "$first_mutation" "$output")"
   guard_number="${guard_line%%:*}"
   mutation_number="${mutation_line%%:*}"
   test "$guard_number" -lt "$mutation_number"
 }
 grep -q 'nagarectl platform guard' cluster-bootstrap-dry-run.out
-assert_cluster_guard_before job-runs-bootstrap 'scripts/run-reviewed-bootstrap.sh'
-assert_cluster_guard_before cluster-enable-tls 'kubectl -n knative-serving patch'
-assert_cluster_guard_before observability 'scripts/run-reviewed-bootstrap.sh'
-assert_cluster_guard_before deploy-hello 'kubectl apply -f cluster/examples/hello-knative-service/service.yaml'
+assert_guard_before job-runs-bootstrap 'nagarectl platform guard' 'scripts/run-reviewed-bootstrap.sh'
+assert_guard_before cluster-enable-tls 'nagarectl platform guard' 'scripts/run-reviewed-bootstrap.sh'
+assert_guard_before observability 'nagarectl platform guard' 'scripts/run-reviewed-bootstrap.sh'
+assert_guard_before deploy-hello 'nagarectl cluster guard' 'nagarectl deploy --file' example-image v1
 nagare --dry-run local-bootstrap > local-bootstrap-guard-order.out 2>&1
 grep -q 'scripts/run-reviewed-bootstrap.sh' local-bootstrap-guard-order.out
 nagare --dry-run local-minio > local-minio-guard-order.out 2>&1

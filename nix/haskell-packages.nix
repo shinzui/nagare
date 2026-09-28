@@ -97,7 +97,7 @@ let
     postBuild = ''
       wrapProgram "$out/bin/nagarectl" \
         --prefix PATH : ${lib.makeBinPath [ typedConfigRuntime pkgs.bind.dnsutils ]} \
-        --set NAGARE_PLATFORM_ROOT ${platformPackage}/share/nagare
+        --set-default NAGARE_PLATFORM_ROOT ${platformPackage}/share/nagare
     '';
     meta.mainProgram = "nagarectl";
   };
@@ -123,7 +123,7 @@ let
       # Keep Pulumi behind the caller's PATH for the same reason as the
       # operatorNagarectl suffix above. Recipes invoke Pulumi directly.
       export PATH="$PATH:${lib.makeBinPath operatorTools}"
-      export NAGARE_PLATFORM_ROOT="${platformPackage}/share/nagare"
+      export NAGARE_PLATFORM_ROOT="''${NAGARE_PLATFORM_ROOT:-${platformPackage}/share/nagare}"
       workspace_json="$(nagarectl platform root --json)"
       workspace_root="$(printf '%s' "$workspace_json" | jq -er '.workspaceRoot')"
       export NAGARE_WORKSPACE_ROOT="$workspace_root"

@@ -41,7 +41,7 @@
   # Prove the installed wrapper loads a typed config from a directory with
   # no Nagare checkout ancestor and no Cabal-generated package environment.
   nagarectl-external-config = pkgs.runCommand "nagarectl-external-config"
-    { nativeBuildInputs = [ nagarePackages.nagarectl ]; src = src; }
+    { nativeBuildInputs = [ nagarePackages.nagarectl nagarePackages.typedConfigRuntime pkgs.jq ]; src = src; }
     ''
       bash ${./scripts/nagarectl-external-config.sh}
     '';
