@@ -356,6 +356,8 @@ EP-154's complete clone-free rehearsal passed on installed `aarch64-darwin` for 
 
 EP-154's two installed negative package checks now pass on `aarch64-darwin` from exact revision `c7fdb132a22e62b853f666a57714c8ff93553215`. The clone-free platform fixture excludes packaged secrets, resolves context-owned secret paths, refuses an invalid explicit payload root, and checks guarded reviewed recipes. The external typed-config fixture loads a valid config outside the checkout and refuses both an invalid config and construction of a private DSL type. The invalid-root check exposed and fixed an installed wrapper that had overwritten caller intent. M1 still needs the complete supported command payload matrix; M2 still needs native Linux and final-candidate evidence.
 
+The full clone-free Darwin rehearsal also passed on that exact committed revision. `/tmp/nagare-mp23-clone-free-c7fdb132.json` reports `cloneFree: true`, all ten installed checks, and a planned platform upgrade with one preview and no apply. The retained local Redis receipt listing still reports nine accepted and three pruned runs, but its source scope has not been replaced; it is not native historical-schedule evidence. EP-159's historical producer/consumer case remains open.
+
 **Implementation order.** Check current child evidence before rerunning a checkpoint. Preserve concurrent work and already-admitted recovery records. The registry states whole-child ownership, not numerical execution order.
 
 | Order | Work and owner | Required handoff |
