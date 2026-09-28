@@ -2833,6 +2833,40 @@ dataFenceTests = testGroup "data fence"
         final <- readHead store >>= right >>= maybe
           (assertFailure "head missing" >> error "head") pure
         headDataFence final @?= Nothing
+    , testCase "review selects and replays one of two fence capabilities" $ do
+        store <- newMemoryStore
+        released <- newIORef False
+        restored <- newIORef (0 :: Int)
+        let controls = fixtureControls released restored (pure (Right physical))
+            effect _ _ = pure AdapterEffectCompleted
+            recovery _ _ = pure RecoverySafeToRetry
+            customize desired registry = known $ do
+              firstRegistry <- withAdapterFence registry KubernetesExecutor
+                AdapterFence
+                  { fenceCapability = "a-unselected-fence-v1"
+                  , fenceForOperation = \_ _ -> pure (Right Nothing)
+                  , fenceFromReviewedRecord = \_ _ _ -> Left
+                      "unselected fence replayed"
+                  , fenceResolveUncertainEffect = Nothing
+                  }
+              withAdapterFence firstRegistry KubernetesExecutor AdapterFence
+                { fenceCapability = "b-selected-fence-v1"
+                , fenceForOperation = \_ _ -> pure (Right (Just
+                    (request {fenceContext = fixtureBinding,
+                      fenceAccepted = desired})))
+                , fenceFromReviewedRecord = \_ _ _ -> Right controls
+                , fenceResolveUncertainEffect = Nothing
+                }
+        (reviewed, registry) <- preparedFixtureWithRegistry store effect recovery
+          customize
+        assertBool "review selected the wrong capability" (any
+          ((== Just "b-selected-fence-v1") . reviewFenceCapability)
+          (reviewOperations (reviewedDocument reviewed)))
+        applied <- applyReviewed store registry reviewed >>= right
+        case applied of
+          Converged _ -> pure ()
+          _ -> assertFailure "the selected fence did not converge"
+        readIORef restored >>= (@?= 1)
     , testCase "saved fenced review refuses a registry without its capability" $ do
         store <- newMemoryStore
         effects <- newIORef (0 :: Int)

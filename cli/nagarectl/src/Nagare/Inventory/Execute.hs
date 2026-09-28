@@ -489,7 +489,7 @@ recordOperatorRecovery store registry input takeOver = do
                   Right (Just (saved, controls)) | Just active <- activeFence
                     , sameReviewedFence transaction saved active ->
                       recoverFenced lock adapter (reviewPlannedOperation reviewOperation)
-                        prepared active controls
+                        prepared active controls (reviewFenceCapability reviewOperation)
                   Right (Just _) | isNothing activeFence
                     , recoveryAction input == RetryAfterAdapterProof
                     , Just lastEvent <- find
@@ -526,9 +526,9 @@ recordOperatorRecovery store registry input takeOver = do
                             pure (first (\err -> AdmissionError "journal" (showText err) :| []) (() <$ appended))
                       _ -> pure (failure "unsupported-recovery" "adapter did not prove the operator's requested action")
     recoverFenced :: forall s. LockedStore s -> Adapter -> PlannedOperation
-      -> PreparedNative -> DataFenceRecord -> DataFenceControls
+      -> PreparedNative -> DataFenceRecord -> DataFenceControls -> Maybe Text
       -> IO (Either (NonEmpty AdmissionError) ())
-    recoverFenced lock adapter operation prepared active controls = do
+    recoverFenced lock adapter operation prepared active controls capability = do
       resumed <- resumeDataFence lock (fenceSession active)
       case resumed of
         Left reason -> pure (failure "data-fence" reason)
@@ -550,7 +550,7 @@ recordOperatorRecovery store registry input takeOver = do
             | fencePhase active `elem`
                 [FenceChanging, FenceUnresolved, FenceVerifying, FenceReleasing] -> do
                 decision <- withAdapterEnv transaction operation
-                  (resolveReviewedEffect adapter operation prepared active)
+                  (resolveReviewedEffect adapter operation prepared active capability)
                 case decision of
                   RecoveryProvedComplete proof -> do
                     recovered <- recoverDataFence lock controls token
@@ -564,7 +564,7 @@ recordOperatorRecovery store registry input takeOver = do
           ForwardFencedRelease
             | fencePhase active == FenceReleasing -> do
                 decision <- withAdapterEnv transaction operation
-                  (resolveReviewedEffect adapter operation prepared active)
+                  (resolveReviewedEffect adapter operation prepared active capability)
                 case decision of
                   RecoveryProvedComplete proof -> do
                     recovered <- forwardRecoverDataFenceRelease lock controls token
@@ -575,9 +575,9 @@ recordOperatorRecovery store registry input takeOver = do
                     "adapter has not proved the fenced data effect complete")
           _ -> pure (failure "data-fence"
             "recovery action does not match the durable data fence phase")
-    resolveReviewedEffect adapter operation prepared active =
-      case lookupAdapterFence registry (plannedExecutor operation)
-          >>= fenceResolveUncertainEffect of
+    resolveReviewedEffect adapter operation prepared active capability =
+      case capability >>= lookupAdapterFenceByCapability registry
+          (plannedExecutor operation) >>= fenceResolveUncertainEffect of
         Just resolve -> resolve active operation prepared
         Nothing -> adapterRecover adapter operation prepared
     continueAfterPreflight :: forall s. LockedStore s -> FenceToken
@@ -835,22 +835,20 @@ selectedFence registry plan operation prepared = do
   when (plannedAction (reviewPlannedOperation operation) == OpenMaintenanceSession
       && isNothing saved)
     (Left "interactive maintenance review has no data fence")
-  case lookupAdapterFence registry (plannedExecutor (reviewPlannedOperation operation)) of
-    Nothing
-      | isNothing saved -> Right Nothing
-      | otherwise -> Left "review requires an unavailable data fence capability"
-    Just hook -> case (reviewFenceCapability operation, reviewFenceDigest operation, saved) of
-        (Nothing, Nothing, Nothing)
-          | isNothing (reviewFenceSummary operation) -> Right Nothing
-        (Just capability, Just digest, Just record)
-          | capability == fenceCapability hook
-          , isNothing (fenceTransaction record)
-          , digest == dataFenceIntentDigest record
-          , isJust (reviewFenceSummary operation) -> do
-              controls <- fenceFromReviewedRecord hook record
-                (reviewPlannedOperation operation) prepared
-              Right (Just (record, controls))
-        _ -> Left "data fence capability or reviewed intent changed"
+  case (reviewFenceCapability operation, reviewFenceDigest operation, saved) of
+    (Nothing, Nothing, Nothing)
+      | isNothing (reviewFenceSummary operation) -> Right Nothing
+    (Just capability, Just digest, Just record)
+      | isNothing (fenceTransaction record)
+      , digest == dataFenceIntentDigest record
+      , isJust (reviewFenceSummary operation) -> do
+          hook <- maybe (Left "review requires an unavailable data fence capability")
+            Right (lookupAdapterFenceByCapability registry
+              (plannedExecutor (reviewPlannedOperation operation)) capability)
+          controls <- fenceFromReviewedRecord hook record
+            (reviewPlannedOperation operation) prepared
+          Right (Just (record, controls))
+    _ -> Left "data fence capability or reviewed intent changed"
 
 appendEvent :: LockedStore s -> TransactionId -> Maybe OperationId -> OperationState -> Text -> IO (Either StoreError JournalEvent)
 appendEvent locked transaction operation state detail = do

@@ -22,7 +22,8 @@ module Nagare.Inventory.Adapter
   , emptyAdapterRegistry
   , withAdapterFence
   , lookupAdapter
-  , lookupAdapterFence
+  , lookupAdapterFences
+  , lookupAdapterFenceByCapability
   , observeWithRegistry
   )
 where
@@ -209,7 +210,7 @@ instance ToJSON ReviewBarrier where toJSON = genericToJSON defaultOptions
 instance FromJSON ReviewBarrier where parseJSON = genericParseJSON defaultOptions
 
 data AdapterRegistry = AdapterRegistry
-  (Map Executor Adapter) (Map Executor AdapterFence)
+  (Map Executor Adapter) (Map Executor (Map Text AdapterFence))
 
 mkAdapterRegistry :: [Adapter] -> Either Text AdapterRegistry
 mkAdapterRegistry adapters
@@ -226,8 +227,10 @@ withAdapterFence :: AdapterRegistry -> Executor -> AdapterFence
 withAdapterFence (AdapterRegistry adapters fences) executor fence
   | Map.notMember executor adapters = Left "data fence has no registered adapter"
   | T.null (fenceCapability fence) = Left "data fence capability identity is empty"
-  | Map.member executor fences = Left "adapter already has a data fence capability"
-  | otherwise = Right (AdapterRegistry adapters (Map.insert executor fence fences))
+  | Map.member (fenceCapability fence) (Map.findWithDefault Map.empty executor fences) =
+      Left "adapter already has this data fence capability"
+  | otherwise = Right (AdapterRegistry adapters (Map.insertWith Map.union executor
+      (Map.singleton (fenceCapability fence) fence) fences))
 
 lookupAdapter :: AdapterRegistry -> Executor -> Either Text Adapter
 lookupAdapter (AdapterRegistry registry _) executor =
@@ -235,8 +238,14 @@ lookupAdapter (AdapterRegistry registry _) executor =
   where
     showText = T.pack . show
 
-lookupAdapterFence :: AdapterRegistry -> Executor -> Maybe AdapterFence
-lookupAdapterFence (AdapterRegistry _ fences) executor = Map.lookup executor fences
+lookupAdapterFences :: AdapterRegistry -> Executor -> [AdapterFence]
+lookupAdapterFences (AdapterRegistry _ fences) executor =
+  maybe [] Map.elems (Map.lookup executor fences)
+
+lookupAdapterFenceByCapability :: AdapterRegistry -> Executor -> Text
+  -> Maybe AdapterFence
+lookupAdapterFenceByCapability (AdapterRegistry _ fences) executor capability =
+  Map.lookup executor fences >>= Map.lookup capability
 
 observeWithRegistry :: AdapterRegistry -> Map Executor [ResourceId] -> IO (Either Text ObservationSet)
 observeWithRegistry registry requests = do

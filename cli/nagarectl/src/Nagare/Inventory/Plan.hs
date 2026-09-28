@@ -1315,14 +1315,20 @@ prepareReviewWithPayloadIdentity payloadIdentity registry snapshot proposal = do
               ))
           Left err -> pure (Left err)
           Right prepared -> do
-            selected <- case lookupAdapterFence registry (plannedExecutor operation) of
-              Nothing -> pure (Right Nothing)
-              Just fence -> do
+            captures <- forM (lookupAdapterFences registry
+              (plannedExecutor operation)) $ \fence -> do
                 captured <- fenceForOperation fence operation prepared
                 pure $ case captured of
                   Left reason -> Left (PrepareRefused (plannedOperationId operation) reason)
                   Right Nothing -> Right Nothing
                   Right (Just record) -> Right (Just (fenceCapability fence, record))
+            let selected = do
+                  matches <- mapMaybe id <$> sequence captures
+                  case matches of
+                    [] -> Right Nothing
+                    [single] -> Right (Just single)
+                    _ -> Left (PrepareRefused (plannedOperationId operation)
+                      "operation selected multiple data fence capabilities")
             pure $ do
               selectedFence <- selected
               when (plannedAction operation == OpenMaintenanceSession
