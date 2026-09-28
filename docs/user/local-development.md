@@ -172,11 +172,8 @@ nagarectl inventory apply ./local-restore --yes
 
 The reviewed PostgreSQL restore creates a new scratch database. Reviewed volume
 snapshot and scratch restore also require saved reviews and an accepted source
-PVC. For a local PostgreSQL live restore, first create a distinct accepted
-manual backup of the current data, then save a review with
-`--into-live --recovery-backup RECOVERY_ID --restore-id ID --save-plan DIR`. Apply it with
-`nagarectl inventory apply DIR --yes`; the reviewed fence verifies the restored
-content before reopening writers. Live-target volume restore remains pending.
+PVC. New live database and volume overwrite reviews are deferred. An earlier
+admitted live restore retains its exact fence and evidence-bound recovery path.
 
 ## Optional: the auth plane
 

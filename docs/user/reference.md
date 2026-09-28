@@ -537,13 +537,16 @@ the labels `nagare.dev/managed-by: nagarectl` + `nagare.dev/database=<name>` +
 | `nagarectl db list [-n NS]` | Table of managed databases: name, engine, version, size, status, host. |
 | `nagarectl db create ENGINE NAME [--version V] [--size Q] [--memory Q] [--config F] --recovery-backup B --recovery-key-version V` | Publish and apply a reviewed database; `--save-plan` saves the review. |
 | `nagarectl db get NAME` | Detail: engine, version, size, in-cluster host, retention, ready, Secret key names. |
-| `nagarectl db shell NAME` | Interactive `psql`/`redis-cli`/`clickhouse-client` inside the pod. |
-| `nagarectl db shell NAME --session-id ID --recovery-backup ID --save-plan DIR` | Save a reviewed PostgreSQL, Redis, or ClickHouse maintenance session against an accepted database and completed recovery backup; apply separately in an interactive terminal. |
+| `nagarectl db shell NAME` | New interactive sessions are deferred. Existing admitted sessions retain evidence-bound recovery. |
+| `nagarectl db shell NAME --session-id ID --recovery-backup ID --save-plan DIR` | New reviewed maintenance sessions are deferred. |
 | `nagarectl db restart NAME` | Roll the StatefulSet and wait for ready. |
 | `nagarectl db delete NAME --save-plan DIR` | Save a reviewed retirement that retains provider resources; apply separately. |
 | `nagarectl db backup NAME --backup-id ID --save-plan DIR` | Save a reviewed manual backup Job and apply separately. |
+| `nagarectl db backup-receipts NAME` | List scheduled backup receipts; an exact `--backup-id ID --save-plan DIR` ingests a verified run for review and apply. |
+| `nagarectl db prune-scheduled-backups NAME --save-plan DIR` | New scheduled pruning is deferred. Scheduled keep-N and expiry are unenforced; backups remain until supported reviewed disposal. |
+| `nagarectl db recover-scheduled-prune NAME BACKUP_ID --failed-review DIR --save-plan DIR` | Recover an already-admitted partial prune against its original failed review and exact provider evidence. |
 | `nagarectl db restore NAME BACKUP_ID --restore-id ID --save-plan DIR` | Save a reviewed PostgreSQL or ClickHouse scratch restore Job, or Redis scratch Service/PVC/StatefulSet and verification Job; apply separately. |
-| `nagarectl db restore NAME SOURCE_ID --into-live --recovery-backup RECOVERY_ID --restore-id ID --save-plan DIR` | Save a local PostgreSQL live restore review from two distinct accepted manual backups. Apply separately; the writer fence releases after full logical content verification. |
+| `nagarectl db restore NAME SOURCE_ID --into-live --recovery-backup RECOVERY_ID --restore-id ID --save-plan DIR` | New live overwrite reviews are deferred; recover an already-admitted review through its original transaction and fence. |
 
 Database create/backup/restore have read-only legacy Job rendering under
 `--dry-run`; reviewed plans show the actual live operations. An app references a database by name

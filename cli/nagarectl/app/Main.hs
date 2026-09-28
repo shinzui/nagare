@@ -2059,7 +2059,7 @@ dbRestoreOptsParser =
     <*> strArgument (metavar "BACKUP_ID" <> help "Backup timestamp (or full gs:// URL) to restore")
     <*> namespaceOpt
     <*> dbBackupBucketOpt
-    <*> switch (long "into-live" <> help "Restore into the LIVE database (default: a scratch target)")
+    <*> switch (long "into-live" <> help "Deferred: live database overwrite is unavailable; use an isolated target")
     <*> dryRunOpt
     <*> optional (strOption (long "restore-id" <> metavar "ID" <> help "Stable ID for a reviewed database restore"))
     <*> optional (strOption (long "recovery-backup" <> metavar "ID" <> help "Distinct accepted pre-change manual backup for a reviewed live restore"))
@@ -2944,7 +2944,7 @@ opts =
                                         <> help "GCS backup bucket (overrides the target profile NAGARE_BACKUP_BUCKET / <project>-nagare-backups)"
                                     )
                                 )
-                              <*> switch (long "into-live" <> help "Restore into the LIVE volume PVC (default: a scratch PVC)")
+                              <*> switch (long "into-live" <> help "Deferred: live volume overwrite is unavailable; use a scratch PVC")
                               <*> dryRunOpt
                               <*> optional (strOption (long "restore-id" <> metavar "ID"
                                     <> help "Stable ID for one reviewed scratch restore"))
@@ -3065,7 +3065,7 @@ opts =
                       <> help "Accepted recovery backup ID"))
                     <*> optional (strOption (long "save-plan" <> metavar "DIR"
                       <> help "Save a reviewed maintenance session"))) <**> helper)
-                  (progDesc "Open an unmanaged shell or save a reviewed managed maintenance session")
+                  (progDesc "Deferred: new interactive database maintenance sessions are unavailable")
               )
             <> command
               "restart"
@@ -3102,7 +3102,7 @@ opts =
               "prune-scheduled-backups"
               ( info
                   (Db . DbPruneScheduledBackups <$> dbPruneScheduledBackupsOptsParser <**> helper)
-                  (progDesc "Review exact accepted scheduled backups outside the keep-last-N policy")
+                  (progDesc "Deferred: new scheduled pruning is unavailable; backups are retained")
               )
             <> command
               "recover-scheduled-prune"
@@ -10159,7 +10159,8 @@ runStorage mctx = \case
           runReviewedVolumeSnapshotPlan mctx dep (T.pack vol) backend
             (T.pack stableId) (T.pack <$> expiry) directory
         _ -> dieT "live storage snapshot requires --snapshot-id ID and --save-plan DIR"
-  StorageRestore copts vol backupId bucket live dryRun restoreId output ->
+  StorageRestore copts vol backupId bucket live dryRun restoreId output -> do
+    when live (dieT "live volume overwrite is deferred; restore to a new PVC")
     if dryRun
       then do
         when (isJust restoreId || isJust output)
@@ -10168,7 +10169,6 @@ runStorage mctx = \case
         backend <- resolveStoreBackend mctx bucket
         previewStorageRestore dep (T.pack vol) (T.pack backupId) live backend
       else do
-        when live (dieT "reviewed storage restore supports scratch PVCs only")
         case (restoreId, output) of
           (Just stableId, Just directory) -> do
             dep <- resolveStorageDep copts
@@ -10629,16 +10629,8 @@ runDb mctx = \case
       else runDbCreatePlan mctx eng (T.pack name) params
         (o ^. #recoveryBackup) (o ^. #recoveryKeyVersion) (o ^. #savePlan)
   DbGet o -> runDbGet (nsOf (o ^. #namespace)) (T.pack (o ^. #name))
-  DbShell o session backup output -> case (session, backup, output) of
-    (Nothing, Nothing, Nothing) -> do
-      refuseDirectDataWriteWhenManaged mctx "database shell"
-      refuseDirectDataMutationIfOwned mctx DatabaseObjects "shell" (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
-      runDbShell (nsOf (o ^. #namespace)) (T.pack (o ^. #name))
-    (Just selectedSession, Just selectedBackup, Just directory) ->
-      runReviewedDbShellPlan mctx (T.pack (o ^. #name))
-        (nsOf (o ^. #namespace)) (T.pack selectedSession)
-        (T.pack selectedBackup) directory
-    _ -> dieT "reviewed database shell requires --session-id, --recovery-backup, and --save-plan together"
+  DbShell _ _ _ _ -> dieT
+    "new interactive database maintenance is deferred; recover an already-admitted session through inventory recover"
   DbRestart o dry output ->
     runDataRestart mctx DatabaseObjects (T.pack (o ^. #name))
       (nsOf (o ^. #namespace)) dry output
@@ -10668,9 +10660,8 @@ runDb mctx = \case
   DbPruneBackup o -> runReviewedDbPruneBackupPlan mctx (T.pack (o ^. #name))
     (nsOf (o ^. #namespace)) (T.pack (o ^. #backupId))
     (o ^. #bucket) (o ^. #savePlan)
-  DbPruneScheduledBackups o -> runReviewedScheduledPrunePlan mctx
-    (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
-    (o ^. #bucket) (o ^. #savePlan)
+  DbPruneScheduledBackups _ -> dieT
+    "new scheduled pruning is deferred; scheduled backups are retained"
   DbRecoverScheduledPrune o -> runReviewedScheduledPruneRecoveryPlan mctx
     (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
     (T.pack (o ^. #backupId)) (o ^. #bucket)
@@ -10685,6 +10676,8 @@ runDb mctx = \case
   DbDisableBackupPrune o output ->
     runDisableBackupPrunePlan mctx (T.pack (o ^. #name)) (nsOf (o ^. #namespace)) output
   DbRestore o -> do
+    when (o ^. #live) (dieT
+      "live database overwrite is deferred; restore into an isolated destination")
     case (o ^. #restoreId, o ^. #savePlan) of
       (Just restoreKey, Just output) -> do
         when (o ^. #dryRun)

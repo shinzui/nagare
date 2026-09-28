@@ -88,6 +88,10 @@ jq -nS \
 jq -nS --arg digest "$candidate_digest" '{schemaVersion: 1, complete: true,
   sourceRevision: "fixture-revision", candidateDigest: $digest, dirty: false,
   registeredRoutes: 1, recipes: 1, libraryCalls: 1,
+  deferredRoutes: ["DbCommand.DbPruneScheduledBackups",
+    "DbCommand.DbRestore.--into-live", "DbCommand.DbShell",
+    "StorageCommand.StorageRestore.--into-live"],
+  recoveryOnlyRoutes: ["DbCommand.DbRecoverScheduledPrune"],
   pending: [], pendingRecipes: [], incompleteCatalogueRows: [], errors: [],
   privateNote: "must-never-be-public"}' > "$test_root/coverage.json"
 cp "$test_root/coverage.json" "$test_root/coverage-complete.json"
@@ -105,6 +109,10 @@ fi
 archive
 
 jq -nS '{schemaVersion: 1, complete: false}' > "$test_root/coverage.json"
+expect_refusal 'mutation coverage is incomplete'
+cp "$test_root/coverage-complete.json" "$test_root/coverage.json"
+jq -S 'del(.deferredRoutes)' "$test_root/coverage.json" > "$test_root/coverage-changed.json"
+mv "$test_root/coverage-changed.json" "$test_root/coverage.json"
 expect_refusal 'mutation coverage is incomplete'
 cp "$test_root/coverage-complete.json" "$test_root/coverage.json"
 jq -S '.sourceRevision = "another-revision"' "$test_root/coverage.json" \

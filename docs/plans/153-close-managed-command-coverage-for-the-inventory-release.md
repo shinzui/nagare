@@ -42,6 +42,11 @@ provenance:
       at: 2026-09-28T15:02:11Z
       mode: "update"
       note: "Reduce MP-23 lifecycle scope while retaining journal/state, existing recovery, and full supported-feature evidence"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-28T15:26:04Z
+      mode: "implement"
+      note: "Implement deferred-admission guards and exact command registry boundary"
 ---
 
 # Close managed command coverage for the inventory release
@@ -70,6 +75,8 @@ M2 handoff (2026-09-26): `scripts/local-smoke.sh` and `scripts/live-smoke.sh` no
 M2 checkpoint (2026-09-27): Registered the production `planInventoryCandidateWithPayloadIdentity` call and regenerated the existing catalogue snapshot. `python3 scripts/audit-managed-commands.py --update-catalogue --coverage-result /tmp/nagare-command-coverage.json` reports zero registration errors; `bash scripts/test-managed-command-audit.sh` passes and still rejects an injected mutation (135 routes, 34 recipes, 26 library calls). Coverage remains incomplete with 11 pending routes, seven recipes, and 30 incomplete catalogue rows. The next ordered checkpoint is EP-154's installed-package smoke; this registration repair does not close M2.
 
 M2 consumer checkpoint (2026-09-27): The first installed `local-up` on a fresh isolated context failed because `scripts/run-reviewed-bootstrap.sh` handed an existing `mktemp -d` directory to `platform bootstrap plan --out`; the planner requires a new output path. The wrapper now creates a private parent and uses its absent `review` child. The repeated command passed review publication and reached the native registry operation. `bash scripts/test-knative-bootstrap-readiness.sh` and shell syntax checks passed. EP-155 records the later artifact-observation failure; this consumer fix alone does not close M2.
+
+M2 deferred-admission checkpoint (2026-09-28): New direct/reviewed `db shell`, scheduled prune, and live database/volume restore routes now refuse before provider access. The lock-scoped shared admission path rejects saved live restore and maintenance actions and detects a new scheduled-prune scope from its stored member. Existing transaction resume, fence recovery, and receipt-only partial-prune recovery remain separate paths. A published saved-prune review was refused before adapter effects in `InventoryTransactionSpec`; the public entrypoint fixture checked all four command families and left the inventory head unchanged. The full `nagarectl-test` suite, command audit with injected mutation, evidence assembler fixture, Haskell style, and strict `docs/user` validation passed. The audit now registers 138 routes, 34 recipes, and 26 library calls with zero registration errors and an exact four-variant deferred set plus one recovery-only route. It remains incomplete with ten pending routes, seven pending recipes, and 29 incomplete catalogue rows. Next in the parent order: reconcile EP-154 installed smoke, EP-155 local fixture health, and EP-157 evidence inputs before the representative scheduled receipt/isolated restore handoff. M2 is still open.
 
 Inherited baseline: legacy upgrade/Pulumi/context/cleanup/host-credential guards, eleven CLI refusal assertions, and the coverage catalogue already exist. Several guarded operations remain unavailable after admission; their guards are not evidence of a working replacement.
 

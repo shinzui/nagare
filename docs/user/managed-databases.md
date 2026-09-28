@@ -147,8 +147,7 @@ The platform defaults to **modern engine majors**, all verified on the cluster:
 nagarectl db list                  # table of all managed databases in a namespace
 nagarectl db create ENGINE NAME    # generate creds + provision Secret, PVC, StatefulSet, Service, CronJob
 nagarectl db get NAME              # detail: engine, version, host, retention, ready, Secret key names
-nagarectl db shell NAME            # interactive psql / redis-cli / clickhouse-client inside the pod
-nagarectl db shell NAME --session-id ID --recovery-backup ID --save-plan DIR  # reviewed database session
+nagarectl db shell NAME            # new interactive sessions are deferred
 nagarectl db restart NAME          # roll the StatefulSet pod and wait for ready
 nagarectl db delete NAME --save-plan DIR  # save a reviewed retirement; retain provider resources
 nagarectl db backup NAME --backup-id ID --save-plan DIR  # reviewed manual Job
@@ -217,27 +216,13 @@ cluster identity. A `--config` database must match the command's engine and
 name. Live `db create` requires both recovery options in every context.
 
 Live create, restart, and retirement use reviewed scopes in every context.
-Direct shell, legacy backup, and legacy restore refuse after inventory
-initialization. Reviewed maintenance for PostgreSQL, Redis, and ClickHouse,
-manual backup, and scratch restore have saved-plan routes. Live-target restore
-is still pending. Offline `--dry-run` output remains available.
-
-For an accepted PostgreSQL, Redis, or ClickHouse database, complete a reviewed manual backup
-first, then save and apply a maintenance session in an interactive terminal:
-
-```bash
-nagarectl db shell NAME --session-id SESSION --recovery-backup BACKUP_ID \
-  --save-plan ./database-session
-nagarectl inventory apply ./database-session --yes
-```
-
-The session pins the accepted database, PVC, running Pod, and completed recovery
-backup. It excludes managed writers and network clients while the shell is
-active, then checks that the shell's database client has gone before reopening
-writers. If the terminal exits abnormally or is lost, the fence remains active;
-use the exact transaction and operation printed by apply with a reviewed
-`verify-fenced-effect` recovery decision, then resume that transaction. An
-ordinary resume cannot replay an uncertain shell.
+New interactive maintenance sessions, live-target restores, and scheduled
+pruning reviews are deferred. Manual backup and isolated restore still have
+saved-plan routes. An already-admitted session, restore, or partial prune
+retains its original evidence-bound recovery path. If a prior session's
+terminal was lost, use the original transaction, operation, and review digest
+with `verify-fenced-effect`. An ordinary resume cannot replay an uncertain
+shell.
 
 `db create` generates the `nagare-db-<name>` Secret, then applies the PVC,
 ClickHouse memory ConfigMap (ClickHouse only), Service, and StatefulSet, then
@@ -436,39 +421,14 @@ expiry, then creates `<database>_restore_<restore-id>` only if absent. If the
 restore fails after creation, keep the scratch database for explicit forward
 recovery.
 
-In a local context, an accepted PostgreSQL manual or scheduled backup can also
-be restored into the existing live database after a distinct, accepted
-pre-change **manual** backup has been made. Save the review with both backup IDs:
-
-```bash
-nagarectl db restore pg-main source-001 --into-live \
-  --recovery-backup prechange-001 --restore-id live-001 \
-  --save-plan ./pg-main-live-restore
-nagarectl inventory apply ./pg-main-live-restore --yes
-```
-
-Planning pins the current StatefulSet, PVC, and Pod identities and both accepted
-backup scopes. For a scheduled source, it also binds the accepted CronJob and
-signing Secret identities and checks the completed ingestion Job's readback;
-the producer Job may already have been deleted. It checks both stored receipts
-and archives, then saves their exact MinIO version IDs and hashes. Apply
-rechecks those inputs, excludes other
-database clients and writers, and loads the source SQL in one PostgreSQL
-transaction. A fresh logical dump must match the source before the fence
-releases and the prior writer configuration returns. Replanning the same
-completed restore ID verifies the result without rerunning the data change.
-An interrupted or unverified effect keeps the data fence active for explicit
-recovery. First use `verify-fenced-effect` in an `inventory recover` decision
-file if the source content may have landed. If it cannot be proved, select
-`recover-fenced-backup` with the same transaction, operation, and review digest.
-That action terminates the marked PostgreSQL restore client, verifies the
-pinned pre-change backup, restores it under the active fence if needed, and
-compares a fresh full dump before releasing writers. It abandons the original
-review; save a new review if the source restore is still wanted. A partial
-writer release needs a separate `forward-fenced-release` decision. This live
-path currently supports local PostgreSQL manual and scheduled source backups
-with a distinct manual recovery backup. Redis, ClickHouse, cloud GCS, and live
-volume restore remain pending.
+New `--into-live` database restore reviews are deferred. For a restore admitted
+before this boundary, preserve its exact review and fence. An interrupted or
+unverified effect requires an `inventory recover` decision bound to the
+original transaction, operation, and review digest. Use
+`verify-fenced-effect` when the source may have landed,
+`recover-fenced-backup` to prove the pinned pre-change content under the fence,
+or `forward-fenced-release` for a partial writer release. Recovering the
+historical transaction does not authorize a new live restore.
 
 An accepted Redis backup can use the same reviewed command. It creates a
 separate `<database>-restore-<restore-id>` Service, scratch PVC, and Redis
@@ -496,9 +456,11 @@ gsutil ls gs://tan-nb-exp-nagare-backups/databases/pg-main/   # cloud mode
 The dump is an engine-appropriate logical export (`pg_dump` for Postgres, an RDB
 dump for Redis, a native database backup ZIP for ClickHouse), gzipped, at
 `databases/<name>/<timestamp>.<ext>` in the active store for legacy schedules.
-Legacy scheduled backups keep the newest seven. Reviewed schedules do not
-prune; reviewed manual backups use stable IDs and separate exact pruning
-reviews. Live manual backup and restore require saved reviews in every context;
+Legacy scheduled backups keep the newest seven. Reviewed schedules retain
+backups by default: configured keep-N and expiry are unenforced, so storage
+grows until an explicitly supported disposal path is used. Reviewed manual
+backups use stable IDs and separate exact pruning reviews. Live manual backup
+and isolated restore require saved reviews in every context;
 `--dry-run` only renders the older Job shape. The dump waits up to five minutes for the
 database to accept connections, and a failed backup Job is retried twice. This
 gives a backup scheduled after a VM start time to survive DNS or server startup
@@ -507,10 +469,9 @@ delays. In cloud mode that key is under
 MinIO.
 
 Reviewed PostgreSQL and ClickHouse restore Jobs, and Redis scratch instances,
-use accepted backup receipts and exact object checks shown above. Reviewed
-`--into-live` execution currently supports local PostgreSQL manual backups with
-a distinct accepted recovery backup; `--dry-run` still only renders the older
-read-only Job preview.
+use accepted backup receipts and exact object checks shown above. New
+`--into-live` execution is deferred. Isolated restore is the supported
+path; historical admitted live restores retain evidence-bound recovery.
 
 See [Backups and disaster recovery](backups-and-disaster-recovery.md) and the
 [disaster-recovery runbook](../runbooks/disaster-recovery.md) for the full restore

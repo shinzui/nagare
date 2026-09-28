@@ -32,6 +32,11 @@ provenance:
       at: 2026-09-28T15:02:11Z
       mode: "update"
       note: "Reduce MP-23 lifecycle scope while retaining journal/state, existing recovery, and full supported-feature evidence"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-28T15:26:04Z
+      mode: "implement"
+      note: "Bind immutable coverage evidence to the authorized deferred route set"
 ---
 
 # Gate the inventory release on complete immutable evidence
@@ -56,6 +61,8 @@ The inventory release is accepted only when the complete candidate has working c
 Inherited baseline: commit `1891b34c` delivered GitHubRelease/GitHubReleaseRuntime, checked publication, fault tests, and a real private-repository fresh-checkout retry without duplicate writes. Commits `432dad9a` and `cbd7c3cf` delivered evidence projection with exact receipt coverage. Do not repeat the provider probe or rewrite the publisher unless a relevant change invalidates its evidence.
 
 Early schema handoff (2026-09-27): `scripts/assemble-inventory-release-index.py` binds the assembled release manifest and `release.json` supported systems to each native output/rehearsal, complete command coverage, and one projected local plus cloud inventory run. Each scenario directory supplies `target.json`, `<mode>-health.json`, and `inventory-evidence.json`; the health record binds mode/context/cluster/operator revision/fixture digest, while the projector manifest binds the canonical target digest, candidate payload, completed receipts, final observation, and coverage digest. The index emits only safe identities and file digests. `python3 scripts/test-inventory-release-index.py` passed its complete, missing cloud, stale native, incomplete coverage, secret-canary, and changed-target checks. The current full clone-free runner lacks the already required `typed-config` check, so the index deliberately rejects it until EP-154 supplies that gate. Assembly/workflow/publication integration and actual matching local/cloud evidence remain open; neither M1 nor M2 is complete.
+
+Support-boundary schema checkpoint (2026-09-28): The command audit emits an exact `deferredRoutes` set for interactive maintenance, scheduled pruning, and live database/volume overwrite, plus `recoveryOnlyRoutes` for historical partial-prune recovery. The public evidence assembler now requires those exact fields; its fixture accepts the declared set and rejects a missing deferred set. `bash scripts/test-managed-resource-evidence.sh` and the audit fixture pass. This binds the operator-approved reduction to the coverage asset without treating still-pending supported commands as complete. M1 remains open for complete supported coverage, native-system inputs, and matching local/cloud candidate evidence.
 
 
 ## Surprises & Discoveries

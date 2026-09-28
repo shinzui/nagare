@@ -43,7 +43,51 @@ inventoryTransactionTests :: TestTree
 inventoryTransactionTests =
   testGroup
     "inventory transactions"
-    [ testCase "interactive maintenance review requires a captured data fence" $ do
+    [ testCase "a saved scheduled prune refuses admission before adapter effects" $ do
+        calls <- newIORef ([] :: [OperationId])
+        let owner = ok (mkScopeId Standalone "deferred-prune-test")
+            cluster = mintResourceId owner (ok (mkLogicalKey "cluster"))
+              (ok (mkName "cluster"))
+            managed = member owner cluster "prune-job"
+            resource = declarationId managed
+            operation = DeclaredOperation
+              (mintResourceId owner (ok (mkLogicalKey "prune"))
+                (ok (mkName "operation")))
+              (resource :| []) [ContentInput (contentDigest "prune-intent")]
+              OperatorRecovery PruneData
+            scope = withScopeOverrides
+              (Map.singleton "scheduled.prune.backup.scope" "accepted-backup")
+              (ok (mkScopeDeclaration owner
+                [ResourceBundle [managed] [] [] [] [operation] []]))
+            candidate = ok (composeInventory
+              (ok (mkScopeSnapshot fixtureBinding Map.empty Map.empty))
+              (ReplaceScope scope :| []))
+            registry = recordingRegistry
+              (\planned _ -> modifyIORef' calls (<> [plannedOperationId planned])
+                >> pure AdapterEffectCompleted)
+              (\_ _ -> pure (RecoveryUnresolved "no recovery"))
+        store <- newMemoryStore
+        _ <- initializeStore store fixtureBinding "deferred-prune-test"
+          >>= expectRight
+        _ <- seedInventoryHistory store candidate >>= expectRight
+        history <- loadInventoryHistory store >>= expectRight
+        let observations = ok (observationSet
+              [(resource, ConfirmedAbsent (contentDigest "absent"))])
+            proposal = ok (planChanges candidate noLifecycleDecisions
+              history observations)
+        before <- readStoreSnapshot store >>= expectRight
+        bundle <- prepareReview registry before proposal >>= expectRight
+        _ <- publishReview store bundle >>= expectRight
+        publishedSnapshot <- readStoreSnapshot store >>= expectRight
+        reviewed <- either (assertFailure . show . NE.toList) pure
+          (verifyReview publishedSnapshot bundle)
+        refused <- applyReviewed store registry reviewed
+        case refused of
+          Left errors -> map admissionErrorCode (NE.toList errors)
+            @?= ["deferred-operation"]
+          Right _ -> assertFailure "deferred scheduled prune was admitted"
+        readIORef calls >>= (@?= [])
+    , testCase "interactive maintenance review requires a captured data fence" $ do
         let owner = ok (mkScopeId Standalone "maintenance-guard-test")
             cluster = mintResourceId owner (ok (mkLogicalKey "cluster"))
               (ok (mkName "cluster"))

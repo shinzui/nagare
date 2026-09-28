@@ -191,6 +191,11 @@ provenance:
       at: 2026-09-28T15:02:10Z
       mode: "update"
       note: "Reduce MP-23 lifecycle scope while retaining journal/state, existing recovery, and full supported-feature evidence"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-28T15:26:04Z
+      mode: "implement"
+      note: "Track deferred-admission and coverage schema checkpoint"
 ---
 
 # Make managed resources first-class through typed scoped inventories
@@ -328,6 +333,8 @@ These ownership, identity, review, storage, migration, and controller-delegation
 ## Progress
 
 2026-09-28 coordination snapshot: seven children are Complete; EP-148 and EP-150 remain Cancelled/superseded, and EP-161 is now Cancelled/deferred. Eight active children remain (EP-153–160). No additional child or milestone is declared complete by this scope decision. EP-160 M1 remains accepted. Recorded PostgreSQL/Redis/ClickHouse producer/receipt/scratch-restore proofs and local scheduled-prune experiments remain credited where their exact inputs apply. Final packages, complete supported coverage, local/GCP evidence, and immutable assembly are still open.
+
+EP-153's first reduced-scope checkpoint now passes: new deferred CLI routes and saved-review admission refuse before effects, while original transaction recovery paths remain available. The audit registers the newer receipt/prune routes and emits the exact deferred/recovery set consumed by EP-157's evidence assembler; its injected-mutation and incomplete-coverage checks pass. This does not close EP-153 or EP-157. The next ordered checkpoint is reconciliation of EP-154's installed smoke, EP-155's local fixture health, and EP-157's evidence inputs before the EP-159/160 receipt-to-isolated-restore handoff. Current coverage still has ten pending routes, seven pending recipes, and 29 incomplete catalogue rows.
 
 **Implementation order.** Check current child evidence before rerunning a checkpoint. Preserve concurrent work and already-admitted recovery records. The registry states whole-child ownership, not numerical execution order.
 

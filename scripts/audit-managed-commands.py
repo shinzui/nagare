@@ -24,8 +24,9 @@ CATALOGUE_END = "<!-- managed-command-registry:end -->"
 
 # Route states: read (no mutation), group (nested dispatch), reviewed (shared
 # inventory), bounded (a specifically constrained transport), legacy (only
-# before admission), pending (promised reviewed behavior), and excluded (the
-# accepted first-release exclusion for in-place platform upgrades).
+# before admission), recovery (an admitted historical effect only), deferred
+# (new admission refused for this release), pending (promised reviewed behavior),
+# and excluded (the accepted first-release exclusion for in-place upgrades).
 # Each entry is an exact constructor name; there are no wildcard exemptions.
 ROUTES = {
     "Command": {
@@ -64,8 +65,9 @@ ROUTES = {
     },
     "DbCommand": {
         "read": "DbList DbGet",
-        "reviewed": "DbCreate DbRestart DbDelete DbRetire DbBackup DbPruneBackup DbDisableBackupPrune DbRestore",
-        "pending": "DbShell",
+        "reviewed": "DbCreate DbRestart DbDelete DbRetire DbBackup DbPruneBackup DbBackupReceipts DbDisableBackupPrune DbRestore",
+        "recovery": "DbRecoverScheduledPrune",
+        "deferred": "DbShell DbPruneScheduledBackups",
     },
     "BrokerCommand": {
         "read": "BrokerList BrokerGet",
@@ -88,6 +90,20 @@ ROUTES = {
         "pending": "CdnPurge CdnDisable",
     },
 }
+
+# The operator approved exactly these additional admission exclusions for this
+# release. Variants share a constructor with supported isolated restore.
+AUTHORIZED_DEFERRED = {
+    "DbCommand.DbShell",
+    "DbCommand.DbPruneScheduledBackups",
+    "DbCommand.DbRestore.--into-live",
+    "StorageCommand.StorageRestore.--into-live",
+}
+DEFERRED_VARIANTS = {
+    "DbCommand.DbRestore.--into-live",
+    "StorageCommand.StorageRestore.--into-live",
+}
+AUTHORIZED_RECOVERY_ONLY = {"DbCommand.DbRecoverScheduledPrune"}
 
 # These are independently callable consumers of the CLI or provider transports.
 # A missing path or changed invocation is an audit failure, so packaged recipes
@@ -160,7 +176,7 @@ FAMILY_ROUTES = {
     "Cleanup": "Image, stale-preview, and release-history cleanup",
     "ReleasePublish ReleaseCleanupStarter": "Global release payload publication",
     "HostCommand.HostPlaceAgeKey": "Host age-key placement",
-    "DbCommand.DbBackup DbCommand.DbPruneBackup DbCommand.DbDisableBackupPrune DbCommand.DbRestore": "Database backup and restore",
+    "DbCommand.DbBackup DbCommand.DbPruneBackup DbCommand.DbBackupReceipts DbCommand.DbPruneScheduledBackups DbCommand.DbRecoverScheduledPrune DbCommand.DbDisableBackupPrune DbCommand.DbRestore": "Database backup and restore",
     "DbCommand.DbShell": "Interactive database maintenance",
     "DbCommand.DbRestart BrokerCommand.BrokerRestart": "Manual task run/delete and database/broker restart",
 }
@@ -409,6 +425,22 @@ def main() -> int:
         if state == "pending"
     )
     pending_recipes = sorted(RECIPES["pending"].split())
+    deferred = DEFERRED_VARIANTS | {
+        f"{type_name}.{name}"
+        for type_name, routes in registered.items()
+        for name, state in routes.items()
+        if state == "deferred"
+    }
+    recovery_only = {
+        f"{type_name}.{name}"
+        for type_name, routes in registered.items()
+        for name, state in routes.items()
+        if state == "recovery"
+    }
+    if deferred != AUTHORIZED_DEFERRED:
+        errors.append("deferred route set differs from the operator-approved boundary")
+    if recovery_only != AUTHORIZED_RECOVERY_ONLY:
+        errors.append("recovery-only route set differs from the retained recovery boundary")
     result = {
         "schemaVersion": 1,
         "sourceRevision": revision,
@@ -421,6 +453,8 @@ def main() -> int:
         "libraryCalls": sum(len(names.split()) for names in LIBRARY_CALLS.values()),
         "pending": pending,
         "pendingRecipes": pending_recipes,
+        "deferredRoutes": sorted(deferred),
+        "recoveryOnlyRoutes": sorted(recovery_only),
         "incompleteCatalogueRows": catalogue_gaps(catalogue),
         "errors": errors,
     }

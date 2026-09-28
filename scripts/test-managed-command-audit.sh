@@ -31,6 +31,13 @@ import sys
 
 current, injected = [json.loads(pathlib.Path(path).read_text()) for path in sys.argv[1:]]
 assert current['errors'] == [], current['errors']
+assert current['deferredRoutes'] == [
+    'DbCommand.DbPruneScheduledBackups',
+    'DbCommand.DbRestore.--into-live',
+    'DbCommand.DbShell',
+    'StorageCommand.StorageRestore.--into-live',
+]
+assert current['recoveryOnlyRoutes'] == ['DbCommand.DbRecoverScheduledPrune']
 assert 'unregistered constructor Command.AuditInjectedMutation' in injected['errors']
 print(f"managed command audit: {current['registeredRoutes']} routes, "
       f"{current['recipes']} recipes, {current['libraryCalls']} library calls; "

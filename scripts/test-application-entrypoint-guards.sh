@@ -87,12 +87,22 @@ refuse 'manual database backup without review' 'live database backup requires --
   db backup fixture
 refuse 'manual database restore without review' 'live database restore requires --restore-id and --save-plan' \
   db restore fixture backup-identity
-refuse 'direct database shell' 'direct database shell is refused' \
+refuse 'direct database shell' 'interactive database maintenance is deferred' \
   db shell fixture
+refuse 'reviewed database shell' 'interactive database maintenance is deferred' \
+  db shell fixture --session-id new-session --recovery-backup backup-1 --save-plan "$fixture_root/session"
+refuse 'scheduled prune' 'new scheduled pruning is deferred' \
+  db prune-scheduled-backups fixture --save-plan "$fixture_root/prune"
+refuse 'live database restore' 'live database overwrite is deferred' \
+  db restore fixture backup-1 --into-live --recovery-backup backup-2 \
+  --restore-id live-1 --save-plan "$fixture_root/restore"
 refuse 'volume snapshot without review' 'live storage snapshot requires --snapshot-id ID and --save-plan DIR' \
   storage snapshot hello --config ../nagare-dsl/test/fixtures/nagare/Config.hs data
 refuse 'volume restore without review' 'live storage restore requires --restore-id ID and --save-plan DIR' \
   storage restore hello --config ../nagare-dsl/test/fixtures/nagare/Config.hs data backup-identity
+refuse 'live volume restore' 'live volume overwrite is deferred' \
+  storage restore hello --config ../nagare-dsl/test/fixtures/nagare/Config.hs \
+  data backup-identity --into-live --restore-id live-1 --save-plan "$fixture_root/volume-restore"
 refuse 'environment set without accepted foundation' 'platform foundation scope is absent' \
   env set hello --config ../nagare-dsl/test/fixtures/nagare/Config.hs KEY value
 refuse 'environment delete without accepted foundation' 'platform foundation scope is absent' \

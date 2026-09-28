@@ -205,32 +205,15 @@ PVC for explicit recovery. A local scheduled Redis run has passed receipt
 ingestion after producer Job cleanup and a real key-content restore; Redis
 live-target restore remains unavailable.
 
-For a local PostgreSQL live restore, first make and check a distinct manual
-backup of the current database. Then save a review naming the older accepted
-manual or scheduled source and
-the pre-change recovery backup:
-
-```bash
-nagarectl db restore pg-main source-001 --into-live \
-  --recovery-backup prechange-001 --restore-id live-001 \
-  --save-plan ./pg-main-live-restore
-nagarectl inventory apply ./pg-main-live-restore --yes
-```
-
-The review fixes both backup receipts and MinIO versions plus the live
-StatefulSet, PVC, and Pod identities. Apply holds a native writer fence while
-PostgreSQL restores one transaction and compares a fresh full logical dump to
-the source. A lost or failed effect remains fenced until explicit recovery can
-prove its outcome. Use a `verify-fenced-effect` recovery decision to prove the
-source landed, or `recover-fenced-backup` to restore and prove the pinned
-pre-change content under the same fence. The latter abandons the original
-review after writer release; it does not mark the source restore complete.
-For a scheduled source, planning also checks the accepted CronJob, signing
-Secret, signed receipt, and ingestion Job readback after producer Job cleanup.
-The pre-change recovery backup must still be manual. Use
-`forward-fenced-release` if the writer release is observed partial. Other
-engines, cloud GCS,
-and live volume overwrite remain pending. The old
+New live database and volume overwrite reviews are deferred. An earlier
+admitted PostgreSQL live restore retains its exact transaction, review, backup
+receipts, provider versions, and writer fence. A lost or failed effect remains
+fenced until explicit recovery proves its outcome. Use a
+`verify-fenced-effect` recovery decision to prove the source landed, or
+`recover-fenced-backup` to restore and prove the pinned pre-change content
+under that fence. The latter abandons the original review after writer release;
+it does not mark the source restore complete. Use `forward-fenced-release` if
+the writer release is observed partial. The old
 `db restore NAME BACKUP_ID --dry-run` output renders a Job but does not submit
 it. A database declared `retention = Delete` is treated as throwaway and gets **no**
 scheduled backup.

@@ -121,6 +121,10 @@ admit locked registry reviewed = do
     Right (Just headValue) -> do
       let staticErrors =
             [AdmissionError "context-binding" "review belongs to a different context or provider target" | reviewContextBinding document /= headBinding headValue]
+              <> [AdmissionError "deferred-operation" "new live database restores and interactive maintenance sessions are deferred; recover an already-admitted transaction by its original ID"
+                 | operation <- reviewOperations document
+                 , plannedAction (reviewPlannedOperation operation) `elem`
+                     [RestoreLiveDatabase, OpenMaintenanceSession]]
               <> [AdmissionError "stale-head" "review was issued against a different head generation or journal sequence" | reviewHeadGeneration document /= headGeneration headValue || reviewHeadSequence document /= headSequence headValue]
               <> [AdmissionError "stale-base" "review base revisions differ from accepted desired state" | reviewBaseRevisions document /= headAccepted headValue]
               <> [AdmissionError "active-transaction" "another transaction is unresolved" | isJust (headActiveTransaction headValue)]
@@ -139,8 +143,16 @@ admit locked registry reviewed = do
       case staticErrors of
         firstError : rest -> pure (Left (firstError :| rest))
         [] -> do
-          coverage <- retentionCoverage store document
-          case coverage of
+          deferred <- deferredScheduledPrune store headValue document
+          case deferred of
+            Left err -> pure (failure "deferred-operation" err)
+            Right True -> pure (failure "deferred-operation"
+              "new scheduled pruning is deferred; recover an already-admitted partial prune by its original review")
+            Right False -> do
+              coverage <- retentionCoverage store document
+              continueAdmission store document transaction headValue coverage
+  where
+    continueAdmission store document transaction headValue coverage = case coverage of
             Left err -> pure (failure "retention-coverage" err)
             Right retainedRequests -> do
               migrationChecked <- migrationCoverage store document
@@ -188,6 +200,27 @@ admit locked registry reviewed = do
                             pure $ case event of
                               Left err -> failure "journal" (showText err)
                               Right _ -> Right (ExecutablePlan transaction reviewed)
+
+-- Inspect the stored scope member, rather than trusting a public review's
+-- operation summary. Receipt-only recovery carries a distinct accepted failed
+-- review and stays available through the existing provider preflight.
+deferredScheduledPrune :: InventoryStore -> HeadManifest -> ReviewDocument
+  -> IO (Either Text Bool)
+deferredScheduledPrune store headValue document = do
+  checked <- forM changed $ \(_, revision) -> do
+    member <- readObject store (scopeKey (revisionDigest revision))
+    pure $ do
+      bytes <- first showText member >>= maybe
+        (Left "reviewed scope member is missing") Right
+      scope <- first showText (decodeScope bytes)
+      let fields = Resource.scopeOverrides scope
+      pure (Map.member "scheduled.prune.backup.scope" fields
+        && Map.notMember "scheduled.prune.recovery.review" fields)
+  pure (or <$> sequence checked)
+  where
+    changed = [(scope, revision)
+      | (scope, revision) <- Map.toAscList (reviewDesiredRevisions document)
+      , Map.lookup scope (headAccepted headValue) /= Just revision]
 
 -- | No accepted managed declaration may disappear solely because a scope
 -- revision was replaced. A reviewed retention proof is required for every

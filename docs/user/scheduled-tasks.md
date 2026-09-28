@@ -113,7 +113,7 @@ nagarectl task logs notes heartbeat
 > - **Cron-only plus manual `task run`.** Tasks fire on their cron schedule or when
 >   you run `nagarectl task run`. There are no event or webhook triggers.
 > - **`task run` is not a shell.** It runs a *declared* task once; it is not an
->   interactive session. For an interactive database session use `nagarectl db shell`.
+>   interactive session. New interactive database sessions are deferred.
 
 
 ## Declaring a task in `Config.hs`
@@ -379,8 +379,8 @@ source.
 - **Cron-only plus manual `task run`.** Tasks fire on their cron schedule or when you
   run `nagarectl task run`. There are no event-driven or webhook triggers (those
   belong to the future Control-Plane API).
-- **`task run` is not an interactive shell.** It runs a declared task once. For an
-  interactive database session use `nagarectl db shell` (see
+- **`task run` is not an interactive shell.** It runs a declared task once. New
+  interactive database sessions are deferred (see
   [Managed databases](managed-databases.md)).
 - **Out of scope:** event/webhook triggers, parallel/fan-out Jobs, and changing the
   managed-database backup CronJob (that machinery stays as-is).
