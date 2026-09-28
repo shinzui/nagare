@@ -295,6 +295,7 @@ profileFromOpts project region zone baseDomain shape acmeEmail acmeDirectory = d
     , "NAGARE_BACKUP_BUCKET"
     , "NAGARE_ARTIFACT_REGISTRY_ID"
     , "NAGARE_INSTANCE_NAME"
+    , "NAGARE_SERVICE_ACCOUNT_ID"
     ]
   resolveTargetProfile
   where
@@ -323,6 +324,7 @@ renderTargetEnv tp =
     , "export NAGARE_ACME_EMAIL=" <> tp ^. #acmeEmail
     , "export NAGARE_ACME_DIRECTORY=" <> tp ^. #acmeDirectory
     , "export NAGARE_INSTANCE_NAME=" <> tp ^. #instanceName
+    , "export NAGARE_SERVICE_ACCOUNT_ID=" <> tp ^. #serviceAccountId
     , "export NAGARE_MACHINE_TYPE=" <> tp ^. #machineType
     , "export NAGARE_BOOT_DISK_TYPE=" <> tp ^. #bootDiskType
     , "export NAGARE_BOOT_DISK_SIZE_GB=" <> tp ^. #bootDiskSizeGb
@@ -362,6 +364,7 @@ seedKeys tp =
   , ("nagare:nixCacheBucket", tp ^. #nixCacheBucket)
   , ("nagare:artifactRegistryId", tp ^. #artifactRegistryId)
   , ("nagare:instanceName", tp ^. #instanceName)
+  , ("nagare:serviceAccountId", tp ^. #serviceAccountId)
   , ("nagare:machineType", tp ^. #machineType)
   , ("nagare:bootDiskType", tp ^. #bootDiskType)
   , ("nagare:bootDiskSizeGb", tp ^. #bootDiskSizeGb)

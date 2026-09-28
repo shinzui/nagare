@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "context": "ep150-preview",
+  "project": "tan-ng-labs",
+  "gcloudConfiguration": "labs",
+  "region": "us-west1",
+  "zone": "us-west1-a",
+  "cluster": "nagare-ep150",
+  "instance": "nagare-ep150",
+  "serviceAccountId": "nagare-ep150",
+  "artifactRegistryId": "nagare-ep150",
+  "stateBucket": "tan-ng-labs-ep150-pmkjjpp-state",
+  "imageBucket": "tan-ng-labs-ep150-pmkjjpp-images",
+  "backupBucket": "tan-ng-labs-ep150-pmkjjpp-backups",
+  "nixCacheBucket": "tan-ng-labs-ep150-pmkjjpp-nix-cache",
+  "domain": "ep150.labs.topagentnetwork.net",
+  "parentZone": "nagare-zone-89da8ae"
+}

@@ -102,6 +102,9 @@ For a second stack in one project, set distinct `instanceName`, image and
 backup buckets, `artifactRegistryId`, `baseDomain`, and `serviceAccountId`.
 Verify the project APIs are already enabled, then set `manageProjectApis` to
 `false` for that stack.
+Set the node account with `nagarectl context create NAME --service-account-id ID`
+so the reviewed foundation stack config and the Pulumi preview name the same
+account. The default `nagare-node` belongs to the standing stack.
 Review the complete preview for any existing physical resource before apply.
 
 > **`baseDomain` is a real decision.** The default `apps.example.com` is a

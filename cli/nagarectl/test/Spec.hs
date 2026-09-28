@@ -617,6 +617,7 @@ initProfile =
     , baseDomain = "apps.acme.com"
     , externalDomainTlsEnabled = False
     , instanceName = "nagare-01"
+    , serviceAccountId = "nagare-node"
     , machineType = "e2-standard-2"
     , bootDiskType = "pd-balanced"
     , bootDiskSizeGb = "100"
@@ -681,6 +682,7 @@ initTests =
               , "nagare:nixCacheBucket"
               , "nagare:artifactRegistryId"
               , "nagare:instanceName"
+              , "nagare:serviceAccountId"
               , "nagare:machineType"
               , "nagare:bootDiskType"
               , "nagare:bootDiskSizeGb"
@@ -689,6 +691,15 @@ initTests =
               ]
     , testCase "foundation owns API enablement when Pulumi config is seeded" $
         lookup "nagare:manageProjectApis" (seedKeys initProfile) @?= Just "false"
+    , testCase "isolated context pins its node service account in the reviewed stack" $ do
+        let contextMap = initContextMap Nothing
+              [("NAGARE_SERVICE_ACCOUNT_ID", "nagare-ep150")] "0.4.0"
+            profile = profileFromContextMap contextMap
+        profile ^. #serviceAccountId @?= "nagare-ep150"
+        lookup "nagare:serviceAccountId" (seedKeys profile) @?= Just "nagare-ep150"
+        assertBool "rendered profile includes service account"
+          (T.isInfixOf "export NAGARE_SERVICE_ACCOUNT_ID=nagare-ep150"
+            (renderTargetEnv profile))
     , testCase "named init retains the reviewed backend IAM member" $ do
         let contextMap = initContextMap Nothing
               [("NAGARE_PULUMI_BACKEND_MEMBER", "serviceAccount:deployer@example.iam.gserviceaccount.com")]
@@ -1668,6 +1679,7 @@ tnbProfile =
     , baseDomain = "apps.example.com"
     , externalDomainTlsEnabled = False
     , instanceName = "nagare-01"
+    , serviceAccountId = "nagare-node"
     , machineType = "e2-standard-2"
     , bootDiskType = "pd-balanced"
     , bootDiskSizeGb = "100"

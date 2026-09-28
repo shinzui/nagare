@@ -269,6 +269,7 @@ testProfile =
     , baseDomain = "apps.example.com"
     , externalDomainTlsEnabled = False
     , instanceName = "nagare-01"
+    , serviceAccountId = "nagare-node"
     , machineType = "e2-standard-2"
     , bootDiskType = "pd-balanced"
     , bootDiskSizeGb = "100"

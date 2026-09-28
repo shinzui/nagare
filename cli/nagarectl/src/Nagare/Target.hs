@@ -496,6 +496,8 @@ data TargetProfile = TargetProfile
   -- after DNS delegation. Local bootstrap enables its own local TLS policy.
   , instanceName :: !Text
   -- ^ NAGARE_INSTANCE_NAME, default @"nagare-01"@
+  , serviceAccountId :: !Text
+  -- ^ NAGARE_SERVICE_ACCOUNT_ID, default @"nagare-node"@
   , machineType :: !Text
   -- ^ NAGARE_MACHINE_TYPE, default @"e2-standard-2"@
   , bootDiskType :: !Text
@@ -647,6 +649,7 @@ renderContextShellEnv name tp penv =
     , line "NAGARE_NIX_CACHE_BUCKET" (tp ^. #nixCacheBucket)
     , line "NAGARE_BASE_DOMAIN" (tp ^. #baseDomain)
     , line "NAGARE_INSTANCE_NAME" (tp ^. #instanceName)
+    , line "NAGARE_SERVICE_ACCOUNT_ID" (tp ^. #serviceAccountId)
     , line "NAGARE_MACHINE_TYPE" (tp ^. #machineType)
     , line "NAGARE_BOOT_DISK_TYPE" (tp ^. #bootDiskType)
     , line "NAGARE_BOOT_DISK_SIZE_GB" (tp ^. #bootDiskSizeGb)
@@ -854,6 +857,7 @@ profileFromContextMap ctx =
       baseDomain = mapOr ctx "NAGARE_BASE_DOMAIN" "apps.example.com"
       externalDomainTlsEnabled = mapRaw ctx "NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED" == Just "1"
       instanceName = mapOr ctx "NAGARE_INSTANCE_NAME" "nagare-01"
+      serviceAccountId = mapOr ctx "NAGARE_SERVICE_ACCOUNT_ID" "nagare-node"
       machineType = mapOr ctx "NAGARE_MACHINE_TYPE" (defaultVmShape ^. #machineType)
       bootDiskType = mapOr ctx "NAGARE_BOOT_DISK_TYPE" (defaultVmShape ^. #bootDiskType)
       bootDiskSizeGb = mapOr ctx "NAGARE_BOOT_DISK_SIZE_GB" (defaultVmShape ^. #bootDiskSizeGb)
@@ -882,6 +886,7 @@ profileFromContextMap ctx =
         , baseDomain = baseDomain
         , externalDomainTlsEnabled = externalDomainTlsEnabled
         , instanceName = instanceName
+        , serviceAccountId = serviceAccountId
         , machineType = machineType
         , bootDiskType = bootDiskType
         , bootDiskSizeGb = bootDiskSizeGb
@@ -913,6 +918,7 @@ resolveProfileFrom ctx = do
   baseDomain <- ctxOr ctx "NAGARE_BASE_DOMAIN" "apps.example.com"
   externalDomainTlsEnabled <- (== Just "1") <$> ctxRaw ctx "NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED"
   instanceName <- ctxOr ctx "NAGARE_INSTANCE_NAME" "nagare-01"
+  serviceAccountId <- ctxOr ctx "NAGARE_SERVICE_ACCOUNT_ID" "nagare-node"
   machineType <- ctxOr ctx "NAGARE_MACHINE_TYPE" (defaultVmShape ^. #machineType)
   bootDiskType <- ctxOr ctx "NAGARE_BOOT_DISK_TYPE" (defaultVmShape ^. #bootDiskType)
   bootDiskSizeGb <- ctxOr ctx "NAGARE_BOOT_DISK_SIZE_GB" (defaultVmShape ^. #bootDiskSizeGb)
@@ -942,6 +948,7 @@ resolveProfileFrom ctx = do
       , baseDomain = baseDomain
       , externalDomainTlsEnabled = externalDomainTlsEnabled
       , instanceName = instanceName
+      , serviceAccountId = serviceAccountId
       , machineType = machineType
       , bootDiskType = bootDiskType
       , bootDiskSizeGb = bootDiskSizeGb
