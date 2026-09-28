@@ -762,6 +762,107 @@ inventoryKubernetesTests =
           AdapterEffectFailed {} -> pure ()
           other -> assertFailure ("changed local credential reached prune provider: " <> show other)
         readIORef localWrites >>= (@?= 0)
+    , testCase "reviewed Redis restore binds RDB receipt to an isolated scratch instance" $ do
+        let owner = ok (mkScopeId Standalone "database-redis-main")
+            db = Database (ok (mkDatabaseName "redis-main")) Nothing Redis
+              (defaultEngineVersion Redis) (ok (Dsl.mkNamespace "default"))
+              (ok (Dsl.mkQuantity "2Gi")) Nothing Dsl.Retain
+            recovery = RecoveryIntent (ok (mkName "backup"))
+              (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
+            direct = DatabaseDirectInput db owner cluster Nothing recovery
+              (SourceLocation "database" "redis")
+            backend = GcsBackend "project" "bucket"
+            (databaseScope, databaseNative) = ok (compileStandaloneDatabase direct backend)
+            backupRequest = ManualBackupRequest
+              { databaseName = "redis-main", namespaceName = "default", backupId = "run-001"
+              , expiresAt = Nothing
+              , sourceRevision = ScopeRevision (ok (mkScopeGeneration 1))
+                  (contentDigest "accepted-redis")
+              , sourceStatefulUid = ok (mkPhysicalIdentity "redis-stateful-uid")
+              , sourcePvcUid = ok (mkPhysicalIdentity "redis-pvc-uid")
+              , storageBackend = backend, backupSource = SourceLocation "db backup" "run-001" }
+            (backupScope, backupNative) = ok (compileManualBackupScope
+              backupRequest databaseScope databaseNative)
+            backupBytes = case Map.elems backupNative of
+              [(_, bytes)] -> bytes
+              _ -> error "Redis manual backup must bind one Job"
+            metadataValues (Object fields) =
+              [value | KM.lookup "name" fields == Just (String "BACKUP_RECEIPT_METADATA"),
+                Just (String value) <- [KM.lookup "value" fields]]
+                <> concatMap metadataValues (KM.elems fields)
+            metadataValues (Array values) = concatMap metadataValues (toList values)
+            metadataValues _ = []
+        backupValue <- case eitherDecodeStrict backupBytes of
+          Right value -> pure (value :: Value)
+          Left reason -> assertFailure reason >> fail "invalid Redis backup Job"
+        metadata <- case metadataValues backupValue of
+          [field] -> case eitherDecodeStrict (TE.encodeUtf8 field) of
+            Right value -> pure (value :: Value)
+            Left reason -> assertFailure reason >> fail "invalid Redis receipt metadata"
+          _ -> assertFailure "Redis backup lacks one receipt metadata field" >> fail "missing metadata"
+        let checksum = T.replicate 64 "a"
+            receiptBytes = BL.toStrict (encode (object
+              ["version" .= (1 :: Int), "sha256" .= checksum, "backup" .= metadata]))
+            restoreRequest = ManualRestoreRequest
+              { restoreDatabaseName = "redis-main", restoreNamespaceName = "default"
+              , restoreId = "rdbone", restoreBackupScope = backupScope
+              , restoreBackupRevision = ScopeRevision (ok (mkScopeGeneration 1))
+                  (contentDigest "accepted-backup")
+              , restoreReceiptBytes = receiptBytes
+              , restoreTargetRevision = sourceRevision backupRequest
+              , restoreTargetStatefulUid = sourceStatefulUid backupRequest
+              , restoreTargetPvcUid = sourcePvcUid backupRequest
+              , restoreStorageBackend = backend
+              , restoreSource = SourceLocation "db restore" "rdbone" }
+            (restoreScope, restoreNative) = ok (compileManualRestoreScope restoreRequest
+              databaseScope (Map.union backupNative databaseNative))
+            restoreObjects = [bytes | (_, bytes) <- Map.elems restoreNative]
+        Map.size restoreNative @?= 4
+        let restoreIds = [member ^. #identity | bundle <- scopeBundles restoreScope,
+              Managed member <- declarations bundle]
+        restoreIds @?= sort restoreIds
+        Map.lookup "restore.backup.object" (scopeOverrides restoreScope)
+          @?= Just "gs://bucket/manual-databases/default/redis-main/run-001.rdb.gz"
+        Map.lookup "restore.target.database" (scopeOverrides restoreScope)
+          @?= Just "redis-main-restore-rdbone"
+        assertBool "Redis restore lacks pinned RDB and isolated scratch manifests"
+          (any (BC.isInfixOf "redis-check-rdb") restoreObjects
+            && any (BC.isInfixOf "nagare.dev/restore-scratch") restoreObjects
+            && any (BC.isInfixOf "EXPECTED_BACKUP_SHA256") restoreObjects)
+        case [bytes | (member, bytes) <- Map.elems restoreNative,
+          case member ^. #address of
+            Kubernetes _ "apps" kind _ _ -> nameText kind == "statefulset"
+            _ -> False] of
+          [scratchBytes] -> do
+            let sourceStateful = ok (databaseResourceId owner (ok (mkName "statefulset")) db)
+                sourcePvc = ok (databaseResourceId owner (ok (mkName "pvc")) db)
+                scratchStateful = mintResourceId (scopeId restoreScope)
+                  (ok (mkLogicalKey "rdbone")) (ok (mkName "statefulset"))
+                observed sourceId uid = KubernetesPresent uid "1" (Just sourceId)
+                  (contentDigest (snd (databaseNative Map.! sourceId)))
+            manualRestoreJobTargetPins scratchBytes @?= Right (Just
+              [(sourceStateful, sourceStatefulUid backupRequest),
+               (sourcePvc, sourcePvcUid backupRequest)])
+            states <- newIORef (Map.fromList
+              [ (scratchStateful, KubernetesAbsent (contentDigest "absent"))
+              , (sourceStateful, observed sourceStateful (sourceStatefulUid backupRequest))
+              , (sourcePvc, observed sourcePvc (sourcePvcUid backupRequest)) ])
+            let adapter = mkKubernetesAdapter
+                  (Map.unions [restoreNative, backupNative, databaseNative])
+                  KubernetesAdapterOps
+                    { kubernetesContext = ok (mkContextId "test")
+                    , kubernetesObserve = \selected -> Map.findWithDefault
+                        (KubernetesUnknown "unbound") selected <$> readIORef states
+                    , kubernetesMutateConditional = \_ -> pure AdapterEffectCompleted }
+                createScratch = createOperation
+                  {plannedResources = scratchStateful :| []}
+            prepared <- adapterPrepare adapter createScratch >>= expectRight
+            adapterPreflight adapter createScratch prepared >>= expectRight
+            modifyIORef' states (Map.insert sourceStateful
+              (observed sourceStateful (ok (mkPhysicalIdentity "replacement-redis"))))
+            assertBool "changed Redis source UID reached the scratch initializer"
+              . isLeft =<< adapterPreflight adapter createScratch prepared
+          _ -> assertFailure "Redis restore lacks one source-pinned StatefulSet"
     , testCase "manual database backup binds object and source incarnation into its own Job scope" $ do
         let owner = ok (mkScopeId Standalone "database-pg-main")
             db = Database (ok (mkDatabaseName "pg-main")) Nothing Postgres (defaultEngineVersion Postgres)
@@ -1374,6 +1475,21 @@ inventoryKubernetesTests =
         assertBool "unrelated empty values must retain exact equality" (not (desiredFieldsMatch
           (object ["data" .= object ["value" .= ("" :: Text)]])
           (object ["data" .= object []])))
+    , testCase "Kubernetes omission of empty Pod hostAliases is not StatefulSet drift" $ do
+        let pod aliases = object ["spec" .= object ["template" .= object
+              ["spec" .= object aliases]]]
+            nonempty = pod ["hostAliases" .= [object
+              ["ip" .= ("169.254.169.254" :: Text)]]]
+        assertBool "empty host aliases should match omission"
+          (desiredFieldsMatch (pod ["hostAliases" .= ([] :: [Value])]) (pod []))
+        assertBool "null host aliases should match omission"
+          (desiredFieldsMatch (pod ["hostAliases" .= Null]) (pod []))
+        assertBool "empty volumes should match omission"
+          (desiredFieldsMatch (pod ["volumes" .= ([] :: [Value])]) (pod []))
+        assertBool "nonempty host aliases must still drift"
+          (not (desiredFieldsMatch nonempty (pod [])))
+        assertBool "another empty field must still drift"
+          (not (desiredFieldsMatch (pod ["initContainers" .= ([] :: [Value])]) (pod [])))
     , testCase "Serving webhook controller rules retain reviewed admission coverage" $ do
         let webhook rules service = object
               [ "apiVersion" .= ("admissionregistration.k8s.io/v1" :: Text)

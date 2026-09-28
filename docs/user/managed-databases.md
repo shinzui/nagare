@@ -417,7 +417,16 @@ Planning requires the accepted backup Job's Pod receipt. The restore Job reads
 the current receipt and backup object, checks their pinned SHA-256 values and
 expiry, then creates `<database>_restore_<restore-id>` only if absent. If the
 restore fails after creation, keep the scratch database for explicit forward
-recovery. Reviewed Redis, ClickHouse, and live-target restore remain open.
+recovery.
+
+An accepted Redis backup can use the same reviewed command. It creates a
+separate `<database>-restore-<restore-id>` Service, scratch PVC, and Redis
+StatefulSet. The startup init container checks the accepted receipt and backup
+versions and SHA-256 values, then loads the RDB from the scratch PVC; a Job
+verifies that the isolated server is ready. Query the scratch Pod to check
+application keys before deciding on any live recovery. An uncertain first
+load retains the PVC for explicit recovery instead of overwriting it on a
+retry. A reviewed Redis live-target restore and ClickHouse restore remain open.
 
 An uninitialized legacy context can still have a scheduled CronJob that
 self-prunes. Inspect its cloud backup objects with:

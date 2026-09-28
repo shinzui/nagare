@@ -126,7 +126,7 @@ import Nagare.Database.Prune (PruneJobInputs (PruneJobInputs), pruneShell, rende
 import Nagare.Database.Connection (ConnIdentity (..), connectionEnv, mergeConnectionEnvs)
 import Nagare.Database.Create (DbCreateParams (..), buildDatabase, classifyPasswordObservation, ensureCredential, passwordKey)
 import Nagare.Database.Discover (DbRow (..), dbLabelSelector, extractDbRows, formatDbTable)
-import Nagare.Database.Restore (RestoreJobInputs (..), VerifiedRestoreSource (..), downloadShell, isObjectUrl, renderRestoreJob, resolveBackupObject)
+import Nagare.Database.Restore (RestoreJobInputs (..), VerifiedRestoreSource (..), downloadShell, isObjectUrl, renderRedisScratchService, renderRedisScratchStatefulSet, renderRedisScratchVerifyJob, renderRestoreJob, resolveBackupObject)
 import Nagare.Database.Secret
   ( ConnectionParts (..)
   , b64decode
@@ -5880,6 +5880,35 @@ backupRestoreTests =
           let y = TE.decodeUtf8 (renderRestoreJob (restoreJobInputsPg & #liveTarget .~ True))
           assertBool "live warning" ("LIVE database" `T.isInfixOf` y)
           assertBool "no scratch suffix" (not ("_restore_scratch" `T.isInfixOf` y))
+      , testCase "reviewed Redis scratch loads a pinned RDB into a separate PVC-backed server" $ do
+          let scratch = "mydb-restore-rdbone"
+              selected = VerifiedRestoreSource
+                "s3://nagare-backups/databases/mydb/run-001.rdb.gz.receipt.json"
+                "receipt-sha" "object-sha" scratch 0 (Just "object-version") (Just "receipt-version")
+              request = restoreJobInputsPg
+                & #engine .~ Redis
+                & #clientImage .~ "redis:8"
+                & #sourceUrl .~ "s3://nagare-backups/databases/mydb/run-001.rdb.gz"
+                & #verifiedSource .~ Just selected
+                & #backend .~ localMinioBackend
+              service = renderRedisScratchService "personal" scratch
+              stateful = renderRedisScratchStatefulSet request scratch scratch
+              verify = renderRedisScratchVerifyJob request scratch
+          assertBool "scratch Service does not select the source"
+            (BC.isInfixOf "nagare.dev/restore-scratch" service
+              && not (BC.isInfixOf "nagare.dev/database" service))
+          assertBool "scratch has a persistent, separately named PVC"
+            (BC.isInfixOf "claimName: mydb-restore-rdbone" stateful)
+          assertBool "startup downloads exact versions and checks both hashes"
+            (all (`BC.isInfixOf` stateful)
+              ["OBJECT_VERSION", "RECEIPT_VERSION", "EXPECTED_BACKUP_SHA256",
+               "EXPECTED_RECEIPT_SHA256", "redis-check-rdb", "--dbfilename backup.rdb"])
+          assertBool "retry cannot silently overwrite uncertain RDB state"
+            (all (`BC.isInfixOf` stateful)
+              [".nagare-restore-complete", "test ! -e /dump/backup.rdb"])
+          assertBool "verification observes the isolated server"
+            (all (`BC.isInfixOf` verify)
+              ["mydb-restore-rdbone", "DBSIZE", "loading:0"])
       , testCase "reviewed scratch restore checks fresh receipt and backup bytes before decompressing" $
           withSystemTempDirectory "nagare-reviewed-restore" $ \directory -> do
             let dump = directory </> "dump"

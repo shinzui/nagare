@@ -11779,7 +11779,7 @@ runReviewedDbRestorePlan mctx database namespaceName backupId restoreKey bucketA
   Inventory.planInventoryCandidateWith
     (inventoryPlanRegistryWithNative active workspace
       (Map.union restoreNative selectedNative)) active candidate output
-  TIO.putStrLn "Saved reviewed scratch restore. Apply it to verify the backup again and create the fixed scratch database."
+  TIO.putStrLn "Saved reviewed scratch restore. Apply it to verify the backup again and create the fixed scratch target."
 
 -- | Resolve the GCS backup bucket: an explicit @--bucket@ flag wins; otherwise
 -- the resolved target profile's backup bucket (EP-62; honors

@@ -25,7 +25,7 @@ is successful only if rebuilding it is *boring*.
 
 Live `db backup` and `db restore` require saved reviews in every context. An
 accepted database can use `db backup NAME --backup-id ID --save-plan DIR` or a
-PostgreSQL scratch restore with `--restore-id ID --save-plan DIR`, followed by
+PostgreSQL or Redis scratch restore with `--restore-id ID --save-plan DIR`, followed by
 `inventory apply DIR --yes`. An accepted app PVC can use
 `storage snapshot APP VOLUME --snapshot-id ID --save-plan DIR`, followed by
 `inventory apply DIR --yes`. Restore an accepted snapshot into a separate PVC
@@ -52,7 +52,7 @@ Most of Nagare is reproduced from Git; only a few things need real backup jobs.
 | Host Postgres | Restore from disk if data disk survives; use managed DBs for Nagare-owned backup tooling | 🟡 |
 | Whole data disk | Daily GCE snapshot at 08:00 UTC, retained seven days and kept if the source disk is deleted | 🟡 (declared; live apply/verification pending) |
 | App volumes (PVCs) | Reviewed fixed-key snapshot and separate scratch restore Jobs → GCS or MinIO (`manual-volumes/<namespace>/<app>/<volume>/`) | 🟡 (live provider proof, exact pruning, and live-target recovery pending) |
-| Managed databases | Daily CronJob → GCS or MinIO (`databases/<name>/`); reviewed schedules verify stored bytes without pruning; accepted databases can save reviewed manual backup, expired manual pruning, and PostgreSQL scratch restore Jobs | 🟡 (live provider proof, scheduled pruning, and live-target/other-engine restore pending) |
+| Managed databases | Daily CronJob → GCS or MinIO (`databases/<name>/`); reviewed schedules verify stored bytes without pruning; accepted databases can save reviewed manual backup, expired manual pruning, PostgreSQL scratch restore Jobs, and Redis scratch instances | 🟡 (scheduled pruning, live-target/ClickHouse restore, and complete cloud provider proof pending) |
 | Attic signing identity and metadata | Managed PostgreSQL `nix-cache` / daily `nagare-dbbackup-nix-cache` CronJob | 🟡 (provider implemented; live restore acceptance pending) |
 | Attic cache chunks | Reproducible producer inputs; optionally export the dedicated GCS bucket before retirement | Rebuildable |
 | Grafana dashboards | **Git** (dashboard JSON under `cluster/observability`) | ✅ |
@@ -186,7 +186,15 @@ restore Job checks the current receipt and backup bytes against the saved
 checksums, checks expiry again, and creates
 `<database>_restore_<restore-id>` only if absent. A failed restore leaves that
 scratch database for explicit forward recovery. Reviewed live-target,
-Redis/ClickHouse restore, scheduled-backup pruning, and live provider proof remain pending.
+ClickHouse restore, scheduled-backup pruning, and complete cloud provider proof remain pending.
+
+For Redis, the same command creates a separate scratch Service, PVC, and
+StatefulSet named `<database>-restore-<restore-id>`, then verifies the loaded
+server with a Job. It checks exact accepted backup/receipt versions and hashes
+before loading the RDB. A failed or uncertain first load retains the scratch
+PVC for explicit recovery. A local scheduled Redis run has passed receipt
+ingestion after producer Job cleanup and a real key-content restore; Redis
+live-target restore remains unavailable.
 
 Live restore requires an accepted backup and saved scratch review in every
 context. The old `db restore NAME BACKUP_ID --dry-run` output renders a Job but

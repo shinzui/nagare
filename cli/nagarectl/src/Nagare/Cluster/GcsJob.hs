@@ -315,12 +315,11 @@ data DataMovementJob = DataMovementJob
 
 -- | Assemble the full Job @.spec@ body from the per-Job variation. The field
 -- order (@restartPolicy@, @hostAliases@, then @initContainers@, @containers@,
--- @volumes@) matches the existing renderers so refactoring onto this module does
--- not change any rendered manifest's bytes. @hostAliases@ is omitted when
+-- @volumes@) matches the existing renderers for nonempty volumes.
+-- @hostAliases@ is omitted when
 -- 'hostAliases' is 'Nothing' (the MinIO backend); supplying
 -- @Just metadataHostAliases@ keeps the cloud bytes unchanged. @initContainers@
--- is omitted entirely when empty (snapshot/volume-restore have none), preserving
--- their current shape.
+-- and @volumes@ are omitted when empty, matching Kubernetes' stored pod shape.
 dataMovementJobSpec :: DataMovementJob -> Value
 dataMovementJobSpec j =
   object
@@ -334,9 +333,8 @@ dataMovementJobSpec j =
                            ++ maybe [] (\account -> ["serviceAccountName" .= account]) (j ^. #serviceAccountName)
                            ++ maybe [] (\ha -> ["hostAliases" .= ha]) (j ^. #hostAliases)
                            ++ ["initContainers" .= toJSON (j ^. #initContainers) | not (null (j ^. #initContainers))]
-                           ++ [ "containers" .= toJSON (j ^. #containers)
-                              , "volumes" .= toJSON (j ^. #volumes)
-                              ]
+                           ++ ["containers" .= toJSON (j ^. #containers)]
+                           ++ ["volumes" .= toJSON (j ^. #volumes) | not (null (j ^. #volumes))]
                        )
                  ]
           )

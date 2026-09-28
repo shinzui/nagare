@@ -223,7 +223,7 @@ litestream restore -o /tmp/restore-app.db gcs://$BACKUP_BUCKET/litestream/<app-d
 sqlite3 /tmp/restore-app.db "SELECT count(*) FROM notes;"
 # Managed database (EP-47) into a SCRATCH target, compare, then promote manually.
 # The removed host-side Postgres helpers are no longer a supported restore path.
-# A reviewed PostgreSQL restore requires an accepted manual backup receipt.
+# A reviewed PostgreSQL or Redis scratch restore requires an accepted backup receipt.
 nagarectl db restore <name> <accepted-backup-id> --restore-id recovery-001 --save-plan ./db-restore
 nagarectl inventory apply ./db-restore --yes
 # App volume (EP-36) into a SCRATCH PVC, eyeball the restored tree, then promote:
@@ -231,12 +231,12 @@ nagarectl inventory apply ./db-restore --yes
 # Use a separately reviewed volume recovery procedure when it is available.
 ```
 
-Observe: the scratch row counts (or, for an app volume, the restored file tree
-the Job logs print) match the source at backup time. Only after comparing do you
-promote (copy the scratch SQLite file to `/var/lib/nagare/sqlite/`, rename the
-scratch Postgres db, or copy the scratch PVC's files into the live volume). The
-The reviewed PostgreSQL restore writes only to a newly named scratch database.
-It checks the accepted backup receipt and current object bytes before execution.
+Observe that scratch PostgreSQL rows or Redis keys match the source at backup
+time. Redis uses a separate PVC-backed scratch StatefulSet named
+`<database>-restore-<restore-id>`. For an app volume, compare the restored file
+tree printed by the Job. The reviewed database restores write only to new
+scratch targets and check the accepted receipt and current object bytes before
+execution. Live-target restore needs a separate reviewed recovery procedure.
 
 **App-volume snapshots are file-level, point-in-time copies** (`tar` of the
 mounted volume → `gs://<backupBucket>/volumes/<app>/<volume>/<ts>.tar.gz`, taken

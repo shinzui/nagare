@@ -410,9 +410,12 @@ desiredFieldsMatch desired observed
     go path (Object desired) (Object observed) =
       all (\(key, value) -> case KM.lookup key observed of
         Just actual -> go (Key.toText key : path) value actual
-        Nothing -> key == "value" && value == String "" && case path of
+        Nothing -> (key == "value" && value == String "" && case path of
           "env" : _ -> KM.lookup "valueFrom" observed == Nothing
-          _ -> False) (KM.toList desired)
+          _ -> False)
+          || (key `elem` ["hostAliases", "volumes"]
+            && value `elem` [Null, Array V.empty]
+            && path == ["spec", "template", "spec"])) (KM.toList desired)
     go path (Array desired) (Array observed) =
       length desired == length observed && and (zipWith (go path) (foldr (:) [] desired) (foldr (:) [] observed))
     go ("cpu" : className : "resources" : _) (String desired) (String observed)

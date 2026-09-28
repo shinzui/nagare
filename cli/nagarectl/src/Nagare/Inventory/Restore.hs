@@ -16,7 +16,7 @@ import Data.Aeson.Key qualified as K
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
-import Data.List (sort)
+import Data.List (sort, sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -26,9 +26,9 @@ import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
 import Data.Time.Format (defaultTimeLocale, parseTimeM)
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (MinioRef (..), StoreBackend (..), storeObjectUrl)
-import Nagare.Database.Backup (manualBackupObjectPath, manualDatabaseJobName)
-import Nagare.Database.Restore (RestoreJobInputs (..), VerifiedRestoreSource (..), renderRestoreJob)
-import Nagare.Dsl.Database (Engine (Postgres), dbSecretName, engineImage)
+import Nagare.Database.Backup (backupExt, manualBackupObjectPath, manualDatabaseJobName)
+import Nagare.Database.Restore (RestoreJobInputs (..), VerifiedRestoreSource (..), renderRestoreJob, renderRedisScratchService, renderRedisScratchStatefulSet, renderRedisScratchVerifyJob)
+import Nagare.Dsl.Database (Engine (..), dbSecretName, engineImage, parseEngine)
 import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types (mkServiceName)
@@ -81,14 +81,16 @@ manualRestoreTargetProof scope
     values = scopeOverrides scope
     required key = maybe (Left ("manual restore scope lacks " <> key)) Right (Map.lookup key values)
 
--- | Exact source UIDs from a saved restore Job. An incomplete annotation set
--- refuses execution; ordinary Jobs have no restore target pins.
+-- | Exact source UIDs from a saved restore Job or Redis scratch StatefulSet.
+-- An incomplete annotation set refuses execution; ordinary objects have no
+-- restore target pins. The StatefulSet check runs before its init can load data.
 manualRestoreJobTargetPins
   :: ByteString -> Either T.Text (Maybe [(ResourceId, PhysicalIdentity)])
 manualRestoreJobTargetPins bytes = do
   value <- first T.pack (eitherDecodeStrict bytes)
   case value of
-    Object root | KM.lookup "kind" root == Just (String "Job")
+    Object root | KM.lookup "kind" root `elem`
+        [Just (String "Job"), Just (String "StatefulSet")]
       , Just (Object metadata) <- KM.lookup "metadata" root
       , Just (Object annotations) <- KM.lookup "annotations" metadata
       , Just (String _) <- KM.lookup "nagare.dev/restore-id" annotations -> do
@@ -157,9 +159,14 @@ compileManualRestoreScope request accepted native = do
   unless (all (sameCluster cluster) [pvc, credential, backupJob])
     (Left (invalid "restore resources belong to different clusters"))
   engineName <- metadataText invalid "labels" "nagare.dev/engine" statefulValue
-  unless (engineName == "postgres")
-    (Left (invalid "reviewed scratch restore currently supports PostgreSQL only"))
+  engine <- maybe (Left (invalid "reviewed scratch restore has an unknown engine")) Right
+    (parseEngine engineName)
+  unless (engine `elem` [Postgres, Redis])
+    (Left (invalid "reviewed scratch restore currently supports PostgreSQL and Redis"))
   version <- metadataText invalid "annotations" "nagare.dev/version" statefulValue
+  scratchSize <- if engine == Redis
+    then metadataText invalid "annotations" "nagare.dev/size" statefulValue
+    else Right ""
   (objectUrl, receiptUrl, backupId, expiryEpoch, receiptDigest,
       receiptChecksum, objectVersion, receiptVersion) <-
     if Map.member "scheduled.backup.id" (scopeOverrides backup)
@@ -177,7 +184,7 @@ compileManualRestoreScope request accepted native = do
         selectedReceiptVersion <- required "scheduled.backup.receipt.version"
         unless (receiptUrl == objectUrl <> ".receipt.json"
             && objectUrl == storeObjectUrl (restoreStorageBackend request)
-              ("databases/" <> db <> "/" <> backupId <> ".sql.gz")
+              ("databases/" <> db <> "/" <> backupId <> "." <> backupExt engine)
             && all (not . T.null) [selectedObjectVersion, selectedReceiptVersion])
           (Left (invalid "scheduled backup has another address or lacks exact versions"))
         pure (objectUrl, receiptUrl, backupId, 0, receiptDigest,
@@ -197,7 +204,7 @@ compileManualRestoreScope request accepted native = do
             Just expiry -> Right (floor (utcTimeToPOSIXSeconds expiry))
             Nothing -> Left (invalid "backup expiry is invalid")
         unless (objectUrl == storeObjectUrl (restoreStorageBackend request)
-            (manualBackupObjectPath db ns backupId "sql.gz"))
+            (manualBackupObjectPath db ns backupId (backupExt engine)))
           (Left (invalid "backup object does not match the selected backend and database"))
         receiptChecksum <- first invalid (parseManualBackupReceipt backup receiptUrl
           (restoreReceiptBytes request))
@@ -217,7 +224,9 @@ compileManualRestoreScope request accepted native = do
           _ -> Left (invalid "backup receipt lacks metadata")
         pure (objectUrl, receiptUrl, backupId, expiryEpoch,
           contentDigest (restoreReceiptBytes request), receiptChecksum, Nothing, Nothing)
-  scratch <- first invalid (scratchDatabaseName db (restoreId request))
+  scratch <- first invalid (case engine of
+    Redis -> redisScratchName db (restoreId request)
+    _ -> scratchDatabaseName db (restoreId request))
   owner <- first invalid (mkScopeId Standalone
     ("database-restore-" <> ns <> "-" <> db <> "-" <> restoreId request))
   key <- first invalid (mkLogicalKey (restoreId request))
@@ -227,8 +236,8 @@ compileManualRestoreScope request accepted native = do
       proofId = mintResourceId owner key proofRole
       jobName = manualDatabaseJobName "nagare-dbrestore-" db (restoreId request)
       inputs = RestoreJobInputs
-        { namespace = ns, jobName = jobName, engine = Postgres
-        , clientImage = engineImage Postgres <> ":" <> version
+        { namespace = ns, jobName = jobName, engine = engine
+        , clientImage = engineImage engine <> ":" <> version
         , serviceHost = db, secretName = dbSecretName db, name = db
         , sourceUrl = objectUrl, liveTarget = False
         , verifiedSource = Just (VerifiedRestoreSource receiptUrl
@@ -237,7 +246,9 @@ compileManualRestoreScope request accepted native = do
         , backend = restoreStorageBackend request
         }
   rendered <- first (invalid . T.pack . show)
-    (Yaml.decodeEither' (renderRestoreJob inputs) :: Either Yaml.ParseException Value)
+    (Yaml.decodeEither' (case engine of
+      Redis -> renderRedisScratchVerifyJob inputs scratch
+      _ -> renderRestoreJob inputs) :: Either Yaml.ParseException Value)
   job <- first invalid (annotateJob request accepted backupJob stateful pvc
     objectUrl receiptUrl receiptDigest scratch rendered)
   canonical <- first invalid (canonicalValue job)
@@ -277,15 +288,102 @@ compileManualRestoreScope request accepted native = do
         , ("restore.target.pvc.uid", physicalIdentityText (restoreTargetPvcUid request))
         , ("restore.target.database", scratch)
         ]
-  base <- mkScopeDeclaration owner [ResourceBundle [Managed member] [] [] [] [proof] []]
-  pure (withScopeOverrides overrides (withScopeConfigDigest (contentDigest canonical) base),
-    Map.singleton jobId (member, bytes))
+  case engine of
+    Redis -> compileRedisScratchScope request invalid cluster owner key
+      stateful pvc credential backupJob inputs scratch scratchSize member bytes proof overrides
+    _ -> do
+      base <- mkScopeDeclaration owner [ResourceBundle [Managed member] [] [] [] [proof] []]
+      pure (withScopeOverrides overrides (withScopeConfigDigest (contentDigest canonical) base),
+        Map.singleton jobId (member, bytes))
 
 scratchDatabaseName :: T.Text -> T.Text -> Either T.Text T.Text
 scratchDatabaseName db restoreKey =
   let chosen = db <> "_restore_" <> restoreKey
    in if T.length chosen <= 63 then Right chosen
       else Left "database and restore ID exceed PostgreSQL's 63-byte scratch name limit"
+
+redisScratchName :: T.Text -> T.Text -> Either T.Text T.Text
+redisScratchName db restoreKey =
+  let chosen = db <> "-restore-" <> restoreKey
+   in if T.length chosen <= 63 then Right chosen
+      else Left "database and restore ID exceed Kubernetes' 63-character scratch name limit"
+
+compileRedisScratchScope
+  :: ManualRestoreRequest
+  -> (T.Text -> NonEmpty InventoryError)
+  -> ResourceId -> ScopeId -> LogicalKey
+  -> ManagedResource -> ManagedResource -> ManagedResource -> ManagedResource
+  -> RestoreJobInputs -> T.Text -> T.Text -> ManagedResource -> ByteString
+  -> DeclaredOperation -> Map T.Text T.Text
+  -> Either (NonEmpty InventoryError)
+       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileRedisScratchScope request invalid cluster owner key sourceStateful sourcePvc
+    credential backupJob inputs scratch size verifyJob verifyBytes proof overrides = do
+  serviceRole <- first invalid (mkName "service")
+  pvcRole <- first invalid (mkName "pvc")
+  statefulRole <- first invalid (mkName "statefulset")
+  let serviceId = mintResourceId owner key serviceRole
+      pvcId = mintResourceId owner key pvcRole
+      statefulId = mintResourceId owner key statefulRole
+      ns = restoreNamespaceName request
+      bind resource bytes = do
+        value <- first (invalid . T.pack . show)
+          (Yaml.decodeEither' bytes :: Either Yaml.ParseException Value)
+        bindValue resource value
+      bindValue resource value = do
+        canonical <- first invalid (canonicalValue value)
+        first (:| []) (bindKubernetesObject KubernetesInput
+          { resourceId = resource, ownerScope = owner, clusterId = cluster
+          , inputObject = value, objectDigest = contentDigest canonical
+          , lifecyclePolicy = DeleteWhenUnreferenced, inputDataPolicy = Stateless
+          , inputSensitivity = Private, sourceLocation = restoreSource request })
+  (service, serviceBytes) <- bind serviceId (renderRedisScratchService ns scratch)
+  (scratchPvc, pvcBytes) <- bind pvcId (Volume.renderScratchPvc ns scratch size)
+  scratchRendered <- first (invalid . T.pack . show)
+    (Yaml.decodeEither' (renderRedisScratchStatefulSet inputs scratch scratch)
+      :: Either Yaml.ParseException Value)
+  scratchAnnotated <- first invalid (copyRestoreAnnotations verifyBytes scratchRendered)
+  (scratchStateful, statefulBytes) <- bindValue statefulId scratchAnnotated
+  expectedService <- first invalid (kubernetesAddress cluster "v1" "Service" (Just ns) scratch)
+  expectedPvc <- first invalid (kubernetesAddress cluster "v1" "PersistentVolumeClaim" (Just ns) scratch)
+  expectedStateful <- first invalid (kubernetesAddress cluster "apps/v1" "StatefulSet" (Just ns) scratch)
+  unless (service ^. #address == expectedService && scratchPvc ^. #address == expectedPvc
+      && scratchStateful ^. #address == expectedStateful)
+    (Left (invalid "Redis scratch members have unexpected native addresses"))
+  let pvcMember = scratchPvc {dependencies = sort (map (OrderedAfter . (^. #identity))
+        [sourcePvc, backupJob])}
+      statefulMember = scratchStateful {dependencies = sort (map (OrderedAfter . (^. #identity))
+        [service, pvcMember, credential, backupJob])}
+      jobMember = verifyJob {dependencies = sort (map (OrderedAfter . (^. #identity))
+        [statefulMember, sourceStateful, sourcePvc, credential, backupJob])}
+      restoreProof = proof {inputs = sort
+        (ContentInput (contentDigest statefulBytes) : proof ^. #inputs)}
+      native = Map.fromList
+        [ (serviceId, (service, serviceBytes))
+        , (pvcId, (pvcMember, pvcBytes))
+        , (statefulId, (statefulMember, statefulBytes))
+        , (jobMember ^. #identity, (jobMember, verifyBytes)) ]
+  combined <- first invalid (canonicalValue (object
+    [ "service" .= contentDigest serviceBytes
+    , "pvc" .= contentDigest pvcBytes
+    , "statefulset" .= contentDigest statefulBytes
+    , "verify" .= contentDigest verifyBytes ]))
+  base <- mkScopeDeclaration owner [ResourceBundle
+    (map Managed (sortOn (^. #identity) [service, pvcMember, statefulMember, jobMember]))
+    [] [] [] [restoreProof] []]
+  pure (withScopeOverrides overrides (withScopeConfigDigest (contentDigest combined) base), native)
+
+copyRestoreAnnotations :: ByteString -> Value -> Either T.Text Value
+copyRestoreAnnotations jobBytes = \case
+  Object root | Just (Object metadata) <- KM.lookup "metadata" root -> do
+    job <- first T.pack (eitherDecodeStrict jobBytes)
+    annotations <- case job of
+      Object jobRoot | Just (Object jobMetadata) <- KM.lookup "metadata" jobRoot
+        , Just (Object fields) <- KM.lookup "annotations" jobMetadata -> Right fields
+      _ -> Left "Redis restore verifier lacks reviewed source pins"
+    pure (Object (KM.insert "metadata" (Object
+      (KM.insert "annotations" (Object annotations) metadata)) root))
+  _ -> Left "Redis scratch StatefulSet lacks metadata"
 
 sameCluster :: ResourceId -> ManagedResource -> Bool
 sameCluster cluster member = case member ^. #address of

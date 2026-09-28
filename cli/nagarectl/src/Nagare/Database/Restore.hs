@@ -1,9 +1,7 @@
--- | Restore Job renderers (MasterPlan 9, EP-47). The legacy preview is
--- scratch-first by default; @--into-live@ changes only its read-only output.
--- Reviewed live scratch restore binds an accepted backup receipt in the
--- inventory compiler. A restore Job has two containers: an initContainer
--- (@google/cloud-sdk:slim@) downloads + gunzips the object into a shared
--- @emptyDir@, and the main container (the engine client image) loads it.
+-- | Restore renderers (MasterPlan 9, EP-47). The legacy preview is read-only.
+-- The reviewed PostgreSQL Job downloads and loads an accepted backup into a
+-- new scratch database. Redis uses a separate PVC-backed scratch StatefulSet
+-- and a verifier Job because an RDB loads when Redis starts.
 --
 -- Pure helpers (@resolveBackupObject@, @isGsUrl@, @renderRestoreJob@) are
 -- unit-testable without a cluster.
@@ -13,12 +11,16 @@ module Nagare.Database.Restore
   , RestoreJobInputs (..)
   , VerifiedRestoreSource (..)
   , renderRestoreJob
+  , renderRedisScratchService
+  , renderRedisScratchStatefulSet
+  , renderRedisScratchVerifyJob
   , downloadShell
   , previewDbRestore
   )
 where
 
-import Data.Aeson (Value, object, toJSON, (.=))
+import Data.Aeson (Value (..), object, toJSON, (.=))
+import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
@@ -75,7 +77,7 @@ data RestoreJobInputs = RestoreJobInputs
   deriving stock (Generic, Eq, Show)
 
 -- | A reviewed restore pins the bytes checked by its accepted backup receipt.
--- The Job rereads both objects before creating its new scratch target.
+-- The PostgreSQL Job or Redis scratch init rereads both objects before loading.
 data VerifiedRestoreSource = VerifiedRestoreSource
   { receiptUrl :: !Text
   , receiptSha256 :: !Text
@@ -118,6 +120,124 @@ renderRestoreJob i =
         [ "nagare.dev/managed-by" .= ("nagarectl" :: Text)
         , "nagare.dev/database" .= (i ^. #name)
         ]
+
+-- | Redis RDB files load at server startup. A reviewed scratch restore therefore
+-- owns a separate Service, PVC, and StatefulSet; the source instance is never
+-- given the RDB. The startup init container pins and verifies both store versions
+-- before publishing the file on the scratch PVC. A partial first load refuses
+-- restart until an operator reviews the PVC instead of silently replacing data.
+renderRedisScratchService :: Text -> Text -> ByteString
+renderRedisScratchService ns scratch = Y.encode $ object
+  [ "apiVersion" .= ("v1" :: Text)
+  , "kind" .= ("Service" :: Text)
+  , "metadata" .= object
+      [ "name" .= scratch, "namespace" .= ns, "labels" .= redisScratchLabels scratch ]
+  , "spec" .= object
+      [ "clusterIP" .= ("None" :: Text)
+      , "selector" .= redisScratchSelector scratch
+      , "ports" .= toJSON [object ["name" .= ("redis" :: Text),
+          "port" .= (6379 :: Int), "targetPort" .= (6379 :: Int)]] ]
+  ]
+
+renderRedisScratchStatefulSet :: RestoreJobInputs -> Text -> Text -> ByteString
+renderRedisScratchStatefulSet i scratch claim = Y.encode $ object
+  [ "apiVersion" .= ("apps/v1" :: Text)
+  , "kind" .= ("StatefulSet" :: Text)
+  , "metadata" .= object
+      [ "name" .= scratch, "namespace" .= (i ^. #namespace)
+      , "labels" .= redisScratchLabels scratch ]
+  , "spec" .= object
+      [ "serviceName" .= scratch
+      , "replicas" .= (1 :: Int)
+      , "selector" .= object ["matchLabels" .= redisScratchSelector scratch]
+      , "template" .= object
+          [ "metadata" .= object ["labels" .= redisScratchLabels scratch]
+          , "spec" .= object
+              ( [ "initContainers" .= toJSON [redisScratchDownloadContainer i]
+              , "containers" .= toJSON [redisScratchServer i]
+              , "volumes" .= toJSON [object
+                  [ "name" .= ("dump" :: Text)
+                  , "persistentVolumeClaim" .= object ["claimName" .= claim] ]]
+              ] <> maybe [] (\aliases -> ["hostAliases" .= aliases])
+                (storeHostAliases (i ^. #backend))) ]
+      ]
+  ]
+
+renderRedisScratchVerifyJob :: RestoreJobInputs -> Text -> ByteString
+renderRedisScratchVerifyJob i scratch = Y.encode $ object
+  [ "apiVersion" .= ("batch/v1" :: Text)
+  , "kind" .= ("Job" :: Text)
+  , "metadata" .= object
+      [ "name" .= (i ^. #jobName), "namespace" .= (i ^. #namespace)
+      , "labels" .= redisScratchLabels scratch ]
+  , "spec" .= dataMovementJobSpec DataMovementJob
+      { templateLabels = Just (redisScratchLabels scratch)
+      , serviceAccountName = Nothing
+      , backoffLimit = 0
+      , hostAliases = storeHostAliases (i ^. #backend)
+      , initContainers = []
+      , containers = [object
+          [ "name" .= ("verify" :: Text)
+          , "image" .= (i ^. #clientImage)
+          , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
+          , "args" .= toJSON
+              [ "set -e; i=0; until test \"$(REDISCLI_AUTH=\"$REDIS_PASSWORD\" redis-cli -h " <> scratch
+                  <> " --no-auth-warning ping)\" = PONG; do i=$((i+1)); "
+                  <> "if test \"$i\" -ge 150; then exit 1; fi; sleep 2; done; "
+                  <> "REDISCLI_AUTH=\"$REDIS_PASSWORD\" redis-cli -h " <> scratch
+                  <> " --no-auth-warning INFO persistence | grep -q 'loading:0'; "
+                  <> "REDISCLI_AUTH=\"$REDIS_PASSWORD\" redis-cli -h " <> scratch <> " --no-auth-warning DBSIZE" ]
+          , "env" .= toJSON (restoreEnv Redis (i ^. #secretName))
+          ]]
+      , volumes = []
+      }
+  ]
+
+redisScratchSelector :: Text -> Value
+redisScratchSelector scratch = object ["nagare.dev/restore-scratch" .= scratch]
+
+redisScratchLabels :: Text -> Value
+redisScratchLabels scratch = object
+  [ "nagare.dev/managed-by" .= ("nagarectl" :: Text)
+  , "nagare.dev/restore-scratch" .= scratch ]
+
+redisScratchDownloadContainer :: RestoreJobInputs -> Value
+redisScratchDownloadContainer i = case downloadContainer i of
+  -- The base downloader already supplies exact-version env, store credentials,
+  -- both SHA checks, and the PVC mount at /dump.
+  Object fields -> Object (KM.insert "args" (toJSON [redisScratchDownloadShell i]) fields)
+  other -> other
+
+redisScratchDownloadShell :: RestoreJobInputs -> Text
+redisScratchDownloadShell i =
+  "set -e; if test -e /dump/.nagare-restore-complete; then "
+    <> "test \"$(cat /dump/.nagare-restore-complete)\" = \"$EXPECTED_BACKUP_SHA256\"; "
+    <> "command -v sha256sum >/dev/null 2>&1 || dnf install -y -q coreutils >/dev/null 2>&1; "
+    <> "test \"$(sha256sum /dump/backup.gz | cut -d' ' -f1)\" = \"$EXPECTED_BACKUP_SHA256\"; "
+    <> "test -s /dump/backup.rdb; "
+    <> "else test ! -e /dump/backup.gz && test ! -e /dump/backup.rdb; "
+    <> downloadShell (i ^. #backend) Redis (i ^. #verifiedSource)
+    <> "; test -s /dump/backup.rdb; "
+    <> "printf %s \"$EXPECTED_BACKUP_SHA256\" > /dump/.nagare-restore-complete; fi"
+
+redisScratchServer :: RestoreJobInputs -> Value
+redisScratchServer i = object
+  [ "name" .= ("redis" :: Text)
+  , "image" .= (i ^. #clientImage)
+  , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
+  , "args" .= toJSON
+      [ ("set -e; redis-check-rdb /data/backup.rdb >/dev/null; " :: Text)
+          <> "exec redis-server --requirepass \"$REDIS_PASSWORD\" "
+          <> "--dir /data --dbfilename backup.rdb --save '' --appendonly no" ]
+  , "env" .= toJSON (restoreEnv Redis (i ^. #secretName))
+  , "ports" .= toJSON [object ["containerPort" .= (6379 :: Int)]]
+  , "readinessProbe" .= object
+      [ "exec" .= object ["command" .= toJSON
+          ["/bin/sh" :: Text, "-c", "test \"$(REDISCLI_AUTH=\"$REDIS_PASSWORD\" redis-cli --no-auth-warning ping)\" = PONG"]]
+      , "periodSeconds" .= (5 :: Int), "timeoutSeconds" .= (5 :: Int) ]
+  , "volumeMounts" .= toJSON [object
+      ["name" .= ("dump" :: Text), "mountPath" .= ("/data" :: Text)]]
+  ]
 
 dumpMount :: Value
 dumpMount = object ["name" .= ("dump" :: Text), "mountPath" .= ("/dump" :: Text)]
@@ -245,10 +365,8 @@ verifiedRestoreShell Postgres svc _ =
     <> " -U \"$POSTGRES_USER\" -d \"$SCRATCH_DATABASE\" -c '\\dt'"
 verifiedRestoreShell _ _ _ = "exit 1"
 
--- | The per-engine restore shell. Scratch-first: Postgres/ClickHouse restore into
--- @\<db\>_restore_scratch@ unless @live@. Redis restore is whole-instance and is
--- only performed against the live instance when @--into live@ is passed; the
--- scratch case prints guidance (a disposable Redis instance is a follow-up).
+-- | Legacy read-only Job preview. Reviewed execution uses accepted inventory
+-- scopes and separate Redis scratch resources instead of these Redis branches.
 restoreShell :: Engine -> Text -> Bool -> Text
 restoreShell Postgres svc live =
   "set -e; T="
@@ -274,17 +392,11 @@ restoreShell ClickHouse svc live =
     <> "clickhouse-client -h "
     <> svc
     <> " --user \"$CLICKHOUSE_USER\" --password \"$CLICKHOUSE_PASSWORD\" --query \"CREATE DATABASE IF NOT EXISTS $T\""
-restoreShell Redis svc live
-  | live =
-      "set -e; echo 'WARNING: restoring into the LIVE Redis instance'; "
-        <> "redis-cli -h "
-        <> svc
-        <> " -a \"$REDIS_PASSWORD\" --pipe < /dump/backup.rdb || "
-        <> "echo 'Redis RDB restore is whole-instance: place dump.rdb on the data PVC and restart the pod'"
+restoreShell Redis _ live
+  | live = "echo 'Read-only preview: reviewed Redis live-target restore is unavailable.'"
   | otherwise =
-      "set -e; echo 'Redis scratch restore is a follow-up (a disposable Redis instance). "
-        <> "Pass --into live to restore into the live instance, or restore manually by placing "
-        <> "/dump/backup.rdb on the data PVC and restarting the pod.'"
+      "echo 'Read-only preview: use db restore with --restore-id and --save-plan "
+        <> "for a reviewed Redis scratch instance.'"
 
 warn :: Bool -> Text
 warn True = "echo 'WARNING: restoring into the LIVE database'; "
