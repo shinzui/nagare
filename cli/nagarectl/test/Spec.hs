@@ -352,7 +352,9 @@ import Nagare.Resource.Canonical (canonicalValue, contentDigest)
 import Nagare.Inventory.Backup
   ( ScheduledBackupReceipt (..), ScheduledReceiptExpectation (..)
   , parseScheduledBackupReceipt, scheduledReceiptExpectationFromCronJob )
-import Nagare.Inventory.ScheduledReceipt (ScheduledReceiptEvidence (..), inspectScheduledReceipt)
+import Nagare.Inventory.ScheduledReceipt
+  ( ScheduledReceiptEvidence (..), inspectScheduledReceipt
+  , verifyAcceptedScheduledReceipt )
 import Nagare.Inventory.ScheduledPrune (ScheduledPruneCandidate (..), selectScheduledPruneCandidates)
 import Nagare.Inventory.ScheduledStore (ListedObject (..), ObjectReader (..), StoredObject (..), parseObjectEntries, parseObjectList, parseObjectVersions)
 import Nagare.Inventory.ScheduledIngest
@@ -5286,6 +5288,32 @@ backupRestoreTests =
           assertBool "changed receipt version bytes were accepted" (isLeft changedReceipt)
           changedObject <- inspectScheduledReceipt (reader False True) expectation runId (T.replicate 64 "a")
           assertBool "changed backup version bytes were accepted" (isLeft changedObject)
+          let acceptedScope = InventoryModel.withScopeOverrides (Map.fromList
+                [ ("scheduled.backup.object", objectAddress)
+                , ("scheduled.backup.object.version", "object-version")
+                , ("scheduled.backup.object.length", T.pack (show (BS.length objectBytes)))
+                , ("scheduled.backup.object.sha256", objectSha)
+                , ("scheduled.backup.receipt", receiptAddress)
+                , ("scheduled.backup.receipt.version", "receipt-version")
+                , ("scheduled.backup.receipt.length", T.pack (show (BS.length receiptBytes)))
+                , ("scheduled.backup.receipt.digest", Resource.digestText
+                    (contentDigest receiptBytes)) ])
+                (either (error . show) id (InventoryModel.mkScopeDeclaration
+                  (unsafe (Resource.mkScopeId Resource.Standalone "accepted-scheduled-run")) []))
+              revisedSchedule = expectation
+                {scheduledMetadataDigest = contentDigest "new schedule metadata"}
+          assertBool "old receipt matched changed schedule metadata" . isLeft =<<
+            inspectScheduledReceipt (reader False False) revisedSchedule runId (T.replicate 64 "a")
+          historical <- verifyAcceptedScheduledReceipt (reader False False)
+            objectAddress acceptedScope
+          historical @?= Right ()
+          assertBool "changed accepted receipt bytes were accepted" . isLeft =<<
+            verifyAcceptedScheduledReceipt (reader True False) objectAddress acceptedScope
+          assertBool "changed accepted object bytes were accepted" . isLeft =<<
+            verifyAcceptedScheduledReceipt (reader False True) objectAddress acceptedScope
+          assertBool "another listed object used accepted receipt pins" . isLeft =<<
+            verifyAcceptedScheduledReceipt (reader False False)
+              (objectAddress <> "-other") acceptedScope
       , testCase "scheduled backup listing refuses incomplete provider pages" $ do
           let prefix = "databases/mydb/"
               key = prefix <> "11111111-1111-1111-1111-111111111111.sql.gz"

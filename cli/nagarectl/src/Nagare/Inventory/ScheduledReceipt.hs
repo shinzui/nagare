@@ -4,11 +4,13 @@
 module Nagare.Inventory.ScheduledReceipt
   ( ScheduledReceiptEvidence (..)
   , inspectScheduledReceipt
+  , verifyAcceptedScheduledReceipt
   ) where
 
 import Crypto.Hash (Digest, SHA256, hashlazy)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
+import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude
@@ -17,7 +19,8 @@ import Nagare.Inventory.Backup
   , parseScheduledBackupReceipt )
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.ScheduledStore (ObjectReader (..), StoredObject (..))
-import Nagare.Resource.Types (ContentDigest)
+import Nagare.Resource.Inventory (ScopeDeclaration, scopeOverrides)
+import Nagare.Resource.Types (ContentDigest, mkContentDigest)
 import System.Directory (getFileSize)
 import System.IO.Temp (withSystemTempDirectory)
 
@@ -92,6 +95,82 @@ inspectScheduledReceipt reader expectation backupId signingKey =
                               , scheduledReceiptLength = receiptLength
                               , scheduledReceiptDigest = contentDigest receiptBytes
                               }
+
+-- | Accepted history already bound the signing and source proof at ingestion.
+-- Recheck its exact current provider versions and bytes without requiring an
+-- older receipt to match the latest CronJob metadata or source incarnation.
+verifyAcceptedScheduledReceipt
+  :: ObjectReader -> Text -> ScopeDeclaration -> IO (Either Text ())
+verifyAcceptedScheduledReceipt reader expectedAddress scope =
+  withSystemTempDirectory "nagare-accepted-scheduled-receipt" $ \scratch ->
+    case pins of
+      Left reason -> pure (Left reason)
+      Right (objectAddress, objectVersion, objectLength, objectHash,
+          receiptAddress, receiptVersion, receiptLength, receiptHash) -> do
+        checkedObject <- verifyOne "backup object" objectAddress objectVersion
+          objectLength (scratch <> "/object")
+        case checkedObject of
+          Left reason -> pure (Left reason)
+          Right (_, actualHash) -> do
+            if actualHash /= objectHash
+              then pure (Left "accepted scheduled backup object checksum changed")
+              else do
+                checkedReceipt <- verifyOne "receipt" receiptAddress receiptVersion
+                  receiptLength (scratch <> "/receipt")
+                case checkedReceipt of
+                  Left reason -> pure (Left reason)
+                  Right (receiptFile, _) -> do
+                    actualDigest <- contentDigest <$> BS.readFile receiptFile
+                    pure $ if actualDigest == receiptHash
+                      then Right ()
+                      else Left "accepted scheduled receipt digest changed"
+  where
+    fields = scopeOverrides scope
+    required key = maybe (Left ("accepted scheduled receipt lacks " <> key)) Right
+      (Map.lookup key fields)
+    positive key = do
+      value <- required key
+      case reads (T.unpack value) of
+        [(number, "")] | number > (0 :: Integer) -> Right number
+        _ -> Left ("accepted scheduled receipt has invalid " <> key)
+    pins = do
+      objectAddress <- required "scheduled.backup.object"
+      objectVersion <- required "scheduled.backup.object.version"
+      objectLength <- positive "scheduled.backup.object.length"
+      objectHash <- required "scheduled.backup.object.sha256"
+      _ <- mkContentDigest objectHash
+      receiptAddress <- required "scheduled.backup.receipt"
+      receiptVersion <- required "scheduled.backup.receipt.version"
+      receiptLength <- positive "scheduled.backup.receipt.length"
+      receiptDigest <- required "scheduled.backup.receipt.digest"
+      receiptHash <- mkContentDigest receiptDigest
+      if objectAddress == expectedAddress
+          && receiptAddress == objectAddress <> ".receipt.json"
+          && all (not . T.null) [objectVersion, receiptVersion]
+        then pure (objectAddress, objectVersion, objectLength, objectHash,
+          receiptAddress, receiptVersion, receiptLength, receiptHash)
+        else Left "accepted scheduled receipt has invalid exact pins"
+    verifyOne label address version expectedLength path = do
+      current <- readObjectToFile reader address Nothing path
+      case current of
+        Left reason -> pure (Left reason)
+        Right currentInfo -> do
+          exact <- readObjectToFile reader address (Just version) (path <> "-exact")
+          case exact of
+            Left reason -> pure (Left reason)
+            Right exactInfo -> do
+              currentLength <- getFileSize path
+              exactLength <- getFileSize (path <> "-exact")
+              currentHash <- sha256File path
+              exactHash <- sha256File (path <> "-exact")
+              pure $ if currentInfo == exactInfo
+                  && storedVersion currentInfo == version
+                  && storedLength currentInfo == expectedLength
+                  && currentLength == expectedLength
+                  && exactLength == expectedLength
+                  && currentHash == exactHash
+                then Right (path, currentHash)
+                else Left ("accepted scheduled " <> label <> " version or bytes changed")
 
 sha256File :: FilePath -> IO Text
 sha256File path = do

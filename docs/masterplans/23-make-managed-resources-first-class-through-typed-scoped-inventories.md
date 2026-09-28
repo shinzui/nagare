@@ -348,6 +348,8 @@ EP-159's scheduled producer fixture now demonstrates a create-only object surviv
 
 EP-154's exact-revision installed Darwin smoke passed again for `7f3e2eac22cf01e8555ca4cc9b6e29805d674e27`, covering the retention and listing changes in the installed payload. The report is `/tmp/nagare-mp23-installed-smoke-7f3e2eac.json` and remains smoke-only; both native-system and complete clone-free gates await a final candidate.
 
+EP-159's accepted-run listing now falls back to immutable provider version and digest pins when a receipt belongs to an earlier reviewed schedule revision. A focused fixture accepts the exact old pair and rejects changed bytes or a foreign listed address; new unaccepted runs still require the current signed expectation. Native schedule replacement and restore, cloud generations, and final candidate evidence remain open.
+
 **Implementation order.** Check current child evidence before rerunning a checkpoint. Preserve concurrent work and already-admitted recovery records. The registry states whole-child ownership, not numerical execution order.
 
 | Order | Work and owner | Required handoff |

@@ -275,7 +275,9 @@ import Nagare.Inventory.ScheduledIngest
   ( ScheduledIngestRequest (..), ScheduledIngestSourceProof (..)
   , compileScheduledIngestScope, scheduledIngestEvidenceMatches
   , scheduledIngestSourceProof )
-import Nagare.Inventory.ScheduledReceipt (ScheduledReceiptEvidence (..), inspectScheduledReceipt)
+import Nagare.Inventory.ScheduledReceipt
+  ( ScheduledReceiptEvidence (..), inspectScheduledReceipt
+  , verifyAcceptedScheduledReceipt )
 import Nagare.Inventory.ScheduledStore
   ( ListedObject (..), ObjectReader (..), StoredObject (..)
   , readSecretField, withLocalObjectStore )
@@ -11398,15 +11400,29 @@ runListScheduledReceipts mctx database namespaceName bucketArg = do
               (False, False, False) -> pure "unresolved: accepted provider objects are missing"
               (True, False, False) -> pure "unresolved: backup object has no receipt"
               (False, True, False) -> pure "unresolved: receipt has no backup object"
-              (True, True, False) -> do
-                inspected <- inspectScheduledReceipt reader expectation selected signingKey
-                pure $ case (acceptedScope, inspected) of
-                  (Just scope, Right evidence)
-                    | scheduledIngestEvidenceMatches scope evidence ->
-                        "accepted " <> Resource.scopeIdText (ResourceInventory.scopeId scope)
-                    | otherwise -> "unresolved: provider versions differ from accepted receipt"
-                  (Nothing, Right _) -> "verified; ingestion pending"
-                  (_, Left reason) -> "unresolved: " <> reason
+              (True, True, False) -> case acceptedScope of
+                Just scope -> do
+                  let sameSchedule = Map.lookup "scheduled.backup.schedule.revision"
+                        (ResourceInventory.scopeOverrides scope)
+                        == Just (Resource.digestText (scheduledPolicyRevision expectation))
+                  inspected <- if sameSchedule
+                    then inspectScheduledReceipt reader expectation selected signingKey
+                    else pure (Left "accepted historical schedule revision")
+                  if either (const False) (scheduledIngestEvidenceMatches scope) inspected
+                    then pure ("accepted " <>
+                      Resource.scopeIdText (ResourceInventory.scopeId scope))
+                    else do
+                      checked <- verifyAcceptedScheduledReceipt reader
+                        (scheduledObjectPrefix expectation <> selected
+                          <> "." <> scheduledFormat expectation) scope
+                      pure $ case checked of
+                        Right () -> "accepted " <>
+                          Resource.scopeIdText (ResourceInventory.scopeId scope)
+                        Left reason -> "unresolved: " <> reason
+                Nothing -> do
+                  inspected <- inspectScheduledReceipt reader expectation selected signingKey
+                  pure $ either ("unresolved: " <>)
+                    (const "verified; ingestion pending") inspected
             pure (selected <> "  " <> status)
           pure (Right (rows <> map ("unresolved provider key: " <>) unknown))
   rows <- either dieT pure listed >>= either dieT pure
