@@ -5310,15 +5310,12 @@ buildCloudStageCandidate active workspace snapshot
         Right (ExitSuccess, out, _) -> pure out
       physical <- either dieT pure
         (decodePhysicalResources (TE.encodeUtf8 (T.pack exported)))
-      let missingLayers = [InventoryCloud.catalogLayer entry
-            | (entry, urn) <- zip entries catalogUrns,
-              not (Set.member urn acceptedUrns) || Map.notMember urn physical]
-      case missingLayers of
+      let missing = [urn | urn <- catalogUrns,
+            not (Set.member urn acceptedUrns && Map.member urn physical)]
+      case missing of
         [] -> pure Nothing
         _ -> do
-          let nextLayer = minimum missingLayers
-              admitted = [entry | entry <- entries,
-                InventoryCloud.catalogLayer entry <= nextLayer]
+          let admitted = entries
               resourceId entry = Resource.mintResourceId owner
                 (either (error . T.unpack) (\key -> key)
                   (Resource.mkLogicalKey (Resource.nameText (InventoryCloud.catalogKey entry))))

@@ -140,8 +140,9 @@ validatePulumiPreparation declared operation preparation = do
         | resource <- NE.toList (plannedResources operation)
         , Just registration <- [Map.lookup resource byResource]]
       mutating = filter (isMutation . op) steps
-  forM_ mutating $ \step -> unless (Set.member (urn step) knownUrns) (Left (PulumiUnknownMutation (urn step)))
-  forM_ mutating $ \step -> unless (Set.member (urn step) operationUrns) (Left (PulumiUnexpectedMutation (urn step)))
+      isStackStep = isImplicitStackStep (preparationIdentity preparation)
+  forM_ mutating $ \step -> unless (isStackStep step || Set.member (urn step) knownUrns) (Left (PulumiUnknownMutation (urn step)))
+  forM_ mutating $ \step -> unless (isStackStep step || Set.member (urn step) operationUrns) (Left (PulumiUnexpectedMutation (urn step)))
   forM_ (NE.toList (plannedResources operation)) $ \resource -> do
     registration <- maybe (Left (PulumiResourceNotDeclared resource)) Right (Map.lookup resource byResource)
     let resourceSteps = filter ((== registrationPulumiUrn registration) . urn) steps
@@ -165,6 +166,18 @@ isMutation :: StepOp -> Bool
 isMutation OpSame = False
 isMutation OpRefresh = False
 isMutation _ = True
+
+-- Pulumi's own stack record is created on the first targeted preview and
+-- updated as exported outputs change. It is bookkeeping for the exact stack,
+-- not a provider resource registration.
+isImplicitStackStep :: PulumiIdentity -> PlanStep -> Bool
+isImplicitStackStep identity step =
+  urn step == "urn:pulumi:" <> pulumiStack identity
+    <> "::nagare::pulumi:pulumi:Stack::nagare-" <> pulumiStack identity
+    && case op step of
+      OpCreate -> True
+      OpUpdate -> True
+      _ -> False
 
 actionMatches :: OperationAction -> StepOp -> Bool
 actionMatches CreateResource OpCreate = True
@@ -205,7 +218,7 @@ renderSummary header =
   "Pulumi saved plan "
     <> digestText (headerPlanDigest header)
     <> "; "
-    <> T.pack (show (length (filter (isMutation . op) (headerSteps header))))
+    <> T.pack (show (length (filter (\step -> isMutation (op step) && not (isImplicitStackStep (headerIdentity header) step)) (headerSteps header))))
     <> " declared mutation(s); stack "
     <> pulumiStack (headerIdentity header)
     <> "; project "

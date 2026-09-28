@@ -200,6 +200,8 @@ decodePhysicalResources bytes = do
     Object root -> case KM.lookup "deployment" root of
       Just (Object deployment) -> case KM.lookup "resources" deployment of
         Just (Array entries) -> Right (toList entries)
+        Nothing -> Right []
+        Just Null -> Right []
         _ -> Left "Pulumi stack export has no deployment resources"
       _ -> Left "Pulumi stack export has no deployment"
     _ -> Left "Pulumi stack export is not an object"

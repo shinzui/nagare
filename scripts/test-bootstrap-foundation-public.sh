@@ -298,41 +298,44 @@ PY
       exit 0
     fi
     plan=''
-    target=''
+    targets=()
     while test "$#" -gt 0; do
       case "$1" in
         --save-plan) shift; plan="$1" ;;
-        --target) shift; target="$1" ;;
+        --target) shift; targets+=("$1") ;;
       esac
       shift
     done
     test -n "$plan"
-    test -n "$target"
+    test "${#targets[@]}" -gt 0
     printf 'reviewed-cloud-plan' > "$plan"
-    python3 - "$target" <<'PY'
+    python3 - "${targets[@]}" <<'PY'
 import json
 import sys
-print(json.dumps({"steps": [{"op": "create", "urn": sys.argv[1], "replaceReasons": []}]}))
+print(json.dumps({"steps": [{"op": "create", "urn": urn, "replaceReasons": []}
+                            for urn in sys.argv[1:]]}))
 PY
     ;;
   "up --plan")
     plan="$5"
     test "$(cat "$plan")" = reviewed-cloud-plan
-    target=''
+    targets=()
     while test "$#" -gt 0; do
-      if test "$1" = --target; then shift; target="$1"; break; fi
+      if test "$1" = --target; then shift; targets+=("$1"); fi
       shift
     done
-    test -n "$target"
-    if ! grep -Fqx "$target" "$XDG_STATE_HOME/applied-urns" 2>/dev/null; then
-      printf '%s\n' "$target" >> "$XDG_STATE_HOME/applied-urns"
-    fi
-    if [[ "$target" == *"nagare:env:NagarePerimeter::nagare" ]]; then
-      touch "$XDG_STATE_HOME/root-applied"
-    fi
+    test "${#targets[@]}" -gt 0
+    for target in "${targets[@]}"; do
+      if ! grep -Fqx "$target" "$XDG_STATE_HOME/applied-urns" 2>/dev/null; then
+        printf '%s\n' "$target" >> "$XDG_STATE_HOME/applied-urns"
+      fi
+      if [[ "$target" == *"nagare:env:NagarePerimeter::nagare" ]]; then
+        touch "$XDG_STATE_HOME/root-applied"
+      fi
+    done
     if test -e "$XDG_STATE_HOME/fail-next-up"; then
       mv "$XDG_STATE_HOME/fail-next-up" "$XDG_STATE_HOME/failed-up-once"
-      printf '%s\n' "$target" > "$XDG_STATE_HOME/failed-target"
+      printf '%s\n' "${targets[0]}" > "$XDG_STATE_HOME/failed-target"
       printf 'simulated lost Pulumi acknowledgement\n' >&2
       exit 41
     fi
@@ -462,42 +465,19 @@ with open(sys.argv[1], encoding="utf-8") as source:
 operations = review["operations"]
 assert len(operations) == 1, operations
 assert operations[0]["operation"]["executor"] == "PulumiExecutor", operations
-assert operations[0]["operation"]["resources"] == ["platform:cloud/nagare/nagare"], operations
+assert len(operations[0]["operation"]["resources"]) == 24, operations
+assert "platform:cloud/nagare/nagare" in operations[0]["operation"]["resources"]
 PY
-printf 'the next public review admitted only the Pulumi perimeter root\n'
-"$nagarectl_bin" --context freshlocal platform bootstrap apply "$fixture_root/cloud-root-review" --yes \
-  > "$fixture_root/cloud-root-apply-out" 2>&1 || {
-  cat "$fixture_root/cloud-root-apply-out" >&2
+printf 'the next public review grouped all 24 Pulumi registrations in one saved plan\n'
+layer_review="$fixture_root/cloud-root-review"
+touch "$XDG_STATE_HOME/fail-next-up"
+if "$nagarectl_bin" --context freshlocal platform bootstrap apply "$layer_review" --yes \
+  > "$fixture_root/cloud-layer-apply-out" 2>&1; then
+  printf 'cloud apply unexpectedly acknowledged a simulated lost result\n' >&2
   exit 1
-}
-test -e "$XDG_STATE_HOME/root-applied"
-"$nagarectl_bin" --context freshlocal platform bootstrap plan --out "$fixture_root/cloud-layer-review" \
-  > "$fixture_root/cloud-layer-out" 2>&1 || {
-  cat "$fixture_root/cloud-layer-out" >&2
-  exit 1
-}
-python3 - "$fixture_root/cloud-layer-review/review.json" <<'PY'
-import json
-import sys
-with open(sys.argv[1], encoding="utf-8") as source:
-    review = json.load(source)
-operations = review["operations"]
-assert len(operations) == 9, operations
-assert {operation["operation"]["executor"] for operation in operations} == {"PulumiExecutor"}, operations
-assert all("platform:cloud/nagare/nagare" not in operation["operation"]["resources"] for operation in operations)
-PY
-printf 'the next cloud layer planned nine child resources after the root receipt\n'
-layer_review="$fixture_root/cloud-layer-review"
-for layer in 1 2 3; do
-  if test "$layer" -eq 1; then
-    touch "$XDG_STATE_HOME/fail-next-up"
-    if "$nagarectl_bin" --context freshlocal platform bootstrap apply "$layer_review" --yes \
-      > "$fixture_root/cloud-layer-$layer-apply-out" 2>&1; then
-      printf 'cloud apply unexpectedly acknowledged a simulated lost result\n' >&2
-      exit 1
-    fi
-    test -s "$XDG_STATE_HOME/failed-target"
-    transaction="$(python3 - "$XDG_STATE_HOME/nagare/freshlocal/inventory/head.json" <<'PY'
+fi
+test -s "$XDG_STATE_HOME/failed-target"
+transaction="$(python3 - "$XDG_STATE_HOME/nagare/freshlocal/inventory/head.json" <<'PY'
 import json
 import sys
 with open(sys.argv[1], encoding="utf-8") as source:
@@ -506,42 +486,16 @@ assert head["activeTransaction"] is not None, head
 print(head["activeTransaction"])
 PY
 )"
-    "$nagarectl_bin" --context freshlocal inventory resume "$transaction" --yes \
-      > "$fixture_root/cloud-layer-$layer-resume-out" 2>&1 || {
-      cat "$fixture_root/cloud-layer-$layer-resume-out" >&2
-      exit 1
-    }
-    failed_target="$(cat "$XDG_STATE_HOME/failed-target")"
-    test "$(grep -Fc " up --plan " "$XDG_STATE_HOME/pulumi.log")" -ge 2
-    test "$(grep -F " up --plan " "$XDG_STATE_HOME/pulumi.log" | grep -Fc "$failed_target")" -eq 1
-    printf 'public inventory resume proved a lost Pulumi acknowledgement without repeating its write\n'
-  else
-    "$nagarectl_bin" --context freshlocal platform bootstrap apply "$layer_review" --yes \
-      > "$fixture_root/cloud-layer-$layer-apply-out" 2>&1 || {
-      cat "$fixture_root/cloud-layer-$layer-apply-out" >&2
-      exit 1
-    }
-  fi
-  if test "$layer" -lt 3; then
-    next_layer=$((layer + 1))
-    layer_review="$fixture_root/cloud-layer-$next_layer-review"
-    "$nagarectl_bin" --context freshlocal platform bootstrap plan --out "$layer_review" \
-      > "$fixture_root/cloud-layer-$next_layer-out" 2>&1 || {
-      cat "$fixture_root/cloud-layer-$next_layer-out" >&2
-      exit 1
-    }
-    python3 - "$layer_review/review.json" "$next_layer" <<'PY'
-import json
-import sys
-with open(sys.argv[1], encoding="utf-8") as source:
-    review = json.load(source)
-operations = review["operations"]
-expected = {2: 9, 3: 5}[int(sys.argv[2])]
-assert len(operations) == expected, operations
-assert {operation["operation"]["executor"] for operation in operations} == {"PulumiExecutor"}, operations
-PY
-  fi
-done
+"$nagarectl_bin" --context freshlocal inventory resume "$transaction" --yes \
+  > "$fixture_root/cloud-layer-resume-out" 2>&1 || {
+  cat "$fixture_root/cloud-layer-resume-out" >&2
+  exit 1
+}
+failed_target="$(cat "$XDG_STATE_HOME/failed-target")"
+test -e "$XDG_STATE_HOME/root-applied"
+test "$(grep -Fc " up --plan " "$XDG_STATE_HOME/pulumi.log")" -eq 1
+test "$(grep -F " up --plan " "$XDG_STATE_HOME/pulumi.log" | grep -Fc "$failed_target")" -eq 1
+printf 'public inventory resume proved a lost grouped Pulumi acknowledgement without repeating its write\n'
 test "$(wc -l < "$XDG_STATE_HOME/applied-urns")" -eq 24
 python3 - "$XDG_STATE_HOME/nagare/freshlocal/inventory/head.json" <<'PY'
 import json
@@ -552,7 +506,7 @@ assert head["activeTransaction"] is None, head
 assert head["accepted"] == head["converged"], head
 assert len(head["accepted"]) == 2, head
 PY
-printf 'four public cloud reviews converged all 24 foundation-managed Pulumi registrations\n'
+printf 'one public cloud review converged all 24 foundation-managed Pulumi registrations\n'
 cp "$XDG_STATE_HOME/applied-urns" "$fixture_root/applied-urns.saved"
 sed '/::nagare-network-fw-web$/d' "$fixture_root/applied-urns.saved" \
   > "$XDG_STATE_HOME/applied-urns"
@@ -766,35 +720,14 @@ with open(sys.argv[1], encoding="utf-8") as source:
 operations = review["operations"]
 assert len(operations) == 1, operations
 assert operations[0]["operation"]["executor"] == "PulumiExecutor", operations
-assert operations[0]["operation"]["resources"] == [
-    "platform:cloud/nagare-instance/nagare-01"
-], operations
+assert set(operations[0]["operation"]["resources"]) == {
+    "platform:cloud/nagare-instance/nagare-01",
+    "platform:cloud/nagare-instance-vm/nagare-01",
+}, operations
 PY
 "$nagarectl_bin" --context freshlocal platform bootstrap apply "$fixture_root/vm-component-review" --yes \
   > "$fixture_root/vm-component-apply-out" 2>&1 || {
   cat "$fixture_root/vm-component-apply-out" >&2
-  exit 1
-}
-"$nagarectl_bin" --context freshlocal platform bootstrap plan --out "$fixture_root/vm-instance-review" \
-  > "$fixture_root/vm-instance-plan-out" 2>&1 || {
-  cat "$fixture_root/vm-instance-plan-out" >&2
-  exit 1
-}
-python3 - "$fixture_root/vm-instance-review/review.json" <<'PY'
-import json
-import sys
-with open(sys.argv[1], encoding="utf-8") as source:
-    review = json.load(source)
-operations = review["operations"]
-assert len(operations) == 1, operations
-assert operations[0]["operation"]["executor"] == "PulumiExecutor", operations
-assert operations[0]["operation"]["resources"] == [
-    "platform:cloud/nagare-instance-vm/nagare-01"
-], operations
-PY
-"$nagarectl_bin" --context freshlocal platform bootstrap apply "$fixture_root/vm-instance-review" --yes \
-  > "$fixture_root/vm-instance-apply-out" 2>&1 || {
-  cat "$fixture_root/vm-instance-apply-out" >&2
   exit 1
 }
 test "$(wc -l < "$XDG_STATE_HOME/applied-urns")" -eq 26

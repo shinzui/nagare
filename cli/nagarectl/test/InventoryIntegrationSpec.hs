@@ -36,6 +36,41 @@ inventoryIntegrationTests =
         assertBool "fixture has several independent component operations" (operationCount >= 4)
         forM_ [1 .. operationCount] (runScenario . Just)
     , testCase "partial-retirement keeps sibling application members accepted" partialScopeRetirementProof
+    , testCase "one Pulumi stack snapshot binds sibling creates in one operation" $ do
+        let binding = ContextBinding (known (mkContextId "cloud-group")) (known (mkName "project"))
+            owner = known (mkScopeId Platform "cloud")
+            rid role = mintResourceId owner (known (mkLogicalKey role)) (known (mkName role))
+            resource role = Managed ManagedResource
+              { identity = rid role
+              , owner = owner
+              , executor = PulumiExecutor
+              , address = PulumiUrn ("urn:pulumi:dev::nagare::test:Resource::" <> role)
+              , aliases = []
+              , spec = NativeObject (contentDigest (TE.encodeUtf8 role))
+              , lifecycle = Protect
+              , dataPolicy = Stateless
+              , sensitivity = Public
+              , dependencies = []
+              , delegations = []
+              , source = SourceLocation "test" role
+              }
+            scope = known (mkScopeDeclaration owner
+              [ResourceBundle [resource "first", resource "second"] [] [] [] [] []])
+            snapshot = known (mkScopeSnapshot binding Map.empty Map.empty)
+            candidate = known (composeInventory snapshot (ReplaceScope scope :| []))
+            absent role = (rid role, ConfirmedAbsent (contentDigest (TE.encodeUtf8 role)))
+            observations = known (observationSet [absent "first", absent "second"])
+        store <- newMemoryStore
+        _ <- initializeStore store binding "pulumi-group-client" >>= expectRight
+        history <- loadInventoryHistory store >>= expectRight
+        proposal <- expectRight (planChanges candidate noLifecycleDecisions history observations)
+        case proposalOperations proposal of
+          [operation] -> do
+            plannedExecutor operation @?= PulumiExecutor
+            plannedAction operation @?= CreateResource
+            Set.fromList (NE.toList (plannedResources operation))
+              @?= Set.fromList [rid "first", rid "second"]
+          other -> assertFailure ("separate Pulumi snapshots were planned: " <> show other)
     ]
 
 partialScopeRetirementProof :: IO ()

@@ -71,7 +71,7 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (listToMaybe, mapMaybe)
+import Data.Maybe (isNothing, listToMaybe, mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -815,9 +815,32 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
          , previous /= operation]
       <> [PlanError "collection-decision" "retained collection lacks a validated lifecycle decision" [resourceId]
          | (resourceId, _) <- selectedCollections, not (decisionIs ApproveCollection resourceId)]
-    preliminary = mapMaybe snd classified <> mapMaybe retireOperation retired
+    preliminary = groupPulumiCreates preliminaryRaw
+    preliminaryRaw = mapMaybe snd classified <> mapMaybe retireOperation retired
       <> concatMap migrationOperations (Map.toAscList migrations)
       <> [resourceOperation RetireResource resource | (_, resource) <- selectedCollections]
+    -- Pulumi saved plans describe one stack snapshot. Independent plans for
+    -- resources in that stack become stale as soon as the first one applies.
+    groupPulumiCreates operations =
+      [operation | operation <- operations, isNothing (pulumiCreateOwner operation)]
+        <> [groupOwner ownerOperations | (_, ownerOperations) <- Map.toAscList
+          (Map.fromListWith (<>) [(owner, [operation]) | operation <- operations,
+            Just owner <- [pulumiCreateOwner operation]])]
+    pulumiCreateOwner operation = case
+        (plannedAction operation, plannedExecutor operation, NE.toList (plannedResources operation)) of
+      (CreateResource, PulumiExecutor, [resourceId]) -> case Map.lookup resourceId desiredDeclarations of
+        Just (Managed resource) -> Just (resource ^. #owner)
+        _ -> Nothing
+      _ -> Nothing
+    groupOwner [operation] = operation
+    groupOwner operations =
+      let ordered = sortOn (NE.head . plannedResources) operations
+          resources = NE.fromList (map (NE.head . plannedResources) ordered)
+          digest = contentDigest (canonicalBytes (toJSON
+            [(plannedResources operation, plannedInputDigest operation) | operation <- ordered]))
+          recovery = if all ((== Idempotent) . plannedRecovery) ordered
+            then Idempotent else VerifyBeforeRetry
+       in mkPlanned CreateResource PulumiExecutor resources digest recovery
     -- A dependent update may start after the destination is verified, but
     -- the consumer-switch stage must wait for that update to complete. The
     -- final RetainSource stage is too late to be the dependency target.

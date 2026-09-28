@@ -61,7 +61,11 @@ data FoundationAdapterOps = FoundationAdapterOps
   }
 
 foundationTargetDigest :: FoundationTarget -> ContentDigest
-foundationTargetDigest = contentDigest . canonicalBytes . toJSON
+foundationTargetDigest target = contentDigest (canonicalBytes (case target of
+  FoundationStack project stack backend _ _ bucket config -> object
+    ["kind" .= ("stack" :: Text), "project" .= project, "stack" .= stack,
+     "backend" .= backend, "bucket" .= bucket, "config" .= config]
+  _ -> toJSON target))
 
 mkFoundationAdapter :: Map ResourceId FoundationTarget -> FoundationAdapterOps -> Adapter
 mkFoundationAdapter targets ops = Adapter

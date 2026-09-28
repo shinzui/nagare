@@ -94,6 +94,24 @@ inventoryCloudTests =
         case validatePulumiPreparation [registration] wrong prepared of
           Left (PulumiActionMismatch _ RetireResource OpCreate) -> pure ()
           other -> assertFailure ("expected action mismatch, got " <> show other)
+    , testCase "Pulumi accepts only the exact implicit stack bookkeeping mutation" $ do
+        let stackUrn = "urn:pulumi:dev::nagare::pulumi:pulumi:Stack::nagare-dev"
+            withStack rootUrn = BC.pack ("{\"steps\":[{\"op\":\"create\",\"urn\":\""
+              <> T.unpack rootUrn <> "\"},{\"op\":\"create\",\"urn\":\""
+              <> T.unpack (registrationPulumiUrn registration) <> "\"}]}")
+            prepared rootUrn = PulumiPreparation pulumiIdentityFixture
+              (withStack rootUrn) "plan" [registration]
+        case validatePulumiPreparation [registration] operation (prepared stackUrn) of
+          Right _ -> pure ()
+          Left err -> assertFailure ("exact implicit stack was refused: " <> show err)
+        case validatePulumiPreparation [registration] operation
+          (prepared "urn:pulumi:other::nagare::pulumi:pulumi:Stack::nagare-other") of
+          Left (PulumiUnknownMutation _) -> pure ()
+          other -> assertFailure ("foreign stack mutation was accepted: " <> show other)
+    , testCase "new Pulumi stack export has no resources yet" $ do
+        let emptyExport = BC.pack "{\"version\":3,\"deployment\":{\"manifest\":{},\"metadata\":{}}}"
+        decodePhysicalResources emptyExport @?= Right Map.empty
+        decodePhysicalResources (BC.pack "{\"deployment\":{\"resources\":null}}") @?= Right Map.empty
     , testCase "a targeted Pulumi operation refuses a second declared mutation" $ do
         let otherRegistration = registration
               { registrationResource = resource "platform:cloud/other/bucket"

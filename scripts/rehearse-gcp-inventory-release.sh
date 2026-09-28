@@ -76,6 +76,16 @@ run_cli() {
     XDG_STATE_HOME="$XDG_STATE_HOME" "$cli" --context "$context" "$@"
 }
 
+check_uninitialized_stack_config() {
+  local review_json="$1" config_file
+  config_file="$XDG_CONFIG_HOME/nagare/pulumi/Pulumi.$context.yaml"
+  if jq -e '[.operations[] | select(.operation.action.tag == "CreateResource")
+      | .operation.resources[] | contains("/pulumi-stack/")] | any' \
+      "$review_json" >/dev/null; then
+    [[ ! -s "$config_file" ]] || die "new stack has preexisting Pulumi config; isolate local previews before apply"
+  fi
+}
+
 profile="$(run_cli context show)" || die "selected context is unavailable"
 while IFS=$'\t' read -r variable field; do
   expected="$(jq -er ".$field" "$fixture")"
@@ -137,6 +147,7 @@ if [[ "$phase" == plan ]]; then
   run_cli platform bootstrap plan --out "$evidence/review" > "$evidence/plan.out"
   jq -e '.operations | length > 0' "$evidence/review/review.json" >/dev/null \
     || die "bootstrap review has no operations"
+  check_uninitialized_stack_config "$evidence/review/review.json"
   jq -e '[.operations[].summary] | all((contains("nagare-node") or contains("tan-ng-labs-nagare-backups") or contains("tan-ng-labs-nagare-images")) | not)' \
     "$evidence/review/review.json" >/dev/null || die "review names a standing fixture resource"
   jq -n -S --arg digest "$(digest "$evidence/review/review.json")" \
@@ -160,6 +171,7 @@ cmp -s "$evidence/operator-version.json" <(run_cli version --json | jq -S .) \
 jq -e --arg digest "$(digest "$evidence/review/review.json")" \
   '.stage == "bootstrap" and .state == "planned" and .reviewDigest == $digest' \
   "$evidence/gcp-stage.json" >/dev/null || die "saved review is not the planned review"
+check_uninitialized_stack_config "$evidence/review/review.json"
 jq -S '.state="applying"' "$evidence/gcp-stage.json" > "$evidence/gcp-stage.tmp"
 mv "$evidence/gcp-stage.tmp" "$evidence/gcp-stage.json"
 run_cli platform bootstrap apply "$evidence/review" --yes

@@ -79,6 +79,21 @@ inventoryFoundationTests = testGroup "cluster foundation inventory"
           (Just (stackAddress, FoundationStack project stack "file:///tmp/state"
             "/tmp/program" "/tmp/home" Nothing [("nagare:manageProjectApis", "true")]))
           declarations))
+  , testCase "Pulumi workspace relocation does not change stack desired state" $ do
+      let project = known "acme-prod"
+          stack = known "fresh"
+          first = FoundationStack project stack "gs://acme-prod-state/pulumi"
+            "/tmp/payload-a/infra/pulumi" "/tmp/operator-a" Nothing
+            [("nagare:serviceAccountId", "node-a")]
+          relocated = FoundationStack project stack "gs://acme-prod-state/pulumi"
+            "/tmp/payload-b/infra/pulumi" "/tmp/operator-b" Nothing
+            [("nagare:serviceAccountId", "node-a")]
+          changed = FoundationStack project stack "gs://acme-prod-state/pulumi"
+            "/tmp/payload-b/infra/pulumi" "/tmp/operator-b" Nothing
+            [("nagare:serviceAccountId", "node-b")]
+      foundationTargetDigest first @?= foundationTargetDigest relocated
+      assertBool "changed node account retained the old stack digest"
+        (foundationTargetDigest first /= foundationTargetDigest changed)
   , testCase "cloud foundation composes before a cluster exists and preserves unrelated scopes" $ do
       let owner = ok (mkScopeId Platform "cloud-foundation")
           unrelatedOwners =
