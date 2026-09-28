@@ -267,7 +267,7 @@ import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManager
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Application (ApplicationScopeInput (..), GoogleCdnBinding (..), CloudflareCdnBinding (..), ReviewedCdnBinding (..), DatabaseBinding, ServiceAction (..), acceptedAccessBinding, acceptedApplicationImage, acceptedImageBuildSecrets, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationDeployment, compileServiceActionScope, compileStandaloneServiceWithReleaseAndBuild, compileStandaloneWorkerWithDependenciesAndBuild, databaseRecoveryBindings, hostnameClaimOwned, legacyApplicationReleaseImport, legacyStandaloneReleaseImport, nativeWorkloadOwned, recordReviewedStandaloneOverrides, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
 import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteReleaseLog, acceptedSiteSource, compileServerSitePreviewScopeWithBuild, compileServerSiteRollbackScopeWithBuild, compileServerSiteScopeWithBuild, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteRollbackScopeWithCdn, compileStaticSiteRollbackScopeWithCloudflare, compileStaticSiteScope, compileStaticSiteScopeWithCdn, compileStaticSiteScopeWithCloudflare, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
-import Nagare.Inventory.Backup (ManualBackupRequest (..), BackupSourceProof (..), BackupReceiptExpectation (..), VolumeSnapshotRequest (..), compileManualBackupScope, compileVolumeSnapshotScope, manualBackupSourceProof, manualBackupJobReceiptExpectation, parseBackupReceipt, parseManualBackupReceipt)
+import Nagare.Inventory.Backup (ManualBackupRequest (..), BackupSourceProof (..), BackupReceiptExpectation (..), VolumeSnapshotRequest (..), compileManualBackupScope, compileVolumeSnapshotScope, manualBackupSourceProof, manualBackupJobReceiptExpectation, parseBackupReceipt, parseManualBackupReceipt, volumeSnapshotJobSourcePins)
 import Nagare.Inventory.Backup
   ( ScheduledBackupReceipt (..), ScheduledReceiptExpectation (..)
   , scheduledReceiptExpectationFromCronJob )
@@ -286,8 +286,8 @@ import Nagare.Inventory.ScheduledPrune
   , compileScheduledPruneRecoveryScope, recoverScheduledPruneCandidate
   , selectScheduledPruneCandidates )
 import Nagare.Inventory.Prune (ManualPruneRequest (..), PruneSourceProof (..), compileManualPruneScope, manualPruneSourceProof)
-import Nagare.Inventory.VolumePrune (VolumePruneRequest (..), compileVolumePruneScope)
-import Nagare.Inventory.Restore (ManualRestoreRequest (..), VolumeRestoreRequest (..), compileManualRestoreScope, compileVolumeRestoreScope, manualRestoreTargetProof)
+import Nagare.Inventory.VolumePrune (VolumePruneRequest (..), compileVolumePruneScope, volumePruneJobCredentialPin)
+import Nagare.Inventory.Restore (ManualRestoreRequest (..), VolumeRestoreRequest (..), compileManualRestoreScope, compileVolumeRestoreScope, manualRestoreTargetProof, volumeRestoreJobSourcePins)
 import Nagare.Inventory.Maintenance (MaintenanceRequest (..), MaintenanceSourceProof (..), maintenanceSourceProof, compileMaintenanceScope)
 import Nagare.Inventory.MaintenanceAdapter (maintenanceAdapter)
 import Nagare.Inventory.MaintenanceFence (registerMaintenanceFence, selectedMaintenanceProofs)
@@ -6508,6 +6508,8 @@ inventoryExecutionRegistry mctx bundle = do
   liveRestoreProofs <- either dieT pure (selectedLiveRestoreProofs scopes operations)
   backupSourceNative <- loadReviewedBackupSourceNative mctx
     document backupProofs
+  volumeSourceNative <- loadReviewedVolumeSourceNative mctx document
+    reviewedKubernetesSpecs
   pruneSourceNative <- loadReviewedPruneSourceNative mctx document pruneProofs
   verifyReviewedScheduledPruneRecovery mctx scopes
     (selected ResourceInventory.KubernetesExecutor)
@@ -6517,9 +6519,10 @@ inventoryExecutionRegistry mctx bundle = do
   (liveRestoreSourceNative, liveRestoreAcceptedNative) <-
     loadReviewedLiveRestoreSourceNative mctx document liveRestoreProofs
   let sourceNative = Map.unions
-        [backupSourceNative, pruneSourceNative, scheduledSourceNative,
+        [backupSourceNative, volumeSourceNative, pruneSourceNative, scheduledSourceNative,
           maintenanceSourceNative, liveRestoreSourceNative]
-  unless (Map.size sourceNative == Map.size backupSourceNative + Map.size pruneSourceNative
+  unless (Map.size sourceNative == Map.size backupSourceNative + Map.size volumeSourceNative
+      + Map.size pruneSourceNative
       + Map.size scheduledSourceNative + Map.size maintenanceSourceNative
       + Map.size liveRestoreSourceNative)
     (dieT "manual data source native evidence overlaps")
@@ -6824,6 +6827,58 @@ loadReviewedBackupSourceNative mctx document proofs = do
   unless (Map.keysSet selected == wanted)
     (dieT "manual backup source lacks accepted private native evidence")
   pure selected
+
+-- The volume Job's private native annotations pin the accepted PVC, backup
+-- Job, and store credential. Reopen only those exact reviewed dependencies at
+-- apply/resume so the Kubernetes adapter can verify their physical UIDs.
+loadReviewedVolumeSourceNative
+  :: Maybe String -> InventoryPlan.ReviewDocument
+  -> Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString)
+  -> IO (Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString))
+loadReviewedVolumeSourceNative mctx document reviewed = do
+  pins <- fmap concat $ forM (Map.elems reviewed) $ \(_, native) ->
+    either dieT pure $ do
+      snapshotPins <- volumeSnapshotJobSourcePins native
+      restorePins <- volumeRestoreJobSourcePins native
+      prunePin <- volumePruneJobCredentialPin native
+      pure (maybe [] (\selected -> selected) snapshotPins
+        <> maybe [] (\selected -> selected) restorePins
+        <> maybe [] (: []) prunePin)
+  if null pins then pure Map.empty else do
+    let expected = Map.fromListWith Set.union
+          [(resource, Set.singleton uid) | (resource, uid) <- pins]
+    unless (all ((== 1) . Set.size) (Map.elems expected))
+      (dieT "reviewed volume Jobs disagree on a source physical identity")
+    active <- activeTarget mctx
+    store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+    history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
+    let accepted = InventoryPlan.historyAccepted history
+        owners = Map.fromList
+          [(member ^. #identity, owner)
+          | (owner, (_, scope)) <- Map.toAscList accepted
+          , bundle <- ResourceInventory.scopeBundles scope
+          , ResourceInventory.Managed member <- ResourceInventory.declarations bundle]
+    forM_ (Map.keys expected) $ \resource -> do
+      owner <- maybe (dieT "volume source is not an accepted resource") pure
+        (Map.lookup resource owners)
+      revision <- maybe (dieT "volume source scope is no longer accepted")
+        (pure . fst) (Map.lookup owner accepted)
+      unless (Map.lookup owner (InventoryPlan.reviewDesiredRevisions document)
+          == Just revision)
+        (dieT "volume source scope revision changed after review")
+    acceptedSnapshot <- either (dieT . T.pack . show) pure
+      (ResourceInventory.mkScopeSnapshot (InventoryPlan.reviewContextBinding document)
+        (Map.map (\(revision, scope) ->
+          (InventoryStore.revisionGeneration revision, scope)) accepted)
+        (InventoryPlan.historyReservations history))
+    acceptedInventory <- either (dieT . T.pack . show) pure
+      (ResourceInventory.composeSnapshot acceptedSnapshot)
+    (native, _) <- InventoryStatus.loadAcceptedNative store history acceptedInventory
+      >>= either dieT pure
+    let selected = Map.restrictKeys native (Map.keysSet expected)
+    unless (Map.keysSet selected == Map.keysSet expected)
+      (dieT "volume source lacks accepted private native evidence")
+    pure selected
 
 -- The saved scheduled-ingestion review pins the accepted database scope and
 -- all four dependencies. Their native bytes are reloaded only from that exact
