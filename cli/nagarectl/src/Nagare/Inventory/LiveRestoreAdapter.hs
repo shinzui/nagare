@@ -3,7 +3,7 @@
 -- target incarnation. A lost effect acknowledgement is proved by content,
 -- never by running the destructive restore a second time.
 module Nagare.Inventory.LiveRestoreAdapter
-  ( liveRestoreAdapter
+  ( liveRestoreRuntime
   ) where
 
 import Control.Exception (IOException, try)
@@ -33,14 +33,19 @@ import Nagare.Resource.Inventory (ManagedResource, ScopeDeclaration)
 import Nagare.Resource.Types
 import System.IO.Temp (withSystemTempDirectory)
 
-liveRestoreAdapter :: KubernetesRuntimeConfig -> [ScopeDeclaration]
-  -> Map ResourceId (ManagedResource, ByteString) -> Adapter -> Adapter
-liveRestoreAdapter config scopes native base = base
-  { adapterPreflight = preflight
-  , adapterExecute = execute
-  , adapterVerify = verify
-  , adapterRecover = recover
-  }
+liveRestoreRuntime :: KubernetesRuntimeConfig -> [ScopeDeclaration]
+  -> Map ResourceId (ManagedResource, ByteString) -> Adapter
+  -> (Adapter, PlannedOperation -> IO (Either Text ContentDigest),
+      PlannedOperation -> IO (Either Text ContentDigest))
+liveRestoreRuntime config scopes native base =
+  ( base
+      { adapterPreflight = preflight
+      , adapterExecute = execute
+      , adapterVerify = verify
+      , adapterRecover = recover
+      }
+  , restoreRecovery
+  , verifyRecovery )
   where
     proofFor operation = case selectedLiveRestoreProofs scopes [operation] of
       Right [proof] -> Right proof
@@ -93,17 +98,16 @@ liveRestoreAdapter config scopes native base = base
       case target of
         Left reason -> pure (Left reason)
         Right () -> do
-          sourceJob <- completedBackup (liveRestoreProofSource proof)
-          recoveryJob <- completedBackup (liveRestoreProofRecovery proof)
-          case (sourceJob, recoveryJob) of
-            (Right (), Right ()) -> do
-              sourceStored <- withVerifiedLiveSource config proof
-                (liveRestoreProofSource proof) (\_ -> pure (Right ()))
-              recoveryStored <- withVerifiedLiveSource config proof
-                (liveRestoreProofRecovery proof) (\_ -> pure (Right ()))
-              pure (sourceStored >> recoveryStored)
-            (Left reason, _) -> pure (Left reason)
-            (_, Left reason) -> pure (Left reason)
+          source <- verifyBackupInput proof (liveRestoreProofSource proof)
+          recovery <- verifyBackupInput proof (liveRestoreProofRecovery proof)
+          pure (source >> recovery)
+
+    verifyBackupInput proof backup = do
+      job <- completedBackup backup
+      case job of
+        Left reason -> pure (Left reason)
+        Right () -> withVerifiedLiveSource config proof backup
+          (\_ -> pure (Right ()))
 
     preflight operation prepared
       | plannedAction operation /= RestoreLiveDatabase =
@@ -134,30 +138,71 @@ liveRestoreAdapter config scopes native base = base
           adapterVerify base operation prepared
       | otherwise = case proofFor operation of
           Left reason -> pure (Left reason)
-          Right proof -> do
-            checked <- verifyInputs proof
-            case checked of
+          Right proof -> verifyBackup proof (liveRestoreProofSource proof)
+
+    verifyBackup proof backup = do
+      target <- exactTarget proof
+      checked <- case target of
+        Left reason -> pure (Left reason)
+        Right () -> verifyBackupInput proof backup
+      case checked of
+        Left reason -> pure (Left reason)
+        Right () -> withVerifiedLiveSource config proof backup $ \sourcePath ->
+          withSystemTempDirectory "nagare-live-verify" $ \scratch -> do
+            let observedPath = scratch <> "/observed.sql"
+            dumped <- dumpLivePostgres config proof observedPath
+            case dumped of
               Left reason -> pure (Left reason)
-              Right () -> withVerifiedLiveSource config proof
-                (liveRestoreProofSource proof) $ \sourcePath ->
-                  withSystemTempDirectory "nagare-live-verify" $ \scratch -> do
-                    let observedPath = scratch <> "/observed.sql"
-                    dumped <- dumpLivePostgres config proof observedPath
-                    case dumped of
-                      Left reason -> pure (Left reason)
-                      Right () -> do
-                        sourceBytes <- try (BS.readFile sourcePath)
-                          :: IO (Either IOException ByteString)
-                        observedBytes <- try (BS.readFile observedPath)
-                          :: IO (Either IOException ByteString)
-                        pure $ do
-                          source <- first (const "live restore source SQL is unreadable")
-                            sourceBytes >>= normalizePostgresDump
-                          observed <- first (const "live restore PostgreSQL dump is unreadable")
-                            observedBytes >>= normalizePostgresDump
-                          unless (source == observed)
-                            (Left "live PostgreSQL content differs from the reviewed backup")
-                          pure (contentDigest observed)
+              Right () -> do
+                sourceBytes <- try (BS.readFile sourcePath)
+                  :: IO (Either IOException ByteString)
+                observedBytes <- try (BS.readFile observedPath)
+                  :: IO (Either IOException ByteString)
+                pure $ do
+                  source <- first (const "live restore source SQL is unreadable")
+                    sourceBytes >>= normalizePostgresDump
+                  observed <- first (const "live restore PostgreSQL dump is unreadable")
+                    observedBytes >>= normalizePostgresDump
+                  unless (source == observed)
+                    (Left "live PostgreSQL content differs from the reviewed backup")
+                  pure (contentDigest observed)
+
+    verifyRecovery operation = case proofFor operation of
+      Left reason -> pure (Left reason)
+      Right proof -> verifyBackup proof (liveRestoreProofRecovery proof)
+
+    restoreRecovery operation = case proofFor operation of
+      Left reason -> pure (Left reason)
+      Right proof -> do
+        stopped <- terminateMarkedPostgresClients
+          (kubectlPostgresMaintenanceTransport config)
+          (liveRestoreProofNamespace proof)
+          (liveRestoreProofDatabase proof <> "-0")
+          (physicalIdentityText (liveRestoreProofPodUid proof))
+          ("lr-" <> liveRestoreProofId proof)
+        case stopped of
+          Left reason -> pure (Left reason)
+          Right () -> do
+            alreadyRecovered <- verifyBackup proof (liveRestoreProofRecovery proof)
+            case alreadyRecovered of
+              Right digest -> pure (Right digest)
+              Left _ -> do
+                target <- exactTarget proof
+                checked <- case target of
+                  Left reason -> pure (Left reason)
+                  Right () -> verifyBackupInput proof
+                    (liveRestoreProofRecovery proof)
+                case checked of
+                  Left reason -> pure (Left reason)
+                  Right () -> do
+                    effect <- withVerifiedLiveSource config proof
+                      (liveRestoreProofRecovery proof) $ \recoveryPath ->
+                        runLivePostgresRestore config proof recoveryPath
+                    result <- verifyBackup proof (liveRestoreProofRecovery proof)
+                    pure $ case (effect, result) of
+                      (_, Right digest) -> Right digest
+                      (Left reason, _) -> Left reason
+                      (_, Left reason) -> Left reason
 
     recover operation prepared
       | plannedAction operation /= RestoreLiveDatabase =

@@ -284,7 +284,7 @@ import Nagare.Inventory.Maintenance (MaintenanceRequest (..), MaintenanceSourceP
 import Nagare.Inventory.MaintenanceAdapter (maintenanceAdapter)
 import Nagare.Inventory.MaintenanceFence (registerMaintenanceFence, selectedMaintenanceProofs)
 import Nagare.Inventory.LiveRestore (LiveBackupInput (..), LiveBackupProof (..), LiveRestoreRequest (..), LiveRestoreProof (..), compileLiveRestoreScope)
-import Nagare.Inventory.LiveRestoreAdapter (liveRestoreAdapter)
+import Nagare.Inventory.LiveRestoreAdapter (liveRestoreRuntime)
 import Nagare.Inventory.LiveRestoreFence (registerLiveRestoreFence, selectedLiveRestoreProofs)
 import Nagare.Inventory.LiveRestoreSource (captureLiveBackupVersions)
 import Nagare.Inventory.DataFence.DatabaseShutdown qualified as DatabaseShutdown
@@ -6531,7 +6531,7 @@ inventoryExecutionRegistry mctx bundle = do
       let runtime = KubernetesRuntimeConfig context
             (contextNameText (active ^. #contextName))
             (fmap (fmap (const ())) (guardKubernetesContext active))
-          kubernetes = liveRestoreAdapter runtime scopes
+          (kubernetes, restoreRecovery, verifyRecovery) = liveRestoreRuntime runtime scopes
             (Map.union liveRestoreAcceptedNative kubernetesSpecs)
             (maintenanceAdapter runtime scopes
               (Map.union maintenanceAcceptedNative kubernetesSpecs) kubernetesBase)
@@ -6542,7 +6542,7 @@ inventoryExecutionRegistry mctx bundle = do
         maintenanceAcceptedNative registry)
       either dieT pure (registerLiveRestoreFence runtime binding
         (InventoryPlan.reviewDesiredRevisions document) scopes declarations
-        liveRestoreAcceptedNative withMaintenance)
+        liveRestoreAcceptedNative restoreRecovery verifyRecovery withMaintenance)
 
 -- Reconstruct maintenance source bytes from the still-accepted revisions.
 -- These are private replay inputs; the public review carries only digests.
@@ -6986,7 +6986,7 @@ inventoryPlanRegistryWithNative active workspace suppliedNative candidate histor
         (fmap (fmap (const ())) (guardKubernetesContext active))
       maintenanceNative = Map.unions
         [allSuppliedNative, loaded, retiringNative]
-      kubernetes = liveRestoreAdapter runtime scopes maintenanceNative
+      (kubernetes, restoreRecovery, verifyRecovery) = liveRestoreRuntime runtime scopes maintenanceNative
         (maintenanceAdapter runtime scopes maintenanceNative kubernetesBase)
       adapters = [pulumi, foundation, artifact, host, kubernetes, cache, broker, helm, dns]
   registry <- either dieT pure (InventoryAdapter.mkAdapterRegistry adapters)
@@ -6997,7 +6997,7 @@ inventoryPlanRegistryWithNative active workspace suppliedNative candidate histor
   either dieT pure (registerLiveRestoreFence runtime
     (ResourceInventory.inventoryBinding inventory)
     (InventoryPlan.candidateDesiredRevisions candidate) scopes
-    declarations maintenanceNative withMaintenance)
+    declarations maintenanceNative restoreRecovery verifyRecovery withMaintenance)
 
 inventoryFoundationAdapter
   :: ActiveTarget -> PlatformWorkspace -> Resource.ContextBinding -> [ResourceInventory.Declaration]

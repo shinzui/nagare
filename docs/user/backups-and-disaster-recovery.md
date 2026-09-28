@@ -220,7 +220,12 @@ The review fixes both backup receipts and MinIO versions plus the live
 StatefulSet, PVC, and Pod identities. Apply holds a native writer fence while
 PostgreSQL restores one transaction and compares a fresh full logical dump to
 the source. A lost or failed effect remains fenced until explicit recovery can
-prove its outcome. Other engines, scheduled-backup live selection, cloud GCS,
+prove its outcome. Use a `verify-fenced-effect` recovery decision to prove the
+source landed, or `recover-fenced-backup` to restore and prove the pinned
+pre-change content under the same fence. The latter abandons the original
+review after writer release; it does not mark the source restore complete.
+Use `forward-fenced-release` if the writer release is observed partial. Other
+engines, scheduled-backup live selection, cloud GCS,
 and live volume overwrite remain pending. The old
 `db restore NAME BACKUP_ID --dry-run` output renders a Job but does not submit
 it. A database declared `retention = Delete` is treated as throwaway and gets **no**

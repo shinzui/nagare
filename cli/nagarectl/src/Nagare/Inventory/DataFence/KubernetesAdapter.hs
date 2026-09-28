@@ -41,6 +41,10 @@ data KubernetesFenceFactory = KubernetesFenceFactory
   , factoryVerify :: !(DataFenceRecord -> IO (Either Text Bool))
   , factoryResolveUncertainEffect :: !(Maybe (DataFenceRecord
       -> PlannedOperation -> PreparedNative -> IO RecoveryDecision))
+  , factoryRestoreRecoveryBackup :: !(Maybe (DataFenceRecord
+      -> PlannedOperation -> PreparedNative -> IO (Either Text ContentDigest)))
+  , factoryVerifyRecoveryBackup :: !(Maybe (DataFenceRecord
+      -> PlannedOperation -> PreparedNative -> IO (Either Text ContentDigest)))
   }
 
 registerKubernetesDataFence :: KubernetesFenceFactory -> AdapterRegistry
@@ -130,4 +134,6 @@ registerKubernetesFence factory capability requiredAction controlsFor registry =
         factoryReplay factory record operation prepared
         controlsFor record operation prepared
     , fenceResolveUncertainEffect = factoryResolveUncertainEffect factory
+    , fenceRestoreRecoveryBackup = factoryRestoreRecoveryBackup factory
+    , fenceVerifyRecoveryBackup = factoryVerifyRecoveryBackup factory
     }

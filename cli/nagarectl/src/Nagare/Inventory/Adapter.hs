@@ -169,6 +169,10 @@ data AdapterFence = AdapterFence
       -> PreparedNative -> Either Text DataFenceControls)
   , fenceResolveUncertainEffect :: !(Maybe (DataFenceRecord -> PlannedOperation
       -> PreparedNative -> IO RecoveryDecision))
+  , fenceRestoreRecoveryBackup :: !(Maybe (DataFenceRecord -> PlannedOperation
+      -> PreparedNative -> IO (Either Text ContentDigest)))
+  , fenceVerifyRecoveryBackup :: !(Maybe (DataFenceRecord -> PlannedOperation
+      -> PreparedNative -> IO (Either Text ContentDigest)))
   }
 
 instance ToJSON ResourceObservation where toJSON = genericToJSON defaultOptions

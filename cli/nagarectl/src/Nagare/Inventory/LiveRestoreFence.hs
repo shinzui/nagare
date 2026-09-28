@@ -34,9 +34,13 @@ import Nagare.Resource.Wire (canonicalValue)
 
 registerLiveRestoreFence :: KubernetesRuntimeConfig -> ContextBinding
   -> Map ScopeId ScopeRevision -> [ScopeDeclaration] -> [Declaration]
-  -> Map ResourceId (ManagedResource, ByteString) -> AdapterRegistry
+  -> Map ResourceId (ManagedResource, ByteString)
+  -> (PlannedOperation -> IO (Either Text ContentDigest))
+  -> (PlannedOperation -> IO (Either Text ContentDigest))
+  -> AdapterRegistry
   -> Either Text AdapterRegistry
-registerLiveRestoreFence config binding accepted scopes declarations native registry = do
+registerLiveRestoreFence config binding accepted scopes declarations native
+  restoreRecovery verifyRecovery registry = do
   proofs <- liveRestoreProofIndex scopes
   if Map.null proofs then Right registry else do
     let ContextBinding context _ = binding
@@ -122,6 +126,12 @@ registerLiveRestoreFence config binding accepted scopes declarations native regi
               (networkNamespace pin) (networkPodName pin) (networkPodUid pin)
         factory = KubernetesFenceFactory config binding accepted declarations native
           selectRequest replay verify Nothing
+          (Just (\record operation prepared -> case replay record operation prepared of
+            Left reason -> pure (Left reason)
+            Right () -> restoreRecovery operation))
+          (Just (\record operation prepared -> case replay record operation prepared of
+            Left reason -> pure (Left reason)
+            Right () -> verifyRecovery operation))
         selectPin record operation prepared = do
           replay record operation prepared
           proof <- requireSelected operation

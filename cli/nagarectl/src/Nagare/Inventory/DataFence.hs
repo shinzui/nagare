@@ -10,6 +10,7 @@ module Nagare.Inventory.DataFence
   , acquireDataFence
   , resumeDataFence
   , resumeDataFenceAcquisition
+  , checkDataFenceExclusion
   , beginDataChange
   , verifyDataChange
   , markDataFenceUnresolved
@@ -145,6 +146,19 @@ beginDataChange locked controls token = do
       case checked of
         Left reason -> unresolved locked record reason
         Right () -> transition locked token [FenceExcluded] FenceChanging
+
+-- | Explicit forward recovery must reprove that the reviewed writers are
+-- still excluded before it touches the uncertain target.
+checkDataFenceExclusion :: LockedStore s -> DataFenceControls -> FenceToken
+  -> IO (Either Text ())
+checkDataFenceExclusion locked controls token = do
+  current <- matchingFence locked token
+  case current of
+    Left reason -> pure (Left reason)
+    Right record | fencePhase record `elem`
+        [FenceChanging, FenceUnresolved, FenceVerifying] ->
+          exclusionProof controls record
+    Right _ -> pure (Left "data fence is not in a recoverable data phase")
 
 -- | A caller invokes this only after its native data effect has a known
 -- result. The provider must verify both content and engine health.

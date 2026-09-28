@@ -145,7 +145,7 @@ registerMaintenanceFence config binding accepted scopes declarations native regi
                         Left reason -> RecoveryUnresolved reason
                         Right bytes -> RecoveryProvedComplete (contentDigest bytes)
         factory = KubernetesFenceFactory config binding accepted declarations native
-          selectRequest replay verify (Just resolve)
+          selectRequest replay verify (Just resolve) Nothing Nothing
         selectPin record operation prepared = do
           replay record operation prepared
           proof <- requireSelected operation

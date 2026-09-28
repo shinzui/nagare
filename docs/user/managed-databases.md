@@ -456,7 +456,15 @@ transaction. A fresh logical dump must match the source before the fence
 releases and the prior writer configuration returns. Replanning the same
 completed restore ID verifies the result without rerunning the data change.
 An interrupted or unverified effect keeps the data fence active for explicit
-recovery. This live path currently supports local PostgreSQL manual backups;
+recovery. First use `verify-fenced-effect` in an `inventory recover` decision
+file if the source content may have landed. If it cannot be proved, select
+`recover-fenced-backup` with the same transaction, operation, and review digest.
+That action terminates the marked PostgreSQL restore client, verifies the
+pinned pre-change backup, restores it under the active fence if needed, and
+compares a fresh full dump before releasing writers. It abandons the original
+review; save a new review if the source restore is still wanted. A partial
+writer release needs a separate `forward-fenced-release` decision. This live
+path currently supports local PostgreSQL manual backups;
 Redis, ClickHouse, scheduled-backup live selection, cloud GCS, and live volume
 restore remain pending.
 
