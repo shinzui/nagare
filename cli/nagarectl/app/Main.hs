@@ -277,6 +277,9 @@ import Nagare.Inventory.ScheduledIngest
 import Nagare.Inventory.ScheduledReceipt (ScheduledReceiptEvidence (..), inspectScheduledReceipt)
 import Nagare.Inventory.ScheduledStore
   ( ObjectReader (..), readSecretField, withLocalObjectStore )
+import Nagare.Inventory.ScheduledPrune
+  ( ScheduledPruneCandidate (..), ScheduledPruneRequest (..), compileScheduledPruneScope
+  , selectScheduledPruneCandidates )
 import Nagare.Inventory.Prune (ManualPruneRequest (..), PruneSourceProof (..), compileManualPruneScope, manualPruneSourceProof)
 import Nagare.Inventory.VolumePrune (VolumePruneRequest (..), compileVolumePruneScope)
 import Nagare.Inventory.Restore (ManualRestoreRequest (..), VolumeRestoreRequest (..), compileManualRestoreScope, compileVolumeRestoreScope, manualRestoreTargetProof)
@@ -1088,6 +1091,7 @@ data DbCommand
   | -- | nagarectl db backup NAME [-n NS] [--bucket B] [--keep N] [--dry-run] (EP-47)
     DbBackup DbBackupOpts
   | DbPruneBackup DbPruneBackupOpts
+  | DbPruneScheduledBackups DbPruneScheduledBackupsOpts
   | DbBackupReceipts DbBackupReceiptsOpts
   | -- | nagarectl db disable-backup-prune NAME [-n NS] --save-plan DIR
     DbDisableBackupPrune DbNameOpts FilePath
@@ -1218,6 +1222,14 @@ data DbBackupOpts = DbBackupOpts
 data DbPruneBackupOpts = DbPruneBackupOpts
   { name :: !String
   , backupId :: !String
+  , namespace :: !(Maybe String)
+  , bucket :: !(Maybe String)
+  , savePlan :: !FilePath
+  }
+  deriving stock (Generic, Show)
+
+data DbPruneScheduledBackupsOpts = DbPruneScheduledBackupsOpts
+  { name :: !String
   , namespace :: !(Maybe String)
   , bucket :: !(Maybe String)
   , savePlan :: !FilePath
@@ -2048,6 +2060,14 @@ dbPruneBackupOptsParser =
     <*> namespaceOpt
     <*> dbBackupBucketOpt
     <*> strOption (long "save-plan" <> metavar "DIR" <> help "Save the exact backup pruning review")
+
+dbPruneScheduledBackupsOptsParser :: Parser DbPruneScheduledBackupsOpts
+dbPruneScheduledBackupsOptsParser =
+  DbPruneScheduledBackupsOpts
+    <$> dbNameArg
+    <*> namespaceOpt
+    <*> dbBackupBucketOpt
+    <*> strOption (long "save-plan" <> metavar "DIR" <> help "Save the exact scheduled retention review")
 
 dbBackupReceiptsOptsParser :: Parser DbBackupReceiptsOpts
 dbBackupReceiptsOptsParser =
@@ -3054,6 +3074,12 @@ opts =
               ( info
                   (Db . DbPruneBackup <$> dbPruneBackupOptsParser <**> helper)
                   (progDesc "Review deletion of one expired manual backup and its exact receipt")
+              )
+            <> command
+              "prune-scheduled-backups"
+              ( info
+                  (Db . DbPruneScheduledBackups <$> dbPruneScheduledBackupsOptsParser <**> helper)
+                  (progDesc "Review exact accepted scheduled backups outside the keep-last-N policy")
               )
             <> command
               "backup-receipts"
@@ -6825,6 +6851,32 @@ loadReviewedPruneSourceNative mctx document proofs = do
           _ -> False) (ResourceInventory.declarations bundle))
           (ResourceInventory.scopeBundles scope))
       (dieT "manual prune backup scope or Job changed after review")
+    when (isJust (pruneSourcePolicy proof)) $ do
+      let backupMembers = [member ^. #identity
+            | bundle <- ResourceInventory.scopeBundles scope,
+              ResourceInventory.Managed member <- ResourceInventory.declarations bundle]
+          dependent (_, other) = ResourceInventory.scopeId other /= owner
+            && Map.notMember "scheduled.prune.backup.scope"
+              (ResourceInventory.scopeOverrides other)
+            && (pruneSourceScope proof `elem`
+                  Map.elems (ResourceInventory.scopeOverrides other)
+              || any (\bundle -> any (\case
+                ResourceInventory.Managed member -> any (\identity ->
+                  ResourceReference.OrderedAfter identity `elem`
+                    (member ^. #dependencies)) backupMembers
+                _ -> False) (ResourceInventory.declarations bundle))
+                (ResourceInventory.scopeBundles other))
+      when (any dependent (Map.elems (InventoryPlan.historyAccepted history)))
+        (dieT "scheduled prune backup gained an accepted dependency after review")
+  forM_ (catMaybes (map pruneSourcePolicy proofs)) $ \(policyScope, policyRevision) -> do
+    let matches = [(owner, revision) | (owner, (revision, _)) <-
+          Map.toAscList (InventoryPlan.historyAccepted history),
+          Resource.scopeIdText owner == policyScope]
+    case matches of
+      [(owner, revision)] | InventoryStore.revisionDigest revision == policyRevision
+        && Map.lookup owner (InventoryPlan.reviewDesiredRevisions document) == Just revision ->
+          pure ()
+      _ -> dieT "scheduled prune retention policy changed after review"
   let credentials = catMaybes (map pruneSourceCredential proofs)
   forM_ credentials $ \(resourceId, _) -> do
     let matches = [(owner, revision, member)
@@ -10513,6 +10565,9 @@ runDb mctx = \case
   DbPruneBackup o -> runReviewedDbPruneBackupPlan mctx (T.pack (o ^. #name))
     (nsOf (o ^. #namespace)) (T.pack (o ^. #backupId))
     (o ^. #bucket) (o ^. #savePlan)
+  DbPruneScheduledBackups o -> runReviewedScheduledPrunePlan mctx
+    (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
+    (o ^. #bucket) (o ^. #savePlan)
   DbBackupReceipts o -> case (o ^. #backupId, o ^. #savePlan) of
     (Just selected, Just output) -> runReviewedScheduledReceiptPlan mctx
       (T.pack (o ^. #name)) (nsOf (o ^. #namespace)) (o ^. #bucket)
@@ -11337,6 +11392,230 @@ runReviewedScheduledReceiptPlan mctx database namespaceName bucketArg backupId o
     (inventoryPlanRegistryWithNative active workspace
       (Map.union receiptNative sourceNative)) active candidate output
   TIO.putStrLn "Saved exact scheduled receipt ingestion review. Apply it to verify both stored versions."
+
+runReviewedScheduledPrunePlan
+  :: Maybe String -> Text -> Text -> Maybe String -> FilePath -> IO ()
+runReviewedScheduledPrunePlan mctx database namespaceName bucketArg output = do
+  active <- activeTarget mctx
+  when (active ^. #profile . #mode == Local) $ do
+    selectedKubeconfig <- kubeconfigPath (active ^. #contextName)
+    exists <- doesFileExist selectedKubeconfig
+    unless exists (dieT "reviewed local scheduled prune kubeconfig is missing")
+    setEnv "KUBECONFIG" selectedKubeconfig
+  (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+  snapshot <- Inventory.loadTargetSnapshot active
+  (cluster, _) <- either dieT pure
+    (acceptedFoundationNamespace snapshot namespaceName)
+  let findAddress api kind name = either dieT pure
+        (Resource.kubernetesAddress cluster api kind (Just namespaceName) name)
+      members scope address = [member | bundle <- ResourceInventory.scopeBundles scope,
+        ResourceInventory.Managed member <- ResourceInventory.declarations bundle,
+        member ^. #address == address]
+      scopes = map snd (Map.elems (ResourceInventory.snapshotScopes snapshot))
+  statefulAddress <- findAddress "apps/v1" "StatefulSet" database
+  (sourceScope, stateful) <- case [(scope, member) | scope <- scopes,
+      member <- members scope statefulAddress] of
+    [single] -> pure single
+    _ -> dieT "scheduled prune requires one accepted database source"
+  pvcAddress <- findAddress "v1" "PersistentVolumeClaim" (dbPvcName database)
+  cronAddress <- findAddress "batch/v1" "CronJob" ("nagare-dbbackup-" <> database)
+  signingAddress <- findAddress "v1" "Secret"
+    ("nagare-dbbackup-" <> database <> "-signing")
+  let unique label address = case members sourceScope address of
+        [single] -> pure single
+        _ -> dieT ("scheduled prune requires one accepted " <> label)
+  pvc <- unique "database PVC" pvcAddress
+  cron <- unique "backup CronJob" cronAddress
+  signing <- unique "backup signing Secret" signingAddress
+  store <- Inventory.openTargetStoreReadOnly active
+    >>= either (dieT . T.pack . show) pure
+  history <- InventoryPlan.loadInventoryHistory store
+    >>= either (dieT . T.pack . show) pure
+  let acceptedRevision scope = case Map.lookup (ResourceInventory.scopeId scope)
+        (InventoryPlan.historyAccepted history) of
+        Just (revision, accepted) | accepted == scope -> pure revision
+        _ -> dieT "scheduled prune source or receipt differs from accepted history"
+  sourceRevision <- acceptedRevision sourceScope
+  acceptedInventory <- either (dieT . T.pack . show) pure
+    (ResourceInventory.composeSnapshot snapshot)
+  (acceptedNative, _) <- InventoryStatus.loadAcceptedNative store history acceptedInventory
+    >>= either dieT pure
+  let sourceIds = map (^. #identity) [stateful, pvc, cron, signing]
+      sourceNative = Map.restrictKeys acceptedNative (Set.fromList sourceIds)
+  unless (Map.size sourceNative == 4)
+    (dieT "scheduled prune source lacks accepted private native evidence")
+  sourceAdapter <- inventoryKubernetesAdapter active
+    (ResourceInventory.snapshotBinding snapshot)
+    (\_ -> pure (Left "scheduled prune source observation does not use a cache key"))
+    sourceNative
+  observed <- InventoryAdapter.adapterObserve sourceAdapter sourceIds
+    >>= either dieT pure
+  let physical resource = case Map.lookup resource
+        (InventoryAdapter.observationMap observed) of
+        Just (InventoryAdapter.ObservedPresent uid) -> pure uid
+        _ -> dieT "scheduled prune source, schedule, or signing key is absent or drifted"
+  statefulUid <- physical (stateful ^. #identity)
+  pvcUid <- physical (pvc ^. #identity)
+  cronUid <- physical (cron ^. #identity)
+  _ <- physical (signing ^. #identity)
+  inFlight <- scheduledProducerInFlight (contextNameText (active ^. #contextName))
+    namespaceName cronUid
+  when inFlight (dieT "scheduled backup producer has not completed successfully")
+  (_, cronBytes) <- maybe (dieT "accepted CronJob lacks private native bytes") pure
+    (Map.lookup (cron ^. #identity) sourceNative)
+  backend <- resolveStoreBackend mctx bucketArg
+  expectation <- either dieT pure (scheduledReceiptExpectationFromCronJob backend
+    namespaceName database statefulUid pvcUid cronBytes)
+  minio <- case backend of
+    MinioBackend ref -> pure ref
+    GcsBackend {} -> dieT "cloud scheduled prune requires exact-generation provider listing"
+  let bucketAddress = "s3://" <> minio ^. #bucket <> "/"
+      prefix = scheduledObjectPrefix expectation
+  keyPrefix <- maybe (dieT "accepted schedule has another local bucket") pure
+    (T.stripPrefix bucketAddress prefix)
+  listedResult <- withLocalObjectStore (contextNameText (active ^. #contextName))
+    minio (\reader -> listObjectEntries reader keyPrefix)
+  listed <- either dieT pure listedResult >>= either dieT pure
+  let receiptScopes = [scope | scope <- scopes,
+        Map.lookup "scheduled.backup.source.scope"
+          (ResourceInventory.scopeOverrides scope)
+          == Just (Resource.scopeIdText (ResourceInventory.scopeId sourceScope))]
+      protected = Set.fromList
+        [Resource.scopeIdText (ResourceInventory.scopeId backup)
+        | backup <- receiptScopes,
+          let backupId = Resource.scopeIdText (ResourceInventory.scopeId backup)
+              backupMembers = [member ^. #identity
+                | bundle <- ResourceInventory.scopeBundles backup,
+                  ResourceInventory.Managed member <- ResourceInventory.declarations bundle],
+          any (\scope -> ResourceInventory.scopeId scope
+              /= ResourceInventory.scopeId backup
+              && Map.notMember "scheduled.prune.backup.scope"
+                (ResourceInventory.scopeOverrides scope)
+              && (backupId `elem` Map.elems (ResourceInventory.scopeOverrides scope)
+                || any (\bundle -> any (\case
+                  ResourceInventory.Managed member -> any (\identity ->
+                    ResourceReference.OrderedAfter identity `elem`
+                      (member ^. #dependencies)) backupMembers
+                  _ -> False) (ResourceInventory.declarations bundle))
+                  (ResourceInventory.scopeBundles scope))) scopes]
+  forM_ receiptScopes $ \receiptScope -> do
+    let fields = ResourceInventory.scopeOverrides receiptScope
+        alreadyPruned = any (\scope -> Map.lookup "scheduled.prune.backup.scope"
+              (ResourceInventory.scopeOverrides scope)
+              == Just (Resource.scopeIdText
+                (ResourceInventory.scopeId receiptScope))) scopes
+    unless (alreadyPruned || (Map.lookup "scheduled.backup.source.revision" fields
+        == Just (Resource.digestText (InventoryStore.revisionDigest sourceRevision))
+      && Map.lookup "scheduled.backup.schedule.revision" fields
+        == Just (Resource.digestText (scheduledPolicyRevision expectation))))
+      (dieT "scheduled backup was admitted under an older source or retention policy")
+  candidates <- either dieT pure (selectScheduledPruneCandidates
+    (ResourceInventory.scopeId sourceScope) bucketAddress prefix
+    (scheduledFormat expectation) (scheduledKeep expectation)
+    protected scopes listed)
+  unless (not (null candidates))
+    (dieT "no accepted scheduled backup is outside the keep-last-N policy")
+  let contextName = contextNameText (active ^. #contextName)
+  context <- either dieT pure (Resource.mkContextId contextName)
+  let config = KubernetesRuntimeConfig
+        context
+        contextName
+        (fmap (fmap (const ())) (guardKubernetesContext active))
+  compiled <- forM candidates $ \selected -> do
+    backup <- case [scope | scope <- receiptScopes,
+        ResourceInventory.scopeId scope == scheduledPruneScope selected] of
+      [single] -> pure single
+      _ -> dieT "selected scheduled receipt is no longer unique"
+    backupRevision <- acceptedRevision backup
+    ingestionJob <- case [member | bundle <- ResourceInventory.scopeBundles backup,
+        ResourceInventory.Managed member <- ResourceInventory.declarations bundle,
+        case member ^. #address of
+          Resource.Kubernetes _ "batch" kind (Just ns) _ ->
+            Resource.nameText kind == "job" && Resource.nameText ns == namespaceName
+          _ -> False] of
+      [single] -> pure single
+      _ -> dieT "selected scheduled receipt lacks one ingestion Job"
+    backupNative <- case Map.lookup (ingestionJob ^. #identity) acceptedNative of
+      Just pair | fst pair == ingestionJob -> pure
+        (Map.singleton (ingestionJob ^. #identity) pair)
+      _ -> dieT "selected scheduled receipt lacks private native evidence"
+    let ops = mkKubernetesRuntimeOpsWithCacheKey config
+          (\_ -> pure (Left "scheduled receipt Job observation does not use a cache key"))
+          backupNative
+    state <- kubernetesObserve ops (ingestionJob ^. #identity)
+    backupUid <- case (state, Map.lookup (ingestionJob ^. #identity) backupNative) of
+      (KubernetesPresent uid _ (Just owner) digest, Just (_, bytes))
+        | owner == ingestionJob ^. #identity
+          && digest == InventoryDigest.contentDigest bytes -> pure uid
+      _ -> dieT "scheduled receipt ingestion Job is absent, incomplete, or drifted"
+    let request = ScheduledPruneRequest
+          { scheduledPruneDatabase = database
+          , scheduledPruneNamespace = namespaceName
+          , scheduledPruneCandidate = selected
+          , scheduledPruneBackupRevision = backupRevision
+          , scheduledPruneBackupJobUid = backupUid
+          , scheduledPrunePolicyScope = ResourceInventory.scopeId sourceScope
+          , scheduledPrunePolicyRevision = sourceRevision
+          , scheduledPruneKeep = scheduledKeep expectation
+          , scheduledPruneBackend = backend
+          , scheduledPruneSource = Resource.SourceLocation
+              ("db prune-scheduled-backups/" <> database)
+              (scheduledPruneId selected) }
+    (pruneScope, pruneNative) <- either (dieT . T.pack . show) pure
+      (compileScheduledPruneScope request backup backupNative)
+    case Map.lookup (ResourceInventory.scopeId pruneScope)
+        (ResourceInventory.snapshotScopes snapshot) of
+      Just (_, prior) | prior /= pruneScope ->
+        dieT "scheduled prune review for this run has another accepted intent"
+      _ -> pure ()
+    pure (pruneScope, pruneNative, backupNative)
+  replacements <- maybe (dieT "no scheduled prune candidate") pure
+    (NE.nonEmpty [ResourceInventory.ReplaceScope scope
+      | (scope, _, _) <- compiled])
+  candidate <- either (dieT . T.pack . show) pure
+    (ResourceInventory.composeInventory snapshot replacements)
+  let native = Map.unions (sourceNative :
+        [Map.union prune backup | (_, prune, backup) <- compiled])
+  Inventory.planInventoryCandidateWith
+    (inventoryPlanRegistryWithNative active workspace native) active candidate output
+  TIO.putStrLn ("Saved exact scheduled pruning review for "
+    <> T.pack (show (length candidates)) <> " accepted run(s).")
+
+scheduledProducerInFlight :: Text -> Text -> Resource.PhysicalIdentity -> IO Bool
+scheduledProducerInFlight contextName namespaceName cronUid = do
+  outcome <- try (readProcessWithExitCode "kubectl"
+    ["--context", T.unpack contextName, "-n", T.unpack namespaceName,
+      "get", "jobs", "-o", "json"] "")
+    :: IO (Either IOException (ExitCode, String, String))
+  body <- case outcome of
+    Right (ExitSuccess, output, _) -> pure (BC.pack output)
+    _ -> dieT "cannot inspect scheduled backup producer Jobs"
+  jobs <- case Aeson.eitherDecodeStrict body of
+    Right (Aeson.Object root) | Just (Aeson.Array items) <- AesonMap.lookup "items" root ->
+      pure (foldr (:) [] items)
+    _ -> dieT "scheduled backup producer Job listing is malformed"
+  let ownerId = Resource.physicalIdentityText cronUid
+      owned (Aeson.Object item) = case AesonMap.lookup "metadata" item of
+        Just (Aeson.Object metadata) -> case AesonMap.lookup "ownerReferences" metadata of
+          Just (Aeson.Array references) -> any (\case
+            Aeson.Object reference -> AesonMap.lookup "uid" reference
+              == Just (Aeson.String ownerId)
+            _ -> False) references
+          _ -> False
+        _ -> False
+      owned _ = False
+      unfinished (Aeson.Object item) = case AesonMap.lookup "status" item of
+        Just (Aeson.Object status) ->
+          let succeeded = case AesonMap.lookup "succeeded" status of
+                Just (Aeson.Number count) -> count > 0
+                _ -> False
+              activeCount = case AesonMap.lookup "active" status of
+                Just (Aeson.Number count) -> count > 0
+                _ -> False
+           in not succeeded || activeCount
+        _ -> True
+      unfinished _ = True
+  pure (any (\job -> owned job && unfinished job) jobs)
 
 runReviewedDbBackupPlan
   :: Maybe String -> Text -> Text -> Maybe String -> Text -> Maybe Text -> FilePath -> IO ()

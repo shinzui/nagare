@@ -122,7 +122,7 @@ import Nagare.Database.Backup
   , renderInventoryDbBackupCronJob
   , uploadShell
   )
-import Nagare.Database.Prune (PruneJobInputs (PruneJobInputs), pruneShell, renderPruneJob)
+import Nagare.Database.Prune (PruneJobInputs (PruneJobInputs), pruneShell, renderPruneJob, renderScheduledPruneJob, scheduledPruneShell)
 import Nagare.Database.Connection (ConnIdentity (..), connectionEnv, mergeConnectionEnvs)
 import Nagare.Database.Create (DbCreateParams (..), buildDatabase, classifyPasswordObservation, ensureCredential, passwordKey)
 import Nagare.Database.Discover (DbRow (..), dbLabelSelector, extractDbRows, formatDbTable)
@@ -5254,6 +5254,7 @@ backupRestoreTests =
               uid = either (error . T.unpack) id (Resource.mkPhysicalIdentity sourceUid)
               expectation = ScheduledReceiptExpectation
                 "s3://nagare-backups/databases/mydb/" "sql.gz" 7
+                (contentDigest (canonical metadata))
                 (contentDigest (canonical metadata)) uid uid
               reader changeExactReceipt changeExactObject = ObjectReader
                 (\address selected path -> do
@@ -5792,7 +5793,7 @@ backupRestoreTests =
                 metadataDigest = contentDigest (either (error . T.unpack) id (canonicalValue metadataValue))
                 sourceUid value = either (error . T.unpack) id (Resource.mkPhysicalIdentity value)
                 expectation = ScheduledReceiptExpectation
-                  "gs://test/databases/mydb/" "sql.gz" 7 metadataDigest
+                  "gs://test/databases/mydb/" "sql.gz" 7 metadataDigest metadataDigest
                   (sourceUid "22222222-2222-2222-2222-222222222222")
                   (sourceUid "11111111-1111-1111-1111-111111111111")
                 accepted = parseScheduledBackupReceipt expectation (T.pack receiptUrl)
@@ -5890,6 +5891,24 @@ backupRestoreTests =
                   ((proc "/bin/sh" ["-c", T.unpack (pruneShell inputs)])
                     {env = Just (variables <>
                       filter (\(key, _) -> key `notElem` map fst variables) parentEnv)}) ""
+                runPinned objectVersion receiptVersion =
+                  let pins = [ ("EXPECTED_OBJECT_VERSION", T.unpack objectVersion)
+                             , ("EXPECTED_RECEIPT_VERSION", T.unpack receiptVersion) ]
+                   in readCreateProcessWithExitCode
+                     ((proc "/bin/sh" ["-c", T.unpack
+                       (scheduledPruneShell inputs)])
+                       {env = Just (pins <> variables <>
+                         filter (\(key, _) -> key `notElem` map fst (pins <> variables)) parentEnv)}) ""
+            let scheduledManifest = TE.decodeUtf8
+                  (renderScheduledPruneJob inputs "7" "9")
+            assertBool "scheduled prune manifest lacks exact version pins"
+              ("EXPECTED_OBJECT_VERSION" `T.isInfixOf` scheduledManifest
+                && "EXPECTED_RECEIPT_VERSION" `T.isInfixOf` scheduledManifest
+                && "nagare.dev/scheduled-prune" `T.isInfixOf` scheduledManifest)
+            (wrongVersion, _, _) <- runPinned "8" "9"
+            assertBool "changed reviewed version was deleted" (wrongVersion /= ExitSuccess)
+            doesFileExist object >>= (@?= True)
+            doesFileExist receipt >>= (@?= True)
             BS.writeFile object "changed backup bytes"
             (changed, _, _) <- run
             assertBool "changed data was pruned" (changed /= ExitSuccess)
@@ -5898,6 +5917,13 @@ backupRestoreTests =
             BS.writeFile object "verified backup bytes"
             (deleted, _, diagnostic) <- run
             assertBool ("exact prune failed: " <> diagnostic) (deleted == ExitSuccess)
+            doesFileExist object >>= (@?= False)
+            doesFileExist receipt >>= (@?= False)
+            BS.writeFile object "verified backup bytes"
+            BS.writeFile receipt "verified receipt bytes"
+            (pinnedDelete, _, pinnedDiagnostic) <- runPinned "7" "9"
+            assertBool ("exact scheduled prune failed: " <> pinnedDiagnostic)
+              (pinnedDelete == ExitSuccess)
             doesFileExist object >>= (@?= False)
             doesFileExist receipt >>= (@?= False)
       , testCase "reviewed local prune refuses unversioned MinIO objects" $

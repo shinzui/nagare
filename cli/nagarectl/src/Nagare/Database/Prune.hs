@@ -5,8 +5,10 @@
 module Nagare.Database.Prune
   ( PruneJobInputs (..)
   , renderPruneJob
+  , renderScheduledPruneJob
   , renderVolumePruneJob
   , pruneShell
+  , scheduledPruneShell
   ) where
 
 import Data.Aeson (Value, object, toJSON, (.=))
@@ -35,13 +37,21 @@ data PruneJobInputs = PruneJobInputs
   deriving stock (Generic, Eq, Show)
 
 renderPruneJob :: PruneJobInputs -> ByteString
-renderPruneJob = renderPruneJobWithLabel "nagare.dev/database-prune"
+renderPruneJob = renderPruneJobWithLabel "nagare.dev/database-prune" Nothing
+
+-- | Scheduled retention carries the two exact provider versions from the
+-- accepted ingestion scope. A different current version refuses before the
+-- first delete, even when its bytes happen to hash identically.
+renderScheduledPruneJob :: PruneJobInputs -> Text -> Text -> ByteString
+renderScheduledPruneJob inputs objectVersion receiptVersion =
+  renderPruneJobWithLabel "nagare.dev/scheduled-prune"
+    (Just (objectVersion, receiptVersion)) inputs
 
 renderVolumePruneJob :: PruneJobInputs -> ByteString
-renderVolumePruneJob = renderPruneJobWithLabel "nagare.dev/volume-prune"
+renderVolumePruneJob = renderPruneJobWithLabel "nagare.dev/volume-prune" Nothing
 
-renderPruneJobWithLabel :: Text -> PruneJobInputs -> ByteString
-renderPruneJobWithLabel label inputs = Y.encode $ object
+renderPruneJobWithLabel :: Text -> Maybe (Text, Text) -> PruneJobInputs -> ByteString
+renderPruneJobWithLabel label pins inputs = Y.encode $ object
   [ "apiVersion" .= ("batch/v1" :: Text)
   , "kind" .= ("Job" :: Text)
   , "metadata" .= object
@@ -59,14 +69,19 @@ renderPruneJobWithLabel label inputs = Y.encode $ object
           [ "name" .= ("prune" :: Text)
           , "image" .= storeImage (inputs ^. #backend)
           , "command" .= (["/bin/sh", "-c"] :: [Text])
-          , "args" .= [pruneShell inputs]
+          , "args" .= [maybe (pruneShell inputs)
+              (const (scheduledPruneShell inputs)) pins]
           , "env" .= toJSON (map (uncurry plainEnv)
               [ ("OBJECT", inputs ^. #objectUrl)
               , ("RECEIPT", inputs ^. #receiptUrl)
               , ("EXPECTED_OBJECT_SHA256", inputs ^. #objectSha256)
               , ("EXPECTED_RECEIPT_SHA256", inputs ^. #receiptSha256)
               , ("EXPIRY_EPOCH", T.pack (show (inputs ^. #expiryEpoch)))
-              ] <> storeEnv (inputs ^. #backend))
+              ] <> maybe [] (\(objectVersion, receiptVersion) ->
+                map (uncurry plainEnv)
+                  [ ("EXPECTED_OBJECT_VERSION", objectVersion)
+                  , ("EXPECTED_RECEIPT_VERSION", receiptVersion) ]) pins
+                <> storeEnv (inputs ^. #backend))
           ]]
       , volumes = []
       , backoffLimit = 0
@@ -82,7 +97,14 @@ plainEnv :: Text -> Text -> Value
 plainEnv name value = object ["name" .= name, "value" .= value]
 
 pruneShell :: PruneJobInputs -> Text
-pruneShell inputs =
+pruneShell inputs = pruneShellWithPins inputs False
+
+-- | Values are supplied by the rendered Job's EXPECTED_*_VERSION env entries.
+scheduledPruneShell :: PruneJobInputs -> Text
+scheduledPruneShell inputs = pruneShellWithPins inputs True
+
+pruneShellWithPins :: PruneJobInputs -> Bool -> Text
+pruneShellWithPins inputs pinned =
   "set -eu; " <> storeShellPreamble backend
     <> tools <> backendSetup
     <> "NOW=$(date -u +%s); test \"$NOW\" -ge \"$EXPIRY_EPOCH\"; "
@@ -90,6 +112,10 @@ pruneShell inputs =
     <> "DATA_VERSION=$(" <> version "OBJECT" <> "); "
     <> "RECEIPT_VERSION=$(" <> version "RECEIPT" <> "); "
     <> validateVersion
+    <> (if pinned then
+      "test \"$DATA_VERSION\" = \"$EXPECTED_OBJECT_VERSION\"; "
+        <> "test \"$RECEIPT_VERSION\" = \"$EXPECTED_RECEIPT_VERSION\"; "
+      else "")
     <> "ACTUAL_RECEIPT=$(" <> readVersioned "RECEIPT" "RECEIPT_VERSION"
     <> " | sha256sum | cut -d' ' -f1); "
     <> "test \"$ACTUAL_RECEIPT\" = \"$EXPECTED_RECEIPT_SHA256\"; "

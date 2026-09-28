@@ -43,6 +43,9 @@ import Nagare.Inventory.LiveRestore (LiveBackupInput (..), LiveBackupProof (..),
 import Nagare.Inventory.LiveRestorePostgres (normalizePostgresDump)
 import Nagare.Inventory.LiveRestoreSource (verifyLiveStoredFiles)
 import Nagare.Inventory.ScheduledStore (StoredObject (..))
+import Nagare.Inventory.ScheduledPrune
+  ( ScheduledPruneCandidate (..), ScheduledPruneRequest (..)
+  , compileScheduledPruneScope )
 import Nagare.Inventory.DataService (NativeDataKind (..), compileBackupPruneRemovalScope, compileStandaloneDatabase, compileStatefulSetRestartScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Components.Foundation (compileContributedNamespaces)
@@ -656,7 +659,70 @@ inventoryKubernetesTests =
         manualPruneSourceProof pruneScope @?= Right (Just (PruneSourceProof
           (scopeIdText (scopeId finiteScope))
           (revisionDigest (pruneVolumeBackupRevision pruneRequest))
-          (finiteJob ^. #identity) (pruneVolumeBackupUid pruneRequest) Nothing))
+          (finiteJob ^. #identity) (pruneVolumeBackupUid pruneRequest) Nothing Nothing))
+        let scheduledId = "11111111-1111-1111-1111-111111111111"
+            scheduledObject = "gs://bucket/databases/notes/" <> scheduledId <> ".sql.gz"
+            scheduledReceipt = scheduledObject <> ".receipt.json"
+            candidate = ScheduledPruneCandidate
+              { scheduledPruneScope = scopeId finiteScope
+              , scheduledPruneId = scheduledId
+              , scheduledPruneObject = scheduledObject
+              , scheduledPruneObjectVersion = "17"
+              , scheduledPruneObjectLength = 123
+              , scheduledPruneObjectSha256 = T.replicate 64 "a"
+              , scheduledPruneReceipt = scheduledReceipt
+              , scheduledPruneReceiptVersion = "19"
+              , scheduledPruneReceiptLength = 456
+              , scheduledPruneReceiptDigest = T.replicate 64 "b"
+              , scheduledPruneCompleted = volumeRestoreNow restoreRequest }
+            scheduledFields = Map.fromList
+              [ ("scheduled.backup.source.scope", scopeIdText (scopeId sourceScope))
+              , ("scheduled.backup.id", scheduledId)
+              , ("scheduled.backup.object", scheduledObject)
+              , ("scheduled.backup.object.version", "17")
+              , ("scheduled.backup.object.length", "123")
+              , ("scheduled.backup.object.sha256", T.replicate 64 "a")
+              , ("scheduled.backup.receipt", scheduledReceipt)
+              , ("scheduled.backup.receipt.version", "19")
+              , ("scheduled.backup.receipt.length", "456")
+              , ("scheduled.backup.receipt.digest", T.replicate 64 "b") ]
+            acceptedScheduled = withScopeOverrides scheduledFields finiteScope
+            scheduledRequest = ScheduledPruneRequest
+              { scheduledPruneDatabase = "notes"
+              , scheduledPruneNamespace = "default"
+              , scheduledPruneCandidate = candidate
+              , scheduledPruneBackupRevision = pruneVolumeBackupRevision pruneRequest
+              , scheduledPruneBackupJobUid = pruneVolumeBackupUid pruneRequest
+              , scheduledPrunePolicyScope = scopeId sourceScope
+              , scheduledPrunePolicyRevision = volumeRestoreTargetRevision restoreRequest
+              , scheduledPruneKeep = 7
+              , scheduledPruneBackend = GcsBackend "project" "bucket"
+              , scheduledPruneSource = SourceLocation "scheduled prune" scheduledId }
+            (scheduledScope, scheduledNative) = ok
+              (compileScheduledPruneScope scheduledRequest acceptedScheduled finiteNative)
+            (scheduledJob, scheduledBytes) = case Map.elems scheduledNative of
+              [entry] -> entry
+              _ -> error "scheduled prune must bind one Job"
+        Map.lookup "scheduled.prune.policy.keep" (scopeOverrides scheduledScope)
+          @?= Just "7"
+        case manualPruneSourceProof scheduledScope of
+          Right (Just proof) -> do
+            pruneSourceScope proof @?= scopeIdText (scopeId acceptedScheduled)
+            pruneSourcePolicy proof @?= Just
+              (scopeIdText (scopeId sourceScope), revisionDigest
+                (volumeRestoreTargetRevision restoreRequest))
+          other -> assertFailure ("scheduled prune source pins were rejected: " <> show other)
+        manualPruneJobBackupPin scheduledBytes @?= Right
+          (Just (finiteJob ^. #identity, pruneVolumeBackupUid pruneRequest))
+        assertBool "scheduled prune Job lacks exact version checks"
+          (BC.isInfixOf "EXPECTED_OBJECT_VERSION" scheduledBytes
+            && BC.isInfixOf "EXPECTED_RECEIPT_VERSION" scheduledBytes
+            && scheduledJob ^. #dependencies ==
+              [OrderedAfter (finiteJob ^. #identity)])
+        assertBool "scheduled candidate changed an accepted provider version"
+          (isLeft (compileScheduledPruneScope
+            (scheduledRequest {scheduledPruneCandidate = candidate
+              {scheduledPruneObjectVersion = "18"}}) acceptedScheduled finiteNative))
         manualPruneJobBackupPin pruneBytes @?= Right
           (Just (finiteJob ^. #identity, pruneVolumeBackupUid pruneRequest))
         volumePruneJobCredentialPin pruneBytes @?= Right Nothing

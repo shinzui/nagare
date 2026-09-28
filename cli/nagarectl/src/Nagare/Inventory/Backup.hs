@@ -103,6 +103,7 @@ data ScheduledReceiptExpectation = ScheduledReceiptExpectation
   { scheduledObjectPrefix :: !T.Text
   , scheduledFormat :: !T.Text
   , scheduledKeep :: !Int
+  , scheduledPolicyRevision :: !ContentDigest
   , scheduledMetadataDigest :: !ContentDigest
   , scheduledStatefulUid :: !PhysicalIdentity
   , scheduledPvcUid :: !PhysicalIdentity
@@ -187,10 +188,10 @@ scheduledReceiptExpectationFromCronJob backend namespaceName database statefulUi
       , Just engine <- parseEngine engineName
       , extension == backupExt engine -> Right (extension, digest, selectedKeep)
     _ -> Left "accepted scheduled backup has invalid receipt metadata"
-  _ <- mkContentDigest revision
+  policyRevision <- mkContentDigest revision
   metadataBytes <- canonicalValue metadata
   pure (ScheduledReceiptExpectation prefix format keep
-    (contentDigest metadataBytes) statefulUid pvcUid)
+    policyRevision (contentDigest metadataBytes) statefulUid pvcUid)
   where
     schedule = "nagare-dbbackup-" <> database
     lookupJsonPath [] current = Just current

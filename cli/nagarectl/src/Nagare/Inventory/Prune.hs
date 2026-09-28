@@ -60,6 +60,7 @@ data PruneSourceProof = PruneSourceProof
   , pruneSourceJob :: !ResourceId
   , pruneSourceUid :: !PhysicalIdentity
   , pruneSourceCredential :: !(Maybe (ResourceId, PhysicalIdentity))
+  , pruneSourcePolicy :: !(Maybe (Text, ContentDigest))
   }
   deriving stock (Eq, Show)
 
@@ -73,12 +74,19 @@ manualPruneSourceProof scope
         (Just resource, Just uid) ->
           Just <$> ((,) <$> mkResourceId resource <*> mkPhysicalIdentity uid)
         _ -> Left "manual prune scope has incomplete credential pins"
+      policy <- case (Map.lookup "scheduled.prune.policy.scope" values,
+          Map.lookup "scheduled.prune.policy.revision" values) of
+        (Nothing, Nothing) -> Right Nothing
+        (Just owner, Just revision) ->
+          Just . (\digest -> (owner, digest)) <$> mkContentDigest revision
+        _ -> Left "scheduled prune scope has incomplete policy pins"
       PruneSourceProof
         <$> required "prune.backup.scope"
         <*> (required "prune.backup.revision" >>= mkContentDigest)
         <*> (required "prune.backup.job" >>= mkResourceId)
         <*> (required "prune.backup.job.uid" >>= mkPhysicalIdentity)
         <*> pure credential
+        <*> pure policy
   where
     values = scopeOverrides scope
     required key = maybe (Left ("manual prune scope lacks " <> key)) Right
