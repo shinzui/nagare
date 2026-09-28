@@ -5,6 +5,7 @@ module Nagare.Inventory.ScheduledReceipt
   ( ScheduledReceiptEvidence (..)
   , inspectScheduledReceipt
   , verifyAcceptedScheduledReceipt
+  , classifyScheduledListingKeys
   ) where
 
 import Crypto.Hash (Digest, SHA256, hashlazy)
@@ -23,6 +24,39 @@ import Nagare.Resource.Inventory (ScopeDeclaration, scopeOverrides)
 import Nagare.Resource.Types (ContentDigest, mkContentDigest)
 import System.Directory (getFileSize)
 import System.IO.Temp (withSystemTempDirectory)
+
+-- | Accepted runs use their immutable object addresses; a later schedule may
+-- change the format suffix. New runs must still match the current schedule.
+-- A second key for an accepted run is left unresolved rather than silently
+-- borrowing the accepted pair's status.
+classifyScheduledListingKeys
+  :: Text -> Text -> Text -> Map.Map Text ScopeDeclaration -> [Text]
+  -> ([(Text, Bool)], [Text])
+classifyScheduledListingKeys bucketPrefix keyPrefix currentFormat accepted keys =
+  ([(selected, isObject) | key <- keys,
+    Just (selected, isObject) <- [classify key]],
+   [key | key <- keys, classify key == Nothing])
+  where
+    pinned = [(key, (selected, isObject))
+      | (selected, scope) <- Map.toList accepted
+      , (field, isObject) <- [ ("scheduled.backup.object", True)
+          , ("scheduled.backup.receipt", False) ]
+      , Just address <- [Map.lookup field (scopeOverrides scope)]
+      , Just key <- [T.stripPrefix bucketPrefix address]
+      , keyPrefix `T.isPrefixOf` key]
+    classify key = case [part | (address, part) <- pinned, address == key] of
+      [part] -> Just part
+      [] -> do
+        suffix <- T.stripPrefix keyPrefix key
+        let objectSuffix = "." <> currentFormat
+            receiptSuffix = objectSuffix <> ".receipt.json"
+            parsed = case T.stripSuffix receiptSuffix suffix of
+              Just selected -> Just (selected, False)
+              Nothing -> fmap (\selected -> (selected, True))
+                (T.stripSuffix objectSuffix suffix)
+        part@(selected, _) <- parsed
+        if Map.member selected accepted then Nothing else Just part
+      _ -> Nothing
 
 data ScheduledReceiptEvidence = ScheduledReceiptEvidence
   { scheduledReceipt :: !ScheduledBackupReceipt

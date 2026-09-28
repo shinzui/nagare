@@ -354,7 +354,7 @@ import Nagare.Inventory.Backup
   , parseScheduledBackupReceipt, scheduledReceiptExpectationFromCronJob )
 import Nagare.Inventory.ScheduledReceipt
   ( ScheduledReceiptEvidence (..), inspectScheduledReceipt
-  , verifyAcceptedScheduledReceipt )
+  , verifyAcceptedScheduledReceipt, classifyScheduledListingKeys )
 import Nagare.Inventory.ScheduledPrune (ScheduledPruneCandidate (..), selectScheduledPruneCandidates)
 import Nagare.Inventory.ScheduledStore (ListedObject (..), ObjectReader (..), StoredObject (..), parseObjectEntries, parseObjectList, parseObjectVersions)
 import Nagare.Inventory.ScheduledIngest
@@ -5314,6 +5314,17 @@ backupRestoreTests =
           assertBool "another listed object used accepted receipt pins" . isLeft =<<
             verifyAcceptedScheduledReceipt (reader False False)
               (objectAddress <> "-other") acceptedScope
+          let keyPrefix = "databases/mydb/"
+              oldObjectKey = keyPrefix <> runId <> ".sql.gz"
+              oldReceiptKey = oldObjectKey <> ".receipt.json"
+              extraKey = keyPrefix <> runId <> ".zip.gz"
+              newKey = keyPrefix <> "another-run.zip.gz"
+              (recognized, unknown) = classifyScheduledListingKeys
+                "s3://nagare-backups/" keyPrefix "zip.gz"
+                (Map.singleton runId acceptedScope)
+                [oldObjectKey, oldReceiptKey, extraKey, newKey]
+          recognized @?= [(runId, True), (runId, False), ("another-run", True)]
+          unknown @?= [extraKey]
       , testCase "scheduled backup listing refuses incomplete provider pages" $ do
           let prefix = "databases/mydb/"
               key = prefix <> "11111111-1111-1111-1111-111111111111.sql.gz"

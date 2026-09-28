@@ -277,7 +277,7 @@ import Nagare.Inventory.ScheduledIngest
   , scheduledIngestSourceProof )
 import Nagare.Inventory.ScheduledReceipt
   ( ScheduledReceiptEvidence (..), inspectScheduledReceipt
-  , verifyAcceptedScheduledReceipt )
+  , verifyAcceptedScheduledReceipt, classifyScheduledListingKeys )
 import Nagare.Inventory.ScheduledStore
   ( ListedObject (..), ObjectReader (..), StoredObject (..)
   , readSecretField, withLocalObjectStore )
@@ -11372,17 +11372,8 @@ runListScheduledReceipts mctx database namespaceName bucketArg = do
       case keys of
         Left reason -> pure (Left reason)
         Right allKeys -> do
-          let objectSuffix = "." <> scheduledFormat expectation
-              receiptSuffix = objectSuffix <> ".receipt.json"
-              classify key = do
-                suffix <- T.stripPrefix keyPrefix key
-                case T.stripSuffix receiptSuffix suffix of
-                  Just selected -> Just (selected, False)
-                  Nothing -> fmap (\selected -> (selected, True))
-                    (T.stripSuffix objectSuffix suffix)
-              recognized = [(selected, isObject) | key <- allKeys,
-                Just (selected, isObject) <- [classify key]]
-              unknown = [key | key <- allKeys, isNothing (classify key)]
+          let (recognized, unknown) = classifyScheduledListingKeys
+                bucketPrefix keyPrefix (scheduledFormat expectation) accepted allKeys
               candidates = Set.toAscList (Set.fromList
                 (Map.keys accepted <> map fst recognized))
               hasPart selected isObject = (selected, isObject) `elem` recognized
@@ -11412,9 +11403,14 @@ runListScheduledReceipts mctx database namespaceName bucketArg = do
                     then pure ("accepted " <>
                       Resource.scopeIdText (ResourceInventory.scopeId scope))
                     else do
-                      checked <- verifyAcceptedScheduledReceipt reader
-                        (scheduledObjectPrefix expectation <> selected
-                          <> "." <> scheduledFormat expectation) scope
+                      let acceptedAddress = Map.lookup "scheduled.backup.object"
+                            (ResourceInventory.scopeOverrides scope)
+                          expectedPrefix = scheduledObjectPrefix expectation
+                            <> selected <> "."
+                      checked <- case acceptedAddress of
+                        Just address | expectedPrefix `T.isPrefixOf` address ->
+                          verifyAcceptedScheduledReceipt reader address scope
+                        _ -> pure (Left "accepted scheduled receipt has another object address")
                       pure $ case checked of
                         Right () -> "accepted " <>
                           Resource.scopeIdText (ResourceInventory.scopeId scope)
