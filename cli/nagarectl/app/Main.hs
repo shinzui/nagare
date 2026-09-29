@@ -4951,39 +4951,44 @@ runPlatformBootstrapPlan mctx output = do
 runAfterCloudStage :: ActiveTarget -> PlatformPaths -> PlatformWorkspace
   -> ResourceInventory.ScopeSnapshot -> PayloadManifest -> FilePath -> IO ()
 runAfterCloudStage active paths workspace snapshot manifest output = do
-  imageBuild <- buildImageBuildStageCandidate active workspace snapshot
-  case imageBuild of
-    Just candidate -> Inventory.planInventoryCandidateWithPayloadIdentity
+  hostOwner <- either dieT pure (Resource.mkScopeId Resource.Platform "host")
+  -- Once the host is accepted, installation media is no longer a prerequisite
+  -- for adding cluster scopes. Still validate the exact accepted host inputs;
+  -- a changed configuration requires an explicit reviewed host transition.
+  if active ^. #profile . #mode == Cloud
+      && Map.member hostOwner (ResourceInventory.snapshotScopes snapshot)
+    then afterImages
+    else do
+      imageBuild <- buildImageBuildStageCandidate active workspace snapshot
+      case imageBuild of
+        Just candidate -> plan candidate
+        Nothing -> do
+          imagePublication <- buildImagePublicationStageCandidate active workspace snapshot
+          case imagePublication of
+            Just candidate -> plan candidate
+            Nothing -> afterImages
+  where
+    plan = \candidate -> Inventory.planInventoryCandidateWithPayloadIdentity
       (inventoryPlanRegistry active workspace)
       ("nagare-bootstrap:" <> manifest ^. #payloadId) active candidate output
-    Nothing -> do
-      imagePublication <- buildImagePublicationStageCandidate active workspace snapshot
-      case imagePublication of
-        Just candidate -> Inventory.planInventoryCandidateWithPayloadIdentity
-          (inventoryPlanRegistry active workspace)
-          ("nagare-bootstrap:" <> manifest ^. #payloadId) active candidate output
+    afterImages = do
+      hostStage <- buildHostStageCandidate active workspace snapshot
+      case hostStage of
+        Just candidate -> plan candidate
         Nothing -> do
-          hostStage <- buildHostStageCandidate active workspace snapshot
-          case hostStage of
-            Just candidate -> Inventory.planInventoryCandidateWithPayloadIdentity
-              (inventoryPlanRegistry active workspace)
-              ("nagare-bootstrap:" <> manifest ^. #payloadId) active candidate output
+          kubeconfigStage <- buildKubeconfigStageCandidate active workspace snapshot
+          case kubeconfigStage of
+            Just candidate -> plan candidate
             Nothing -> do
-              kubeconfigStage <- buildKubeconfigStageCandidate active workspace snapshot
-              case kubeconfigStage of
-                Just candidate -> Inventory.planInventoryCandidateWithPayloadIdentity
-                  (inventoryPlanRegistry active workspace)
-                  ("nagare-bootstrap:" <> manifest ^. #payloadId) active candidate output
-                Nothing -> do
-                  when (active ^. #profile . #mode == Local) $ do
-                    selectedKubeconfig <- kubeconfigPath (active ^. #contextName)
-                    exists <- doesFileExist selectedKubeconfig
-                    unless exists (dieT "reviewed local context kubeconfig is missing")
-                    setEnv "KUBECONFIG" selectedKubeconfig
-                  (candidate, native) <- buildPlatformCandidate active paths workspace snapshot
-                  Inventory.planInventoryCandidateWithPayloadIdentity
-                    (inventoryPlanRegistryWithNative active workspace native)
-                    ("nagare-bootstrap:" <> manifest ^. #payloadId) active candidate output
+              when (active ^. #profile . #mode == Local) $ do
+                selectedKubeconfig <- kubeconfigPath (active ^. #contextName)
+                exists <- doesFileExist selectedKubeconfig
+                unless exists (dieT "reviewed local context kubeconfig is missing")
+                setEnv "KUBECONFIG" selectedKubeconfig
+              (candidate, native) <- buildPlatformCandidate active paths workspace snapshot
+              Inventory.planInventoryCandidateWithPayloadIdentity
+                (inventoryPlanRegistryWithNative active workspace native)
+                ("nagare-bootstrap:" <> manifest ^. #payloadId) active candidate output
 
 runPlatformBootstrapApply :: Maybe String -> FilePath -> Bool -> IO ()
 runPlatformBootstrapApply mctx reviewDirectory yes = do

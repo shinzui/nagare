@@ -164,6 +164,8 @@ F01 and F11 are independently Closed with [retained verification and source iden
 
 **Implementation update:** Commit `538b046d`: `Main.hs` SHA-256 `fd5d18972afe65e8368e97506a0d697424933ce48463b683436bbbf180314fb4` retains an accepted key digest and source binding when delivery-only environment is absent. `cabal build exe:nagarectl` passed; no public replan with the variable cleared or another operator root has passed, so this remains open.
 
+**Native continuation repair (2026-09-29):** [The native checkpoint](mp23-native-bootstrap-proof.md) confirms fresh host login, then reproduces a further source dependency: bootstrap and build observation reevaluated mutable installation source after host acceptance. The repair preserves accepted host-input checks and observes the exact reviewed build output. The public bootstrap regression now rejects each changed host input and completes kubeconfig recovery and the 211-operation cluster review with Nix disabled after host acceptance. Installed native continuation without the delivery key variable and second-root verification remain pending; this does not independently close F08.
+
 **Required verification:** After accepting a credential-bound host, clear delivery-only environment and replan; also use another operator root with identical host bytes. Require unchanged/verify-only result while intentional configuration or credential change still refuses/reviews correctly.
 
 **Verification:** Not closed. Awaiting the checks above.

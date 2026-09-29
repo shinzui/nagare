@@ -182,7 +182,11 @@ build_present() {
 }
 
 if [ "${BUILD_MODE}" = inspect-build ]; then
-  store_path="$(image_build_path)"
+  # Observation is about the immutable reviewed output, not today's checkout.
+  # Build execution still evaluates and checks its output against the review.
+  store_path="${NAGARE_ARTIFACT_DESTINATION:-}"
+  if [ -z "${store_path}" ]; then store_path="$(image_build_path)"; fi
+  [[ "${store_path}" = /* ]] || { echo "build destination must be absolute" >&2; exit 2; }
   reviewed_digest="$(check_reviewed_build "${store_path}")"
   if build_present "${store_path}"; then build_status=present; else build_status=missing; fi
   printf 'nagare-build\t%s\t%s\t%s\n' "${build_status}" "${store_path}" "${reviewed_digest}"

@@ -12,6 +12,9 @@ trap 'rm -rf "$fixture_root"' EXIT
 export XDG_CONFIG_HOME="$fixture_root/config"
 export XDG_STATE_HOME="$fixture_root/state"
 export NAGARE_PLATFORM_ROOT="$(pwd)"
+# The build subprocess is recorded below; no real builder tunnel is involved.
+export NIX_BUILDER_TUNNEL_PORT=28157
+export NIX_BUILDER_HOST_KEY_B64="$(printf 'ssh-ed25519 fixture-key\n' | base64 | tr -d '\n')"
 controller_archive="$NAGARE_PLATFORM_ROOT/cluster/bootstrap/net-certmanager/nagare-net-certmanager-controller.tar.gz"
 if test -L "$controller_archive"; then
   printf 'controller fixture archive path is a symlink\n' >&2
@@ -841,6 +844,32 @@ case "$*" in
 esac
 EOF
 chmod +x "$fixture_root/bin/helm"
+# An accepted running host must not depend on reevaluating installation media.
+# Keep this refusing Nix executable through both kubeconfig and cluster planning.
+cat > "$fixture_root/bin/nix" <<'EOF'
+#!/usr/bin/env bash
+printf 'unexpected installation-image reevaluation after host acceptance\n' >&2
+exit 44
+EOF
+chmod +x "$fixture_root/bin/nix"
+# The shortcut must still reject changed host inputs before fetching credentials.
+for input in flake.nix host.nix flake.lock; do
+  host_input="$XDG_CONFIG_HOME/nagare/hosts/freshlocal/$input"
+  cp "$host_input" "$fixture_root/accepted-host-input"
+  printf '\n' >> "$host_input"
+  if "$nagarectl_bin" --context freshlocal platform bootstrap plan \
+    --out "$fixture_root/changed-$input-review" > "$fixture_root/changed-host-out" 2>&1; then
+    printf 'changed accepted host input unexpectedly planned: %s\n' "$input" >&2
+    exit 1
+  fi
+  grep -Fq 'accepted host configuration differs from the selected context' "$fixture_root/changed-host-out" || {
+    cat "$fixture_root/changed-host-out" >&2
+    exit 1
+  }
+  test ! -e "$fixture_root/changed-$input-review/review.json"
+  cp "$fixture_root/accepted-host-input" "$host_input"
+done
+printf 'accepted host input changes refused before installation-image evaluation\n'
 kubeconfig_destination="$XDG_CONFIG_HOME/nagare/kubeconfigs/freshlocal.yaml"
 "$nagarectl_bin" --context freshlocal platform bootstrap plan --out "$fixture_root/kubeconfig-review" \
   > "$fixture_root/kubeconfig-plan-out" 2>&1 || {

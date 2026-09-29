@@ -27,6 +27,10 @@ if [ "${1:-}" = config ]; then
 elif [ "${1:-}" = build ]; then
   printf '%s\n' "$NAGARE_TEST_STORE_PATH"
 elif [ "${1:-}" = eval ]; then
+  if [ "${NAGARE_TEST_REFUSE_EVAL:-0}" = 1 ]; then
+    echo 'reviewed observation unexpectedly evaluated mutable source' >&2
+    exit 98
+  fi
   printf '%s' "$NAGARE_TEST_STORE_PATH"
 else
   exit 2
@@ -114,11 +118,18 @@ NAGARE_INVENTORY_TRANSACTION=tx-test NAGARE_INVENTORY_ADAPTER_CHILD=artifact \
 grep -q '^context: labs$' "$work/artifact-child.out"
 
 reviewed_path_digest="$(printf '%s' "$NAGARE_TEST_STORE_PATH" | shasum -a 256 | awk '{print $1}')"
-NAGARE_INVENTORY_TRANSACTION=tx-test NAGARE_INVENTORY_ADAPTER_CHILD=artifact \
+NAGARE_TEST_REFUSE_EVAL=1 NAGARE_INVENTORY_TRANSACTION=tx-test NAGARE_INVENTORY_ADAPTER_CHILD=artifact \
   NAGARE_ARTIFACT_DESTINATION="$NAGARE_TEST_STORE_PATH" \
   NAGARE_ARTIFACT_EXPECTED_DIGEST="$reviewed_path_digest" \
   bash scripts/upload-images.sh --inspect-build >"$work/inspect-build.out"
 grep -Fqx "$(printf 'nagare-build\tpresent\t%s\t%s' "$NAGARE_TEST_STORE_PATH" "$reviewed_path_digest")" "$work/inspect-build.out"
+if NAGARE_TEST_REFUSE_EVAL=1 NAGARE_ARTIFACT_DESTINATION="$NAGARE_TEST_STORE_PATH" \
+  NAGARE_ARTIFACT_EXPECTED_DIGEST=wrong \
+  bash scripts/upload-images.sh --inspect-build >"$work/wrong-digest.out" 2>"$work/wrong-digest.err"; then
+  echo 'reviewed build observation accepted a mismatched path digest' >&2
+  exit 1
+fi
+grep -Fq 'output path digest differs from the review' "$work/wrong-digest.err"
 NAGARE_INVENTORY_TRANSACTION=tx-test NAGARE_INVENTORY_ADAPTER_CHILD=artifact \
   NAGARE_ARTIFACT_DESTINATION="$NAGARE_TEST_STORE_PATH" \
   NAGARE_ARTIFACT_EXPECTED_DIGEST="$reviewed_path_digest" \
