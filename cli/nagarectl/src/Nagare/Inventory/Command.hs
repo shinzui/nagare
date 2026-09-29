@@ -64,8 +64,8 @@ import Nagare.Inventory.Lifecycle
 import Nagare.Inventory.Migration
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
-import Nagare.Inventory.Store.ObjectOps (gcloudObjectOps)
-import Nagare.Ops.PulumiBackend (GcloudOps (..), bucketOwnershipVerdict, bucketProjectNumberArgs, gcsBucketOfUrl, projectNumberArgs, realGcloudOps)
+import Nagare.Inventory.Store.Remote (remoteObjectOps)
+import Nagare.Ops.PulumiBackend (gcsBucketOfUrl)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
 import Nagare.Resource.Types
@@ -666,26 +666,23 @@ migrateTargetStore target destinationKind dryRun = do
                       Nothing -> pure (Left (StoreConditionFailed "inventory store URL has no GCS bucket"))
                       Just _ | maybe False ((/= project) . T.pack) ambient ->
                         pure (Left (StoreConditionFailed "ambient gcloud project disagrees with the inventory context"))
-                      Just bucket -> do
-                        bucketNumber <- capture realGcloudOps (bucketProjectNumberArgs bucket)
-                        projectNumber <- capture realGcloudOps (projectNumberArgs project)
-                        case bucketOwnershipVerdict bucket project bucketNumber projectNumber of
+                      Just _ -> do
+                        selected <- remoteObjectOps project destinationLabel
+                        case selected of
                           Left reason -> pure (Left (StoreConditionFailed reason))
-                          Right () -> case gcloudObjectOps destinationLabel of
-                            Left reason -> pure (Left (StoreConditionFailed reason))
-                            Right ops -> do
-                              existing <- openObjectStoreReadOnly ops (headBinding headValue) "dry-run" Nothing
-                              case existing of
-                                Left (StoreConditionFailed reason)
-                                  | reason == "inventory object prefix is not initialized" -> pure (Right destinationLabel)
-                                Left err -> pure (Left err)
-                                Right remoteStore -> do
-                                  previous <- readHead remoteStore
-                                  pure $ case previous of
-                                    Left err -> Left err
-                                    Right Nothing -> Right destinationLabel
-                                    Right (Just old) | destinationMatches headValue old -> Right destinationLabel
-                                    Right (Just _) -> Left (StoreConditionFailed "remote destination history differs")
+                          Right ops -> do
+                            existing <- openObjectStoreReadOnly ops (headBinding headValue) "dry-run" Nothing
+                            case existing of
+                              Left (StoreConditionFailed reason)
+                                | reason == "inventory object prefix is not initialized" -> pure (Right destinationLabel)
+                              Left err -> pure (Left err)
+                              Right remoteStore -> do
+                                previous <- readHead remoteStore
+                                pure $ case previous of
+                                  Left err -> Left err
+                                  Right Nothing -> Right destinationLabel
+                                  Right (Just old) | destinationMatches headValue old -> Right destinationLabel
+                                  Right (Just _) -> Left (StoreConditionFailed "remote destination history differs")
               | otherwise -> do
                   destination <- case destinationKind of
                     InventoryStoreLocal -> openFilesystemStore path
@@ -721,33 +718,30 @@ openRemoteStore mayInitialize target stateRoot = do
       pure (invalid "ambient gcloud project disagrees with the inventory context")
     Right _ -> case gcsBucketOfUrl url of
       Nothing -> pure (invalid "inventory store URL has no GCS bucket")
-      Just bucket -> do
-        bucketNumber <- capture realGcloudOps (bucketProjectNumberArgs bucket)
-        projectNumber <- capture realGcloudOps (projectNumberArgs project)
-        case bucketOwnershipVerdict bucket project bucketNumber projectNumber of
+      Just _ -> do
+        selected <- remoteObjectOps project url
+        case selected of
           Left reason -> pure (invalid reason)
-          Right () -> case gcloudObjectOps url of
-            Left reason -> pure (invalid reason)
-            Right ops -> do
-              clientResult <- localStoreClientIdentity mayInitialize stateRoot contextText
-              case clientResult of
-                Left err -> pure (Left err)
-                Right client -> do
-                  case (mkContextId contextText, mkName project) of
-                    (Right contextId, Right providerName) -> do
-                      let binding = ContextBinding contextId providerName
-                      cacheRoot <- inventoryCacheRoot contextText
-                      cacheReady <- validateInventoryCache mayInitialize cacheRoot
-                      case cacheReady of
-                        Left err -> pure (Left err)
-                        Right () ->
-                          if mayInitialize
-                            then newObjectStoreWithLock ops binding client (Just cacheRoot)
-                              (stateRoot </> T.unpack contextText </> "inventory-remote.lock")
-                            else openObjectStoreReadOnlyWithLock ops binding client (Just cacheRoot)
-                              (stateRoot </> T.unpack contextText </> "inventory-remote.lock")
-                    (Left err, _) -> pure (invalid err)
-                    (_, Left err) -> pure (invalid err)
+          Right ops -> do
+            clientResult <- localStoreClientIdentity mayInitialize stateRoot contextText
+            case clientResult of
+              Left err -> pure (Left err)
+              Right client -> do
+                case (mkContextId contextText, mkName project) of
+                  (Right contextId, Right providerName) -> do
+                    let binding = ContextBinding contextId providerName
+                    cacheRoot <- inventoryCacheRoot contextText
+                    cacheReady <- validateInventoryCache mayInitialize cacheRoot
+                    case cacheReady of
+                      Left err -> pure (Left err)
+                      Right () ->
+                        if mayInitialize
+                          then newObjectStoreWithLock ops binding client (Just cacheRoot)
+                            (stateRoot </> T.unpack contextText </> "inventory-remote.lock")
+                          else openObjectStoreReadOnlyWithLock ops binding client (Just cacheRoot)
+                            (stateRoot </> T.unpack contextText </> "inventory-remote.lock")
+                  (Left err, _) -> pure (invalid err)
+                  (_, Left err) -> pure (invalid err)
 
 inventoryCacheRoot :: T.Text -> IO FilePath
 inventoryCacheRoot context = do

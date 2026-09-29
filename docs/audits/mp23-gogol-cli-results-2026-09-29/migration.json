@@ -1,0 +1,962 @@
+{
+  "binarySha256": "9a7989206b1d3019909b84e1900610bc884cbf74df6604c2f9f500c40f3801f3",
+  "results": [
+    {
+      "label": "local-to-gcs-dry-run",
+      "exit": 0,
+      "seconds": 0.521,
+      "stdout": "Inventory migration is ready for gs://audit.invalid/private\n",
+      "stderr": "",
+      "commands": [
+        [
+          "config",
+          "config-helper",
+          "--format=json",
+          "--min-expiry=120s",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "buckets",
+          "describe",
+          "gs://audit.invalid",
+          "--raw",
+          "--format=value(projectNumber)"
+        ],
+        [
+          "projects",
+          "describe",
+          "project",
+          "--format=value(projectNumber)"
+        ]
+      ],
+      "http": [
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fformat.json",
+          "query": {
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o",
+          "query": {
+            "maxResults": "1000",
+            "prefix": "private/format.json",
+            "userProject": "project",
+            "alt": "json"
+          }
+        }
+      ]
+    },
+    {
+      "label": "local-to-gcs-lost-ack",
+      "exit": 0,
+      "seconds": 0.299,
+      "stdout": "Inventory history migrated to gs://audit.invalid/private; reload the context shell\n",
+      "stderr": "",
+      "commands": [
+        [
+          "config",
+          "config-helper",
+          "--format=json",
+          "--min-expiry=120s",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "buckets",
+          "describe",
+          "gs://audit.invalid",
+          "--raw",
+          "--format=value(projectNumber)"
+        ],
+        [
+          "projects",
+          "describe",
+          "project",
+          "--format=value(projectNumber)"
+        ]
+      ],
+      "http": [
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fformat.json",
+          "query": {
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o",
+          "query": {
+            "maxResults": "1000",
+            "prefix": "private/format.json",
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/upload/storage/v1/b/audit.invalid/o",
+          "query": {
+            "ifGenerationMatch": "0",
+            "name": "private/format.json",
+            "userProject": "project",
+            "alt": "json",
+            "uploadType": "multipart"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fformat.json",
+          "query": {
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fformat.json",
+          "query": {
+            "generation": "1",
+            "userProject": "project",
+            "alt": "media"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fhead.json",
+          "query": {
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o",
+          "query": {
+            "maxResults": "1000",
+            "prefix": "private/head.json",
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fjournal%2F00000000000000000000.json",
+          "query": {
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o",
+          "query": {
+            "maxResults": "1000",
+            "prefix": "private/journal/00000000000000000000.json",
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/upload/storage/v1/b/audit.invalid/o",
+          "query": {
+            "ifGenerationMatch": "0",
+            "name": "private/journal/00000000000000000000.json",
+            "userProject": "project",
+            "alt": "json",
+            "uploadType": "multipart"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fjournal%2F00000000000000000000.json",
+          "query": {
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fjournal%2F00000000000000000000.json",
+          "query": {
+            "generation": "1",
+            "userProject": "project",
+            "alt": "media"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fhead.json",
+          "query": {
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o",
+          "query": {
+            "maxResults": "1000",
+            "prefix": "private/head.json",
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fhead.json",
+          "query": {
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o",
+          "query": {
+            "maxResults": "1000",
+            "prefix": "private/head.json",
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/upload/storage/v1/b/audit.invalid/o",
+          "query": {
+            "ifGenerationMatch": "0",
+            "name": "private/head.json",
+            "userProject": "project",
+            "alt": "json",
+            "uploadType": "multipart"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fhead.json",
+          "query": {
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fhead.json",
+          "query": {
+            "generation": "1",
+            "userProject": "project",
+            "alt": "media"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o",
+          "query": {
+            "maxResults": "1000",
+            "prefix": "private/",
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fhead.json",
+          "query": {
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fhead.json",
+          "query": {
+            "generation": "1",
+            "userProject": "project",
+            "alt": "media"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fjournal%2F00000000000000000000.json",
+          "query": {
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fjournal%2F00000000000000000000.json",
+          "query": {
+            "generation": "1",
+            "userProject": "project",
+            "alt": "media"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fhead.json",
+          "query": {
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fhead.json",
+          "query": {
+            "generation": "1",
+            "userProject": "project",
+            "alt": "media"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fhead.json",
+          "query": {
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fhead.json",
+          "query": {
+            "generation": "1",
+            "userProject": "project",
+            "alt": "media"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/upload/storage/v1/b/audit.invalid/o",
+          "query": {
+            "ifGenerationMatch": "1",
+            "name": "private/head.json",
+            "userProject": "project",
+            "alt": "json",
+            "uploadType": "multipart"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fhead.json",
+          "query": {
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fhead.json",
+          "query": {
+            "generation": "2",
+            "userProject": "project",
+            "alt": "media"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o",
+          "query": {
+            "maxResults": "1000",
+            "prefix": "private/",
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fhead.json",
+          "query": {
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fhead.json",
+          "query": {
+            "generation": "2",
+            "userProject": "project",
+            "alt": "media"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fjournal%2F00000000000000000000.json",
+          "query": {
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fjournal%2F00000000000000000000.json",
+          "query": {
+            "generation": "1",
+            "userProject": "project",
+            "alt": "media"
+          }
+        }
+      ]
+    },
+    {
+      "label": "gcs-replay",
+      "exit": 0,
+      "seconds": 0.292,
+      "stdout": "converged tx-28bfc0d7ef9b301e050ec2efbe3ffc827749ff44779409d8c95ff2ba6808b97d\n",
+      "stderr": "",
+      "commands": [
+        [
+          "config",
+          "config-helper",
+          "--format=json",
+          "--min-expiry=120s",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "buckets",
+          "describe",
+          "gs://audit.invalid",
+          "--raw",
+          "--format=value(projectNumber)"
+        ],
+        [
+          "projects",
+          "describe",
+          "project",
+          "--format=value(projectNumber)"
+        ]
+      ],
+      "http": [
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fformat.json",
+          "query": {
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fformat.json",
+          "query": {
+            "generation": "1",
+            "userProject": "project",
+            "alt": "media"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fhead.json",
+          "query": {
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fhead.json",
+          "query": {
+            "generation": "2",
+            "userProject": "project",
+            "alt": "media"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fhead.json",
+          "query": {
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fhead.json",
+          "query": {
+            "generation": "2",
+            "userProject": "project",
+            "alt": "media"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fhead.json",
+          "query": {
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fhead.json",
+          "query": {
+            "generation": "2",
+            "userProject": "project",
+            "alt": "media"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o",
+          "query": {
+            "maxResults": "1000",
+            "prefix": "private/journal/",
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fjournal%2F00000000000000000000.json",
+          "query": {
+            "generation": "1",
+            "userProject": "project",
+            "alt": "media"
+          }
+        }
+      ]
+    },
+    {
+      "label": "foreign-project",
+      "exit": 1,
+      "seconds": 0.037,
+      "stdout": "",
+      "stderr": "StoreConditionFailed \"active project disagrees with the stored inventory context\"\n",
+      "commands": [],
+      "http": []
+    },
+    {
+      "label": "foreign-bucket",
+      "exit": 1,
+      "seconds": 0.243,
+      "stdout": "",
+      "stderr": "StoreConditionFailed \"refusing: gs://audit.invalid is owned by project number '999', not the target project 'project' (number '12345'). GCS bucket names are global; choose a state bucket name that is unique across all of Google Cloud, or set NAGARE_PULUMI_BACKEND_URL to gs://<unique-name>/nagare/<context>.\"\n",
+      "commands": [
+        [
+          "config",
+          "config-helper",
+          "--format=json",
+          "--min-expiry=120s",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "buckets",
+          "describe",
+          "gs://audit.invalid",
+          "--raw",
+          "--format=value(projectNumber)"
+        ],
+        [
+          "projects",
+          "describe",
+          "project",
+          "--format=value(projectNumber)"
+        ]
+      ],
+      "http": []
+    },
+    {
+      "label": "unsupported-credentials",
+      "exit": 1,
+      "seconds": 0.082,
+      "stdout": "",
+      "stderr": "StoreConditionFailed \"inventory SDK does not yet support gcloud credential/token file overrides; set NAGARE_INVENTORY_GCS_TRANSPORT=gcloud\"\n",
+      "commands": [
+        [
+          "config",
+          "config-helper",
+          "--format=json",
+          "--min-expiry=120s",
+          "--quiet"
+        ]
+      ],
+      "http": []
+    },
+    {
+      "label": "forbidden-is-not-absence",
+      "exit": 1,
+      "seconds": 0.208,
+      "stdout": "",
+      "stderr": "StoreIoError \"inventory object metadata could not be read\"\n",
+      "commands": [
+        [
+          "config",
+          "config-helper",
+          "--format=json",
+          "--min-expiry=120s",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "buckets",
+          "describe",
+          "gs://audit.invalid",
+          "--raw",
+          "--format=value(projectNumber)"
+        ],
+        [
+          "projects",
+          "describe",
+          "project",
+          "--format=value(projectNumber)"
+        ]
+      ],
+      "http": [
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fformat.json",
+          "query": {
+            "userProject": "project",
+            "alt": "json"
+          }
+        }
+      ]
+    },
+    {
+      "label": "gcs-to-local-dry-run",
+      "exit": 0,
+      "seconds": 0.242,
+      "stdout": "Inventory migration is ready for local\n",
+      "stderr": "",
+      "commands": [
+        [
+          "config",
+          "config-helper",
+          "--format=json",
+          "--min-expiry=120s",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "buckets",
+          "describe",
+          "gs://audit.invalid",
+          "--raw",
+          "--format=value(projectNumber)"
+        ],
+        [
+          "projects",
+          "describe",
+          "project",
+          "--format=value(projectNumber)"
+        ]
+      ],
+      "http": [
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fformat.json",
+          "query": {
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fformat.json",
+          "query": {
+            "generation": "1",
+            "userProject": "project",
+            "alt": "media"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fhead.json",
+          "query": {
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fhead.json",
+          "query": {
+            "generation": "2",
+            "userProject": "project",
+            "alt": "media"
+          }
+        }
+      ]
+    },
+    {
+      "label": "gcs-to-local",
+      "exit": 0,
+      "seconds": 0.223,
+      "stdout": "Inventory history migrated to local; reload the context shell\n",
+      "stderr": "",
+      "commands": [
+        [
+          "config",
+          "config-helper",
+          "--format=json",
+          "--min-expiry=120s",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "buckets",
+          "describe",
+          "gs://audit.invalid",
+          "--raw",
+          "--format=value(projectNumber)"
+        ],
+        [
+          "projects",
+          "describe",
+          "project",
+          "--format=value(projectNumber)"
+        ]
+      ],
+      "http": [
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fformat.json",
+          "query": {
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fformat.json",
+          "query": {
+            "generation": "1",
+            "userProject": "project",
+            "alt": "media"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fhead.json",
+          "query": {
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fhead.json",
+          "query": {
+            "generation": "2",
+            "userProject": "project",
+            "alt": "media"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fhead.json",
+          "query": {
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fhead.json",
+          "query": {
+            "generation": "2",
+            "userProject": "project",
+            "alt": "media"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o",
+          "query": {
+            "maxResults": "1000",
+            "prefix": "private/",
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fhead.json",
+          "query": {
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fhead.json",
+          "query": {
+            "generation": "2",
+            "userProject": "project",
+            "alt": "media"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fjournal%2F00000000000000000000.json",
+          "query": {
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fjournal%2F00000000000000000000.json",
+          "query": {
+            "generation": "1",
+            "userProject": "project",
+            "alt": "media"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o",
+          "query": {
+            "maxResults": "1000",
+            "prefix": "private/",
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fhead.json",
+          "query": {
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fhead.json",
+          "query": {
+            "generation": "2",
+            "userProject": "project",
+            "alt": "media"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fjournal%2F00000000000000000000.json",
+          "query": {
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fjournal%2F00000000000000000000.json",
+          "query": {
+            "generation": "1",
+            "userProject": "project",
+            "alt": "media"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fhead.json",
+          "query": {
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fhead.json",
+          "query": {
+            "generation": "2",
+            "userProject": "project",
+            "alt": "media"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/upload/storage/v1/b/audit.invalid/o",
+          "query": {
+            "ifGenerationMatch": "2",
+            "name": "private/head.json",
+            "userProject": "project",
+            "alt": "json",
+            "uploadType": "multipart"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fhead.json",
+          "query": {
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fhead.json",
+          "query": {
+            "generation": "3",
+            "userProject": "project",
+            "alt": "media"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o",
+          "query": {
+            "maxResults": "1000",
+            "prefix": "private/",
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fhead.json",
+          "query": {
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fhead.json",
+          "query": {
+            "generation": "3",
+            "userProject": "project",
+            "alt": "media"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fjournal%2F00000000000000000000.json",
+          "query": {
+            "userProject": "project",
+            "alt": "json"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/storage/v1/b/audit.invalid/o/private%2Fjournal%2F00000000000000000000.json",
+          "query": {
+            "generation": "1",
+            "userProject": "project",
+            "alt": "media"
+          }
+        }
+      ]
+    },
+    {
+      "label": "local-replay",
+      "exit": 0,
+      "seconds": 0.032,
+      "stdout": "converged tx-28bfc0d7ef9b301e050ec2efbe3ffc827749ff44779409d8c95ff2ba6808b97d\n",
+      "stderr": "",
+      "commands": [],
+      "http": []
+    }
+  ]
+}

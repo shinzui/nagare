@@ -184,8 +184,10 @@ library
     Nagare.Inventory.Site
     Nagare.Inventory.Status
     Nagare.Inventory.Store
+    Nagare.Inventory.Store.GcloudAuth
     Nagare.Inventory.Store.Gogol
     Nagare.Inventory.Store.ObjectOps
+    Nagare.Inventory.Store.Remote
     Nagare.Inventory.TaskLifecycle
     Nagare.Inventory.TaskRun
     Nagare.Inventory.VolumePrune
@@ -321,6 +323,7 @@ test-suite nagarectl-test
     InventoryCdnSpec
     InventoryCloudSpec
     InventoryFoundationSpec
+    InventoryGcloudAuthSpec
     InventoryGogolSpec
     InventoryHostSpec
     InventoryIntegrationSpec
@@ -341,6 +344,7 @@ test-suite nagarectl-test
 
   build-depends:
     aeson,
+    async,
     base,
     bytestring,
     containers,

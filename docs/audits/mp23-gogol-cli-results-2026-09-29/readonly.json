@@ -1,0 +1,31 @@
+{
+  "binarySha256": "9a7989206b1d3019909b84e1900610bc884cbf74df6604c2f9f500c40f3801f3",
+  "operation": "inventory explain absent resource; read-only store",
+  "project": "tan-ng-labs",
+  "url": "gs://tan-ng-labs-ep150-pmkjjpp-state/inventory",
+  "headBefore": {
+    "generation": "1790656456769847",
+    "size": "1773"
+  },
+  "headAfter": {
+    "generation": "1790656456769847",
+    "size": "1773"
+  },
+  "globalContextChanges": 0,
+  "results": [
+    {
+      "temperature": "cold",
+      "exit": 1,
+      "seconds": 3.889,
+      "expectedAbsentResourceRefusal": true,
+      "stdoutEmpty": true
+    },
+    {
+      "temperature": "warm",
+      "exit": 1,
+      "seconds": 3.057,
+      "expectedAbsentResourceRefusal": true,
+      "stdoutEmpty": true
+    }
+  ]
+}

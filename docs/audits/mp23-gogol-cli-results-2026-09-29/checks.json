@@ -1,0 +1,23 @@
+{
+  "jointCliTestBuild": "passed",
+  "fullSuite": "All 972 tests passed (51.67s)",
+  "sdkTransportCases": 13,
+  "credentialCases": 5,
+  "publicSdkNoopCases": 12,
+  "publicSdkActiveCases": 12,
+  "publicSdkClaimRaces": 2,
+  "publicSdkMigrationAndRefusalCases": 10,
+  "legacyCliCases": 11,
+  "explicitGcloudFallbackCases": 12,
+  "realReadOnlyCliCases": 2,
+  "haskellStyle": "passed",
+  "fourmoluTouchedModules": "passed",
+  "cabalGild": "passed",
+  "managedCommandAudit": "passed; existing incomplete release coverage remains",
+  "nixDerivationEvaluation": "passed: aarch64-darwin nagarectl",
+  "nixFullBuild": "not run",
+  "defaultTransport": "gogol",
+  "providerMutations": 0,
+  "globalContextChanges": 0,
+  "sourcePin": "881cd14c9844131b4a8d96ca1bbb2bd9a2409ed9"
+}

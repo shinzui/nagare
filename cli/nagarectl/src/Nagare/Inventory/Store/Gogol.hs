@@ -10,6 +10,8 @@ module Nagare.Inventory.Store.Gogol
   , StorageEnv
   , newGogolObjectOps
   , gogolObjectOpsWithEnv
+  , newGogolObjectOpsWithToken
+  , validateGogolLocation
   , inventoryManagerSettings
   )
 where
@@ -39,6 +41,8 @@ import Nagare.Inventory.Store.ObjectOps
 import Network.HTTP.Client qualified as HTTP
 import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Network.HTTP.Types (statusCode, urlEncode)
+import System.IO (hClose)
+import System.IO.Temp (withSystemTempFile)
 import System.Timeout (timeout)
 
 type StorageEnv = G.Env '[S.Devstorage'ReadWrite]
@@ -100,9 +104,31 @@ newGogolObjectOps credentials project url = case location project url of
 -- The environment must use 'inventoryManagerSettings'; production construction
 -- uses 'newGogolObjectOps'. Retain this environment for the whole command.
 gogolObjectOpsWithEnv :: StorageEnv -> Text -> Text -> Either Text ObjectOps
-gogolObjectOpsWithEnv supplied project url = do
+gogolObjectOpsWithEnv supplied = objectOpsWithEnvironment (pure supplied)
+
+-- | The manager and token source live for the command. Gogol's opaque auth store
+-- lacks a callback credential constructor. Load each bounded request's token via
+-- a private, immediately removed temporary file, avoiding a persistent token file
+-- or background refresh thread. Its SDK token lifetime (60s) exceeds the whole
+-- request budget (20s); the external source owns real expiry and refresh.
+newGogolObjectOpsWithToken :: IO Text -> (StorageEnv -> StorageEnv) -> Text -> Text -> IO (Either Text ObjectOps)
+newGogolObjectOpsWithToken token configureEnv project url = case location project url of
+  Left reason -> pure (Left reason)
+  Right _ -> do
+    manager <- HTTP.newManager inventoryManagerSettings
+    let environment = do
+          access <- token
+          withSystemTempFile "nagare-gcs-token" $ \path handle -> do
+            BS.hPut handle (TE.encodeUtf8 access)
+            hClose handle
+            configureEnv <$> (G.newEnvWith (Auth.FromTokenFile path) (\_ _ -> pure ()) manager :: IO StorageEnv)
+    pure (objectOpsWithEnvironment environment project url)
+
+objectOpsWithEnvironment :: IO StorageEnv -> Text -> Text -> Either Text ObjectOps
+objectOpsWithEnvironment environment project url = do
   (bucket, root) <- location project url
-  let env = Env.configure (G.serviceTimeout ?~ 20) supplied
+  let sdk :: (StorageEnv -> IO a) -> IO (Either Failure a)
+      sdk action = attempt (environment >>= action . Env.configure (G.serviceTimeout ?~ 20))
       full (ObjectName key) = root <> "/" <> key
       request name =
         (S.newStorageObjectsGet bucket (encodePart (full name)))
@@ -119,7 +145,7 @@ gogolObjectOpsWithEnv supplied project url = do
       download name object = case metadata name object of
         Left reason -> pure (Left reason)
         Right (gen, size) -> do
-          result <- attempt $ G.runResourceT $ G.download env ((request name) {Get.generation = Just gen}) >>= G.sinkLBS
+          result <- sdk $ \env -> G.runResourceT $ G.download env ((request name) {Get.generation = Just gen}) >>= G.sinkLBS
           pure $ case result of
             Right bytes | toInteger (LBS.length bytes) == toInteger size -> Right (Generation (toInteger gen), LBS.toStrict bytes)
             _ -> Left "inventory object generation could not be downloaded completely"
@@ -130,7 +156,7 @@ gogolObjectOpsWithEnv supplied project url = do
           prefix = full requested
           pages tokens found token = do
             result <-
-              attempt $
+              sdk $ \env ->
                 G.runResourceT $
                   G.send
                     env
@@ -157,7 +183,7 @@ gogolObjectOpsWithEnv supplied project url = do
       get name = case validateKey False name of
         Left reason -> pure (GetUnknown reason)
         Right () -> do
-          result <- attempt $ G.runResourceT $ G.send env (request name)
+          result <- sdk $ \env -> G.runResourceT $ G.send env (request name)
           case result of
             Right object -> either GetUnknown (uncurry ObjectFound) <$> download name object
             Left (Failure (Just 404)) -> do
@@ -171,7 +197,7 @@ gogolObjectOpsWithEnv supplied project url = do
         (_, Left reason) -> pure (PutNoEffect reason)
         (Right (), Right expected) -> do
           result <-
-            attempt $
+            sdk $ \env ->
               G.runResourceT $
                 G.upload
                   env
@@ -248,3 +274,6 @@ location project url = do
     (Left "inventory GCS bucket is invalid")
   validateKey False (ObjectName root)
   pure (bucket, root)
+
+validateGogolLocation :: Text -> Text -> Either Text ()
+validateGogolLocation project url = () <$ location project url

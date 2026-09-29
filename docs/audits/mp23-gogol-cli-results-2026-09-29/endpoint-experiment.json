@@ -1,0 +1,14 @@
+[
+  {
+    "case": "empty",
+    "exit": 1,
+    "expectedProjectNumber": false,
+    "errorMentionsEndpoint": true
+  },
+  {
+    "case": "explicit-default",
+    "exit": 0,
+    "expectedProjectNumber": true,
+    "errorMentionsEndpoint": false
+  }
+]

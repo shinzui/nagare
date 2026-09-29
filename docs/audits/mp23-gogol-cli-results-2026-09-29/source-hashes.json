@@ -1,0 +1,24 @@
+{
+  "baseRevision": "6fe6d612c645b27e643f84707bd106fe9a7b93fc",
+  "dirtyCandidate": true,
+  "binarySha256": "9a7989206b1d3019909b84e1900610bc884cbf74df6604c2f9f500c40f3801f3",
+  "testBinarySha256": "4b69a147fde1c2924c900ab542d6cab71a5178204880c2e23c2822b702306da2",
+  "sources": {
+    "cli/nagarectl/nagarectl.cabal": "218baf323ae6fcd2f5e4114704f3c1b15b72b0d8bd0f3f744bbdbdba9d015986",
+    "cli/nagarectl/cabal.project": "6f2179c95a13646437f1ac53f1d3f225cda6b3cc4687960ce6d3abb112af6f53",
+    "cli/nagarectl/src/Nagare/Inventory/Command.hs": "87b664cdc5bde3870ef6495d8aa0fc48f6041b8281cbf2411aacfbdf4a1ea58e",
+    "cli/nagarectl/src/Nagare/Inventory/Store/GcloudAuth.hs": "76d147503fbda6212f47dbdf237d6c53721413e5bd5fabeea90f7fd4c3d871c4",
+    "cli/nagarectl/src/Nagare/Inventory/Store/Gogol.hs": "8eff563c36020f555e7c20b14cf3e43bac7dd1fc7ff124fd43ae3ad56957ac64",
+    "cli/nagarectl/src/Nagare/Inventory/Store/Remote.hs": "cf5547bcaa39425251c753b931d837ec4aa7cf0555989a04ec2abb02147fd8fd",
+    "cli/nagarectl/src/Nagare/Inventory/Store.hs": "309421eb4c51fda7aadedbefa02acfed3ce0cb77c155005e9752396d4776cc1b",
+    "cli/nagarectl/src/Nagare/Inventory/Store/ObjectOps.hs": "028959447fd85a512c6ef1c28cb5f9b31aeb4193ea624fc4202a7e1334d5eef8",
+    "cli/nagarectl/test/InventoryGcloudAuthSpec.hs": "a091b6073d11e63954c4e12eaecec0663d6c84b11f2c0e33d308fbd8df62e205",
+    "cli/nagarectl/test/InventoryGogolSpec.hs": "813cfaba91ae14359a1c3a753ac70e35409afe2a01ea40f82714b48ea3521c8e",
+    "cli/nagarectl/test/Spec.hs": "1733c7b17e25d1b0b7c786b6776751da8b2289b8bc70b70c89a5cd93a1fc064d",
+    "scripts/inventory_sdk_fixture.py": "875c89165cbe34561886a63d6568142e78263f7cf6bb842806d80d9bff18edae",
+    "scripts/test-inventory-active-command-cost.py": "41e58b7828409c539ebf69ac1b25a7a342347971a91a1416380ea5b0df0aaa15",
+    "scripts/test-inventory-command-cost.py": "a518e2bdc7182835bab36feca41cea88104e763b40361fe029452db48aae4db4",
+    "scripts/test-inventory-sdk-migration.py": "d96a6adde17313394fcd59ecf9de400155f818fba7b902f218fddd795899dcdd",
+    "scripts/test-inventory-sdk-readonly.py": "e2810d4c333296abb8c1b17e5e35820e035ce2ab1ad1413897442d468fc654ea"
+  }
+}

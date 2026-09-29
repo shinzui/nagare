@@ -833,3 +833,17 @@ contract before using this adapter; a quota project or successful ADC exchange
 cannot establish that identity. The existing CLI backend remains selected until
 that boundary and public-command evidence pass. No state-format migration is
 required by the transport itself.
+
+GCS command adoption (2026-09-29): the [public CLI proof](../audits/mp23-gogol-cli-proof.md)
+now supports the SDK default. gcloud remains the credential authority: capture
+account/configuration/impersonation and real expiry once, pin them for ownership
+probes and serialized refresh, and refuse changed identity or unsupported modes.
+No ambient ADC substitution or credential-database parsing is permitted. Retain
+one HTTP manager and token cache per store. Because the pinned SDK lacks callback
+credentials, short-lived request auth environments use immediately removed private
+token files under a request bound shorter than their SDK lifetime. This replaces
+the earlier one-environment requirement; connection reuse and identity retention
+are the durable requirements. Normalize an unset gcloud Storage endpoint to its
+explicit default, because an empty endpoint is invalid. The legacy transport is
+an explicit compatibility choice, never an automatic retry after uncertainty.
+State formats, ownership checks and cloud mutation gates are unchanged.

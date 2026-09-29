@@ -150,15 +150,10 @@ inventoryGogolTests =
 fixture :: (Fixture -> ObjectOps -> IO ()) -> IO ()
 fixture action = do
   f <- newFixture
-  withSystemTempFile "nagare-sdk-test-token" $ \path handle -> do
-    BS.hPut handle "fixture-token"
-    hClose handle
-    testWithApplication (pure (server f)) $ \port -> do
-      manager <- HTTP.newManager inventoryManagerSettings
-      env <- G.newEnvWith (Auth.FromTokenFile path) (\_ _ -> pure ()) manager :: IO StorageEnv
-      let local = Env.override (S.storageService & G.serviceHost .~ "127.0.0.1" & G.servicePort .~ port & G.serviceSecure .~ False) env
-      ops <- either (assertFailure . T.unpack) pure (gogolObjectOpsWithEnv local "fixture-project" "gs://fixture-bucket/private/inventory")
-      action f ops
+  testWithApplication (pure (server f)) $ \port -> do
+    let configure = Env.override (S.storageService & G.serviceHost .~ "127.0.0.1" & G.servicePort .~ port & G.serviceSecure .~ False)
+    ops <- newGogolObjectOpsWithToken (pure "fixture-token") configure "fixture-project" "gs://fixture-bucket/private/inventory" >>= either (assertFailure . T.unpack) pure
+    action f ops
 
 server :: Fixture -> Wai.Application
 server f req respond = do
