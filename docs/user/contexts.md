@@ -185,6 +185,39 @@ uses the `labs` bundle, then overrides only the base domain.
 If you explicitly select a missing context, Nagare fails instead of falling back
 to `tan-nb-exp`.
 
+### Select tools per checkout with direnv
+
+The checkout's `.envrc` loads an optional, git-ignored `.envrc.local` before
+resolving the Nagare target. To keep a shell on `labs`, create that file with:
+
+```bash
+export NAGARE_CONTEXT=labs
+export CLOUDSDK_ACTIVE_CONFIG_NAME=labs
+export KUBECONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/nagare/kubeconfigs/labs.yaml"
+```
+
+Use your existing Nagare context, gcloud configuration name, and context-specific
+kubeconfig path. The names need not match. The kubeconfig must already exist and
+have the intended `current-context`; `nagarectl kubeconfig fetch` fetches the
+active Nagare context's file. Run `direnv allow` after changing `.envrc`; later
+edits to `.envrc.local` are watched automatically. Verify in the loaded shell:
+
+```bash
+nagarectl context current
+gcloud config get-value project
+kubectl config current-context
+```
+
+The resolver exports the context's GCP project, region, and zone.
+[`CLOUDSDK_ACTIVE_CONFIG_NAME`](https://docs.cloud.google.com/sdk/docs/configurations)
+selects the gcloud configuration for this shell, while
+[`KUBECONFIG`](https://kubernetes.io/docs/concepts/configuration/organize-cluster-access-kubeconfig/)
+selects a separate Kubernetes configuration file. This leaves the global Nagare
+pointer, gcloud active configuration, and `~/.kube/config` unchanged. Direnv
+restores the previous environment when you leave the checkout. ADC remains a
+separate selection; see the credential requirements under
+[`nagarectl context guard`](#nagarectl-context-guard).
+
 ## Cloud and local modes
 
 A cloud context is a normal target with `NAGARE_MODE=cloud` or no mode line. The

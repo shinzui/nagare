@@ -22,6 +22,8 @@ result-*
 
 # direnv cache
 .direnv/
+# Per-checkout shell context selections.
+.envrc.local
 
 # Cabal workspace outputs
 dist-newstyle/
