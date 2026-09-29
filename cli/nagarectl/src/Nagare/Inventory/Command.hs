@@ -392,7 +392,7 @@ convergeInventoryCandidateWith planningRegistry executionRegistry target candida
   forM_ (reviewOperations (reviewBundleDocument bundle))
     (TIO.putStrLn . reviewPublicSummary)
   registry <- executionRegistry store bundle
-  snapshot <- readStoreSnapshot store >>= either (dieText . showText) pure
+  snapshot <- readReviewSnapshot store (reviewDigest bundle) >>= either (dieText . showText) pure
   reviewed <- either (dieText . showText . NE.toList) pure (verifyReview snapshot bundle)
   result <- applyReviewed store registry reviewed >>= either (dieText . showText . NE.toList) pure
   TIO.putStrLn (renderTransactionResult result)
@@ -452,7 +452,7 @@ applyInventoryWithFactory registryFor target reviewDirectory yes = do
     )
     (dieText "review directory differs from the immutable review published by this store")
   registry <- registryFor store bundle
-  snapshot <- readStoreSnapshot store >>= either (dieText . showText) pure
+  snapshot <- readReviewSnapshot store (reviewDigest bundle) >>= either (dieText . showText) pure
   reviewed <- either (dieText . showText . NE.toList) pure (verifyReview snapshot bundle)
   result <- applyReviewed store registry reviewed >>= either (dieText . showText . NE.toList) pure
   TIO.putStrLn (renderTransactionResult result)

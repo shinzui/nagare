@@ -794,3 +794,15 @@ selected bytes never trigger that fallback, including mixed missing/corrupt sets
 No historical materialization prerequisite is introduced. Workspace resolution is
 conditional on the actual executor/cache runtime requirements; immutable bootstrap
 payload checks remain mandatory. See [the active-startup proof](../audits/mp23-active-startup-proof.md).
+
+
+Claim/publication implementation (2026-09-29): each admission, claim update and
+collection-finalization CAS consumes the exact opaque head observation used by
+its authority checks. It must not rediscover and adopt a newer provider generation
+just because the decoded head is equal. Explicit recovery shares that first
+observation with journal-prefix validation, then conditionally acquires the claim.
+Existing fresh effect-time and release observations remain. Saved-review execution
+verifies its exact publication without enumerating unrelated archive keys. This
+publication check bypasses the local immutable cache; cached integrity does not
+prove publication in the selected store. Complete original bundle validation is
+still required. See [the claim/publication proof](../audits/mp23-head-claims-proof.md).

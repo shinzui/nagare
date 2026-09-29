@@ -1,0 +1,7 @@
+{
+  "style": "Running 1 tests\n\n----------- Case Details -----------\nPASS haskell-data-record-fields-must-be-strict  ...\n\ntest result: ok. 1 passed; 0 failed;\nHaskell style checks passed (nagare-dsl, nagarectl, nagare-access).\n",
+  "commandAudit": "managed command audit: 139 routes, 34 recipes, 26 library calls; injected mutation refused\n",
+  "inventoryGuards": "inventory entrypoint guards: five image-free deploy refusals, three unreviewed change refusals, eleven admitted refusals, untouched-store delete allowed\n",
+  "applicationGuards": "application entrypoint guards: thirty-three live refusals and seven fresh-context refusals, inventory heads unchanged\n",
+  "documentation": "okf validate docs/user --strict --profile mori/user-documentation-profile.dhall --profile-enforce --log-enforce\nOK: 38 concepts (okf_version 0.2)\nokf validate docs/guides --strict --profile mori/user-documentation-profile.dhall --profile-enforce --log-enforce\nOK: 2 concepts (okf_version 0.2)\n"
+}

@@ -32,6 +32,7 @@ module Nagare.Inventory.Store
   , replaceObservedHead
   , inspectHeadSchema
   , readStoreSnapshot
+  , readReviewSnapshot
   , publishIfAbsent
   , readObject
   , readJournalPrefix
@@ -571,6 +572,33 @@ readStoreSnapshot store = do
     digestFromReviewKey key =
       let token = T.pack (dropExtension (takeFileName key))
        in first (const (StoreInvalidObject key "review key does not contain a valid digest")) (mkContentDigest token)
+
+-- | Execution already names its immutable review. Verify that publication
+-- directly and retain the same fresh-head boundary, without listing unrelated
+-- archive keys. The caller must still load/validate the complete review bundle.
+readReviewSnapshot :: InventoryStore -> ContentDigest -> IO (Either StoreError StoreSnapshot)
+readReviewSnapshot store digest = do
+  headResult <- readHead store
+  case headResult of
+    Left err -> pure (Left err)
+    Right Nothing -> pure (Left (StoreConditionFailed "inventory store is not initialized"))
+    Right (Just headValue) -> do
+      let key = reviewKey digest
+      -- Cached content proves integrity, not publication in this store. Never
+      -- let a prepopulated local cache manufacture publication authority.
+      loaded <- case store of
+        InventoryStore (ObjectBackend ops _ _ _ _ _) -> do
+          result <- getObject ops (ObjectName (T.pack key))
+          pure $ case result of
+            ObjectFound _ bytes -> Right (Just bytes)
+            ObjectAbsent -> Right Nothing
+            GetUnknown reason -> Left (StoreIoError reason)
+        _ -> readObject store key
+      pure $ do
+        bytes <- loaded >>= maybe (Left (StoreInvalidObject key "selected review is not published")) Right
+        unless (contentDigest bytes == digest)
+          (Left (StoreInvalidObject key "selected review digest mismatch"))
+        pure (StoreSnapshot headValue (Set.singleton digest))
 
 publishIfAbsent :: InventoryStore -> FilePath -> ByteString -> IO (Either StoreError ContentDigest)
 publishIfAbsent store key bytes = withBackendGuard store $

@@ -1,0 +1,28 @@
+[
+  {
+    "command": [
+      "gcloud",
+      "--version"
+    ],
+    "seconds": 1.142,
+    "exit": 0,
+    "stdout": "Google Cloud SDK 581.0.0\nbq 2.1.37\ncore 2026.08.14\ngcloud-crc32c 1.0.0\ngsutil 5.37\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "gcloud",
+      "storage",
+      "objects",
+      "describe",
+      "gs://tan-ng-labs-ep150-pmkjjpp-state/inventory/head.json",
+      "--project=tan-ng-labs",
+      "--format=json(generation,size)",
+      "--quiet"
+    ],
+    "seconds": 1.368,
+    "exit": 0,
+    "stdout": "{\n  \"generation\": \"1790656456769847\",\n  \"size\": 1773\n}\n",
+    "stderr": ""
+  }
+]

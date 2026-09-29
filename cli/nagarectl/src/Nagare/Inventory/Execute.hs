@@ -120,11 +120,11 @@ admit locked registry reviewed = do
   let store = lockedStore locked
       document = reviewedDocument reviewed
       transaction = transactionFor document
-  headResult <- readHead store
+  headResult <- observeCurrentHead store
   case headResult of
     Left err -> pure (failure "store" (showText err))
-    Right Nothing -> pure (failure "store" "inventory store is not initialized")
-    Right (Just headValue) -> do
+    Right (_, Nothing) -> pure (failure "store" "inventory store is not initialized")
+    Right (observed, Just headValue) -> do
       let staticErrors =
             [AdmissionError "context-binding" "review belongs to a different context or provider target" | reviewContextBinding document /= headBinding headValue]
               <> [AdmissionError "deferred-operation" "new live database restores and interactive maintenance sessions are deferred; recover an already-admitted transaction by its original ID"
@@ -157,9 +157,9 @@ admit locked registry reviewed = do
               "new scheduled pruning is deferred; recover an already-admitted partial prune by its original review")
             Right False -> do
               coverage <- retentionCoverage store document
-              continueAdmission store document transaction headValue coverage
+              continueAdmission store document transaction observed headValue coverage
   where
-    continueAdmission store document transaction headValue coverage = case coverage of
+    continueAdmission store document transaction observed headValue coverage = case coverage of
             Left err -> pure (failure "retention-coverage" err)
             Right retainedRequests -> do
               migrationChecked <- migrationCoverage store document
@@ -201,7 +201,7 @@ admit locked registry reviewed = do
                           , headActiveTransaction = Just (transactionIdText transaction)
                           , headExecutorClaim = Just claim
                           }
-                    activation <- replaceHeadIfGenerationMatches store (Just (headGeneration headValue)) activated
+                    activation <- replaceObservedHead observed activated
                     case activation of
                       Left err -> pure (failure "head-condition" (showText err))
                       Right () -> do
@@ -395,9 +395,9 @@ finalizeCollections locked transaction document
   | Map.null (reviewCollections document) = pure True
   | otherwise = do
       let store = lockedStore locked
-      current <- readHead store
+      current <- observeCurrentHead store
       case current of
-        Right (Just headValue)
+        Right (observed, Just headValue)
           | headActiveTransaction headValue == Just (transactionIdText transaction) -> do
               now <- timestamp
               let proofMatches resource proof = case Map.lookup resource (headRetained headValue) of
@@ -425,7 +425,7 @@ finalizeCollections locked transaction document
                         , headCollected = Map.union collected (headCollected headValue)
                         }
                   if Map.null collected then pure True else do
-                    result <- replaceHeadIfGenerationMatches store (Just (headGeneration headValue)) replacement
+                    result <- replaceObservedHead observed replacement
                     pure (isRight result)
         _ -> pure False
 
@@ -456,16 +456,16 @@ resumeTransactionWithTakeover store registry transaction takeOver = do
       case mkContentDigest digestToken of
         Left err -> pure (failure "transaction-id" err)
         Right digest -> do
-          headResult <- readHead store
+          headResult <- observeCurrentHead store
           eventsResult <- case headResult of
             Left err -> pure (Left err)
-            Right Nothing -> pure (Left (StoreConditionFailed "inventory store is not initialized"))
-            Right (Just headValue) -> readJournalAtHead store headValue
+            Right (_, Nothing) -> pure (Left (StoreConditionFailed "inventory store is not initialized"))
+            Right (_, Just headValue) -> readJournalAtHead store headValue
           case (headResult, eventsResult) of
             (Left err, _) -> pure (failure "store" (showText err))
             (_, Left err) -> pure (failure "journal" (showText err))
-            (Right Nothing, _) -> pure (failure "store" "inventory store is not initialized")
-            (Right (Just headValue), Right events)
+            (Right (_, Nothing), _) -> pure (failure "store" "inventory store is not initialized")
+            (Right (observed, Just headValue), Right events)
               | headActiveTransaction headValue /= Just (transactionIdText transaction) ->
                   if transactionConverged transaction events
                     then pure (Right (Converged transaction))
@@ -473,7 +473,7 @@ resumeTransactionWithTakeover store registry transaction takeOver = do
               | isJust (headDataFence headValue) ->
                   pure (failure "active-data-fence" "recover and release the active data fence before resuming its reviewed transaction")
               | Just operation <- rollbackProvedOperation transaction events -> do
-                  claimed <- acquireResumeClaim store transaction headValue takeOver
+                  claimed <- acquireResumeClaim store transaction observed headValue takeOver
                   case claimed of
                     Left err -> pure (Left err)
                     Right () -> do
@@ -483,12 +483,12 @@ resumeTransactionWithTakeover store registry transaction takeOver = do
                           (KnownNoEffect "fenced recovery backup restored; original review was abandoned"))
                         else failure "head-condition" "could not close recovered transaction"
               | otherwise -> do
-                  claimed <- acquireResumeClaim store transaction headValue takeOver
+                  claimed <- acquireResumeClaim store transaction observed headValue takeOver
                   case claimed of
                     Left err -> pure (Left err)
                     Right () -> do
                       bundleResult <- loadPublishedReview store digest
-                      snapshotResult <- readStoreSnapshot store
+                      snapshotResult <- readReviewSnapshot store digest
                       case (bundleResult, snapshotResult) of
                         (Left err, _) -> releaseClaim lock transaction False >> pure (failure "review" (showText err))
                         (_, Left err) -> releaseClaim lock transaction False >> pure (failure "store" (showText err))
@@ -517,13 +517,16 @@ recordOperatorRecovery store registry input takeOver = do
     operationId = recoveryOperation input
     recoverLocked :: forall s. LockedStore s -> IO (Either (NonEmpty AdmissionError) ())
     recoverLocked lock = do
-      headResult <- readHead store
-      eventsResult <- readJournal lock
+      headResult <- observeCurrentHead store
+      eventsResult <- case headResult of
+        Left err -> pure (Left err)
+        Right (_, Nothing) -> pure (Left (StoreConditionFailed "inventory store is not initialized"))
+        Right (_, Just headValue) -> readJournalAtHead store headValue
       case (headResult, eventsResult) of
         (Left err, _) -> pure (failure "store" (showText err))
         (_, Left err) -> pure (failure "journal" (showText err))
-        (Right Nothing, _) -> pure (failure "store" "inventory store is not initialized")
-        (Right (Just headValue), Right events)
+        (Right (_, Nothing), _) -> pure (failure "store" "inventory store is not initialized")
+        (Right (observed, Just headValue), Right events)
           | headActiveTransaction headValue /= Just (transactionIdText transaction) ->
               pure (failure "inactive-transaction" "operator recovery requires the active transaction")
           | isJust (headDataFence headValue)
@@ -539,7 +542,7 @@ recordOperatorRecovery store registry input takeOver = do
           | not (recoverableState (Map.lookup operationId (operationStates transaction events))) ->
               pure (failure "recovery-state" "operation has no uncertain effect to resolve")
           | otherwise -> do
-              claimed <- acquireResumeClaim store transaction headValue takeOver
+              claimed <- acquireResumeClaim store transaction observed headValue takeOver
               case claimed of
                 Left err -> pure (Left err)
                 Right () -> do
@@ -570,7 +573,7 @@ recordOperatorRecovery store registry input takeOver = do
       -> IO (Either (NonEmpty AdmissionError) ())
     inspectReviewedRecovery lock events activeFence = do
       bundle <- loadPublishedReview store (recoveryReview input)
-      snapshot <- readStoreSnapshot store
+      snapshot <- readReviewSnapshot store (recoveryReview input)
       case (bundle, snapshot) of
         (Left err, _) -> pure (failure "review" (showText err))
         (_, Left err) -> pure (failure "store" (showText err))
@@ -1351,8 +1354,14 @@ rollbackProvedOperation transaction events = listToMaybe
 transactionConverged :: TransactionId -> [JournalEvent] -> Bool
 transactionConverged transaction = any (\event -> eventTransaction event == transaction && isNothing (eventOperation event) && "converged" `T.isInfixOf` eventDetail event)
 
-acquireResumeClaim :: InventoryStore -> TransactionId -> HeadManifest -> Bool -> IO (Either (NonEmpty AdmissionError) ())
-acquireResumeClaim store transaction headValue takeOver = do
+-- Keep the provider generation captured by each authority check for its CAS.
+-- The next check still observes afresh; this is not a command-wide head cache.
+observeCurrentHead :: InventoryStore -> IO (Either StoreError (ObservedHead, Maybe HeadManifest))
+observeCurrentHead store =
+  fmap (\observed -> (observed, observedHeadManifest observed)) <$> observeHead store
+
+acquireResumeClaim :: InventoryStore -> TransactionId -> ObservedHead -> HeadManifest -> Bool -> IO (Either (NonEmpty AdmissionError) ())
+acquireResumeClaim store transaction observed headValue takeOver = do
   now <- timestamp
   case headExecutorClaim headValue of
     Just claim | claimClientIdentity claim /= localClient && not takeOver ->
@@ -1360,7 +1369,7 @@ acquireResumeClaim store transaction headValue takeOver = do
     claim -> do
       let epoch = maybe 1 ((+ 1) . claimEpoch) claim
           replacement = headValue {headGeneration = headGeneration headValue + 1, headExecutorClaim = Just (ExecutorClaim (transactionIdText transaction) localClient epoch now)}
-      result <- replaceHeadIfGenerationMatches store (Just (headGeneration headValue)) replacement
+      result <- replaceObservedHead observed replacement
       pure $ case result of Left err -> failure "head-condition" (showText err); Right () -> Right ()
   where
     localClient = maybe (headClientIdentity headValue) id (storeClientIdentity store)
@@ -1368,9 +1377,9 @@ acquireResumeClaim store transaction headValue takeOver = do
 releaseClaim :: LockedStore s -> TransactionId -> Bool -> IO Bool
 releaseClaim locked transaction converged = do
   let store = lockedStore locked
-  headResult <- readHead store
+  headResult <- observeCurrentHead store
   case headResult of
-    Right (Just headValue) | headActiveTransaction headValue == Just (transactionIdText transaction),
+    Right (observed, Just headValue) | headActiveTransaction headValue == Just (transactionIdText transaction),
       maybe True (\client -> maybe False ((== client) . claimClientIdentity) (headExecutorClaim headValue)) (storeClientIdentity store) -> do
       if converged && isJust (headDataFence headValue)
         then pure False
@@ -1382,7 +1391,7 @@ releaseClaim locked transaction converged = do
                   , headActiveTransaction = if converged then Nothing else headActiveTransaction headValue
                   , headConverged = if converged then headAccepted headValue else headConverged headValue
                   }
-          isRight <$> replaceHeadIfGenerationMatches store (Just (headGeneration headValue)) replacement
+          isRight <$> replaceObservedHead observed replacement
     _ -> pure False
 
 -- | A proved rollback abandons the reviewed candidate. The accepted map was
@@ -1391,9 +1400,9 @@ releaseClaim locked transaction converged = do
 releaseAbortedClaim :: LockedStore s -> TransactionId -> IO Bool
 releaseAbortedClaim locked transaction = do
   let store = lockedStore locked
-  headResult <- readHead store
+  headResult <- observeCurrentHead store
   case headResult of
-    Right (Just headValue)
+    Right (observed, Just headValue)
       | headActiveTransaction headValue == Just (transactionIdText transaction)
       , isNothing (headDataFence headValue)
       , maybe True (\client -> maybe False ((== client) . claimClientIdentity)
@@ -1403,8 +1412,7 @@ releaseAbortedClaim locked transaction = do
                 , headExecutorClaim = Nothing
                 , headActiveTransaction = Nothing
                 , headAccepted = headConverged headValue }
-          isRight <$> replaceHeadIfGenerationMatches store
-            (Just (headGeneration headValue)) replacement
+          isRight <$> replaceObservedHead observed replacement
     _ -> pure False
 
 transactionFor :: ReviewDocument -> TransactionId

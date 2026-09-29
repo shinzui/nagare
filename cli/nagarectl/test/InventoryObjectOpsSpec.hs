@@ -1,5 +1,6 @@
 module InventoryObjectOpsSpec (inventoryObjectOpsTests, fakeObjectOps) where
 
+import Control.Monad (forM_)
 import Data.Aeson (object)
 import Data.IORef
 import Crypto.Random (getRandomBytes)
@@ -122,6 +123,42 @@ inventoryObjectOpsTests = testGroup "inventory object operations"
       tombstone <- observeHead store >>= either (assertFailure . show) pure
       replaceObservedHead tombstone initial {headGeneration = 3}
         >>= assertBool "migrated head allowed a write" . isLeft
+  , testCase "selected review snapshot ignores unrelated archive keys without listing" $ do
+      base <- fakeObjectOps
+      store <- newObjectStore base fixtureBinding "client-a" Nothing >>= either (assertFailure . show) pure
+      initial <- initializeStore store fixtureBinding "client-a" >>= either (assertFailure . show) pure
+      let bytes = "selected immutable publication"
+          digest = contentDigest bytes
+      _ <- publishIfAbsent store (reviewKey digest) bytes >>= either (assertFailure . show) pure
+      _ <- publishIfAbsent store "reviews/not-a-digest.json" "unrelated garbage" >>= either (assertFailure . show) pure
+      gets <- newIORef []
+      let ops = base
+            { getObject = \key -> modifyIORef' gets (<> [key]) >> getObject base key
+            , listObjects = \_ -> assertFailure "execution enumerated the archive" >> pure (Left "refused")
+            }
+      fresh <- newObjectStore ops fixtureBinding "client-a" Nothing >>= either (assertFailure . show) pure
+      writeIORef gets []
+      snapshot <- readReviewSnapshot fresh digest >>= either (assertFailure . show) pure
+      storeSnapshotHead snapshot @?= initial
+      storeSnapshotReviewDigests snapshot @?= Set.singleton digest
+      readIORef gets >>= (@?= [ObjectName "head.json", ObjectName (T.pack (reviewKey digest))])
+  , testCase "selected review snapshot refuses missing corrupt or unreadable publication despite a valid cache" $
+      withSystemTempDirectory "inventory-publication-cache" $ \cache -> do
+        base <- fakeObjectOps
+        store <- newObjectStore base fixtureBinding "client-a" (Just cache) >>= either (assertFailure . show) pure
+        _ <- initializeStore store fixtureBinding "client-a" >>= either (assertFailure . show) pure
+        let bytes = "selected immutable publication"
+            digest = contentDigest bytes
+            key = reviewKey digest
+        _ <- publishIfAbsent store key bytes >>= either (assertFailure . show) pure
+        readObject store key >>= (@?= Right (Just bytes))
+        forM_ [ObjectAbsent, ObjectFound (Generation 90) "corrupt", GetUnknown "offline"] $ \failure -> do
+          let ops = base
+                { getObject = \name -> if name == ObjectName (T.pack key) then pure failure else getObject base name
+                , listObjects = \_ -> assertFailure "selected failure triggered archive scan" >> pure (Left "refused") }
+          fresh <- newObjectStore ops fixtureBinding "client-a" (Just cache) >>= either (assertFailure . show) pure
+          readObject fresh key >>= (@?= Right (Just bytes))
+          readReviewSnapshot fresh digest >>= assertBool "cache manufactured publication authority" . isLeft
   , testCase "known-head journal append uses one conditional write without rediscovery" $ do
       baseOps <- fakeObjectOps
       gets <- newIORef (0 :: Int)
@@ -230,6 +267,32 @@ inventoryObjectOpsTests = testGroup "inventory object operations"
         >>= either (assertFailure . show) pure >>= (@?= Converged transaction)
       readIORef batches >>= (@?= 1)
       readIORef effects >>= (\calls -> length calls @?= 1)
+  , testCase "unresolved resume uses three head observations and two conditional claim writes" (claimObservationRegression "count")
+  , testCase "resume rejects an identical-head provider rewrite before claim acquisition" (claimObservationRegression "acquire")
+  , testCase "claim release cannot hide an intervening identical-head provider rewrite" (claimObservationRegression "release")
+  , testCase "lost claim acknowledgements resolve from read-back without repeating the effect" (claimObservationRegression "lost-ack")
+  , testCase "admission retains the original provider generation through its checks" $ do
+      base <- fakeObjectOps
+      store <- newObjectStore base fixtureBinding "client-a" Nothing >>= either (assertFailure . show) pure
+      effects <- newIORef (0 :: Int)
+      (reviewed, registry) <- preparedFixtureWith store
+        (\_ _ -> modifyIORef' effects (+ 1) >> pure AdapterEffectCompleted)
+        (\_ _ -> pure RecoverySafeToRetry)
+      injected <- newIORef False
+      let ops = base {getObject = \key -> do
+            found <- getObject base key
+            used <- readIORef injected
+            when (key == ObjectName "head.json" && not used) $ do
+              writeIORef injected True
+              rewriteIdenticalHead base
+            pure found}
+      fresh <- newObjectStore ops fixtureBinding "client-a" Nothing >>= either (assertFailure . show) pure
+      result <- applyReviewed fresh registry reviewed
+      case result of
+        Left failures -> assertBool "wrong refusal" ("head-condition" `elem` map admissionErrorCode (NE.toList failures))
+        Right _ -> assertFailure "admission overwrote intervening provider generation"
+      readIORef injected >>= (@?= True)
+      readIORef effects >>= (@?= 0)
   , testCase "two object clients sharing a workstation process lock cannot overlap" $
       withSystemTempDirectory "inventory-object-lock" $ \root -> do
         ops <- fakeObjectOps
@@ -655,6 +718,76 @@ inventoryObjectOpsTests = testGroup "inventory object operations"
           exerciseStore store
         _ -> assertFailure "set both NAGARE_TEST_INVENTORY_STORE_URL and NAGARE_TEST_EXPECTED_PROJECT"
   ]
+
+-- Rewrite the same bytes with a new provider generation. Logical head
+-- generation checks alone cannot detect this intervening replacement.
+rewriteIdenticalHead :: ObjectOps -> IO ()
+rewriteIdenticalHead ops = getObject ops (ObjectName "head.json") >>= \case
+  ObjectFound generation bytes -> putObject ops (IfGenerationMatches generation)
+    (ObjectName "head.json") bytes >>= \case
+      PutWritten _ -> pure ()
+      other -> assertFailure (show other)
+  other -> assertFailure (show other)
+
+claimObservationRegression :: String -> IO ()
+claimObservationRegression mode = do
+  base <- fakeObjectOps
+  store <- newObjectStore base fixtureBinding "client-a" Nothing >>= either (assertFailure . show) pure
+  effects <- newIORef (0 :: Int)
+  recoveries <- newIORef (0 :: Int)
+  (reviewed, registry) <- preparedFixtureWith store
+    (\_ _ -> modifyIORef' effects (+ 1) >> pure (AdapterEffectAmbiguous "saved uncertain effect"))
+    (\_ _ -> modifyIORef' recoveries (+ 1) >> pure (RecoveryUnresolved "still running"))
+  stopped <- applyReviewed store registry reviewed >>= either (assertFailure . show) pure
+  transaction <- case stopped of
+    StoppedAmbiguous value _ -> pure value
+    other -> assertFailure (show other) >> error "unreachable"
+  heads <- newIORef (0 :: Int)
+  writes <- newIORef (0 :: Int)
+  injected <- newIORef False
+  let ops = base
+        { getObject = \key -> do
+            found <- getObject base key
+            when (key == ObjectName "head.json") $ do
+              modifyIORef' heads (+ 1)
+              recovered <- readIORef recoveries
+              used <- readIORef injected
+              when (mode == "release" && recovered > 0 && not used) $ do
+                writeIORef injected True
+                rewriteIdenticalHead base
+            pure found
+        , getObjects = \prefix -> do
+            when (mode == "acquire") $ do
+              writeIORef injected True
+              rewriteIdenticalHead base
+            getObjects base prefix
+        , putObject = \condition key bytes -> do
+            result <- putObject base condition key bytes
+            if key /= ObjectName "head.json" then pure result else do
+              modifyIORef' writes (+ 1)
+              if mode == "lost-ack"
+                then classifyPutReadback condition bytes <$> getObject base key
+                else pure result
+        }
+  fresh <- newObjectStore ops fixtureBinding "client-a" Nothing >>= either (assertFailure . show) pure
+  result <- resumeTransaction fresh registry transaction
+  if mode == "acquire" then do
+    case result of
+      Left failures -> assertBool "wrong refusal" ("head-condition" `elem` map admissionErrorCode (NE.toList failures))
+      Right _ -> assertFailure "stale provider generation was reacquired"
+    readIORef recoveries >>= (@?= 0)
+  else do
+    result @?= Right stopped
+    readIORef recoveries >>= (@?= 1)
+  readIORef effects >>= (@?= 1)
+  when (mode == "count") $ do
+    readIORef heads >>= (@?= 3)
+    readIORef writes >>= (@?= 2)
+  when (mode `elem` ["acquire", "release"]) $ readIORef injected >>= (@?= True)
+  current <- readHead store >>= either (assertFailure . show) pure
+    >>= maybe (assertFailure "head missing" >> error "unreachable") pure
+  headActiveTransaction current @?= Just (transactionIdText transaction)
+  isJust (headExecutorClaim current) @?= (mode == "release")
 
 fakeObjectOps :: IO ObjectOps
 fakeObjectOps = do
