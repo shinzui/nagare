@@ -370,7 +370,7 @@ commandReview = do
             }
           registryFor specs = checked (mkAdapterRegistry [mkKubernetesAdapter specs operations])
           planRegistry _ _ = pure (registryFor (Map.singleton resource (member, native)))
-          applyRegistry reviewBundle = pure
+          applyRegistry _ reviewBundle = pure
             (registryFor (checked (kubernetesSpecsFromReview reviewBundle)))
       doesFileExist "absent-source/Config.hs" >>= (@?= False)
       store <- openTargetStore target

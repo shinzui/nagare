@@ -22,6 +22,7 @@ import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.ObservationNative
 import Nagare.Inventory.Plan
+import Nagare.Inventory.Status (loadAcceptedNativeSelected)
 import Nagare.Inventory.Store
 import Nagare.Inventory.Store.ObjectOps
 import Nagare.Resource.Inventory
@@ -36,7 +37,11 @@ inventoryObservationTests :: TestTree
 inventoryObservationTests =
   testGroup
     "selected native observation"
-    [ testCase "two real resources cost two reads despite 500 unrelated reviews and 50 sibling natives" $
+    [ testCase "execution source selection ignores missing siblings and corrupt unrelated reviews" (executionSourceRead "present")
+    , testCase "legacy execution source still reconstructs its original private envelope" (executionSourceRead "missing")
+    , testCase "corrupt execution source refuses without legacy fallback" (executionSourceRead "corrupt")
+    , testCase "missing execution source cannot mask corruption in another selected source" (executionSourceRead "mixed")
+    , testCase "two real resources cost two reads despite 500 unrelated reviews and 50 sibling natives" $
         forM_ [0, 50] $ \width -> forM_ [0, 500] $ \count -> do
           base <- fakeObjectOps
           store <- must (newObjectStore base binding "fixture" Nothing)
@@ -170,6 +175,74 @@ inventoryObservationTests =
         loaded <- must (loadPublishedReview store (reviewDigest bundle))
         loaded @?= bundle
     ]
+
+-- The admitted review remains untouched. Only private source lookup changes.
+executionSourceRead :: Text -> IO ()
+executionSourceRead mode = do
+  base <- fakeObjectOps
+  store <- must (newObjectStore base binding "fixture" Nothing)
+  initial <- must (initializeStore store binding "fixture")
+  bundle <- prepare store 1
+  _ <-
+    must
+      ( replaceHeadIfGenerationMatches
+          store
+          (Just (headGeneration initial))
+          initial
+            { headGeneration = headGeneration initial + 1
+            , headAccepted = reviewDesiredRevisions (reviewBundleDocument bundle)
+            }
+      )
+  history <- must (loadInventoryHistory store)
+  let snapshot =
+        ok
+          ( mkScopeSnapshot
+              binding
+              ( Map.map
+                  (\(revision, scope) -> (revisionGeneration revision, scope))
+                  (historyAccepted history)
+              )
+              Map.empty
+          )
+      inventory = ok (composeSnapshot snapshot)
+      sourceKey = ObjectName (T.pack (objectKeyFor "native" (contentDigest (snd selected))))
+      siblingKey = ObjectName (T.pack (objectKeyFor "native" (contentDigest (snd (kube "sibling-1")))))
+  when (mode /= "missing") $ do
+    _ <- must (publishIfAbsent store (reviewKey (contentDigest "unrelated invalid review")) "unrelated invalid review")
+    pure ()
+  lists <- newIORef (0 :: Int)
+  gets <- newIORef []
+  let ops =
+        base
+          { getObject = \key -> do
+              modifyIORef' gets (<> [key])
+              if key == siblingKey
+                then assertFailure "unselected sibling was read" >> pure ObjectAbsent
+                else
+                  if key == sourceKey && mode `elem` ["missing", "mixed"]
+                    then pure ObjectAbsent
+                    else
+                      if key == sourceKey && mode == "corrupt"
+                        then pure (ObjectFound (Generation 90) "corrupt")
+                        else
+                          if mode == "mixed" && key == ObjectName (T.pack (objectKeyFor "native" (contentDigest (snd helm))))
+                            then pure (ObjectFound (Generation 90) "corrupt")
+                            else getObject base key
+          , listObjects = \prefix -> modifyIORef' lists (+ 1) >> listObjects base prefix
+          }
+  fresh <- must (openObjectStoreReadOnly ops binding "reader" Nothing)
+  writeIORef gets []
+  result <- loadAcceptedNativeSelected (Set.fromList (rid "selected" : [rid "helm" | mode == "mixed"])) fresh history inventory
+  if mode `elem` ["corrupt", "mixed"]
+    then case result of
+      Left _ -> pure ()
+      Right _ -> assertFailure "corrupt source was accepted"
+    else do
+      (native, helms) <- must (pure result)
+      Map.elems native @?= [selected]
+      helms @?= Map.empty
+  readIORef lists >>= (@?= if mode == "missing" then 1 else 0)
+  when (mode `notElem` ["missing", "mixed"]) $ readIORef gets >>= (@?= [sourceKey])
 
 ok :: (Show e) => Either e a -> a
 ok = either (error . show) id

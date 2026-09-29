@@ -16,6 +16,7 @@ module Nagare.Inventory.Status
   , retainedHealthTargets
   , assessCollections
   , loadAcceptedNative
+  , loadAcceptedNativeSelected
   , loadRetainedNative
   , loadActiveTransactionStatus
   , summarizeActiveTransaction
@@ -37,6 +38,7 @@ import Nagare.Inventory.HelmReview (helmSpecsFromReview)
 import Nagare.Inventory.Journal
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
 import Nagare.Inventory.Plan
+import Nagare.Inventory.ObservationNative
 import Nagare.Inventory.Store
 import Nagare.Inventory.Store qualified as Store
 import Nagare.Resource.Inventory
@@ -326,7 +328,15 @@ loadAcceptedNative
   :: InventoryStore -> InventoryHistory -> ValidatedInventory
   -> IO (Either Text (Map ResourceId (ManagedResource, ByteString),
                       Map ResourceId (ManagedResource, ByteString)))
-loadAcceptedNative = loadNativeFor False
+loadAcceptedNative = loadNativeFor False Nothing
+
+-- | Source proofs name their own inputs; unrelated native siblings need not
+-- be present for an already reviewed operation to recover.
+loadAcceptedNativeSelected
+  :: Set.Set ResourceId -> InventoryStore -> InventoryHistory -> ValidatedInventory
+  -> IO (Either Text (Map ResourceId (ManagedResource, ByteString),
+                      Map ResourceId (ManagedResource, ByteString)))
+loadAcceptedNativeSelected wanted = loadNativeFor False (Just wanted)
 
 -- | The historical source is a separate incarnation after a reviewed rename.
 -- Callers observing it must use an adapter built from these old native bytes.
@@ -336,27 +346,41 @@ loadRetainedNative
                       Map ResourceId (ManagedResource, ByteString)))
 loadRetainedNative store history inventory
   | Map.null (historyRetained history) = pure (Right (Map.empty, Map.empty))
-  | otherwise = loadNativeFor True store history inventory
+  | otherwise = loadNativeFor True Nothing store history inventory
 
 loadNativeFor
-  :: Bool -> InventoryStore -> InventoryHistory -> ValidatedInventory
+  :: Bool -> Maybe (Set.Set ResourceId) -> InventoryStore -> InventoryHistory -> ValidatedInventory
   -> IO (Either Text (Map ResourceId (ManagedResource, ByteString),
                       Map ResourceId (ManagedResource, ByteString)))
-loadNativeFor retainedOnly store history inventory
+loadNativeFor retainedOnly selection store history inventory
   | not (any needsNative relevantMembers) = pure (Right (Map.empty, Map.empty))
   | otherwise = do
-    snapshot <- readStoreSnapshot store
-    case snapshot of
-      Left failure -> pure (Left (T.pack (show failure)))
-      Right state -> do
-        loaded <- traverse (loadPublishedReview store) (Set.toAscList (storeSnapshotReviewDigests state))
-        pure $ do
-          retained <- first (T.pack . show) (sequence loaded)
-          entries <- traverse collect retained
-          kubernetes <- agree (concatMap fst entries)
-          helm <- agree (concatMap snd entries)
-          pure (kubernetes, helm)
+    direct <- loadObservationNativeChecked store currentMembers
+    case direct of
+      Right native -> pure (Right (observationKubernetes native, observationHelm native))
+      Left (ObservationNativeInvalid reason) -> pure (Left reason)
+      Left (ObservationNativeMissing _) -> legacy
   where
+    -- Accepted/retained declarations bind these bytes. They do not authorize
+    -- an effect: apply/recovery still validates its original mutation envelope.
+    selected resource = maybe True (Set.member resource) selection
+    currentMembers =
+      [wanted | not retainedOnly, (resource, wanted) <- Map.toAscList desired,
+        Map.lookup resource acceptedMembers == Just wanted, selected resource]
+      <> [old | (resource, (_, old)) <- Map.toAscList (historyRetained history),
+        (retainedOnly || Map.notMember resource desired), selected resource]
+    legacy = do
+      snapshot <- readStoreSnapshot store
+      case snapshot of
+        Left failure -> pure (Left (T.pack (show failure)))
+        Right state -> do
+          loaded <- traverse (loadPublishedReview store) (Set.toAscList (storeSnapshotReviewDigests state))
+          pure $ do
+            retained <- first (T.pack . show) (sequence loaded)
+            entries <- traverse collect retained
+            kubernetes <- agree (concatMap fst entries)
+            helm <- agree (concatMap snd entries)
+            pure (kubernetes, helm)
     relevantMembers = (if retainedOnly then [] else Map.elems desired)
       <> map snd (Map.elems (historyRetained history))
     needsNative member = member ^. #executor `elem` [KubernetesExecutor, HelmExecutor]
@@ -393,9 +417,9 @@ loadNativeFor retainedOnly store history inventory
       helm <- helmSpecsFromReview bundle
       pure
         ([(resource, (acceptedMember, bytes)) | (resource, (member, bytes)) <- Map.toList kubernetes,
-           Just acceptedMember <- [current member]]
+           Just acceptedMember <- [current member], selected resource]
         ,[(resource, (acceptedMember, bytes)) | (resource, (member, bytes)) <- Map.toList helm,
-           Just acceptedMember <- [current member]])
+           Just acceptedMember <- [current member], selected resource])
     agree entries = traverse one (Map.fromListWith (<>)
       [(resource, [native]) | (resource, native) <- entries])
     one [] = Left "accepted resource has an empty native evidence group"

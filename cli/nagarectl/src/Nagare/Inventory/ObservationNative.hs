@@ -6,6 +6,8 @@ module Nagare.Inventory.ObservationNative
   , observationKubernetes
   , observationHelm
   , loadObservationNative
+  , ObservationNativeError (..)
+  , loadObservationNativeChecked
   , observationBytesFromMutation
   )
 where
@@ -82,11 +84,28 @@ observationBytesFromMutation context identity version operation bytes
 
 -- | Only supplied declarations are read. No listing, review scan, head read,
 -- provider call, or packaged source lookup occurs here, including on a miss.
-loadObservationNative ::
-  InventoryStore ->
-  [ManagedResource] ->
-  IO (Either Text ObservationNative)
+data ObservationNativeError
+  = ObservationNativeMissing !ContentDigest
+  | ObservationNativeInvalid !Text
+  deriving stock (Eq, Show)
+
+loadObservationNative :: InventoryStore -> [ManagedResource] -> IO (Either Text ObservationNative)
 loadObservationNative store declarations = do
+  loaded <- loadObservationNativeChecked store declarations
+  pure $ first renderError loaded
+  where
+    renderError (ObservationNativeInvalid reason) = reason
+    renderError (ObservationNativeMissing digest) =
+      "observation native bytes are missing for "
+        <> digestText digest
+        <> "; run inventory store materialize-native to extract historical review evidence"
+
+-- | A typed miss lets execution retain compatibility with old publishers.
+-- Invalid bytes never trigger archive fallback. This still supplies data only;
+-- the original complete review remains execution authority.
+loadObservationNativeChecked ::
+  InventoryStore -> [ManagedResource] -> IO (Either ObservationNativeError ObservationNative)
+loadObservationNativeChecked store declarations = do
   let native =
         [ member
         | member <- declarations
@@ -100,8 +119,12 @@ loadObservationNative store declarations = do
           ]
   loaded <- traverseWithKeyRead digests
   pure $ do
+    -- A missing member must not hide corruption in another selected member.
+    case [reason | Left (ObservationNativeInvalid reason) <- Map.elems loaded] of
+      reason : _ -> Left (ObservationNativeInvalid reason)
+      [] -> pure ()
     members <- sequence loaded
-    entries <- traverse (validate members) native
+    entries <- first ObservationNativeInvalid (traverse (validate members) native)
     pure
       ( ObservationNative
           ( Map.fromList
@@ -122,16 +145,11 @@ loadObservationNative store declarations = do
       result <- readObject store (objectKeyFor "native" digest)
       pure $ do
         bytes <-
-          first (T.pack . show) result
-            >>= maybe
-              ( Left
-                  ( "observation native bytes are missing for "
-                      <> digestText digest
-                      <> "; run inventory store materialize-native to extract historical review evidence"
-                  )
-              )
-              Right
-        unless (contentDigest bytes == digest) (Left "observation native digest mismatch")
+          first (ObservationNativeInvalid . T.pack . show) result
+            >>= maybe (Left (ObservationNativeMissing digest)) Right
+        unless
+          (contentDigest bytes == digest)
+          (Left (ObservationNativeInvalid "observation native digest mismatch"))
         pure bytes
     validate members member = do
       bytes <- case nativeDigest (member ^. #spec) of

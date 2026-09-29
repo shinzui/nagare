@@ -1,0 +1,1241 @@
+{
+  "binarySha256": "6a648d9af9c0f8b6f0bb7e50722873845edd734591ed1ec789973b4452e134ae",
+  "results": [
+    {
+      "events": 50,
+      "reviews": 0,
+      "temperature": "cold",
+      "exit": 0,
+      "seconds": 0.854,
+      "subprocesses": 12,
+      "journalBatches": 1,
+      "stdout": "converged tx-1315bab646a6db1a811d35eb8a32168d8266e8f123d8820d5f1cd02db12123ed\n",
+      "stderr": "",
+      "commands": [
+        [
+          "storage",
+          "buckets",
+          "describe",
+          "gs://audit.invalid",
+          "--raw",
+          "--format=value(projectNumber)"
+        ],
+        [
+          "projects",
+          "describe",
+          "project",
+          "--format=value(projectNumber)"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/format.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/format.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-3ad8b9b8aa83fa6f/object",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/format.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/head.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-1e726447eac4be21/object",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/head.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-daa9bd292a1a260a/object",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/journal/*.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-prefix-a750ef425ce03b10/",
+          "--quiet"
+        ]
+      ]
+    },
+    {
+      "events": 50,
+      "reviews": 0,
+      "temperature": "warm",
+      "exit": 0,
+      "seconds": 0.504,
+      "subprocesses": 12,
+      "journalBatches": 1,
+      "stdout": "converged tx-1315bab646a6db1a811d35eb8a32168d8266e8f123d8820d5f1cd02db12123ed\n",
+      "stderr": "",
+      "commands": [
+        [
+          "storage",
+          "buckets",
+          "describe",
+          "gs://audit.invalid",
+          "--raw",
+          "--format=value(projectNumber)"
+        ],
+        [
+          "projects",
+          "describe",
+          "project",
+          "--format=value(projectNumber)"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/format.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/format.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-da588a7e42baab15/object",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/format.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/head.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-2ae75a7046e69694/object",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/head.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-ff088c82befff54b/object",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/journal/*.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-prefix-e64d04f9ea74793c/",
+          "--quiet"
+        ]
+      ]
+    },
+    {
+      "events": 50,
+      "reviews": 50,
+      "temperature": "cold",
+      "exit": 0,
+      "seconds": 0.529,
+      "subprocesses": 12,
+      "journalBatches": 1,
+      "stdout": "converged tx-1315bab646a6db1a811d35eb8a32168d8266e8f123d8820d5f1cd02db12123ed\n",
+      "stderr": "",
+      "commands": [
+        [
+          "storage",
+          "buckets",
+          "describe",
+          "gs://audit.invalid",
+          "--raw",
+          "--format=value(projectNumber)"
+        ],
+        [
+          "projects",
+          "describe",
+          "project",
+          "--format=value(projectNumber)"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/format.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/format.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-5299a23fd6a52d93/object",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/format.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/head.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-a95259e54bdabe18/object",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/head.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-c1c926c3e69d3ab7/object",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/journal/*.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-prefix-d5b4af75f0247f31/",
+          "--quiet"
+        ]
+      ]
+    },
+    {
+      "events": 50,
+      "reviews": 50,
+      "temperature": "warm",
+      "exit": 0,
+      "seconds": 0.522,
+      "subprocesses": 12,
+      "journalBatches": 1,
+      "stdout": "converged tx-1315bab646a6db1a811d35eb8a32168d8266e8f123d8820d5f1cd02db12123ed\n",
+      "stderr": "",
+      "commands": [
+        [
+          "storage",
+          "buckets",
+          "describe",
+          "gs://audit.invalid",
+          "--raw",
+          "--format=value(projectNumber)"
+        ],
+        [
+          "projects",
+          "describe",
+          "project",
+          "--format=value(projectNumber)"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/format.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/format.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-6076cf7ee4d64c42/object",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/format.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/head.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-f347ece8b79f3324/object",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/head.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-eaacfea8d3e1026f/object",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/journal/*.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-prefix-b84f3a631e2247fa/",
+          "--quiet"
+        ]
+      ]
+    },
+    {
+      "events": 50,
+      "reviews": 500,
+      "temperature": "cold",
+      "exit": 0,
+      "seconds": 0.6,
+      "subprocesses": 12,
+      "journalBatches": 1,
+      "stdout": "converged tx-1315bab646a6db1a811d35eb8a32168d8266e8f123d8820d5f1cd02db12123ed\n",
+      "stderr": "",
+      "commands": [
+        [
+          "storage",
+          "buckets",
+          "describe",
+          "gs://audit.invalid",
+          "--raw",
+          "--format=value(projectNumber)"
+        ],
+        [
+          "projects",
+          "describe",
+          "project",
+          "--format=value(projectNumber)"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/format.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/format.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-a974246a52723198/object",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/format.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/head.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-fbf40143b55cd20e/object",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/head.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-9d6761686f4672a2/object",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/journal/*.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-prefix-08f05be72d1a46e2/",
+          "--quiet"
+        ]
+      ]
+    },
+    {
+      "events": 50,
+      "reviews": 500,
+      "temperature": "warm",
+      "exit": 0,
+      "seconds": 0.582,
+      "subprocesses": 12,
+      "journalBatches": 1,
+      "stdout": "converged tx-1315bab646a6db1a811d35eb8a32168d8266e8f123d8820d5f1cd02db12123ed\n",
+      "stderr": "",
+      "commands": [
+        [
+          "storage",
+          "buckets",
+          "describe",
+          "gs://audit.invalid",
+          "--raw",
+          "--format=value(projectNumber)"
+        ],
+        [
+          "projects",
+          "describe",
+          "project",
+          "--format=value(projectNumber)"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/format.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/format.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-5678ef700e9d01a8/object",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/format.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/head.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-48c98cfec2ca4a7b/object",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/head.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-610c8cdd20dc0e50/object",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/journal/*.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-prefix-b72bea06b24c3ed5/",
+          "--quiet"
+        ]
+      ]
+    },
+    {
+      "events": 500,
+      "reviews": 0,
+      "temperature": "cold",
+      "exit": 0,
+      "seconds": 0.659,
+      "subprocesses": 12,
+      "journalBatches": 1,
+      "stdout": "converged tx-1315bab646a6db1a811d35eb8a32168d8266e8f123d8820d5f1cd02db12123ed\n",
+      "stderr": "",
+      "commands": [
+        [
+          "storage",
+          "buckets",
+          "describe",
+          "gs://audit.invalid",
+          "--raw",
+          "--format=value(projectNumber)"
+        ],
+        [
+          "projects",
+          "describe",
+          "project",
+          "--format=value(projectNumber)"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/format.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/format.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-3417c0f4902e5b3d/object",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/format.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/head.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-2d428fb0ed6177a0/object",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/head.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-9dd61f34d55188bb/object",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/journal/*.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-prefix-68249cc4bfaa98d2/",
+          "--quiet"
+        ]
+      ]
+    },
+    {
+      "events": 500,
+      "reviews": 0,
+      "temperature": "warm",
+      "exit": 0,
+      "seconds": 0.672,
+      "subprocesses": 12,
+      "journalBatches": 1,
+      "stdout": "converged tx-1315bab646a6db1a811d35eb8a32168d8266e8f123d8820d5f1cd02db12123ed\n",
+      "stderr": "",
+      "commands": [
+        [
+          "storage",
+          "buckets",
+          "describe",
+          "gs://audit.invalid",
+          "--raw",
+          "--format=value(projectNumber)"
+        ],
+        [
+          "projects",
+          "describe",
+          "project",
+          "--format=value(projectNumber)"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/format.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/format.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-e4fa748e63968c45/object",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/format.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/head.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-559bc9fded830e9c/object",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/head.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-33d7d48668699482/object",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/journal/*.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-prefix-0dcd22ea18e225c2/",
+          "--quiet"
+        ]
+      ]
+    },
+    {
+      "events": 500,
+      "reviews": 50,
+      "temperature": "cold",
+      "exit": 0,
+      "seconds": 0.665,
+      "subprocesses": 12,
+      "journalBatches": 1,
+      "stdout": "converged tx-1315bab646a6db1a811d35eb8a32168d8266e8f123d8820d5f1cd02db12123ed\n",
+      "stderr": "",
+      "commands": [
+        [
+          "storage",
+          "buckets",
+          "describe",
+          "gs://audit.invalid",
+          "--raw",
+          "--format=value(projectNumber)"
+        ],
+        [
+          "projects",
+          "describe",
+          "project",
+          "--format=value(projectNumber)"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/format.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/format.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-6759f11647fc63b5/object",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/format.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/head.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-7110a99cb1d02684/object",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/head.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-cd589988d53eebc4/object",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/journal/*.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-prefix-63b0471fdc3e81b1/",
+          "--quiet"
+        ]
+      ]
+    },
+    {
+      "events": 500,
+      "reviews": 50,
+      "temperature": "warm",
+      "exit": 0,
+      "seconds": 0.686,
+      "subprocesses": 12,
+      "journalBatches": 1,
+      "stdout": "converged tx-1315bab646a6db1a811d35eb8a32168d8266e8f123d8820d5f1cd02db12123ed\n",
+      "stderr": "",
+      "commands": [
+        [
+          "storage",
+          "buckets",
+          "describe",
+          "gs://audit.invalid",
+          "--raw",
+          "--format=value(projectNumber)"
+        ],
+        [
+          "projects",
+          "describe",
+          "project",
+          "--format=value(projectNumber)"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/format.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/format.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-5dcd3350e94a416f/object",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/format.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/head.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-e51168c29da22c83/object",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/head.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-7cfab32f0a387699/object",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/journal/*.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-prefix-d38cfd33d6fe2d7f/",
+          "--quiet"
+        ]
+      ]
+    },
+    {
+      "events": 500,
+      "reviews": 500,
+      "temperature": "cold",
+      "exit": 0,
+      "seconds": 0.677,
+      "subprocesses": 12,
+      "journalBatches": 1,
+      "stdout": "converged tx-1315bab646a6db1a811d35eb8a32168d8266e8f123d8820d5f1cd02db12123ed\n",
+      "stderr": "",
+      "commands": [
+        [
+          "storage",
+          "buckets",
+          "describe",
+          "gs://audit.invalid",
+          "--raw",
+          "--format=value(projectNumber)"
+        ],
+        [
+          "projects",
+          "describe",
+          "project",
+          "--format=value(projectNumber)"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/format.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/format.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-0471a39768e7dd93/object",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/format.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/head.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-64996ffacbada84a/object",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/head.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-244a99a1143f477a/object",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/journal/*.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-prefix-d34723bf7babc4a1/",
+          "--quiet"
+        ]
+      ]
+    },
+    {
+      "events": 500,
+      "reviews": 500,
+      "temperature": "warm",
+      "exit": 0,
+      "seconds": 0.676,
+      "subprocesses": 12,
+      "journalBatches": 1,
+      "stdout": "converged tx-1315bab646a6db1a811d35eb8a32168d8266e8f123d8820d5f1cd02db12123ed\n",
+      "stderr": "",
+      "commands": [
+        [
+          "storage",
+          "buckets",
+          "describe",
+          "gs://audit.invalid",
+          "--raw",
+          "--format=value(projectNumber)"
+        ],
+        [
+          "projects",
+          "describe",
+          "project",
+          "--format=value(projectNumber)"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/format.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/format.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-be6faa3834a83515/object",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/format.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/head.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-16d9bcd3a4f7f738/object",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/head.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-d1d1ca4717b31c80/object",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "objects",
+          "describe",
+          "gs://audit.invalid/private/head.json",
+          "--format=value(generation)",
+          "--quiet"
+        ],
+        [
+          "storage",
+          "cp",
+          "gs://audit.invalid/private/journal/*.json",
+          "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-prefix-d47e9528af941243/",
+          "--quiet"
+        ]
+      ]
+    }
+  ]
+}

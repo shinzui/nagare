@@ -4993,11 +4993,11 @@ runPlatformBootstrapApply mctx reviewDirectory yes = do
         . InventoryAdapter.plannedExecutor . InventoryPlan.reviewPlannedOperation)
         (InventoryPlan.reviewOperations (InventoryPlan.reviewBundleDocument publicBundle))
   stageTarget <- if foundationStage then foundationStageTarget active else pure active
-  Inventory.applyInventoryWithFactory (\bundle -> do
+  Inventory.applyInventoryWithFactory (\store bundle -> do
     unless ("nagare-bootstrap:" `T.isPrefixOf`
         InventoryPlan.reviewPayloadIdentity (InventoryPlan.reviewBundleDocument bundle))
       (dieT "platform bootstrap apply requires a payload-bound bootstrap review")
-    inventoryExecutionRegistry mctx bundle) stageTarget reviewDirectory yes
+    inventoryExecutionRegistry mctx store bundle) stageTarget reviewDirectory yes
   when (foundationStage && effectiveInventoryStore (active ^. #profile) == InventoryStoreGcs
       && effectiveInventoryStore (stageTarget ^. #profile) == InventoryStoreLocal) $ do
     migrated <- Inventory.migrateTargetStore stageTarget InventoryStoreGcs False
@@ -6558,8 +6558,8 @@ runInventoryRecover mctx transaction operation decisionFile takeOver = do
   target <- activeTarget mctx
   Inventory.recoverInventoryWithFactory (inventoryExecutionRegistry mctx) target transaction operation decisionFile takeOver
 
-inventoryExecutionRegistry :: Maybe String -> InventoryPlan.ReviewBundle -> IO InventoryAdapter.AdapterRegistry
-inventoryExecutionRegistry mctx bundle = do
+inventoryExecutionRegistry :: Maybe String -> InventoryStore.InventoryStore -> InventoryPlan.ReviewBundle -> IO InventoryAdapter.AdapterRegistry
+inventoryExecutionRegistry mctx store bundle = do
   scopes <- traverse (either (dieT . T.pack . show) pure . ResourceWire.decodeScope) (Map.elems (InventoryPlan.reviewBundleScopes bundle))
   let document = InventoryPlan.reviewBundleDocument bundle
       operations = map InventoryPlan.reviewPlannedOperation
@@ -6637,16 +6637,16 @@ inventoryExecutionRegistry mctx bundle = do
       scheduledProofs = concatMap (\(_, _, selected) -> selected) sourceProofs
   maintenanceProofs <- either dieT pure (selectedMaintenanceProofs scopes operations)
   liveRestoreProofs <- either dieT pure (selectedLiveRestoreProofs scopes operations)
-  backupSourceNative <- loadReviewedBackupSourceNative mctx
+  backupSourceNative <- loadReviewedBackupSourceNative store
     document backupProofs
-  volumeSourceNative <- loadReviewedVolumeSourceNative mctx document
+  volumeSourceNative <- loadReviewedVolumeSourceNative store document
     reviewedKubernetesSpecs
-  pruneSourceNative <- loadReviewedPruneSourceNative mctx document pruneProofs
-  scheduledSourceNative <- loadReviewedScheduledIngestSourceNative mctx document scheduledProofs
+  pruneSourceNative <- loadReviewedPruneSourceNative store document pruneProofs
+  scheduledSourceNative <- loadReviewedScheduledIngestSourceNative store document scheduledProofs
   (maintenanceSourceNative, maintenanceAcceptedNative) <-
-    loadReviewedMaintenanceSourceNative mctx document maintenanceProofs
+    loadReviewedMaintenanceSourceNative store document maintenanceProofs
   (liveRestoreSourceNative, liveRestoreAcceptedNative) <-
-    loadReviewedLiveRestoreSourceNative mctx document liveRestoreProofs
+    loadReviewedLiveRestoreSourceNative store document liveRestoreProofs
   let sourceNative = Map.unions
         [backupSourceNative, volumeSourceNative, pruneSourceNative, scheduledSourceNative,
           maintenanceSourceNative, liveRestoreSourceNative]
@@ -6669,8 +6669,6 @@ inventoryExecutionRegistry mctx bundle = do
          ResourceInventory.HostExecutor]
   (retiringKubernetesSpecs, retiringHelmSpecs) <- if Set.null retiredIds
     then pure (Map.empty, Map.empty) else do
-    active <- activeTarget mctx
-    store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
     history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
     acceptedSnapshot <- either (dieT . T.pack . show) pure (ResourceInventory.mkScopeSnapshot
       binding
@@ -6695,19 +6693,27 @@ inventoryExecutionRegistry mctx bundle = do
   if null registrations && Set.null (selected ResourceInventory.CloudFoundationExecutor) && Map.null artifactSpecs && isNothing hostInputs && Map.null kubernetesSpecs && Map.null cacheSpecs && Map.null topicSpecs && Map.null dnsSpecs && Map.null cloudflareSpecs && Map.null allHelmSpecs
     then either dieT pure (InventoryAdapter.mkAdapterRegistry (map Inventory.executionBlockedAdapterFor [ResourceInventory.KubernetesExecutor, ResourceInventory.PulumiExecutor, ResourceInventory.CloudFoundationExecutor, ResourceInventory.HostExecutor, ResourceInventory.ArtifactExecutor, ResourceInventory.CacheExecutor, ResourceInventory.BrokerExecutor, ResourceInventory.HelmExecutor, ResourceInventory.CdnExecutor]))
     else do
+      let needsWorkspace = selectedInfra
+            || not (Set.null (selected ResourceInventory.CloudFoundationExecutor))
+            || not (Map.null cacheSpecs && Map.null dnsSpecs && Map.null cloudflareSpecs && Map.null allHelmSpecs)
       (active, workspace) <-
         if not selectedInfra
           then do
             active <- activeTarget mctx
-            (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+            workspace <- if not needsWorkspace then pure Nothing else
+              Just . snd <$> resolvePlatformWorkspace (active ^. #contextName)
             pure (active, workspace)
           else do
             active <- activeTarget mctx
             if null registrations && active ^. #profile . #mode == Local
               then do
                 (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
-                pure (active, workspace)
-              else prepareInfraMutationWithPulumi (not (null registrations)) mctx
+                pure (active, Just workspace)
+              else do
+                (prepared, workspace) <- prepareInfraMutationWithPulumi (not (null registrations)) mctx
+                pure (prepared, Just workspace)
+      let withWorkspace :: (PlatformWorkspace -> IO a) -> IO a
+          withWorkspace action = maybe (dieT "selected executor requires a platform workspace") action workspace
       when (active ^. #profile . #mode == Local
           && (not (Map.null kubernetesSpecs) || not (Map.null allHelmSpecs))) $ do
         selectedKubeconfig <- kubeconfigPath (active ^. #contextName)
@@ -6717,25 +6723,30 @@ inventoryExecutionRegistry mctx bundle = do
       pulumi <-
         if null registrations
           then pure (Inventory.executionBlockedAdapterFor ResourceInventory.PulumiExecutor)
-          else inventoryPulumiAdapter active workspace binding scopes allRegistrations
-      foundation <- inventoryFoundationAdapter active workspace binding declarations
-        (selected ResourceInventory.CloudFoundationExecutor)
+          else withWorkspace (\root -> inventoryPulumiAdapter active root binding scopes allRegistrations)
+      foundation <- if Set.null (selected ResourceInventory.CloudFoundationExecutor)
+        then pure (Inventory.executionBlockedAdapterFor ResourceInventory.CloudFoundationExecutor)
+        else withWorkspace (\root -> inventoryFoundationAdapter active root binding declarations
+          (selected ResourceInventory.CloudFoundationExecutor))
       artifact <-
         if Map.null artifactSpecs
           then pure (Inventory.executionBlockedAdapterFor ResourceInventory.ArtifactExecutor)
-          else inventoryArtifactAdapter active workspace artifactSpecs
+          else withWorkspace (\root -> inventoryArtifactAdapter active root artifactSpecs)
       host <- maybe (pure (Inventory.executionBlockedAdapterFor ResourceInventory.HostExecutor))
-        (inventoryHostAdapter active workspace False scopes) hostInputs
-      (cache, cacheKey) <- inventoryCacheAdapter active workspace binding cacheSpecs
+        (\inputs -> withWorkspace (\root -> inventoryHostAdapter active root False scopes inputs)) hostInputs
+      (cache, cacheKey) <- if Map.null cacheSpecs
+        then pure (Inventory.executionBlockedAdapterFor ResourceInventory.CacheExecutor,
+          \_ -> pure (Left "cache output resolver is not installed"))
+        else withWorkspace (\root -> inventoryCacheAdapter active root binding cacheSpecs)
       acceptedTopics <- if Map.null topicSpecs then pure Map.empty else do
-        historyStore <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
-        history <- InventoryPlan.loadInventoryHistory historyStore >>= either (dieT . T.pack . show) pure
+        history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
         pure (acceptedTopicResources history)
       broker <- inventoryBrokerAdapter active binding topicSpecs acceptedTopics
       acceptedDns <- if Map.null dnsSpecs && Map.null cloudflareSpecs then pure Map.empty else do
-        historyStore <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
-        reviewBaseDnsResources historyStore bundle
-      dns <- inventoryCdnAdapter active workspace binding dnsSpecs cloudflareSpecs acceptedDns
+        reviewBaseDnsResources store bundle
+      dns <- if Map.null dnsSpecs && Map.null cloudflareSpecs
+        then pure (Inventory.executionBlockedAdapterFor ResourceInventory.CdnExecutor)
+        else withWorkspace (\root -> inventoryCdnAdapter active root binding dnsSpecs cloudflareSpecs acceptedDns)
       kubernetesNative <- inventoryKubernetesAdapter active binding cacheKey kubernetesSpecs
       let kubernetesBase = kubernetesNative
             { InventoryAdapter.adapterPreflight = \operation prepared -> do
@@ -6756,7 +6767,9 @@ inventoryExecutionRegistry mctx bundle = do
                         Left _ -> Left "reviewed prune eligibility changed; no new Job was submitted"
                         Right () -> Right ()
             }
-      helm <- inventoryHelmAdapter active workspace binding allHelmSpecs
+      helm <- if Map.null allHelmSpecs
+        then pure (Inventory.executionBlockedAdapterFor ResourceInventory.HelmExecutor)
+        else withWorkspace (\root -> inventoryHelmAdapter active root binding allHelmSpecs)
       context <- either dieT pure (Resource.mkContextId
         (contextNameText (active ^. #contextName)))
       let runtime = KubernetesRuntimeConfig context
@@ -6778,16 +6791,13 @@ inventoryExecutionRegistry mctx bundle = do
 -- Reconstruct maintenance source bytes from the still-accepted revisions.
 -- These are private replay inputs; the public review carries only digests.
 loadReviewedMaintenanceSourceNative
-  :: Maybe String -> InventoryPlan.ReviewDocument -> [MaintenanceSourceProof]
+  :: InventoryStore.InventoryStore -> InventoryPlan.ReviewDocument -> [MaintenanceSourceProof]
   -> IO (Map.Map Resource.ResourceId
       (ResourceInventory.ManagedResource, ByteString),
     Map.Map Resource.ResourceId
       (ResourceInventory.ManagedResource, ByteString))
 loadReviewedMaintenanceSourceNative _ _ [] = pure (Map.empty, Map.empty)
-loadReviewedMaintenanceSourceNative mctx document proofs = do
-  active <- activeTarget mctx
-  store <- Inventory.openTargetStoreReadOnly active
-    >>= either (dieT . T.pack . show) pure
+loadReviewedMaintenanceSourceNative store document proofs = do
   history <- InventoryPlan.loadInventoryHistory store
     >>= either (dieT . T.pack . show) pure
   let findScope label = case
@@ -6857,16 +6867,13 @@ loadReviewedMaintenanceSourceNative mctx document proofs = do
 -- live-restore proof from still-accepted history. Review bytes cannot supply
 -- replacement native objects or backup revisions during apply/recovery.
 loadReviewedLiveRestoreSourceNative
-  :: Maybe String -> InventoryPlan.ReviewDocument -> [LiveRestoreProof]
+  :: InventoryStore.InventoryStore -> InventoryPlan.ReviewDocument -> [LiveRestoreProof]
   -> IO (Map.Map Resource.ResourceId
       (ResourceInventory.ManagedResource, ByteString),
     Map.Map Resource.ResourceId
       (ResourceInventory.ManagedResource, ByteString))
 loadReviewedLiveRestoreSourceNative _ _ [] = pure (Map.empty, Map.empty)
-loadReviewedLiveRestoreSourceNative mctx document proofs = do
-  active <- activeTarget mctx
-  store <- Inventory.openTargetStoreReadOnly active
-    >>= either (dieT . T.pack . show) pure
+loadReviewedLiveRestoreSourceNative store document proofs = do
   history <- InventoryPlan.loadInventoryHistory store
     >>= either (dieT . T.pack . show) pure
   let accepted = InventoryPlan.historyAccepted history
@@ -6929,12 +6936,10 @@ loadReviewedLiveRestoreSourceNative mctx document proofs = do
   pure (selected, acceptedNative)
 
 loadReviewedBackupSourceNative
-  :: Maybe String -> InventoryPlan.ReviewDocument -> [BackupSourceProof]
+  :: InventoryStore.InventoryStore -> InventoryPlan.ReviewDocument -> [BackupSourceProof]
   -> IO (Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString))
 loadReviewedBackupSourceNative _ _ [] = pure Map.empty
-loadReviewedBackupSourceNative mctx document proofs = do
-  active <- activeTarget mctx
-  store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+loadReviewedBackupSourceNative store document proofs = do
   history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
   forM_ proofs $ \proof -> do
     let sources = [(owner, revision, sourceScope) | (owner, (revision, sourceScope)) <-
@@ -6967,11 +6972,11 @@ loadReviewedBackupSourceNative mctx document proofs = do
       (InventoryPlan.historyReservations history))
   acceptedInventory <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeSnapshot acceptedSnapshot)
-  (acceptedNative, _) <- InventoryStatus.loadAcceptedNative store history acceptedInventory
-    >>= either dieT pure
   let wanted = Set.fromList (concat
         [[sourceStatefulId proof, sourcePvcId proof] | proof <- proofs])
-      selected = Map.restrictKeys acceptedNative wanted
+  (acceptedNative, _) <- InventoryStatus.loadAcceptedNativeSelected wanted store history acceptedInventory
+    >>= either dieT pure
+  let selected = Map.restrictKeys acceptedNative wanted
   unless (Map.keysSet selected == wanted)
     (dieT "manual backup source lacks accepted private native evidence")
   pure selected
@@ -6980,10 +6985,10 @@ loadReviewedBackupSourceNative mctx document proofs = do
 -- Job, and store credential. Reopen only those exact reviewed dependencies at
 -- apply/resume so the Kubernetes adapter can verify their physical UIDs.
 loadReviewedVolumeSourceNative
-  :: Maybe String -> InventoryPlan.ReviewDocument
+  :: InventoryStore.InventoryStore -> InventoryPlan.ReviewDocument
   -> Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString)
   -> IO (Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString))
-loadReviewedVolumeSourceNative mctx document reviewed = do
+loadReviewedVolumeSourceNative store document reviewed = do
   pins <- fmap concat $ forM (Map.elems reviewed) $ \(_, native) ->
     either dieT pure $ do
       snapshotPins <- volumeSnapshotJobSourcePins native
@@ -6997,8 +7002,6 @@ loadReviewedVolumeSourceNative mctx document reviewed = do
           [(resource, Set.singleton uid) | (resource, uid) <- pins]
     unless (all ((== 1) . Set.size) (Map.elems expected))
       (dieT "reviewed volume Jobs disagree on a source physical identity")
-    active <- activeTarget mctx
-    store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
     history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
     let accepted = InventoryPlan.historyAccepted history
         owners = Map.fromList
@@ -7021,7 +7024,7 @@ loadReviewedVolumeSourceNative mctx document reviewed = do
         (InventoryPlan.historyReservations history))
     acceptedInventory <- either (dieT . T.pack . show) pure
       (ResourceInventory.composeSnapshot acceptedSnapshot)
-    (native, _) <- InventoryStatus.loadAcceptedNative store history acceptedInventory
+    (native, _) <- InventoryStatus.loadAcceptedNativeSelected (Map.keysSet expected) store history acceptedInventory
       >>= either dieT pure
     let selected = Map.restrictKeys native (Map.keysSet expected)
     unless (Map.keysSet selected == Map.keysSet expected)
@@ -7032,12 +7035,10 @@ loadReviewedVolumeSourceNative mctx document reviewed = do
 -- all four dependencies. Their native bytes are reloaded only from that exact
 -- accepted revision; the Job annotations pin their observed UIDs at submit.
 loadReviewedScheduledIngestSourceNative
-  :: Maybe String -> InventoryPlan.ReviewDocument -> [ScheduledIngestSourceProof]
+  :: InventoryStore.InventoryStore -> InventoryPlan.ReviewDocument -> [ScheduledIngestSourceProof]
   -> IO (Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString))
 loadReviewedScheduledIngestSourceNative _ _ [] = pure Map.empty
-loadReviewedScheduledIngestSourceNative mctx document proofs = do
-  active <- activeTarget mctx
-  store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+loadReviewedScheduledIngestSourceNative store document proofs = do
   history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
   forM_ proofs $ \proof -> do
     let sources = [(owner, revision, sourceScope) | (owner, (revision, sourceScope)) <-
@@ -7072,13 +7073,13 @@ loadReviewedScheduledIngestSourceNative mctx document proofs = do
       (InventoryPlan.historyReservations history))
   acceptedInventory <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeSnapshot acceptedSnapshot)
-  (acceptedNative, _) <- InventoryStatus.loadAcceptedNative store history acceptedInventory
-    >>= either dieT pure
   let wanted = Set.fromList (concat
         [[scheduledSourceStatefulId proof, scheduledSourcePvcId proof,
           scheduledSourceScheduleId proof, scheduledSourceSigningId proof]
           | proof <- proofs])
-      selected = Map.restrictKeys acceptedNative wanted
+  (acceptedNative, _) <- InventoryStatus.loadAcceptedNativeSelected wanted store history acceptedInventory
+    >>= either dieT pure
+  let selected = Map.restrictKeys acceptedNative wanted
   unless (Map.keysSet selected == wanted)
     (dieT "scheduled ingestion source lacks accepted private native evidence")
   pure selected
@@ -7276,12 +7277,10 @@ verifyReviewedScheduledPruneRecovery mctx scopes selectedJobs = do
 -- review base. The Kubernetes adapter checks the observed UID and native
 -- bytes again before submitting or verifying the prune Job.
 loadReviewedPruneSourceNative
-  :: Maybe String -> InventoryPlan.ReviewDocument -> [PruneSourceProof]
+  :: InventoryStore.InventoryStore -> InventoryPlan.ReviewDocument -> [PruneSourceProof]
   -> IO (Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString))
 loadReviewedPruneSourceNative _ _ [] = pure Map.empty
-loadReviewedPruneSourceNative mctx document proofs = do
-  active <- activeTarget mctx
-  store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+loadReviewedPruneSourceNative store document proofs = do
   history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
   forM_ proofs $ \proof -> do
     let matches = [(owner, revision, scope) | (owner, (revision, scope)) <-
@@ -7357,10 +7356,10 @@ loadReviewedPruneSourceNative mctx document proofs = do
       (InventoryPlan.historyReservations history))
   acceptedInventory <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeSnapshot acceptedSnapshot)
-  (acceptedNative, _) <- InventoryStatus.loadAcceptedNative store history acceptedInventory
-    >>= either dieT pure
   let wanted = Set.fromList (map pruneSourceJob proofs <> map fst credentials)
-      selected = Map.restrictKeys acceptedNative wanted
+  (acceptedNative, _) <- InventoryStatus.loadAcceptedNativeSelected wanted store history acceptedInventory
+    >>= either dieT pure
+  let selected = Map.restrictKeys acceptedNative wanted
   unless (Map.keysSet selected == wanted)
     (dieT "manual prune backup Job lacks accepted private native evidence")
   pure selected

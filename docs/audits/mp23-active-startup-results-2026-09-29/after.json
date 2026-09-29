@@ -1,0 +1,6792 @@
+{
+  "binarySha256": "6a648d9af9c0f8b6f0bb7e50722873845edd734591ed1ec789973b4452e134ae",
+  "sources": {
+    "cli/nagarectl/app/Main.hs": "db741bdf34e41b1366ae916542fccfe448dfac172c82a3eb6938efb7ce5bb749",
+    "cli/nagarectl/src/Nagare/Inventory/Command.hs": "cf92d29594792ae7ec4e17a6a942d44a601bef67e95a4c3974548b1104e9648c",
+    "cli/nagarectl/src/Nagare/Inventory/ObservationNative.hs": "3613a0fe4a18a7d01d25c69e7aa70bf61f7d9dbb8db06a16a8acdc953e15e08d",
+    "cli/nagarectl/src/Nagare/Inventory/Status.hs": "60c62bd43e8a80b7e9d191371c781aef14c0cf820bf2e129135dd2ade03df886",
+    "scripts/test-inventory-active-command-cost.py": "8620cc8570b73db8d4a9082aedaa83f1efde133b6ee3ca9fe0fead4fc1dfea25"
+  },
+  "results": [
+    {
+      "events": 50,
+      "reviews": 0,
+      "temperature": "cold",
+      "exit": 1,
+      "seconds": 4.373,
+      "subprocesses": 57,
+      "stdout": "ambiguous tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941 at op-62a42f7191e6f7ed29c0dd08\n",
+      "stderr": "",
+      "commands": [
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "buckets",
+            "describe",
+            "gs://audit.invalid",
+            "--raw",
+            "--format=value(projectNumber)"
+          ],
+          "at": 760815.904762333
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "projects",
+            "describe",
+            "project",
+            "--format=value(projectNumber)"
+          ],
+          "at": 760815.97838675
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/format.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760816.069142708
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/format.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-d75b1b3aa404fc6c/object",
+            "--quiet"
+          ],
+          "at": 760816.123475875
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/format.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760816.173120333
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760816.233541708
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-5077a451a335f13a/object",
+            "--quiet"
+          ],
+          "at": 760816.342331041
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760816.395211708
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/reviews/f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760816.454645416
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/reviews/f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-f63dac988844f5fd/object",
+            "--quiet"
+          ],
+          "at": 760816.515655791
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/reviews/f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760816.563464375
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/scopes/0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760816.616096
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/scopes/0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-4357e3d934480a18/object",
+            "--quiet"
+          ],
+          "at": 760816.6634665
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/scopes/0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760816.715525875
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/scopes/10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760816.799055291
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/scopes/10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-39188895af0fab0c/object",
+            "--quiet"
+          ],
+          "at": 760816.850091041
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/scopes/10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760816.904188833
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/scopes/162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760817.008769791
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/scopes/162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-161727a18524f687/object",
+            "--quiet"
+          ],
+          "at": 760817.068504375
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/scopes/162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760817.112927791
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/native/dd9b061b67fdb9dd3823f3a9a940ec60756365e819b8f20f2f5ee6e2111c6347.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760817.163923416
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/native/dd9b061b67fdb9dd3823f3a9a940ec60756365e819b8f20f2f5ee6e2111c6347.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-8c48a9f6698f299f/object",
+            "--quiet"
+          ],
+          "at": 760817.219913583
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/native/dd9b061b67fdb9dd3823f3a9a940ec60756365e819b8f20f2f5ee6e2111c6347.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760817.271698666
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/native/44dddb919c12f1cdd5739d68588b2b98636f6ed3d1a8f9327082ec2ef7f9e1c2.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760817.331466666
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/native/44dddb919c12f1cdd5739d68588b2b98636f6ed3d1a8f9327082ec2ef7f9e1c2.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-979308bb8e292d0f/object",
+            "--quiet"
+          ],
+          "at": 760817.389195833
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/native/44dddb919c12f1cdd5739d68588b2b98636f6ed3d1a8f9327082ec2ef7f9e1c2.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760817.44876275
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760817.539639583
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-953a19ed5c71798c/object",
+            "--quiet"
+          ],
+          "at": 760817.605728958
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760817.660357
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/native/fb77be0b5187e2266b74894b9701c00d6505f3853ba27c7e9298c2ea486d0fa1.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760817.722500791
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/native/fb77be0b5187e2266b74894b9701c00d6505f3853ba27c7e9298c2ea486d0fa1.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-253ed4e23b314b93/object",
+            "--quiet"
+          ],
+          "at": 760817.771435625
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/native/fb77be0b5187e2266b74894b9701c00d6505f3853ba27c7e9298c2ea486d0fa1.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760817.824252333
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760817.886006833
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-bb393ad9512ebfd1/object",
+            "--quiet"
+          ],
+          "at": 760817.939978333
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760818.031000583
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/journal/*.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-prefix-6326f014982099e6/",
+            "--quiet"
+          ],
+          "at": 760818.152599666
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760818.272350375
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-f987f6187e055e41/object",
+            "--quiet"
+          ],
+          "at": 760818.33564375
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760818.388119333
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-put-7cae5a4664ea8ce4/object",
+            "gs://audit.invalid/private/head.json",
+            "--if-generation-match=1",
+            "--print-created-message",
+            "--quiet"
+          ],
+          "at": 760818.450054833
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760818.507895541
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-c88a001a4696a26f/object",
+            "--quiet"
+          ],
+          "at": 760818.560680791
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760818.655467333
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "list",
+            "gs://audit.invalid/private/**",
+            "--format=json(name)",
+            "--quiet"
+          ],
+          "at": 760818.724971875
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 760818.9883685
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 760819.045533958
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 760819.0930165
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 760819.138598166
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 760819.201310458
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "ingestion",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 760819.282095208
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760819.335183208
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-6eeab1ce6682b90d/object",
+            "--quiet"
+          ],
+          "at": 760819.409210583
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760819.540668291
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760819.610004458
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-b1b567445c9cccfb/object",
+            "--quiet"
+          ],
+          "at": 760819.682025583
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760819.738630708
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-put-51b0c809933f2651/object",
+            "gs://audit.invalid/private/head.json",
+            "--if-generation-match=2",
+            "--print-created-message",
+            "--quiet"
+          ],
+          "at": 760819.793386833
+        }
+      ],
+      "callsByCategory": {
+        "headAndClaim": 23,
+        "immutableEvidence": 21,
+        "initialization": 5,
+        "journal": 1,
+        "objectListing": 1,
+        "providerObservation": 6
+      }
+    },
+    {
+      "events": 50,
+      "reviews": 0,
+      "temperature": "warm",
+      "exit": 1,
+      "seconds": 2.255,
+      "subprocesses": 36,
+      "stdout": "ambiguous tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941 at op-62a42f7191e6f7ed29c0dd08\n",
+      "stderr": "",
+      "commands": [
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "buckets",
+            "describe",
+            "gs://audit.invalid",
+            "--raw",
+            "--format=value(projectNumber)"
+          ],
+          "at": 760819.889842375
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "projects",
+            "describe",
+            "project",
+            "--format=value(projectNumber)"
+          ],
+          "at": 760819.979532833
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/format.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760820.086092375
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/format.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-553c3b058f02a470/object",
+            "--quiet"
+          ],
+          "at": 760820.151269458
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/format.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760820.2382395
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760820.338291916
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-bf4afa84be65e353/object",
+            "--quiet"
+          ],
+          "at": 760820.386288
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760820.433492416
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760820.483324875
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-5b7bb3cbf64866de/object",
+            "--quiet"
+          ],
+          "at": 760820.534269041
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760820.591261416
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760820.675334958
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-24a596f89bcc6abd/object",
+            "--quiet"
+          ],
+          "at": 760820.747713125
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760820.826749291
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/journal/*.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-prefix-ecceb1c5bfd8c75d/",
+            "--quiet"
+          ],
+          "at": 760820.873005458
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760820.93348325
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-8b42f485ecfb044e/object",
+            "--quiet"
+          ],
+          "at": 760821.034407875
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760821.108716125
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-put-718b245dcf983a1b/object",
+            "gs://audit.invalid/private/head.json",
+            "--if-generation-match=1",
+            "--print-created-message",
+            "--quiet"
+          ],
+          "at": 760821.1704085
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760821.223998333
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-9c7f9680bdc62f3d/object",
+            "--quiet"
+          ],
+          "at": 760821.274091333
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760821.327642166
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "list",
+            "gs://audit.invalid/private/**",
+            "--format=json(name)",
+            "--quiet"
+          ],
+          "at": 760821.375978375
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 760821.426095916
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 760821.476906166
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 760821.527097041
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 760821.571000375
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 760821.62220325
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "ingestion",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 760821.676077375
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760821.736412166
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-0eb19e4ceeadd174/object",
+            "--quiet"
+          ],
+          "at": 760821.783806833
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760821.830110083
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760821.877032625
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-4b64f6ac60b732bd/object",
+            "--quiet"
+          ],
+          "at": 760821.924683541
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760821.980746416
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-put-c9841a1b9dab5611/object",
+            "gs://audit.invalid/private/head.json",
+            "--if-generation-match=2",
+            "--print-created-message",
+            "--quiet"
+          ],
+          "at": 760822.045807833
+        }
+      ],
+      "callsByCategory": {
+        "headAndClaim": 23,
+        "initialization": 5,
+        "journal": 1,
+        "objectListing": 1,
+        "providerObservation": 6
+      }
+    },
+    {
+      "events": 50,
+      "reviews": 50,
+      "temperature": "cold",
+      "exit": 1,
+      "seconds": 4.101,
+      "subprocesses": 57,
+      "stdout": "ambiguous tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941 at op-62a42f7191e6f7ed29c0dd08\n",
+      "stderr": "",
+      "commands": [
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "buckets",
+            "describe",
+            "gs://audit.invalid",
+            "--raw",
+            "--format=value(projectNumber)"
+          ],
+          "at": 760822.149969458
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "projects",
+            "describe",
+            "project",
+            "--format=value(projectNumber)"
+          ],
+          "at": 760822.199490083
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/format.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760822.246411375
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/format.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-7d379da2eb323f96/object",
+            "--quiet"
+          ],
+          "at": 760822.294723666
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/format.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760822.382481291
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760822.466976458
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-2701f0a1b78b6760/object",
+            "--quiet"
+          ],
+          "at": 760822.565355333
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760822.621422041
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/reviews/f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760822.716889291
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/reviews/f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-bf1573b0b36c6694/object",
+            "--quiet"
+          ],
+          "at": 760822.854180791
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/reviews/f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760822.909905
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/scopes/0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760822.965215041
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/scopes/0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-42d2cc4fead359d4/object",
+            "--quiet"
+          ],
+          "at": 760823.047094166
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/scopes/0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760823.110531625
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/scopes/10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760823.164949291
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/scopes/10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-43bc5a958539926e/object",
+            "--quiet"
+          ],
+          "at": 760823.216789333
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/scopes/10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760823.261941833
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/scopes/162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760823.310977625
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/scopes/162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-280ac00014dea705/object",
+            "--quiet"
+          ],
+          "at": 760823.360569291
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/scopes/162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760823.407627916
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/native/dd9b061b67fdb9dd3823f3a9a940ec60756365e819b8f20f2f5ee6e2111c6347.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760823.462283625
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/native/dd9b061b67fdb9dd3823f3a9a940ec60756365e819b8f20f2f5ee6e2111c6347.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-bf64fb2a2ee0d9a5/object",
+            "--quiet"
+          ],
+          "at": 760823.524170583
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/native/dd9b061b67fdb9dd3823f3a9a940ec60756365e819b8f20f2f5ee6e2111c6347.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760823.578214541
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/native/44dddb919c12f1cdd5739d68588b2b98636f6ed3d1a8f9327082ec2ef7f9e1c2.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760823.650362416
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/native/44dddb919c12f1cdd5739d68588b2b98636f6ed3d1a8f9327082ec2ef7f9e1c2.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-56533fecaa971746/object",
+            "--quiet"
+          ],
+          "at": 760823.702098125
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/native/44dddb919c12f1cdd5739d68588b2b98636f6ed3d1a8f9327082ec2ef7f9e1c2.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760823.751016208
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760823.846612791
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-1d9638d15c4c0e05/object",
+            "--quiet"
+          ],
+          "at": 760823.919396333
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760823.973597958
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/native/fb77be0b5187e2266b74894b9701c00d6505f3853ba27c7e9298c2ea486d0fa1.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760824.077934333
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/native/fb77be0b5187e2266b74894b9701c00d6505f3853ba27c7e9298c2ea486d0fa1.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-07ff18c62b5abbe8/object",
+            "--quiet"
+          ],
+          "at": 760824.126305083
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/native/fb77be0b5187e2266b74894b9701c00d6505f3853ba27c7e9298c2ea486d0fa1.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760824.176790041
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760824.260165833
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-86344163be9b007b/object",
+            "--quiet"
+          ],
+          "at": 760824.317108666
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760824.404288166
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/journal/*.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-prefix-e61a39f3ba6d5007/",
+            "--quiet"
+          ],
+          "at": 760824.466149375
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760824.582492625
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-3ceef2d244f3693a/object",
+            "--quiet"
+          ],
+          "at": 760824.644120916
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760824.718900625
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-put-9bfc2b14c6849863/object",
+            "gs://audit.invalid/private/head.json",
+            "--if-generation-match=1",
+            "--print-created-message",
+            "--quiet"
+          ],
+          "at": 760824.82263325
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760824.903989333
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-fc3ff2a236f12cba/object",
+            "--quiet"
+          ],
+          "at": 760824.95601075
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760825.0547135
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "list",
+            "gs://audit.invalid/private/**",
+            "--format=json(name)",
+            "--quiet"
+          ],
+          "at": 760825.257563791
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 760825.331712083
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 760825.396258375
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 760825.514201833
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 760825.575672916
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 760825.705791375
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "ingestion",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 760825.800110833
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760825.8522285
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-9c050529b3497ecd/object",
+            "--quiet"
+          ],
+          "at": 760825.903667916
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760825.95581325
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760826.006222833
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-c4e41f5d036f6597/object",
+            "--quiet"
+          ],
+          "at": 760826.063298125
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760826.114636791
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-put-130e483bd16557b3/object",
+            "gs://audit.invalid/private/head.json",
+            "--if-generation-match=2",
+            "--print-created-message",
+            "--quiet"
+          ],
+          "at": 760826.168912083
+        }
+      ],
+      "callsByCategory": {
+        "headAndClaim": 23,
+        "immutableEvidence": 21,
+        "initialization": 5,
+        "journal": 1,
+        "objectListing": 1,
+        "providerObservation": 6
+      }
+    },
+    {
+      "events": 50,
+      "reviews": 50,
+      "temperature": "warm",
+      "exit": 1,
+      "seconds": 2.375,
+      "subprocesses": 36,
+      "stdout": "ambiguous tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941 at op-62a42f7191e6f7ed29c0dd08\n",
+      "stderr": "",
+      "commands": [
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "buckets",
+            "describe",
+            "gs://audit.invalid",
+            "--raw",
+            "--format=value(projectNumber)"
+          ],
+          "at": 760826.259631958
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "projects",
+            "describe",
+            "project",
+            "--format=value(projectNumber)"
+          ],
+          "at": 760826.317586041
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/format.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760826.408175875
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/format.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-449fe8c2868a9e70/object",
+            "--quiet"
+          ],
+          "at": 760826.470074166
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/format.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760826.524468166
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760826.576760583
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-7422e45226627b0f/object",
+            "--quiet"
+          ],
+          "at": 760826.630498291
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760826.6999315
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760826.760274625
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-df31e1b0c9f00735/object",
+            "--quiet"
+          ],
+          "at": 760826.836356541
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760826.893716416
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760826.9563995
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-f1720e4b8d517a0f/object",
+            "--quiet"
+          ],
+          "at": 760827.0204855
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760827.082857958
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/journal/*.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-prefix-3349b5455b22135a/",
+            "--quiet"
+          ],
+          "at": 760827.149804166
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760827.216210916
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-f90a6dbea91880ed/object",
+            "--quiet"
+          ],
+          "at": 760827.290901958
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760827.36122575
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-put-59a225f334b3d196/object",
+            "gs://audit.invalid/private/head.json",
+            "--if-generation-match=1",
+            "--print-created-message",
+            "--quiet"
+          ],
+          "at": 760827.439357625
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760827.493848208
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-014159af57d0c5d2/object",
+            "--quiet"
+          ],
+          "at": 760827.552226458
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760827.610329541
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "list",
+            "gs://audit.invalid/private/**",
+            "--format=json(name)",
+            "--quiet"
+          ],
+          "at": 760827.747783291
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 760827.81968425
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 760827.892877916
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 760827.940257875
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 760828.004201041
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 760828.078138166
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "ingestion",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 760828.129035208
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760828.180071916
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-8356f3123804d6f0/object",
+            "--quiet"
+          ],
+          "at": 760828.252397666
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760828.302438041
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760828.359917
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-bd9112c9ee6ea51c/object",
+            "--quiet"
+          ],
+          "at": 760828.404611375
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760828.458249041
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-put-f7ba04bab922ce29/object",
+            "gs://audit.invalid/private/head.json",
+            "--if-generation-match=2",
+            "--print-created-message",
+            "--quiet"
+          ],
+          "at": 760828.534565916
+        }
+      ],
+      "callsByCategory": {
+        "headAndClaim": 23,
+        "initialization": 5,
+        "journal": 1,
+        "objectListing": 1,
+        "providerObservation": 6
+      }
+    },
+    {
+      "events": 50,
+      "reviews": 500,
+      "temperature": "cold",
+      "exit": 1,
+      "seconds": 3.24,
+      "subprocesses": 57,
+      "stdout": "ambiguous tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941 at op-62a42f7191e6f7ed29c0dd08\n",
+      "stderr": "",
+      "commands": [
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "buckets",
+            "describe",
+            "gs://audit.invalid",
+            "--raw",
+            "--format=value(projectNumber)"
+          ],
+          "at": 760828.637181708
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "projects",
+            "describe",
+            "project",
+            "--format=value(projectNumber)"
+          ],
+          "at": 760828.731435333
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/format.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760828.799609083
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/format.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-3604a22c8d0df415/object",
+            "--quiet"
+          ],
+          "at": 760828.873331
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/format.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760828.969009416
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760829.048344875
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-ef47c531957b3349/object",
+            "--quiet"
+          ],
+          "at": 760829.094964125
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760829.143474041
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/reviews/f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760829.199512833
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/reviews/f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-79b3759b6347cfde/object",
+            "--quiet"
+          ],
+          "at": 760829.254857916
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/reviews/f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760829.356471333
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/scopes/0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760829.409942416
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/scopes/0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-cd4a1afb72845b6a/object",
+            "--quiet"
+          ],
+          "at": 760829.485403708
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/scopes/0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760829.534503458
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/scopes/10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760829.601610708
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/scopes/10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-3e13e26136e0de71/object",
+            "--quiet"
+          ],
+          "at": 760829.652171041
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/scopes/10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760829.708453666
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/scopes/162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760829.768288666
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/scopes/162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-30a4becd8338d223/object",
+            "--quiet"
+          ],
+          "at": 760829.828228333
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/scopes/162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760829.891764333
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/native/dd9b061b67fdb9dd3823f3a9a940ec60756365e819b8f20f2f5ee6e2111c6347.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760829.94793225
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/native/dd9b061b67fdb9dd3823f3a9a940ec60756365e819b8f20f2f5ee6e2111c6347.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-e7f3d8980bd60c8b/object",
+            "--quiet"
+          ],
+          "at": 760829.9979825
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/native/dd9b061b67fdb9dd3823f3a9a940ec60756365e819b8f20f2f5ee6e2111c6347.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760830.049765708
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/native/44dddb919c12f1cdd5739d68588b2b98636f6ed3d1a8f9327082ec2ef7f9e1c2.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760830.104569416
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/native/44dddb919c12f1cdd5739d68588b2b98636f6ed3d1a8f9327082ec2ef7f9e1c2.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-f708f79131da7039/object",
+            "--quiet"
+          ],
+          "at": 760830.190849416
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/native/44dddb919c12f1cdd5739d68588b2b98636f6ed3d1a8f9327082ec2ef7f9e1c2.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760830.249467208
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760830.31231625
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-e85eed67e7408d51/object",
+            "--quiet"
+          ],
+          "at": 760830.367689333
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760830.4277515
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/native/fb77be0b5187e2266b74894b9701c00d6505f3853ba27c7e9298c2ea486d0fa1.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760830.47921675
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/native/fb77be0b5187e2266b74894b9701c00d6505f3853ba27c7e9298c2ea486d0fa1.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-334c0b79fc7d5b83/object",
+            "--quiet"
+          ],
+          "at": 760830.530503041
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/native/fb77be0b5187e2266b74894b9701c00d6505f3853ba27c7e9298c2ea486d0fa1.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760830.58726625
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760830.640664208
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-dd8dae3a2b9bec46/object",
+            "--quiet"
+          ],
+          "at": 760830.687984666
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760830.734246291
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/journal/*.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-prefix-95ac706806c67cc3/",
+            "--quiet"
+          ],
+          "at": 760830.782187125
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760830.839292458
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-eee7e7da6fd8865f/object",
+            "--quiet"
+          ],
+          "at": 760830.8837205
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760830.934781541
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-put-0a8c2dfda39849b2/object",
+            "gs://audit.invalid/private/head.json",
+            "--if-generation-match=1",
+            "--print-created-message",
+            "--quiet"
+          ],
+          "at": 760830.985050208
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760831.045020291
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-478a88fc61d127ca/object",
+            "--quiet"
+          ],
+          "at": 760831.094448833
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760831.1391775
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "list",
+            "gs://audit.invalid/private/**",
+            "--format=json(name)",
+            "--quiet"
+          ],
+          "at": 760831.186164833
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 760831.235438625
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 760831.280875791
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 760831.329854541
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 760831.3710395
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 760831.415706166
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "ingestion",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 760831.455880375
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760831.507314875
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-6d7c5d8d306dd4cd/object",
+            "--quiet"
+          ],
+          "at": 760831.554549166
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760831.601107208
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760831.649110833
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-b1b192441a6f9974/object",
+            "--quiet"
+          ],
+          "at": 760831.692490458
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760831.738699333
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-put-05d9bc6bebc43b89/object",
+            "gs://audit.invalid/private/head.json",
+            "--if-generation-match=2",
+            "--print-created-message",
+            "--quiet"
+          ],
+          "at": 760831.786335666
+        }
+      ],
+      "callsByCategory": {
+        "headAndClaim": 23,
+        "immutableEvidence": 21,
+        "initialization": 5,
+        "journal": 1,
+        "objectListing": 1,
+        "providerObservation": 6
+      }
+    },
+    {
+      "events": 50,
+      "reviews": 500,
+      "temperature": "warm",
+      "exit": 1,
+      "seconds": 1.874,
+      "subprocesses": 36,
+      "stdout": "ambiguous tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941 at op-62a42f7191e6f7ed29c0dd08\n",
+      "stderr": "",
+      "commands": [
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "buckets",
+            "describe",
+            "gs://audit.invalid",
+            "--raw",
+            "--format=value(projectNumber)"
+          ],
+          "at": 760831.865601666
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "projects",
+            "describe",
+            "project",
+            "--format=value(projectNumber)"
+          ],
+          "at": 760831.910591
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/format.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760831.963278166
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/format.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-e2d59c2d7a1ac0d4/object",
+            "--quiet"
+          ],
+          "at": 760832.010513166
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/format.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760832.051543666
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760832.099044333
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-72de0a0f14c05fbc/object",
+            "--quiet"
+          ],
+          "at": 760832.138895208
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760832.201533291
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760832.247558666
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-fcdbc284670706d3/object",
+            "--quiet"
+          ],
+          "at": 760832.291799541
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760832.336437333
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760832.380846291
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-3c960d3c650b3895/object",
+            "--quiet"
+          ],
+          "at": 760832.431087125
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760832.479632208
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/journal/*.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-prefix-5f9163d71220301d/",
+            "--quiet"
+          ],
+          "at": 760832.526179541
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760832.581737291
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-45238291f8fc6a32/object",
+            "--quiet"
+          ],
+          "at": 760832.64932925
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760832.738960208
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-put-b9b8f7d82fd0de29/object",
+            "gs://audit.invalid/private/head.json",
+            "--if-generation-match=1",
+            "--print-created-message",
+            "--quiet"
+          ],
+          "at": 760832.832385416
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760832.884753333
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-0bc20324c532cc52/object",
+            "--quiet"
+          ],
+          "at": 760832.929788291
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760832.975191208
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "list",
+            "gs://audit.invalid/private/**",
+            "--format=json(name)",
+            "--quiet"
+          ],
+          "at": 760833.018846583
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 760833.068372541
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 760833.119262208
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 760833.169383
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 760833.233108583
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 760833.286690375
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "ingestion",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 760833.337052416
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760833.381307875
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-c98565c95aa823e3/object",
+            "--quiet"
+          ],
+          "at": 760833.431337791
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760833.474573666
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760833.522391125
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-19dffa7189ebbb33/object",
+            "--quiet"
+          ],
+          "at": 760833.571824208
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760833.617586541
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-put-42000564f443e652/object",
+            "gs://audit.invalid/private/head.json",
+            "--if-generation-match=2",
+            "--print-created-message",
+            "--quiet"
+          ],
+          "at": 760833.662216291
+        }
+      ],
+      "callsByCategory": {
+        "headAndClaim": 23,
+        "initialization": 5,
+        "journal": 1,
+        "objectListing": 1,
+        "providerObservation": 6
+      }
+    },
+    {
+      "events": 500,
+      "reviews": 0,
+      "temperature": "cold",
+      "exit": 1,
+      "seconds": 3.224,
+      "subprocesses": 57,
+      "stdout": "ambiguous tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941 at op-62a42f7191e6f7ed29c0dd08\n",
+      "stderr": "",
+      "commands": [
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "buckets",
+            "describe",
+            "gs://audit.invalid",
+            "--raw",
+            "--format=value(projectNumber)"
+          ],
+          "at": 760833.758793208
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "projects",
+            "describe",
+            "project",
+            "--format=value(projectNumber)"
+          ],
+          "at": 760833.799968958
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/format.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760833.84687725
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/format.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-b160eb75dc07a979/object",
+            "--quiet"
+          ],
+          "at": 760833.891232333
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/format.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760833.933381291
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760833.97970125
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-5c3af01bd13fa2f2/object",
+            "--quiet"
+          ],
+          "at": 760834.042299125
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760834.0998165
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/reviews/f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760834.1652145
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/reviews/f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-d5b3db9c14500cef/object",
+            "--quiet"
+          ],
+          "at": 760834.213759666
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/reviews/f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760834.263137291
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/scopes/0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760834.315986333
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/scopes/0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-045f6e18cde94478/object",
+            "--quiet"
+          ],
+          "at": 760834.383136666
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/scopes/0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760834.478876333
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/scopes/10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760834.53889375
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/scopes/10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-3641de6fb4f6f64b/object",
+            "--quiet"
+          ],
+          "at": 760834.686555
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/scopes/10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760834.740023625
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/scopes/162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760834.783474833
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/scopes/162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-480dc965545ab79b/object",
+            "--quiet"
+          ],
+          "at": 760834.82584325
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/scopes/162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760834.8720975
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/native/dd9b061b67fdb9dd3823f3a9a940ec60756365e819b8f20f2f5ee6e2111c6347.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760834.916227333
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/native/dd9b061b67fdb9dd3823f3a9a940ec60756365e819b8f20f2f5ee6e2111c6347.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-b4c701ac0dba8266/object",
+            "--quiet"
+          ],
+          "at": 760834.956012208
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/native/dd9b061b67fdb9dd3823f3a9a940ec60756365e819b8f20f2f5ee6e2111c6347.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760835.002666625
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/native/44dddb919c12f1cdd5739d68588b2b98636f6ed3d1a8f9327082ec2ef7f9e1c2.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760835.05142075
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/native/44dddb919c12f1cdd5739d68588b2b98636f6ed3d1a8f9327082ec2ef7f9e1c2.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-64948b3cdc0148bc/object",
+            "--quiet"
+          ],
+          "at": 760835.092399291
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/native/44dddb919c12f1cdd5739d68588b2b98636f6ed3d1a8f9327082ec2ef7f9e1c2.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760835.135478375
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760835.183630791
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-dfa1f72988cd639e/object",
+            "--quiet"
+          ],
+          "at": 760835.228836458
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760835.281404375
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/native/fb77be0b5187e2266b74894b9701c00d6505f3853ba27c7e9298c2ea486d0fa1.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760835.331501833
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/native/fb77be0b5187e2266b74894b9701c00d6505f3853ba27c7e9298c2ea486d0fa1.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-5a72f8e198d20501/object",
+            "--quiet"
+          ],
+          "at": 760835.370862041
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/native/fb77be0b5187e2266b74894b9701c00d6505f3853ba27c7e9298c2ea486d0fa1.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760835.409878083
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760835.46191
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-2043a88354900b76/object",
+            "--quiet"
+          ],
+          "at": 760835.505816208
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760835.595013416
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/journal/*.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-prefix-2d74e6826d2fa0c5/",
+            "--quiet"
+          ],
+          "at": 760835.672409875
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760835.866918291
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-7ebf7071c76204cc/object",
+            "--quiet"
+          ],
+          "at": 760835.948192708
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760835.991832041
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-put-d603035c22b28801/object",
+            "gs://audit.invalid/private/head.json",
+            "--if-generation-match=1",
+            "--print-created-message",
+            "--quiet"
+          ],
+          "at": 760836.034472333
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760836.077788541
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-a16e05e6a90c07f8/object",
+            "--quiet"
+          ],
+          "at": 760836.118760166
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760836.162957333
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "list",
+            "gs://audit.invalid/private/**",
+            "--format=json(name)",
+            "--quiet"
+          ],
+          "at": 760836.234824708
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 760836.2801295
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 760836.333408666
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 760836.378910083
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 760836.43564275
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 760836.481285708
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "ingestion",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 760836.531115166
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760836.590740291
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-bf5f7abef28268b3/object",
+            "--quiet"
+          ],
+          "at": 760836.637196458
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760836.686647958
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760836.734247916
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-0ca57eb84a6df59b/object",
+            "--quiet"
+          ],
+          "at": 760836.801427625
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760836.853145666
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-put-328bc9a49dd49762/object",
+            "gs://audit.invalid/private/head.json",
+            "--if-generation-match=2",
+            "--print-created-message",
+            "--quiet"
+          ],
+          "at": 760836.896913541
+        }
+      ],
+      "callsByCategory": {
+        "headAndClaim": 23,
+        "immutableEvidence": 21,
+        "initialization": 5,
+        "journal": 1,
+        "objectListing": 1,
+        "providerObservation": 6
+      }
+    },
+    {
+      "events": 500,
+      "reviews": 0,
+      "temperature": "warm",
+      "exit": 1,
+      "seconds": 2.001,
+      "subprocesses": 36,
+      "stdout": "ambiguous tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941 at op-62a42f7191e6f7ed29c0dd08\n",
+      "stderr": "",
+      "commands": [
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "buckets",
+            "describe",
+            "gs://audit.invalid",
+            "--raw",
+            "--format=value(projectNumber)"
+          ],
+          "at": 760836.975454583
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "projects",
+            "describe",
+            "project",
+            "--format=value(projectNumber)"
+          ],
+          "at": 760837.030152875
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/format.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760837.084324458
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/format.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-aad898ad6791a48b/object",
+            "--quiet"
+          ],
+          "at": 760837.154809666
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/format.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760837.204992708
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760837.2559785
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-715a5b20d2d11441/object",
+            "--quiet"
+          ],
+          "at": 760837.305767916
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760837.357452291
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760837.405999541
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-e645f5f77f94583f/object",
+            "--quiet"
+          ],
+          "at": 760837.449376375
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760837.494240666
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760837.548879125
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-98769eff032b5146/object",
+            "--quiet"
+          ],
+          "at": 760837.591953166
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760837.635837708
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/journal/*.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-prefix-da47f3debfcc73a3/",
+            "--quiet"
+          ],
+          "at": 760837.683889083
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760837.867840666
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-2e887250e5143a87/object",
+            "--quiet"
+          ],
+          "at": 760837.919896291
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760837.962455083
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-put-8cf3e39b72ba73e5/object",
+            "gs://audit.invalid/private/head.json",
+            "--if-generation-match=1",
+            "--print-created-message",
+            "--quiet"
+          ],
+          "at": 760838.00986875
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760838.055653625
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-9021ab652cd89b74/object",
+            "--quiet"
+          ],
+          "at": 760838.098476083
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760838.1517265
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "list",
+            "gs://audit.invalid/private/**",
+            "--format=json(name)",
+            "--quiet"
+          ],
+          "at": 760838.225614916
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 760838.274657208
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 760838.319974916
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 760838.391794958
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 760838.443333833
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 760838.498453083
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "ingestion",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 760838.547429791
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760838.594472666
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-0b87424122740b8b/object",
+            "--quiet"
+          ],
+          "at": 760838.6386365
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760838.687022416
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760838.741871625
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-d6092a1bcc221810/object",
+            "--quiet"
+          ],
+          "at": 760838.792993416
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760838.837486083
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-put-8347b4f322071e6e/object",
+            "gs://audit.invalid/private/head.json",
+            "--if-generation-match=2",
+            "--print-created-message",
+            "--quiet"
+          ],
+          "at": 760838.896468833
+        }
+      ],
+      "callsByCategory": {
+        "headAndClaim": 23,
+        "initialization": 5,
+        "journal": 1,
+        "objectListing": 1,
+        "providerObservation": 6
+      }
+    },
+    {
+      "events": 500,
+      "reviews": 50,
+      "temperature": "cold",
+      "exit": 1,
+      "seconds": 3.148,
+      "subprocesses": 57,
+      "stdout": "ambiguous tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941 at op-62a42f7191e6f7ed29c0dd08\n",
+      "stderr": "",
+      "commands": [
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "buckets",
+            "describe",
+            "gs://audit.invalid",
+            "--raw",
+            "--format=value(projectNumber)"
+          ],
+          "at": 760838.99000875
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "projects",
+            "describe",
+            "project",
+            "--format=value(projectNumber)"
+          ],
+          "at": 760839.061167833
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/format.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760839.158598166
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/format.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-6db2c76f049a16dd/object",
+            "--quiet"
+          ],
+          "at": 760839.203490833
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/format.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760839.252092958
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760839.297933708
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-5dd2e4d1ef289942/object",
+            "--quiet"
+          ],
+          "at": 760839.349296375
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760839.394742875
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/reviews/f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760839.440646625
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/reviews/f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-420c2a64f19268b9/object",
+            "--quiet"
+          ],
+          "at": 760839.490323041
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/reviews/f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760839.539498875
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/scopes/0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760839.584575833
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/scopes/0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-57b595e49c0870ad/object",
+            "--quiet"
+          ],
+          "at": 760839.629286208
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/scopes/0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760839.671688583
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/scopes/10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760839.720024791
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/scopes/10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-870a8a6b9f4e9dc0/object",
+            "--quiet"
+          ],
+          "at": 760839.769942625
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/scopes/10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760839.823119083
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/scopes/162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760839.869061708
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/scopes/162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-57fadc58793eb66b/object",
+            "--quiet"
+          ],
+          "at": 760839.91608175
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/scopes/162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760839.970573375
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/native/dd9b061b67fdb9dd3823f3a9a940ec60756365e819b8f20f2f5ee6e2111c6347.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760840.038703666
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/native/dd9b061b67fdb9dd3823f3a9a940ec60756365e819b8f20f2f5ee6e2111c6347.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-da5284062de19aa2/object",
+            "--quiet"
+          ],
+          "at": 760840.097377583
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/native/dd9b061b67fdb9dd3823f3a9a940ec60756365e819b8f20f2f5ee6e2111c6347.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760840.172339125
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/native/44dddb919c12f1cdd5739d68588b2b98636f6ed3d1a8f9327082ec2ef7f9e1c2.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760840.244564625
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/native/44dddb919c12f1cdd5739d68588b2b98636f6ed3d1a8f9327082ec2ef7f9e1c2.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-586deb0c5c1f8db4/object",
+            "--quiet"
+          ],
+          "at": 760840.33749875
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/native/44dddb919c12f1cdd5739d68588b2b98636f6ed3d1a8f9327082ec2ef7f9e1c2.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760840.386645125
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760840.442628333
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-ce186b4fdfeb4a3d/object",
+            "--quiet"
+          ],
+          "at": 760840.48590975
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760840.529832125
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/native/fb77be0b5187e2266b74894b9701c00d6505f3853ba27c7e9298c2ea486d0fa1.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760840.575721416
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/native/fb77be0b5187e2266b74894b9701c00d6505f3853ba27c7e9298c2ea486d0fa1.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-431d69b14d1a5852/object",
+            "--quiet"
+          ],
+          "at": 760840.622659875
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/native/fb77be0b5187e2266b74894b9701c00d6505f3853ba27c7e9298c2ea486d0fa1.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760840.670150916
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760840.730512875
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-84daf8db3b23abe4/object",
+            "--quiet"
+          ],
+          "at": 760840.781981333
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760840.837346
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/journal/*.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-prefix-5a89517bff4f331c/",
+            "--quiet"
+          ],
+          "at": 760840.898133375
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760841.089119916
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-c2d91656021e54dd/object",
+            "--quiet"
+          ],
+          "at": 760841.138832833
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760841.186394625
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-put-aff78cb76be5fba4/object",
+            "gs://audit.invalid/private/head.json",
+            "--if-generation-match=1",
+            "--print-created-message",
+            "--quiet"
+          ],
+          "at": 760841.230367583
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760841.295620416
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-53f87abdf6defaf8/object",
+            "--quiet"
+          ],
+          "at": 760841.346331875
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760841.393593333
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "list",
+            "gs://audit.invalid/private/**",
+            "--format=json(name)",
+            "--quiet"
+          ],
+          "at": 760841.43898025
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 760841.487558875
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 760841.534716041
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 760841.58499125
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 760841.631810958
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 760841.67030825
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "ingestion",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 760841.7142625
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760841.758850666
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-71b200a94f920683/object",
+            "--quiet"
+          ],
+          "at": 760841.806970791
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760841.851978583
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760841.901048375
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-b457cf4f353ad697/object",
+            "--quiet"
+          ],
+          "at": 760841.957545666
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760842.008417
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-put-2c9c0e4c7a537c77/object",
+            "gs://audit.invalid/private/head.json",
+            "--if-generation-match=2",
+            "--print-created-message",
+            "--quiet"
+          ],
+          "at": 760842.056875541
+        }
+      ],
+      "callsByCategory": {
+        "headAndClaim": 23,
+        "immutableEvidence": 21,
+        "initialization": 5,
+        "journal": 1,
+        "objectListing": 1,
+        "providerObservation": 6
+      }
+    },
+    {
+      "events": 500,
+      "reviews": 50,
+      "temperature": "warm",
+      "exit": 1,
+      "seconds": 2.065,
+      "subprocesses": 36,
+      "stdout": "ambiguous tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941 at op-62a42f7191e6f7ed29c0dd08\n",
+      "stderr": "",
+      "commands": [
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "buckets",
+            "describe",
+            "gs://audit.invalid",
+            "--raw",
+            "--format=value(projectNumber)"
+          ],
+          "at": 760842.135586458
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "projects",
+            "describe",
+            "project",
+            "--format=value(projectNumber)"
+          ],
+          "at": 760842.193665625
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/format.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760842.240133083
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/format.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-fc179d32a4727139/object",
+            "--quiet"
+          ],
+          "at": 760842.286883625
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/format.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760842.330178916
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760842.381645416
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-c511a27cd3400d08/object",
+            "--quiet"
+          ],
+          "at": 760842.434057291
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760842.4858275
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760842.535648875
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-f274096292a19be0/object",
+            "--quiet"
+          ],
+          "at": 760842.57991
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760842.624435
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760842.668347166
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-ad4dedf79287f220/object",
+            "--quiet"
+          ],
+          "at": 760842.716747208
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760842.761601833
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/journal/*.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-prefix-d070fd890f7d5677/",
+            "--quiet"
+          ],
+          "at": 760842.81672825
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760842.991316291
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-6196bb2069d4d0d1/object",
+            "--quiet"
+          ],
+          "at": 760843.0400865
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760843.083678666
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-put-58fd427757f9a8ff/object",
+            "gs://audit.invalid/private/head.json",
+            "--if-generation-match=1",
+            "--print-created-message",
+            "--quiet"
+          ],
+          "at": 760843.126420708
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760843.186926666
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-6cdc116a143e23f5/object",
+            "--quiet"
+          ],
+          "at": 760843.230308958
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760843.27393875
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "list",
+            "gs://audit.invalid/private/**",
+            "--format=json(name)",
+            "--quiet"
+          ],
+          "at": 760843.323573458
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 760843.375295833
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 760843.420058291
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 760843.459418833
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 760843.500161875
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 760843.540857458
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "ingestion",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 760843.596031
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760843.644738708
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-b2fb36ac0b88110b/object",
+            "--quiet"
+          ],
+          "at": 760843.699048208
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760843.759423333
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760843.832281208
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-df06a46d762ed013/object",
+            "--quiet"
+          ],
+          "at": 760843.894660875
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760843.968749875
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-put-cea254b1aacb1ce0/object",
+            "gs://audit.invalid/private/head.json",
+            "--if-generation-match=2",
+            "--print-created-message",
+            "--quiet"
+          ],
+          "at": 760844.106490166
+        }
+      ],
+      "callsByCategory": {
+        "headAndClaim": 23,
+        "initialization": 5,
+        "journal": 1,
+        "objectListing": 1,
+        "providerObservation": 6
+      }
+    },
+    {
+      "events": 500,
+      "reviews": 500,
+      "temperature": "cold",
+      "exit": 1,
+      "seconds": 3.488,
+      "subprocesses": 57,
+      "stdout": "ambiguous tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941 at op-62a42f7191e6f7ed29c0dd08\n",
+      "stderr": "",
+      "commands": [
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "buckets",
+            "describe",
+            "gs://audit.invalid",
+            "--raw",
+            "--format=value(projectNumber)"
+          ],
+          "at": 760844.3823435
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "projects",
+            "describe",
+            "project",
+            "--format=value(projectNumber)"
+          ],
+          "at": 760844.521928166
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/format.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760844.602036708
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/format.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-a395f75175870cce/object",
+            "--quiet"
+          ],
+          "at": 760844.730245708
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/format.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760844.822101416
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760844.879770125
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-4a59902e548fb888/object",
+            "--quiet"
+          ],
+          "at": 760844.933678666
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760844.993964833
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/reviews/f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760845.0478375
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/reviews/f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-c42416d40930e17e/object",
+            "--quiet"
+          ],
+          "at": 760845.091677083
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/reviews/f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760845.153205541
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/scopes/0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760845.229784041
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/scopes/0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-4330f6134a04e6db/object",
+            "--quiet"
+          ],
+          "at": 760845.281613625
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/scopes/0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760845.331454166
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/scopes/10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760845.382808625
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/scopes/10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-a30891f46ad1fe18/object",
+            "--quiet"
+          ],
+          "at": 760845.428213583
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/scopes/10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760845.474027916
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/scopes/162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760845.532409083
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/scopes/162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-c82b0b088323e5c9/object",
+            "--quiet"
+          ],
+          "at": 760845.581167791
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/scopes/162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760845.62837525
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/native/dd9b061b67fdb9dd3823f3a9a940ec60756365e819b8f20f2f5ee6e2111c6347.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760845.676234416
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/native/dd9b061b67fdb9dd3823f3a9a940ec60756365e819b8f20f2f5ee6e2111c6347.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-1019dd02b94f0de7/object",
+            "--quiet"
+          ],
+          "at": 760845.7217035
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/native/dd9b061b67fdb9dd3823f3a9a940ec60756365e819b8f20f2f5ee6e2111c6347.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760845.768850583
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/native/44dddb919c12f1cdd5739d68588b2b98636f6ed3d1a8f9327082ec2ef7f9e1c2.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760845.818336708
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/native/44dddb919c12f1cdd5739d68588b2b98636f6ed3d1a8f9327082ec2ef7f9e1c2.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-fcd2f0abcae06ec3/object",
+            "--quiet"
+          ],
+          "at": 760845.869226333
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/native/44dddb919c12f1cdd5739d68588b2b98636f6ed3d1a8f9327082ec2ef7f9e1c2.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760845.918796708
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760845.979798958
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-2d6166d49ef71746/object",
+            "--quiet"
+          ],
+          "at": 760846.035519166
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760846.085773208
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/native/fb77be0b5187e2266b74894b9701c00d6505f3853ba27c7e9298c2ea486d0fa1.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760846.137896791
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/native/fb77be0b5187e2266b74894b9701c00d6505f3853ba27c7e9298c2ea486d0fa1.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-118f0fb7a0a20ce1/object",
+            "--quiet"
+          ],
+          "at": 760846.185155375
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/native/fb77be0b5187e2266b74894b9701c00d6505f3853ba27c7e9298c2ea486d0fa1.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760846.232863666
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760846.287491125
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-01fe35890decf9a7/object",
+            "--quiet"
+          ],
+          "at": 760846.343463625
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760846.391181458
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/journal/*.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-prefix-d4371c34301c4bc3/",
+            "--quiet"
+          ],
+          "at": 760846.449593958
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760846.644783
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-e44794c14a3de4be/object",
+            "--quiet"
+          ],
+          "at": 760846.696612416
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760846.739634166
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-put-2731c3fc26a1d481/object",
+            "gs://audit.invalid/private/head.json",
+            "--if-generation-match=1",
+            "--print-created-message",
+            "--quiet"
+          ],
+          "at": 760846.8017545
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760846.848196916
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-14c3da605a1f9231/object",
+            "--quiet"
+          ],
+          "at": 760846.896749791
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760846.940615541
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "list",
+            "gs://audit.invalid/private/**",
+            "--format=json(name)",
+            "--quiet"
+          ],
+          "at": 760846.986997375
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 760847.042882833
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 760847.090149166
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 760847.135097041
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 760847.181040041
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 760847.2260815
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "ingestion",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 760847.267814791
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760847.323415708
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-625b3aefc9768252/object",
+            "--quiet"
+          ],
+          "at": 760847.367331291
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760847.428010541
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760847.481281083
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-41bc4c81d2582356/object",
+            "--quiet"
+          ],
+          "at": 760847.533907666
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760847.579549125
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-put-1b27901ed88f2e21/object",
+            "gs://audit.invalid/private/head.json",
+            "--if-generation-match=2",
+            "--print-created-message",
+            "--quiet"
+          ],
+          "at": 760847.626819208
+        }
+      ],
+      "callsByCategory": {
+        "headAndClaim": 23,
+        "immutableEvidence": 21,
+        "initialization": 5,
+        "journal": 1,
+        "objectListing": 1,
+        "providerObservation": 6
+      }
+    },
+    {
+      "events": 500,
+      "reviews": 500,
+      "temperature": "warm",
+      "exit": 1,
+      "seconds": 2.207,
+      "subprocesses": 36,
+      "stdout": "ambiguous tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941 at op-62a42f7191e6f7ed29c0dd08\n",
+      "stderr": "",
+      "commands": [
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "buckets",
+            "describe",
+            "gs://audit.invalid",
+            "--raw",
+            "--format=value(projectNumber)"
+          ],
+          "at": 760847.713235791
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "projects",
+            "describe",
+            "project",
+            "--format=value(projectNumber)"
+          ],
+          "at": 760847.759370583
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/format.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760847.82025625
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/format.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-3213856fee05f8e0/object",
+            "--quiet"
+          ],
+          "at": 760847.867310291
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/format.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760847.907967625
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760847.95145975
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-11bb341cfedbf9e6/object",
+            "--quiet"
+          ],
+          "at": 760847.99361325
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760848.038038416
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760848.112273458
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-62194d3a06d2059a/object",
+            "--quiet"
+          ],
+          "at": 760848.162295083
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760848.238118083
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760848.283123041
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-cac88f1386dec32a/object",
+            "--quiet"
+          ],
+          "at": 760848.34051175
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760848.397061833
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/journal/*.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-prefix-8315158d23706c2d/",
+            "--quiet"
+          ],
+          "at": 760848.456323083
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760848.666483375
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-9b99d28a9903af9d/object",
+            "--quiet"
+          ],
+          "at": 760848.715707583
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760848.790595458
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-put-9cfb69e3150c69e5/object",
+            "gs://audit.invalid/private/head.json",
+            "--if-generation-match=1",
+            "--print-created-message",
+            "--quiet"
+          ],
+          "at": 760848.873866666
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760848.926063916
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-8576a0c0846a91d1/object",
+            "--quiet"
+          ],
+          "at": 760848.988264041
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760849.061108833
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "list",
+            "gs://audit.invalid/private/**",
+            "--format=json(name)",
+            "--quiet"
+          ],
+          "at": 760849.153430833
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 760849.234868875
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 760849.334415541
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 760849.375946208
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 760849.41916
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 760849.462525125
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "ingestion",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 760849.500405
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760849.553432041
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-05a7a64902478a0e/object",
+            "--quiet"
+          ],
+          "at": 760849.600913625
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760849.641082583
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760849.681158083
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "gs://audit.invalid/private/head.json",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-0408738ed2ded68a/object",
+            "--quiet"
+          ],
+          "at": 760849.732218208
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "objects",
+            "describe",
+            "gs://audit.invalid/private/head.json",
+            "--format=value(generation)",
+            "--quiet"
+          ],
+          "at": 760849.779439333
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "cp",
+            "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-put-84345b159913544d/object",
+            "gs://audit.invalid/private/head.json",
+            "--if-generation-match=2",
+            "--print-created-message",
+            "--quiet"
+          ],
+          "at": 760849.82989025
+        }
+      ],
+      "callsByCategory": {
+        "headAndClaim": 23,
+        "initialization": 5,
+        "journal": 1,
+        "objectListing": 1,
+        "providerObservation": 6
+      }
+    }
+  ]
+}

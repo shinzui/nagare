@@ -782,3 +782,15 @@ Neither change caches mutable heads across commands or removes writer-claim,
 takeover, hash-chain, or lost-acknowledgement checks. See the implementation's
 [bounded proof](../audits/mp23-selected-read-proof.md); GCS latency remains a
 separate acceptance gate.
+
+
+Active-startup implementation (2026-09-29): apply/resume/recover and inline
+convergence pass their validated store into the execution factory. Source helpers
+retain their head/revision checks but do not reopen remote ownership/format state.
+Selected accepted or retained native bytes may supply source-adapter inputs;
+only the complete original review authorizes execution. A typed absent-byte result
+permits compatibility reconstruction from original archived envelopes. Invalid
+selected bytes never trigger that fallback, including mixed missing/corrupt sets.
+No historical materialization prerequisite is introduced. Workspace resolution is
+conditional on the actual executor/cache runtime requirements; immutable bootstrap
+payload checks remain mandatory. See [the active-startup proof](../audits/mp23-active-startup-proof.md).

@@ -381,7 +381,7 @@ planInventoryCandidateWithDeciderPayload registryFor decide payloadIdentity targ
 -- Lifecycle decisions still require a separately reviewed command.
 convergeInventoryCandidateWith
   :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry)
-  -> (ReviewBundle -> IO AdapterRegistry)
+  -> (InventoryStore -> ReviewBundle -> IO AdapterRegistry)
   -> ActiveTarget -> CompositionCandidate -> IO ()
 convergeInventoryCandidateWith planningRegistry executionRegistry target candidate = do
   (store, _, digest) <- prepareInventoryCandidateWithDecider planningRegistry
@@ -391,7 +391,7 @@ convergeInventoryCandidateWith planningRegistry executionRegistry target candida
   TIO.putStrLn ("Published review " <> digestText digest)
   forM_ (reviewOperations (reviewBundleDocument bundle))
     (TIO.putStrLn . reviewPublicSummary)
-  registry <- executionRegistry bundle
+  registry <- executionRegistry store bundle
   snapshot <- readStoreSnapshot store >>= either (dieText . showText) pure
   reviewed <- either (dieText . showText . NE.toList) pure (verifyReview snapshot bundle)
   result <- applyReviewed store registry reviewed >>= either (dieText . showText . NE.toList) pure
@@ -434,11 +434,11 @@ applyInventory :: ActiveTarget -> FilePath -> Bool -> IO ()
 applyInventory = applyInventoryWith executionBlockedRegistry
 
 applyInventoryWith :: AdapterRegistry -> ActiveTarget -> FilePath -> Bool -> IO ()
-applyInventoryWith registry = applyInventoryWithFactory (const (pure registry))
+applyInventoryWith registry = applyInventoryWithFactory (\_ _ -> pure registry)
 
 -- | Construct adapters only after the private, immutable review has been
 -- loaded. Public review directories intentionally omit native provider bytes.
-applyInventoryWithFactory :: (ReviewBundle -> IO AdapterRegistry) -> ActiveTarget -> FilePath -> Bool -> IO ()
+applyInventoryWithFactory :: (InventoryStore -> ReviewBundle -> IO AdapterRegistry) -> ActiveTarget -> FilePath -> Bool -> IO ()
 applyInventoryWithFactory registryFor target reviewDirectory yes = do
   rejectReentry
   unless yes (dieText "inventory apply requires --yes after reviewing the bound plan")
@@ -451,7 +451,7 @@ applyInventoryWithFactory registryFor target reviewDirectory yes = do
         && reviewBundleScopes bundle == reviewBundleScopes publicBundle
     )
     (dieText "review directory differs from the immutable review published by this store")
-  registry <- registryFor bundle
+  registry <- registryFor store bundle
   snapshot <- readStoreSnapshot store >>= either (dieText . showText) pure
   reviewed <- either (dieText . showText . NE.toList) pure (verifyReview snapshot bundle)
   result <- applyReviewed store registry reviewed >>= either (dieText . showText . NE.toList) pure
@@ -464,13 +464,13 @@ resumeInventory :: ActiveTarget -> Text -> Bool -> IO ()
 resumeInventory = resumeInventoryWith executionBlockedRegistry
 
 resumeInventoryWith :: AdapterRegistry -> ActiveTarget -> Text -> Bool -> IO ()
-resumeInventoryWith registry = resumeInventoryWithFactory (const (pure registry))
+resumeInventoryWith registry = resumeInventoryWithFactory (\_ _ -> pure registry)
 
-resumeInventoryWithFactory :: (ReviewBundle -> IO AdapterRegistry) -> ActiveTarget -> Text -> Bool -> IO ()
+resumeInventoryWithFactory :: (InventoryStore -> ReviewBundle -> IO AdapterRegistry) -> ActiveTarget -> Text -> Bool -> IO ()
 resumeInventoryWithFactory registryFor target transactionToken yes =
   resumeInventoryWithFactoryTakeover registryFor target transactionToken yes False
 
-resumeInventoryWithFactoryTakeover :: (ReviewBundle -> IO AdapterRegistry) -> ActiveTarget -> Text -> Bool -> Bool -> IO ()
+resumeInventoryWithFactoryTakeover :: (InventoryStore -> ReviewBundle -> IO AdapterRegistry) -> ActiveTarget -> Text -> Bool -> Bool -> IO ()
 resumeInventoryWithFactoryTakeover registryFor target transactionToken yes takeOver = do
   rejectReentry
   unless yes (dieText "inventory resume requires --yes")
@@ -481,7 +481,7 @@ resumeInventoryWithFactoryTakeover registryFor target transactionToken yes takeO
     Just headValue | headActiveTransaction headValue == Just (transactionIdText transaction) -> do
       digest <- either dieText pure (mkContentDigest (T.drop 3 (transactionIdText transaction)))
       bundle <- loadPublishedReview store digest >>= either (dieText . showText) pure
-      registryFor bundle
+      registryFor store bundle
     _ -> either dieText pure (mkAdapterRegistry [])
   result <- resumeTransactionWithTakeover store registry transaction takeOver >>= either (dieText . showText . NE.toList) pure
   TIO.putStrLn (renderTransactionResult result)
@@ -490,7 +490,7 @@ resumeInventoryWithFactoryTakeover registryFor target transactionToken yes takeO
     _ -> exitFailure
 
 recoverInventoryWithFactory
-  :: (ReviewBundle -> IO AdapterRegistry) -> ActiveTarget -> Text -> Text -> FilePath -> Bool -> IO ()
+  :: (InventoryStore -> ReviewBundle -> IO AdapterRegistry) -> ActiveTarget -> Text -> Text -> FilePath -> Bool -> IO ()
 recoverInventoryWithFactory registryFor target transactionToken operationToken decisionFile takeOver = do
   rejectReentry
   transaction <- either dieText pure (mkTransactionId transactionToken)
@@ -501,7 +501,7 @@ recoverInventoryWithFactory registryFor target transactionToken operationToken d
     (dieText "recovery decision file does not match the requested transaction and operation")
   store <- openTargetStore target
   bundle <- loadPublishedReview store (recoveryReview input) >>= either (dieText . showText) pure
-  registry <- registryFor bundle
+  registry <- registryFor store bundle
   recordOperatorRecovery store registry input takeOver >>= either (dieText . showText . NE.toList) pure
   case recoveryAction input of
     AbandonPartialPrune ->
