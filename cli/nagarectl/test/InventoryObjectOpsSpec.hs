@@ -11,6 +11,7 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust)
 import Data.Set qualified as Set
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import InventoryTransactionSpec (exerciseStore, fixtureBinding, preparedFixtureWith, recordingRegistryWith)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter
@@ -162,6 +163,33 @@ inventoryObjectOpsTests = testGroup "inventory object operations"
         >>= either (assertFailure . show) pure >>= (@?= Converged transaction)
       readIORef batches >>= (@?= 1)
       readIORef effects >>= (@?= 1)
+  , testCase "active resume reads one journal batch and does not repeat proved effect" $ do
+      baseOps <- fakeObjectOps
+      firstStore <- newObjectStore baseOps fixtureBinding "client-a" Nothing
+        >>= either (assertFailure . show) pure
+      effects <- newIORef ([] :: [OperationId])
+      let executeOnce operation _ = do
+            modifyIORef' effects (<> [plannedOperationId operation])
+            pure (AdapterEffectAmbiguous "provider effect completed; acknowledgement lost")
+          recover operation _ = pure (RecoveryProvedComplete
+            (contentDigest (TE.encodeUtf8 (operationIdText (plannedOperationId operation)))))
+      (reviewed, registry) <- preparedFixtureWith firstStore executeOnce
+        recover
+      stopped <- applyReviewed firstStore registry reviewed
+        >>= either (assertFailure . show) pure
+      transaction <- case stopped of
+        StoppedAmbiguous value _ -> pure value
+        other -> assertFailure (show other) >> error "unreachable"
+      readIORef effects >>= (\calls -> length calls @?= 1)
+      batches <- newIORef (0 :: Int)
+      let countedOps = baseOps {getObjects = \name ->
+            modifyIORef' batches (+ 1) >> getObjects baseOps name}
+      replay <- newObjectStore countedOps fixtureBinding "client-a" Nothing
+        >>= either (assertFailure . show) pure
+      resumeTransaction replay registry transaction
+        >>= either (assertFailure . show) pure >>= (@?= Converged transaction)
+      readIORef batches >>= (@?= 1)
+      readIORef effects >>= (\calls -> length calls @?= 1)
   , testCase "two object clients sharing a workstation process lock cannot overlap" $
       withSystemTempDirectory "inventory-object-lock" $ \root -> do
         ops <- fakeObjectOps
