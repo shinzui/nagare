@@ -47,6 +47,11 @@ provenance:
       at: 2026-09-28T15:26:04Z
       mode: "implement"
       note: "Implement deferred-admission guards and exact command registry boundary"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-29T15:00:50Z
+      mode: "update"
+      note: "Revise command-boundary repair work from retained append, history, recovery, and public CLI experiments"
 ---
 
 # Close managed command coverage for the inventory release
@@ -61,6 +66,10 @@ Every supported mutation command and shipped recipe is mapped to its owner, revi
 
 
 ## Progress
+
+**Current M2 entrypoint — 2026-09-29 design reassessment.** [The reassessment](../audits/mp23-design-reassessment.md) replaces independent phase repairs with one shared serial operation driver and immutable adapter construction. E3's single-operation result did not establish executor correctness: E10 demonstrates a dependent preflight blocking recovery and a terminal recovery outcome crashing the ordinary dispatch path (F12/F13). The production driver patch and fixed saved-prune consumer now pass as recorded below; preserve their authority checks and historical recovery while completing selected reads. EP-156 then supplies the selected read interface for public explain/status. Passing registration and generic transaction tests remain credited; M2 and the affected findings remain open.
+
+Production checkpoint (2026-09-29): `OperationStep.hs` and `Execute.hs` now share one apply/resume phase decision. The whole-review live-preflight sweep is removed; structural validation, retention observation, and explicit migration-source admission proof remain. Main.hs has one execution/recovery registry and runs prune eligibility only before Job creation. The same saved public transaction now stops cleanly on terminal failure, permits exact abandonment, rejects a changed source UID, and converges after completion/interruption without repeated provider mutations; a second resume makes no provider calls. The complete 935-test suite, command audit, entrypoint guards, and Haskell style pass. [Retained proof and commands](../audits/mp23-rescue-proof.md) bound this result: synthetic admitted history and recorded providers do not prove physical deletion, receipt-only cleanup, retained-source CLI behavior, or cloud latency. F09/F12/F13 are Verifying; M2 remains open. Next implementation is selected target/read isolation with EP-156.
 
 2026-09-28 scope update: no milestone is newly accepted by this edit. Use the revised MP-23 support boundary; historical findings retain their observations but do not reinstate deferred live overwrite, maintenance, or scheduled-pruning requirements.
 
@@ -95,6 +104,12 @@ The reviewed volume restore Job verifies the accepted receipt and archive hashes
 
 ## Decision Log
 
+2026-09-29 (design reassessment): Replace the shared dispatch boundary as one cohesive change rather than distributing more preflight exceptions. A pure serial next-operation decision and one IO interpreter own phase order, while immutable registry construction and existing authority checks remain separate.
+
+2026-09-29 (E10): Extend the phase repair into the executor after the actual two-operation prune fixture disproved the single-operation extrapolation. Fix F12 dependency ordering and F13 terminal-failure handling; retain structural checks and exact explicit recovery.
+
+2026-09-29: Treat registry construction and target selection as implementation boundaries that must preserve executor recovery and avoid irrelevant prerequisites. The command-service counterfactual and built CLI reproduction justify this repair; generic executor tests and command registration do not prove it. Coordinate selected native inputs with EP-156 and actual retained-prune recovery with EP-159.
+
 2026-09-28: Align with the operator-approved MP-23 reduction and ADR 22 amendment. Keep complete evidence for supported behavior and explicit guards/recovery compatibility for deferred routes. EP-161 is Cancelled and no longer a completion dependency; earlier full-feature decomposition instructions are superseded.
 
 2026-09-26: Absorb EP-148 M4 command/library cutover, smoke and webhook consumer wiring, and user docs. Feature protocols move to EP-158–161, installed packages to EP-154, and native migration/collection/integration proof to EP-155/156. The finite registry determines ownership without hiding new substantial protocols inside this audit.
@@ -125,7 +140,29 @@ docs/architecture/managed-resource-coverage.md is the existing traceability cata
 
 ## Plan of Work
 
-**Bounded M2 backlog (2026-09-27).** The existing audit is the starting point; do not repeat M1's discovery exercise. Its current committed regression is the unregistered `Inventory.planInventoryCandidateWithPayloadIdentity` call in `app/Main.hs`. Register the actual shared command-service entry, update the generated catalogue where necessary, and rerun the injected-registration test. This restores the audit invariant; it does not complete any pending feature.
+### First repair: replace the shared operation dispatch boundary
+
+The [design reassessment](../audits/mp23-design-reassessment.md) supersedes a sequence of isolated factory/preflight patches. Keep the existing journal wire format and native adapters. Introduce an internal pure next-operation decision in `cli/nagarectl/src/Nagare/Inventory/OperationStep.hs` (or a narrowly named equivalent): finished, blocked, recover the uncertain operation, or execute the dependency-ready operation. Interpret validated existing journal records, including operator-resolution markers, without rewriting them. Unknown legacy resolution states stop explicitly. Preserve deterministic serial execution and the current writer lock; add no daemon or parallel scheduler.
+
+Route both apply and resume through this one driver in Execute.hs. The IO interpreter alone owns operation-time preflight, recovery, mutation, and verification. Keep review/base/claim/identity/capability validation and necessary pre-admission ownership/retention observations; remove the second whole-review live-dispatch path. Registry construction loads selected immutable inputs and creates adapters. It must not run live predicates whose truth changes across operation phases. Current accepted state cannot substitute for the historical source pinned by a review after admission changes the head.
+
+Use E10's existing two-operation prune review as the first production consumer. Test absent, completed, terminal-failed, interrupted, and changed-source states through the public command. Explicitly interpret all four RecoveryDecision constructors, with exhaustiveness checks failing the build for the transition code. A terminal failure stops with original evidence available for the proved operator action. The reviewable patch must remove duplicate orchestration and preserve historical recovery; moving helpers without eliminating competing phase decisions does not satisfy this outcome. Do not expand engine variants before this fixed path passes.
+
+The detailed findings below are constraints on that replacement, not independently scheduled patch work.
+
+`app/Main.hs:inventoryExecutionRegistryWithPrunePreflight` currently combines immutable reconstruction, source-native lookup, live eligibility checks, and adapter creation. `Command.resumeInventoryWithFactoryTakeover` invokes its factory before the executor can inspect and recover the operation. The controlled `RecoveryBoundary.hs` experiment keeps the transaction identical: a factory predicate blocks with zero recovery calls; moving the same predicate to adapter preflight converges with one original effect and one recovery. Preserve that existing executor behavior.
+
+Move live, stage-sensitive predicates out of registry construction. Registry construction may validate immutable review/private-member bindings and select implementations. A check that assumes absence, original policy eligibility, an undeleted pair, or an unchanged pre-effect listing belongs to the corresponding adapter preflight/effect boundary. Recovery instead observes the original selected physical identities and the operation's recorded state. Merely adding another Boolean exception in the registry does not establish the boundary. Move checks without dropping their identity, authorization, or effect-time protection, and test that a genuine new mutation still reaches the required preflight. EP-159 supplies the two public saved-prune cases below before this change is accepted. Preserve source bindings that admission moves from accepted to retained history.
+
+At `runInventoryStatus`, parse and resolve a requested ID against the validated accepted/retained declaration set immediately after composition. On an unknown ID, return the specific unknown-resource result before `loadAcceptedNative`, `resolvePlatformPaths`, workspace construction, adapter construction, or health probes. For a known ID, compute the needed resource/dependency/retained-incarnation selection before native lookup and provider observation. EP-156 owns the selected-evidence loader; this child passes its explicit selection and constructs only required adapters. A global status request still intentionally selects the whole current inventory. Dependency and consumer explanations retain their declaration graph without observing every unrelated provider.
+
+Add public CLI fixtures with provider command recorders. An unknown ID in an empty accepted store must produce the same unknown-resource refusal with no workspace available and with 500 unrelated reviews, including one malformed unused review. A known single-resource explanation must preserve its identity-bound health and dependency output while adding unrelated resources causes no new unrelated provider calls. Selected corrupt evidence must still fail closed; this change cannot turn absence of required evidence into absence of a resource. The existing `ExplainBoundary.py` captures the current failure but does not cover the nonempty known-target case; add that product regression before closing F10. Consume EP-156's selected-member evidence reader, not the whole-review loader rejected by E6. Keep resource read acceleration separate from historical execution authority. Missing optional derived lookup state cannot become a new prerequisite that strands an already-admitted review; use EP-156's verified compatibility reader or an explicit bounded extraction when the old format lacks a direct evidence reference. Missing/corrupt original evidence still refuses. Do not recreate implicit whole-history scans in ordinary commands.
+
+**Measured executor corrections (F12/F13, E10).** The public partial-prune fixture now reaches explicit abandonment successfully and rejects a changed ingestion UID. Factory-only diagnosis is no longer sufficient: ordinary resume preflights the later completion operation before recovering its ambiguous create prerequisite. In `cli/nagarectl/src/Nagare/Inventory/Execute.hs`, split `preflightOperations` into structural validation for the whole immutable review and live checks for dependency-ready operations. Preserve adapter identity/version, native digest, fence capabilities, and claim validation before effects; retain `executePrepared`'s immediate pre-effect check. Do not copy the diagnostic's blanket preflight removal into production. Make `recoverOrStop` exhaustive over `RecoveryProvedComplete`, `RecoverySafeToRetry`, `RecoveryTerminalFailure`, and `RecoveryUnresolved`; terminal failure must stop explicitly with original history available, never throw or blindly retry.
+
+Port `PruneExecutor.hs`'s actual two-operation review into checked-in regressions, then run EP-159's public fixture with absent, failed, completed, and changed-source-UID responses. Assert recovery call order, no duplicate effect, dependent verification only after prerequisite completion, and successful explicit abandonment with one journal decision. Preserve the existing single-operation recovery and batch/lost-ack tests. E10's temporary terminal handler proves a safe stop is possible, not that this implementation is delivered. F12/F13 are part of order 0a and must be resolved before affected native resumption.
+
+**Remaining M2 backlog.** The earlier unregistered `planInventoryCandidateWithPayloadIdentity` defect was repaired; do not restart that discovery/audit as the first task. Keep its existing injected-registration regression. After the command-boundary repair, continue the finite families below. A current registration failure remains a defect, but a green registration audit is not evidence that the registered behavior works.
 
 Close these known platform/consumer families with a public saved-review → apply → observe/recover fixture before adding more component helpers:
 
@@ -158,8 +195,9 @@ Run from the repository root in its existing development environment. Commands f
 (python3 scripts/audit-managed-commands.py --coverage-result /tmp/nagare-command-coverage.json)
 bash scripts/test-managed-command-audit.sh
 (cd cli/nagarectl && cabal test nagarectl-test --test-options='-p inventory' --test-show-details=failures)
-bash scripts/test-inventory-entrypoint-guards.sh
-bash scripts/test-application-entrypoint-guards.sh
+nagarectl_bin="$(cd cli/nagarectl && cabal list-bin exe:nagarectl)"
+bash scripts/test-inventory-entrypoint-guards.sh "$nagarectl_bin"
+bash scripts/test-application-entrypoint-guards.sh "$nagarectl_bin"
 okf validate docs/user --strict --profile mori/user-documentation-profile.dhall --profile-enforce --log-enforce
 ```
 
@@ -191,6 +229,10 @@ Completed EP-146/147/149/151 provide underlying contracts. [EP-152](152-complete
 
 
 ## Revision Notes
+
+2026-09-29: Adopt the bounded orchestration replacement in the design reassessment; correct the generalization from E3, make E10 the first production consumer, and remove mandatory derived-index rollout from historical recovery.
+
+2026-09-29: Replace the stale registration-first task with experimentally demonstrated phase/selection repairs; specify exact public positive/negative fixtures and fix missing binary arguments in the guard commands.
 
 2026-09-28: Align current implementation and acceptance with the reduced MP-23 contract while preserving native evidence requirements and existing transaction recovery.
 

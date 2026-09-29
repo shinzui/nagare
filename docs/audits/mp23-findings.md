@@ -2,6 +2,13 @@
 
 This is the authoritative handoff for implementation findings sent by the audit session. Read it alongside [MP-23](../masterplans/23-make-managed-resources-first-class-through-typed-scoped-inventories.md). The detailed initial reasoning is in [the audit report](mp23-initial-audit.md); that report is a historical snapshot, while this tracker owns current status.
 
+[The 2026-09-29 operational experiments](mp23-operational-experiments.md) add
+source-bound append counts, cold/warm unrelated-history measurements, a controlled
+command-factory recovery comparison, and the public unknown-target reproduction.
+They update implementation ordering in MP-23/EP-153/156/159 without changing this
+tracker's closure statuses. In particular, the synthetic recovery comparison does
+not close F09, and the head-snapshot prototype does not close F06.
+
 Implementation owner: existing session `01a0e893-337f-7b82-ac5d-16f41bf5ce21` (Implement typed resource inventories). Independent verifier and tracker steward: session `01a0eb5e-6e5a-7be3-8812-e04e2638bde9` (Review plan and logs). Child ownership below survives either session ending.
 
 ## Update and closure rules
@@ -25,9 +32,11 @@ Implementation owner: existing session `01a0e893-337f-7b82-ac5d-16f41bf5ce21` (I
 | [F06](#f06) | P1 | Journal appends retain excessive serial cloud-command cost | Partial | EP-156 |
 | [F07](#f07) | P1 | Installed key with failed service activation cannot recover by retry | Verifying | EP-156 |
 | [F08](#f08) | P2 | Unchanged host bootstrap depends on transient key-file environment and source root | Open | EP-156 |
-| [F09](#f09) | P1 | Scheduled-prune preflight prevents recovery after admission | Open | EP-159 / EP-153 |
+| [F09](#f09) | P1 | Scheduled-prune preflight prevents recovery after admission | Verifying | EP-159 / EP-153 |
 | [F10](#f10) | P2 | Explaining one resource observes the whole context | Open | EP-153 |
 | [F11](#f11) | Build | Conditional-upload optimization has ambiguous try exception type | Closed | EP-156 |
+| [F12](#f12) | P1 | A later operation’s preflight blocks recovery of its ambiguous prerequisite | Verifying | EP-153 / EP-159 |
+| [F13](#f13) | P1 | Ordinary executor recovery has no terminal-failure branch | Verifying | EP-153 / EP-159 |
 
 F01 and F11 are independently Closed with [retained verification and source identities](mp23-verification.md). F02 has passing local call-count evidence but still needs its retained status-caller regression. All other entries remain Open, Partial, or Verifying as shown.
 
@@ -145,7 +154,7 @@ F01 and F11 are independently Closed with [retained verification and source iden
 
 ## F09
 
-**Scheduled-prune preflight prevents recovery after admission** — P1; **Open**; owner EP-159 / EP-153.
+**Scheduled-prune preflight prevents recovery after admission** — P1; **Verifying**; owner EP-159 / EP-153.
 
 **Locations:** cli/nagarectl/app/Main.hs: inventoryExecutionRegistry, verifyReviewedScheduledPruneProvider; cli/nagarectl/src/Nagare/Inventory/Command.hs: recoverInventoryWithFactory.
 
@@ -156,6 +165,8 @@ F01 and F11 are independently Closed with [retained verification and source iden
 **Required verification:** Exercise public resume/recover for an already admitted original prune, both before effect and after deletion of one member. Prove exact terminal recovery remains reachable, no blind deletion retry, and new deferred admission still refuses.
 
 **Verification:** Not closed. Awaiting the checks above.
+
+**Production rescue update (2026-09-29):** The shared driver and unified CLI registry are implemented. [The retained production proof](mp23-rescue-proof.md) includes same-history before/after CLI results, completed/interrupted/terminal/changed-source cases, zero provider mutations, and 935 passing tests. Original history and source checks remain. Status is Verifying; this implementing session does not independently close the finding. Real deletion, receipt-only cleanup, and separate retained-source CLI cases are not claimed.
 
 ## F10
 
@@ -232,3 +243,31 @@ tailscale ip -4
 ```
 
 Initial ad-hoc reproduction sources are archived under [mp23-reproductions](mp23-reproductions/README.md). Product regression tests listed above remain the closure requirements.
+
+## F12
+
+**A later operation’s preflight blocks recovery of its ambiguous prerequisite** — P1; **Verifying**; owner EP-153 / EP-159.
+
+**Location:** cli/nagarectl/src/Nagare/Inventory/Execute.hs, `resumeTransactionWithTakeover` and `preflightOperations`.
+
+**Evidence:** [E10](mp23-operational-experiments.md#e10--the-real-partial-prune-command-reveals-two-more-executor-defects) runs the unmodified public CLI and the actual executor against a two-operation admitted scheduled-prune review. The create operation is ambiguous and its later declared completion operation fails preflight first. Instrumentation records zero adapter recovery calls and zero effects. Temporarily skipping only the up-front resume preflight reaches recovery. The earlier single-operation E3 result did not cover this dependency.
+
+**Required implementation/verification:** Split whole-review structural checks from live operation preconditions. Preserve exact adapter/native/fence validation and run live checks when an operation's dependencies allow it to execute. Add the two-operation fixture to the production suite: failed, absent, and completed prerequisite states; no repeated partial effect; successful prior completion permits the dependent verification; changed source UID refuses. Preserve explicit operator recovery. Independently rerun the public fixture before closure.
+
+**Original E10 evidence:** The diagnostic counterfactual and hashes remain retained; see the production update below for the subsequent fix.
+
+**Production rescue update (2026-09-29):** The shared driver and unified CLI registry are implemented. [The retained production proof](mp23-rescue-proof.md) includes same-history before/after CLI results, completed/interrupted/terminal/changed-source cases, zero provider mutations, and 935 passing tests. Original history and source checks remain. Status is Verifying; this implementing session does not independently close the finding. Real deletion, receipt-only cleanup, and separate retained-source CLI cases are not claimed.
+
+## F13
+
+**Ordinary executor recovery has no terminal-failure branch** — P1; **Verifying**; owner EP-153 / EP-159.
+
+**Location:** cli/nagarectl/src/Nagare/Inventory/Execute.hs, `executeOperations`'s `recoverOrStop` decision match.
+
+**Evidence:** E10's controlled removal of the premature preflight invokes the actual Kubernetes adapter once and then throws `Non-exhaustive patterns in case` on `RecoveryTerminalFailure`. Effects remain zero. Adding an explicit stop branch in the temporary source copy returns `StoppedAmbiguous` without replay. The explicit `inventory recover` route already handles the same terminal result; this finding concerns ordinary resume.
+
+**Required implementation/verification:** Handle all four `RecoveryDecision` constructors explicitly. A terminal failure must produce a stable stopped result with the original review/transaction available for the named operator action, never an automatic replay, completion, or exception. Port the reproducer into a regression that asserts no effects and preserves active history; prove the public explicit recovery still works and rejects a changed source UID. The counterfactual is not a production patch.
+
+**Verification:** Independent closure remains pending; the production candidate and regression evidence are recorded below.
+
+**Production rescue update (2026-09-29):** The shared driver and unified CLI registry are implemented. [The retained production proof](mp23-rescue-proof.md) includes same-history before/after CLI results, completed/interrupted/terminal/changed-source cases, zero provider mutations, and 935 passing tests. Original history and source checks remain. Status is Verifying; this implementing session does not independently close the finding. Real deletion, receipt-only cleanup, and separate retained-source CLI cases are not claimed.

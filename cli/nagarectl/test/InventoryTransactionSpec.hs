@@ -22,6 +22,7 @@ import Nagare.Inventory.Execute hiding (withProcessLock)
 import Nagare.Inventory.Journal
 import Nagare.Inventory.Lifecycle (AdoptionInput (..), AdoptionTarget (..), decideAdoption, decideRetirement)
 import Nagare.Inventory.Plan
+import Nagare.Inventory.OperationStep
 import Nagare.Inventory.Status qualified as InventoryStatus
 import Nagare.Inventory.Store
 import Nagare.Resource.Cache (LogicalCacheInput (..), compileLogicalCache)
@@ -1468,6 +1469,114 @@ inventoryTransactionTests =
         resumed <- resumeTransaction store registry transaction >>= expectRight
         resumed @?= Converged transaction
         readIORef calls >>= (@?= 1)
+    , testCase "shared driver admits dependent work and recovers its predecessor before live preflight" $ do
+        store <- newMemoryStore
+        ready <- newIORef False
+        trace <- newIORef ([] :: [Text])
+        let preflight operation _ = do
+              modifyIORef' trace (<> ["preflight:" <> action operation])
+              completed <- readIORef ready
+              pure $
+                if plannedAction operation == RunDeclaredOperation && not completed
+                  then Left "predecessor has not completed"
+                  else Right ()
+            effect operation _ = do
+              modifyIORef' trace (<> ["effect:" <> action operation])
+              pure $
+                if plannedAction operation == CreateResource
+                  then AdapterEffectAmbiguous "acknowledgement lost"
+                  else AdapterEffectCompleted
+            recover operation _ = do
+              modifyIORef' trace (<> ["recover:" <> action operation])
+              writeIORef ready True
+              pure (RecoveryProvedComplete (proof operation))
+            action = T.pack . show . plannedAction
+        (reviewed, registry) <- preparedDependentFixture store preflight effect recover
+        stopped <- applyReviewed store registry reviewed >>= expectRight
+        transaction <- case stopped of
+          StoppedAmbiguous value _ -> pure value
+          other -> assertFailure (show other) >> undefined
+        resumeTransaction store registry transaction >>= expectRight >>= (@?= Converged transaction)
+        -- Reopening the command after convergence must not observe or mutate.
+        resumeTransaction store registry transaction >>= expectRight >>= (@?= Converged transaction)
+        readIORef trace
+          >>= ( @?=
+                  [ "preflight:CreateResource"
+                  , "effect:CreateResource"
+                  , "recover:CreateResource"
+                  , "preflight:RunDeclaredOperation"
+                  , "effect:RunDeclaredOperation"
+                  ]
+              )
+    , testCase "shared driver stops every unresolved or terminal recovery before dependent work" $ do
+        forM_
+          [ RecoveryTerminalFailure (ok (mkPhysicalIdentity "failed-job"))
+          , RecoveryUnresolved "provider unavailable"
+          ]
+          $ \decision -> do
+            store <- newMemoryStore
+            effects <- newIORef (0 :: Int)
+            preflights <- newIORef (0 :: Int)
+            recoveries <- newIORef (0 :: Int)
+            let preflight _ _ = modifyIORef' preflights (+ 1) >> pure (Right ())
+                effect _ _ = modifyIORef' effects (+ 1) >> pure (AdapterEffectAmbiguous "interrupted")
+                recover _ _ = modifyIORef' recoveries (+ 1) >> pure decision
+            (reviewed, registry) <- preparedDependentFixture store preflight effect recover
+            stopped <- applyReviewed store registry reviewed >>= expectRight
+            transaction <- case stopped of
+              StoppedAmbiguous value _ -> pure value
+              other -> assertFailure (show other) >> undefined
+            resumeTransaction store registry transaction >>= expectRight >>= (@?= stopped)
+            readIORef effects >>= (@?= 1)
+            readIORef preflights >>= (@?= 1)
+            readIORef recoveries >>= (@?= 1)
+    , testCase "shared driver rejects invalid graphs and unknown legacy resolutions" $ do
+        store <- newMemoryStore
+        (reviewed, _) <-
+          preparedDependentFixture
+            store
+            (\_ _ -> pure (Right ()))
+            (\_ _ -> pure AdapterEffectCompleted)
+            (\_ _ -> pure RecoverySafeToRetry)
+        let operations = reviewOperations (reviewedDocument reviewed)
+            creation = head [o | o <- operations, plannedAction (reviewPlannedOperation o) == CreateResource]
+            completion = head [o | o <- operations, plannedAction (reviewPlannedOperation o) == RunDeclaredOperation]
+            createId = plannedOperationId (reviewPlannedOperation creation)
+            completionId = plannedOperationId (reviewPlannedOperation completion)
+            cycleCreation =
+              creation
+                { reviewPlannedOperation =
+                    (reviewPlannedOperation creation)
+                      { plannedDependencies = [completionId]
+                      }
+                }
+        dependenciesComplete Map.empty completion @?= False
+        dependenciesComplete (Map.singleton createId Ambiguous) completion @?= False
+        dependenciesComplete (Map.singleton createId (Completed (proofOperation createId))) completion @?= True
+        assertBool "cycle accepted" (isLeft (validateOperationGraph [cycleCreation, completion]))
+        assertBool "duplicate accepted" (isLeft (validateOperationGraph [creation, creation]))
+        assertBool "missing dependency accepted" (isLeft (validateOperationGraph [completion]))
+        forM_
+          [ "unknown-future-marker"
+          , "abandoned-terminal-scheduled-prune"
+          , "fenced-recovery-proved:invalid"
+          ]
+          $ \marker ->
+            case nextOperation operations (Map.singleton createId (OperatorResolved marker)) of
+              OperationBlocked selected _ -> selected @?= createId
+              other -> assertFailure (show other)
+        forM_ [IntentRecorded, Ambiguous, Failed (PartialOrUnknown "partial")] $ \state ->
+          nextOperation operations (Map.singleton createId state) @?= RecoverOperation creation
+        forM_
+          [ Pending
+          , Failed (KnownNoEffect "none")
+          , OperatorResolved "adapter-proved-safe-retry"
+          , OperatorResolved "fence-not-reserved-safe-retry"
+          ]
+          $ \state ->
+            nextOperation operations (Map.singleton createId state) @?= ExecuteOperation creation
+        nextOperation operations (Map.singleton createId (Completed (proofOperation createId)))
+          @?= ExecuteOperation completion
     , testCase "known no-effect failure retries the same reviewed operation" $ do
         store <- newMemoryStore
         attempts <- newIORef (0 :: Int)
@@ -1646,6 +1755,47 @@ preparedFixtureWithRegistry store execution recovery customize = do
   where
     physical resource = ok (mkPhysicalIdentity ("accepted:" <> resourceIdText resource))
     absence resource = contentDigest (TE.encodeUtf8 ("absent:" <> resourceIdText resource))
+
+-- A real planner-produced create/declared-operation dependency pair. Its
+-- dependent live precondition is deliberately false until recovery proves the
+-- original effect. No journal or review constructor bypass is used here.
+preparedDependentFixture ::
+  InventoryStore ->
+  (PlannedOperation -> PreparedNative -> IO (Either Text ())) ->
+  (PlannedOperation -> PreparedNative -> IO AdapterExecution) ->
+  (PlannedOperation -> PreparedNative -> IO RecoveryDecision) ->
+  IO (ReviewedPlan, AdapterRegistry)
+preparedDependentFixture store preflight effect recovery = do
+  let owner = ok (mkScopeId Standalone "dependent-driver")
+      cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+      managed = member owner cluster "job"
+      resource = declarationId managed
+      operation =
+        DeclaredOperation
+          (mintResourceId owner (ok (mkLogicalKey "prune")) (ok (mkName "operation")))
+          (resource :| [])
+          [ContentInput (contentDigest "prune-intent")]
+          OperatorRecovery
+          PruneData
+      scope = ok (mkScopeDeclaration owner [ResourceBundle [managed] [] [] [] [operation] []])
+      candidate =
+        ok
+          ( composeInventory
+              (ok (mkScopeSnapshot fixtureBinding Map.empty Map.empty))
+              (ReplaceScope scope :| [])
+          )
+      registry = recordingRegistryWith preflight effect recovery
+  _ <- initializeStore store fixtureBinding "dependent-driver" >>= expectRight
+  history <- loadInventoryHistory store >>= expectRight
+  let observations = ok (observationSet [(resource, ConfirmedAbsent (contentDigest "absent"))])
+      proposal = ok (planChanges candidate noLifecycleDecisions history observations)
+  before <- readStoreSnapshot store >>= expectRight
+  bundle <- prepareReview registry before proposal >>= expectRight
+  _ <- publishReview store bundle >>= expectRight
+  snapshot <- readStoreSnapshot store >>= expectRight
+  reviewed <- either (assertFailure . show) pure (verifyReview snapshot bundle)
+  length (reviewOperations (reviewedDocument reviewed)) @?= 2
+  pure (reviewed, registry)
 
 recordingRegistry :: (PlannedOperation -> PreparedNative -> IO AdapterExecution) -> (PlannedOperation -> PreparedNative -> IO RecoveryDecision) -> AdapterRegistry
 recordingRegistry execution recovery =

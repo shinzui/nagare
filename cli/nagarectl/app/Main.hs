@@ -6481,22 +6481,15 @@ runInventoryApply mctx reviewDirectory yes = do
 runInventoryResume :: Maybe String -> Text -> Bool -> Bool -> IO ()
 runInventoryResume mctx transaction yes takeOver = do
   target <- activeTarget mctx
-  Inventory.resumeInventoryWithFactoryTakeover (inventoryRecoveryRegistry mctx) target transaction yes takeOver
+  Inventory.resumeInventoryWithFactoryTakeover (inventoryExecutionRegistry mctx) target transaction yes takeOver
 
 runInventoryRecover :: Maybe String -> Text -> Text -> FilePath -> Bool -> IO ()
 runInventoryRecover mctx transaction operation decisionFile takeOver = do
   target <- activeTarget mctx
-  Inventory.recoverInventoryWithFactory (inventoryRecoveryRegistry mctx) target transaction operation decisionFile takeOver
+  Inventory.recoverInventoryWithFactory (inventoryExecutionRegistry mctx) target transaction operation decisionFile takeOver
 
 inventoryExecutionRegistry :: Maybe String -> InventoryPlan.ReviewBundle -> IO InventoryAdapter.AdapterRegistry
-inventoryExecutionRegistry = inventoryExecutionRegistryWithPrunePreflight True
-
-inventoryRecoveryRegistry :: Maybe String -> InventoryPlan.ReviewBundle -> IO InventoryAdapter.AdapterRegistry
-inventoryRecoveryRegistry = inventoryExecutionRegistryWithPrunePreflight False
-
-inventoryExecutionRegistryWithPrunePreflight :: Bool -> Maybe String
-  -> InventoryPlan.ReviewBundle -> IO InventoryAdapter.AdapterRegistry
-inventoryExecutionRegistryWithPrunePreflight checkPruneProvider mctx bundle = do
+inventoryExecutionRegistry mctx bundle = do
   scopes <- traverse (either (dieT . T.pack . show) pure . ResourceWire.decodeScope) (Map.elems (InventoryPlan.reviewBundleScopes bundle))
   let document = InventoryPlan.reviewBundleDocument bundle
       operations = map InventoryPlan.reviewPlannedOperation
@@ -6578,11 +6571,7 @@ inventoryExecutionRegistryWithPrunePreflight checkPruneProvider mctx bundle = do
     document backupProofs
   volumeSourceNative <- loadReviewedVolumeSourceNative mctx document
     reviewedKubernetesSpecs
-  pruneSourceNative <- loadReviewedPruneSourceNative checkPruneProvider mctx document pruneProofs
-  verifyReviewedScheduledPruneRecovery mctx scopes
-    (selected ResourceInventory.KubernetesExecutor)
-  when checkPruneProvider $ verifyReviewedScheduledPruneProvider mctx scopes
-    (selected ResourceInventory.KubernetesExecutor)
+  pruneSourceNative <- loadReviewedPruneSourceNative mctx document pruneProofs
   scheduledSourceNative <- loadReviewedScheduledIngestSourceNative mctx document scheduledProofs
   (maintenanceSourceNative, maintenanceAcceptedNative) <-
     loadReviewedMaintenanceSourceNative mctx document maintenanceProofs
@@ -6677,7 +6666,26 @@ inventoryExecutionRegistryWithPrunePreflight checkPruneProvider mctx bundle = do
         historyStore <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
         reviewBaseDnsResources historyStore bundle
       dns <- inventoryCdnAdapter active workspace binding dnsSpecs cloudflareSpecs acceptedDns
-      kubernetesBase <- inventoryKubernetesAdapter active binding cacheKey kubernetesSpecs
+      kubernetesNative <- inventoryKubernetesAdapter active binding cacheKey kubernetesSpecs
+      let kubernetesBase = kubernetesNative
+            { InventoryAdapter.adapterPreflight = \operation prepared -> do
+                native <- InventoryAdapter.adapterPreflight kubernetesNative operation prepared
+                case native of
+                  Left reason -> pure (Left reason)
+                  Right () -> if InventoryAdapter.plannedAction operation /= InventoryAdapter.CreateResource
+                    then pure (Right ())
+                    else do
+                      -- Eligibility belongs to a new effect, including an
+                      -- adapter-proved retry. Recovering a historical effect
+                      -- must not require its original provider listing.
+                      checked <- try $ do
+                        let jobs = Set.fromList (NE.toList (InventoryAdapter.plannedResources operation))
+                        verifyReviewedScheduledPruneRecovery mctx scopes jobs
+                        verifyReviewedScheduledPruneProvider mctx scopes jobs
+                      pure $ case (checked :: Either ExitCode ()) of
+                        Left _ -> Left "reviewed prune eligibility changed; no new Job was submitted"
+                        Right () -> Right ()
+            }
       helm <- inventoryHelmAdapter active workspace binding allHelmSpecs
       context <- either dieT pure (Resource.mkContextId
         (contextNameText (active ^. #contextName)))
@@ -7040,7 +7048,9 @@ verifyReviewedScheduledPruneProvider mctx scopes selectedJobs = do
         config = KubernetesRuntimeConfig context contextName
           (fmap (fmap (const ())) (guardKubernetesContext active))
         acceptedScopes = map snd (Map.elems (InventoryPlan.historyAccepted history))
+        selectedOwners = Set.fromList (map ResourceInventory.scopeId selected)
         pruned = Set.fromList [backupScope | scope <- acceptedScopes,
+          Set.notMember (ResourceInventory.scopeId scope) selectedOwners,
           Just backupScope <- [Map.lookup "scheduled.prune.backup.scope"
             (ResourceInventory.scopeOverrides scope)]]
         bucketAddress = "s3://" <> minio ^. #bucket <> "/"
@@ -7196,10 +7206,10 @@ verifyReviewedScheduledPruneRecovery mctx scopes selectedJobs = do
 -- review base. The Kubernetes adapter checks the observed UID and native
 -- bytes again before submitting or verifying the prune Job.
 loadReviewedPruneSourceNative
-  :: Bool -> Maybe String -> InventoryPlan.ReviewDocument -> [PruneSourceProof]
+  :: Maybe String -> InventoryPlan.ReviewDocument -> [PruneSourceProof]
   -> IO (Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString))
-loadReviewedPruneSourceNative _ _ _ [] = pure Map.empty
-loadReviewedPruneSourceNative requireAccepted mctx document proofs = do
+loadReviewedPruneSourceNative _ _ [] = pure Map.empty
+loadReviewedPruneSourceNative mctx document proofs = do
   active <- activeTarget mctx
   store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
   history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
@@ -7214,7 +7224,7 @@ loadReviewedPruneSourceNative requireAccepted mctx document proofs = do
           (dieT "manual prune backup scope changed after review")
         pure [member ^. #identity | bundle <- ResourceInventory.scopeBundles scope,
           ResourceInventory.Managed member <- ResourceInventory.declarations bundle]
-      [] | not requireAccepted -> case Map.lookup (pruneSourceJob proof)
+      [] -> case Map.lookup (pruneSourceJob proof)
           (InventoryPlan.historyRetained history) of
         Just (incarnation, member) | Resource.scopeIdText
             (InventoryStore.retainedOwner incarnation) == pruneSourceScope proof

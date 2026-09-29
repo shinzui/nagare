@@ -1,0 +1,30 @@
+("factory-check","blocked",True)
+(1,0,0)
+converged tx-58cc2eadba11f8e8e14acadcc869a6452ccdf230c4807f5d363bb6db2553e685
+("adapter-check","same transaction converged")
+(1,1,0)
+converged tx-58cc2eadba11f8e8e14acadcc869a6452ccdf230c4807f5d363bb6db2553e685
+("converged-command","registry bypassed")
+test/InventoryTransactionSpec.hs:390:48: warning: [GHC-02256] [-Wambiguous-fields]
+    Ambiguous record update with parent type constructor ‘ManagedResource’.
+    This type-directed disambiguation mechanism will not be supported by -XDuplicateRecordFields in future releases of GHC.
+    Consider disambiguating using module qualification instead.
+    |
+390 |               Managed value -> Managed (value {owner = newOwner})
+    |                                                ^^^^^^^^^^^^^^^^
+
+test/InventoryTransactionSpec.hs:1380:69: warning: [GHC-63394] [-Wx-partial]
+    In the use of ‘head’
+    (imported from Prelude, but defined in GHC.Internal.List):
+    "This is a partial function, it throws an error on empty lists. Use pattern matching, 'Data.List.uncons' or 'Data.Maybe.listToMaybe' instead. Consider refactoring to use "Data.List.NonEmpty"."
+     |
+1380 |         let operation = plannedOperationId (reviewPlannedOperation (head (reviewOperations (reviewedDocument reviewed))))
+     |                                                                     ^^^^
+
+test/InventoryTransactionSpec.hs:1404:69: warning: [GHC-63394] [-Wx-partial]
+    In the use of ‘head’
+    (imported from Prelude, but defined in GHC.Internal.List):
+    "This is a partial function, it throws an error on empty lists. Use pattern matching, 'Data.List.uncons' or 'Data.Maybe.listToMaybe' instead. Consider refactoring to use "Data.List.NonEmpty"."
+     |
+1404 |         let operation = plannedOperationId (reviewPlannedOperation (head (reviewOperations (reviewedDocument reviewed))))
+     |                                                                     ^^^^

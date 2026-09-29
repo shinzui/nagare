@@ -173,6 +173,7 @@ library
     Nagare.Inventory.TaskLifecycle
     Nagare.Inventory.Digest
     Nagare.Inventory.Execute
+    Nagare.Inventory.OperationStep
     Nagare.Inventory.HelmReview
     Nagare.Inventory.Host
     Nagare.Inventory.Journal

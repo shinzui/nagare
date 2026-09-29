@@ -206,6 +206,11 @@ provenance:
       at: 2026-09-29T04:19:41Z
       mode: "update"
       note: "Prioritize replay repair and require bounded autonomous diagnosis when execution stalls"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-29T15:00:50Z
+      mode: "update"
+      note: "Revise command-boundary repair work from retained append, history, recovery, and public CLI experiments"
 ---
 
 # Make managed resources first-class through typed scoped inventories
@@ -262,7 +267,9 @@ Rejected alternatives were isolated platform/application inventories without sha
 
 **Open implementation findings.** Read [the MP-23 audit tracker](../audits/mp23-findings.md) before selecting affected work. It owns stable finding IDs, fix evidence, independent verification, and unresolved handoffs. Record repairs there; an acknowledged message or source edit does not close a finding. Reconcile affected P1 findings before another native rehearsal and include unresolved IDs in every implementation handoff.
 
-**Immediate priority: restore usable GCS replay.** Until EP-156's replay performance gate passes, it supersedes the feature sequence below. Diagnose and fix the store path before initiating further cloud scenario stages. First establish the state of any already-running transaction using bounded inspection; preserve its identity and evidence. An active transaction does not justify indefinite polling or another unchanged resume. Choose an evidence-based safe wait, interruption, or recovery step before further mutation. EP-151's Complete status records its earlier conformance acceptance; it does not certify current operational readiness. EP-156 owns this discovered defect and its regression evidence, including changes to the shared store implementation.
+**Current implementation entrypoint — production rescue checkpoint, 2026-09-29.** [The production proof](../audits/mp23-rescue-proof.md) establishes the shared apply/resume operation driver against newly admitted dependency work and the saved two-operation public prune consumer. The full 935-test suite passes. F09/F12/F13 are Verifying pending independent closure and their remaining native/history cases. Continue offline selected-target/native-evidence work in EP-153/156 (F04/F10), then EP-156's command-scoped store/append work (F06); neither passing primitive replay tests nor this local driver proof establishes cloud acceptance. Do not reopen completed replay primitives or add another child plan.
+
+The earlier single-operation experiment did not establish executor correctness. E10 exposed the dependent preflight and missing terminal branch, and the production replacement now handles them. The 8/11-subprocess append and 501-read empty native lookup remain measured defects. Their repair and the existing native gates are still prerequisites of release readiness.
 
 **Execution control for every remaining checkpoint.** The implementing agent owns detection and diagnosis of stalled work; the operator must not have to ask why progress stopped.
 
@@ -277,7 +284,7 @@ Reviews of remaining checkpoints must test the riskiest operational assumption a
 
 1. Read the current Vision & Scope and Progress, then the selected child's current milestones and recorded acceptance evidence. The revised scope governs; historical notes are evidence, not instructions to resume deferred work. EP-161 is Cancelled. Do not continue new live-overwrite, interactive-maintenance, or scheduled-prune feature work from an older handoff.
 2. Preserve concurrent edits and retained fixture/state identities. Before mutating a selected fixture, inspect its existing transaction/fence/session state through the supported read-only path. An already-admitted operation may need its existing evidence-bound recovery; do not reset its history or treat cancellation as completion.
-3. After the immediate replay gate above passes, reconcile EP-153's deferred-admission and retained-recovery checkpoint, which Progress already records as passing. Reuse that proof while its inputs remain applicable; do not repeat a full command audit. Continue any remaining boundary assertions only when current evidence identifies them.
+3. After the command-boundary repairs above pass, reconcile EP-153's deferred-admission and retained-recovery checkpoint, which Progress already records as passing. Reuse that proof while its inputs remain applicable; do not repeat a full command audit. Continue any remaining boundary assertions only when current evidence identifies them.
 4. Reconcile the bounded EP-154 installed smoke, EP-155 fixture/health, and EP-157 evidence-input checkpoints. Skip accepted outputs whose evidence remains applicable. Then take the first unmet supported assertion in orders 3–4: EP-159 receipts/retention reporting and EP-160 isolated database/new-PVC recovery. Existing three-engine local roundtrips are inputs to this assessment, not work to restart by default. Keep EP-160 M1 accepted.
 5. Continue ready supported platform/access/lifecycle work in order 5 and the complete final-candidate gates in order 6. MP-24/EP-163 research, K8up/Velero evaluation, and tool adoption are not prerequisites. Record the exact next child/assertion at every handoff; do not end at a passing partial checkpoint when more authorized work is ready.
 
@@ -297,7 +304,7 @@ At each checkpoint handoff, record the accepted output/evidence and next checkpo
 | 153 | Close managed command coverage for the inventory release | docs/plans/153-close-managed-command-coverage-for-the-inventory-release.md | EP-146, EP-147, EP-149, EP-151 | EP-152, EP-158, EP-159, EP-160 | In Progress |
 | 154 | Validate installed inventory packages on every supported system | docs/plans/154-validate-installed-inventory-packages-on-every-supported-system.md | EP-146, EP-147, EP-149, EP-151 | EP-152, EP-153, EP-158, EP-159, EP-160 | In Progress |
 | 155 | Prove local application and data recovery end to end | docs/plans/155-prove-local-application-and-data-recovery-end-to-end.md | EP-146, EP-147, EP-149, EP-151 | EP-152, EP-153, EP-154, EP-158, EP-159, EP-160 | In Progress |
-| 156 | Prove fresh GCP convergence and shared history recovery | docs/plans/156-prove-fresh-gcp-convergence-and-shared-history-recovery.md | EP-146, EP-147, EP-149, EP-151 | EP-152, EP-153, EP-154, EP-155, EP-158, EP-159, EP-160 | In Progress |
+| 156 | Prove fresh GCP convergence and shared history recovery | docs/plans/156-prove-fresh-gcp-convergence-and-shared-history-recovery.md | EP-146, EP-147, EP-149, EP-151; native resumption additionally requires EP-153 M2 phase repair and EP-159 M2 public F09 fixture (order 0a) | EP-152, EP-153, EP-154, EP-155, EP-158, EP-159, EP-160 | In Progress |
 | 157 | Gate the inventory release on complete immutable evidence | docs/plans/157-gate-the-inventory-release-on-complete-immutable-evidence.md | EP-146, EP-147, EP-149, EP-151 | EP-152, EP-153, EP-154, EP-155, EP-156, EP-158, EP-159, EP-160 | Not Started |
 | 158 | Complete reviewed access and CDN operations | docs/plans/158-complete-reviewed-access-and-cdn-operations.md | EP-146, EP-147, EP-149, EP-151 | None | Not Started |
 | 159 | Complete scheduled receipts and explicit retention limits | docs/plans/159-complete-scheduled-backup-receipts-and-exact-retention-pruning.md | EP-146, EP-147, EP-149, EP-151 | None | In Progress |
@@ -309,6 +316,8 @@ Hard dependencies must be Complete before starting the dependent child; soft dep
 
 ## Dependency Graph
 
+For the current repair, order 0a is a hard prerequisite of EP-156 native resumption, not of its offline store diagnostics: EP-153 M2 supplies phase-correct factory construction and EP-159 M2 supplies the public retained-prune fixture before effect and after partial deletion. Neither whole child must close first. EP-153's selected-target work and EP-156's selected-native loader have an integration dependency at order 0b; their producer/consumer fixture is accepted together. Order 0c then proves the complete append/command path. These explicit checkpoint dependencies override the former broad replay-first handoff and create no whole-child closure cycle.
+
 EP-144 must complete first because all later work consumes its identity, declaration, wire, and validation contracts. EP-145 then defines the one authoritative store, review boundary, journal, and adapter protocol.
 
 EP-146, EP-147, EP-149, and EP-151 may proceed after EP-145. EP-151 needs only EP-145's store contract, conformance suite, and head format; its soft dependency on EP-146 is the handoff of a new context's first bootstrap transaction, which necessarily runs on the local store because the state bucket does not exist yet. Cloud and cluster builders test against declared typed outputs without needing each other's live executors. Lifecycle policy tests against recording adapters without claiming native behavior. Their integration dependency is that every adapter exposes identity/precondition/verification capabilities required by lifecycle policy; reconcile that contract before any real adoption/migration/retirement is enabled. Until then these actions refuse explicitly, while fresh-resource/convergent operations remain independently verifiable.
@@ -319,6 +328,8 @@ EP-152 bootstrap is complete. The remaining integration chain is EP-155 local ev
 
 
 ## Integration Points
+
+**Command-boundary repair — EP-153 owns selection and factory construction, EP-156 owns store/evidence lookup, EP-159 owns the retained-prune consumer.** EP-153 must resolve an explain target before workspace/native/provider initialization and construct recovery adapters without running pre-effect eligibility checks. EP-156 supplies selected evidence loading and generation-bound append operations, without making an index or a cache a source of authority. EP-159 supplies actual saved-review CLI fixtures that cross both boundaries. The [2026-09-29 experiments](../audits/mp23-operational-experiments.md) are the initial reproductions. These owners change shared interfaces together before broadening the native scenario; the shared driver's production regression now establishes recovery-before-dependent-preflight for the fixed consumer.
 
 **Reduced recovery contract (2026-09-28).** EP-160 M1 is accepted; retain its state machine, store integration, and existing recovery evidence without reopening its six closure criteria. EP-160 M2/M3 now prove isolated destinations and preserved sources. Deferred live overwrite and maintenance cannot gain new admission through generic apply/resume; EP-153 distinguishes new admission from observing and resolving an already-admitted operation. A recovery action remains bound to its original target, review, and observed effect; it cannot become a route for new unreviewed maintenance.
 
@@ -354,6 +365,12 @@ These ownership, identity, review, storage, migration, and controller-delegation
 
 
 ## Progress
+
+**Current direction — design reassessment, 2026-09-29.** [The reassessment](../audits/mp23-design-reassessment.md) replaces patch-by-patch orchestration repair as the implementation strategy. Retain typed ownership, native adapters, immutable review/history, and conditional storage. EP-153 owns one serial operation driver shared by apply/resume, total recovery outcomes, and immutable registry construction; EP-159 supplies the fixed two-operation consumer fixture. EP-156 then separates selected-resource reads from execution history and carries validated head/journal observations through command execution. The proposed evidence-index publication/rebuild rollout is no longer a mandatory prerequisite of historical recovery. E8/E9 remain prototype evidence, not an architectural obligation.
+
+Seven children remain Complete and eight active. [The first production repair now passes](../audits/mp23-rescue-proof.md): one shared driver, the same saved public transaction through terminal/completed/interrupted/changed-source cases, zero provider mutations in the recorders, and 935 regression tests. This establishes the execution boundary; it does not finish immutable source selection, retained-source/receipt-only native cases, or command-cost gates. F09/F12/F13 remain Verifying for independent closure. Continue the bounded selected-read and append repairs before feature expansion or long native rehearsals. No supported feature, release requirement, or old transaction is silently dropped. Earlier dated next-step instructions are superseded by this direction and the implementation table.
+
+### Earlier accepted and partial evidence
 
 2026-09-28 coordination snapshot: seven children are Complete; EP-148 and EP-150 remain Cancelled/superseded, and EP-161 is now Cancelled/deferred. Eight active children remain (EP-153–160). No additional child or milestone is declared complete by this scope decision. EP-160 M1 remains accepted. Recorded PostgreSQL/Redis/ClickHouse producer/receipt/scratch-restore proofs and local scheduled-prune experiments remain credited where their exact inputs apply. Final packages, complete supported coverage, local/GCP evidence, and immutable assembly are still open.
 
@@ -409,7 +426,9 @@ EP-159's accepted listing now recognizes an older object format by the accepted 
 
 | Order | Work and owner | Required handoff |
 |---|---|---|
-| 0 — blocking defect | EP-156 GCS replay and retained transaction state | Diagnose the current transaction without another unchanged replay; fix and pass the measured replay, integrity, and recovery gate before resuming this sequence. |
+| 0a — replace operation dispatch | EP-153 M2 single serial driver + immutable registry; EP-159 M2 existing two-operation prune fixture | Apply/resume share dependency-ready dispatch; all recovery outcomes are explicit; historical identity and conditional effects remain protected. Remove the duplicate live-preflight route. Preserve deferred-admission guards and explicit recovery. |
+| 0b — separate resource reads | EP-153 M2 target selection + EP-156 M2 selected observation evidence; no mandatory new index prerequisite for old recovery | Unknown target needs no workspace/native/provider initialization; fixed selected state costs no additional evidence reads when unrelated reviews grow from 0 to 500; selected corrupt evidence still refuses. |
+| 0c — append boundary | EP-156 M2 complete append protocol | Measure full append and public resume; remove duplicate head discovery with generation-bound compare-and-swap, preserve race/lost-ack/takeover behavior, then satisfy the existing real GCS latency gate. |
 | 1 — accepted | EP-160 M1 shared fence | Retain accepted proof and recovery interfaces; do not reopen this milestone for deferred consumers. |
 | 2 — bounded preparation | EP-153 registration and deferred-admission guards; EP-154 installed smoke; EP-155 local fixture; EP-157 evidence schema | Reconcile existing passing checkpoints, then prove the declared support boundary before native feature expansion. Keep guards separate from historical transaction recovery. |
 | 3 — representative recovery | EP-159 PostgreSQL scheduled receipt after Job cleanup → EP-160 isolated restore/content check | Reuse recorded compatible runs; verify receipt/source/version binding through the public saved-review path. No maintenance session handoff. |
@@ -423,7 +442,7 @@ The 2026-09-28 disposable GCS run exposed a multi-minute journal replay at only 
 
 The first bulk-read candidate did converge the retained host transaction, but its full `inventory resume` still took 382.16 seconds at 61 events. EP-156 remains blocked on end-to-end latency, including repeated history/object-store calls, workspace initialization, and host IAP probes. Recheck physical identity and reviewed old closure at effect time. Record separate warm and second-root timings before claiming operational acceptance; do not use the convergence receipt as a substitute.
 
-**Stop/go sequence for the remaining proof.** The 2026-09-29 warm no-op run still took 41.04 seconds at 61 events, so the live fixture is paused. First, retain public command regressions for each open P1 in [the findings tracker](../audits/mp23-findings.md), including F09 recovery before an admitted prune effect and after partial deletion; generic transaction tests and a successful compile do not count as that proof. Second, run local 50/500-event replay, gap/lost-ack, command-count, and interrupted-host tests against the exact candidate, recording elapsed time by registry setup, journal read, append, provider probe, and finalization. Third, freeze that candidate and run one bounded disposable GCS/host rehearsal with the EP-156 latency limits and second-root recovery check. Stop at the first failed gate, record its cause and changed assertion in the tracker and child plan, and return to the first step before any further cloud mutation. Do not infer closure from a passing neighboring suite or a converged receipt.
+**Local proof before cloud scheduling.** Orders 0a–0c supersede the earlier advice to rerun general replay suites and then try the cloud again. Reuse the five passing replay checks while their inputs remain unchanged. First prove the failing command boundaries with isolated recording providers, including the actual F09 CLI route. The source probes and head-snapshot counterfactual in the experiment report are diagnostic evidence, not production acceptance. Only after those repairs and existing F05/F07 host checks pass, freeze the candidate and use EP-156's original cold/warm and second-root GCS limits. A failed local assertion returns to its owning repair; it cannot be deferred to a long integration run. Retain the existing 41.04-second measurement as historical failed evidence, not as a command to replay unchanged.
 
 **Finite remaining outcomes.** EP-159 must finish scheduled receipts, source/schedule history, interrupted uploads, and GCS binding, while making deferred scheduled retention explicit. EP-160 must close all three isolated engine restores and new-PVC recovery. EP-153 must close existing platform/consumer gaps and prevent new deferred operations at all entrypoints. EP-154–157 retain their complete package/local/cloud/evidence obligations for that supported set. EP-158 is unchanged. Recovery of pre-existing partial prunes, fences, and sessions cannot be removed or relabelled successful.
 
@@ -470,6 +489,8 @@ EP-160 then selected that accepted receipt in a public reviewed scratch restore.
 The public read-only scheduled receipt listing now observes the current MinIO prefix completely and reports accepted, verified pending, and unresolved entries. It exposed the retained receipt-missing upload and two old invalid envelopes alongside the accepted v4 run. Provider listing refuses truncated or malformed results; historical schedule revisions and cloud listing remain open. EP-161 still needs an operation-specific access policy because EP-160's proven offline fence stops the database engine and removes its Service endpoints.
 
 EP-159's local Redis retention boundary now has ten accepted signed runs. Two older runs remain protected by accepted scratch restores, while one eligible run was selected for exact pruning. Its immutable Job failed after deleting the data version and before deleting the receipt; the published failed transaction was explicitly abandoned without asserting cleanup. A separate reviewed receipt-only recovery, pinned to that original failure and a complete MinIO version listing, converged as `tx-fe23f9c1dcd27d57da258f749603a8704160b242ec9ed52f6fc9ed61a7fcf4c4`. Public listing shows the run pruned and nine others accepted; the retention selector finds no next candidate. EP-159 M2 still requires apply-time provider/in-flight revalidation, an ordinary successful eligible prune, and cloud exact-generation evidence. The other children and final native/package gates remain open.
+
+Two more signed local Redis runs supplied eligible ordinary prune candidates. Public ingestion and separate one-run reviews converged both deletions while preserving the two older restore-referenced runs and their provider objects. The second apply reobserved the accepted CronJob, checked for unfinished producer Jobs, compared the complete current-key listing with all accepted unpruned pairs, and required exactly the selected object and receipt versions with no hidden versions or markers. Three runs now list as pruned, nine as accepted, and no further candidate is outside keep=7; the local inventory head is converged at generation 1291. EP-159 still needs negative apply-preflight fixtures, historical schedule treatment, and cloud exact-generation evidence before M2 can close.
 
 An isolated EP-161 k3s probe proved a candidate access primitive: a deny-ingress NetworkPolicy blocked a second PostgreSQL Pod while the selected server Pod's Unix socket remained usable. A checked-in disposable probe reproduces this assertion. The session still lacks a reviewed interactive operation, accepted writer/Pod binding, durable client identity, and parent-death recovery; the network result alone does not advance its milestones.
 
@@ -564,6 +585,12 @@ Earlier architecture discoveries remain relevant: derived controller claims must
 
 ## Decision Log
 
+2026-09-29 (design reassessment): Replace distributed phase decisions with one serial operation driver; separate resource read inputs from mutation evidence. Retain models, native adapters, wire history, and conditional storage. Supersede mandatory index rollout before recovery; preserve release scope. See the linked reassessment for alternatives, ownership, compatibility, and the stopping rule.
+
+2026-09-29 (E8–E10): Publication and restored-history experiments validate the local protocol direction. The actual partial-prune CLI and paired executor counterfactuals add F12/F13 to order 0a; factory-only repair is insufficient. No production fix, audit closure, or new child is declared.
+
+2026-09-29: Replace the generic replay-repair priority with three command-boundary repairs demonstrated by local experiments: phase-correct registry construction, selected target/native evidence, and observed-generation append cost. Retain passing batch replay and warm-cache behavior. Make F04/F10 prerequisite defects for affected commands despite their lower audit priority; primitive/foundation acceptance does not establish command acceptance. No product scope or release requirement changes.
+
 2026-09-28: Synchronize external evaluation priority with MP-24/EP-163: K8up/restic first for volume/application backups, Velero as a secondary desk comparison because the operator is concerned about its project direction, and CloudNativePG/Barman retained for PostgreSQL. This supersedes the earlier Velero-first evaluation emphasis, selects no dependency, and changes no MP-23 feature or release gate.
 
 2026-09-28: The operator authorizes a scope reduction while explicitly retaining the cross-tool journal and state. Keep typed ownership, reviews, conditional filesystem/GCS history, existing engines, verified backups, isolated restores, and full validation of that contract. Defer general live overwrite/automatic recovery cutover, custom interactive maintenance (cancel EP-161), and generalized scheduled retention pruning. EP-153 guards new admission and preserves existing recovery; EP-159 makes retention limits visible; EP-160 retains accepted M1 and narrows M2/M3. This supersedes earlier no-feature-reduction instructions and producer/maintenance scheduling. Historical work is preserved, not declared complete or erased.
@@ -637,6 +664,8 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 
 
 ## Revision Notes
+
+2026-09-29: Revise implementation order and shared ownership from measured append/history costs, a controlled recovery-order experiment, and the built CLI's unknown-target failure. Keep passing replay/cache behavior credited and add no new child. See the retained experiment report for limits and counterexamples.
 
 2026-09-28: Make the observed GCS replay defect the immediate implementation priority, reconcile the stale EP-153 entrypoint, and replace vague stalled-work advice with timed diagnosis, evidence-based waiting/retry decisions, and representative operational review. This changes execution order and responsibility; it does not claim the replay defect is fixed.
 

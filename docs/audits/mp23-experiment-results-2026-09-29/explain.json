@@ -1,0 +1,21 @@
+{
+  "binarySha256": "79124f312b70c830ba328ed76adc47d76bce571b8a5c94998e1c19b0517b6680",
+  "results": [
+    {
+      "unrelatedMalformedReview": false,
+      "exit": 1,
+      "seconds": 0.283,
+      "stdout": "",
+      "stderr": "nagarectl: existing Nagare platform workspace has a mismatched manifest: /var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/mp23-explain-boundary-6hc0dk7e/state/nagare/audit/platform/source-development-4e77923d09c6f7f1\n",
+      "providerCalls": []
+    },
+    {
+      "unrelatedMalformedReview": true,
+      "exit": 1,
+      "seconds": 0.031,
+      "stdout": "",
+      "stderr": "nagarectl: StoreInvalidObject \"reviews/44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a.json\" \"Error in $: key \\\"version\\\" not found\"\n",
+      "providerCalls": []
+    }
+  ]
+}

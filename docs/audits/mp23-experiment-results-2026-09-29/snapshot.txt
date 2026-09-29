@@ -1,0 +1,17 @@
+("transport-append",0,5)
+["storage", "objects", "describe", "gs://audit.invalid/private/head.json", "--format=value(generation)", "--quiet"]
+["storage", "cp", "gs://audit.invalid/private/head.json", "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-1c42fafaf4f23419/object", "--quiet"]
+["storage", "objects", "describe", "gs://audit.invalid/private/head.json", "--format=value(generation)", "--quiet"]
+["storage", "cp", "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-put-0ea080f3b68fe25e/object", "gs://audit.invalid/private/journal/00000000000000000000.json", "--if-generation-match=0", "--print-created-message", "--quiet"]
+["storage", "cp", "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-put-42649117f806e3b6/object", "gs://audit.invalid/private/head.json", "--if-generation-match=3", "--print-created-message", "--quiet"]
+("transport-append",1,8)
+["storage", "objects", "describe", "gs://audit.invalid/private/head.json", "--format=value(generation)", "--quiet"]
+["storage", "cp", "gs://audit.invalid/private/head.json", "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-67977dfd6e17a39c/object", "--quiet"]
+["storage", "objects", "describe", "gs://audit.invalid/private/head.json", "--format=value(generation)", "--quiet"]
+["storage", "objects", "describe", "gs://audit.invalid/private/journal/00000000000000000000.json", "--format=value(generation)", "--quiet"]
+["storage", "cp", "gs://audit.invalid/private/journal/00000000000000000000.json", "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-get-cd7becbdd93e51f4/object", "--quiet"]
+["storage", "objects", "describe", "gs://audit.invalid/private/journal/00000000000000000000.json", "--format=value(generation)", "--quiet"]
+["storage", "cp", "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-put-0a5ebd2edec5a3af/object", "gs://audit.invalid/private/journal/00000000000000000001.json", "--if-generation-match=0", "--print-created-message", "--quiet"]
+["storage", "cp", "/private/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-inventory-put-55991e54d5760458/object", "gs://audit.invalid/private/head.json", "--if-generation-match=5", "--print-created-message", "--quiet"]
+Right "ok"
+("concurrent-head-replacement",Right (Left (StoreConditionFailed "inventory head generation changed")))

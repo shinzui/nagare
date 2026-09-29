@@ -1,4 +1,5 @@
 {-# LANGUAGE RankNTypes #-}
+{-# OPTIONS_GHC -Werror=incomplete-patterns #-}
 
 -- | Lock-scoped admission, execution, and recovery of reviewed plans.
 module Nagare.Inventory.Execute
@@ -26,7 +27,7 @@ import Data.Aeson.Types (Parser)
 import Data.ByteString (ByteString)
 import Data.Either (isRight)
 import Data.Generics.Labels ()
-import Data.List (find, sortOn)
+import Data.List (find)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
@@ -43,6 +44,7 @@ import Nagare.Inventory.Digest
 import Nagare.Inventory.Journal
 import Nagare.Inventory.Migration.Types (MigrationContract (..))
 import Nagare.Inventory.Plan
+import Nagare.Inventory.OperationStep
 import Nagare.Inventory.Store
 import Nagare.Resource.Inventory (Executor (..))
 import Nagare.Resource.Inventory qualified as Resource
@@ -144,6 +146,7 @@ admit locked registry reviewed = do
                      /= Just (migrationProofRevision proof)
                    || Map.member resource (headRetained headValue)
                    || Map.member resource (headCollected headValue)]
+              <> validateOperationInputs registry reviewed Map.empty
       case staticErrors of
         firstError : rest -> pure (Left (firstError :| rest))
         [] -> do
@@ -160,6 +163,12 @@ admit locked registry reviewed = do
             Left err -> pure (failure "retention-coverage" err)
             Right retainedRequests -> do
               migrationChecked <- migrationCoverage store document
+              migrationSourceErrors <- case migrationChecked of
+                Left _ -> pure []
+                Right () -> migrationAdmissionChecks registry reviewed
+              let sourceChecked = case migrationSourceErrors of
+                    [] -> Right ()
+                    firstError : _ -> Left (admissionErrorMessage firstError)
               checked <- if Map.null retainedRequests
                 then pure (Right ())
                 else do
@@ -170,40 +179,36 @@ admit locked registry reviewed = do
                       unless (Map.lookup resource (observationMap facts)
                         == Just (ObservedPresent (retentionPhysical proof)))
                         (Left "retained physical incarnation changed since review")
-              case migrationChecked of
+              case migrationChecked >> sourceChecked of
                 Left err -> pure (failure "migration-coverage" err)
                 Right () -> case checked of
                   Left _ -> pure (failure "retention-observation" "retained physical incarnation could not be reverified")
                   Right () -> do
-                    preflightErrors <- preflightOperations registry reviewed Map.empty
-                    case preflightErrors of
-                      firstError : rest -> pure (Left (firstError :| rest))
-                      [] -> do
-                        now <- timestamp
-                        let client = maybe (headClientIdentity headValue) id (storeClientIdentity store)
-                            claim = ExecutorClaim (transactionIdText transaction) client 1 now
-                            retained = Map.map (\proof -> RetainedIncarnation
-                              (retentionOwner proof) (retentionRevision proof)
-                              (retentionPhysical proof) now Nothing) (reviewRetentions document)
-                            migrated = Map.map (\proof -> RetainedIncarnation
-                              (migrationProofOwner proof) (migrationProofRevision proof)
-                              (migrationProofPhysical proof) now
-                              (Just (reviewDocumentDigest document))) (reviewMigrations document)
-                            activated = headValue
-                              { headGeneration = headGeneration headValue + 1
-                              , headAccepted = reviewDesiredRevisions document
-                              , headRetained = Map.unions [retained, migrated, headRetained headValue]
-                              , headActiveTransaction = Just (transactionIdText transaction)
-                              , headExecutorClaim = Just claim
-                              }
-                        activation <- replaceHeadIfGenerationMatches store (Just (headGeneration headValue)) activated
-                        case activation of
-                          Left err -> pure (failure "head-condition" (showText err))
-                          Right () -> do
-                            event <- appendEvent locked transaction Nothing Pending ("admitted review " <> digestText (reviewDocumentDigest document))
-                            pure $ case event of
-                              Left err -> failure "journal" (showText err)
-                              Right _ -> Right (ExecutablePlan transaction reviewed)
+                    now <- timestamp
+                    let client = maybe (headClientIdentity headValue) id (storeClientIdentity store)
+                        claim = ExecutorClaim (transactionIdText transaction) client 1 now
+                        retained = Map.map (\proof -> RetainedIncarnation
+                          (retentionOwner proof) (retentionRevision proof)
+                          (retentionPhysical proof) now Nothing) (reviewRetentions document)
+                        migrated = Map.map (\proof -> RetainedIncarnation
+                          (migrationProofOwner proof) (migrationProofRevision proof)
+                          (migrationProofPhysical proof) now
+                          (Just (reviewDocumentDigest document))) (reviewMigrations document)
+                        activated = headValue
+                          { headGeneration = headGeneration headValue + 1
+                          , headAccepted = reviewDesiredRevisions document
+                          , headRetained = Map.unions [retained, migrated, headRetained headValue]
+                          , headActiveTransaction = Just (transactionIdText transaction)
+                          , headExecutorClaim = Just claim
+                          }
+                    activation <- replaceHeadIfGenerationMatches store (Just (headGeneration headValue)) activated
+                    case activation of
+                      Left err -> pure (failure "head-condition" (showText err))
+                      Right () -> do
+                        event <- appendEvent locked transaction Nothing Pending ("admitted review " <> digestText (reviewDocumentDigest document))
+                        pure $ case event of
+                          Left err -> failure "journal" (showText err)
+                          Right _ -> Right (ExecutablePlan transaction reviewed)
 
 -- Inspect the stored scope member, rather than trusting a public review's
 -- operation summary. Receipt-only recovery carries a distinct accepted failed
@@ -277,9 +282,26 @@ retentionCoverage store document = do
           (Left "desired scope member digest mismatch")
         first showText (decodeScope bytes)
 
+-- | Migration admission transfers the old physical incarnation into retained
+-- history. Its source-binding proof must still hold before that transfer. The
+-- BackUpSource adapter contract checks that original source; it must not depend
+-- on effects of PrepareDestination. This is an authority check, never a resume
+-- prerequisite or a sweep of future operations' readiness conditions.
+migrationAdmissionChecks :: AdapterRegistry -> ReviewedPlan -> IO [AdmissionError]
+migrationAdmissionChecks registry reviewed = fmap concat $ forM sources $ \entry ->
+  case (lookupAdapter registry (plannedExecutor (reviewPlannedOperation entry)), preparedFor reviewed entry) of
+    (Right adapter, Right prepared) -> do
+      checked <- adapterPreflight adapter (reviewPlannedOperation entry) prepared
+      pure [AdmissionError "migration-source" reason | Left reason <- [checked]]
+    (Left reason, _) -> pure [AdmissionError "adapter" reason]
+    (_, Left reason) -> pure [AdmissionError "native-bundle" reason]
+  where
+    sources = [entry | entry <- reviewOperations (reviewedDocument reviewed),
+      plannedAction (reviewPlannedOperation entry) == MigrateResource BackUpSource]
+
 -- | Reconstruct both declarations from immutable scope members before the
--- accepted head can advance. Provider adapters then recheck physical identity
--- during preflight while the writer lock is held.
+-- accepted head can advance. migrationAdmissionChecks rechecks source identity
+-- while the writer lock is held, before this authority transfer.
 migrationCoverage :: InventoryStore -> ReviewDocument -> IO (Either Text ())
 migrationCoverage _ document | Map.null (reviewMigrations document) = pure (Right ())
 migrationCoverage store document = do
@@ -470,7 +492,7 @@ resumeTransactionWithTakeover store registry transaction takeOver = do
                         (Right bundle, Right snapshot) -> case verifyActiveReview snapshot (transactionIdText transaction) bundle of
                           Left errors -> releaseClaim lock transaction False >> pure (Left (fmap reviewAdmission errors))
                           Right reviewed -> do
-                            preflightErrors <- preflightOperations registry reviewed (operationStates transaction events)
+                            let preflightErrors = validateOperationInputs registry reviewed (operationStates transaction events)
                             case preflightErrors of
                               firstError : rest -> releaseClaim lock transaction False >> pure (Left (firstError :| rest))
                               [] -> Right <$> executeWithJournal lock registry
@@ -946,21 +968,18 @@ recordOperatorRecovery store registry input takeOver = do
       (mkContentDigest (T.drop 3 (transactionIdText token)))
 
 runOperations :: LockedStore s -> AdapterRegistry -> TransactionId -> ReviewedPlan -> [JournalEvent] -> [ReviewOperation] -> IO (Maybe TransactionResult)
-runOperations locked registry transaction reviewed initialEvents operations = go initialEvents ordered
+runOperations locked registry transaction reviewed initialEvents operations = go initialEvents
   where
-    ordered = topological operations
-    go _ [] = pure Nothing
-    go events (reviewOperation : rest) = do
-      let operation = reviewPlannedOperation reviewOperation
-          operationId = plannedOperationId operation
-          states = operationStates transaction events
-      case Map.lookup operationId states of
-        Just (Completed _) -> go events rest
-        Just Ambiguous -> recoverOrStop events reviewOperation rest
-        Just (Failed (PartialOrUnknown _)) -> recoverOrStop events reviewOperation rest
-        Just IntentRecorded -> recoverOrStop events reviewOperation rest
-        _ -> executeOne events reviewOperation rest
-    recoverOrStop events reviewOperation rest =
+    go events = case nextOperation operations (operationStates transaction events) of
+      OperationsFinished -> pure Nothing
+      OperationBlocked operation reason ->
+        pure
+          ( Just
+              (StoppedFailed transaction operation (PartialOrUnknown reason))
+          )
+      RecoverOperation operation -> recoverOrStop events operation
+      ExecuteOperation operation -> executeOne events operation
+    recoverOrStop events reviewOperation =
       let operation = reviewPlannedOperation reviewOperation
        in case preparedFor reviewed reviewOperation of
             Left _ -> pure (Just (StoppedAmbiguous transaction (plannedOperationId (reviewPlannedOperation reviewOperation))))
@@ -968,104 +987,175 @@ runOperations locked registry transaction reviewed initialEvents operations = go
               Left _ -> pure (Just (StoppedAmbiguous transaction (plannedOperationId (reviewPlannedOperation reviewOperation))))
               Right adapter
                 | adapterIdentity adapter /= reviewAdapterIdentity reviewOperation
-                  || adapterVersion adapter /= reviewAdapterVersion reviewOperation ->
+                    || adapterVersion adapter /= reviewAdapterVersion reviewOperation ->
                     pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
                 | Left _ <- selectedFence registry reviewed reviewOperation prepared ->
                     pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
                 | otherwise -> do
-                    decision <- withAdapterEnv transaction operation
-                      (adapterRecover adapter operation prepared)
+                    decision <-
+                      withAdapterEnv
+                        transaction
+                        operation
+                        (adapterRecover adapter operation prepared)
                     case decision of
                       RecoveryProvedComplete proof -> do
-                        appended <- appendEvent locked transaction (Just (plannedOperationId operation))
-                          (Completed proof) "adapter recovery proved completion"
+                        appended <-
+                          appendEvent
+                            locked
+                            transaction
+                            (Just (plannedOperationId operation))
+                            (Completed proof)
+                            "adapter recovery proved completion"
                         case appended of
                           Left _ -> pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
-                          Right event -> go (events <> [event]) rest
+                          Right event -> go (events <> [event])
                       RecoverySafeToRetry
-                        | isNothing (reviewFenceDigest reviewOperation) ->
-                            executeOne events reviewOperation rest
-                        | otherwise -> pure (Just (StoppedAmbiguous transaction
-                            (plannedOperationId operation)))
+                        | isNothing (reviewFenceDigest reviewOperation)
+                        , dependenciesComplete (operationStates transaction events) reviewOperation ->
+                            executeOne events reviewOperation
+                        | otherwise ->
+                            pure
+                              ( Just
+                                  ( StoppedAmbiguous
+                                      transaction
+                                      (plannedOperationId operation)
+                                  )
+                              )
+                      RecoveryTerminalFailure _ ->
+                        pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
                       RecoveryUnresolved _ ->
                         pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
-    executeOne events reviewOperation rest = do
+    executeOne events reviewOperation = do
       let operation = reviewPlannedOperation reviewOperation
           operationId = plannedOperationId operation
       case (lookupAdapter registry (plannedExecutor operation), preparedFor reviewed reviewOperation) of
         (Left _, _) -> pure (Just (StoppedAmbiguous transaction operationId))
         (_, Left _) -> pure (Just (StoppedAmbiguous transaction operationId))
         (Right adapter, Right prepared) -> case selectedFence registry reviewed reviewOperation prepared of
-          Left _ -> pure (Just (StoppedFailed transaction operationId
-            (KnownNoEffect "reviewed data fence capability changed")))
-          Right fenceSelection -> executePrepared events rest operation
-            operationId adapter prepared fenceSelection
-    executePrepared events rest operation operationId adapter prepared fenceSelection = do
-          preflight <- adapterPreflight adapter operation prepared
-          case preflight of
-            Left _ -> pure (Just (StoppedFailed transaction operationId (KnownNoEffect "adapter preflight refused")))
-            Right () -> do
-              intent <- appendEvent locked transaction (Just operationId) IntentRecorded "operation intent recorded"
-              case intent of
-                Left _ -> pure (Just (StoppedAmbiguous transaction operationId))
-                Right intentEvent -> do
-                  currentClaim <- executorStillClaimed locked transaction
-                  if not currentClaim
-                    then pure (Just (StoppedAmbiguous transaction operationId))
-                    else do
-                      started <- startFence fenceSelection
-                      case started of
-                        Left reason -> do
-                          _ <- appendEvent locked transaction (Just operationId) Ambiguous
-                            ("data fence acquisition or exclusion is unresolved: " <> reason)
+          Left _ ->
+            pure
+              ( Just
+                  ( StoppedFailed
+                      transaction
+                      operationId
+                      (KnownNoEffect "reviewed data fence capability changed")
+                  )
+              )
+          Right fenceSelection ->
+            executePrepared
+              events
+              operation
+              operationId
+              adapter
+              prepared
+              fenceSelection
+    executePrepared events operation operationId adapter prepared fenceSelection = do
+      preflight <- adapterPreflight adapter operation prepared
+      case preflight of
+        Left _ -> pure (Just (StoppedFailed transaction operationId (KnownNoEffect "adapter preflight refused")))
+        Right () -> do
+          intent <- appendEvent locked transaction (Just operationId) IntentRecorded "operation intent recorded"
+          case intent of
+            Left _ -> pure (Just (StoppedAmbiguous transaction operationId))
+            Right intentEvent -> do
+              currentClaim <- executorStillClaimed locked transaction
+              if not currentClaim
+                then pure (Just (StoppedAmbiguous transaction operationId))
+                else do
+                  started <- startFence fenceSelection
+                  case started of
+                    Left reason -> do
+                      _ <-
+                        appendEvent
+                          locked
+                          transaction
+                          (Just operationId)
+                          Ambiguous
+                          ("data fence acquisition or exclusion is unresolved: " <> reason)
+                      pure (Just (StoppedAmbiguous transaction operationId))
+                    Right activeFence -> do
+                      result <-
+                        withAdapterEnv
+                          transaction
+                          operation
+                          (adapterExecute adapter operation prepared)
+                      case result of
+                        AdapterEffectFailed failureClass -> do
+                          markUnknown activeFence
+                          let state = case (activeFence, failureClass) of
+                                (Just _, _) -> Ambiguous
+                                (_, KnownNoEffect _) -> Failed failureClass
+                                _ -> Ambiguous
+                          appended <-
+                            appendEvent
+                              locked
+                              transaction
+                              (Just operationId)
+                              state
+                              "adapter execution stopped"
+                          pure $ Just $ case (activeFence, failureClass, appended) of
+                            (Nothing, KnownNoEffect _, Right _) ->
+                              StoppedFailed transaction operationId failureClass
+                            _ -> StoppedAmbiguous transaction operationId
+                        AdapterEffectAmbiguous reason -> do
+                          markUnknown activeFence
+                          _ <-
+                            appendEvent
+                              locked
+                              transaction
+                              (Just operationId)
+                              Ambiguous
+                              ("adapter result was ambiguous: " <> reason)
                           pure (Just (StoppedAmbiguous transaction operationId))
-                        Right activeFence -> do
-                          result <- withAdapterEnv transaction operation
-                            (adapterExecute adapter operation prepared)
-                          case result of
-                            AdapterEffectFailed failureClass -> do
+                        AdapterEffectCompleted -> do
+                          verification <-
+                            withAdapterEnv
+                              transaction
+                              operation
+                              (adapterVerify adapter operation prepared)
+                          case verification of
+                            Left _ -> do
                               markUnknown activeFence
-                              let state = case (activeFence, failureClass) of
-                                    (Just _, _) -> Ambiguous
-                                    (_, KnownNoEffect _) -> Failed failureClass
-                                    _ -> Ambiguous
-                              appended <- appendEvent locked transaction (Just operationId) state
-                                "adapter execution stopped"
-                              pure $ Just $ case (activeFence, failureClass, appended) of
-                                (Nothing, KnownNoEffect _, Right _) ->
-                                  StoppedFailed transaction operationId failureClass
-                                _ -> StoppedAmbiguous transaction operationId
-                            AdapterEffectAmbiguous reason -> do
-                              markUnknown activeFence
-                              _ <- appendEvent locked transaction (Just operationId) Ambiguous
-                                ("adapter result was ambiguous: " <> reason)
+                              _ <-
+                                appendEvent
+                                  locked
+                                  transaction
+                                  (Just operationId)
+                                  Ambiguous
+                                  "adapter completion could not be verified"
                               pure (Just (StoppedAmbiguous transaction operationId))
-                            AdapterEffectCompleted -> do
-                              verification <- withAdapterEnv transaction operation
-                                (adapterVerify adapter operation prepared)
-                              case verification of
+                            Right proof -> do
+                              fenceVerified <- finishFence activeFence
+                              case fenceVerified of
                                 Left _ -> do
-                                  markUnknown activeFence
-                                  _ <- appendEvent locked transaction (Just operationId) Ambiguous
-                                    "adapter completion could not be verified"
+                                  _ <-
+                                    appendEvent
+                                      locked
+                                      transaction
+                                      (Just operationId)
+                                      Ambiguous
+                                      "data fence verification or release is unresolved"
                                   pure (Just (StoppedAmbiguous transaction operationId))
-                                Right proof -> do
-                                  fenceVerified <- finishFence activeFence
-                                  case fenceVerified of
-                                    Left _ -> do
-                                      _ <- appendEvent locked transaction (Just operationId) Ambiguous
-                                        "data fence verification or release is unresolved"
-                                      pure (Just (StoppedAmbiguous transaction operationId))
-                                    Right () -> do
-                                      appended <- appendEvent locked transaction (Just operationId)
-                                        (Completed proof) "operation completion verified"
-                                      case appended of
-                                        Left _ -> pure (Just (StoppedAmbiguous transaction operationId))
-                                        Right completedEvent -> go (events <> [intentEvent, completedEvent]) rest
+                                Right () -> do
+                                  appended <-
+                                    appendEvent
+                                      locked
+                                      transaction
+                                      (Just operationId)
+                                      (Completed proof)
+                                      "operation completion verified"
+                                  case appended of
+                                    Left _ -> pure (Just (StoppedAmbiguous transaction operationId))
+                                    Right completedEvent -> go (events <> [intentEvent, completedEvent])
     startFence Nothing = pure (Right Nothing)
     startFence (Just (requested, controls)) = do
-      acquired <- acquireDataFence locked controls requested
-        {fenceTransaction = Just (transactionIdText transaction)}
+      acquired <-
+        acquireDataFence
+          locked
+          controls
+          requested
+            { fenceTransaction = Just (transactionIdText transaction)
+            }
       case acquired of
         Left reason -> pure (Left reason)
         Right token -> do
@@ -1093,33 +1183,31 @@ executorStillClaimed locked transaction = do
       Nothing -> False
     _ -> False
 
-preflightOperations :: AdapterRegistry -> ReviewedPlan -> Map OperationId OperationState -> IO [AdmissionError]
-preflightOperations registry reviewed previous = fmap concat $ forM (reviewOperations (reviewedDocument reviewed)) $ \reviewOperation -> do
-  let operation = reviewPlannedOperation reviewOperation
-  if maybe False deferredToRecovery (Map.lookup (plannedOperationId operation) previous) || isNothing (reviewNativeDigest reviewOperation)
-    then pure []
-    else case (lookupAdapter registry (plannedExecutor operation), preparedFor reviewed reviewOperation) of
-      (Left err, _) -> pure [AdmissionError "adapter" err]
-      (_, Left err) -> pure [AdmissionError "native-bundle" err]
-      (Right adapter, Right prepared)
-        | adapterIdentity adapter /= reviewAdapterIdentity reviewOperation || adapterVersion adapter /= reviewAdapterVersion reviewOperation ->
-            pure [AdmissionError "adapter-version" "review adapter identity or version differs from the active registry"]
-        | otherwise -> case selectedFence registry reviewed reviewOperation prepared of
-            Left reason -> pure [AdmissionError "data-fence-capability" reason]
-            Right _ -> do
-              result <- adapterPreflight adapter operation prepared
-              pure [AdmissionError "preflight" err | Left err <- [result]]
+-- Structural validation is independent of live operation preconditions. Those
+-- run only in the interpreter after dependency and recovery selection.
+validateOperationInputs :: AdapterRegistry -> ReviewedPlan -> Map OperationId OperationState -> [AdmissionError]
+validateOperationInputs registry reviewed previous =
+  [ AdmissionError "operation-graph" reason
+  | Left reason <- [validateOperationGraph operations]
+  ]
+    <> concatMap validate operations
   where
-    -- A possibly completed effect must be inspected by adapterRecover before
-    -- comparing it with the old reviewed precondition. Completed operations
-    -- likewise no longer need the original preflight. Known-no-effect failures
-    -- are retried through ordinary preflight.
-    deferredToRecovery = \case
-      Completed {} -> True
-      Ambiguous -> True
-      IntentRecorded -> True
-      Failed (PartialOrUnknown _) -> True
-      _ -> False
+    operations = reviewOperations (reviewedDocument reviewed)
+    validate reviewOperation
+      | Just (Completed _) <- Map.lookup (plannedOperationId operation) previous = []
+      | isNothing (reviewNativeDigest reviewOperation) = []
+      | otherwise = case (lookupAdapter registry (plannedExecutor operation), preparedFor reviewed reviewOperation) of
+          (Left err, _) -> [AdmissionError "adapter" err]
+          (_, Left err) -> [AdmissionError "native-bundle" err]
+          (Right adapter, Right prepared)
+            | adapterIdentity adapter /= reviewAdapterIdentity reviewOperation || adapterVersion adapter /= reviewAdapterVersion reviewOperation ->
+                [AdmissionError "adapter-version" "review adapter identity or version differs from the active registry"]
+            | otherwise ->
+                [ AdmissionError "data-fence-capability" reason
+                | Left reason <- [selectedFence registry reviewed reviewOperation prepared]
+                ]
+      where
+        operation = reviewPlannedOperation reviewOperation
 
 preparedFor :: ReviewedPlan -> ReviewOperation -> Either Text PreparedNative
 preparedFor reviewed reviewOperation = do
@@ -1315,19 +1403,6 @@ transactionFor document =
 
 reviewDocumentDigest :: ReviewDocument -> ContentDigest
 reviewDocumentDigest = contentDigest . encodeReviewDocument
-
-topological :: [ReviewOperation] -> [ReviewOperation]
-topological operations = go [] operations
-  where
-    go done [] = done
-    go done remaining =
-      let completed = map (plannedOperationId . reviewPlannedOperation) done
-          (ready, blocked) = spanReady completed remaining
-       in if null ready then done <> remaining else go (done <> sortOn (operationIdText . plannedOperationId . reviewPlannedOperation) ready) blocked
-    spanReady completed values =
-      ( [value | value <- values, all (`elem` completed) (plannedDependencies (reviewPlannedOperation value))]
-      , [value | value <- values, not (all (`elem` completed) (plannedDependencies (reviewPlannedOperation value)))]
-      )
 
 withAdapterEnv :: TransactionId -> PlannedOperation -> IO a -> IO a
 withAdapterEnv transaction operation action = do

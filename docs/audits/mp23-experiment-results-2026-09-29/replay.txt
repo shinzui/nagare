@@ -1,0 +1,31 @@
+inventory object operations
+  journal replay reads 50 and 500 committed members in one batch and rejects gaps: OK (0.05s)
+  active status verifies 50 and 500 chained events with one batch each:            OK (0.21s)
+  converged replay needs no provider registry or repeated journal pass:            OK (0.04s)
+  active resume reads one journal batch and does not repeat proved effect:         OK (0.04s)
+  lost journal acknowledgement cannot duplicate an effect:                         OK (0.04s)
+
+All 5 tests passed (0.21s)
+test/InventoryTransactionSpec.hs:390:48: warning: [GHC-02256] [-Wambiguous-fields]
+    Ambiguous record update with parent type constructor ‘ManagedResource’.
+    This type-directed disambiguation mechanism will not be supported by -XDuplicateRecordFields in future releases of GHC.
+    Consider disambiguating using module qualification instead.
+    |
+390 |               Managed value -> Managed (value {owner = newOwner})
+    |                                                ^^^^^^^^^^^^^^^^
+
+test/InventoryTransactionSpec.hs:1380:69: warning: [GHC-63394] [-Wx-partial]
+    In the use of ‘head’
+    (imported from Prelude, but defined in GHC.Internal.List):
+    "This is a partial function, it throws an error on empty lists. Use pattern matching, 'Data.List.uncons' or 'Data.Maybe.listToMaybe' instead. Consider refactoring to use "Data.List.NonEmpty"."
+     |
+1380 |         let operation = plannedOperationId (reviewPlannedOperation (head (reviewOperations (reviewedDocument reviewed))))
+     |                                                                     ^^^^
+
+test/InventoryTransactionSpec.hs:1404:69: warning: [GHC-63394] [-Wx-partial]
+    In the use of ‘head’
+    (imported from Prelude, but defined in GHC.Internal.List):
+    "This is a partial function, it throws an error on empty lists. Use pattern matching, 'Data.List.uncons' or 'Data.Maybe.listToMaybe' instead. Consider refactoring to use "Data.List.NonEmpty"."
+     |
+1404 |         let operation = plannedOperationId (reviewPlannedOperation (head (reviewOperations (reviewedDocument reviewed))))
+     |                                                                     ^^^^

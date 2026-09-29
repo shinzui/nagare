@@ -665,3 +665,89 @@ Actual storage support, database consistency, recovery, footprint, and net code/
 must justify adoption before adding controllers or changing storage. A new database engine later
 needs its own bounded declaration/adapter/proof; anticipated growth does not justify a generic
 provider or maintenance framework now.
+
+## Amendment — 2026-09-29: command boundaries preserve lifecycle and cost contracts
+
+[Local operational experiments](../audits/mp23-operational-experiments.md) demonstrate that
+primitive correctness is insufficient when command orchestration adds historical scans,
+duplicate head discovery, or pre-effect predicates before recovery. Store conformance and
+executor tests remain valid at their tested boundary; they do not certify a complete command.
+
+Registry construction reconstructs and validates immutable reviewed inputs and selects
+adapters. Live conditions whose truth changes through the operation belong to the appropriate
+preflight/effect/verification/recovery phase. An already-admitted ambiguous operation must
+reach its recovery handler before a pre-effect condition is reconsidered. Moving that check
+outward into a command factory violates the existing recovery contract even when the executor
+itself is correct. Recovery remains bound to the original evidence and exact physical identity. E10 also demonstrates
+that a dependent operation's live precondition can block recovery of its prerequisite
+inside the executor. Validate the whole review's structure before effects, but defer
+live operation predicates until dependencies permit that operation to execute.
+Terminal adapter outcomes must have explicit stopped/recovery behavior; they cannot
+fall through an incomplete match or authorize automatic replay.
+
+Resolve a selected resource against accepted/retained declarations before preparing unrelated
+workspaces, native inputs, or provider observations. Ordinary native lookup must select the
+evidence needed by those bindings; it must not reconstruct every unrelated historical review.
+A derived lookup may locate immutable evidence but cannot replace digest, membership, native
+reconstruction, or incarnation checks, and cannot become an independent ownership authority.
+Explicit integrity/reconstruction work may inspect the wider history. Missing or corrupt
+selected evidence remains a refusal; scoped inspection makes no claim that unrelated history
+has been globally audited.
+
+The lookup boundary is a selected native member, not an entire private review bundle.
+The original immutable document and required declarations remain authenticated; a
+selected read does not need unrelated native payloads. Expose this as a distinct
+evidence type that cannot be used for admission, preserving full review validation
+there. Lookup publication must complete and validate required witnesses before new
+admission depends on them; retries and an explicit resumable rebuild handle
+interruption, old history, and restored roots. Missing derived state cannot silently
+mean absent native evidence. Scope/manifest decoding remains a separately measured
+cost under the current immutable format. E6/E7 in the experiment report establish
+these design constraints, not a shipped implementation.
+
+Append optimization must preserve the observed provider generation, executor claim, event
+identity, and conditional head advancement. Reusing an observed head within one append is a
+tested design direction; persistent mutable-head caching and unconditional writes are not
+authorized substitutes. EP-156 owns production implementation and adversarial proof, including
+lost acknowledgements and takeover. The local counterfactual does not establish cloud latency.
+
+Measure these contracts at the complete command boundary, including setup and finalization,
+with independent variation of selected resources, unrelated reviews, and journal length.
+The current no-daemon, native-executor, and single-writer architecture remains unchanged.
+
+## Amendment — 2026-09-29: reassessed execution and read responsibilities
+
+The [design reassessment](../audits/mp23-design-reassessment.md) retains this ADR's
+ownership, native-tool, immutable-history, and single-writer decisions. It replaces
+distributed operation-phase decisions as an implementation strategy. Apply and
+resume must share one deterministic serial operation driver. Whole-review
+structural/authority validation is distinct from live preconditions for an operation
+whose dependencies are ready. Registry construction loads immutable inputs;
+operation-time provider checks belong to that driver and its adapters. Every
+recovery outcome has explicit behavior, including terminal failure and unknown
+legacy resolution states. No historical review or journal rewrite is implied.
+
+Resource inspection consumes selected validated observation evidence and does not
+construct mutation execution. Exact original evidence remains authoritative.
+The earlier publication/rebuild proposal is one possible acceleration protocol;
+mandatory index availability before historical recovery is superseded. Derived
+state may assist lookup but cannot revoke an already-admitted review's recovery
+authority. Where old formats require extraction, make that explicit, bounded,
+restartable, and subordinate to immutable proof. Selected missing/corrupt original
+evidence still refuses. No new schema or compatibility implementation is claimed.
+
+This is a bounded implementation direction, not new product scope or a declaration
+that the replacement is proven. Preserve existing native safety checks, historical
+recovery, and release acceptance. A need for another persistent engine or rewriting
+admitted history would require a new explicit design decision rather than silent
+expansion of this repair.
+
+
+Implementation checkpoint (2026-09-29): the shared serial driver and unified
+apply/resume registry now have [production consumer proof](../audits/mp23-rescue-proof.md).
+Removing general live preflight does not remove admission-time authority checks:
+retention re-observes the original physical incarnation, and migration checks the
+original source before transferring it into retained history. The existing
+`BackUpSource` preflight supplies that source-binding check independently of
+future destination readiness. Neither admission check becomes an up-front resume
+requirement. Selected-read and store-cost implementation remains outstanding.

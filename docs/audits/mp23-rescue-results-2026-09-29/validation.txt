@@ -1,0 +1,17 @@
+cabal test nagarectl-test --enable-tests --test-show-details=direct
+
+All 935 tests passed (48.42s)
+Test suite nagarectl-test: PASS
+Test suite logged to:
+/Users/shinzui/Keikaku/bokuno/nagare/cli/nagarectl/./dist-newstyle/build/aarch64-osx/ghc-9.12.4/nagarectl-0.4.0/t/nagarectl-test/test/nagarectl-0.4.0-nagarectl-test.log
+1 of 1 test suites (1 of 1 test cases) passed.
+
+managed command audit: 138 routes, 34 recipes, 26 library calls; injected mutation refused
+scripts/test-inventory-entrypoint-guards.sh
+inventory entrypoint guards: five image-free deploy refusals, three unreviewed change refusals, eleven admitted refusals, untouched-store delete allowed
+scripts/test-application-entrypoint-guards.sh
+application entrypoint guards: thirty-three live refusals and seven fresh-context refusals, inventory heads unchanged
+PASS haskell-data-record-fields-must-be-strict  ...
+
+test result: ok. 1 passed; 0 failed;
+Haskell style checks passed (nagare-dsl, nagarectl, nagare-access).
