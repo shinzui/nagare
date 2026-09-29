@@ -1,0 +1,23 @@
+cabal-version: 3.0
+name: gogol-transport-probe
+version: 0.1.0.0
+build-type: Simple
+
+executable gogol-transport-probe
+  main-is: Main.hs
+  default-language: GHC2021
+  ghc-options: -Wall -threaded
+  build-depends:
+    base >=4.17 && <5,
+    aeson,
+    bytestring,
+    crypton,
+    gogol ==1.0.0.0,
+    gogol-core ==1.0.0.0,
+    gogol-storage ==1.0.0,
+    http-client,
+    http-client-tls,
+    http-types,
+    lens,
+    text,
+    time

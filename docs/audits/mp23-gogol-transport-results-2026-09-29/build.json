@@ -1,0 +1,32 @@
+{
+  "compiler": "ghc-9.12.4",
+  "sdk_repository": "mori://brendanhay/gogol/repos/gogol",
+  "upstream_branch": "main",
+  "upstream_commit": "881cd14c9844131b4a8d96ca1bbb2bd9a2409ed9",
+  "historical_master": "4750be61b12982e07cc4910185874680524640e6",
+  "build_exit": 0,
+  "offline_request_checks": 8,
+  "joint_nagare_dependency_solve_exit": 0,
+  "joint_nagare_build_or_tests_run": false,
+  "packages": {
+    "crypton": "1.1.5",
+    "crypton-x509": "1.9.1",
+    "crypton-x509-store": "1.9.0",
+    "gogol": "1.0.0.0",
+    "gogol-core": "1.0.0.0",
+    "gogol-storage": "1.0.0",
+    "http-client": "0.7.19",
+    "http-client-tls": "0.4.0",
+    "lens": "5.3.6",
+    "aeson": "2.3.2.0",
+    "text": "2.1.4",
+    "tls": "2.4.6"
+  },
+  "source_sha256": {
+    "docs/audits/mp23-reproductions/gogol-transport/run.py": "5548a87958283e09132579e7c9eca22ec3dad876a47bed87405a37e21e2a23dd",
+    "docs/audits/mp23-reproductions/gogol-transport/Main.hs": "5ccb880c84c9eb8b4bee71d05618e4c37a5b9c9bb89a23544744352fd958c75b",
+    "docs/audits/mp23-reproductions/gogol-transport/gogol-transport.cabal": "005a949a136035afbd53a652a3cd4f6cf3791384c0874b6162f4fc27d84ff895",
+    "docs/audits/mp23-reproductions/gogol-transport/README.md": "b87191675dc745b1ac9c0fcc53d2e0563896d0c3aa77b94f6e5160579a30e08e",
+    "docs/audits/mp23-reproductions/gogol-transport/cabal.project": "d1b938815a2f4811109b5b0e7cb50dea24d1d0e056b3eff719e12429e9d116db"
+  }
+}

@@ -806,3 +806,18 @@ verifies its exact publication without enumerating unrelated archive keys. This
 publication check bypasses the local immutable cache; cached integrity does not
 prove publication in the selected store. Complete original bundle validation is
 still required. See [the claim/publication proof](../audits/mp23-head-claims-proof.md).
+
+
+GCS transport direction (2026-09-29): the [bounded Gogol experiment](../audits/mp23-gogol-transport-proof.md)
+justifies replacing repeated object-level gcloud processes with a reused SDK
+manager within a command. The operator chose a current upstream source pin;
+use the exact tested commit from `mori://brendanhay/gogol/repos/gogol`, consistently
+across Cabal and Nix. This checkpoint selects the implementation direction,
+not the production default. Retain ObjectOps uncertainty/conditional-write
+outcomes, exact provider-generation authority, context/bucket/prefix checks,
+and complete validated journal replay. SDK project quota attribution does not
+prove bucket ownership. Credentials must preserve the selected identity through
+refresh; the bounded probe's stdin token is not that production mechanism.
+Only adopt the adapter after failure conformance and public-command evidence,
+including bounded paginated journal downloads. No state format or provider
+mutation policy changes are implied.

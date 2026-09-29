@@ -1,0 +1,119 @@
+{
+  "target": "gs://tan-ng-labs-ep150-pmkjjpp-state/inventory/head.json",
+  "project": "tan-ng-labs",
+  "wire": {
+    "checks": 8,
+    "status": "passed"
+  },
+  "rounds": [
+    {
+      "baseline": {
+        "seconds": 7.051947166910395,
+        "generation": 1790656456769847,
+        "bytes": 1773,
+        "sha256": "9eda5dc0872e74f8261e62af61efa758ce07ed0c161cc9e2e9d8a112b0a7bde7",
+        "subprocesses": 3
+      },
+      "gogol": {
+        "http_responses": 7,
+        "mismatched_generation_status": 412,
+        "reads": [
+          {
+            "bytes": 1773,
+            "generation": 1790656456769847,
+            "seconds": 0.258448,
+            "sha256": "9eda5dc0872e74f8261e62af61efa758ce07ed0c161cc9e2e9d8a112b0a7bde7"
+          },
+          {
+            "bytes": 1773,
+            "generation": 1790656456769847,
+            "seconds": 0.197014,
+            "sha256": "9eda5dc0872e74f8261e62af61efa758ce07ed0c161cc9e2e9d8a112b0a7bde7"
+          },
+          {
+            "bytes": 1773,
+            "generation": 1790656456769847,
+            "seconds": 0.196396,
+            "sha256": "9eda5dc0872e74f8261e62af61efa758ce07ed0c161cc9e2e9d8a112b0a7bde7"
+          }
+        ],
+        "request_guard_invocations": 14
+      },
+      "auth_seconds": 0.6415453749941662,
+      "gogol_process_seconds": 0.7846807909663767
+    },
+    {
+      "baseline": {
+        "seconds": 5.5803615839686245,
+        "generation": 1790656456769847,
+        "bytes": 1773,
+        "sha256": "9eda5dc0872e74f8261e62af61efa758ce07ed0c161cc9e2e9d8a112b0a7bde7",
+        "subprocesses": 3
+      },
+      "gogol": {
+        "http_responses": 7,
+        "mismatched_generation_status": 412,
+        "reads": [
+          {
+            "bytes": 1773,
+            "generation": 1790656456769847,
+            "seconds": 0.317908,
+            "sha256": "9eda5dc0872e74f8261e62af61efa758ce07ed0c161cc9e2e9d8a112b0a7bde7"
+          },
+          {
+            "bytes": 1773,
+            "generation": 1790656456769847,
+            "seconds": 0.255696,
+            "sha256": "9eda5dc0872e74f8261e62af61efa758ce07ed0c161cc9e2e9d8a112b0a7bde7"
+          },
+          {
+            "bytes": 1773,
+            "generation": 1790656456769847,
+            "seconds": 0.195496,
+            "sha256": "9eda5dc0872e74f8261e62af61efa758ce07ed0c161cc9e2e9d8a112b0a7bde7"
+          }
+        ],
+        "request_guard_invocations": 14
+      },
+      "auth_seconds": 0.681522790924646,
+      "gogol_process_seconds": 0.9172607919899747
+    },
+    {
+      "baseline": {
+        "seconds": 5.720013082958758,
+        "generation": 1790656456769847,
+        "bytes": 1773,
+        "sha256": "9eda5dc0872e74f8261e62af61efa758ce07ed0c161cc9e2e9d8a112b0a7bde7",
+        "subprocesses": 3
+      },
+      "gogol": {
+        "http_responses": 7,
+        "mismatched_generation_status": 412,
+        "reads": [
+          {
+            "bytes": 1773,
+            "generation": 1790656456769847,
+            "seconds": 0.331196,
+            "sha256": "9eda5dc0872e74f8261e62af61efa758ce07ed0c161cc9e2e9d8a112b0a7bde7"
+          },
+          {
+            "bytes": 1773,
+            "generation": 1790656456769847,
+            "seconds": 0.185853,
+            "sha256": "9eda5dc0872e74f8261e62af61efa758ce07ed0c161cc9e2e9d8a112b0a7bde7"
+          },
+          {
+            "bytes": 1773,
+            "generation": 1790656456769847,
+            "seconds": 0.200331,
+            "sha256": "9eda5dc0872e74f8261e62af61efa758ce07ed0c161cc9e2e9d8a112b0a7bde7"
+          }
+        ],
+        "request_guard_invocations": 14
+      },
+      "auth_seconds": 0.769685999955982,
+      "gogol_process_seconds": 0.992582582985051
+    }
+  ],
+  "binary_sha256": "8ba66b2e65731967aaacd62d5baae4eddcbeacff1804625ed1d92accbc5c68f2"
+}
