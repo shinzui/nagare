@@ -5066,11 +5066,17 @@ foundationScopeReady active snapshot = case Map.lookup owner (ResourceInventory.
       Right targets -> do
         let declaredServices = Set.fromList [Resource.nameText service
               | FoundationService _ service <- Map.elems targets]
-            declared = Map.lookup stackId targets == Just stackTarget
+            declared = maybe False
+              ((== foundationTargetDigest stackTarget) . foundationTargetDigest)
+              (Map.lookup stackId targets)
               && Set.fromList [Resource.nameText bucket
                 | FoundationBucket _ bucket _ _ <- Map.elems targets] == expectedBuckets
               && declaredServices `Set.isSubsetOf` Set.fromList requiredApis
         if not declared then pure False else do
+          -- A newly materialized payload workspace has no stack config link yet.
+          -- Observe the accepted stack through its context-owned config.
+          linkContextStackConfig (active ^. #contextName) (workspace ^. #pulumiDir)
+            >>= either dieT (const (pure ()))
           let runtime = mkFoundationRuntimeOps realGcloudRunner
           observations <- traverse (\target ->
             (,) target <$> foundationInspect runtime target) (Map.elems targets)

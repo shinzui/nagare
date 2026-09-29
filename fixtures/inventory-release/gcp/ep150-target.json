@@ -13,6 +13,13 @@
   "imageBucket": "tan-ng-labs-ep150-pmkjjpp-images",
   "backupBucket": "tan-ng-labs-ep150-pmkjjpp-backups",
   "nixCacheBucket": "tan-ng-labs-ep150-pmkjjpp-nix-cache",
+  "builder": {
+    "network": "nix-builder-ep150-net",
+    "subnet": "nix-builder-ep150-subnet",
+    "subnetCidr": "10.152.0.0/24",
+    "firewall": "nix-builder-ep150-iap-ssh",
+    "instance": "nix-builder-ep150"
+  },
   "domain": "ep150.labs.topagentnetwork.net",
   "parentZone": "nagare-zone-89da8ae"
 }

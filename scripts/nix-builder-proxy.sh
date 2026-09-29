@@ -12,6 +12,7 @@ PROJECT="$1"
 ZONE="$2"
 INSTANCE="$3"
 SOCAT_BIN="$(command -v socat || true)"
+NC_BIN="$(command -v nc || true)"
 
 if [ -z "$PROJECT" ] || [ -z "$ZONE" ] || [ -z "$INSTANCE" ]; then
   echo "nagare-nix-builder-proxy: project, zone, and instance must be non-empty" >&2
@@ -19,6 +20,10 @@ if [ -z "$PROJECT" ] || [ -z "$ZONE" ] || [ -z "$INSTANCE" ]; then
 fi
 if [ -z "$SOCAT_BIN" ]; then
   echo "nagare-nix-builder-proxy: socat not found on PATH" >&2
+  exit 2
+fi
+if [ -z "$NC_BIN" ]; then
+  echo "nagare-nix-builder-proxy: nc not found on PATH" >&2
   exit 2
 fi
 
@@ -52,7 +57,9 @@ for _attempt in 1 2 3 4 5; do
 
   deadline=$((SECONDS + 60))
   while [ "$SECONDS" -lt "$deadline" ]; do
-    if (echo >/dev/tcp/127.0.0.1/"$local_port") 2>/dev/null; then
+    # A listening local port is not proof that IAP can reach the VM yet.
+    # Wait for the remote sshd banner before handing the stream to SSH.
+    if (echo ""; sleep 1) | "$NC_BIN" -w 5 127.0.0.1 "$local_port" 2>/dev/null | grep '^SSH-' >/dev/null; then
       ready=1
       break
     fi

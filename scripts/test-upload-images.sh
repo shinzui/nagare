@@ -58,11 +58,24 @@ printf 'gcloud %s\n' "$*" >>"$NAGARE_TEST_LOG"
 case " $* " in
   *" storage buckets describe "*) printf '%s\n' 123 ;;
   *" projects describe "*) printf '%s\n' 123 ;;
+  *" compute instances describe "*) printf '%s\n' RUNNING ;;
+  *" compute start-iap-tunnel "*) sleep 30 ;;
   *" compute images describe "*" --format=value(name) "*) exit 1 ;;
   *" compute images describe "*" --format=value(selfLink) "*)
     printf '%s\n' 'https://www.googleapis.com/compute/v1/projects/labs-project/global/images/nagare-image-fixture'
     ;;
 esac
+EOF
+
+sed -e "s|@BASH@|$(command -v bash)|g" >"$work/bin/nc" <<'EOF'
+#!@BASH@
+cat >/dev/null
+printf 'SSH-2.0-fixture\n'
+EOF
+
+sed -e "s|@BASH@|$(command -v bash)|g" >"$work/bin/ssh-keyscan" <<'EOF'
+#!@BASH@
+printf '127.0.0.1 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFixtureHostKey\n'
 EOF
 
 sed -e "s|@BASH@|$(command -v bash)|g" >"$work/bin/ssh" <<'EOF'
@@ -84,6 +97,10 @@ export NAGARE_WORKSPACE_ROOT="$repo_root"
 export NAGARE_HOST_FLAKE="$work/host"
 export NAGARE_TEST_LOG="$work/tools.log"
 export NAGARE_TEST_STORE_PATH="$work/store/image"
+# A pinned pre-opened tunnel exercises the daemon-facing builder selection
+# without making the unit fixture start a real Compute Engine tunnel.
+export NIX_BUILDER_TUNNEL_PORT=28157
+export NIX_BUILDER_HOST_KEY_B64="$(printf 'ssh-ed25519 fixture-key\n' | base64 | tr -d '\n')"
 
 if NAGARE_INVENTORY_TRANSACTION=tx-test NAGARE_INVENTORY_ADAPTER_CHILD=host \
   bash scripts/upload-images.sh --dry-run >"$work/reentry.out" 2>"$work/reentry.err"; then
@@ -123,6 +140,7 @@ grep -q '^builder URI: ssh-ng://builder@nagare-builder-labs$' <<<"$same_output"
 grep -q '^builder project: labs-project$' <<<"$same_output"
 grep -q '^builder zone: us-west1-a$' <<<"$same_output"
 grep -q '^builder instance: nix-builder-x86$' <<<"$same_output"
+grep -q '^builder build transport: pinned IAP loopback tunnel$' <<<"$same_output"
 grep -q '^shared builder exception: no$' <<<"$same_output"
 
 builder_dir="$work/state/nagare/labs/nix-builder"
@@ -148,7 +166,7 @@ grep -q 'ProxyCommand.*"shared-project".*"us-west1-a".*"nix-builder-x86"' "$buil
 : >"$work/tools.log"
 bash scripts/upload-images.sh >"$work/real.out" 2>"$work/real.err"
 grep -q '^builder project: labs-project$' "$work/real.err"
-grep -q 'nix NIX_SSHOPTS=-F.*/nagare/labs/nix-builder/ssh_config argv=build --builders ssh-ng://builder@nagare-builder-labs x86_64-linux /etc/nix/builder_ed25519 4 1 big-parallel,benchmark --print-out-paths --no-link .#packages.x86_64-linux.nagare-image$' "$work/tools.log"
+grep -q 'nix NIX_SSHOPTS= argv=build --builders ssh-ng://builder@localhost:28157 x86_64-linux /etc/nix/builder_ed25519 4 1 big-parallel,benchmark,kvm - .* --print-out-paths --no-link .#packages.x86_64-linux.nagare-image$' "$work/tools.log"
 if grep -q '/etc/nix/machines' "$work/tools.log"; then
   echo "ambient Nix builders leaked into the host-image invocation" >&2
   exit 1
@@ -157,5 +175,18 @@ if grep -q 'gsutil mb' "$work/tools.log"; then
   echo "upload-images.sh attempted to claim the inventory-owned image bucket" >&2
   exit 1
 fi
+
+# The default path opens its own IAP tunnel and pins the key returned through
+# that exact tunnel, so the Nix daemon can reach a builder without user SSH
+# configuration.
+unset NIX_BUILDER_TUNNEL_PORT NIX_BUILDER_HOST_KEY_B64
+: >"$work/tools.log"
+NAGARE_INVENTORY_TRANSACTION=tx-test NAGARE_INVENTORY_ADAPTER_CHILD=artifact \
+  NAGARE_ARTIFACT_DESTINATION="$NAGARE_TEST_STORE_PATH" \
+  NAGARE_ARTIFACT_EXPECTED_DIGEST="$reviewed_path_digest" \
+  bash scripts/upload-images.sh --build-only >"$work/automatic-tunnel.out"
+grep -q 'compute start-iap-tunnel' "$work/tools.log"
+grep -q 'nix NIX_SSHOPTS= argv=build --builders ssh-ng://builder@localhost:[0-9]* x86_64-linux /etc/nix/builder_ed25519 4 1 big-parallel,benchmark,kvm - .* --print-out-paths --no-link .#packages.x86_64-linux.nagare-image$' "$work/tools.log"
+grep -Fqx "$(printf 'nagare-build\tpresent\t%s\t%s' "$NAGARE_TEST_STORE_PATH" "$reviewed_path_digest")" "$work/automatic-tunnel.out"
 
 printf '%s\n' 'upload-images builder confinement tests passed'

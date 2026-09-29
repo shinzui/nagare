@@ -119,7 +119,7 @@ printf '%s\n' \
   "  ProxyCommand \"${PROXY_BIN}\" \"${BUILDER_PROJECT}\" \"${BUILDER_ZONE}\" \"${BUILDER_INSTANCE}\"" \
   >"${ssh_tmp}"
 BUILDER_URI="ssh-ng://builder@${BUILDER_ALIAS}"
-BUILDERS_SPEC="${BUILDER_URI} ${TARGET_SYSTEM} ${BUILDER_KEY} 4 1 big-parallel,benchmark"
+BUILDERS_SPEC="${BUILDER_URI} ${TARGET_SYSTEM} ${BUILDER_KEY} 4 1 big-parallel,benchmark,kvm"
 printf '%s\n' "${BUILDERS_SPEC}" >"${builders_tmp}"
 chmod 0600 "${ssh_tmp}" "${builders_tmp}"
 mv "${ssh_tmp}" "${SSH_CONFIG}"
@@ -141,6 +141,7 @@ show_builder_selection() {
   printf 'shared builder exception: %s\n' "${SHARED_BUILDER_EXCEPTION}"
   printf 'builder spec: %s\n' "${BUILDERS_SPEC}"
   printf 'builder SSH config: %s\n' "${SSH_CONFIG}"
+  printf 'builder build transport: pinned IAP loopback tunnel\n'
 }
 
 if [ "${DRY_RUN}" -eq 1 ]; then
@@ -214,10 +215,98 @@ fi
 # multi-GB closure, recover by evaluating the (content-addressed) output path
 # and checking it exists on the builder.
 build_image() {
-  local out_path
-  if out_path=$( (cd "${NAGARE_HOST_FLAKE}" && NIX_SSHOPTS="-F${SSH_CONFIG}" \
-    nix build --builders "${BUILDERS_SPEC}" --print-out-paths --no-link ".#${ATTR}") 2>"${NIX_BUILD_ERR}" ); then
+  local out_path direct_port host_key_b64 host_key_line scanned_host_key_b64 tunnel_log tunnel_pid status ready deadline
+  local direct_builders
+  direct_port="${NIX_BUILDER_TUNNEL_PORT:-}"
+  host_key_b64="${NIX_BUILDER_HOST_KEY_B64:-}"
+  tunnel_pid=""
+  tunnel_log=""
+  # This function runs inside a command substitution. Keep its tunnel bound to
+  # that subprocess even if evaluation, copy-back, or a signal exits early.
+  daemon_tunnel_pid=""
+  daemon_tunnel_log=""
+  trap 'if [ -n "${daemon_tunnel_pid:-}" ]; then kill "${daemon_tunnel_pid}" 2>/dev/null || true; wait "${daemon_tunnel_pid}" 2>/dev/null || true; fi; [ -z "${daemon_tunnel_log:-}" ] || rm -f "${daemon_tunnel_log}"' EXIT
+  if [ -n "${direct_port}" ]; then
+    [[ "${direct_port}" =~ ^[0-9]+$ ]] && [ "${direct_port}" -gt 0 ] && [ "${direct_port}" -le 65535 ] \
+      && [[ "${host_key_b64}" =~ ^[A-Za-z0-9+/]+={0,2}$ ]] || {
+        echo "external builder tunnel requires a valid port and pinned host key" >&2; return 2;
+      }
+  else
+    status="$(gcloud --project="${BUILDER_PROJECT}" compute instances describe "${BUILDER_INSTANCE}" \
+      --zone="${BUILDER_ZONE}" --format='value(status)')" || return 1
+    if [ "${status}" != RUNNING ]; then
+      gcloud --project="${BUILDER_PROJECT}" compute instances start "${BUILDER_INSTANCE}" \
+        --zone="${BUILDER_ZONE}" --quiet >/dev/null || return 1
+    fi
+    tunnel_log="$(mktemp -t nagare-builder-daemon-tunnel.XXXXXX)"
+    daemon_tunnel_log="${tunnel_log}"
+    ready=0
+    for _attempt in 1 2 3 4 5; do
+      direct_port=$((30000 + RANDOM % 30000))
+      : >"${tunnel_log}"
+      gcloud --project="${BUILDER_PROJECT}" compute start-iap-tunnel "${BUILDER_INSTANCE}" 22 \
+        --zone="${BUILDER_ZONE}" --local-host-port="localhost:${direct_port}" --quiet \
+        >"${tunnel_log}" 2>&1 &
+      tunnel_pid=$!
+      daemon_tunnel_pid="${tunnel_pid}"
+      deadline=$((SECONDS + 60))
+      while [ "${SECONDS}" -lt "${deadline}" ]; do
+        if (echo ""; sleep 1) | nc -w 5 127.0.0.1 "${direct_port}" 2>/dev/null | grep '^SSH-' >/dev/null; then
+          ready=1
+          break
+        fi
+        kill -0 "${tunnel_pid}" 2>/dev/null || break
+        sleep 1
+      done
+      [ "${ready}" -eq 1 ] && break
+      kill "${tunnel_pid}" 2>/dev/null || true
+      wait "${tunnel_pid}" 2>/dev/null || true
+      tunnel_pid=""
+      daemon_tunnel_pid=""
+    done
+    if [ "${ready}" -ne 1 ]; then
+      cat "${tunnel_log}" >&2 || true
+      rm -f "${tunnel_log}"
+      echo "builder IAP tunnel did not become ready" >&2
+      return 1
+    fi
+    host_key_line="$(ssh-keyscan -T 5 -t ed25519 -p "${direct_port}" 127.0.0.1 2>/dev/null \
+      | awk '$2 == "ssh-ed25519" {print $2 " " $3; exit}')" || true
+    if [ -z "${host_key_line}" ]; then
+      kill "${tunnel_pid}" 2>/dev/null || true
+      wait "${tunnel_pid}" 2>/dev/null || true
+      rm -f "${tunnel_log}"
+      echo "builder host key could not be read through the IAP tunnel" >&2
+      return 1
+    fi
+    scanned_host_key_b64="$(printf '%s\n' "${host_key_line}" | base64 | tr -d '\n')"
+    if [ -n "${host_key_b64}" ] && [ "${host_key_b64}" != "${scanned_host_key_b64}" ]; then
+      echo "builder host key differs from the pinned key" >&2
+      return 1
+    fi
+    host_key_b64="${scanned_host_key_b64}"
+  fi
+  # The macOS Nix daemon performs distributed builds as root and does not
+  # inherit the caller's ProxyCommand configuration. A pinned loopback IAP
+  # endpoint makes the same reviewed derivation reachable by that daemon.
+  direct_builders="ssh-ng://builder@localhost:${direct_port} ${TARGET_SYSTEM} ${BUILDER_KEY} 4 1 big-parallel,benchmark,kvm - ${host_key_b64}"
+  if out_path=$( (cd "${NAGARE_HOST_FLAKE}" && NIX_SSHOPTS= \
+    nix build --builders "${direct_builders}" --print-out-paths --no-link ".#${ATTR}") 2>"${NIX_BUILD_ERR}" ); then
+    if [ -n "${tunnel_pid}" ]; then
+      kill "${tunnel_pid}" 2>/dev/null || true
+      wait "${tunnel_pid}" 2>/dev/null || true
+      rm -f "${tunnel_log}"
+      daemon_tunnel_pid=""
+      daemon_tunnel_log=""
+    fi
     echo "${out_path}"; return 0
+  fi
+  if [ -n "${tunnel_pid}" ]; then
+    kill "${tunnel_pid}" 2>/dev/null || true
+    wait "${tunnel_pid}" 2>/dev/null || true
+    rm -f "${tunnel_log}"
+    daemon_tunnel_pid=""
+    daemon_tunnel_log=""
   fi
   out_path=$(cd "${NAGARE_HOST_FLAKE}" && nix eval --raw ".#${ATTR}" 2>/dev/null) || {
     log "nix build failed and nix eval could not resolve the output path:"; cat "${NIX_BUILD_ERR}" >&2; return 1; }

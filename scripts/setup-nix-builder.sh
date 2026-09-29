@@ -49,7 +49,7 @@ DISK_SIZE=200GB
 DISK_TYPE=pd-balanced
 IMAGE_FAMILY=ubuntu-2404-lts-amd64
 IMAGE_PROJECT=ubuntu-os-cloud
-BUILDER_PUBKEY_PATH=/etc/nix/builder_ed25519.pub
+BUILDER_PUBKEY_PATH="${NIX_BUILDER_PUBKEY_PATH:-${NIX_BUILDER_SSH_KEY:-/etc/nix/builder_ed25519}.pub}"
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TEMPLATE="$REPO_ROOT/scripts/nix-builder-startup.sh.tpl"
@@ -120,6 +120,15 @@ log "VM $INSTANCE ($MACHINE_TYPE, $IMAGE_FAMILY, nested-virt, ${DISK_SIZE} boot 
 if exists gcloud --project="$PROJECT" compute instances describe "$INSTANCE" --zone="$ZONE"; then
   log "VM already exists; skipping create. Delete it to re-apply the startup script."
   ensure_boot_disk_size
+  vm_status="$(gcloud --project="$PROJECT" compute instances describe "$INSTANCE" \
+    --zone="$ZONE" --format='value(status)')"
+  if [ "$vm_status" = TERMINATED ]; then
+    log "Starting stopped VM for readiness check"
+    gcloud --project="$PROJECT" compute instances start "$INSTANCE" --zone="$ZONE" --quiet
+  elif [ "$vm_status" != RUNNING ]; then
+    echo "error: builder VM has unsupported status $vm_status" >&2
+    exit 2
+  fi
 else
   gcloud --project="$PROJECT" compute instances create "$INSTANCE" \
     --zone="$ZONE" \
@@ -147,15 +156,19 @@ while [ "$(date +%s)" -lt "$DEADLINE" ]; do
     --zone="$ZONE" --local-host-port="localhost:$PORT" --quiet >/dev/null 2>&1 &
   TUNNEL_PID=$!
   sleep 5
-  # nc -w 5 reads one packet then closes. sshd sends its banner immediately.
-  if (echo ""; sleep 1) | nc -w 5 localhost "$PORT" 2>/dev/null | grep -q '^SSH-'; then
-    PROVISIONED=1
-    kill "$TUNNEL_PID" 2>/dev/null || true
-    wait "$TUNNEL_PID" 2>/dev/null || true
-    break
-  fi
+  # The tunnel can accept a local connection before its IAP backend is ready.
+  # Retry on the same tunnel so a first connection failure does not restart
+  # that backend handshake on every probe.
+  for attempt in 1 2 3 4 5; do
+    if (echo ""; sleep 1) | nc -w 5 localhost "$PORT" 2>/dev/null | grep '^SSH-' >/dev/null; then
+      PROVISIONED=1
+      break
+    fi
+    sleep 2
+  done
   kill "$TUNNEL_PID" 2>/dev/null || true
   wait "$TUNNEL_PID" 2>/dev/null || true
+  [ "$PROVISIONED" -eq 0 ] || break
   sleep 10
 done
 
@@ -166,6 +179,9 @@ if [ "$PROVISIONED" -ne 1 ]; then
 fi
 
 log "Stopping VM (idle cost = boot disk only; first build will start it again)"
-gcloud --project="$PROJECT" compute instances stop "$INSTANCE" --zone="$ZONE" --quiet
+if [ "$(gcloud --project="$PROJECT" compute instances describe "$INSTANCE" \
+  --zone="$ZONE" --format='value(status)')" = RUNNING ]; then
+  gcloud --project="$PROJECT" compute instances stop "$INSTANCE" --zone="$ZONE" --quiet
+fi
 
 log "Done. Verify the context-owned route with: nagare host-image --dry-run"
