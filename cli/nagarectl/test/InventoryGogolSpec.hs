@@ -3,7 +3,9 @@
 module InventoryGogolSpec (inventoryGogolTests) where
 
 import Control.Concurrent (threadDelay)
-import Control.Exception (bracket_)
+import Control.Concurrent.Async (wait, withAsync)
+import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar, tryPutMVar)
+import Control.Exception (bracket_, finally)
 import Control.Monad (forM_, join)
 import Data.Aeson (Value, encode, object, (.=))
 import Data.ByteString qualified as BS
@@ -34,13 +36,14 @@ import Network.Wai qualified as Wai
 import Network.Wai.Handler.Warp (testWithApplication)
 import System.IO (hClose)
 import System.IO.Temp (withSystemTempFile)
+import System.Timeout (timeout)
 import Test.Tasty
 import Test.Tasty.HUnit
 import Text.Read (readMaybe)
 
 -- The SDK performs actual HTTP against this loopback server. No gcloud, ADC,
 -- Google endpoint, native provider, or operator credential is used.
-data Mode = Normal | Denied | Unauthorized | RevokedAfterWrite | ListDenied | BadMetadata | PartialMedia | LostAck | UnreadableAck | CasRace | LoopPages | ForeignPage | DuplicatePage | Redirect
+data Mode = Normal | HoldFirst | Denied | Unauthorized | RevokedAfterWrite | ListDenied | BadMetadata | PartialMedia | LostAck | UnreadableAck | CasRace | LoopPages | ForeignPage | DuplicatePage | Redirect
   deriving stock (Eq, Show)
 
 data Fixture = Fixture
@@ -51,6 +54,8 @@ data Fixture = Fixture
   , inFlight :: !(IORef Int)
   , maximumFlight :: !(IORef Int)
   , mediaGets :: !(IORef Int)
+  , releaseFirst :: !(MVar ())
+  , ninthStarted :: !(MVar ())
   }
 
 inventoryGogolTests :: TestTree
@@ -149,6 +154,19 @@ inventoryGogolTests =
           result <- getObjects ops (ObjectName "journal")
           assertBool (show modeValue) (isLeft result)
           readIORef (mediaGets f) >>= (@?= 0)
+    , testCase "one slow journal response does not idle the other seven workers" $ fixture $ \f ops -> do
+        writeIORef (objects f) (Map.fromList [(journalName n, (toInteger (n + 1), "event")) | n <- [0 .. 15]])
+        writeIORef (mode f) HoldFirst
+        withAsync (getObjects ops (ObjectName "journal")) $ \fetching -> do
+          ninth <- timeout 1000000 (takeMVar (ninthStarted f)) `finally` putMVar (releaseFirst f) ()
+          result <- wait fetching >>= either (assertFailure . T.unpack) pure
+          Map.size result @?= 16
+          assertEqual "ninth request waited for the blocked first response" (Just ()) ninth
+          readIORef (maximumFlight f) >>= \high -> assertBool "more than eight downloads" (high <= 8)
+    , testCase "incomplete journal media never returns a successful partial prefix" $ fixture $ \f ops -> do
+        writeIORef (objects f) (Map.fromList [(journalName n, (toInteger (n + 1), "event")) | n <- [0 .. 15]])
+        writeIORef (mode f) PartialMedia
+        getObjects ops (ObjectName "journal") >>= assertBool "partial prefix accepted" . isLeft
     , testCase "relative-key and generation guards refuse before HTTP" $ fixture $ \f ops -> do
         forM_ ["", "../outside", "/outside", "a//b", "a/../b", "a\n"] $ \name -> do
           getObject ops (ObjectName name) >>= assertUnknown
@@ -214,6 +232,10 @@ server f req respond = do
                         )
                         (atomicModifyIORef' (inFlight f) (\n -> (n - 1, ())))
                         $ do
+                          when (modeValue == HoldFirst) $ do
+                            count <- readIORef (mediaGets f)
+                            when (count >= 9) $ void (tryPutMVar (ninthStarted f) ())
+                            when (name == "private/inventory/journal/00000000000000000000.json") (takeMVar (releaseFirst f))
                           threadDelay 2000
                           respond (Wai.responseLBS status200 [] (LBS.fromStrict (if modeValue == PartialMedia then BS.take 1 bytes else bytes)))
                     | otherwise -> send status200 (metadata name gen bytes)
@@ -264,7 +286,7 @@ server f req respond = do
               _ -> bad status404
 
 newFixture :: IO Fixture
-newFixture = Fixture <$> newIORef Map.empty <*> newIORef Normal <*> newIORef 0 <*> newIORef 0 <*> newIORef 0 <*> newIORef 0 <*> newIORef 0
+newFixture = Fixture <$> newIORef Map.empty <*> newIORef Normal <*> newIORef 0 <*> newIORef 0 <*> newIORef 0 <*> newIORef 0 <*> newIORef 0 <*> newEmptyMVar <*> newEmptyMVar
 
 -- An immediately expired first token exercises real SDK refresh without a sleep.
 -- Replacing the source file must not silently select a different user on refresh.

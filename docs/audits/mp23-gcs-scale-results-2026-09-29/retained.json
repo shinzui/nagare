@@ -1,0 +1,72 @@
+{
+  "binarySha256": "8755bd9ef92675bef702f23b0b00b5bc056972b8d26393d756a6dc2602f3a739",
+  "transaction": "tx-e4c52b1595dda6ab02d96037aea30ef50bcad72ab3c085ad1e662edc99677ddd",
+  "journalSequence": 61,
+  "headBefore": {
+    "generation": "1790656456769847",
+    "size": "1773"
+  },
+  "headAfter": {
+    "generation": "1790656456769847",
+    "size": "1773"
+  },
+  "nativeCommands": 0,
+  "copiedLocalHistory": false,
+  "globalContextChanges": 0,
+  "results": [
+    {
+      "round": 1,
+      "temperature": "cold",
+      "seconds": 4.089,
+      "budgetSeconds": 30,
+      "withinBudget": true,
+      "exit": 0,
+      "converged": true
+    },
+    {
+      "round": 1,
+      "temperature": "warm",
+      "seconds": 4.066,
+      "budgetSeconds": 5,
+      "withinBudget": true,
+      "exit": 0,
+      "converged": true
+    },
+    {
+      "round": 2,
+      "temperature": "cold",
+      "seconds": 3.669,
+      "budgetSeconds": 30,
+      "withinBudget": true,
+      "exit": 0,
+      "converged": true
+    },
+    {
+      "round": 2,
+      "temperature": "warm",
+      "seconds": 3.95,
+      "budgetSeconds": 5,
+      "withinBudget": true,
+      "exit": 0,
+      "converged": true
+    },
+    {
+      "round": 3,
+      "temperature": "cold",
+      "seconds": 3.681,
+      "budgetSeconds": 30,
+      "withinBudget": true,
+      "exit": 0,
+      "converged": true
+    },
+    {
+      "round": 3,
+      "temperature": "warm",
+      "seconds": 3.688,
+      "budgetSeconds": 5,
+      "withinBudget": true,
+      "exit": 0,
+      "converged": true
+    }
+  ]
+}

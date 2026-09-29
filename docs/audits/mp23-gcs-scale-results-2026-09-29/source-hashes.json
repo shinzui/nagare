@@ -1,0 +1,7 @@
+{
+  "cli/nagarectl/src/Nagare/Inventory/Store/Gogol.hs": "64716ef69cdd04f99a119c00f84c4fc4b9d823de0f012a5036a887f3ecaefca1",
+  "cli/nagarectl/test/InventoryGogolSpec.hs": "fd6a68dbea9c6815858bd66d9d8f9f69555d1b90ddc791a9ba43436c8288e8e5",
+  "scripts/test-inventory-gcs-scale.py": "72685207fef2a107afa41755a3824562e2aa42ebe1e54bd63ce4d402e3bef5c7",
+  "scripts/test-inventory-sdk-retained-replay.py": "c2f891f69baa7408e8ad2e20a1cdb5575dc742521c90eea705cb501d62c59fdf",
+  "docs/audits/mp23-reproductions/GcsJournalTiming.hs": "f375c8581451724cdb4040bb1a4282de7e00be5e461d91ebd33befbd5005f850"
+}

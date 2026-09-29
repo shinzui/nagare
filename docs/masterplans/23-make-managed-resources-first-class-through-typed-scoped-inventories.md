@@ -272,7 +272,7 @@ Rejected alternatives were isolated platform/application inventories without sha
 
 **Open implementation findings.** Read [the MP-23 audit tracker](../audits/mp23-findings.md) before selecting affected work. It owns stable finding IDs, fix evidence, independent verification, and unresolved handoffs. Record repairs there; an acknowledged message or source edit does not close a finding. Reconcile affected P1 findings before another native rehearsal and include unresolved IDs in every implementation handoff.
 
-**Current implementation entrypoint — auth failure and retained replay, 2026-09-29.** The [auth/replay proof](../audits/mp23-auth-replay-proof.md) fixes experimentally reproduced concurrent failed refresh amplification, passes 975 tests and the real helper timeout/cleanup boundary, and proves three real cold/warm complete no-op pairs on the original 61-event GCS transaction from independent empty local roots. Cold replay takes 4.320–7.397 seconds and warm replay 3.905–4.708 seconds, within the declared budgets; the provider head is unchanged and no native executor runs. Preserve the preceding [CLI adoption proof](../audits/mp23-gogol-cli-proof.md), including default/fallback, 50/500-event public matrices, ownership and claim checks. The complete Darwin Nix package build passes. Next address the remaining 500-event real-GCS/active-append timing and host/native prerequisites. Legacy archive isolation and independent verification remain open. F04/F06 remain Partial; F10 is Verifying. This accepts a bounded read-only checkpoint, not real mutation or complete-child acceptance.
+**Current implementation entrypoint — real GCS scaling, 2026-09-29.** The [500-event proof](../audits/mp23-gcs-scale-proof.md) fixes a locally reproduced eight-request batch barrier after real warm replay failed at 12.783 seconds. Eight queued workers preserve the concurrency and generation guards. Three real 500-event cold/warm pairs now pass at 7.670–9.139 / 8.042–9.371 seconds; the same binary passes the retained 61-event pairs at 3.669–4.089 / 3.688–4.066 seconds. No-op replay uses three gcloud processes and preserves all observed generations; exact benchmark cleanup and 977 tests pass. Preserve the earlier auth/CLI/claim evidence. Next measure complete active claim/append/finalization cost and reconcile host/native recovery prerequisites. F04/F06 remain Partial; F10 is Verifying. Final-candidate package/native-system checks, independent verification, and M1/M2 remain open. This accepts the bounded replay checkpoint, not native mutation or whole-child completion.
 
 The earlier single-operation experiment did not establish executor correctness. E10 exposed the dependent preflight and missing terminal branch, and the production replacement now handles them. The earlier 8/11-subprocess append and 501-read empty native lookup were repaired by the selected-read/store checkpoint. Active-command and native acceptance gates remain prerequisites of release readiness.
 
@@ -371,11 +371,11 @@ These ownership, identity, review, storage, migration, and controller-delegation
 
 ## Progress
 
-EP-156's [auth/replay checkpoint](../audits/mp23-auth-replay-proof.md) now proves
-the retained 61-event complete cold/warm no-op budgets from fresh local roots and
-fixes concurrent failed refresh amplification. The Darwin Nix package build also
-passes; the remaining 500-event/active-write, native recovery and final-candidate
-gates remain separate acceptance work.
+EP-156's [GCS scaling checkpoint](../audits/mp23-gcs-scale-proof.md) now proves
+500-event and retained 61-event cold/warm no-op budgets on one repaired binary.
+The local slow-response regression drove the worker scheduling fix; all 977 tests
+pass and both benchmark prefixes are cleaned. Active append/finalization timing,
+host recovery, independent verification and final-candidate gates remain open.
 
 **Current direction — design reassessment, 2026-09-29.** [The reassessment](../audits/mp23-design-reassessment.md) replaces patch-by-patch orchestration repair as the implementation strategy. Retain typed ownership, native adapters, immutable review/history, and conditional storage. EP-153 owns one serial operation driver shared by apply/resume, total recovery outcomes, and immutable registry construction; EP-159 supplies the fixed two-operation consumer fixture. EP-156 now separates status/explain native reads from execution history and carries a validated provider head through append; command-wide cursor work remains bounded by measured active-command costs. The proposed evidence-index publication/rebuild rollout is no longer a mandatory prerequisite of historical recovery. E8/E9 remain prototype evidence, not an architectural obligation.
 

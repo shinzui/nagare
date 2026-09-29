@@ -17,6 +17,7 @@ module Nagare.Inventory.Store.Gogol
 where
 
 import Control.Concurrent.Async (mapConcurrently)
+import Control.Concurrent.MVar (modifyMVar, newMVar)
 import Control.Exception (Handler (..), IOException, catches)
 import Control.Monad (foldM)
 import Data.ByteString (ByteString)
@@ -223,18 +224,30 @@ objectOpsWithEnvironment environment project url = do
           listed <- listing (ObjectName (prefix <> "/"))
           case listed of
             Left reason -> pure (Left reason)
-            Right objects -> chunks (Map.toAscList objects)
+            Right objects -> workers (Map.toAscList objects)
           where
-            -- A fixed window bounds both network concurrency and worker count.
+            -- Eight persistent workers keep the network bound without a batch
+            -- barrier: one slow response must not idle the other seven workers.
             -- Listing metadata already supplies the generation: no per-entry
             -- describe, subprocess, or mutable-head rediscovery is needed.
-            chunks [] = pure (Right Map.empty)
-            chunks entries = do
-              let (window, rest) = splitAt 8 entries
-              fetched <- mapConcurrently (\(key, object) -> fmap (\(_, bytes) -> (key, bytes)) <$> download key object) window
-              case sequence fetched of
-                Left reason -> pure (Left reason)
-                Right values -> fmap (Map.union (Map.fromList values)) <$> chunks rest
+            workers entries = do
+              pending <- newMVar entries
+              let next = modifyMVar pending $ \case
+                    [] -> pure ([], Nothing)
+                    entry : rest -> pure (rest, Just entry)
+                  worker values =
+                    next >>= \case
+                      Nothing -> pure (Right values)
+                      Just (key, object) ->
+                        download key object >>= \case
+                          Right (_, bytes) -> worker ((key, bytes) : values)
+                          Left reason -> do
+                            -- Stop scheduling on failure; never return a partial
+                            -- prefix as a successful journal download.
+                            modifyMVar pending (const (pure ([], ())))
+                            pure (Left reason)
+              fetched <- mapConcurrently (const (worker [])) (replicate (min 8 (length entries)) ())
+              pure (Map.fromList . concat <$> sequence fetched)
   pure
     ObjectOps
       { getObject = get

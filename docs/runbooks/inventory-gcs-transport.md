@@ -5,6 +5,13 @@ one HTTP manager per opened store and use gcloud for credential acquisition and
 the existing project/bucket ownership probes. No global gcloud or kubectl context
 is switched. Local inventory stores are unaffected.
 
+Journal reads enumerate the complete prefix and download exact object generations
+with eight workers. Each available worker takes the next object immediately; a
+slow response does not hold up a whole batch. An incomplete download refuses the
+batch, and warm commands still validate the complete journal. The
+[500-event cloud proof](../audits/mp23-gcs-scale-proof.md) records the measured
+limits and the scheduling regression that motivated this behavior.
+
 Select the intended gcloud configuration/account using the existing process
 settings before running a command, for example:
 

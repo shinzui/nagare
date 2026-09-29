@@ -1,0 +1,10 @@
+nagarectl
+  Gogol inventory transport
+    one slow journal response does not idle the other seven workers: FAIL (1.07s)
+      test/InventoryGogolSpec.hs:164:
+      ninth request waited for the blocked first response
+      expected: Just ()
+       but got: Nothing
+
+1 out of 1 tests failed (1.07s)
+Test suite nagarectl-test: FAIL
