@@ -15,6 +15,7 @@ module Nagare.Inventory.Store.ObjectOps
   , listArgs
   , listedObjectNames
   , classifyPutReadback
+  , createdGeneration
   , gcloudObjectOps
   ) where
 
@@ -25,10 +26,14 @@ import Data.Aeson.Types (parseEither)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
+import Data.Maybe (listToMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude
+import System.Directory (listDirectory)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
@@ -57,6 +62,7 @@ data PutOutcome
 
 data ObjectOps = ObjectOps
   { getObject :: !(ObjectName -> IO GetOutcome)
+  , getObjects :: !(ObjectName -> IO (Either Text (Map ObjectName ByteString)))
   , putObject :: !(PutCondition -> ObjectName -> ByteString -> IO PutOutcome)
   , listObjects :: !(ObjectName -> IO (Either Text [ObjectName]))
   }
@@ -116,6 +122,22 @@ classifyPutReadback condition expected outcome = case outcome of
     IfAbsent -> PutNoEffect "object remains absent after failed put"
     IfGenerationMatches _ -> PutPreconditionFailed
 
+-- | `gcloud storage cp --print-created-message` prints the version-specific
+-- destination URL after a successful conditional upload. Accept only the
+-- exact reviewed object URL and an integer generation; unexpected CLI output
+-- falls back to authoritative read-back.
+createdGeneration :: Text -> ObjectName -> Text -> Maybe Generation
+createdGeneration prefix name output =
+  listToMaybe
+    [ Generation generation
+    | word <- T.words output
+    , let token = T.dropAround (`elem` ("[](),;." :: String)) word
+    , Just raw <- [T.stripPrefix (objectUrl prefix name <> "#") token]
+    , not (T.null raw)
+    , T.all (`elem` (['0' .. '9'] :: String)) raw
+    , Just generation <- [readMaybe (T.unpack raw)]
+    ]
+
 -- | The CLI transport never parses error text as proof. A failed describe is
 -- followed by a successful listing before it can report absence; uploads are
 -- always classified by reading their destination back.
@@ -170,10 +192,31 @@ gcloudObjectOps prefix = do
         let source = directory </> "object"
         BS.writeFile source bytes
         setFileMode source 0o600
-        _ <- run (putArgs source prefix name condition)
-        classifyPutReadback condition bytes <$> get name
+        uploaded <- try (readProcessWithExitCode "gcloud" (putArgs source prefix name condition) "")
+          :: IO (Either IOException (ExitCode, String, String))
+        case uploaded of
+          Right (ExitSuccess, output, errors)
+            | Just generation <- createdGeneration prefix name (T.pack (output <> errors)) ->
+                pure (PutWritten generation)
+          _ -> classifyPutReadback condition bytes <$> get name
+      getPrefix (ObjectName requested) = withSystemTempDirectory "nagare-inventory-prefix" $ \directory -> do
+        result <- run ["storage", "cp", T.unpack (objectUrl prefix (ObjectName requested)) <> "/*.json", directory <> "/", "--quiet"]
+        case result of
+          Left reason -> pure (Left reason)
+          Right (ExitFailure _, _) -> pure (Left "object prefix download failed")
+          Right (ExitSuccess, _) -> do
+            names <- listDirectory directory
+            loaded <- traverse (\name -> do
+              bytes <- try (BS.readFile (directory </> name)) :: IO (Either IOException ByteString)
+              pure (name, bytes)) names
+            pure $ Map.fromList <$> traverse (\(name, bytes) -> do
+              unless (length name == 25 && all (`elem` ['0'..'9']) (take 20 name) && drop 20 name == ".json")
+                (Left "object prefix download returned an invalid filename")
+              value <- either (Left . T.pack . show) Right bytes
+              Right (ObjectName (requested <> "/" <> T.pack name), value)) loaded
   pure ObjectOps
     { getObject = get
+    , getObjects = getPrefix
     , putObject = put
     , listObjects = \(ObjectName requested) -> do
         result <- listNames

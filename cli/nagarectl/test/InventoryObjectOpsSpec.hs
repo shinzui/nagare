@@ -3,8 +3,9 @@ module InventoryObjectOpsSpec (inventoryObjectOpsTests) where
 import Data.Aeson (object)
 import Data.IORef
 import Crypto.Random (getRandomBytes)
-import Data.Either (isLeft)
+import Data.Either (isLeft, isRight)
 import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BC
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust)
@@ -16,7 +17,8 @@ import Nagare.Inventory.Adapter
 import Nagare.Inventory.DataFence
 import Nagare.Inventory.Execute hiding (withProcessLock)
 import Nagare.Inventory.Digest (contentDigest)
-import Nagare.Inventory.Journal (mkTransactionId)
+import Nagare.Inventory.Journal
+import Nagare.Inventory.Status (loadActiveTransactionStatus)
 import Nagare.Inventory.Store
 import Nagare.Inventory.Store.ObjectOps
 import Nagare.Ops.PulumiBackend (GcloudOps (..), bucketOwnershipVerdict, bucketProjectNumberArgs, gcsBucketOfUrl, projectNumberArgs, realGcloudOps)
@@ -32,7 +34,16 @@ import Test.Tasty.HUnit
 
 inventoryObjectOpsTests :: TestTree
 inventoryObjectOpsTests = testGroup "inventory object operations"
-  [ testCase "future canonical inventory head remains discoverable without decoding ownership" $ do
+  [ testCase "conditional upload accepts only an exact version-specific created URL" $ do
+      let prefix = "gs://example-bucket/private/inventory"
+          name = ObjectName "journal/00000000000000000001.json"
+      createdGeneration prefix name "Created gs://example-bucket/private/inventory/journal/00000000000000000001.json#123\n"
+        @?= Just (Generation 123)
+      createdGeneration prefix name "Created gs://example-bucket/private/inventory/journal/00000000000000000002.json#123\n"
+        @?= Nothing
+      createdGeneration prefix name "Created gs://example-bucket/private/inventory/journal/00000000000000000001.json#bad\n"
+        @?= Nothing
+  , testCase "future canonical inventory head remains discoverable without decoding ownership" $ do
       inspectHeadSchema "{\"version\":2}" @?= Right 2
       assertBool "noncanonical future head is refused"
         (isLeft (inspectHeadSchema "{ \"version\": 2 }"))
@@ -46,6 +57,111 @@ inventoryObjectOpsTests = testGroup "inventory object operations"
       ops <- fakeObjectOps
       store <- newObjectStore ops fixtureBinding "client-a" Nothing >>= either (assertFailure . show) pure
       exerciseStore store
+  , testCase "journal replay reads 50 and 500 committed members in one batch and rejects gaps" $ do
+      baseOps <- fakeObjectOps
+      store <- newObjectStore baseOps fixtureBinding "client-a" Nothing
+        >>= either (assertFailure . show) pure
+      mapM_ (\sequenceNumber ->
+        appendAtSequence store sequenceNumber ("event-" <> BC.pack (show sequenceNumber))
+          >>= either (assertFailure . show) pure) [0 .. 499]
+      batches <- newIORef (0 :: Int)
+      singles <- newIORef (0 :: Int)
+      let countedOps = baseOps
+            { getObject = \name -> modifyIORef' singles (+ 1) >> getObject baseOps name
+            , getObjects = \name -> modifyIORef' batches (+ 1) >> getObjects baseOps name
+            }
+      replay <- newObjectStore countedOps fixtureBinding "client-b" Nothing
+        >>= either (assertFailure . show) pure
+      writeIORef singles 0
+      first50 <- readJournalPrefix replay 50 >>= either (assertFailure . show) pure
+      length first50 @?= 50
+      all500 <- readJournalPrefix replay 500 >>= either (assertFailure . show) pure
+      length all500 @?= 500
+      readIORef batches >>= (@?= 2)
+      readIORef singles >>= (@?= 0)
+      missing <- readJournalPrefix replay 501
+      assertBool "a missing committed member is an error" (isLeft missing)
+  , testCase "known-head journal append uses one conditional write without rediscovery" $ do
+      baseOps <- fakeObjectOps
+      gets <- newIORef (0 :: Int)
+      puts <- newIORef (0 :: Int)
+      let countedOps = baseOps
+            { getObject = \name -> modifyIORef' gets (+ 1) >> getObject baseOps name
+            , putObject = \condition name bytes ->
+                modifyIORef' puts (+ 1) >> putObject baseOps condition name bytes
+            }
+      store <- newObjectStore countedOps fixtureBinding "client-a" Nothing
+        >>= either (assertFailure . show) pure
+      headValue <- initializeStore store fixtureBinding "client-a"
+        >>= either (assertFailure . show) pure
+      writeIORef gets 0
+      writeIORef puts 0
+      _ <- appendAtObservedHead store headValue "event-0" >>= either (assertFailure . show) pure
+      readIORef gets >>= (@?= 0)
+      readIORef puts >>= (@?= 1)
+      conflict <- appendAtObservedHead store headValue "event-1"
+      assertBool "conditional creation refuses a competing event" (isLeft conflict)
+  , testCase "active status verifies 50 and 500 chained events with one batch each" $ do
+      baseOps <- fakeObjectOps
+      store <- newObjectStore baseOps fixtureBinding "client-a" Nothing
+        >>= either (assertFailure . show) pure
+      initial <- initializeStore store fixtureBinding "client-a"
+        >>= either (assertFailure . show) pure
+      transaction <- either (assertFailure . T.unpack) pure (mkTransactionId "tx-status-batch")
+      previous <- newIORef Nothing
+      mapM_ (\sequenceNumber -> do
+        prior <- readIORef previous
+        let event = JournalEvent 1 sequenceNumber prior transaction Nothing Pending
+              "2026-09-29T00:00:00Z" "status batch regression"
+        _ <- appendAtSequence store sequenceNumber (encodeJournalEvent event)
+          >>= either (assertFailure . show) pure
+        writeIORef previous (Just (journalEventDigest event))) [0 .. 499]
+      singles <- newIORef (0 :: Int)
+      batches <- newIORef (0 :: Int)
+      let countedOps = baseOps
+            { getObject = \name -> modifyIORef' singles (+ 1) >> getObject baseOps name
+            , getObjects = \name -> modifyIORef' batches (+ 1) >> getObjects baseOps name }
+      replay <- newObjectStore countedOps fixtureBinding "client-b" Nothing
+        >>= either (assertFailure . show) pure
+      writeIORef singles 0
+      mapM_ (\count -> do
+        let committed = initial {headSequence = count,
+              headActiveTransaction = Just (transactionIdText transaction)}
+        loaded <- loadActiveTransactionStatus replay committed
+        assertBool "active status rejected a valid chained prefix" (isRight loaded)) [50, 500]
+      readIORef singles >>= (@?= 0)
+      readIORef batches >>= (@?= 2)
+      let missingOps = countedOps {getObjects = \name ->
+            fmap (fmap (Map.delete (ObjectName (T.pack (journalKey 49)))))
+              (getObjects baseOps name)}
+      missingStore <- newObjectStore missingOps fixtureBinding "client-c" Nothing
+        >>= either (assertFailure . show) pure
+      missing <- loadActiveTransactionStatus missingStore initial
+        {headSequence = 50, headActiveTransaction = Just (transactionIdText transaction)}
+      assertBool "active status accepted a committed journal gap" (isLeft missing)
+  , testCase "converged replay needs no provider registry or repeated journal pass" $ do
+      baseOps <- fakeObjectOps
+      store <- newObjectStore baseOps fixtureBinding "client-a" Nothing
+        >>= either (assertFailure . show) pure
+      effects <- newIORef (0 :: Int)
+      (reviewed, registry) <- preparedFixtureWith store
+        (\_ _ -> modifyIORef' effects (+ 1) >> pure AdapterEffectCompleted)
+        (\_ _ -> pure RecoverySafeToRetry)
+      applied <- applyReviewed store registry reviewed
+        >>= either (assertFailure . show) pure
+      transaction <- case applied of
+        Converged value -> pure value
+        other -> assertFailure (show other) >> error "unreachable"
+      batches <- newIORef (0 :: Int)
+      let countedOps = baseOps {getObjects = \name ->
+            modifyIORef' batches (+ 1) >> getObjects baseOps name}
+      replay <- newObjectStore countedOps fixtureBinding "client-b" Nothing
+        >>= either (assertFailure . show) pure
+      emptyRegistry <- either (assertFailure . T.unpack) pure (mkAdapterRegistry [])
+      resumeTransaction replay emptyRegistry transaction
+        >>= either (assertFailure . show) pure >>= (@?= Converged transaction)
+      readIORef batches >>= (@?= 1)
+      readIORef effects >>= (@?= 1)
   , testCase "two object clients sharing a workstation process lock cannot overlap" $
       withSystemTempDirectory "inventory-object-lock" $ \root -> do
         ops <- fakeObjectOps
@@ -479,6 +595,9 @@ fakeObjectOps = do
     { getObject = \name -> do
         (_, objects) <- readIORef state
         pure $ maybe ObjectAbsent (uncurry ObjectFound) (Map.lookup name objects)
+    , getObjects = \(ObjectName prefix) -> do
+        (_, objects) <- readIORef state
+        pure (Right (Map.map snd (Map.filterWithKey (\(ObjectName name) _ -> (prefix <> "/") `T.isPrefixOf` name) objects)))
     , putObject = \condition name bytes -> atomicModifyIORef' state $ \(lastGeneration, objects) ->
         let existing = Map.lookup name objects
             matches = case condition of

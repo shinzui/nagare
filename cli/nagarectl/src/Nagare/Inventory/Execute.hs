@@ -328,7 +328,11 @@ migrationCoverage store document = do
         first showText (decodeScope bytes)
 
 execute :: LockedStore s -> AdapterRegistry -> ExecutablePlan s -> IO TransactionResult
-execute locked registry executable = do
+execute locked registry executable = executeWithJournal locked registry executable Nothing
+
+executeWithJournal :: LockedStore s -> AdapterRegistry -> ExecutablePlan s
+  -> Maybe [JournalEvent] -> IO TransactionResult
+executeWithJournal locked registry executable knownEvents = do
   let transaction = executableTransaction executable
       reviewed = executableReviewed executable
       document = reviewedDocument reviewed
@@ -339,7 +343,7 @@ execute locked registry executable = do
       _ <- releaseClaim locked transaction False
       pure (PausedAtBarrier transaction barriers)
     else do
-      eventsResult <- readJournal locked
+      eventsResult <- maybe (readJournal locked) (pure . Right) knownEvents
       case eventsResult of
         Left _ -> ambiguousFallback transaction document
         Right events -> do
@@ -469,7 +473,8 @@ resumeTransactionWithTakeover store registry transaction takeOver = do
                             preflightErrors <- preflightOperations registry reviewed (operationStates transaction events)
                             case preflightErrors of
                               firstError : rest -> releaseClaim lock transaction False >> pure (Left (firstError :| rest))
-                              [] -> Right <$> execute lock registry (ExecutablePlan transaction reviewed)
+                              [] -> Right <$> executeWithJournal lock registry
+                                (ExecutablePlan transaction reviewed) (Just events)
 
 -- | The decision file selects an action; the adapter must independently prove
 -- that action from the current provider state under the writer lock. An
@@ -1170,17 +1175,20 @@ appendEvent locked transaction operation state detail = do
               now <- timestamp
               let event = JournalEvent 1 (headSequence headValue) prior transaction operation state now detail
                   key = journalKey (headSequence headValue)
-              existing <- readObject store key
-              case existing of
+              published <- appendAtObservedHead store headValue (encodeJournalEvent event)
+              case published of
+                Right _ -> advance headValue event
+                Left (StoreObjectConflict _) -> do
+                  existing <- readObject store key
+                  case existing of
+                    Left err -> pure (Left err)
+                    Right Nothing -> pure (Left (StoreInvalidObject key "conflicting journal event is missing"))
+                    Right (Just bytes) -> case decodeJournalEvent bytes of
+                      Left err -> pure (Left (StoreInvalidObject key err))
+                      Right old
+                        | sameEventMeaning old event -> advance headValue old
+                        | otherwise -> pure (Left (StoreObjectConflict key))
                 Left err -> pure (Left err)
-                Right (Just bytes) -> case decodeJournalEvent bytes of
-                  Left err -> pure (Left (StoreInvalidObject key err))
-                  Right old
-                    | sameEventMeaning old event -> advance headValue old
-                    | otherwise -> pure (Left (StoreObjectConflict key))
-                Right Nothing -> do
-                  published <- appendAtSequence store (headSequence headValue) (encodeJournalEvent event)
-                  case published of Left err -> pure (Left err); Right _ -> advance headValue event
   where
     advance headValue event = do
       let replacement = headValue {headGeneration = headGeneration headValue + 1, headSequence = headSequence headValue + 1}
@@ -1210,10 +1218,9 @@ readJournal locked = do
     Left err -> pure (Left err)
     Right Nothing -> pure (Left (StoreConditionFailed "inventory store is not initialized"))
     Right (Just headValue) -> do
-      loaded <- traverse (readObject store . journalKey) [0 .. headSequence headValue - 1]
+      loaded <- readJournalPrefix store (headSequence headValue)
       pure $ do
-        values <- sequence loaded
-        bytes <- traverse (maybe (Left (StoreInvalidObject "journal" "committed journal event is missing")) Right) values
+        bytes <- loaded
         events <- traverse (first (StoreInvalidObject "journal") . decodeJournalEvent) bytes
         first (StoreInvalidObject "journal") (validateJournal events)
 

@@ -30,7 +30,9 @@ module Nagare.Inventory.Store
   , readStoreSnapshot
   , publishIfAbsent
   , readObject
+  , readJournalPrefix
   , appendAtSequence
+  , appendAtObservedHead
   , replaceHeadIfGenerationMatches
   , withProcessLock
   , lockedStore
@@ -597,12 +599,34 @@ appendAtSequence store sequenceNumber bytes
   | sequenceNumber < 0 = pure (Left (StoreConditionFailed "journal sequence must not be negative"))
   | otherwise = publishIfAbsent store (journalKey sequenceNumber) bytes
 
+-- | The caller has already checked this head under the transaction writer
+-- lock. Conditional creation handles a competing writer; the later head CAS
+-- refuses stale sequence advancement. Avoid rereading head and checking the
+-- known-absent event before each normal append.
+appendAtObservedHead :: InventoryStore -> HeadManifest -> ByteString
+  -> IO (Either StoreError ContentDigest)
+appendAtObservedHead store headValue bytes
+  | isJust (headMigration headValue) =
+      pure (Left (StoreConditionFailed "inventory store has migrated; reload the context shell"))
+  | otherwise = withBackendGuard store $ do
+      let key = journalKey (headSequence headValue)
+      written <- writeObjectUnlocked store False key bytes
+      pure (contentDigest bytes <$ written)
+
 replaceHeadIfGenerationMatches :: InventoryStore -> Maybe Integer -> HeadManifest -> IO (Either StoreError ())
 replaceHeadIfGenerationMatches store expected replacement = withBackendGuard store $ do
-  currentResult <- readObjectUnlocked store "head.json"
-  case currentResult >>= traverse decodeHead of
+  observed <- case store of
+    InventoryStore (ObjectBackend ops _ _ _ _ _) -> do
+      result <- getObject ops (ObjectName "head.json")
+      pure $ case result of
+        GetUnknown reason -> Left (StoreIoError reason)
+        ObjectAbsent -> Right (Nothing, Nothing)
+        ObjectFound generation bytes -> Right (Just bytes, Just generation)
+    _ -> fmap (fmap (\bytes -> (bytes, Nothing))) (readObjectUnlocked store "head.json")
+  case observed >>= \(bytes, generation) ->
+    fmap (\current -> (current, generation)) (traverse decodeHead bytes) of
     Left err -> pure (Left err)
-    Right current -> do
+    Right (current, providerGeneration) -> do
       let actual = headGeneration <$> current
           next = maybe 0 (+ 1) expected
       if maybe False (isJust . headMigration) current
@@ -615,7 +639,14 @@ replaceHeadIfGenerationMatches store expected replacement = withBackendGuard sto
             else case canonicalValue (toJSON replacement) of
               Left err -> pure (Left (StoreInvalidObject "head.json" err))
               Right bytes -> case store of
-                InventoryStore (ObjectBackend ops _ _ _ _ _) -> replaceObjectHead ops current bytes
+                InventoryStore (ObjectBackend ops _ _ _ _ _) -> do
+                  let condition = maybe IfAbsent IfGenerationMatches providerGeneration
+                  outcome <- putObject ops condition (ObjectName "head.json") bytes
+                  pure $ case outcome of
+                    PutWritten _ -> Right ()
+                    PutPreconditionFailed -> Left (StoreConditionFailed "inventory head generation changed")
+                    PutNoEffect reason -> Left (StoreConditionFailed reason)
+                    PutUnknown reason -> Left (StoreIoError reason)
                 _ -> writeObjectUnlocked store True "head.json" bytes
 
 mutableHeadAllowed :: InventoryStore -> IO (Either StoreError ())
@@ -1002,6 +1033,27 @@ readObjectUnlocked (InventoryStore (ObjectBackend ops _ cache _ _ _)) key = do
               Nothing -> pure ()
               Just path -> void (ioResult (atomicWrite path bytes))
             pure (Right (Just bytes))
+
+-- | Journal members are immutable once appended. Read the committed prefix in
+-- one object-store transfer, then require every name bound by the head. The
+-- journal decoder still checks sequence numbers and the complete hash chain.
+readJournalPrefix :: InventoryStore -> Integer -> IO (Either StoreError [ByteString])
+readJournalPrefix _ count | count < 0 = pure (Left (StoreConditionFailed "negative journal length"))
+readJournalPrefix _ 0 = pure (Right [])
+readJournalPrefix store@(InventoryStore backend) count = case backend of
+  ObjectBackend ops _ _ _ _ _ -> do
+    loaded <- getObjects ops (ObjectName "journal")
+    pure $ do
+      objects <- first StoreIoError loaded
+      traverse (\sequenceNumber ->
+        let key = journalKey sequenceNumber
+         in maybe (Left (StoreInvalidObject key "committed journal event is missing")) Right
+              (Map.lookup (ObjectName (T.pack key)) objects)) [0 .. count - 1]
+  _ -> do
+    loaded <- traverse (readObject store . journalKey) [0 .. count - 1]
+    pure $ do
+      values <- sequence loaded
+      traverse (maybe (Left (StoreInvalidObject "journal" "committed journal event is missing")) Right) values
 
 immutableKeyDigest :: FilePath -> Maybe ContentDigest
 immutableKeyDigest key = case splitDirectories key of

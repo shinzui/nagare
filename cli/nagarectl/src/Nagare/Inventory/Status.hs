@@ -254,10 +254,9 @@ loadActiveTransactionStatus :: InventoryStore -> HeadManifest -> IO (Either Text
 loadActiveTransactionStatus store headValue = case headActiveTransaction headValue of
   Nothing -> pure (Right Nothing)
   Just _ -> do
-    members <- traverse (readObject store . journalKey) [0 .. headSequence headValue - 1]
+    members <- readJournalPrefix store (headSequence headValue)
     pure $ do
-      raw <- first (T.pack . show) (sequence members)
-      bytes <- traverse (maybe (Left "committed journal event is missing") Right) raw
+      bytes <- first (T.pack . show) members
       events <- traverse decodeJournalEvent bytes
       checked <- validateJournal events
       summarizeActiveTransaction headValue checked
@@ -335,7 +334,9 @@ loadRetainedNative
   :: InventoryStore -> InventoryHistory -> ValidatedInventory
   -> IO (Either Text (Map ResourceId (ManagedResource, ByteString),
                       Map ResourceId (ManagedResource, ByteString)))
-loadRetainedNative = loadNativeFor True
+loadRetainedNative store history inventory
+  | Map.null (historyRetained history) = pure (Right (Map.empty, Map.empty))
+  | otherwise = loadNativeFor True store history inventory
 
 loadNativeFor
   :: Bool -> InventoryStore -> InventoryHistory -> ValidatedInventory
