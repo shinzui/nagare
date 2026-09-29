@@ -5627,7 +5627,7 @@ buildHostStageCandidate active _ snapshot
         (InventoryHost.HostDeclarationBundle 1 owner vmId (resource NE.:| [])
           configurationDigest lockDigest ageKeyDigest))
       case Map.lookup owner (ResourceInventory.snapshotScopes snapshot) of
-        Just (_, prior) | prior /= scope ->
+        Just (_, prior) | ResourceWire.encodeCanonicalScope prior /= ResourceWire.encodeCanonicalScope scope ->
           dieT "accepted host configuration differs from the selected context; use a reviewed host transition"
         Just _ -> pure Nothing
         Nothing -> Just <$> either (dieT . T.pack . show) pure

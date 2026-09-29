@@ -46,6 +46,29 @@ fixture passes with evaluation disabled and refuses a mismatched path digest.
 The fixture also now supplies its own mock builder transport instead of depending
 on ambient tunnel environment. Haskell build and style checks pass. The complete public bootstrap regression then passes, including lost-acknowledgement recovery, the unchanged 211-operation cluster review, kubeconfig dependencies, the final marker, and native local Pulumi stack initialization.
 
+## Follow-up native diagnoses
+
+Installed candidate `b137d0c7` passed the installation-source boundary, then
+refused in 55.095 seconds during accepted host comparison. Current configuration,
+lock, credential and resource-spec digests exactly matched the retained native
+review. Its operation input list was canonicalized on persistence (lock digest
+before configuration digest), while the compiler produced configuration first.
+Raw Haskell equality therefore rejected the same declaration. Host comparison now
+uses the existing canonical scope encoder; the public fixture forces reversed
+input ordering to reproduce this boundary instead of relying on favorable hashes. The strengthened complete public fixture passes, including its 211-operation cluster review; Haskell build and style checks pass.
+
+A separate development-binary plan from `/tmp/nagare-mp23-native-second-root`,
+with copied context/host inputs but no journal or delivery-key environment, refused
+in 32.555 seconds before effects. `cloudFoundationPending` and
+`foundationStageTarget` treat a missing local migration marker as a new foundation,
+without consulting existing shared history. The existing bucket and stack then
+correctly refuse ownership adoption. Second-root bootstrap remains blocked: probe
+the exact selected remote foundation/store when no local history exists, distinguish
+proved absence from unavailable/foreign ownership, and retain conflict/migration
+refusals for nonempty local history. Verify both an actually fresh foundation and
+an existing shared GCS head before claiming this repaired; copying a migration
+marker is not the acceptance path.
+
 ## Remaining native work
 
 The repaired public bootstrap regression passes. Installed-package continuation

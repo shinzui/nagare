@@ -737,6 +737,22 @@ test "$(wc -l < "$XDG_STATE_HOME/applied-urns")" -eq 26
 printf 'reviewed image config enabled and converged both VM registrations\n'
 printf 'hostName = "freshlocal-nagare";\n' > "$XDG_CONFIG_HOME/nagare/hosts/freshlocal/host.nix"
 printf '{}\n' > "$XDG_CONFIG_HOME/nagare/hosts/freshlocal/flake.lock"
+# Persisted operation inputs are sorted canonically. Force their wire order to
+# differ from the compiler's configuration-then-lock order, as in the GCP fixture.
+python3 - "$XDG_CONFIG_HOME/nagare/hosts/freshlocal" <<'PY'
+import hashlib
+import pathlib
+import sys
+root = pathlib.Path(sys.argv[1])
+configuration = hashlib.sha256((root / "flake.nix").read_bytes() + (root / "host.nix").read_bytes()).hexdigest()
+for padding in range(1000):
+    lock = b"{}" + b" " * padding + b"\n"
+    if hashlib.sha256(lock).hexdigest() < configuration:
+        (root / "flake.lock").write_bytes(lock)
+        break
+else:
+    raise AssertionError("could not construct reversed canonical input order")
+PY
 printf 'ssh-ed25519 fixture-key fixture@example.invalid\n' > "$fixture_root/operator.pub"
 export NAGARE_SSH_PUBLIC_KEY_FILE="$fixture_root/operator.pub"
 cat > "$fixture_root/bin/nagarectl" <<'EOF'
