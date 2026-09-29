@@ -1,0 +1,21 @@
+{
+  "baseRevision": "3385ada47fe34d9bdb1fd3706af3dc59099e8929",
+  "dirtyCandidate": true,
+  "binarySha256": "3f992b6396deefaf52944edc024e66fd3dcf3915562c67ea9a09a190abefb74e",
+  "testBinarySha256": "ad0c68df2b1a329080e3c15a10445d1ba96bf407715872933ed922475f6de36a",
+  "sources": {
+    "cli/nagarectl/src/Nagare/Inventory/Store/Gogol.hs": "9b6a08fd61579eb1715899a57c4bbfb5c0afebe0ad36af6db7d1e652103f6347",
+    "cli/nagarectl/test/InventoryGogolSpec.hs": "661f58708a01f9c12c6a98a34597ff114c7cf6b85e9288a40efe61aea70ee35a",
+    "cli/nagarectl/test/Spec.hs": "325d866edd5b54ddaf594e58f2dead81b4cf6fae5db8c4b153e35fcd916aca36",
+    "cli/nagarectl/cabal.project": "6f2179c95a13646437f1ac53f1d3f225cda6b3cc4687960ce6d3abb112af6f53",
+    "cli/nagarectl/nagarectl.cabal": "210d7f550b9282830cd466010d135c285cfeeb8bde394401c969ea6567a49111",
+    "flake.nix": "e04e1368d799e2d173104652b86032994ec86698c5fb8daefc77702bd9cb0889",
+    "flake.lock": "a971bc3ca83bd0ea0e4c4a3b7f1fa8eb54a382595094c7aed6641ddac15f9602",
+    "nix/haskell-packages.nix": "f59b1509864e9791822dbe4f95b8873f3c35410283dd3f42118e4744b5e4e30c",
+    "nix/nagare-packages.nix": "60e7789ab9c66165a5aa4b62413ff833685e624736461b228b5151900abb29f7",
+    "cli/nagarectl/src/Nagare/Inventory/Store/ObjectOps.hs": "028959447fd85a512c6ef1c28cb5f9b31aeb4193ea624fc4202a7e1334d5eef8",
+    "cli/nagarectl/src/Nagare/Inventory/Store.hs": "309421eb4c51fda7aadedbefa02acfed3ce0cb77c155005e9752396d4776cc1b",
+    "cli/nagarectl/src/Nagare/Inventory/Command.hs": "6e6e57222c18e9421d5a33f01ca6a13305263d4795d96bd2d72eca91068c50c0",
+    "cli/nagarectl/src/Nagare/Inventory/Execute.hs": "39abec34db726d2f555af0129c27c1c65064028021df04d849ea29edb3916ba4"
+  }
+}

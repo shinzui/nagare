@@ -148,6 +148,23 @@
         "type": "github"
       }
     },
+    "gogol": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1741572123,
+        "narHash": "sha256-7PL3xSgI+C8XecdR9wa9xklzr0cJje8A/MknaVibmVQ=",
+        "owner": "brendanhay",
+        "repo": "gogol",
+        "rev": "881cd14c9844131b4a8d96ca1bbb2bd9a2409ed9",
+        "type": "github"
+      },
+      "original": {
+        "owner": "brendanhay",
+        "repo": "gogol",
+        "rev": "881cd14c9844131b4a8d96ca1bbb2bd9a2409ed9",
+        "type": "github"
+      }
+    },
     "haskell-nix-dev": {
       "inputs": {
         "flake-parts": "flake-parts_2",
@@ -270,6 +287,7 @@
           "haskell-nix-dev",
           "flake-parts"
         ],
+        "gogol": "gogol",
         "haskell-nix-dev": "haskell-nix-dev",
         "nixpkgs": [
           "haskell-nix-dev",

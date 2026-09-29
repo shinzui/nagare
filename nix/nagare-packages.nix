@@ -26,6 +26,7 @@
         inherit pkgs platformPackage sourceRevision;
         atticClient = attic.client;
         cradleSrc = inputs.cradle;
+        gogolSrc = inputs.gogol;
       };
       nagarePackages = haskellPackages // {
         netCertManagerController = netCertManager.controller;

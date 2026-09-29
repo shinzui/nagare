@@ -11,6 +11,11 @@
     url = "github:garnix-io/cradle/711c441fa8f190a8964c56a3bae864cd5321c5c5";
     flake = false;
   };
+  # mori://brendanhay/gogol/repos/gogol; shared with cli/nagarectl/cabal.project.
+  inputs.gogol = {
+    url = "github:brendanhay/gogol/881cd14c9844131b4a8d96ca1bbb2bd9a2409ed9";
+    flake = false;
+  };
   inputs.attic = {
     url = "github:zhaofengli/attic/12cbeca141f46e1ade76728bce8adc447f2166c6";
   };

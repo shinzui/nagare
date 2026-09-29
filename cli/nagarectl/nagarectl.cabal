@@ -59,12 +59,12 @@ library
     Nagare.Cluster.Kubeconfig
     Nagare.Cluster.Namespace
     Nagare.Database.Backup
-    Nagare.Database.Prune
     Nagare.Database.Connection
     Nagare.Database.Create
     Nagare.Database.Discover
     Nagare.Database.Get
     Nagare.Database.List
+    Nagare.Database.Prune
     Nagare.Database.Restart
     Nagare.Database.Restore
     Nagare.Database.Secret
@@ -89,6 +89,9 @@ library
     Nagare.Inventory.Adapters.Artifact
     Nagare.Inventory.Adapters.ArtifactRuntime
     Nagare.Inventory.Adapters.Broker
+    Nagare.Inventory.Adapters.BrokerRuntime
+    Nagare.Inventory.Adapters.Cache
+    Nagare.Inventory.Adapters.CacheRuntime
     Nagare.Inventory.Adapters.Cdn
     Nagare.Inventory.Adapters.CdnCombined
     Nagare.Inventory.Adapters.CdnRuntime
@@ -98,9 +101,6 @@ library
     Nagare.Inventory.Adapters.FoundationRuntime
     Nagare.Inventory.Adapters.GitHubRelease
     Nagare.Inventory.Adapters.GitHubReleaseRuntime
-    Nagare.Inventory.Adapters.BrokerRuntime
-    Nagare.Inventory.Adapters.Cache
-    Nagare.Inventory.Adapters.CacheRuntime
     Nagare.Inventory.Adapters.Helm
     Nagare.Inventory.Adapters.HelmRuntime
     Nagare.Inventory.Adapters.Host
@@ -109,12 +109,13 @@ library
     Nagare.Inventory.Adapters.KubernetesRuntime
     Nagare.Inventory.Adapters.Pulumi
     Nagare.Inventory.Adapters.PulumiRuntime
+    Nagare.Inventory.Application
     Nagare.Inventory.Artifact
     Nagare.Inventory.BackendMap
+    Nagare.Inventory.Backup
     Nagare.Inventory.Bootstrap
     Nagare.Inventory.Cache
     Nagare.Inventory.Cloud
-    Nagare.Inventory.Foundation
     Nagare.Inventory.CollectionPolicy
     Nagare.Inventory.Command
     Nagare.Inventory.Components.Auth
@@ -127,67 +128,67 @@ library
     Nagare.Inventory.Components.PackagedAuth
     Nagare.Inventory.Components.PackagedCache
     Nagare.Inventory.Components.Upstream
-    Nagare.Inventory.Database
     Nagare.Inventory.DataFence
+    Nagare.Inventory.DataFence.CompletedJob
+    Nagare.Inventory.DataFence.DatabaseShutdown
+    Nagare.Inventory.DataFence.DeploymentWriter
+    Nagare.Inventory.DataFence.GuardAuthority
     Nagare.Inventory.DataFence.KubernetesAdapter
-    Nagare.Inventory.DataFence.MountGuard
-    Nagare.Inventory.DataFence.MountGuardRuntime
+    Nagare.Inventory.DataFence.KubernetesCapture
+    Nagare.Inventory.DataFence.KubernetesExclusion
+    Nagare.Inventory.DataFence.KubernetesIntent
+    Nagare.Inventory.DataFence.MaintenanceClickHouse
     Nagare.Inventory.DataFence.MaintenanceNetwork
     Nagare.Inventory.DataFence.MaintenancePostgres
     Nagare.Inventory.DataFence.MaintenanceRedis
-    Nagare.Inventory.DataFence.MaintenanceClickHouse
-    Nagare.Inventory.DataFence.CompletedJob
-    Nagare.Inventory.DataFence.GuardAuthority
-    Nagare.Inventory.DataFence.VolumeState
-    Nagare.Inventory.DataFence.StatefulWriter
-    Nagare.Inventory.DataFence.DeploymentWriter
-    Nagare.Inventory.DataFence.WriterInventory
-    Nagare.Inventory.DataFence.KubernetesIntent
-    Nagare.Inventory.DataFence.DatabaseShutdown
-    Nagare.Inventory.DataFence.KubernetesCapture
-    Nagare.Inventory.DataFence.KubernetesExclusion
-    Nagare.Inventory.DataFence.ServiceState
+    Nagare.Inventory.DataFence.MountGuard
+    Nagare.Inventory.DataFence.MountGuardRuntime
     Nagare.Inventory.DataFence.ScheduledWriter
-    Nagare.Inventory.Maintenance
+    Nagare.Inventory.DataFence.ServiceState
+    Nagare.Inventory.DataFence.StatefulWriter
+    Nagare.Inventory.DataFence.VolumeState
+    Nagare.Inventory.DataFence.WriterInventory
+    Nagare.Inventory.DataService
+    Nagare.Inventory.Database
+    Nagare.Inventory.Digest
+    Nagare.Inventory.Environment
+    Nagare.Inventory.Execute
+    Nagare.Inventory.Foundation
+    Nagare.Inventory.HelmReview
+    Nagare.Inventory.Host
+    Nagare.Inventory.ImageBuild
+    Nagare.Inventory.Journal
+    Nagare.Inventory.Kubernetes
+    Nagare.Inventory.KubernetesReview
+    Nagare.Inventory.KubernetesSources
+    Nagare.Inventory.Lifecycle
     Nagare.Inventory.LiveRestore
     Nagare.Inventory.LiveRestoreAdapter
     Nagare.Inventory.LiveRestoreFence
     Nagare.Inventory.LiveRestorePostgres
     Nagare.Inventory.LiveRestoreSource
+    Nagare.Inventory.Maintenance
     Nagare.Inventory.MaintenanceAdapter
     Nagare.Inventory.MaintenanceFence
-    Nagare.Inventory.DataService
-    Nagare.Inventory.Backup
-    Nagare.Inventory.Prune
-    Nagare.Inventory.VolumePrune
-    Nagare.Inventory.Restore
-    Nagare.Inventory.ScheduledReceipt
-    Nagare.Inventory.ScheduledIngest
-    Nagare.Inventory.ScheduledPrune
-    Nagare.Inventory.ScheduledStore
-    Nagare.Inventory.Environment
-    Nagare.Inventory.ImageBuild
-    Nagare.Inventory.Application
-    Nagare.Inventory.Site
-    Nagare.Inventory.TaskRun
-    Nagare.Inventory.TaskLifecycle
-    Nagare.Inventory.Digest
-    Nagare.Inventory.Execute
-    Nagare.Inventory.OperationStep
-    Nagare.Inventory.HelmReview
-    Nagare.Inventory.Host
-    Nagare.Inventory.Journal
-    Nagare.Inventory.Kubernetes
-    Nagare.Inventory.KubernetesReview
-    Nagare.Inventory.ObservationNative
-    Nagare.Inventory.KubernetesSources
-    Nagare.Inventory.Plan
-    Nagare.Inventory.Lifecycle
     Nagare.Inventory.Migration
     Nagare.Inventory.Migration.Types
+    Nagare.Inventory.ObservationNative
+    Nagare.Inventory.OperationStep
+    Nagare.Inventory.Plan
+    Nagare.Inventory.Prune
+    Nagare.Inventory.Restore
+    Nagare.Inventory.ScheduledIngest
+    Nagare.Inventory.ScheduledPrune
+    Nagare.Inventory.ScheduledReceipt
+    Nagare.Inventory.ScheduledStore
+    Nagare.Inventory.Site
     Nagare.Inventory.Status
     Nagare.Inventory.Store
+    Nagare.Inventory.Store.Gogol
     Nagare.Inventory.Store.ObjectOps
+    Nagare.Inventory.TaskLifecycle
+    Nagare.Inventory.TaskRun
+    Nagare.Inventory.VolumePrune
     Nagare.Ops.Cleanup
     Nagare.Ops.ClusterGuard
     Nagare.Ops.ContextGuard
@@ -233,6 +234,7 @@ library
 
   build-depends:
     aeson,
+    async,
     base >=4.17 && <5,
     bytestring,
     containers,
@@ -241,6 +243,8 @@ library
     directory,
     filepath,
     generic-lens ^>=2.3,
+    gogol ==1.0.0.0,
+    gogol-storage ==1.0.0,
     http-client,
     http-client-tls,
     http-types,
@@ -310,23 +314,24 @@ test-suite nagarectl-test
     DataFenceSpec
     DomainBindingSpec
     HostSpec
+    InventoryApplicationSpec
     InventoryArtifactSpec
     InventoryAuthSpec
     InventoryCacheSpec
-    InventoryCloudSpec
     InventoryCdnSpec
+    InventoryCloudSpec
     InventoryFoundationSpec
+    InventoryGogolSpec
     InventoryHostSpec
     InventoryIntegrationSpec
     InventoryKubernetesSpec
-    InventoryApplicationSpec
     InventoryLifecycleSpec
     InventoryMaintenanceSpec
     InventoryMigrationSpec
-    InventoryObservabilitySpec
-    InventoryPublicationSpec
-    InventoryObservationSpec
     InventoryObjectOpsSpec
+    InventoryObservabilitySpec
+    InventoryObservationSpec
+    InventoryPublicationSpec
     InventorySpec
     InventoryStatusSpec
     InventoryTransactionSpec
@@ -343,6 +348,10 @@ test-suite nagarectl-test
     directory,
     filepath,
     generic-lens ^>=2.3,
+    gogol,
+    gogol-storage,
+    http-client,
+    http-types,
     nagare-dsl,
     nagarectl,
     process,
@@ -353,4 +362,6 @@ test-suite nagarectl-test
     text,
     time,
     unix,
+    wai,
+    warp,
     yaml,

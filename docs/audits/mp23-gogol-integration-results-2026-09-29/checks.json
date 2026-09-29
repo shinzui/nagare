@@ -1,0 +1,35 @@
+{
+  "sdkSource": "mori://brendanhay/gogol/repos/gogol",
+  "sdkRevision": "881cd14c9844131b4a8d96ca1bbb2bd9a2409ed9",
+  "compiler": "ghc-9.12.4",
+  "dependencyVersions": {
+    "crypton": "1.1.5",
+    "crypton-x509": "1.9.1",
+    "crypton-x509-store": "1.9.0",
+    "gogol": "1.0.0.0",
+    "gogol-core": "1.0.0.0",
+    "gogol-storage": "1.0.0",
+    "aeson": "2.3.2.0",
+    "async": "2.2.6"
+  },
+  "jointCliAndTestBuild": "passed",
+  "fullTests": "All 967 tests passed (51.29s)",
+  "sdkCases": 13,
+  "journalRequestCounts": {
+    "50": 58,
+    "500": 572
+  },
+  "journalDownloadWindow": 8,
+  "legacyPublicCliCases": 11,
+  "legacyUsesSdk": false,
+  "haskellStyle": "passed",
+  "fourmoluNewModules": "passed",
+  "cabalGild": "passed; also sorted pre-existing manifest ordering",
+  "commandAudit": "passed, no registration errors; release coverage remains incomplete",
+  "nixEvaluation": "passed; aarch64-darwin nagarectl.drvPath",
+  "nixFullBuild": "not run",
+  "providerMutations": 0,
+  "globalContextChanges": 0,
+  "cliDefault": "existing gcloud backend",
+  "adrCheck": "repository has no check-adr recipe or profiled ADR bundle; existing format preserved"
+}

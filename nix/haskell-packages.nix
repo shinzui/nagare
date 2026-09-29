@@ -1,4 +1,4 @@
-{ pkgs, cradleSrc, platformPackage, atticClient, sourceRevision ? null }:
+{ pkgs, cradleSrc, gogolSrc, platformPackage, atticClient, sourceRevision ? null }:
 
 let
   inherit (pkgs) lib;
@@ -11,6 +11,30 @@ let
 
       cradle = hl.dontHaddock (hl.dontCheck (
         hfinal.callCabal2nix "cradle" cradleSrc { }
+      ));
+
+      # Only the same stale upper bounds relaxed in Cabal; no source changes.
+      gogol-core = hl.dontHaddock (hl.dontCheck (hl.overrideCabal
+        (hfinal.callCabal2nix "gogol-core" (gogolSrc + "/lib/gogol-core") { })
+        (_old: {
+          postPatch = ''
+            substituteInPlace gogol-core.cabal \
+              --replace-fail 'aeson                 >=0.8    && <2.3' 'aeson >=0.8'
+          '';
+        })));
+      gogol = hl.dontHaddock (hl.dontCheck (hl.overrideCabal
+        (hfinal.callCabal2nix "gogol" (gogolSrc + "/lib/gogol") { })
+        (_old: {
+          postPatch = ''
+            substituteInPlace gogol.cabal \
+              --replace-fail 'aeson               >=0.8   && <2.3' 'aeson >=0.8' \
+              --replace-fail 'crypton             >=0.34  && <1.1' 'crypton >=0.34' \
+              --replace-fail 'crypton-x509        >=1.5   && <1.8' 'crypton-x509 >=1.5' \
+              --replace-fail 'crypton-x509-store  >=1.5   && <1.7' 'crypton-x509-store >=1.5'
+          '';
+        })));
+      gogol-storage = hl.dontHaddock (hl.dontCheck (
+        hfinal.callCabal2nix "gogol-storage" (gogolSrc + "/lib/services/gogol-storage") { }
       ));
 
       nagare-dsl = hl.dontHaddock (hl.dontCheck (

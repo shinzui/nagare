@@ -1,0 +1,2265 @@
+{
+  "legacyObservationMissing": true,
+  "binarySha256": "3f992b6396deefaf52944edc024e66fd3dcf3915562c67ea9a09a190abefb74e",
+  "sources": {
+    "cli/nagarectl/app/Main.hs": "db741bdf34e41b1366ae916542fccfe448dfac172c82a3eb6938efb7ce5bb749",
+    "cli/nagarectl/src/Nagare/Inventory/Execute.hs": "39abec34db726d2f555af0129c27c1c65064028021df04d849ea29edb3916ba4",
+    "cli/nagarectl/src/Nagare/Inventory/OperationStep.hs": "0da401072f736a04156116868c1208061813481910e07d397972263f7335be22",
+    "cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs": "78209c807177beec11c675ec2ff0d8571258f59bd75eed326c9ba2d3376c09e7",
+    "cli/nagarectl/test/InventoryTransactionSpec.hs": "f0d1102ba8bfcd4e8c86b3092647fa57880e1c514c459e50bcb93584ffb8235a",
+    "cli/nagarectl/nagarectl.cabal": "210d7f550b9282830cd466010d135c285cfeeb8bde394401c969ea6567a49111",
+    "scripts/test-inventory-operation-driver.py": "3a2ec27e8a5d99eb06918dbab6210ffd73dc18dcc437d04646a3b6fc8513f2f9",
+    "docs/audits/mp23-reproductions/PruneFixture.hs": "359ad320ebec7a9adb25b47f7ef372a417f3af4c7ba731f951b4260584aacdac"
+  },
+  "fixture": {
+    "entries": [
+      {
+        "digest": "fb77be0b5187e2266b74894b9701c00d6505f3853ba27c7e9298c2ea486d0fa1",
+        "id": "standalone:backup/ingestion/resource",
+        "native": {
+          "apiVersion": "batch/v1",
+          "kind": "Job",
+          "metadata": {
+            "name": "ingestion",
+            "namespace": "default"
+          },
+          "spec": {
+            "template": {
+              "spec": {
+                "containers": [
+                  {
+                    "image": "fixture.invalid/ingest:pinned",
+                    "name": "upload"
+                  }
+                ],
+                "restartPolicy": "Never"
+              }
+            }
+          }
+        },
+        "prune": false,
+        "uid": "ingestion-uid"
+      },
+      {
+        "digest": "4a32a2ad894ca2eb9a96c2e1e3cf977eecce914f3023d0ddfc86ae86fda92209",
+        "id": "standalone:database-scheduled-prune-default-notes-11111111-1111-1111-1111-111111111111/11111111-1111-1111-1111-111111111111/job",
+        "native": {
+          "apiVersion": "batch/v1",
+          "kind": "Job",
+          "metadata": {
+            "annotations": {
+              "nagare.dev/prune-backup-job": "standalone:backup/ingestion/resource",
+              "nagare.dev/prune-backup-job-uid": "ingestion-uid",
+              "nagare.dev/prune-backup-scope": "standalone:backup",
+              "nagare.dev/scheduled-prune-backup-id": "11111111-1111-1111-1111-111111111111"
+            },
+            "labels": {
+              "nagare.dev/managed-by": "nagarectl",
+              "nagare.dev/scheduled-prune": "reviewed"
+            },
+            "name": "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+            "namespace": "default"
+          },
+          "spec": {
+            "backoffLimit": 0,
+            "template": {
+              "metadata": {
+                "labels": {
+                  "nagare.dev/managed-by": "nagarectl",
+                  "nagare.dev/scheduled-prune": "reviewed"
+                }
+              },
+              "spec": {
+                "containers": [
+                  {
+                    "args": [
+                      "set -eu; dnf install -y -q tar gzip >/dev/null 2>&1; command -v sha256sum >/dev/null 2>&1 || dnf install -y -q coreutils >/dev/null 2>&1; command -v sha256sum >/dev/null 2>&1; STORE_BUCKET='bucket'; STORE_ENDPOINT='http://minio.invalid:9000'; case \"$OBJECT\" in s3://\"$STORE_BUCKET\"/*) ;; *) exit 1;; esac; DATA_KEY=${OBJECT#s3://$STORE_BUCKET/}; RECEIPT_KEY=${RECEIPT#s3://$STORE_BUCKET/}; test -n \"$DATA_KEY\"; test -n \"$RECEIPT_KEY\"; NOW=$(date -u +%s); test \"$NOW\" -ge \"$EXPIRY_EPOCH\"; test \"$RECEIPT\" = \"$OBJECT.receipt.json\"; DATA_VERSION=$(aws s3api head-object --bucket \"$STORE_BUCKET\" --key \"$DATA_KEY\" --query VersionId --output text --endpoint-url \"$STORE_ENDPOINT\"); RECEIPT_VERSION=$(aws s3api head-object --bucket \"$STORE_BUCKET\" --key \"$RECEIPT_KEY\" --query VersionId --output text --endpoint-url \"$STORE_ENDPOINT\"); test -n \"$DATA_VERSION\"; test -n \"$RECEIPT_VERSION\"; test \"$DATA_VERSION\" != None; test \"$RECEIPT_VERSION\" != None; test \"$DATA_VERSION\" != null; test \"$RECEIPT_VERSION\" != null; test \"$DATA_VERSION\" = \"$EXPECTED_OBJECT_VERSION\"; test \"$RECEIPT_VERSION\" = \"$EXPECTED_RECEIPT_VERSION\"; ACTUAL_RECEIPT=$(aws s3api get-object --bucket \"$STORE_BUCKET\" --key \"$RECEIPT_KEY\" --version-id \"$RECEIPT_VERSION\" --endpoint-url \"$STORE_ENDPOINT\" /dev/fd/3 3>&1 1>/dev/null | sha256sum | cut -d' ' -f1); test \"$ACTUAL_RECEIPT\" = \"$EXPECTED_RECEIPT_SHA256\"; ACTUAL_OBJECT=$(aws s3api get-object --bucket \"$STORE_BUCKET\" --key \"$DATA_KEY\" --version-id \"$DATA_VERSION\" --endpoint-url \"$STORE_ENDPOINT\" /dev/fd/3 3>&1 1>/dev/null | sha256sum | cut -d' ' -f1); test \"$ACTUAL_OBJECT\" = \"$EXPECTED_OBJECT_SHA256\"; test \"$(aws s3api head-object --bucket \"$STORE_BUCKET\" --key \"$DATA_KEY\" --query VersionId --output text --endpoint-url \"$STORE_ENDPOINT\")\" = \"$DATA_VERSION\"; test \"$(aws s3api head-object --bucket \"$STORE_BUCKET\" --key \"$RECEIPT_KEY\" --query VersionId --output text --endpoint-url \"$STORE_ENDPOINT\")\" = \"$RECEIPT_VERSION\"; aws s3api delete-object --bucket \"$STORE_BUCKET\" --key \"$DATA_KEY\" --version-id \"$DATA_VERSION\" --endpoint-url \"$STORE_ENDPOINT\"; VISIBLE=$(aws s3api list-objects-v2 --bucket \"$STORE_BUCKET\" --prefix \"$DATA_KEY\" --query 'Contents[].Key' --output text --endpoint-url \"$STORE_ENDPOINT\"); for FOUND in $VISIBLE; do test \"$FOUND\" != \"$DATA_KEY\"; done; aws s3api delete-object --bucket \"$STORE_BUCKET\" --key \"$RECEIPT_KEY\" --version-id \"$RECEIPT_VERSION\" --endpoint-url \"$STORE_ENDPOINT\"; VISIBLE=$(aws s3api list-objects-v2 --bucket \"$STORE_BUCKET\" --prefix \"$RECEIPT_KEY\" --query 'Contents[].Key' --output text --endpoint-url \"$STORE_ENDPOINT\"); for FOUND in $VISIBLE; do test \"$FOUND\" != \"$RECEIPT_KEY\"; done"
+                    ],
+                    "command": [
+                      "/bin/sh",
+                      "-c"
+                    ],
+                    "env": [
+                      {
+                        "name": "OBJECT",
+                        "value": "s3://bucket/databases/notes/11111111-1111-1111-1111-111111111111.sql.gz"
+                      },
+                      {
+                        "name": "RECEIPT",
+                        "value": "s3://bucket/databases/notes/11111111-1111-1111-1111-111111111111.sql.gz.receipt.json"
+                      },
+                      {
+                        "name": "EXPECTED_OBJECT_SHA256",
+                        "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                      },
+                      {
+                        "name": "EXPECTED_RECEIPT_SHA256",
+                        "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                      },
+                      {
+                        "name": "EXPIRY_EPOCH",
+                        "value": "0"
+                      },
+                      {
+                        "name": "EXPECTED_OBJECT_VERSION",
+                        "value": "17"
+                      },
+                      {
+                        "name": "EXPECTED_RECEIPT_VERSION",
+                        "value": "19"
+                      },
+                      {
+                        "name": "AWS_ACCESS_KEY_ID",
+                        "valueFrom": {
+                          "secretKeyRef": {
+                            "key": "AWS_ACCESS_KEY_ID",
+                            "name": "minio-credentials"
+                          }
+                        }
+                      },
+                      {
+                        "name": "AWS_SECRET_ACCESS_KEY",
+                        "valueFrom": {
+                          "secretKeyRef": {
+                            "key": "AWS_SECRET_ACCESS_KEY",
+                            "name": "minio-credentials"
+                          }
+                        }
+                      },
+                      {
+                        "name": "AWS_DEFAULT_REGION",
+                        "value": "us-east-1"
+                      },
+                      {
+                        "name": "AWS_EC2_METADATA_DISABLED",
+                        "value": "true"
+                      }
+                    ],
+                    "image": "amazon/aws-cli:latest",
+                    "name": "prune"
+                  }
+                ],
+                "restartPolicy": "Never"
+              }
+            }
+          }
+        },
+        "prune": true,
+        "uid": "failed-prune-uid"
+      },
+      {
+        "digest": "03967ba553c7f4b0321a49671f5bbb9b2df2b3d97756453791c6728d37f5480e",
+        "id": "standalone:policy/policy/resource",
+        "native": {
+          "apiVersion": "v1",
+          "kind": "ConfigMap",
+          "metadata": {
+            "name": "policy",
+            "namespace": "default"
+          }
+        },
+        "prune": false,
+        "uid": "ingestion-uid"
+      }
+    ],
+    "operation": "op-62a42f7191e6f7ed29c0dd08",
+    "transaction": "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941"
+  },
+  "results": [
+    {
+      "phase": "before",
+      "args": [
+        "inventory",
+        "resume",
+        "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+        "--yes"
+      ],
+      "exit": 1,
+      "seconds": 2.844,
+      "stdout": "stopped tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941 at op-62a42f7191e6f7ed29c0dd08: KnownNoEffect \"adapter preflight refused\"\n",
+      "stderr": "nagarectl: local mode (NAGARE_MODE=local) requires NAGARE_LOCAL_OBJECT_STORE to be set to \"<endpoint-url>/<bucket>\" (e.g. http://minio.nagare-system.svc.cluster.local:9000/nagare-backups); it is currently unset\n",
+      "beforeHead": {
+        "accepted": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "database-scheduled-prune-default-notes-11111111-1111-1111-1111-111111111111"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "activeTransaction": "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+        "binding": {
+          "identity": "prune-spike",
+          "project": "project"
+        },
+        "clientIdentity": "prune-spike",
+        "converged": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "executorClaim": {
+          "clientIdentity": "prune-spike",
+          "epoch": 1,
+          "timestamp": "fixture",
+          "transaction": "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941"
+        },
+        "generation": 5,
+        "sequence": 3,
+        "version": 1
+      },
+      "afterHead": {
+        "accepted": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "database-scheduled-prune-default-notes-11111111-1111-1111-1111-111111111111"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "activeTransaction": "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+        "binding": {
+          "identity": "prune-spike",
+          "project": "project"
+        },
+        "clientIdentity": "prune-spike",
+        "converged": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "executorClaim": null,
+        "generation": 7,
+        "sequence": 3,
+        "version": 1
+      },
+      "providerCalls": [
+        [
+          "kubectl",
+          "--context",
+          "prune-spike",
+          "--request-timeout=10s",
+          "get",
+          "job.batch",
+          "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+          "--namespace",
+          "default",
+          "-o",
+          "json",
+          "--ignore-not-found"
+        ],
+        [
+          "kubectl",
+          "--context",
+          "prune-spike",
+          "--request-timeout=10s",
+          "get",
+          "job.batch",
+          "ingestion",
+          "--namespace",
+          "default",
+          "-o",
+          "json",
+          "--ignore-not-found"
+        ],
+        [
+          "kubectl",
+          "--context",
+          "prune-spike",
+          "--request-timeout=10s",
+          "get",
+          "job.batch",
+          "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+          "--namespace",
+          "default",
+          "-o",
+          "json",
+          "--ignore-not-found"
+        ],
+        [
+          "kubectl",
+          "--context",
+          "prune-spike",
+          "--request-timeout=10s",
+          "get",
+          "job.batch",
+          "ingestion",
+          "--namespace",
+          "default",
+          "-o",
+          "json",
+          "--ignore-not-found"
+        ]
+      ]
+    },
+    {
+      "phase": "partial",
+      "args": [
+        "inventory",
+        "resume",
+        "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+        "--yes"
+      ],
+      "exit": 1,
+      "seconds": 0.132,
+      "stdout": "ambiguous tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941 at op-62a42f7191e6f7ed29c0dd08\n",
+      "stderr": "",
+      "beforeHead": {
+        "accepted": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "database-scheduled-prune-default-notes-11111111-1111-1111-1111-111111111111"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "activeTransaction": "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+        "binding": {
+          "identity": "prune-spike",
+          "project": "project"
+        },
+        "clientIdentity": "prune-spike",
+        "converged": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "executorClaim": {
+          "clientIdentity": "prune-spike",
+          "epoch": 1,
+          "timestamp": "fixture",
+          "transaction": "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941"
+        },
+        "generation": 5,
+        "sequence": 3,
+        "version": 1
+      },
+      "afterHead": {
+        "accepted": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "database-scheduled-prune-default-notes-11111111-1111-1111-1111-111111111111"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "activeTransaction": "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+        "binding": {
+          "identity": "prune-spike",
+          "project": "project"
+        },
+        "clientIdentity": "prune-spike",
+        "converged": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "executorClaim": null,
+        "generation": 7,
+        "sequence": 3,
+        "version": 1
+      },
+      "providerCalls": [
+        [
+          "kubectl",
+          "--context",
+          "prune-spike",
+          "--request-timeout=10s",
+          "get",
+          "job.batch",
+          "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+          "--namespace",
+          "default",
+          "-o",
+          "json",
+          "--ignore-not-found"
+        ],
+        [
+          "kubectl",
+          "--context",
+          "prune-spike",
+          "--request-timeout=10s",
+          "get",
+          "job.batch",
+          "ingestion",
+          "--namespace",
+          "default",
+          "-o",
+          "json",
+          "--ignore-not-found"
+        ]
+      ]
+    },
+    {
+      "phase": "partial",
+      "args": [
+        "inventory",
+        "recover",
+        "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+        "--operation",
+        "op-62a42f7191e6f7ed29c0dd08",
+        "--decision",
+        "/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/mp23-operational-cost-au7wjm6a/fixture-prune-fixture/decision.json"
+      ],
+      "exit": 0,
+      "seconds": 0.148,
+      "stdout": "Terminal scheduled prune review abandoned; exact provider members remain unresolved until a separate reviewed recovery\n",
+      "stderr": "",
+      "beforeHead": {
+        "accepted": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "database-scheduled-prune-default-notes-11111111-1111-1111-1111-111111111111"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "activeTransaction": "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+        "binding": {
+          "identity": "prune-spike",
+          "project": "project"
+        },
+        "clientIdentity": "prune-spike",
+        "converged": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "executorClaim": null,
+        "generation": 7,
+        "sequence": 3,
+        "version": 1
+      },
+      "afterHead": {
+        "accepted": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "activeTransaction": null,
+        "binding": {
+          "identity": "prune-spike",
+          "project": "project"
+        },
+        "clientIdentity": "prune-spike",
+        "converged": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "executorClaim": null,
+        "generation": 10,
+        "sequence": 4,
+        "version": 1
+      },
+      "providerCalls": [
+        [
+          "kubectl",
+          "--context",
+          "prune-spike",
+          "--request-timeout=10s",
+          "get",
+          "job.batch",
+          "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+          "--namespace",
+          "default",
+          "-o",
+          "json",
+          "--ignore-not-found"
+        ],
+        [
+          "kubectl",
+          "--context",
+          "prune-spike",
+          "--request-timeout=10s",
+          "get",
+          "job.batch",
+          "ingestion",
+          "--namespace",
+          "default",
+          "-o",
+          "json",
+          "--ignore-not-found"
+        ]
+      ]
+    },
+    {
+      "phase": "partial",
+      "args": [
+        "inventory",
+        "resume",
+        "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+        "--yes"
+      ],
+      "exit": 1,
+      "seconds": 0.03,
+      "stdout": "",
+      "stderr": "[AdmissionError {admissionErrorCode = \"inactive-transaction\", admissionErrorMessage = \"transaction is not active in the store head\"}]\n",
+      "beforeHead": {
+        "accepted": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "activeTransaction": null,
+        "binding": {
+          "identity": "prune-spike",
+          "project": "project"
+        },
+        "clientIdentity": "prune-spike",
+        "converged": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "executorClaim": null,
+        "generation": 10,
+        "sequence": 4,
+        "version": 1
+      },
+      "afterHead": {
+        "accepted": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "activeTransaction": null,
+        "binding": {
+          "identity": "prune-spike",
+          "project": "project"
+        },
+        "clientIdentity": "prune-spike",
+        "converged": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "executorClaim": null,
+        "generation": 10,
+        "sequence": 4,
+        "version": 1
+      },
+      "providerCalls": []
+    },
+    {
+      "phase": "wrong-source-uid",
+      "args": [
+        "inventory",
+        "resume",
+        "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+        "--yes"
+      ],
+      "exit": 1,
+      "seconds": 0.171,
+      "stdout": "ambiguous tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941 at op-62a42f7191e6f7ed29c0dd08\n",
+      "stderr": "",
+      "beforeHead": {
+        "accepted": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "database-scheduled-prune-default-notes-11111111-1111-1111-1111-111111111111"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "activeTransaction": "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+        "binding": {
+          "identity": "prune-spike",
+          "project": "project"
+        },
+        "clientIdentity": "prune-spike",
+        "converged": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "executorClaim": {
+          "clientIdentity": "prune-spike",
+          "epoch": 1,
+          "timestamp": "fixture",
+          "transaction": "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941"
+        },
+        "generation": 5,
+        "sequence": 3,
+        "version": 1
+      },
+      "afterHead": {
+        "accepted": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "database-scheduled-prune-default-notes-11111111-1111-1111-1111-111111111111"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "activeTransaction": "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+        "binding": {
+          "identity": "prune-spike",
+          "project": "project"
+        },
+        "clientIdentity": "prune-spike",
+        "converged": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "executorClaim": null,
+        "generation": 7,
+        "sequence": 3,
+        "version": 1
+      },
+      "providerCalls": [
+        [
+          "kubectl",
+          "--context",
+          "prune-spike",
+          "--request-timeout=10s",
+          "get",
+          "job.batch",
+          "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+          "--namespace",
+          "default",
+          "-o",
+          "json",
+          "--ignore-not-found"
+        ],
+        [
+          "kubectl",
+          "--context",
+          "prune-spike",
+          "--request-timeout=10s",
+          "get",
+          "job.batch",
+          "ingestion",
+          "--namespace",
+          "default",
+          "-o",
+          "json",
+          "--ignore-not-found"
+        ]
+      ]
+    },
+    {
+      "phase": "wrong-source-uid",
+      "args": [
+        "inventory",
+        "recover",
+        "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+        "--operation",
+        "op-62a42f7191e6f7ed29c0dd08",
+        "--decision",
+        "/var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/mp23-operational-cost-au7wjm6a/fixture-prune-fixture/decision.json"
+      ],
+      "exit": 1,
+      "seconds": 0.165,
+      "stdout": "",
+      "stderr": "[AdmissionError {admissionErrorCode = \"unsupported-recovery\", admissionErrorMessage = \"adapter did not prove the operator's requested action\"}]\n",
+      "beforeHead": {
+        "accepted": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "database-scheduled-prune-default-notes-11111111-1111-1111-1111-111111111111"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "activeTransaction": "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+        "binding": {
+          "identity": "prune-spike",
+          "project": "project"
+        },
+        "clientIdentity": "prune-spike",
+        "converged": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "executorClaim": null,
+        "generation": 7,
+        "sequence": 3,
+        "version": 1
+      },
+      "afterHead": {
+        "accepted": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "database-scheduled-prune-default-notes-11111111-1111-1111-1111-111111111111"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "activeTransaction": "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+        "binding": {
+          "identity": "prune-spike",
+          "project": "project"
+        },
+        "clientIdentity": "prune-spike",
+        "converged": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "executorClaim": null,
+        "generation": 9,
+        "sequence": 3,
+        "version": 1
+      },
+      "providerCalls": [
+        [
+          "kubectl",
+          "--context",
+          "prune-spike",
+          "--request-timeout=10s",
+          "get",
+          "job.batch",
+          "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+          "--namespace",
+          "default",
+          "-o",
+          "json",
+          "--ignore-not-found"
+        ],
+        [
+          "kubectl",
+          "--context",
+          "prune-spike",
+          "--request-timeout=10s",
+          "get",
+          "job.batch",
+          "ingestion",
+          "--namespace",
+          "default",
+          "-o",
+          "json",
+          "--ignore-not-found"
+        ]
+      ]
+    },
+    {
+      "phase": "completed",
+      "args": [
+        "inventory",
+        "resume",
+        "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+        "--yes"
+      ],
+      "exit": 0,
+      "seconds": 0.546,
+      "stdout": "converged tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941\n",
+      "stderr": "",
+      "beforeHead": {
+        "accepted": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "database-scheduled-prune-default-notes-11111111-1111-1111-1111-111111111111"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "activeTransaction": "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+        "binding": {
+          "identity": "prune-spike",
+          "project": "project"
+        },
+        "clientIdentity": "prune-spike",
+        "converged": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "executorClaim": {
+          "clientIdentity": "prune-spike",
+          "epoch": 1,
+          "timestamp": "fixture",
+          "transaction": "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941"
+        },
+        "generation": 5,
+        "sequence": 3,
+        "version": 1
+      },
+      "afterHead": {
+        "accepted": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "database-scheduled-prune-default-notes-11111111-1111-1111-1111-111111111111"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "activeTransaction": null,
+        "binding": {
+          "identity": "prune-spike",
+          "project": "project"
+        },
+        "clientIdentity": "prune-spike",
+        "converged": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "database-scheduled-prune-default-notes-11111111-1111-1111-1111-111111111111"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "executorClaim": null,
+        "generation": 11,
+        "sequence": 7,
+        "version": 1
+      },
+      "providerCalls": [
+        [
+          "kubectl",
+          "--context",
+          "prune-spike",
+          "--request-timeout=10s",
+          "get",
+          "job.batch",
+          "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+          "--namespace",
+          "default",
+          "-o",
+          "json",
+          "--ignore-not-found"
+        ],
+        [
+          "kubectl",
+          "--context",
+          "prune-spike",
+          "--request-timeout=10s",
+          "get",
+          "job.batch",
+          "ingestion",
+          "--namespace",
+          "default",
+          "-o",
+          "json",
+          "--ignore-not-found"
+        ],
+        [
+          "kubectl",
+          "--context",
+          "prune-spike",
+          "--request-timeout=10s",
+          "get",
+          "job.batch",
+          "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+          "--namespace",
+          "default",
+          "-o",
+          "json",
+          "--ignore-not-found"
+        ],
+        [
+          "kubectl",
+          "--context",
+          "prune-spike",
+          "--request-timeout=10s",
+          "get",
+          "job.batch",
+          "ingestion",
+          "--namespace",
+          "default",
+          "-o",
+          "json",
+          "--ignore-not-found"
+        ],
+        [
+          "kubectl",
+          "--context",
+          "prune-spike",
+          "--request-timeout=10s",
+          "get",
+          "job.batch",
+          "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+          "--namespace",
+          "default",
+          "-o",
+          "json",
+          "--ignore-not-found"
+        ],
+        [
+          "kubectl",
+          "--context",
+          "prune-spike",
+          "--request-timeout=10s",
+          "get",
+          "job.batch",
+          "ingestion",
+          "--namespace",
+          "default",
+          "-o",
+          "json",
+          "--ignore-not-found"
+        ],
+        [
+          "kubectl",
+          "--context",
+          "prune-spike",
+          "--request-timeout=10s",
+          "get",
+          "job.batch",
+          "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+          "--namespace",
+          "default",
+          "-o",
+          "json",
+          "--ignore-not-found"
+        ],
+        [
+          "kubectl",
+          "--context",
+          "prune-spike",
+          "--request-timeout=10s",
+          "get",
+          "job.batch",
+          "ingestion",
+          "--namespace",
+          "default",
+          "-o",
+          "json",
+          "--ignore-not-found"
+        ]
+      ]
+    },
+    {
+      "phase": "completed",
+      "args": [
+        "inventory",
+        "resume",
+        "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+        "--yes"
+      ],
+      "exit": 0,
+      "seconds": 0.046,
+      "stdout": "converged tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941\n",
+      "stderr": "",
+      "beforeHead": {
+        "accepted": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "database-scheduled-prune-default-notes-11111111-1111-1111-1111-111111111111"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "activeTransaction": null,
+        "binding": {
+          "identity": "prune-spike",
+          "project": "project"
+        },
+        "clientIdentity": "prune-spike",
+        "converged": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "database-scheduled-prune-default-notes-11111111-1111-1111-1111-111111111111"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "executorClaim": null,
+        "generation": 11,
+        "sequence": 7,
+        "version": 1
+      },
+      "afterHead": {
+        "accepted": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "database-scheduled-prune-default-notes-11111111-1111-1111-1111-111111111111"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "activeTransaction": null,
+        "binding": {
+          "identity": "prune-spike",
+          "project": "project"
+        },
+        "clientIdentity": "prune-spike",
+        "converged": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "database-scheduled-prune-default-notes-11111111-1111-1111-1111-111111111111"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "executorClaim": null,
+        "generation": 11,
+        "sequence": 7,
+        "version": 1
+      },
+      "providerCalls": []
+    },
+    {
+      "phase": "running",
+      "args": [
+        "inventory",
+        "resume",
+        "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+        "--yes"
+      ],
+      "exit": 1,
+      "seconds": 0.112,
+      "stdout": "ambiguous tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941 at op-62a42f7191e6f7ed29c0dd08\n",
+      "stderr": "",
+      "beforeHead": {
+        "accepted": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "database-scheduled-prune-default-notes-11111111-1111-1111-1111-111111111111"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "activeTransaction": "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+        "binding": {
+          "identity": "prune-spike",
+          "project": "project"
+        },
+        "clientIdentity": "prune-spike",
+        "converged": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "executorClaim": {
+          "clientIdentity": "prune-spike",
+          "epoch": 1,
+          "timestamp": "fixture",
+          "transaction": "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941"
+        },
+        "generation": 5,
+        "sequence": 3,
+        "version": 1
+      },
+      "afterHead": {
+        "accepted": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "database-scheduled-prune-default-notes-11111111-1111-1111-1111-111111111111"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "activeTransaction": "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+        "binding": {
+          "identity": "prune-spike",
+          "project": "project"
+        },
+        "clientIdentity": "prune-spike",
+        "converged": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "executorClaim": null,
+        "generation": 7,
+        "sequence": 3,
+        "version": 1
+      },
+      "providerCalls": [
+        [
+          "kubectl",
+          "--context",
+          "prune-spike",
+          "--request-timeout=10s",
+          "get",
+          "job.batch",
+          "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+          "--namespace",
+          "default",
+          "-o",
+          "json",
+          "--ignore-not-found"
+        ],
+        [
+          "kubectl",
+          "--context",
+          "prune-spike",
+          "--request-timeout=10s",
+          "get",
+          "job.batch",
+          "ingestion",
+          "--namespace",
+          "default",
+          "-o",
+          "json",
+          "--ignore-not-found"
+        ]
+      ]
+    },
+    {
+      "phase": "running",
+      "args": [
+        "inventory",
+        "resume",
+        "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+        "--yes"
+      ],
+      "exit": 0,
+      "seconds": 0.45,
+      "stdout": "converged tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941\n",
+      "stderr": "",
+      "beforeHead": {
+        "accepted": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "database-scheduled-prune-default-notes-11111111-1111-1111-1111-111111111111"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "activeTransaction": "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+        "binding": {
+          "identity": "prune-spike",
+          "project": "project"
+        },
+        "clientIdentity": "prune-spike",
+        "converged": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "executorClaim": null,
+        "generation": 7,
+        "sequence": 3,
+        "version": 1
+      },
+      "afterHead": {
+        "accepted": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "database-scheduled-prune-default-notes-11111111-1111-1111-1111-111111111111"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "activeTransaction": null,
+        "binding": {
+          "identity": "prune-spike",
+          "project": "project"
+        },
+        "clientIdentity": "prune-spike",
+        "converged": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "database-scheduled-prune-default-notes-11111111-1111-1111-1111-111111111111"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "executorClaim": null,
+        "generation": 13,
+        "sequence": 7,
+        "version": 1
+      },
+      "providerCalls": [
+        [
+          "kubectl",
+          "--context",
+          "prune-spike",
+          "--request-timeout=10s",
+          "get",
+          "job.batch",
+          "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+          "--namespace",
+          "default",
+          "-o",
+          "json",
+          "--ignore-not-found"
+        ],
+        [
+          "kubectl",
+          "--context",
+          "prune-spike",
+          "--request-timeout=10s",
+          "get",
+          "job.batch",
+          "ingestion",
+          "--namespace",
+          "default",
+          "-o",
+          "json",
+          "--ignore-not-found"
+        ],
+        [
+          "kubectl",
+          "--context",
+          "prune-spike",
+          "--request-timeout=10s",
+          "get",
+          "job.batch",
+          "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+          "--namespace",
+          "default",
+          "-o",
+          "json",
+          "--ignore-not-found"
+        ],
+        [
+          "kubectl",
+          "--context",
+          "prune-spike",
+          "--request-timeout=10s",
+          "get",
+          "job.batch",
+          "ingestion",
+          "--namespace",
+          "default",
+          "-o",
+          "json",
+          "--ignore-not-found"
+        ],
+        [
+          "kubectl",
+          "--context",
+          "prune-spike",
+          "--request-timeout=10s",
+          "get",
+          "job.batch",
+          "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+          "--namespace",
+          "default",
+          "-o",
+          "json",
+          "--ignore-not-found"
+        ],
+        [
+          "kubectl",
+          "--context",
+          "prune-spike",
+          "--request-timeout=10s",
+          "get",
+          "job.batch",
+          "ingestion",
+          "--namespace",
+          "default",
+          "-o",
+          "json",
+          "--ignore-not-found"
+        ],
+        [
+          "kubectl",
+          "--context",
+          "prune-spike",
+          "--request-timeout=10s",
+          "get",
+          "job.batch",
+          "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+          "--namespace",
+          "default",
+          "-o",
+          "json",
+          "--ignore-not-found"
+        ],
+        [
+          "kubectl",
+          "--context",
+          "prune-spike",
+          "--request-timeout=10s",
+          "get",
+          "job.batch",
+          "ingestion",
+          "--namespace",
+          "default",
+          "-o",
+          "json",
+          "--ignore-not-found"
+        ]
+      ]
+    },
+    {
+      "phase": "running",
+      "args": [
+        "inventory",
+        "resume",
+        "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+        "--yes"
+      ],
+      "exit": 0,
+      "seconds": 0.032,
+      "stdout": "converged tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941\n",
+      "stderr": "",
+      "beforeHead": {
+        "accepted": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "database-scheduled-prune-default-notes-11111111-1111-1111-1111-111111111111"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "activeTransaction": null,
+        "binding": {
+          "identity": "prune-spike",
+          "project": "project"
+        },
+        "clientIdentity": "prune-spike",
+        "converged": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "database-scheduled-prune-default-notes-11111111-1111-1111-1111-111111111111"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "executorClaim": null,
+        "generation": 13,
+        "sequence": 7,
+        "version": 1
+      },
+      "afterHead": {
+        "accepted": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "database-scheduled-prune-default-notes-11111111-1111-1111-1111-111111111111"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "activeTransaction": null,
+        "binding": {
+          "identity": "prune-spike",
+          "project": "project"
+        },
+        "clientIdentity": "prune-spike",
+        "converged": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "database-scheduled-prune-default-notes-11111111-1111-1111-1111-111111111111"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "executorClaim": null,
+        "generation": 13,
+        "sequence": 7,
+        "version": 1
+      },
+      "providerCalls": []
+    }
+  ]
+}

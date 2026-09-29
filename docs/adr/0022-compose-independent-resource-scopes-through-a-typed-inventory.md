@@ -821,3 +821,15 @@ refresh; the bounded probe's stdin token is not that production mechanism.
 Only adopt the adapter after failure conformance and public-command evidence,
 including bounded paginated journal downloads. No state format or provider
 mutation policy changes are implied.
+
+GCS library integration (2026-09-29): the [SDK adapter proof](../audits/mp23-gogol-integration-proof.md)
+now establishes actual HTTP conformance through the existing ObjectOps/store
+protocol, bounded generation downloads, and explicit user-credential refresh.
+The public constructor accepts explicit credentials and performs no ambient
+credential discovery. Both build systems pin the same upstream commit with the
+same scoped bound relaxations. Retain one environment per command. CLI factory
+adoption must select the same identity as the context's existing authentication
+contract before using this adapter; a quota project or successful ADC exchange
+cannot establish that identity. The existing CLI backend remains selected until
+that boundary and public-command evidence pass. No state-format migration is
+required by the transport itself.

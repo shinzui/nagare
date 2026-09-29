@@ -25,3 +25,18 @@ source-repository-package
   type: git
   location: https://github.com/garnix-io/cradle
   tag: 711c441fa8f190a8964c56a3bae864cd5321c5c5
+
+-- Current upstream main; master still names the historical 0.5.0 release.
+-- mori://brendanhay/gogol/repos/gogol
+source-repository-package
+  type: git
+  location: https://github.com/brendanhay/gogol
+  tag: 881cd14c9844131b4a8d96ca1bbb2bd9a2409ed9
+  subdir:
+    lib/gogol
+    lib/gogol-core
+    lib/services/gogol-storage
+
+-- Scoped upper-bound compatibility is covered by InventoryGogolSpec.
+-- Preserve Nagare's existing dependency versions; do not relax other bounds.
+allow-newer: gogol:aeson, gogol:crypton, gogol:crypton-x509, gogol:crypton-x509-store, gogol-core:aeson
