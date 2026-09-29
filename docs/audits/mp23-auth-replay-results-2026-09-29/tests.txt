@@ -1,0 +1,4 @@
+failed refresh is shared by waiting callers and stays failed for the session: OK
+revoked credentials never prove absence or trigger a write retry: OK (0.14s)
+revocation after a landed write preserves uncertainty and never repeats the write: OK (0.16s)
+All 975 tests passed (61.63s)

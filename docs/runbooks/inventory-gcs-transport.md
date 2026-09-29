@@ -18,7 +18,16 @@ The inventory context's project must agree with the stored context and any
 configuration and service-account impersonation setting and retains them through
 token refresh. It does not discover Application Default Credentials or inspect
 gcloud's credential database. Refresh is serialized across concurrent downloads;
-a changed identity or invalid expiry stops the affected operation.
+a changed identity or invalid expiry stops the affected operation. A failed
+refresh invalidates the session for the remainder of that command: waiting
+downloads receive the same redacted failure instead of each spawning gcloud.
+Check the selected gcloud credentials, then restart the command. Recover an
+interrupted mutation through its original inventory transaction; do not create
+a replacement review or assume a failed acknowledgement means no effect.
+
+A provider 401 is a refusal, not an automatic credential refresh and HTTP retry.
+If a write has landed but its acknowledgement/readback fails authentication,
+its outcome remains unknown until the original transaction can reconcile it.
 
 The credential bridge uses `gcloud config config-helper --format=json
 --min-expiry=120s`, whose installed help documents its external-tool schema but

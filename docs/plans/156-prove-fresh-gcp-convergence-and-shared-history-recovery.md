@@ -32,6 +32,11 @@ provenance:
       at: 2026-09-29T15:00:50Z
       mode: "update"
       note: "Revise command-boundary repair work from retained append, history, recovery, and public CLI experiments"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-29T20:16:53Z
+      mode: "implement"
+      note: "Fix reproduced concurrent authentication failure amplification and prove bounded retained GCS replay"
 ---
 
 # Prove fresh GCP convergence and shared history recovery
@@ -49,7 +54,7 @@ A production-shaped disposable GCP context proves reviewed cloud/host/cluster/ap
 
 ## Progress
 
-**Current entrypoint — Gogol command adoption, 2026-09-29.** The [CLI proof](../audits/mp23-gogol-cli-proof.md) establishes the default SDK transport through command and migration paths, preserving the selected gcloud identity through refresh. Public no-op/active matrices at 50/500 events use three gcloud processes; active commands retain six native observations. Public generation-race refusal, migration with lost acknowledgements, forbidden/foreign-context refusal and real read-only history loading pass. The [runbook](../runbooks/inventory-gcs-transport.md) records supported auth modes, explicit legacy fallback and request bounds. Complete retained GCS replay/second-root latency, final Nix package build, independent closure and host/native prerequisites remain open. M1/M2 remain open.
+**Current entrypoint — authentication failure and retained replay, 2026-09-29.** The [auth/replay proof](../audits/mp23-auth-replay-proof.md) reproduces and fixes 16 failed refresh attempts for 16 waiting callers: a failed session now invokes the helper once for refresh, then refuses without token reuse. The 975-test suite includes SDK 401/landed-write uncertainty cases; a public hanging-helper test proves bounded refusal, child cleanup and redaction. Three real cold/warm no-op pairs against the original converged 61-event GCS transaction pass: cold 4.320–7.397 seconds, warm 3.905–4.708 seconds, unchanged provider head generation, no native execution and no copied local history. This supersedes the retained fixture's historical 41.04-second warm failure. The complete Darwin Nix package build passes. The 500-event real-GCS and active-append timing, independent closure and host/native prerequisites remain open; M1/M2 remain open. Preserve the [CLI adoption proof](../audits/mp23-gogol-cli-proof.md) and [auth runbook](../runbooks/inventory-gcs-transport.md).
 
 Preceding production checkpoint (2026-09-29): EP-153's shared driver now passes
 the saved public prune consumer and the full 935-test suite; see [the bounded
@@ -192,7 +197,7 @@ Preserve publish-before-head-advance, immutable event identity, hash-chain check
 
 **Command adoption checkpoint (2026-09-29).** `Nagare.Inventory.Store.Remote` now centralizes transport selection and ownership checks, including migration dry runs. The SDK is the default; `NAGARE_INVENTORY_GCS_TRANSPORT=gcloud` explicitly retains the prior implementation. `GcloudAuth` captures and validates account, named configuration, impersonation, project and endpoint from a structured helper response, checks explicit selections, and serializes token refresh without ADC discovery or global context changes. A blank endpoint broke the first real bucket probe; a controlled experiment established the explicit-default correction and a regression protects it. The pinned SDK's opaque credential store is bridged with a short-lived private token file per bounded request; one HTTP manager and expiring token cache are retained. This replaces the earlier one-SDK-environment assumption without an upstream fork. See the linked proof for full HTTP/public CLI matrices, migration/refusal cases and real read-only cold/warm history reads.
 
-**Next bounded acceptance boundary.** Preserve exact observed-generation claims, uncached publication authority, complete-prefix/hash-chain validation and the passing SDK/default/fallback regressions. Verify the final Nix package build before release. The next latency evidence must measure the complete retained GCS no-op/second-root replay within an explicit budget, rather than infer it from loopback timings or an absent-target explain. Host/native prerequisites still gate any real transaction rehearsal; this transport adoption creates no new authorization for cloud writes and does not close F06 or M1/M2.
+**Next bounded acceptance boundary.** Preserve exact observed-generation claims, uncached publication authority, complete-prefix/hash-chain validation and the passing SDK/default/fallback regressions. The linked auth/replay proof accepts the retained 61-event no-op and fresh-root budgets; do not rerun these unchanged merely to rediscover that result. The complete Darwin Nix package build also passes; address the remaining 500-event real-GCS and active-append measurements with an isolated reviewed fixture. Host/native prerequisites still gate any real mutation rehearsal; this checkpoint does not close F06 or M1/M2.
 
 **GCS performance gate after local repair.** Only after the command-boundary assertions and host/recovery prerequisites pass, measure three real cold/warm runs at approximately 50 and 500 events. Record both isolated journal-load and end-to-end command time; report provider work separately. Existing acceptance limits remain: cold replay at 50 events under 30 seconds and at 500 under 60 seconds, warm replay under 5 and 10 seconds respectively, and no subprocess count proportional to journal length. Cold means an empty private cache/second root; warm means the same root with its verified cache. Synthetic subprocess times are not GCS evidence. A saved review and interrupted same-transaction recovery must pass on the real GCS store with exact head/receipt evidence before advancing the cloud scenario or release assembly.
 

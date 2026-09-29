@@ -1,0 +1,8 @@
+{
+  "cli/nagarectl/src/Nagare/Inventory/Store/GcloudAuth.hs": "cb88ade6baa0bbff62b261e91262cecee74130dd88fb304296199c2b6b8b170b",
+  "cli/nagarectl/src/Nagare/Inventory/Store/Gogol.hs": "8eff563c36020f555e7c20b14cf3e43bac7dd1fc7ff124fd43ae3ad56957ac64",
+  "cli/nagarectl/test/InventoryGcloudAuthSpec.hs": "1a59d9b88f4660c6c34be08efccc5fcbfa7e20686ce7c6432524d25dde2f0e9c",
+  "cli/nagarectl/test/InventoryGogolSpec.hs": "8ec17a2a6f8524df5e16c9b4f76429e4050466efbd26d6496ef63cc24060cff3",
+  "scripts/test-inventory-auth-timeout.py": "acbb51912b92781c73d5bbaeb0be8f4781f38cc688df4f6bd784ba9da8adcc5c",
+  "scripts/test-inventory-sdk-retained-replay.py": "c2f891f69baa7408e8ad2e20a1cdb5575dc742521c90eea705cb501d62c59fdf"
+}

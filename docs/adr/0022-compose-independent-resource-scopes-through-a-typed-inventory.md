@@ -847,3 +847,9 @@ are the durable requirements. Normalize an unset gcloud Storage endpoint to its
 explicit default, because an empty endpoint is invalid. The legacy transport is
 an explicit compatibility choice, never an automatic retry after uncertainty.
 State formats, ownership checks and cloud mutation gates are unchanged.
+
+A failed gcloud refresh invalidates the command-local token cache before callers
+receive the error. Concurrent waiters must not each retry a failing helper or
+reuse the previous token. Recovery starts with a new command under the selected
+identity and, for mutations, the original transaction. Provider 401 responses
+remain uncertain/refused outcomes; they do not authorize an implicit write retry.

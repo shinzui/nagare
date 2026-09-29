@@ -71,6 +71,27 @@ inventoryGcloudAuthTests =
           result <- try (sessionToken session) :: IO (Either IOException T.Text)
           assertBool "foreign token accepted" (isLeft result)
           assertBool "private token leaked" (not ("private-token" `T.isInfixOf` T.pack (show result)))
+    , testCase "failed refresh is shared by waiting callers and stays failed for the session" $ do
+        forM_ [False, True] $ \throws -> do
+          clock <- newIORef start
+          calls <- newIORef (0 :: Int)
+          let run _ _ = do
+                n <- atomicModifyIORef' calls (\i -> (i + 1, i + 1))
+                if n == 1
+                  then pure (Right (response start "selected@example.invalid" "" "old-private-token" []))
+                  else if throws then ioError (userError "private-helper-error") else pure (Left "private-helper-error")
+          session <- newGcloudSessionWith (readIORef clock) run [] "project" >>= right
+          writeIORef clock (addUTCTime 3550 start)
+          results <- mapConcurrently (const (try (sessionToken session) :: IO (Either IOException T.Text))) [1 .. 16 :: Int]
+          assertBool "failed refresh returned a token" (all isLeft results)
+          assertBool "helper diagnostic leaked" (not ("private" `T.isInfixOf` T.pack (show results)))
+          readIORef calls >>= (@?= 2)
+          -- A new command must reacquire credentials; clock rollback must not
+          -- resurrect the old token in this failed session.
+          writeIORef clock start
+          result <- try (sessionToken session) :: IO (Either IOException T.Text)
+          assertBool "failed session resurrected its old token" (isLeft result)
+          readIORef calls >>= (@?= 2)
     , testCase "malformed, expired, wrong-project and unsupported overrides refuse" $ do
         let valid = response start "selected@example.invalid" "" "private-token" []
             candidates =

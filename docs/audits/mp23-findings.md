@@ -126,6 +126,8 @@ F01 and F11 are independently Closed with [retained verification and source iden
 
 **Claim/publication repair (2026-09-29):** [The public race and command proof](mp23-head-claims-proof.md) covers an intervening identical-head provider rewrite before acquisition. Claim/admission/release/finalization CAS now consumes the original observed generation. Explicit recovery also shares its first head with journal loading. Exact uncached publication lookup replaces execution-time archive listings; a valid local cache cannot authorize an unpublished review. F06 remains Partial pending full command-wide reuse and actual GCS latency.
 
+**Retained replay proof (2026-09-29):** The [auth/replay checkpoint](mp23-auth-replay-proof.md) passes three cold/warm complete public no-op pairs on the original 61-event real-GCS transaction: cold 4.320–7.397 seconds, warm 3.905–4.708 seconds. Each cold run uses a new local root; no history is copied, no native executor runs, and the exact GCS head generation stays unchanged. A reproduced failed-refresh amplification bug is also fixed and the full 975-test suite passes. The historical 41.04-second retained warm failure is superseded for this candidate. F06 stays Partial for real 500-event replay, active append/provider timings and independent verification.
+
 **Required verification:** Retain append and resume command-count regressions, preserve conditional writes/lost-ack recovery, then pass EP-156 cold/warm real GCS timing gate. Record append/provider/replay timings separately; no closure from one batched cp.
 
 **Verification:** Not closed. Awaiting the checks above.

@@ -1,0 +1,15 @@
+{
+  "system": "aarch64-darwin",
+  "command": "nix build .#nagarectl --no-link --json -L",
+  "exit": 0,
+  "result": [
+    {
+      "drvPath": "/nix/store/dg8nf336a1zlmmvwi63whrygcwxhayxa-nagarectl-0.4.0.drv",
+      "outputs": {
+        "out": "/nix/store/vyz21404xcpycd3hd1h8cigwdb8r6qkq-nagarectl-0.4.0"
+      },
+      "startTime": 1790713624,
+      "stopTime": 1790713624
+    }
+  ]
+}

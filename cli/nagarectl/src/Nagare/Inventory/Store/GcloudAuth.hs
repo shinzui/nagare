@@ -86,16 +86,23 @@ newGcloudSessionWith clock run inherited project = do
                   : [("CLOUDSDK_AUTH_" <> T.unpack (T.toUpper key), T.unpack (Map.findWithDefault (if key == "disable_credentials" then "false" else "") key auth)) | key <- keys]
               )
           identity (Snapshot _ _ selected settings endpointValue configValue) = (selected, settings, endpointValue, configValue)
-      cache <- newMVar snapshot
-      let token = modifyMVar cache $ \old@(Snapshot access expiry _ _ _ _) -> do
-            now <- clock
-            if addUTCTime 60 now < expiry
-              then pure (old, access)
-              else do
-                updated <- acquire frozen
-                case updated of
-                  Right next@(Snapshot value _ _ _ _ _) | identity next == identity snapshot -> pure (next, value)
-                  _ -> ioError (userError "inventory gcloud token refresh failed or changed identity")
+      cache <- newMVar (Just snapshot)
+      let token = do
+            -- Commit failure before throwing: throwing inside modifyMVar would
+            -- restore the expired snapshot and let every waiter spawn gcloud.
+            result <- modifyMVar cache $ \case
+              Nothing -> pure (Nothing, Nothing)
+              Just old@(Snapshot access expiry _ _ _ _) -> do
+                now <- clock
+                if addUTCTime 60 now < expiry
+                  then pure (Just old, Just access)
+                  else do
+                    updated <- try (acquire frozen)
+                    case updated of
+                      Right (Right next@(Snapshot value _ _ _ _ _)) | identity next == identity snapshot -> pure (Just next, Just value)
+                      Left (_ :: IOException) -> pure (Nothing, Nothing)
+                      _ -> pure (Nothing, Nothing)
+            maybe (ioError (userError "inventory gcloud token refresh failed or changed identity; restart the command after checking the selected gcloud credentials")) pure result
           capture args = either (const Nothing) (Just . T.strip) <$> run frozen args
       pure (Right (GcloudSession token endpoint capture))
 

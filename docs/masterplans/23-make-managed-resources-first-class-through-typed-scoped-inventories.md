@@ -211,6 +211,11 @@ provenance:
       at: 2026-09-29T15:00:50Z
       mode: "update"
       note: "Revise command-boundary repair work from retained append, history, recovery, and public CLI experiments"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-29T20:16:53Z
+      mode: "implement"
+      note: "Record authentication failure repair and retained cold/warm replay checkpoint"
 ---
 
 # Make managed resources first-class through typed scoped inventories
@@ -267,7 +272,7 @@ Rejected alternatives were isolated platform/application inventories without sha
 
 **Open implementation findings.** Read [the MP-23 audit tracker](../audits/mp23-findings.md) before selecting affected work. It owns stable finding IDs, fix evidence, independent verification, and unresolved handoffs. Record repairs there; an acknowledged message or source edit does not close a finding. Reconcile affected P1 findings before another native rehearsal and include unresolved IDs in every implementation handoff.
 
-**Current implementation entrypoint — Gogol command adoption, 2026-09-29.** The [CLI proof](../audits/mp23-gogol-cli-proof.md) now establishes the SDK default through the real command/migration factory, captured gcloud identity and serialized expiry refresh, public 50/500-event matrices, stale-claim refusal, migration round trips with lost acknowledgements, and a bounded real read-only GCS command. No-op resume uses three gcloud processes rather than 12; active resume uses nine total rather than 53/32 cold/warm, retaining six Kubernetes observations. The explicit gcloud transport remains available for unsupported credential modes. Preserve the earlier [library](../audits/mp23-gogol-integration-proof.md), [selected-read/store](../audits/mp23-selected-read-proof.md), [active-startup](../audits/mp23-active-startup-proof.md), and [claim/publication](../audits/mp23-head-claims-proof.md) evidence. Next verify the complete retained GCS replay/second-root budgets and the final Nix package build while preserving the independent host/native prerequisites. Real read-only history loading is not mutation acceptance. Legacy archive isolation remains open. F04/F06 remain Partial; F10 is Verifying. MP-23 and its open children are not complete.
+**Current implementation entrypoint — auth failure and retained replay, 2026-09-29.** The [auth/replay proof](../audits/mp23-auth-replay-proof.md) fixes experimentally reproduced concurrent failed refresh amplification, passes 975 tests and the real helper timeout/cleanup boundary, and proves three real cold/warm complete no-op pairs on the original 61-event GCS transaction from independent empty local roots. Cold replay takes 4.320–7.397 seconds and warm replay 3.905–4.708 seconds, within the declared budgets; the provider head is unchanged and no native executor runs. Preserve the preceding [CLI adoption proof](../audits/mp23-gogol-cli-proof.md), including default/fallback, 50/500-event public matrices, ownership and claim checks. The complete Darwin Nix package build passes. Next address the remaining 500-event real-GCS/active-append timing and host/native prerequisites. Legacy archive isolation and independent verification remain open. F04/F06 remain Partial; F10 is Verifying. This accepts a bounded read-only checkpoint, not real mutation or complete-child acceptance.
 
 The earlier single-operation experiment did not establish executor correctness. E10 exposed the dependent preflight and missing terminal branch, and the production replacement now handles them. The earlier 8/11-subprocess append and 501-read empty native lookup were repaired by the selected-read/store checkpoint. Active-command and native acceptance gates remain prerequisites of release readiness.
 
@@ -365,6 +370,12 @@ These ownership, identity, review, storage, migration, and controller-delegation
 
 
 ## Progress
+
+EP-156's [auth/replay checkpoint](../audits/mp23-auth-replay-proof.md) now proves
+the retained 61-event complete cold/warm no-op budgets from fresh local roots and
+fixes concurrent failed refresh amplification. The Darwin Nix package build also
+passes; the remaining 500-event/active-write, native recovery and final-candidate
+gates remain separate acceptance work.
 
 **Current direction — design reassessment, 2026-09-29.** [The reassessment](../audits/mp23-design-reassessment.md) replaces patch-by-patch orchestration repair as the implementation strategy. Retain typed ownership, native adapters, immutable review/history, and conditional storage. EP-153 owns one serial operation driver shared by apply/resume, total recovery outcomes, and immutable registry construction; EP-159 supplies the fixed two-operation consumer fixture. EP-156 now separates status/explain native reads from execution history and carries a validated provider head through append; command-wide cursor work remains bounded by measured active-command costs. The proposed evidence-index publication/rebuild rollout is no longer a mandatory prerequisite of historical recovery. E8/E9 remain prototype evidence, not an architectural obligation.
 

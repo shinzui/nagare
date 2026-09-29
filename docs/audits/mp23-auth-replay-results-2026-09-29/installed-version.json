@@ -1,0 +1,9 @@
+{
+  "command": "nix run .#nagarectl -- version --json",
+  "exit": 0,
+  "result": {
+    "platformVersion": "0.4.0",
+    "revision": "eb17a013c7dd9912a966ffdde84269d5e4076f49-dirty",
+    "version": "0.4.0"
+  }
+}

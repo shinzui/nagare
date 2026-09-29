@@ -1,0 +1,9 @@
+nagarectl
+  inventory gcloud identity
+    failed refresh is shared by waiting callers and stays failed for the session: FAIL
+      test/InventoryGcloudAuthSpec.hs:88:
+      expected: 2
+       but got: 17
+
+1 out of 1 tests failed (0.01s)
+Test suite nagarectl-test: FAIL

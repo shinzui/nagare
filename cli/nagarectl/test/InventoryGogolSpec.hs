@@ -40,7 +40,7 @@ import Text.Read (readMaybe)
 
 -- The SDK performs actual HTTP against this loopback server. No gcloud, ADC,
 -- Google endpoint, native provider, or operator credential is used.
-data Mode = Normal | Denied | ListDenied | BadMetadata | PartialMedia | LostAck | UnreadableAck | CasRace | LoopPages | ForeignPage | DuplicatePage | Redirect
+data Mode = Normal | Denied | Unauthorized | RevokedAfterWrite | ListDenied | BadMetadata | PartialMedia | LostAck | UnreadableAck | CasRace | LoopPages | ForeignPage | DuplicatePage | Redirect
   deriving stock (Eq, Show)
 
 data Fixture = Fixture
@@ -89,6 +89,25 @@ inventoryGogolTests =
         writeIORef (objects f) (Map.singleton "private/inventory/head.json" (3, "complete"))
         writeIORef (mode f) PartialMedia
         getObject ops (ObjectName "head.json") >>= assertUnknown
+    , testCase "revoked credentials never prove absence or trigger a write retry" $ fixture $ \f ops -> do
+        writeIORef (mode f) Unauthorized
+        getObject ops (ObjectName "head.json") >>= assertUnknown
+        readIORef (requests f) >>= (@?= 1)
+        result <- putObject ops IfAbsent (ObjectName "head.json") "private-payload"
+        case result of
+          PutUnknown reason -> assertBool "private credential error leaked" (not ("private" `T.isInfixOf` reason))
+          other -> assertFailure (show other)
+        readIORef (requests f) >>= (@?= 3) -- one POST and one readback, no retry
+        readIORef (objects f) >>= (@?= Map.empty)
+    , testCase "revocation after a landed write preserves uncertainty and never repeats the write" $ fixture $ \f ops -> do
+        writeIORef (mode f) RevokedAfterWrite
+        putObject ops IfAbsent (ObjectName "head.json") "landed" >>= \case
+          PutUnknown _ -> pure ()
+          other -> assertFailure (show other)
+        readIORef (writes f) >>= (@?= 1)
+        readIORef (requests f) >>= (@?= 2)
+        writeIORef (mode f) Normal
+        getObject ops (ObjectName "head.json") >>= (@?= ObjectFound (Generation 1) "landed")
     , testCase "conditional create is idempotent and competing values conflict" $ fixture $ \_ ops -> do
         putObject ops IfAbsent (ObjectName "head.json") "one" >>= (@?= PutWritten (Generation 1))
         putObject ops IfAbsent (ObjectName "head.json") "one" >>= (@?= PutWritten (Generation 1))
@@ -172,74 +191,77 @@ server f req respond = do
   if query "userProject" /= Just "fixture-project" || lookup hAuthorization (Wai.requestHeaders req) /= Just "Bearer fixture-token"
     then bad status403
     else
-      if modeValue == Redirect
-        then respond (Wai.responseLBS status302 [(hLocation, "http://127.0.0.1:1/never")] "")
-        else case (Wai.requestMethod req, key) of
-          ("GET", Just _) | modeValue `elem` [Denied, UnreadableAck] -> bad status403
-          ("GET", Just name) | modeValue == BadMetadata -> send status200 (object ["name" .= name])
-          ("GET", Just name) -> do
-            snapshot <- readIORef (objects f)
-            case Map.lookup name snapshot of
-              Nothing -> bad status404
-              Just (gen, bytes)
-                | Just expected <- number "generation", expected /= gen -> bad status404
-                | query "alt" == Just "media", isNothing (number "generation" :: Maybe Integer) -> bad status400
-                | query "alt" == Just "media" -> bracket_
-                    ( do
-                        count <- atomicModifyIORef' (inFlight f) (\n -> (n + 1, n + 1))
-                        atomicModifyIORef' (maximumFlight f) (\n -> (max count n, ()))
-                        atomicModifyIORef' (mediaGets f) (\n -> (n + 1, ()))
-                    )
-                    (atomicModifyIORef' (inFlight f) (\n -> (n - 1, ())))
-                    $ do
-                      threadDelay 2000
-                      respond (Wai.responseLBS status200 [] (LBS.fromStrict (if modeValue == PartialMedia then BS.take 1 bytes else bytes)))
-                | otherwise -> send status200 (metadata name gen bytes)
-          ("GET", Nothing) | Wai.rawPathInfo req == listPath -> do
-            if modeValue == ListDenied
-              then bad status403
-              else do
+      if modeValue == Unauthorized || (modeValue == RevokedAfterWrite && Wai.requestMethod req == "GET")
+        then bad status401
+        else
+          if modeValue == Redirect
+            then respond (Wai.responseLBS status302 [(hLocation, "http://127.0.0.1:1/never")] "")
+            else case (Wai.requestMethod req, key) of
+              ("GET", Just _) | modeValue `elem` [Denied, UnreadableAck] -> bad status403
+              ("GET", Just name) | modeValue == BadMetadata -> send status200 (object ["name" .= name])
+              ("GET", Just name) -> do
                 snapshot <- readIORef (objects f)
-                let prefix = maybe "" TE.decodeUtf8 (query "prefix")
-                    allEntries = filter (T.isPrefixOf prefix . fst) (Map.toAscList snapshot)
-                    offset = fromMaybe 0 (number "pageToken" :: Maybe Int)
-                    entries = take 7 (drop (if modeValue == DuplicatePage then 0 else offset) allEntries)
-                    items =
-                      if modeValue == LoopPages
-                        then []
-                        else
-                          if modeValue == ForeignPage
-                            then [metadata "foreign/head.json" 1 "bad"]
-                            else [metadata name gen bytes | (name, (gen, bytes)) <- entries]
-                    next =
-                      if modeValue == LoopPages
-                        then Just "repeat"
-                        else if offset + 7 < length allEntries then Just (show (offset + 7)) else Nothing
-                send status200 (object (["items" .= items] <> maybe [] (\token -> ["nextPageToken" .= token]) next))
-          ("POST", Nothing) | Wai.rawPathInfo req == uploadPath -> do
-            atomicModifyIORef' (writes f) (\n -> (n + 1, ()))
-            body <- LBS.toStrict <$> Wai.strictRequestBody req
-            let name = maybe "" TE.decodeUtf8 (query "name")
-                -- Fixture-only extraction of the SDK multipart media part.
-                (_, afterType) = BS.breakSubstring "Content-Type: application/octet-stream" body
-                (_, afterHeaders) = BS.breakSubstring "\r\n\r\n" afterType
-                bytes = fst (BS.breakSubstring "\r\n--" (BS.drop 4 afterHeaders))
-            if not ("private/inventory/" `T.isPrefixOf` name) || BS.null afterType || isNothing (number "ifGenerationMatch" :: Maybe Integer)
-              then bad status400
-              else do
-                if modeValue == CasRace then atomicModifyIORef' (objects f) (\values -> (Map.adjust (\(gen, value) -> (gen + 1, value)) name values, ())) else pure ()
-                written <- atomicModifyIORef' (objects f) $ \values ->
-                  let previous = Map.lookup name values
-                      matches = case previous of
-                        Nothing -> number "ifGenerationMatch" == Just (0 :: Integer)
-                        Just (gen, _) -> number "ifGenerationMatch" == Just gen
-                      next = maybe 1 ((+ 1) . fst) previous
-                   in if matches then (Map.insert name (next, bytes) values, Just next) else (values, Nothing)
-                case written of
-                  Nothing -> bad status412
-                  Just _ | modeValue `elem` [LostAck, UnreadableAck] -> bad status500
-                  Just gen -> send status200 (metadata name gen bytes)
-          _ -> bad status404
+                case Map.lookup name snapshot of
+                  Nothing -> bad status404
+                  Just (gen, bytes)
+                    | Just expected <- number "generation", expected /= gen -> bad status404
+                    | query "alt" == Just "media", isNothing (number "generation" :: Maybe Integer) -> bad status400
+                    | query "alt" == Just "media" -> bracket_
+                        ( do
+                            count <- atomicModifyIORef' (inFlight f) (\n -> (n + 1, n + 1))
+                            atomicModifyIORef' (maximumFlight f) (\n -> (max count n, ()))
+                            atomicModifyIORef' (mediaGets f) (\n -> (n + 1, ()))
+                        )
+                        (atomicModifyIORef' (inFlight f) (\n -> (n - 1, ())))
+                        $ do
+                          threadDelay 2000
+                          respond (Wai.responseLBS status200 [] (LBS.fromStrict (if modeValue == PartialMedia then BS.take 1 bytes else bytes)))
+                    | otherwise -> send status200 (metadata name gen bytes)
+              ("GET", Nothing) | Wai.rawPathInfo req == listPath -> do
+                if modeValue == ListDenied
+                  then bad status403
+                  else do
+                    snapshot <- readIORef (objects f)
+                    let prefix = maybe "" TE.decodeUtf8 (query "prefix")
+                        allEntries = filter (T.isPrefixOf prefix . fst) (Map.toAscList snapshot)
+                        offset = fromMaybe 0 (number "pageToken" :: Maybe Int)
+                        entries = take 7 (drop (if modeValue == DuplicatePage then 0 else offset) allEntries)
+                        items =
+                          if modeValue == LoopPages
+                            then []
+                            else
+                              if modeValue == ForeignPage
+                                then [metadata "foreign/head.json" 1 "bad"]
+                                else [metadata name gen bytes | (name, (gen, bytes)) <- entries]
+                        next =
+                          if modeValue == LoopPages
+                            then Just "repeat"
+                            else if offset + 7 < length allEntries then Just (show (offset + 7)) else Nothing
+                    send status200 (object (["items" .= items] <> maybe [] (\token -> ["nextPageToken" .= token]) next))
+              ("POST", Nothing) | Wai.rawPathInfo req == uploadPath -> do
+                atomicModifyIORef' (writes f) (\n -> (n + 1, ()))
+                body <- LBS.toStrict <$> Wai.strictRequestBody req
+                let name = maybe "" TE.decodeUtf8 (query "name")
+                    -- Fixture-only extraction of the SDK multipart media part.
+                    (_, afterType) = BS.breakSubstring "Content-Type: application/octet-stream" body
+                    (_, afterHeaders) = BS.breakSubstring "\r\n\r\n" afterType
+                    bytes = fst (BS.breakSubstring "\r\n--" (BS.drop 4 afterHeaders))
+                if not ("private/inventory/" `T.isPrefixOf` name) || BS.null afterType || isNothing (number "ifGenerationMatch" :: Maybe Integer)
+                  then bad status400
+                  else do
+                    if modeValue == CasRace then atomicModifyIORef' (objects f) (\values -> (Map.adjust (\(gen, value) -> (gen + 1, value)) name values, ())) else pure ()
+                    written <- atomicModifyIORef' (objects f) $ \values ->
+                      let previous = Map.lookup name values
+                          matches = case previous of
+                            Nothing -> number "ifGenerationMatch" == Just (0 :: Integer)
+                            Just (gen, _) -> number "ifGenerationMatch" == Just gen
+                          next = maybe 1 ((+ 1) . fst) previous
+                       in if matches then (Map.insert name (next, bytes) values, Just next) else (values, Nothing)
+                    case written of
+                      Nothing -> bad status412
+                      Just _ | modeValue `elem` [LostAck, UnreadableAck, RevokedAfterWrite] -> bad status500
+                      Just gen -> send status200 (metadata name gen bytes)
+              _ -> bad status404
 
 newFixture :: IO Fixture
 newFixture = Fixture <$> newIORef Map.empty <*> newIORef Normal <*> newIORef 0 <*> newIORef 0 <*> newIORef 0 <*> newIORef 0 <*> newIORef 0
