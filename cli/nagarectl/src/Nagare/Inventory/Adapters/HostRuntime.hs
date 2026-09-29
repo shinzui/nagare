@@ -37,6 +37,7 @@ data HostRuntimeConfig = HostRuntimeConfig
   , runtimeHostDestination :: !Text
   , runtimeHostConfigurationDigest :: !ContentDigest
   , runtimeHostLockDigest :: !ContentDigest
+  , runtimeHostAgeKeyDigest :: !(Maybe ContentDigest)
   , runtimeHostAccepted :: !Bool
   }
   deriving stock (Eq, Show)
@@ -51,6 +52,7 @@ data HostTransportRequest = HostTransportRequest
   , requestDestination :: !Text
   , requestConfigurationDigest :: !ContentDigest
   , requestLockDigest :: !ContentDigest
+  , requestAgeKeyDigest :: !(Maybe ContentDigest)
   , requestPlan :: !(Maybe HostActivationPlan)
   }
   deriving stock (Eq, Show, Generic)
@@ -109,6 +111,7 @@ preparePlan config operation
                 , hostPlanDestination = runtimeHostDestination config
                 , hostPlanConfigurationDigest = runtimeHostConfigurationDigest config
                 , hostPlanLockDigest = runtimeHostLockDigest config
+                , hostPlanAgeKeyDigest = runtimeHostAgeKeyDigest config
                 , hostPlanExpectedOldClosure = oldClosure
                 , hostPlanNewClosure = newClosure
                 , hostPlanActivationId = operationIdText (plannedOperationId operation)
@@ -168,6 +171,7 @@ request config plan =
     , requestDestination = runtimeHostDestination config
     , requestConfigurationDigest = runtimeHostConfigurationDigest config
     , requestLockDigest = runtimeHostLockDigest config
+    , requestAgeKeyDigest = runtimeHostAgeKeyDigest config
     , requestPlan = plan
     }
 
@@ -183,6 +187,7 @@ instance ToJSON HostTransportRequest where
       , "destination" .= requestDestination value
       , "configurationDigest" .= requestConfigurationDigest value
       , "lockDigest" .= requestLockDigest value
+      , "ageKeyDigest" .= requestAgeKeyDigest value
       , "plan" .= requestPlan value
       ]
 

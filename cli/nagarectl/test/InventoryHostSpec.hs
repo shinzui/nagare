@@ -52,6 +52,26 @@ inventoryHostTests =
         adapterExecute adapter operation prepared >>= (@?= AdapterEffectCompleted)
         proof <- adapterVerify adapter operation prepared >>= expectRight
         proof @?= hostCompletionProof activationPlan acknowledgement
+    , testCase "effect-time drift after preflight cannot run host activation" $ do
+        state <- newIORef (HostBeforeActivation instanceIdentity "/nix/store/old")
+        effects <- newIORef (0 :: Int)
+        let base = ops state
+            adapter = mkHostAdapter base
+              { hostRunActivation = \_ -> modifyIORef' effects (+ 1) >> pure AdapterEffectCompleted }
+        prepared <- adapterPrepare adapter operation >>= expectRight
+        adapterPreflight adapter operation prepared >>= expectRight
+        let replacement = ok (mkPhysicalIdentity "gce://replacement")
+        mapM_ (\changed -> do
+                writeIORef state changed
+                result <- adapterExecute adapter operation prepared
+                case result of
+                  AdapterEffectFailed (KnownNoEffect _) -> pure ()
+                  other -> assertFailure ("effect-time drift was not refused: " <> show other))
+          [ HostBeforeActivation replacement "/nix/store/old"
+              , HostBeforeActivation instanceIdentity "/nix/store/other"
+              , HostCommitted replacement "/nix/store/new" acknowledgement
+              ]
+        readIORef effects >>= (@?= 0)
     , testCase "local flake evidence cannot substitute for a remote committed closure" $ do
         state <- newIORef (HostBeforeActivation instanceIdentity "/nix/store/old")
         let adapter = mkHostAdapter (ops state)
@@ -102,6 +122,7 @@ inventoryHostTests =
                   "deploy@dev-nagare"
                   (contentDigest "configuration")
                   (contentDigest "lock")
+                  Nothing
                   False
           writeFile executable body
           setFileMode executable 0o700
@@ -131,6 +152,7 @@ hostBundle =
     , hostResources = systemResource :| [mountResource]
     , hostConfigurationDigest = contentDigest "configuration"
     , hostLockDigest = contentDigest "lock"
+    , hostAgeKeyDigest = Nothing
     }
   where
     systemResource =
@@ -182,6 +204,7 @@ activationPlan =
     , hostPlanDestination = "dev-nagare"
     , hostPlanConfigurationDigest = contentDigest "configuration"
     , hostPlanLockDigest = contentDigest "lock"
+    , hostPlanAgeKeyDigest = Nothing
     , hostPlanExpectedOldClosure = "/nix/store/old"
     , hostPlanNewClosure = "/nix/store/new"
     , hostPlanActivationId = "activation-01"

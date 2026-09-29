@@ -38,6 +38,7 @@ data HostDeclarationBundle = HostDeclarationBundle
   , hostResources :: !(NonEmpty HostResourceSpec)
   , hostConfigurationDigest :: !ContentDigest
   , hostLockDigest :: !ContentDigest
+  , hostAgeKeyDigest :: !(Maybe ContentDigest)
   }
   deriving stock (Eq, Show, Generic)
 
@@ -66,6 +67,7 @@ compileHostScope bundle
                 { identity = activationId
                 , affects = systemId :| filter (/= systemId) resourceIds
                 , inputs = [ContentInput (hostConfigurationDigest bundle), ContentInput (hostLockDigest bundle)]
+                    <> maybe [] (\digest -> [ContentInput digest]) (hostAgeKeyDigest bundle)
                 , recovery = OperatorRecovery
                 , operationKind = ActivateHost
                 }
@@ -95,11 +97,12 @@ knownName = either (error . show) id . mkName
 knownKey :: Text -> LogicalKey
 knownKey = either (error . show) id . mkLogicalKey
 
-hostExecutionInputsFromScopes :: [ScopeDeclaration] -> Either Text (Maybe (ContentDigest, ContentDigest))
+hostExecutionInputsFromScopes :: [ScopeDeclaration] -> Either Text (Maybe [ContentDigest])
 hostExecutionInputsFromScopes scopes = case activationInputs of
   [] -> Right Nothing
-  [[ContentInput configuration, ContentInput lock]] -> Right (Just (configuration, lock))
-  [_] -> Left "host activation must retain exactly its configuration and lock digests"
+  [[ContentInput first, ContentInput second]] -> Right (Just [first, second])
+  [[ContentInput first, ContentInput second, ContentInput third]] -> Right (Just [first, second, third])
+  [_] -> Left "host activation must retain two or three content digests"
   _ -> Left "inventory contains more than one host activation operation"
   where
     activationInputs =

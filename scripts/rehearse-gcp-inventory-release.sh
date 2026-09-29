@@ -64,6 +64,17 @@ jq -e --arg context "$context" --arg project "$project" --arg cluster "$cluster"
 [[ "$XDG_CONFIG_HOME" == /* && "$XDG_STATE_HOME" == /* ]] || die "operator roots must be absolute"
 [[ "$XDG_CONFIG_HOME" != "$HOME/.config" && "$XDG_STATE_HOME" != "$HOME/.local/state" ]] || die "standing operator roots are refused"
 cli="$(command -v "${NAGARECTL_BIN:-nagarectl}")" || die "nagarectl is required"
+credential_env=()
+if [[ -n "${NAGARE_HOST_AGE_KEY_FILE:-}" ]]; then
+  [[ "${NAGARE_HOST_AGE_KEY_FILE}" == /* && -f "${NAGARE_HOST_AGE_KEY_FILE}" ]] \
+    || die "NAGARE_HOST_AGE_KEY_FILE must name an absolute regular file"
+  credential_env=("NAGARE_HOST_AGE_KEY_FILE=${NAGARE_HOST_AGE_KEY_FILE}")
+fi
+if [[ -n "${SSH_KEY:-}" ]]; then
+  [[ "${SSH_KEY}" == /* && -f "${SSH_KEY}" && -f "${SSH_KEY}.pub" ]] \
+    || die "SSH_KEY must name an absolute private key with its public key"
+  credential_env+=("SSH_KEY=${SSH_KEY}")
+fi
 gcloud_configuration="$(jq -er .gcloudConfiguration "$fixture")"
 configured_project="$(env CLOUDSDK_ACTIVE_CONFIG_NAME="$gcloud_configuration" \
   gcloud config get-value project 2>/dev/null)"
@@ -73,7 +84,8 @@ run_cli() {
   env -i HOME="$HOME" USER="${USER:-operator}" PATH="$PATH" \
     CLOUDSDK_CORE_PROJECT="$project" CLOUDSDK_ACTIVE_CONFIG_NAME="$gcloud_configuration" \
     XDG_CONFIG_HOME="$XDG_CONFIG_HOME" \
-    XDG_STATE_HOME="$XDG_STATE_HOME" "$cli" --context "$context" "$@"
+    XDG_STATE_HOME="$XDG_STATE_HOME" "${credential_env[@]}" \
+    "$cli" --context "$context" "$@"
 }
 
 check_uninitialized_stack_config() {

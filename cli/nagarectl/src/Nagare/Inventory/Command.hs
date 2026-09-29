@@ -476,9 +476,13 @@ resumeInventoryWithFactoryTakeover registryFor target transactionToken yes takeO
   unless yes (dieText "inventory resume requires --yes")
   transaction <- either dieText pure (mkTransactionId transactionToken)
   store <- openTargetStore target
-  digest <- either dieText pure (mkContentDigest (T.drop 3 (transactionIdText transaction)))
-  bundle <- loadPublishedReview store digest >>= either (dieText . showText) pure
-  registry <- registryFor bundle
+  current <- readHead store >>= either (dieText . showText) pure
+  registry <- case current of
+    Just headValue | headActiveTransaction headValue == Just (transactionIdText transaction) -> do
+      digest <- either dieText pure (mkContentDigest (T.drop 3 (transactionIdText transaction)))
+      bundle <- loadPublishedReview store digest >>= either (dieText . showText) pure
+      registryFor bundle
+    _ -> either dieText pure (mkAdapterRegistry [])
   result <- resumeTransactionWithTakeover store registry transaction takeOver >>= either (dieText . showText . NE.toList) pure
   TIO.putStrLn (renderTransactionResult result)
   case result of

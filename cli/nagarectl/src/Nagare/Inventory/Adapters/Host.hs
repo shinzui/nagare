@@ -32,6 +32,7 @@ data HostActivationPlan = HostActivationPlan
   , hostPlanDestination :: !Text
   , hostPlanConfigurationDigest :: !ContentDigest
   , hostPlanLockDigest :: !ContentDigest
+  , hostPlanAgeKeyDigest :: !(Maybe ContentDigest)
   , hostPlanExpectedOldClosure :: !Text
   , hostPlanNewClosure :: !Text
   , hostPlanActivationId :: !Text
@@ -85,7 +86,9 @@ mkHostAdapter ops =
           HostCommitted physical closure _ | physical == hostPlanInstance plan && closure == hostPlanNewClosure plan -> pure AdapterEffectCompleted
           HostTimerArmed {} -> pure (AdapterEffectAmbiguous "host rollback timer remains armed")
           HostUnreachable reason -> pure (AdapterEffectAmbiguous reason)
-          _ -> hostRunActivation ops plan
+          _ -> case preflightState plan state of
+            Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
+            Right () -> hostRunActivation ops plan
     verifyPlan operation prepared = case decodePlan operation (preparedNativeBytes prepared) of
       Left err -> pure (Left err)
       Right plan -> do
@@ -190,6 +193,7 @@ instance ToJSON HostActivationPlan where
       , "destination" .= hostPlanDestination plan
       , "configurationDigest" .= hostPlanConfigurationDigest plan
       , "lockDigest" .= hostPlanLockDigest plan
+      , "ageKeyDigest" .= hostPlanAgeKeyDigest plan
       , "expectedOldClosure" .= hostPlanExpectedOldClosure plan
       , "newClosure" .= hostPlanNewClosure plan
       , "activationId" .= hostPlanActivationId plan
@@ -207,6 +211,7 @@ instance FromJSON HostActivationPlan where
       <*> o .: "destination"
       <*> o .: "configurationDigest"
       <*> o .: "lockDigest"
+      <*> o .:? "ageKeyDigest"
       <*> o .: "expectedOldClosure"
       <*> o .: "newClosure"
       <*> o .: "activationId"

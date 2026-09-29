@@ -34,11 +34,11 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString.Lazy.Char8 qualified as LBC
 import Data.Char (isAlphaNum)
 import Data.Generics.Labels ()
-import Data.List (find, sort, sortOn)
+import Data.List (delete, find, sort, sortOn)
 import Data.List.NonEmpty qualified as NE
 import Data.Map (Map)
 import Data.Map qualified as Map
-import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing)
+import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text qualified as T
@@ -166,6 +166,7 @@ import Nagare.Gcp.Adc
   )
 import Nagare.GhcEnv (resolveProjectGhcEnv)
 import Nagare.Host.AgeKey (placeAgeKeyWith)
+import Nagare.Host.AgeKey qualified as HostAgeKey
 import Nagare.Host.Config
   ( HostConfig (..)
   , HostInstallResult (..)
@@ -4718,13 +4719,16 @@ selectReviewedPulumiForContext :: ContextName -> TargetProfile -> IO PlatformWor
 selectReviewedPulumiForContext = ensurePulumiForContextWithPolicy True False
 
 ensurePulumiForContextWithPolicy :: Bool -> Bool -> ContextName -> TargetProfile -> IO PlatformWorkspace
-ensurePulumiForContextWithPolicy announceInstall createMissing name tp = do
+ensurePulumiForContextWithPolicy = ensurePulumiForContextWithDependencies True
+
+ensurePulumiForContextWithDependencies :: Bool -> Bool -> Bool -> ContextName -> TargetProfile -> IO PlatformWorkspace
+ensurePulumiForContextWithDependencies installDependencies announceInstall createMissing name tp = do
   (paths, workspace) <- resolvePlatformWorkspace name
   -- EP-121: a source checkout's own `just` recipes run Pulumi in its infra/pulumi,
   -- so it must read the same context-owned stack config as the workspace.
   when (paths ^. #rootSource == SourceRoot) $
     linkContextStackConfig name (paths ^. #pulumiDir) >>= either dieT (const (pure ()))
-  ensurePulumiInWorkspaceWithPolicy announceInstall createMissing name tp workspace
+  ensurePulumiInWorkspaceWithDependencies installDependencies announceInstall createMissing name tp workspace
   pure workspace
 
 ensurePulumiInWorkspace :: ContextName -> TargetProfile -> PlatformWorkspace -> IO ()
@@ -4735,7 +4739,10 @@ ensurePulumiInWorkspaceWithInstallNotice announceInstall =
   ensurePulumiInWorkspaceWithPolicy announceInstall True
 
 ensurePulumiInWorkspaceWithPolicy :: Bool -> Bool -> ContextName -> TargetProfile -> PlatformWorkspace -> IO ()
-ensurePulumiInWorkspaceWithPolicy announceInstall createMissing name tp workspace = do
+ensurePulumiInWorkspaceWithPolicy = ensurePulumiInWorkspaceWithDependencies True
+
+ensurePulumiInWorkspaceWithDependencies :: Bool -> Bool -> Bool -> ContextName -> TargetProfile -> PlatformWorkspace -> IO ()
+ensurePulumiInWorkspaceWithDependencies installDependencies announceInstall createMissing name tp workspace = do
   stateRoot <- nagareStateDir
   let penv = pulumiEnvFor stateRoot (contextNameText name) tp
       stack = penv ^. #stack
@@ -4743,7 +4750,7 @@ ensurePulumiInWorkspaceWithPolicy announceInstall createMissing name tp workspac
   -- EP-121: payload workspaces exclude every Pulumi.<stack>.yaml, so link the
   -- context-owned stack config in before Pulumi reads or writes it.
   linkContextStackConfig name pulumiDir >>= either dieT (const (pure ()))
-  ensurePulumiProgramDependencies announceInstall pulumiDir
+  when installDependencies (ensurePulumiProgramDependencies announceInstall pulumiDir)
   createDirectoryIfMissing True (penv ^. #home)
   -- Only a local (@file://@) backend has a state directory to create; a GCS
   -- backend URL is @gs://…@ and must never be treated as a local path.
@@ -5555,19 +5562,44 @@ buildHostStageCandidate active _ snapshot
       flake <- BS.readFile (hostRoot </> "flake.nix")
       hostModule <- BS.readFile (hostRoot </> "host.nix")
       lock <- BS.readFile (hostRoot </> "flake.lock")
-      let configurationDigest = InventoryDigest.contentDigest (flake <> hostModule)
-          lockDigest = InventoryDigest.contentDigest lock
-          specDigest = InventoryDigest.contentDigest
-            (TE.encodeUtf8 (Resource.digestText configurationDigest
-              <> ":" <> Resource.digestText lockDigest))
       owner <- either dieT pure (Resource.mkScopeId Resource.Platform "host")
       key <- either dieT pure (Resource.mkLogicalKey "nixos-system")
       role <- either dieT pure (Resource.mkName "system")
+      let configurationDigest = InventoryDigest.contentDigest (flake <> hostModule)
+          lockDigest = InventoryDigest.contentDigest lock
+          acceptedScope = snd <$> Map.lookup owner (ResourceInventory.snapshotScopes snapshot)
+          systemId = Resource.mintResourceId owner key role
+      ageKeyPath <- lookupEnv "NAGARE_HOST_AGE_KEY_FILE"
+      ageKeyDigest <- case ageKeyPath of
+        Just keyPath -> do
+          inspected <- HostAgeKey.inspectLocalAgeKey keyPath >>= either dieT pure
+          Just <$> either dieT pure (Resource.mkContentDigest (HostAgeKey.sha256 inspected))
+        Nothing -> case acceptedScope of
+          Nothing -> pure Nothing
+          Just prior -> do
+            inputs <- either dieT pure (InventoryHost.hostExecutionInputsFromScopes [prior])
+            case inputs of
+              Just reviewed | length reviewed `elem` [2, 3]
+                && configurationDigest `elem` reviewed && lockDigest `elem` reviewed ->
+                  case delete lockDigest (delete configurationDigest reviewed) of
+                    [] -> pure Nothing
+                    [digest] -> pure (Just digest)
+                    _ -> dieT "accepted host has invalid credential input binding"
+              _ -> dieT "accepted host configuration differs from the selected context; use a reviewed host transition"
+      let specDigest = InventoryDigest.contentDigest
+            (TE.encodeUtf8 (Resource.digestText configurationDigest
+              <> ":" <> Resource.digestText lockDigest
+              <> maybe "" ((":" <>) . Resource.digestText) ageKeyDigest))
       provider <- either dieT pure (Resource.mkName hostName)
       cloudOwner <- either dieT pure (Resource.mkScopeId Resource.Platform "cloud")
       vmKey <- either dieT pure (Resource.mkLogicalKey "nagare-instance-vm")
       vmName <- either dieT pure (Resource.mkName (active ^. #profile . #instanceName))
       let vmId = Resource.mintResourceId cloudOwner vmKey vmName
+          source = fromMaybe (Resource.SourceLocation "nixos/host.nix" "nixos-system")
+            (acceptedScope >>= \prior -> listToMaybe
+              [member ^. #source | bundle <- ResourceInventory.scopeBundles prior
+                , ResourceInventory.Managed member <- ResourceInventory.declarations bundle
+                , member ^. #identity == systemId])
           resource = InventoryHost.HostResourceSpec
             { InventoryHost.hostLogicalKey = key
             , InventoryHost.hostRole = role
@@ -5577,11 +5609,11 @@ buildHostStageCandidate active _ snapshot
             , InventoryHost.hostDataPolicy = ResourcePolicy.Stateless
             , InventoryHost.hostSensitivity = ResourcePolicy.Private
             , InventoryHost.hostDependencies = [ResourceReference.OrderedAfter vmId]
-            , InventoryHost.hostSource = Resource.SourceLocation (T.pack (hostRoot </> "host.nix")) "nixos-system"
+            , InventoryHost.hostSource = source
             }
       scope <- either (dieT . T.pack . show) pure (InventoryHost.compileHostScope
         (InventoryHost.HostDeclarationBundle 1 owner vmId (resource NE.:| [])
-          configurationDigest lockDigest))
+          configurationDigest lockDigest ageKeyDigest))
       case Map.lookup owner (ResourceInventory.snapshotScopes snapshot) of
         Just (_, prior) | prior /= scope ->
           dieT "accepted host configuration differs from the selected context; use a reviewed host transition"
@@ -5984,7 +6016,7 @@ runInventoryStatus mctx requested json gcOutput = do
         then pure (Inventory.executionBlockedAdapterFor ResourceInventory.ArtifactExecutor)
         else inventoryArtifactAdapter active workspace artifactSpecs
   host <- maybe (pure (Inventory.executionBlockedAdapterFor ResourceInventory.HostExecutor))
-    (inventoryHostAdapter active workspace (hostScopeAccepted history)) hostInputs
+    (inventoryHostAdapter active workspace (hostScopeAccepted history) scopes) hostInputs
   (cache, cacheKey) <- inventoryCacheAdapter active workspace binding cacheSpecs
   broker <- inventoryBrokerAdapter active binding topicSpecs
     (Map.union (acceptedTopicResources history)
@@ -6449,15 +6481,22 @@ runInventoryApply mctx reviewDirectory yes = do
 runInventoryResume :: Maybe String -> Text -> Bool -> Bool -> IO ()
 runInventoryResume mctx transaction yes takeOver = do
   target <- activeTarget mctx
-  Inventory.resumeInventoryWithFactoryTakeover (inventoryExecutionRegistry mctx) target transaction yes takeOver
+  Inventory.resumeInventoryWithFactoryTakeover (inventoryRecoveryRegistry mctx) target transaction yes takeOver
 
 runInventoryRecover :: Maybe String -> Text -> Text -> FilePath -> Bool -> IO ()
 runInventoryRecover mctx transaction operation decisionFile takeOver = do
   target <- activeTarget mctx
-  Inventory.recoverInventoryWithFactory (inventoryExecutionRegistry mctx) target transaction operation decisionFile takeOver
+  Inventory.recoverInventoryWithFactory (inventoryRecoveryRegistry mctx) target transaction operation decisionFile takeOver
 
 inventoryExecutionRegistry :: Maybe String -> InventoryPlan.ReviewBundle -> IO InventoryAdapter.AdapterRegistry
-inventoryExecutionRegistry mctx bundle = do
+inventoryExecutionRegistry = inventoryExecutionRegistryWithPrunePreflight True
+
+inventoryRecoveryRegistry :: Maybe String -> InventoryPlan.ReviewBundle -> IO InventoryAdapter.AdapterRegistry
+inventoryRecoveryRegistry = inventoryExecutionRegistryWithPrunePreflight False
+
+inventoryExecutionRegistryWithPrunePreflight :: Bool -> Maybe String
+  -> InventoryPlan.ReviewBundle -> IO InventoryAdapter.AdapterRegistry
+inventoryExecutionRegistryWithPrunePreflight checkPruneProvider mctx bundle = do
   scopes <- traverse (either (dieT . T.pack . show) pure . ResourceWire.decodeScope) (Map.elems (InventoryPlan.reviewBundleScopes bundle))
   let document = InventoryPlan.reviewBundleDocument bundle
       operations = map InventoryPlan.reviewPlannedOperation
@@ -6539,8 +6578,10 @@ inventoryExecutionRegistry mctx bundle = do
     document backupProofs
   volumeSourceNative <- loadReviewedVolumeSourceNative mctx document
     reviewedKubernetesSpecs
-  pruneSourceNative <- loadReviewedPruneSourceNative mctx document pruneProofs
+  pruneSourceNative <- loadReviewedPruneSourceNative checkPruneProvider mctx document pruneProofs
   verifyReviewedScheduledPruneRecovery mctx scopes
+    (selected ResourceInventory.KubernetesExecutor)
+  when checkPruneProvider $ verifyReviewedScheduledPruneProvider mctx scopes
     (selected ResourceInventory.KubernetesExecutor)
   scheduledSourceNative <- loadReviewedScheduledIngestSourceNative mctx document scheduledProofs
   (maintenanceSourceNative, maintenanceAcceptedNative) <-
@@ -6607,7 +6648,7 @@ inventoryExecutionRegistry mctx bundle = do
               then do
                 (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
                 pure (active, workspace)
-              else prepareInfraMutation mctx
+              else prepareInfraMutationWithPulumi (not (null registrations)) mctx
       when (active ^. #profile . #mode == Local
           && (not (Map.null kubernetesSpecs) || not (Map.null allHelmSpecs))) $ do
         selectedKubeconfig <- kubeconfigPath (active ^. #contextName)
@@ -6625,7 +6666,7 @@ inventoryExecutionRegistry mctx bundle = do
           then pure (Inventory.executionBlockedAdapterFor ResourceInventory.ArtifactExecutor)
           else inventoryArtifactAdapter active workspace artifactSpecs
       host <- maybe (pure (Inventory.executionBlockedAdapterFor ResourceInventory.HostExecutor))
-        (inventoryHostAdapter active workspace False) hostInputs
+        (inventoryHostAdapter active workspace False scopes) hostInputs
       (cache, cacheKey) <- inventoryCacheAdapter active workspace binding cacheSpecs
       acceptedTopics <- if Map.null topicSpecs then pure Map.empty else do
         historyStore <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
@@ -6964,6 +7005,120 @@ loadReviewedScheduledIngestSourceNative mctx document proofs = do
     (dieT "scheduled ingestion source lacks accepted private native evidence")
   pure selected
 
+-- A saved scheduled prune can run only while the accepted receipt set still
+-- matches a complete provider listing. A selected key may have no hidden
+-- older version or delete marker, and the schedule may have no active Job.
+verifyReviewedScheduledPruneProvider
+  :: Maybe String -> [ResourceInventory.ScopeDeclaration]
+  -> Set.Set Resource.ResourceId -> IO ()
+verifyReviewedScheduledPruneProvider mctx scopes selectedJobs = do
+  let selected = [scope | scope <- scopes,
+        let fields = ResourceInventory.scopeOverrides scope,
+        Map.member "scheduled.prune.backup.scope" fields,
+        Map.notMember "scheduled.prune.recovery.review" fields,
+        bundle <- ResourceInventory.scopeBundles scope,
+        ResourceInventory.Managed member <- ResourceInventory.declarations bundle,
+        Set.member (member ^. #identity) selectedJobs]
+  unless (null selected) $ do
+    active <- activeTarget mctx
+    store <- Inventory.openTargetStoreReadOnly active
+      >>= either (dieT . T.pack . show) pure
+    history <- InventoryPlan.loadInventoryHistory store
+      >>= either (dieT . T.pack . show) pure
+    snapshot <- Inventory.loadTargetSnapshot active
+    acceptedInventory <- either (dieT . T.pack . show) pure
+      (ResourceInventory.composeSnapshot snapshot)
+    (acceptedNative, _) <- InventoryStatus.loadAcceptedNative store history
+      acceptedInventory >>= either dieT pure
+    backend <- resolveStoreBackend mctx Nothing
+    minio <- case backend of
+      MinioBackend ref -> pure ref
+      GcsBackend {} -> dieT "cloud scheduled prune requires exact-generation provider preflight"
+    context <- either dieT pure (Resource.mkContextId
+      (contextNameText (active ^. #contextName)))
+    let contextName = contextNameText (active ^. #contextName)
+        config = KubernetesRuntimeConfig context contextName
+          (fmap (fmap (const ())) (guardKubernetesContext active))
+        acceptedScopes = map snd (Map.elems (InventoryPlan.historyAccepted history))
+        pruned = Set.fromList [backupScope | scope <- acceptedScopes,
+          Just backupScope <- [Map.lookup "scheduled.prune.backup.scope"
+            (ResourceInventory.scopeOverrides scope)]]
+        bucketAddress = "s3://" <> minio ^. #bucket <> "/"
+    forM_ selected $ \pruneScope -> do
+      let fields = ResourceInventory.scopeOverrides pruneScope
+          required key = maybe (dieT ("scheduled prune lacks " <> key)) pure
+            (Map.lookup key fields)
+      policyName <- required "scheduled.prune.policy.scope"
+      policyScope <- case [scope | scope <- acceptedScopes,
+          Resource.scopeIdText (ResourceInventory.scopeId scope) == policyName] of
+        [single] -> pure single
+        _ -> dieT "scheduled prune policy is no longer uniquely accepted"
+      cron <- case [member | bundle <- ResourceInventory.scopeBundles policyScope,
+          ResourceInventory.Managed member <- ResourceInventory.declarations bundle,
+          case member ^. #address of
+            Resource.Kubernetes _ "batch" kind (Just _) _ ->
+              Resource.nameText kind == "cronjob"
+            _ -> False] of
+        [single] -> pure single
+        _ -> dieT "scheduled prune policy lacks one accepted CronJob"
+      namespaceName <- case cron ^. #address of
+        Resource.Kubernetes _ _ _ (Just ns) _ -> pure (Resource.nameText ns)
+        _ -> dieT "scheduled prune CronJob lacks a namespace"
+      cronNative <- case Map.lookup (cron ^. #identity) acceptedNative of
+        Just pair | fst pair == cron -> pure
+          (Map.singleton (cron ^. #identity) pair)
+        _ -> dieT "scheduled prune CronJob lacks accepted native evidence"
+      let cronOps = mkKubernetesRuntimeOpsWithCacheKey config
+            (\_ -> pure (Left "scheduled prune CronJob observation does not use a cache key"))
+            cronNative
+      cronState <- kubernetesObserve cronOps (cron ^. #identity)
+      cronUid <- case (cronState, Map.lookup (cron ^. #identity) cronNative) of
+        (KubernetesPresent uid _ (Just owner) digest, Just (_, bytes))
+          | owner == cron ^. #identity
+            && digest == InventoryDigest.contentDigest bytes -> pure uid
+        _ -> dieT "scheduled prune CronJob is absent or drifted"
+      inFlight <- scheduledProducerInFlight contextName namespaceName cronUid
+      when inFlight (dieT "scheduled prune producer Job is still in flight")
+      objectAddress <- required "scheduled.prune.object"
+      receiptAddress <- required "scheduled.prune.receipt"
+      objectVersion <- required "scheduled.prune.object.version"
+      receiptVersion <- required "scheduled.prune.receipt.version"
+      backupScopeName <- required "scheduled.prune.backup.scope"
+      objectKey <- maybe (dieT "scheduled prune object is outside the local bucket") pure
+        (T.stripPrefix bucketAddress objectAddress)
+      receiptKey <- maybe (dieT "scheduled prune receipt is outside the local bucket") pure
+        (T.stripPrefix bucketAddress receiptAddress)
+      unless (receiptAddress == objectAddress <> ".receipt.json")
+        (dieT "scheduled prune receipt no longer names its object")
+      let (keyPrefix, _) = T.breakOnEnd "/" objectKey
+          backups = [scope | scope <- acceptedScopes,
+            Map.lookup "scheduled.backup.source.scope"
+              (ResourceInventory.scopeOverrides scope) == Just policyName,
+            Set.notMember (Resource.scopeIdText
+              (ResourceInventory.scopeId scope)) pruned]
+          expected = concatMap (\scope ->
+            let backupFields = ResourceInventory.scopeOverrides scope
+             in mapMaybe (>>= T.stripPrefix bucketAddress)
+                  [Map.lookup "scheduled.backup.object" backupFields,
+                    Map.lookup "scheduled.backup.receipt" backupFields]) backups
+      unless (not (T.null keyPrefix)
+          && backupScopeName `elem` map (Resource.scopeIdText
+            . ResourceInventory.scopeId) backups
+          && length expected == 2 * length backups
+          && all (T.isPrefixOf keyPrefix) expected)
+        (dieT "scheduled prune accepted receipts changed their provider key space")
+      provider <- withLocalObjectStore contextName minio $ \reader -> do
+        current <- listObjectEntries reader keyPrefix
+        versions <- listObjectVersions reader objectKey
+        pure ((,) <$> current <*> versions)
+      (listed, versions) <- either dieT pure provider >>= either dieT pure
+      unless (Set.fromList (map listedKey listed) == Set.fromList expected
+          && length listed == length expected
+          && Set.fromList versions == Set.fromList
+            [(objectKey, objectVersion), (receiptKey, receiptVersion)]
+          && length versions == 2)
+        (dieT "scheduled prune provider listing or exact versions changed after review")
+
 -- A saved receipt-only recovery must still refer to the exact failed Job and
 -- published prune review. Its Job rechecks complete provider version listings
 -- and receipt bytes immediately before deleting the remaining receipt.
@@ -7036,14 +7191,15 @@ verifyReviewedScheduledPruneRecovery mctx scopes selectedJobs = do
             && digest == InventoryDigest.contentDigest bytes -> pure ()
         _ -> dieT "scheduled recovery's original prune Job is no longer the exact terminal failure"
 
--- A saved prune review may execute only while the same backup scope and Job
--- remain accepted. The Kubernetes adapter checks the Job's observed UID and
--- exact native bytes again before submitting or verifying the prune Job.
+-- Admission requires the same accepted backup scope and Job. Once admitted,
+-- resume/recover binds the source to the retained incarnation from the exact
+-- review base. The Kubernetes adapter checks the observed UID and native
+-- bytes again before submitting or verifying the prune Job.
 loadReviewedPruneSourceNative
-  :: Maybe String -> InventoryPlan.ReviewDocument -> [PruneSourceProof]
+  :: Bool -> Maybe String -> InventoryPlan.ReviewDocument -> [PruneSourceProof]
   -> IO (Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString))
-loadReviewedPruneSourceNative _ _ [] = pure Map.empty
-loadReviewedPruneSourceNative mctx document proofs = do
+loadReviewedPruneSourceNative _ _ _ [] = pure Map.empty
+loadReviewedPruneSourceNative requireAccepted mctx document proofs = do
   active <- activeTarget mctx
   store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
   history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
@@ -7051,21 +7207,32 @@ loadReviewedPruneSourceNative mctx document proofs = do
     let matches = [(owner, revision, scope) | (owner, (revision, scope)) <-
           Map.toAscList (InventoryPlan.historyAccepted history),
           Resource.scopeIdText owner == pruneSourceScope proof]
-    (owner, revision, scope) <- case matches of
-      [single] -> pure single
+    backupMembers <- case matches of
+      [(owner, revision, scope)] -> do
+        unless (InventoryStore.revisionDigest revision == pruneSourceRevision proof
+            && Map.lookup owner (InventoryPlan.reviewDesiredRevisions document) == Just revision)
+          (dieT "manual prune backup scope changed after review")
+        pure [member ^. #identity | bundle <- ResourceInventory.scopeBundles scope,
+          ResourceInventory.Managed member <- ResourceInventory.declarations bundle]
+      [] | not requireAccepted -> case Map.lookup (pruneSourceJob proof)
+          (InventoryPlan.historyRetained history) of
+        Just (incarnation, member) | Resource.scopeIdText
+            (InventoryStore.retainedOwner incarnation) == pruneSourceScope proof
+          , InventoryStore.revisionDigest
+              (InventoryStore.retainedRevision incarnation) == pruneSourceRevision proof
+          , Map.lookup (InventoryStore.retainedOwner incarnation)
+              (InventoryPlan.reviewBaseRevisions document)
+              == Just (InventoryStore.retainedRevision incarnation)
+          , InventoryStore.retainedPhysical incarnation == pruneSourceUid proof
+          , member ^. #identity == pruneSourceJob proof ->
+              pure [member ^. #identity]
+        _ -> dieT "reviewed prune backup is not the exact retained incarnation"
       _ -> dieT "manual prune backup scope is no longer uniquely accepted"
-    unless (InventoryStore.revisionDigest revision == pruneSourceRevision proof
-        && Map.lookup owner (InventoryPlan.reviewDesiredRevisions document) == Just revision
-        && any (\bundle -> any (\case
-          ResourceInventory.Managed member -> member ^. #identity == pruneSourceJob proof
-          _ -> False) (ResourceInventory.declarations bundle))
-          (ResourceInventory.scopeBundles scope))
-      (dieT "manual prune backup scope or Job changed after review")
+    unless (pruneSourceJob proof `elem` backupMembers)
+      (dieT "manual prune backup Job changed after review")
     when (isJust (pruneSourcePolicy proof)) $ do
-      let backupMembers = [member ^. #identity
-            | bundle <- ResourceInventory.scopeBundles scope,
-              ResourceInventory.Managed member <- ResourceInventory.declarations bundle]
-          dependent (_, other) = ResourceInventory.scopeId other /= owner
+      let dependent (_, other) = Resource.scopeIdText (ResourceInventory.scopeId other)
+            /= pruneSourceScope proof
             && Map.notMember "scheduled.prune.backup.scope"
               (ResourceInventory.scopeOverrides other)
             && (pruneSourceScope proof `elem`
@@ -7235,7 +7402,7 @@ inventoryPlanRegistryWithNative active workspace suppliedNative candidate histor
           then pure (Inventory.manifestAdapterFor history ResourceInventory.ArtifactExecutor)
           else inventoryArtifactAdapter active workspace artifactSpecs
   host <- maybe (pure (Inventory.manifestAdapterFor history ResourceInventory.HostExecutor))
-    (inventoryHostAdapter active workspace (hostScopeAccepted history)) hostInputs
+    (inventoryHostAdapter active workspace (hostScopeAccepted history) scopes) hostInputs
   (cache, cacheKey) <- if Map.null cacheSpecs
     then pure (Inventory.manifestAdapterFor history ResourceInventory.CacheExecutor, \_ -> pure (Left "cache output resolver is not installed"))
     else inventoryCacheAdapter active workspace (ResourceInventory.inventoryBinding inventory) cacheSpecs
@@ -7566,10 +7733,26 @@ hostScopeAccepted history = Map.member owner (InventoryPlan.historyAccepted hist
     owner = either (error . T.unpack) (\scope -> scope)
       (Resource.mkScopeId Resource.Platform "host")
 
-inventoryHostAdapter :: ActiveTarget -> PlatformWorkspace -> Bool -> (Resource.ContentDigest, Resource.ContentDigest) -> IO InventoryAdapter.Adapter
-inventoryHostAdapter active workspace accepted (configurationDigest, lockDigest) = do
+inventoryHostAdapter :: ActiveTarget -> PlatformWorkspace -> Bool -> [ResourceInventory.ScopeDeclaration] -> [Resource.ContentDigest] -> IO InventoryAdapter.Adapter
+inventoryHostAdapter active workspace accepted _ reviewedDigests = do
   hostName <- readContextHostName (active ^. #contextName) >>= either dieT pure
   hostRoot <- hostConfigDir (active ^. #contextName)
+  flake <- BS.readFile (hostRoot </> "flake.nix")
+  hostModule <- BS.readFile (hostRoot </> "host.nix")
+  lock <- BS.readFile (hostRoot </> "flake.lock")
+  let configurationDigest = InventoryDigest.contentDigest (flake <> hostModule)
+      lockDigest = InventoryDigest.contentDigest lock
+      withoutConfiguration = delete configurationDigest reviewedDigests
+      remaining = delete lockDigest withoutConfiguration
+  unless (length reviewedDigests `elem` [2, 3]
+      && length withoutConfiguration == length reviewedDigests - 1
+      && length remaining == length reviewedDigests - 2)
+    (dieT "reviewed host inputs differ from the selected configuration or lock")
+  ageKeyDigest <- case remaining of
+    [] -> pure Nothing
+    [digest] -> pure (Just digest)
+    _ -> dieT "reviewed host inputs have more than one credential digest"
+  ageKeyPath <- lookupEnv "NAGARE_HOST_AGE_KEY_FILE"
   context <- either dieT pure (Resource.mkContextId (contextNameText (active ^. #contextName)))
   attribute <- either dieT pure (Resource.mkName hostName)
   let profile = active ^. #profile
@@ -7579,7 +7762,7 @@ inventoryHostAdapter active workspace accepted (configurationDigest, lockDigest)
           , runtimeHostEnvironment =
               [ ("NAGARE_CONTEXT", T.unpack (contextNameText (active ^. #contextName)))
               , ("NAGARE_HOST_FLAKE", hostRoot)
-              ]
+              ] <> maybe [] (\path -> [("NAGARE_HOST_AGE_KEY_FILE", path)]) ageKeyPath
           , runtimeHostContext = context
           , runtimeHostAttribute = attribute
           , runtimeHostProject = profile ^. #project
@@ -7588,6 +7771,7 @@ inventoryHostAdapter active workspace accepted (configurationDigest, lockDigest)
           , runtimeHostDestination = "deploy@" <> hostName
           , runtimeHostConfigurationDigest = configurationDigest
           , runtimeHostLockDigest = lockDigest
+          , runtimeHostAgeKeyDigest = ageKeyDigest
           , runtimeHostAccepted = accepted
           }
   pure (mkHostAdapter (mkHostRuntimeOps config))
@@ -7644,7 +7828,10 @@ inventoryPulumiAdapter active workspace binding scopes registrations = do
 -- infrastructure mutation. ADC is validated before workspace preparation,
 -- because preparation may select or initialize a Pulumi stack.
 prepareInfraMutation :: Maybe String -> IO (ActiveTarget, PlatformWorkspace)
-prepareInfraMutation mctx = do
+prepareInfraMutation = prepareInfraMutationWithPulumi True
+
+prepareInfraMutationWithPulumi :: Bool -> Maybe String -> IO (ActiveTarget, PlatformWorkspace)
+prepareInfraMutationWithPulumi needsPulumi mctx = do
   (active, status) <- gatherPlatformStatus mctx
   either dieT pure (guardPlatformMutation status)
   TIO.putStrLn ("platform mutation allowed (" <> compatibilityToken (status ^. #compatibility) <> ")")
@@ -7657,7 +7844,8 @@ prepareInfraMutation mctx = do
       warnings <- either dieT pure (validateAdc (profile ^. #project) gcloudAccount adc)
       printPreflightWarnings warnings
   workspace <- case profile ^. #mode of
-    Cloud -> selectReviewedPulumiForContext contextName profile
+    Cloud | needsPulumi -> selectReviewedPulumiForContext contextName profile
+    Cloud -> ensurePulumiForContextWithDependencies False False False contextName profile
     Local -> ensurePulumiForContext contextName profile
   case profile ^. #mode of
     Local -> TIO.putStrLn "context guard: local mode; no GCP project to confine"

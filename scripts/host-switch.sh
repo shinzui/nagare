@@ -85,7 +85,14 @@ TOPLEVEL_REF="${CONFIG_REF}.system.build.toplevel"
 if [ -n "${NAGARE_HOST_PREPARED_CLOSURE:-}" ]; then
   [ "${BUILD_ON_HOST}" -eq 0 ] || { echo "host-switch: --build-on-host cannot alter a reviewed closure" >&2; exit 2; }
   NEW="${NAGARE_HOST_PREPARED_CLOSURE}"
-  CURRENT="$(ssh -o BatchMode=yes "${TARGET_HOST}" 'readlink -f /run/current-system' | tail -n 1)"
+  if [ -n "${NIX_SSHOPTS:-}" ]; then
+    # Nix and the safe-switch client use this same option set for the reviewed
+    # Tailnet host-key pin and operator identity.
+    read -r -a reviewed_ssh_options <<<"${NIX_SSHOPTS}"
+    CURRENT="$(ssh "${reviewed_ssh_options[@]}" -o BatchMode=yes "${TARGET_HOST}" 'readlink -f /run/current-system' | tail -n 1)"
+  else
+    CURRENT="$(ssh -o BatchMode=yes "${TARGET_HOST}" 'readlink -f /run/current-system' | tail -n 1)"
+  fi
   [ -z "${NAGARE_HOST_EXPECTED_OLD_CLOSURE:-}" ] || [ "${CURRENT}" = "${NAGARE_HOST_EXPECTED_OLD_CLOSURE}" ] || {
     echo "host-switch: current closure ${CURRENT} differs from reviewed ${NAGARE_HOST_EXPECTED_OLD_CLOSURE}" >&2
     exit 4
