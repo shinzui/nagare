@@ -342,19 +342,24 @@ loadNativeFor
   :: Bool -> InventoryStore -> InventoryHistory -> ValidatedInventory
   -> IO (Either Text (Map ResourceId (ManagedResource, ByteString),
                       Map ResourceId (ManagedResource, ByteString)))
-loadNativeFor retainedOnly store history inventory = do
-  snapshot <- readStoreSnapshot store
-  case snapshot of
-    Left failure -> pure (Left (T.pack (show failure)))
-    Right state -> do
-      loaded <- traverse (loadPublishedReview store) (Set.toAscList (storeSnapshotReviewDigests state))
-      pure $ do
-        retained <- first (T.pack . show) (sequence loaded)
-        entries <- traverse collect retained
-        kubernetes <- agree (concatMap fst entries)
-        helm <- agree (concatMap snd entries)
-        pure (kubernetes, helm)
+loadNativeFor retainedOnly store history inventory
+  | not (any needsNative relevantMembers) = pure (Right (Map.empty, Map.empty))
+  | otherwise = do
+    snapshot <- readStoreSnapshot store
+    case snapshot of
+      Left failure -> pure (Left (T.pack (show failure)))
+      Right state -> do
+        loaded <- traverse (loadPublishedReview store) (Set.toAscList (storeSnapshotReviewDigests state))
+        pure $ do
+          retained <- first (T.pack . show) (sequence loaded)
+          entries <- traverse collect retained
+          kubernetes <- agree (concatMap fst entries)
+          helm <- agree (concatMap snd entries)
+          pure (kubernetes, helm)
   where
+    relevantMembers = (if retainedOnly then [] else Map.elems desired)
+      <> map snd (Map.elems (historyRetained history))
+    needsNative member = member ^. #executor `elem` [KubernetesExecutor, HelmExecutor]
     -- A scope replacement need not republish native bytes for unchanged
     -- members. Digest-bound native bytes can still be recovered from an older
     -- immutable review and rebound to the current accepted declaration.

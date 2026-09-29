@@ -243,7 +243,7 @@ import Nagare.Inventory.Adapters.CacheRuntime qualified as CacheRuntime
 import Nagare.Inventory.Adapters.Host (mkHostAdapter)
 import Nagare.Inventory.Adapters.HostRuntime
 import Nagare.Inventory.Adapters.Helm (HelmAdapterOps (..), helmStateHealth, mkHelmAdapter)
-import Nagare.Inventory.Adapters.HelmRuntime (HelmRuntimeConfig (..), helmRuntimeOps)
+import Nagare.Inventory.Adapters.HelmRuntime (HelmRuntimeConfig (..), helmRuntimeOps, helmObservation)
 import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps (..), KubernetesState (..), mkKubernetesAdapterWithBackupReceipt)
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), mkKubernetesRuntimeOpsWithCacheKey, observeKubernetesHealth, readBackupReceiptFromCompletedPod, readCompletedJobContainerMessage)
 import Nagare.Inventory.Adapters.Pulumi (mkPulumiAdapter)
@@ -313,6 +313,7 @@ import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
 import Nagare.Inventory.KubernetesSources (loadKubernetesSources, validateSuppliedKubernetesMembers)
 import Nagare.Inventory.Plan qualified as InventoryPlan
 import Nagare.Inventory.Status qualified as InventoryStatus
+import Nagare.Inventory.ObservationNative qualified as InventoryObservation
 import Nagare.Inventory.Store qualified as InventoryStore
 import Nagare.Ops.Cleanup
   ( CleanupOpts (..)
@@ -823,6 +824,7 @@ data Command
   | InventoryRestore FilePath Bool
   | InventoryStatus Bool
   | InventoryExplain String Bool
+  | InventoryStoreMaterializeNative (Maybe String) Int
   | InventoryStoreStatus Bool
   | InventoryStoreMigrate String Bool Bool
   | PlatformRoot Bool
@@ -2281,6 +2283,10 @@ opts =
                 <> command "store" (info (subparser
                   (command "status" (info (InventoryStoreStatus <$> switch (long "json") <**> helper)
                     (progDesc "Read the selected inventory history store and executor claim"))
+                  <> command "materialize-native" (info
+                    (InventoryStoreMaterializeNative <$> optional (strOption (long "after" <> metavar "REVIEW_SHA256"))
+                      <*> option auto (long "limit" <> value 20 <> metavar "COUNT") <**> helper)
+                    (progDesc "Extract observation bytes from a bounded batch of historical reviews; resume with --after"))
                   <> command "migrate" (info
                     (InventoryStoreMigrate <$> strOption (long "to" <> metavar "gcs|local")
                       <*> switch (long "dry-run") <*> switch (long "yes") <**> helper)
@@ -3272,6 +3278,7 @@ main = do
     InventoryRestore backup yes -> activeTarget mctx >>= \target -> Inventory.restoreInventory target backup yes
     InventoryStatus json -> runInventoryStatus mctx Nothing json Nothing
     InventoryExplain resource json -> runInventoryStatus mctx (Just resource) json Nothing
+    InventoryStoreMaterializeNative after limit -> runInventoryMaterializeNative mctx after limit
     InventoryStoreStatus json -> runInventoryStoreStatus mctx json
     InventoryStoreMigrate destination dryRun yes -> runInventoryStoreMigrate mctx destination dryRun yes
 
@@ -5971,19 +5978,36 @@ runInventoryStatus mctx requested json gcOutput = do
     (Map.map (\(revision, scope) -> (InventoryStore.revisionGeneration revision, scope))
       (InventoryPlan.historyAccepted history)) (InventoryPlan.historyReservations history))
   inventory <- either (dieT . T.pack . show) pure (ResourceInventory.composeSnapshot snapshot)
-  (kubernetesNative, helmNative) <- InventoryStatus.loadAcceptedNative store history inventory
-    >>= either dieT pure
-  (retainedKubernetesNative, retainedHelmNative) <- InventoryStatus.loadRetainedNative store history inventory
-    >>= either dieT pure
-  pathsResult <- resolvePlatformPaths Nothing
-  paths <- either (dieT . renderPlatformPathError) pure pathsResult
-  stateRoot <- nagareStateDir
-  workspaceResult <- findPlatformWorkspace stateRoot (active ^. #contextName) paths
-  workspace <- either (dieT . renderWorkspaceError) pure workspaceResult
+  selected <- traverse (either dieT pure . Resource.mkResourceId . T.pack) requested
+  let allManaged = [resource | ResourceInventory.Managed resource <- ResourceInventory.inventoryDeclarations inventory]
+      byId = Map.fromList [(resource ^. #identity, resource) | resource <- allManaged]
+      wanted resource = maybe True (== resource) selected
+      retainedMembers = Map.filterWithKey (\resource _ -> wanted resource) (InventoryPlan.historyRetained history)
+  forM_ selected $ \resource -> unless (Map.member resource byId
+      || Map.member resource retainedMembers
+      || Map.member resource (InventoryStore.headCollected (InventoryPlan.historyHead history)))
+    (dieT "resource is absent from accepted and historical inventory")
   let binding = ResourceInventory.inventoryBinding inventory
-      declarations = ResourceInventory.inventoryDeclarations inventory
+      declarations = filter (wanted . ResourceInventory.declarationId) (ResourceInventory.inventoryDeclarations inventory)
       scopes = Map.elems (ResourceInventory.inventoryScopes inventory)
-      managed = [resource | ResourceInventory.Managed resource <- ResourceInventory.inventoryDeclarations inventory]
+      managed = filter (\resource -> wanted (resource ^. #identity)) allManaged
+  native <- InventoryObservation.loadObservationNative store managed >>= either dieT pure
+  retainedNative <- InventoryObservation.loadObservationNative store (map snd (Map.elems retainedMembers))
+    >>= either dieT pure
+  let kubernetesNative = InventoryObservation.observationKubernetes native
+      helmNative = InventoryObservation.observationHelm native
+      retainedKubernetesNative = InventoryObservation.observationKubernetes retainedNative
+      retainedHelmNative = InventoryObservation.observationHelm retainedNative
+      needsWorkspace = any (\resource -> resource ^. #executor `elem`
+        [ResourceInventory.PulumiExecutor, ResourceInventory.ArtifactExecutor,
+         ResourceInventory.HostExecutor, ResourceInventory.CacheExecutor, ResourceInventory.CdnExecutor]) managed
+  workspace <- if not needsWorkspace then pure Nothing else do
+    paths <- resolvePlatformPaths Nothing >>= either (dieT . renderPlatformPathError) pure
+    stateRoot <- nagareStateDir
+    Just <$> (findPlatformWorkspace stateRoot (active ^. #contextName) paths
+      >>= either (dieT . renderWorkspaceError) pure)
+  let withWorkspace :: (PlatformWorkspace -> IO a) -> IO a
+      withWorkspace action = maybe (dieT "selected provider requires a platform workspace") action workspace
       scheduledBackups = [resource ^. #identity | resource <- managed,
         Resource.Kubernetes cluster "batch" kind (Just namespaceName) name <-
           [resource ^. #address],
@@ -5995,41 +6019,54 @@ runInventoryStatus mctx requested json gcOutput = do
               signedCluster == cluster && signedNamespace == namespaceName
                 && Resource.nameText signedKind == "secret"
                 && Resource.nameText signedName == Resource.nameText name <> "-signing"
-            _ -> False) managed]
-      byId = Map.fromList [(resource ^. #identity, resource) | resource <- managed]
+            _ -> False) allManaged]
       ids executor = [resource ^. #identity | resource <- managed, resource ^. #executor == executor]
-      retainedIds executor = [resource | (resource, (_, declaration)) <- Map.toAscList (InventoryPlan.historyRetained history),
+      retainedIds executor = [resource | (resource, (_, declaration)) <- Map.toAscList retainedMembers,
               declaration ^. #executor == executor]
   registrations <- either dieT pure (InventoryCloud.registrationsFromDeclarations declarations)
   artifactSpecs <- either dieT pure (InventoryArtifact.artifactExecutionSpecsFromDeclarations declarations)
   cacheSpecs <- either dieT pure (cacheSpecsFromDeclarations declarations)
   topicSpecs <- either dieT pure (topicSpecsFromDeclarations (declarations <>
-    [ResourceInventory.Managed resource | (_, resource) <- Map.elems (InventoryPlan.historyRetained history)]))
+    [ResourceInventory.Managed resource | (_, resource) <- Map.elems retainedMembers]))
   dnsSpecs <- either dieT pure (dnsSpecsFromDeclarations declarations)
   cloudflareSpecs <- either dieT pure (cloudflareBindingsFromDeclarations declarations)
-  hostInputs <- either dieT pure (InventoryHost.hostExecutionInputsFromScopes scopes)
+  hostInputs <- if null (ids ResourceInventory.HostExecutor) then pure Nothing
+    else either dieT pure (InventoryHost.hostExecutionInputsFromScopes scopes)
   observationStartedAt <- currentTimestamp
   pulumi <- if null registrations
     then pure (Inventory.executionBlockedAdapterFor ResourceInventory.PulumiExecutor)
-    else inventoryPulumiAdapter active workspace binding scopes registrations
+    else withWorkspace (\root -> inventoryPulumiAdapter active root binding scopes registrations)
   artifact <- if Map.null artifactSpecs
         then pure (Inventory.executionBlockedAdapterFor ResourceInventory.ArtifactExecutor)
-        else inventoryArtifactAdapter active workspace artifactSpecs
+        else withWorkspace (\root -> inventoryArtifactAdapter active root artifactSpecs)
   host <- maybe (pure (Inventory.executionBlockedAdapterFor ResourceInventory.HostExecutor))
-    (inventoryHostAdapter active workspace (hostScopeAccepted history) scopes) hostInputs
-  (cache, cacheKey) <- inventoryCacheAdapter active workspace binding cacheSpecs
+    (\inputs -> withWorkspace (\root -> inventoryHostAdapter active root (hostScopeAccepted history) scopes inputs)) hostInputs
+  (cache, cacheKey) <- if Map.null cacheSpecs
+    then pure (Inventory.executionBlockedAdapterFor ResourceInventory.CacheExecutor,
+      \_ -> pure (Left "cache output resolver is not installed for observation"))
+    else withWorkspace (\root -> inventoryCacheAdapter active root binding cacheSpecs)
   broker <- inventoryBrokerAdapter active binding topicSpecs
     (Map.union (acceptedTopicResources history)
       (Map.fromList [(resource, declaration)
-        | (resource, (_, declaration)) <- Map.toAscList (InventoryPlan.historyRetained history)
+        | (resource, (_, declaration)) <- Map.toAscList retainedMembers
         , declaration ^. #executor == ResourceInventory.BrokerExecutor]))
-  acceptedCdn <- either dieT pure (acceptedDnsResources history)
-  cdn <- inventoryCdnAdapter active workspace binding dnsSpecs cloudflareSpecs acceptedCdn
+  acceptedCdn <- if null (ids ResourceInventory.CdnExecutor) then pure Map.empty
+    else either dieT pure (acceptedDnsResources history)
+  cdn <- if Map.null dnsSpecs && Map.null cloudflareSpecs
+    then pure (Inventory.executionBlockedAdapterFor ResourceInventory.CdnExecutor)
+    else withWorkspace (\root -> inventoryCdnAdapter active root binding dnsSpecs cloudflareSpecs acceptedCdn)
   kubernetes <- inventoryKubernetesAdapter active binding
     cacheKey kubernetesNative
-  helm <- inventoryHelmAdapter active workspace binding helmNative
+  let observeHelm specs = helmObservation (contextNameText (active ^. #contextName))
+        (binding ^. #identity) (Map.map fst specs)
+        (fmap (fmap (const ())) (guardKubernetesContext active))
+      readOnlyHelm specs = mkHelmAdapter specs HelmAdapterOps
+        { helmObserve = observeHelm specs
+        , helmMutateConditional = \_ -> pure (InventoryAdapter.AdapterEffectAmbiguous "observation cannot mutate")
+        }
+      helm = readOnlyHelm helmNative
   retainedKubernetes <- inventoryKubernetesAdapter active binding cacheKey retainedKubernetesNative
-  retainedHelm <- inventoryHelmAdapter active workspace binding retainedHelmNative
+  let retainedHelm = readOnlyHelm retainedHelmNative
   let inspect adapter executor = do
         let requestedIds = ids executor
         if null requestedIds then pure [] else do
@@ -6062,7 +6099,6 @@ runInventoryStatus mctx requested json gcOutput = do
   retainedHelmFacts <- inspectRetained retainedHelm ResourceInventory.HelmExecutor
   retainedBrokerFacts <- inspectRetained broker ResourceInventory.BrokerExecutor
   let helmObserved = Map.fromList helmFacts
-      helmStatusOps = helmRuntimeOps (inventoryHelmRuntimeConfig active workspace binding helmNative)
       helmObservedPhysical = \case
         InventoryAdapter.ObservedPresent _ -> True
         InventoryAdapter.ObservedDrifted _ _ -> True
@@ -6071,16 +6107,15 @@ runInventoryStatus mctx requested json gcOutput = do
   helmHealthPairs <- forM (ids ResourceInventory.HelmExecutor) $ \resourceId -> do
     health <- case Map.lookup resourceId helmObserved of
       Just fact | helmObservedPhysical fact -> do
-        state <- helmObserve helmStatusOps resourceId
+        state <- observeHelm helmNative resourceId
         pure (helmStateHealth resourceId fact state)
       _ -> pure Nothing
     pure (resourceId, health)
   let retainedHelmObserved = Map.fromList retainedHelmFacts
-      retainedHelmStatusOps = helmRuntimeOps (inventoryHelmRuntimeConfig active workspace binding retainedHelmNative)
   retainedHelmHealthPairs <- forM (retainedIds ResourceInventory.HelmExecutor) $ \resourceId -> do
     health <- case Map.lookup resourceId retainedHelmObserved of
       Just fact | helmObservedPhysical fact -> do
-        state <- helmObserve retainedHelmStatusOps resourceId
+        state <- observeHelm retainedHelmNative resourceId
         pure (helmStateHealth resourceId fact state)
       _ -> pure Nothing
     pure (resourceId, health)
@@ -6125,16 +6160,17 @@ runInventoryStatus mctx requested json gcOutput = do
           Just (Just True) -> InventoryStatus.HealthReady
           Just (Just False) -> InventoryStatus.HealthNotReady
           _ -> InventoryStatus.findingHealth finding}
-        | finding <- InventoryStatus.classifyDrift inventory observations]
+        | finding <- InventoryStatus.classifyDrift inventory observations, wanted (InventoryStatus.findingResource finding)]
       retainedHealthById = Map.fromList (retainedHealthPairs <> retainedHelmHealthPairs)
       retainedFindings =
         [finding {InventoryStatus.retainedHealth = case Map.lookup (InventoryStatus.retainedResource finding) retainedHealthById of
           Just (Just True) -> InventoryStatus.HealthReady
           Just (Just False) -> InventoryStatus.HealthNotReady
           _ -> InventoryStatus.retainedHealth finding}
-        | finding <- InventoryStatus.retainedFindings history retainedObservations]
-      collectionAssessments = InventoryStatus.assessCollections history inventory retainedObservations
-      collectedEntries = Map.toAscList (InventoryStore.headCollected (InventoryPlan.historyHead history))
+        | finding <- InventoryStatus.retainedFindings history retainedObservations, wanted (InventoryStatus.retainedResource finding)]
+      collectionAssessments = filter (wanted . InventoryStatus.collectionResource)
+        (InventoryStatus.assessCollections history inventory retainedObservations)
+      collectedEntries = filter (wanted . fst) (Map.toAscList (InventoryStore.headCollected (InventoryPlan.historyHead history)))
       unavailable = Set.toAscList (Set.fromList
         ([InventoryStatus.findingExecutor finding | finding <- findings,
           InventoryStatus.findingCategory finding == InventoryStatus.UnknownObservation]
@@ -6232,7 +6268,7 @@ runInventoryStatus mctx requested json gcOutput = do
             , "delegations" Aeson..= (resource ^. #delegations)
             , "source" Aeson..= (resource ^. #source)
             ]), T.pack (show finding))
-        Nothing -> case Map.lookup resourceId (InventoryPlan.historyRetained history) of
+        Nothing -> case Map.lookup resourceId retainedMembers of
           Just (_, resource) -> do
             let retainedFinding = find ((== resourceId) . InventoryStatus.retainedResource) retainedFindings
             finding <- maybe (dieT "retained resource finding is absent") pure retainedFinding
@@ -6263,6 +6299,40 @@ runInventoryStatus mctx requested json gcOutput = do
             Nothing -> dieT "resource is absent from accepted and historical inventory"
       if json then LBC.putStrLn (Aeson.encode explanation)
         else TIO.putStrLn summary
+
+-- Explicit compatibility extraction: one bounded batch, immutable writes only,
+-- visible per-review progress, and a stable captured head. No implicit scans in
+-- status/explain and no materialization prerequisite for admitted recovery.
+runInventoryMaterializeNative :: Maybe String -> Maybe String -> Int -> IO ()
+runInventoryMaterializeNative mctx afterRaw limit = do
+  unless (limit > 0 && limit <= 100) (dieT "--limit must be between 1 and 100 reviews")
+  after <- traverse (either dieT pure . Resource.mkContentDigest . T.pack) afterRaw
+  active <- activeTarget mctx
+  store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+  result <- InventoryStore.withProcessLock store $ \_ -> do
+    snapshot <- InventoryStore.readStoreSnapshot store >>= either (dieT . T.pack . show) pure
+    context <- either dieT pure (Resource.mkContextId (contextNameText (active ^. #contextName)))
+    project <- either dieT pure (Resource.mkName (active ^. #profile . #project))
+    unless (InventoryStore.headBinding (InventoryStore.storeSnapshotHead snapshot)
+        == Resource.ContextBinding context project) (dieT "inventory belongs to a different context or project")
+    let headValue = InventoryStore.storeSnapshotHead snapshot
+        available = filter (\digest -> maybe True (< digest) after)
+          (Set.toAscList (InventoryStore.storeSnapshotReviewDigests snapshot))
+        batch = take limit available
+    forM_ batch $ \digest -> do
+      bundle <- InventoryPlan.loadPublishedReview store digest >>= either (dieT . T.pack . show) pure
+      unless (InventoryPlan.reviewContextBinding (InventoryPlan.reviewBundleDocument bundle)
+          == InventoryStore.headBinding headValue) (dieT "historical review context differs from captured head")
+      InventoryPlan.publishObservationMembers store bundle >>= either (dieT . T.pack . show) pure
+      TIO.hPutStrLn stderr ("Materialized review " <> Resource.digestText digest)
+    final <- InventoryStore.readHead store >>= either (dieT . T.pack . show) pure
+    unless (final == Just headValue) (dieT "inventory head changed during materialization; rerun the batch")
+    LBC.putStrLn (Aeson.encode (Aeson.object
+      ["headGeneration" Aeson..= InventoryStore.headGeneration headValue,
+       "processed" Aeson..= length batch,
+       "remaining" Aeson..= (length available - length batch),
+       "after" Aeson..= case reverse batch of { [] -> after; digest : _ -> Just digest }]))
+  either (dieT . T.pack . show) pure result
 
 runInventoryStoreStatus :: Maybe String -> Bool -> IO ()
 runInventoryStoreStatus mctx json = do

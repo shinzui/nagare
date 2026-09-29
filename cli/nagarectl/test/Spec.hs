@@ -46,6 +46,7 @@ import InventoryUpstreamSpec (inventoryUpstreamTests)
 import InventoryAuthSpec (inventoryAuthTests)
 import InventoryObservabilitySpec (inventoryObservabilityTests)
 import InventoryPublicationSpec (inventoryPublicationTests)
+import InventoryObservationSpec (inventoryObservationTests)
 import InventoryObjectOpsSpec (inventoryObjectOpsTests)
 import InventoryCloudSpec (inventoryCloudTests)
 import InventoryCdnSpec (inventoryCdnTests)
@@ -486,6 +487,7 @@ main = do
             , inventoryLifecycleTests
             , inventoryMigrationTests
             , inventoryStatusTests
+            , inventoryObservationTests
             , inventoryObjectOpsTests
             , inventoryTests
             , inventoryTransactionTests

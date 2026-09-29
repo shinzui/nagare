@@ -1,0 +1,21 @@
+{
+  "cli/nagarectl/app/Main.hs": "a65ba75df8a25885f5e4091c5af612f7ef516320bae571aa087dc6c41efab988",
+  "cli/nagarectl/nagarectl.cabal": "98c0870a82c7bedd16659f1f3e91fe5947fed52d1d291957d4d3c0e564d7b2df",
+  "cli/nagarectl/src/Nagare/Inventory/ObservationNative.hs": "615b7447dc9f3b173333350071de243b3c0d8fd1557280f0a9079b4a532b8f07",
+  "cli/nagarectl/src/Nagare/Inventory/Plan.hs": "ce62d4ca7bc59dca87139dde3733e162ef53ee378851da5a474d01d2fb9e1262",
+  "cli/nagarectl/src/Nagare/Inventory/Status.hs": "63d7021c44a793aba51d7d6b6fb1935cef973e20cd3bf36d2eeb9fc974be849b",
+  "cli/nagarectl/src/Nagare/Inventory/Execute.hs": "bd4ffa9bd39a1c562cdd9e54621e083a6b3ab1ca13a5050bf47eeeaf0c072496",
+  "cli/nagarectl/src/Nagare/Inventory/Store.hs": "07871893f58010cca155e25bf044a2c0dda8a7d438052c0eb66803e8ade951a8",
+  "cli/nagarectl/src/Nagare/Inventory/Adapters/HelmRuntime.hs": "cf210ebe1cd4b30810a8ceac6a2552b282cccf8ca6bf9974500970126cb91393",
+  "cli/nagarectl/test/InventoryObservationSpec.hs": "d19f20568d8a4437ca69c81f604da8416f04913f9ef2a4ddfe96dc94f9176b50",
+  "cli/nagarectl/test/InventoryObjectOpsSpec.hs": "08d8c266c71cd1992bf8b675c7869fc71db50d6d682148c6fe3154e30f7fbe55",
+  "cli/nagarectl/test/Spec.hs": "ed6595bff6770252f263f78993addd8750c82c48f65265a204224e244d003b8a",
+  "scripts/test-inventory-operation-driver.py": "3a2ec27e8a5d99eb06918dbab6210ffd73dc18dcc437d04646a3b6fc8513f2f9",
+  "scripts/test-inventory-selected-observation.py": "81832a124787a7646cd1b34375bec681ecc8b8475d6abd60b272a03ec3298a53",
+  "scripts/test-inventory-command-cost.py": "fe1289af5a41d6ad6adcb49a8b01e36015ed26a9aa96854b54af3f81b03aa830",
+  "scripts/fixtures/InventoryObservationFixture.hs": "6989eb9f0edbf2677ea71113745fe9e6147a6d1154b052a2073dd70bf82953fd",
+  "scripts/audit-managed-commands.py": "61e5cb271f276906800abfd8abda5fcb2995bd45b21184887f76b4eab83b6cb9",
+  "docs/audits/mp23-reproductions/OperationalCost.hs": "4227d92d393b41fcdb2e2462a95a3eea61c5b95b8c3b5a88b82fa1b9e7bf4700",
+  "docs/audits/mp23-reproductions/run-operational-cost.py": "dad18b1d9cab0de78dc3e66e448ad525753b3493b945430611f6cd0918921000",
+  "docs/audits/mp23-reproductions/fake-gcloud.py": "92c5f9fc8dc4968f200a759768ee46574f0c2f8676a68c40654590254a50e293"
+}

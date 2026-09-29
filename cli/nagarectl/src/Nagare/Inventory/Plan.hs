@@ -48,6 +48,7 @@ module Nagare.Inventory.Plan
   , reviewDigest
   , encodeReviewDocument
   , publishReview
+  , publishObservationMembers
   , loadPublishedReview
   , writeReviewBundle
   , loadReviewBundle
@@ -82,6 +83,7 @@ import Nagare.Inventory.DataFence (dataFenceIntentDigest)
 import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Journal
+import Nagare.Inventory.ObservationNative (observationBytesFromMutation)
 import Nagare.Inventory.Migration.Types
 import Nagare.Inventory.Store
 import Nagare.Inventory.Store qualified as InventoryStore
@@ -1422,9 +1424,34 @@ publishReview store bundle = do
       nativeResults <- traverse (\(digest, bytes) -> publishIfAbsent store (nativeKey digest) bytes) (Map.toAscList (bundleNative bundle))
       case sequence nativeResults of
         Left err -> pure (Left err)
-        Right _ -> publishIfAbsent store (reviewKey digest) (encodeReviewDocument (bundleDocument bundle))
-          where
-            digest = reviewDigest bundle
+        Right _ -> do
+          observations <- publishObservationMembers store bundle
+          case observations of
+            Left err -> pure (Left err)
+            Right () -> publishIfAbsent store (reviewKey (reviewDigest bundle))
+              (encodeReviewDocument (bundleDocument bundle))
+
+-- | Add only immutable, digest-addressed observation bytes. This never changes
+-- a head, accepted scope, operation, or admission decision. Repeating after an
+-- interruption is safe. The caller must supply an original prepared/loaded review.
+publishObservationMembers :: InventoryStore -> ReviewBundle -> IO (Either StoreError ())
+publishObservationMembers store bundle = case traverse extract (reviewOperations document) of
+  Left reason -> pure (Left (StoreInvalidObject (reviewKey (reviewDigest bundle)) reason))
+  Right values -> do
+    results <- traverse (\bytes -> publishIfAbsent store (nativeKey (contentDigest bytes)) bytes)
+      (Map.elems (Map.fromList [(contentDigest bytes, bytes) | Just bytes <- values]))
+    pure (() <$ sequence results)
+  where
+    document = bundleDocument bundle
+    extract operation = case reviewNativeDigest operation of
+      Nothing -> Right Nothing
+      Just digest -> do
+        bytes <- maybe (Left "review native member is missing") Right
+          (Map.lookup digest (bundleNative bundle))
+        unless (contentDigest bytes == digest) (Left "review native member digest mismatch")
+        observationBytesFromMutation (reviewContextBinding document ^. #identity)
+          (reviewAdapterIdentity operation) (reviewAdapterVersion operation)
+          (reviewPlannedOperation operation) bytes
 
 loadPublishedReview :: InventoryStore -> ContentDigest -> IO (Either StoreError ReviewBundle)
 loadPublishedReview store digest = do

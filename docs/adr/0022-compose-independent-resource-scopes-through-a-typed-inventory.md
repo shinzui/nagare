@@ -733,8 +733,9 @@ The earlier publication/rebuild proposal is one possible acceleration protocol;
 mandatory index availability before historical recovery is superseded. Derived
 state may assist lookup but cannot revoke an already-admitted review's recovery
 authority. Where old formats require extraction, make that explicit, bounded,
-restartable, and subordinate to immutable proof. Selected missing/corrupt original
-evidence still refuses. No new schema or compatibility implementation is claimed.
+restartable, and subordinate to immutable proof. Missing/corrupt required
+evidence still refuses. The implementation checkpoint below records the chosen
+compatibility path.
 
 This is a bounded implementation direction, not new product scope or a declaration
 that the replacement is proven. Preserve existing native safety checks, historical
@@ -750,4 +751,34 @@ retention re-observes the original physical incarnation, and migration checks th
 original source before transferring it into retained history. The existing
 `BackUpSource` preflight supplies that source-binding check independently of
 future destination readiness. Neither admission check becomes an up-front resume
-requirement. Selected-read and store-cost implementation remains outstanding.
+requirement. The following checkpoint records selected-read and store-cost implementation.
+
+
+Observation/store implementation (2026-09-29): resource status/explain now consume
+an opaque `ObservationNative` value instead of an execution-review projection.
+The validated accepted or retained declaration supplies context/ownership/address
+and incarnation authority. Its native digest names canonical unstamped Kubernetes
+bytes or the Helm contract directly in the existing private `native/` content
+store; these portable bytes do not themselves grant ownership or execution.
+Kubernetes binding is recompiled and checked, while closed generated Namespace,
+backend-map, and Shomei shapes reconstruct exactly from typed contributions.
+Publishing a known native adapter's review also publishes these digest-addressed
+bytes without changing the review format or admission hash. Inspection never
+lists reviews and a selected miss never starts an implicit historical scan.
+
+For older stores, `inventory store materialize-native --limit N --after DIGEST`
+is explicit compatibility extraction. It validates original reviews, reports
+progress per review, checks a captured head, and writes only immutable bytes.
+Repeating an interrupted batch is idempotent. Full execution/admission/export
+validation and historical recovery remain independent of this observation path;
+legacy execution helpers still retain their archival lookup compatibility.
+
+`Store.ObservedHead` privately binds a validated head to its store and exact
+provider generation. Journal append uses that observation for its conditional
+head replacement, so remote head rediscovery is unnecessary. The local backend
+rechecks under its guard; the object backend uses the captured provider generation.
+A replay reads the committed journal prefix from the head it already observed.
+Neither change caches mutable heads across commands or removes writer-claim,
+takeover, hash-chain, or lost-acknowledgement checks. See the implementation's
+[bounded proof](../audits/mp23-selected-read-proof.md); GCS latency remains a
+separate acceptance gate.

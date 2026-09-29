@@ -179,6 +179,7 @@ library
     Nagare.Inventory.Journal
     Nagare.Inventory.Kubernetes
     Nagare.Inventory.KubernetesReview
+    Nagare.Inventory.ObservationNative
     Nagare.Inventory.KubernetesSources
     Nagare.Inventory.Plan
     Nagare.Inventory.Lifecycle
@@ -324,6 +325,7 @@ test-suite nagarectl-test
     InventoryMigrationSpec
     InventoryObservabilitySpec
     InventoryPublicationSpec
+    InventoryObservationSpec
     InventoryObjectOpsSpec
     InventorySpec
     InventoryStatusSpec

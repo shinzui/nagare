@@ -457,7 +457,10 @@ resumeTransactionWithTakeover store registry transaction takeOver = do
         Left err -> pure (failure "transaction-id" err)
         Right digest -> do
           headResult <- readHead store
-          eventsResult <- readJournal lock
+          eventsResult <- case headResult of
+            Left err -> pure (Left err)
+            Right Nothing -> pure (Left (StoreConditionFailed "inventory store is not initialized"))
+            Right (Just headValue) -> readJournalAtHead store headValue
           case (headResult, eventsResult) of
             (Left err, _) -> pure (failure "store" (showText err))
             (_, Left err) -> pure (failure "journal" (showText err))
@@ -1242,11 +1245,12 @@ selectedFence registry plan operation prepared = do
 appendEvent :: LockedStore s -> TransactionId -> Maybe OperationId -> OperationState -> Text -> IO (Either StoreError JournalEvent)
 appendEvent locked transaction operation state detail = do
   let store = lockedStore locked
-  headResult <- readHead store
+  headResult <- observeHead store
   case headResult of
     Left err -> pure (Left err)
-    Right Nothing -> pure (Left (StoreConditionFailed "inventory store is not initialized"))
-    Right (Just headValue) -> do
+    Right observed | Nothing <- observedHeadManifest observed ->
+      pure (Left (StoreConditionFailed "inventory store is not initialized"))
+    Right observed | Just headValue <- observedHeadManifest observed -> do
       let claimed = case storeClientIdentity store of
             Nothing -> True
             Just client -> case headExecutorClaim headValue of
@@ -1265,7 +1269,7 @@ appendEvent locked transaction operation state detail = do
                   key = journalKey (headSequence headValue)
               published <- appendAtObservedHead store headValue (encodeJournalEvent event)
               case published of
-                Right _ -> advance headValue event
+                Right _ -> advance observed headValue event
                 Left (StoreObjectConflict _) -> do
                   existing <- readObject store key
                   case existing of
@@ -1274,13 +1278,14 @@ appendEvent locked transaction operation state detail = do
                     Right (Just bytes) -> case decodeJournalEvent bytes of
                       Left err -> pure (Left (StoreInvalidObject key err))
                       Right old
-                        | sameEventMeaning old event -> advance headValue old
+                        | sameEventMeaning old event -> advance observed headValue old
                         | otherwise -> pure (Left (StoreObjectConflict key))
                 Left err -> pure (Left err)
+    Right _ -> pure (Left (StoreConditionFailed "inventory store is not initialized"))
   where
-    advance headValue event = do
+    advance observed headValue event = do
       let replacement = headValue {headGeneration = headGeneration headValue + 1, headSequence = headSequence headValue + 1}
-      replaced <- replaceHeadIfGenerationMatches (lockedStore locked) (Just (headGeneration headValue)) replacement
+      replaced <- replaceObservedHead observed replacement
       pure (event <$ replaced)
     sameEventMeaning left right =
       eventSequence left == eventSequence right
@@ -1305,12 +1310,17 @@ readJournal locked = do
   case headResult of
     Left err -> pure (Left err)
     Right Nothing -> pure (Left (StoreConditionFailed "inventory store is not initialized"))
-    Right (Just headValue) -> do
-      loaded <- readJournalPrefix store (headSequence headValue)
-      pure $ do
-        bytes <- loaded
-        events <- traverse (first (StoreInvalidObject "journal") . decodeJournalEvent) bytes
-        first (StoreInvalidObject "journal") (validateJournal events)
+    Right (Just headValue) -> readJournalAtHead store headValue
+
+-- The command already observed this committed prefix. Keep that boundary for
+-- decoding/hash-chain validation; a later writer-claim CAS still checks freshness.
+readJournalAtHead :: InventoryStore -> HeadManifest -> IO (Either StoreError [JournalEvent])
+readJournalAtHead store headValue = do
+  loaded <- readJournalPrefix store (headSequence headValue)
+  pure $ do
+    bytes <- loaded
+    events <- traverse (first (StoreInvalidObject "journal") . decodeJournalEvent) bytes
+    first (StoreInvalidObject "journal") (validateJournal events)
 
 operationStates :: TransactionId -> [JournalEvent] -> Map OperationId OperationState
 operationStates transaction =

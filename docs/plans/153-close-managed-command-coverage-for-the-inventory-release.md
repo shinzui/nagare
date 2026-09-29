@@ -67,9 +67,22 @@ Every supported mutation command and shipped recipe is mapped to its owner, revi
 
 ## Progress
 
-**Current M2 entrypoint — 2026-09-29 design reassessment.** [The reassessment](../audits/mp23-design-reassessment.md) replaces independent phase repairs with one shared serial operation driver and immutable adapter construction. E3's single-operation result did not establish executor correctness: E10 demonstrates a dependent preflight blocking recovery and a terminal recovery outcome crashing the ordinary dispatch path (F12/F13). The production driver patch and fixed saved-prune consumer now pass as recorded below; preserve their authority checks and historical recovery while completing selected reads. EP-156 then supplies the selected read interface for public explain/status. Passing registration and generic transaction tests remain credited; M2 and the affected findings remain open.
+**Current M2 entrypoint — production read/driver repairs, 2026-09-29.** The shared serial operation driver and immutable registry have saved-transaction proof, and EP-156's opaque selected observation reader now serves public status/explain. Preserve both checkpoints below. Next, measure the active execution registry/startup path and finish the remaining supported command/host recovery prerequisites; do not reinstate whole-context observation or make old transaction recovery depend on materialized observation bytes. M2 and independent finding closure remain open.
 
-Production checkpoint (2026-09-29): `OperationStep.hs` and `Execute.hs` now share one apply/resume phase decision. The whole-review live-preflight sweep is removed; structural validation, retention observation, and explicit migration-source admission proof remain. Main.hs has one execution/recovery registry and runs prune eligibility only before Job creation. The same saved public transaction now stops cleanly on terminal failure, permits exact abandonment, rejects a changed source UID, and converges after completion/interruption without repeated provider mutations; a second resume makes no provider calls. The complete 935-test suite, command audit, entrypoint guards, and Haskell style pass. [Retained proof and commands](../audits/mp23-rescue-proof.md) bound this result: synthetic admitted history and recorded providers do not prove physical deletion, receipt-only cleanup, retained-source CLI behavior, or cloud latency. F09/F12/F13 are Verifying; M2 remains open. Next implementation is selected target/read isolation with EP-156.
+Production checkpoint (2026-09-29): `OperationStep.hs` and `Execute.hs` now share one apply/resume phase decision. The whole-review live-preflight sweep is removed; structural validation, retention observation, and explicit migration-source admission proof remain. Main.hs has one execution/recovery registry and runs prune eligibility only before Job creation. The same saved public transaction now stops cleanly on terminal failure, permits exact abandonment, rejects a changed source UID, and converges after completion/interruption without repeated provider mutations; a second resume makes no provider calls. The complete 935-test suite, command audit, entrypoint guards, and Haskell style pass. [Retained proof and commands](../audits/mp23-rescue-proof.md) bound this result: synthetic admitted history and recorded providers do not prove physical deletion, receipt-only cleanup, retained-source CLI behavior, or cloud latency. F09/F12/F13 are Verifying; M2 remains open. The following checkpoint implements selected target/read isolation with EP-156.
+
+Selected-read production checkpoint (2026-09-29): status/explain resolves the
+selected accepted, retained, or collected identity before native evidence,
+workspace resolution, and provider setup. Kubernetes/Helm use opaque observation
+inputs and their read-only runtime needs no payload workspace. Dependency and
+consumer explanations still use the full validated declaration graph. Public
+fixtures prove known/unknown IDs, retained selection, foreign context refusal,
+unrelated malformed reviews and missing sibling payloads, selected corruption,
+and explicit legacy materialization. [The retained proof](../audits/mp23-selected-read-proof.md)
+records call counts, source identities, and the complete 943-test run. The command
+audit now registers 139 routes, including bounded immutable materialization.
+F10 is Verifying pending independent checks; F04's nonempty legacy execution
+helper and active-registry costs remain Partial. M2 remains open.
 
 2026-09-28 scope update: no milestone is newly accepted by this edit. Use the revised MP-23 support boundary; historical findings retain their observations but do not reinstate deferred live overwrite, maintenance, or scheduled-pruning requirements.
 

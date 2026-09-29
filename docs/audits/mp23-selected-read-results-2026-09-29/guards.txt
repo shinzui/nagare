@@ -1,0 +1,2 @@
+inventory entrypoint guards: five image-free deploy refusals, three unreviewed change refusals, eleven admitted refusals, untouched-store delete allowed
+application entrypoint guards: thirty-three live refusals and seven fresh-context refusals, inventory heads unchanged

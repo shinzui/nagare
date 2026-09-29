@@ -26,6 +26,10 @@ module Nagare.Inventory.Store
   , inventoryStoreRoot
   , initializeStore
   , readHead
+  , ObservedHead
+  , observeHead
+  , observedHeadManifest
+  , replaceObservedHead
   , inspectHeadSchema
   , readStoreSnapshot
   , publishIfAbsent
@@ -613,8 +617,16 @@ appendAtObservedHead store headValue bytes
       written <- writeObjectUnlocked store False key bytes
       pure (contentDigest bytes <$ written)
 
-replaceHeadIfGenerationMatches :: InventoryStore -> Maybe Integer -> HeadManifest -> IO (Either StoreError ())
-replaceHeadIfGenerationMatches store expected replacement = withBackendGuard store $ do
+-- | A command-local observation binds decoded authority to its exact provider
+-- generation and store. No caller can manufacture it or apply it to another
+-- store. Reuse is safe: conditional replacement rejects a stale observation.
+data ObservedHead = ObservedHead !InventoryStore !(Maybe HeadManifest) !(Maybe Generation)
+
+observedHeadManifest :: ObservedHead -> Maybe HeadManifest
+observedHeadManifest (ObservedHead _ current _) = current
+
+observeHead :: InventoryStore -> IO (Either StoreError ObservedHead)
+observeHead store = do
   observed <- case store of
     InventoryStore (ObjectBackend ops _ _ _ _ _) -> do
       result <- getObject ops (ObjectName "head.json")
@@ -623,31 +635,49 @@ replaceHeadIfGenerationMatches store expected replacement = withBackendGuard sto
         ObjectAbsent -> Right (Nothing, Nothing)
         ObjectFound generation bytes -> Right (Just bytes, Just generation)
     _ -> fmap (fmap (\bytes -> (bytes, Nothing))) (readObjectUnlocked store "head.json")
-  case observed >>= \(bytes, generation) ->
-    fmap (\current -> (current, generation)) (traverse decodeHead bytes) of
+  pure $ do
+    (bytes, generation) <- observed
+    current <- traverse decodeHead bytes
+    pure (ObservedHead store current generation)
+
+replaceObservedHead :: ObservedHead -> HeadManifest -> IO (Either StoreError ())
+replaceObservedHead observed@(ObservedHead store _ _) replacement =
+  withBackendGuard store (replaceObservedHeadUnlocked observed replacement)
+
+replaceHeadIfGenerationMatches :: InventoryStore -> Maybe Integer -> HeadManifest -> IO (Either StoreError ())
+replaceHeadIfGenerationMatches store expected replacement = withBackendGuard store $ do
+  observed <- observeHead store
+  case observed of
     Left err -> pure (Left err)
-    Right (current, providerGeneration) -> do
-      let actual = headGeneration <$> current
-          next = maybe 0 (+ 1) expected
-      if maybe False (isJust . headMigration) current
-        then pure (Left (StoreConditionFailed "inventory store has migrated; reload the context shell"))
-        else if actual /= expected
-        then pure (Left (StoreConditionFailed "inventory head generation changed"))
-        else
-          if headGeneration replacement /= next
-            then pure (Left (StoreConditionFailed "replacement head generation is not the next generation"))
-            else case canonicalValue (toJSON replacement) of
-              Left err -> pure (Left (StoreInvalidObject "head.json" err))
-              Right bytes -> case store of
-                InventoryStore (ObjectBackend ops _ _ _ _ _) -> do
-                  let condition = maybe IfAbsent IfGenerationMatches providerGeneration
-                  outcome <- putObject ops condition (ObjectName "head.json") bytes
-                  pure $ case outcome of
-                    PutWritten _ -> Right ()
-                    PutPreconditionFailed -> Left (StoreConditionFailed "inventory head generation changed")
-                    PutNoEffect reason -> Left (StoreConditionFailed reason)
-                    PutUnknown reason -> Left (StoreIoError reason)
-                _ -> writeObjectUnlocked store True "head.json" bytes
+    Right value
+      | (headGeneration <$> observedHeadManifest value) /= expected ->
+          pure (Left (StoreConditionFailed "inventory head generation changed"))
+      | otherwise -> replaceObservedHeadUnlocked value replacement
+
+replaceObservedHeadUnlocked :: ObservedHead -> HeadManifest -> IO (Either StoreError ())
+replaceObservedHeadUnlocked (ObservedHead store current providerGeneration) replacement
+  | maybe False (isJust . headMigration) current =
+      pure (Left (StoreConditionFailed "inventory store has migrated; reload the context shell"))
+  | headGeneration replacement /= maybe 0 ((+ 1) . headGeneration) current =
+      pure (Left (StoreConditionFailed "replacement head generation is not the next generation"))
+  | otherwise = case canonicalValue (toJSON replacement) of
+      Left err -> pure (Left (StoreInvalidObject "head.json" err))
+      Right bytes -> case store of
+        InventoryStore (ObjectBackend ops _ _ _ _ _) -> do
+          outcome <- putObject ops (maybe IfAbsent IfGenerationMatches providerGeneration)
+            (ObjectName "head.json") bytes
+          pure $ case outcome of
+            PutWritten _ -> Right ()
+            PutPreconditionFailed -> Left (StoreConditionFailed "inventory head generation changed")
+            PutNoEffect reason -> Left (StoreConditionFailed reason)
+            PutUnknown reason -> Left (StoreIoError reason)
+        _ -> do
+          -- Local stores have no provider CAS; recheck under the backend guard.
+          latest <- readObjectUnlocked store "head.json"
+          case latest >>= traverse decodeHead of
+            Left err -> pure (Left err)
+            Right actual | actual == current -> writeObjectUnlocked store True "head.json" bytes
+            Right _ -> pure (Left (StoreConditionFailed "inventory head generation changed"))
 
 mutableHeadAllowed :: InventoryStore -> IO (Either StoreError ())
 mutableHeadAllowed store = do

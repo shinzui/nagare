@@ -33,7 +33,7 @@ Implementation owner: existing session `01a0e893-337f-7b82-ac5d-16f41bf5ce21` (I
 | [F07](#f07) | P1 | Installed key with failed service activation cannot recover by retry | Verifying | EP-156 |
 | [F08](#f08) | P2 | Unchanged host bootstrap depends on transient key-file environment and source root | Open | EP-156 |
 | [F09](#f09) | P1 | Scheduled-prune preflight prevents recovery after admission | Verifying | EP-159 / EP-153 |
-| [F10](#f10) | P2 | Explaining one resource observes the whole context | Open | EP-153 |
+| [F10](#f10) | P2 | Explaining one resource observes the whole context | Verifying | EP-153 |
 | [F11](#f11) | Build | Conditional-upload optimization has ambiguous try exception type | Closed | EP-156 |
 | [F12](#f12) | P1 | A later operation’s preflight blocks recovery of its ambiguous prerequisite | Verifying | EP-153 / EP-159 |
 | [F13](#f13) | P1 | Ordinary executor recovery has no terminal-failure branch | Verifying | EP-153 / EP-159 |
@@ -92,6 +92,8 @@ F01 and F11 are independently Closed with [retained verification and source iden
 
 **Implementation update:** Commit `90e06e29`: `Status.hs` SHA-256 `6e16cf573810b7191ab040dbe7ba639160ab137f255901f9dfc5d1b6c2b9d85b` adds the empty-retained fast path. The object-group tests passed, but they do not measure unrelated review history; accepted and nonempty-retained scans remain unresolved.
 
+**Implementation update (2026-09-29):** [Production proof and exact source hashes](mp23-selected-read-proof.md): status/explain now reads opaque digest-bound observation inputs, with two cold native GETs for two selected bindings independent of 0/500 reviews and 0/50 siblings. Empty legacy native requests use zero GETs/lists. New publications include raw observation bytes; explicit bounded materialization handles old stores without making it a recovery prerequisite. Full-suite and public corruption/legacy/retained tests pass. Remains Partial because nonempty execution-native compatibility helpers still scan archives and active-command setup cost remains to be measured.
+
 **Required verification:** Hold current inventory fixed while increasing unrelated review history; record remote/member decode counts and cold/warm cost. Demonstrate selection of only necessary native evidence while preserving incarnation binding.
 
 **Verification:** Not closed. Awaiting the checks above.
@@ -119,6 +121,8 @@ F01 and F11 are independently Closed with [retained verification and source iden
 **Audit evidence:** Measured actual appendEvent ObjectOps trace: noninitial event has five found GETs, two absent GETs, two PUTs. Original transport expands to 27 subprocesses/event; successful PUT fast path projects 21. No cloud-duration claim from these counts.
 
 **Implementation update:** Commit `90e06e29`: `Store.hs` SHA-256 `93391593cd3eee4d59ac8e2d75ab661dfee52d90fa3ef1f5d504c4701ecfe6a2`, `ObjectOps.hs` `028959447fd85a512c6ef1c28cb5f9b31aeb4193ea624fc4202a7e1334d5eef8`, and `Execute.hs` `f85330076f5fd386ef572f0dd7a36690c5d3ee9323233e6096ccde2bb6f60f1d` batch replay, use the successful-upload generation, and append from the observed head. The object-group command passed `known-head journal append uses one conditional write without rediscovery` and the lost-ack case. A complete append subprocess trace and real cold/warm 50/500-event latency are still missing; the last real warm no-op was 41.04 seconds at 61 events.
+
+**Implementation update (2026-09-29):** [Production append/command traces and source hashes](mp23-selected-read-proof.md) establish 5/8 subprocesses for actual complete append (previously 8/11), with a stale-provider-generation injection still refused. `ObservedHead` is opaque and store-bound. Resume reuses its validated head for journal loading; 12 full public no-op command cases now cost 12 subprocesses each (previously 15), independent of 50/500 events and 0/50/500 unrelated reviews. The 943-test suite includes provider-generation ABA, migrated-head refusal, takeover and lost-ack regressions. Remains Partial: active-command setup and real GCS latency still gate closure.
 
 **Required verification:** Retain append and resume command-count regressions, preserve conditional writes/lost-ack recovery, then pass EP-156 cold/warm real GCS timing gate. Record append/provider/replay timings separately; no closure from one batched cp.
 
@@ -170,13 +174,15 @@ F01 and F11 are independently Closed with [retained verification and source iden
 
 ## F10
 
-**Explaining one resource observes the whole context** — P2; **Open**; owner EP-153.
+**Explaining one resource observes the whole context** — P2; **Verifying**; owner EP-153.
 
 **Locations:** cli/nagarectl/app/Main.hs: runInventoryStatus / InventoryExplain; cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesRuntime.hs: observeKubernetesHealth.
 
 **Audit evidence:** runInventoryStatus uses requested ID only after all adapter construction/observations/health/history. Invalid IDs also pay this cost. Kubernetes readiness repeats GETs for supported objects.
 
 **Implementation update:** Sent to implementation session; no fix verified.
+
+**Implementation update (2026-09-29):** [Public CLI proof and source hashes](mp23-selected-read-proof.md) show selected Kubernetes and Helm observation without a workspace, one selected provider call, no unrelated provider calls, early unknown-ID and foreign-context refusal, retained selection, and independence from 500 malformed reviews/missing sibling natives. Full dependency/consumer declarations remain available, and selected missing/corrupt bytes refuse before provider IO. Status is Verifying, not independently Closed; cloud timing and nonempty legacy execution lookup remain separate F06/F04 work.
 
 **Required verification:** Record provider calls for one-resource explain and invalid ID; unrelated providers must receive none. Preserve dependency/consumer explanation and UID-bound health. Show call count does not grow with unrelated managed resources.
 

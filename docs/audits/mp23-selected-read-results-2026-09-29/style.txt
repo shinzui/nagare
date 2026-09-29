@@ -1,0 +1,7 @@
+Running 1 tests
+
+----------- Case Details -----------
+PASS haskell-data-record-fields-must-be-strict  ...
+
+test result: ok. 1 passed; 0 failed;
+Haskell style checks passed (nagare-dsl, nagarectl, nagare-access).

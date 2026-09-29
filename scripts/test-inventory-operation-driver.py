@@ -78,6 +78,12 @@ for phase in ['before','partial','wrong-source-uid','completed','running']:
              NAGARE_PLATFORM_ROOT=str(payload),PATH=str(bins)+os.pathsep+baseenv['PATH'],
              MP23_CALLS=str(calls),MP23_FIXTURE=str(root/'fixture.json'),MP23_PRUNE_PHASE=phase)
     store=case/'state/nagare/prune-spike/inventory'
+    if os.environ.get('MP23_LEGACY_OBSERVATION') == '1':
+        # Model an old publisher: keep every immutable mutation envelope, but
+        # remove the newly materialized observation-only copies in this case.
+        for member in (store/'native').glob('*.json'):
+            value=json.loads(member.read_text())
+            if isinstance(value,dict) and ('kind' in value or 'chartPath' in value): member.unlink()
     commands=[['inventory','resume',fixture['transaction'],'--yes']]
     if phase in ['partial','wrong-source-uid']:
         commands += [['inventory','recover',fixture['transaction'],'--operation',fixture['operation'],'--decision',str(root/'decision.json')]]
@@ -126,7 +132,8 @@ for phase in ['completed','running']:
     assert replay['beforeHead']==replay['afterHead'], replay
 for result in results:
     assert all(c[0] == 'kubectl' and 'get' in c for c in result['providerCalls']), result
-report={'binarySha256':hashlib.sha256(Path(binary).read_bytes()).hexdigest(),
+report={'legacyObservationMissing':os.environ.get('MP23_LEGACY_OBSERVATION')=='1',
+        'binarySha256':hashlib.sha256(Path(binary).read_bytes()).hexdigest(),
         'sources':{p:hashlib.sha256((repo/p).read_bytes()).hexdigest() for p in [
             'cli/nagarectl/app/Main.hs','cli/nagarectl/src/Nagare/Inventory/Execute.hs',
             'cli/nagarectl/src/Nagare/Inventory/OperationStep.hs',

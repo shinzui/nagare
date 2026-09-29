@@ -1,0 +1,293 @@
+{
+  "binarySha256": "bc1a46b08fcb4c879302051d46a5ff95a65372c6917d19e0865b15b3cb24a79f",
+  "results": [
+    {
+      "label": "selected-no-workspace",
+      "args": [
+        "inventory",
+        "explain",
+        "platform:observation/selected/resource",
+        "--json"
+      ],
+      "exit": 0,
+      "seconds": 0.221,
+      "stdout": "{\"accepted\":[{\"revision\":{\"digest\":\"12266b8e869cc5836035b4656bab070e0e7e07ec801334c8d9be0293320482f4\",\"generation\":1},\"scope\":{\"kind\":\"Platform\",\"name\":\"observation\"}}],\"activeTransaction\":null,\"addressAliases\":[],\"collected\":[],\"collectionAssessments\":[],\"consumers\":[],\"context\":{\"identity\":\"observation-fixture\",\"project\":\"project\"},\"converged\":[{\"revision\":{\"digest\":\"12266b8e869cc5836035b4656bab070e0e7e07ec801334c8d9be0293320482f4\",\"generation\":1},\"scope\":{\"kind\":\"Platform\",\"name\":\"observation\"}}],\"dataFence\":null,\"dataPolicy\":{\"tag\":\"Stateless\"},\"delegations\":[],\"dependencies\":[],\"dependencyTrace\":[],\"finding\":{\"address\":{\"contents\":[\"platform:observation/cluster/resource\",\"\",\"configmap\",\"personal\",\"selected\"],\"tag\":\"Kubernetes\"},\"category\":\"missing\",\"executor\":\"KubernetesExecutor\",\"health\":\"unavailable\",\"observedDigest\":null,\"owner\":{\"kind\":\"Platform\",\"name\":\"observation\"},\"physical\":null,\"reason\":\"provider confirmed absence\",\"resource\":\"platform:observation/selected/resource\"},\"lifecycle\":\"Retain\",\"missingProviderScopes\":[],\"missingProviders\":[],\"observationStartedAt\":\"2026-09-29T17:27:50.916239Z\",\"observedAt\":\"2026-09-29T17:27:51.100419Z\",\"providers\":[{\"executor\":\"KubernetesExecutor\",\"identity\":\"kubernetes-conditional-object\",\"version\":\"1\"},{\"executor\":\"HelmExecutor\",\"identity\":\"helm-reviewed-render\",\"version\":\"1\"},{\"executor\":\"PulumiExecutor\",\"identity\":\"manifest-only\",\"version\":\"1\"},{\"executor\":\"ArtifactExecutor\",\"identity\":\"manifest-only\",\"version\":\"1\"},{\"executor\":\"HostExecutor\",\"identity\":\"manifest-only\",\"version\":\"1\"},{\"executor\":\"CacheExecutor\",\"identity\":\"manifest-only\",\"version\":\"1\"},{\"executor\":\"BrokerExecutor\",\"identity\":\"manifest-only\",\"version\":\"1\"}],\"requiredConditions\":[],\"retained\":[],\"scheduledRetention\":[],\"sensitivity\":\"Private\",\"source\":{\"file\":\"fixture.yaml\",\"path\":\"document[0]\"},\"transactionStatus\":null}\n",
+      "stderr": "",
+      "providerCalls": [
+        [
+          "kubectl",
+          "--context",
+          "observation-fixture",
+          "--request-timeout=10s",
+          "get",
+          "configmap",
+          "selected",
+          "--namespace",
+          "personal",
+          "-o",
+          "json",
+          "--ignore-not-found"
+        ]
+      ]
+    },
+    {
+      "label": "selected-no-workspace",
+      "args": [
+        "inventory",
+        "explain",
+        "platform:observation/helm/resource",
+        "--json"
+      ],
+      "exit": 0,
+      "seconds": 0.217,
+      "stdout": "{\"accepted\":[{\"revision\":{\"digest\":\"12266b8e869cc5836035b4656bab070e0e7e07ec801334c8d9be0293320482f4\",\"generation\":1},\"scope\":{\"kind\":\"Platform\",\"name\":\"observation\"}}],\"activeTransaction\":null,\"addressAliases\":[],\"collected\":[],\"collectionAssessments\":[],\"consumers\":[],\"context\":{\"identity\":\"observation-fixture\",\"project\":\"project\"},\"converged\":[{\"revision\":{\"digest\":\"12266b8e869cc5836035b4656bab070e0e7e07ec801334c8d9be0293320482f4\",\"generation\":1},\"scope\":{\"kind\":\"Platform\",\"name\":\"observation\"}}],\"dataFence\":null,\"dataPolicy\":{\"tag\":\"Stateless\"},\"delegations\":[],\"dependencies\":[],\"dependencyTrace\":[],\"finding\":{\"address\":{\"contents\":[\"platform:observation/cluster/resource\",\"monitoring\",\"metrics\"],\"tag\":\"Helm\"},\"category\":\"missing\",\"executor\":\"HelmExecutor\",\"health\":\"unavailable\",\"observedDigest\":null,\"owner\":{\"kind\":\"Platform\",\"name\":\"observation\"},\"physical\":null,\"reason\":\"provider confirmed absence\",\"resource\":\"platform:observation/helm/resource\"},\"lifecycle\":\"Retain\",\"missingProviderScopes\":[],\"missingProviders\":[],\"observationStartedAt\":\"2026-09-29T17:27:51.135654Z\",\"observedAt\":\"2026-09-29T17:27:51.317898Z\",\"providers\":[{\"executor\":\"KubernetesExecutor\",\"identity\":\"manifest-only\",\"version\":\"1\"},{\"executor\":\"HelmExecutor\",\"identity\":\"helm-reviewed-render\",\"version\":\"1\"},{\"executor\":\"PulumiExecutor\",\"identity\":\"manifest-only\",\"version\":\"1\"},{\"executor\":\"ArtifactExecutor\",\"identity\":\"manifest-only\",\"version\":\"1\"},{\"executor\":\"HostExecutor\",\"identity\":\"manifest-only\",\"version\":\"1\"},{\"executor\":\"CacheExecutor\",\"identity\":\"manifest-only\",\"version\":\"1\"},{\"executor\":\"BrokerExecutor\",\"identity\":\"manifest-only\",\"version\":\"1\"}],\"requiredConditions\":[],\"retained\":[],\"scheduledRetention\":[],\"sensitivity\":\"Private\",\"source\":{\"file\":\"fixture.tgz\",\"path\":\"metrics\"},\"transactionStatus\":null}\n",
+      "stderr": "",
+      "providerCalls": [
+        [
+          "helm",
+          "status",
+          "metrics",
+          "--kube-context",
+          "observation-fixture",
+          "--namespace",
+          "monitoring",
+          "-o",
+          "json"
+        ]
+      ]
+    },
+    {
+      "label": "unknown-with-500-bad-reviews",
+      "args": [
+        "inventory",
+        "explain",
+        "platform:observation/missing/resource",
+        "--json"
+      ],
+      "exit": 1,
+      "seconds": 0.033,
+      "stdout": "",
+      "stderr": "nagarectl: resource is absent from accepted and historical inventory\n",
+      "providerCalls": []
+    },
+    {
+      "label": "selected-with-500-bad-reviews",
+      "args": [
+        "inventory",
+        "explain",
+        "platform:observation/selected/resource",
+        "--json"
+      ],
+      "exit": 0,
+      "seconds": 0.068,
+      "stdout": "{\"accepted\":[{\"revision\":{\"digest\":\"12266b8e869cc5836035b4656bab070e0e7e07ec801334c8d9be0293320482f4\",\"generation\":1},\"scope\":{\"kind\":\"Platform\",\"name\":\"observation\"}}],\"activeTransaction\":null,\"addressAliases\":[],\"collected\":[],\"collectionAssessments\":[],\"consumers\":[],\"context\":{\"identity\":\"observation-fixture\",\"project\":\"project\"},\"converged\":[{\"revision\":{\"digest\":\"12266b8e869cc5836035b4656bab070e0e7e07ec801334c8d9be0293320482f4\",\"generation\":1},\"scope\":{\"kind\":\"Platform\",\"name\":\"observation\"}}],\"dataFence\":null,\"dataPolicy\":{\"tag\":\"Stateless\"},\"delegations\":[],\"dependencies\":[],\"dependencyTrace\":[],\"finding\":{\"address\":{\"contents\":[\"platform:observation/cluster/resource\",\"\",\"configmap\",\"personal\",\"selected\"],\"tag\":\"Kubernetes\"},\"category\":\"missing\",\"executor\":\"KubernetesExecutor\",\"health\":\"unavailable\",\"observedDigest\":null,\"owner\":{\"kind\":\"Platform\",\"name\":\"observation\"},\"physical\":null,\"reason\":\"provider confirmed absence\",\"resource\":\"platform:observation/selected/resource\"},\"lifecycle\":\"Retain\",\"missingProviderScopes\":[],\"missingProviders\":[],\"observationStartedAt\":\"2026-09-29T17:27:51.458954Z\",\"observedAt\":\"2026-09-29T17:27:51.496483Z\",\"providers\":[{\"executor\":\"KubernetesExecutor\",\"identity\":\"kubernetes-conditional-object\",\"version\":\"1\"},{\"executor\":\"HelmExecutor\",\"identity\":\"helm-reviewed-render\",\"version\":\"1\"},{\"executor\":\"PulumiExecutor\",\"identity\":\"manifest-only\",\"version\":\"1\"},{\"executor\":\"ArtifactExecutor\",\"identity\":\"manifest-only\",\"version\":\"1\"},{\"executor\":\"HostExecutor\",\"identity\":\"manifest-only\",\"version\":\"1\"},{\"executor\":\"CacheExecutor\",\"identity\":\"manifest-only\",\"version\":\"1\"},{\"executor\":\"BrokerExecutor\",\"identity\":\"manifest-only\",\"version\":\"1\"}],\"requiredConditions\":[],\"retained\":[],\"scheduledRetention\":[],\"sensitivity\":\"Private\",\"source\":{\"file\":\"fixture.yaml\",\"path\":\"document[0]\"},\"transactionStatus\":null}\n",
+      "stderr": "",
+      "providerCalls": [
+        [
+          "kubectl",
+          "--context",
+          "observation-fixture",
+          "--request-timeout=10s",
+          "get",
+          "configmap",
+          "selected",
+          "--namespace",
+          "personal",
+          "-o",
+          "json",
+          "--ignore-not-found"
+        ]
+      ]
+    },
+    {
+      "label": "selected-retained",
+      "args": [
+        "inventory",
+        "explain",
+        "platform:observation/selected/resource",
+        "--json"
+      ],
+      "exit": 0,
+      "seconds": 0.068,
+      "stdout": "{\"accepted\":[],\"activeTransaction\":null,\"addressAliases\":[],\"collected\":[],\"collectionAssessment\":{\"candidate\":false,\"consumers\":[],\"deletionAuthorized\":false,\"observation\":\"confirmed-absent\",\"reasons\":[\"retention-policy\",\"unsupported-collection-transport\",\"exact-incarnation-not-present\"],\"resource\":\"platform:observation/selected/resource\"},\"collectionAssessments\":[{\"candidate\":false,\"consumers\":[],\"deletionAuthorized\":false,\"observation\":\"confirmed-absent\",\"reasons\":[\"retention-policy\",\"unsupported-collection-transport\",\"exact-incarnation-not-present\"],\"resource\":\"platform:observation/selected/resource\"}],\"consumers\":[],\"context\":{\"identity\":\"observation-fixture\",\"project\":\"project\"},\"converged\":[],\"dataFence\":null,\"dataPolicy\":{\"tag\":\"Stateless\"},\"delegations\":[],\"dependencies\":[],\"dependencyTrace\":[],\"finding\":{\"address\":{\"contents\":[\"platform:observation/cluster/resource\",\"\",\"configmap\",\"personal\",\"selected\"],\"tag\":\"Kubernetes\"},\"category\":\"retained-orphan\",\"dataPolicy\":{\"tag\":\"Stateless\"},\"executor\":\"KubernetesExecutor\",\"health\":\"unavailable\",\"lifecycle\":\"Retain\",\"observation\":\"confirmed-absent\",\"observedPhysical\":null,\"owner\":{\"kind\":\"Platform\",\"name\":\"observation\"},\"physical\":\"retained-uid\",\"resource\":\"platform:observation/selected/resource\",\"retainedAt\":\"2026-09-29T00:00:00Z\"},\"lifecycle\":\"Retain\",\"missingProviderScopes\":[],\"missingProviders\":[],\"observationStartedAt\":\"2026-09-29T17:27:51.526245Z\",\"observedAt\":\"2026-09-29T17:27:51.565059Z\",\"providers\":[{\"executor\":\"KubernetesExecutor\",\"identity\":\"manifest-only\",\"version\":\"1\"},{\"executor\":\"HelmExecutor\",\"identity\":\"helm-reviewed-render\",\"version\":\"1\"},{\"executor\":\"PulumiExecutor\",\"identity\":\"manifest-only\",\"version\":\"1\"},{\"executor\":\"ArtifactExecutor\",\"identity\":\"manifest-only\",\"version\":\"1\"},{\"executor\":\"HostExecutor\",\"identity\":\"manifest-only\",\"version\":\"1\"},{\"executor\":\"CacheExecutor\",\"identity\":\"manifest-only\",\"version\":\"1\"},{\"executor\":\"BrokerExecutor\",\"identity\":\"manifest-only\",\"version\":\"1\"}],\"recoveryReason\":\"retained incarnation requires explicit collection or recovery review\",\"requiredConditions\":[],\"retained\":[{\"address\":{\"contents\":[\"platform:observation/cluster/resource\",\"\",\"configmap\",\"personal\",\"selected\"],\"tag\":\"Kubernetes\"},\"category\":\"retained-orphan\",\"dataPolicy\":{\"tag\":\"Stateless\"},\"executor\":\"KubernetesExecutor\",\"health\":\"unavailable\",\"lifecycle\":\"Retain\",\"observation\":\"confirmed-absent\",\"observedPhysical\":null,\"owner\":{\"kind\":\"Platform\",\"name\":\"observation\"},\"physical\":\"retained-uid\",\"resource\":\"platform:observation/selected/resource\",\"retainedAt\":\"2026-09-29T00:00:00Z\"}],\"scheduledRetention\":[],\"sensitivity\":\"Private\",\"source\":{\"file\":\"fixture.yaml\",\"path\":\"document[0]\"},\"transactionStatus\":null}\n",
+      "stderr": "",
+      "providerCalls": [
+        [
+          "kubectl",
+          "--context",
+          "observation-fixture",
+          "--request-timeout=10s",
+          "get",
+          "configmap",
+          "selected",
+          "--namespace",
+          "personal",
+          "-o",
+          "json",
+          "--ignore-not-found"
+        ]
+      ]
+    },
+    {
+      "label": "wrong-context-binding",
+      "args": [
+        "inventory",
+        "explain",
+        "platform:observation/selected/resource",
+        "--json"
+      ],
+      "exit": 1,
+      "seconds": 0.036,
+      "stdout": "",
+      "stderr": "nagarectl: accepted inventory belongs to a different context or project\n",
+      "providerCalls": []
+    },
+    {
+      "label": "unrelated-native-absent",
+      "args": [
+        "inventory",
+        "explain",
+        "platform:observation/selected/resource",
+        "--json"
+      ],
+      "exit": 0,
+      "seconds": 0.072,
+      "stdout": "{\"accepted\":[{\"revision\":{\"digest\":\"12266b8e869cc5836035b4656bab070e0e7e07ec801334c8d9be0293320482f4\",\"generation\":1},\"scope\":{\"kind\":\"Platform\",\"name\":\"observation\"}}],\"activeTransaction\":null,\"addressAliases\":[],\"collected\":[],\"collectionAssessments\":[],\"consumers\":[],\"context\":{\"identity\":\"observation-fixture\",\"project\":\"project\"},\"converged\":[{\"revision\":{\"digest\":\"12266b8e869cc5836035b4656bab070e0e7e07ec801334c8d9be0293320482f4\",\"generation\":1},\"scope\":{\"kind\":\"Platform\",\"name\":\"observation\"}}],\"dataFence\":null,\"dataPolicy\":{\"tag\":\"Stateless\"},\"delegations\":[],\"dependencies\":[],\"dependencyTrace\":[],\"finding\":{\"address\":{\"contents\":[\"platform:observation/cluster/resource\",\"\",\"configmap\",\"personal\",\"selected\"],\"tag\":\"Kubernetes\"},\"category\":\"missing\",\"executor\":\"KubernetesExecutor\",\"health\":\"unavailable\",\"observedDigest\":null,\"owner\":{\"kind\":\"Platform\",\"name\":\"observation\"},\"physical\":null,\"reason\":\"provider confirmed absence\",\"resource\":\"platform:observation/selected/resource\"},\"lifecycle\":\"Retain\",\"missingProviderScopes\":[],\"missingProviders\":[],\"observationStartedAt\":\"2026-09-29T17:27:51.644438Z\",\"observedAt\":\"2026-09-29T17:27:51.682997Z\",\"providers\":[{\"executor\":\"KubernetesExecutor\",\"identity\":\"kubernetes-conditional-object\",\"version\":\"1\"},{\"executor\":\"HelmExecutor\",\"identity\":\"helm-reviewed-render\",\"version\":\"1\"},{\"executor\":\"PulumiExecutor\",\"identity\":\"manifest-only\",\"version\":\"1\"},{\"executor\":\"ArtifactExecutor\",\"identity\":\"manifest-only\",\"version\":\"1\"},{\"executor\":\"HostExecutor\",\"identity\":\"manifest-only\",\"version\":\"1\"},{\"executor\":\"CacheExecutor\",\"identity\":\"manifest-only\",\"version\":\"1\"},{\"executor\":\"BrokerExecutor\",\"identity\":\"manifest-only\",\"version\":\"1\"}],\"requiredConditions\":[],\"retained\":[],\"scheduledRetention\":[],\"sensitivity\":\"Private\",\"source\":{\"file\":\"fixture.yaml\",\"path\":\"document[0]\"},\"transactionStatus\":null}\n",
+      "stderr": "",
+      "providerCalls": [
+        [
+          "kubectl",
+          "--context",
+          "observation-fixture",
+          "--request-timeout=10s",
+          "get",
+          "configmap",
+          "selected",
+          "--namespace",
+          "personal",
+          "-o",
+          "json",
+          "--ignore-not-found"
+        ]
+      ]
+    },
+    {
+      "label": "selected-native-corrupt",
+      "args": [
+        "inventory",
+        "explain",
+        "platform:observation/selected/resource",
+        "--json"
+      ],
+      "exit": 1,
+      "seconds": 0.034,
+      "stdout": "",
+      "stderr": "nagarectl: observation native digest mismatch\n",
+      "providerCalls": []
+    },
+    {
+      "label": "selected-native-missing",
+      "args": [
+        "inventory",
+        "explain",
+        "platform:observation/selected/resource",
+        "--json"
+      ],
+      "exit": 1,
+      "seconds": 0.032,
+      "stdout": "",
+      "stderr": "nagarectl: observation native bytes are missing for 5ca2271df3992939571c84cff24c802890eec3d6e703520ebea800d86b7b9457; run inventory store materialize-native to extract historical review evidence\n",
+      "providerCalls": []
+    },
+    {
+      "label": "legacy-fast-miss",
+      "args": [
+        "inventory",
+        "explain",
+        "platform:observation/selected/resource",
+        "--json"
+      ],
+      "exit": 1,
+      "seconds": 0.037,
+      "stdout": "",
+      "stderr": "nagarectl: observation native bytes are missing for 5ca2271df3992939571c84cff24c802890eec3d6e703520ebea800d86b7b9457; run inventory store materialize-native to extract historical review evidence\n",
+      "providerCalls": []
+    },
+    {
+      "label": "legacy-materialize",
+      "args": [
+        "inventory",
+        "store",
+        "materialize-native",
+        "--limit",
+        "1"
+      ],
+      "exit": 0,
+      "seconds": 0.067,
+      "stdout": "{\"after\":\"664bb7d79113b1a0c9a73a490fa68654c7daec2eb9ccd68dd3c330a0556e1282\",\"headGeneration\":1,\"processed\":1,\"remaining\":1}\n",
+      "stderr": "Materialized review 664bb7d79113b1a0c9a73a490fa68654c7daec2eb9ccd68dd3c330a0556e1282\n",
+      "providerCalls": []
+    },
+    {
+      "label": "legacy-restart-cursor",
+      "args": [
+        "inventory",
+        "store",
+        "materialize-native",
+        "--limit",
+        "1",
+        "--after",
+        "664bb7d79113b1a0c9a73a490fa68654c7daec2eb9ccd68dd3c330a0556e1282"
+      ],
+      "exit": 0,
+      "seconds": 0.046,
+      "stdout": "{\"after\":\"9e675570d53e752c6c8682390fc96f9845eb9531cf3de5515dcb341e22a3d773\",\"headGeneration\":1,\"processed\":1,\"remaining\":0}\n",
+      "stderr": "Materialized review 9e675570d53e752c6c8682390fc96f9845eb9531cf3de5515dcb341e22a3d773\n",
+      "providerCalls": []
+    },
+    {
+      "label": "legacy-idempotent-repeat",
+      "args": [
+        "inventory",
+        "store",
+        "materialize-native",
+        "--limit",
+        "1"
+      ],
+      "exit": 0,
+      "seconds": 0.041,
+      "stdout": "{\"after\":\"664bb7d79113b1a0c9a73a490fa68654c7daec2eb9ccd68dd3c330a0556e1282\",\"headGeneration\":1,\"processed\":1,\"remaining\":1}\n",
+      "stderr": "Materialized review 664bb7d79113b1a0c9a73a490fa68654c7daec2eb9ccd68dd3c330a0556e1282\n",
+      "providerCalls": []
+    },
+    {
+      "label": "legacy-materialized-selected",
+      "args": [
+        "inventory",
+        "explain",
+        "platform:observation/selected/resource",
+        "--json"
+      ],
+      "exit": 0,
+      "seconds": 0.119,
+      "stdout": "{\"accepted\":[{\"revision\":{\"digest\":\"12266b8e869cc5836035b4656bab070e0e7e07ec801334c8d9be0293320482f4\",\"generation\":1},\"scope\":{\"kind\":\"Platform\",\"name\":\"observation\"}}],\"activeTransaction\":null,\"addressAliases\":[],\"collected\":[],\"collectionAssessments\":[],\"consumers\":[],\"context\":{\"identity\":\"observation-fixture\",\"project\":\"project\"},\"converged\":[{\"revision\":{\"digest\":\"12266b8e869cc5836035b4656bab070e0e7e07ec801334c8d9be0293320482f4\",\"generation\":1},\"scope\":{\"kind\":\"Platform\",\"name\":\"observation\"}}],\"dataFence\":null,\"dataPolicy\":{\"tag\":\"Stateless\"},\"delegations\":[],\"dependencies\":[],\"dependencyTrace\":[],\"finding\":{\"address\":{\"contents\":[\"platform:observation/cluster/resource\",\"\",\"configmap\",\"personal\",\"selected\"],\"tag\":\"Kubernetes\"},\"category\":\"missing\",\"executor\":\"KubernetesExecutor\",\"health\":\"unavailable\",\"observedDigest\":null,\"owner\":{\"kind\":\"Platform\",\"name\":\"observation\"},\"physical\":null,\"reason\":\"provider confirmed absence\",\"resource\":\"platform:observation/selected/resource\"},\"lifecycle\":\"Retain\",\"missingProviderScopes\":[],\"missingProviders\":[],\"observationStartedAt\":\"2026-09-29T17:27:52.060183Z\",\"observedAt\":\"2026-09-29T17:27:52.123566Z\",\"providers\":[{\"executor\":\"KubernetesExecutor\",\"identity\":\"kubernetes-conditional-object\",\"version\":\"1\"},{\"executor\":\"HelmExecutor\",\"identity\":\"helm-reviewed-render\",\"version\":\"1\"},{\"executor\":\"PulumiExecutor\",\"identity\":\"manifest-only\",\"version\":\"1\"},{\"executor\":\"ArtifactExecutor\",\"identity\":\"manifest-only\",\"version\":\"1\"},{\"executor\":\"HostExecutor\",\"identity\":\"manifest-only\",\"version\":\"1\"},{\"executor\":\"CacheExecutor\",\"identity\":\"manifest-only\",\"version\":\"1\"},{\"executor\":\"BrokerExecutor\",\"identity\":\"manifest-only\",\"version\":\"1\"}],\"requiredConditions\":[],\"retained\":[],\"scheduledRetention\":[],\"sensitivity\":\"Private\",\"source\":{\"file\":\"fixture.yaml\",\"path\":\"document[0]\"},\"transactionStatus\":null}\n",
+      "stderr": "",
+      "providerCalls": [
+        [
+          "kubectl",
+          "--context",
+          "observation-fixture",
+          "--request-timeout=10s",
+          "get",
+          "configmap",
+          "selected",
+          "--namespace",
+          "personal",
+          "-o",
+          "json",
+          "--ignore-not-found"
+        ]
+      ]
+    }
+  ]
+}

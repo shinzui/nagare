@@ -1,0 +1,4 @@
+okf validate docs/user --strict --profile mori/user-documentation-profile.dhall --profile-enforce --log-enforce
+OK: 38 concepts (okf_version 0.2)
+okf validate docs/guides --strict --profile mori/user-documentation-profile.dhall --profile-enforce --log-enforce
+OK: 2 concepts (okf_version 0.2)

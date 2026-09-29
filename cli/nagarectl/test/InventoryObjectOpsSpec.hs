@@ -1,4 +1,4 @@
-module InventoryObjectOpsSpec (inventoryObjectOpsTests) where
+module InventoryObjectOpsSpec (inventoryObjectOpsTests, fakeObjectOps) where
 
 import Data.Aeson (object)
 import Data.IORef
@@ -82,6 +82,46 @@ inventoryObjectOpsTests = testGroup "inventory object operations"
       readIORef singles >>= (@?= 0)
       missing <- readJournalPrefix replay 501
       assertBool "a missing committed member is an error" (isLeft missing)
+  , testCase "observed head carries provider generation without rediscovery and refuses ABA replacement" $ do
+      base <- fakeObjectOps
+      gets <- newIORef (0 :: Int)
+      let counted = base {getObject = \key -> modifyIORef' gets (+ 1) >> getObject base key}
+      store <- newObjectStore counted fixtureBinding "client-a" Nothing >>= either (assertFailure . show) pure
+      initial <- initializeStore store fixtureBinding "client-a" >>= either (assertFailure . show) pure
+      writeIORef gets 0
+      observed <- observeHead store >>= either (assertFailure . show) pure
+      observedHeadManifest observed @?= Just initial
+      readIORef gets >>= (@?= 1)
+      replaceObservedHead observed initial {headGeneration = 1} >>= (@?= Right ())
+      readIORef gets >>= (@?= 1)
+      -- Rewrite identical bytes under a new provider generation. Logical head
+      -- equality cannot detect this; the captured provider generation must.
+      stale <- observeHead store >>= either (assertFailure . show) pure
+      current <- getObject base (ObjectName "head.json")
+      case current of
+        ObjectFound generation bytes -> do
+          _ <- putObject base (IfGenerationMatches generation) (ObjectName "head.json") bytes
+          pure ()
+        _ -> assertFailure "head missing"
+      rejected <- replaceObservedHead stale initial {headGeneration = 2}
+      assertBool "stale provider generation accepted" (isLeft rejected)
+      replaceObservedHead observed initial {headGeneration = 1}
+        >>= assertBool "reused observation accepted" . isLeft
+  , testCase "local observed head refuses intervening updates and migrated authority" $ do
+      store <- newMemoryStore
+      initial <- initializeStore store fixtureBinding "client-a" >>= either (assertFailure . show) pure
+      observed <- observeHead store >>= either (assertFailure . show) pure
+      replaceHeadIfGenerationMatches store (Just 0) initial {headGeneration = 1}
+        >>= (@?= Right ())
+      replaceObservedHead observed initial {headGeneration = 1}
+        >>= assertBool "local stale observation accepted" . isLeft
+      migrated <- observeHead store >>= either (assertFailure . show) pure
+      replaceObservedHead migrated initial {headGeneration = 2,
+        headMigration = Just (MigrationTombstone "elsewhere" (contentDigest "destination"))}
+        >>= (@?= Right ())
+      tombstone <- observeHead store >>= either (assertFailure . show) pure
+      replaceObservedHead tombstone initial {headGeneration = 3}
+        >>= assertBool "migrated head allowed a write" . isLeft
   , testCase "known-head journal append uses one conditional write without rediscovery" $ do
       baseOps <- fakeObjectOps
       gets <- newIORef (0 :: Int)

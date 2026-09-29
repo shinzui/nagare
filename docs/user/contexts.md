@@ -493,6 +493,26 @@ belongs to one client identity. A second workstation must explicitly run
 previous executor is no longer active. There is no remote heartbeat or liveness
 test. A local-mode context always uses the local inventory store.
 
+`nagarectl inventory explain RESOURCE_ID --json` observes the selected accepted
+or retained resource. Kubernetes and Helm inspection does not need a platform
+workspace. Unknown IDs fail before provider initialization.
+
+Older histories may report missing observation bytes. Extract them from the
+original private reviews in explicit batches:
+
+```bash
+nagarectl inventory store materialize-native --limit 20
+# Continue using the last successful batch's JSON "after" value:
+nagarectl inventory store materialize-native --limit 20 --after REVIEW_SHA256
+```
+
+Stop when `remaining` is zero. The command reports each completed review, verifies
+the captured head stayed fixed, and adds only immutable native bytes. Repeating a
+batch after interruption is safe; it never advances accepted state or executes a
+provider operation. A changed head requires repeating the batch. Existing
+transaction recovery continues to use its original private review and does not
+require this extraction. Corrupt selected evidence remains an error.
+
 Move an existing history before selecting another store:
 
 ```bash
