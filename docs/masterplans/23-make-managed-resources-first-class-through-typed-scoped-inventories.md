@@ -201,6 +201,11 @@ provenance:
       at: 2026-09-28T18:26:14Z
       mode: "update"
       note: "Prioritize K8up backup evaluation and assess the operator concern about Velero project direction"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-29T04:19:41Z
+      mode: "update"
+      note: "Prioritize replay repair and require bounded autonomous diagnosis when execution stalls"
 ---
 
 # Make managed resources first-class through typed scoped inventories
@@ -255,11 +260,24 @@ Rejected alternatives were isolated platform/application inventories without sha
 
 **Implementation entrypoint.** `$master-plan implement docs/masterplans/23-make-managed-resources-first-class-through-typed-scoped-inventories.md` resumes the ordered checkpoints in Progress. For this initiative, the operator-requested producer/consumer sequence overrides the skill's default of selecting the first eligible registry child and finishing that entire child before switching. The registry records ownership and whole-child status; it does not express the checkpoint schedule. Hard dependencies still apply.
 
+**Open implementation findings.** Read [the MP-23 audit tracker](../audits/mp23-findings.md) before selecting affected work. It owns stable finding IDs, fix evidence, independent verification, and unresolved handoffs. Record repairs there; an acknowledged message or source edit does not close a finding. Reconcile affected P1 findings before another native rehearsal and include unresolved IDs in every implementation handoff.
+
+**Immediate priority: restore usable GCS replay.** Until EP-156's replay performance gate passes, it supersedes the feature sequence below. Diagnose and fix the store path before initiating further cloud scenario stages. First establish the state of any already-running transaction using bounded inspection; preserve its identity and evidence. An active transaction does not justify indefinite polling or another unchanged resume. Choose an evidence-based safe wait, interruption, or recovery step before further mutation. EP-151's Complete status records its earlier conformance acceptance; it does not certify current operational readiness. EP-156 owns this discovered defect and its regression evidence, including changes to the shared store implementation.
+
+**Execution control for every remaining checkpoint.** The implementing agent owns detection and diagnosis of stalled work; the operator must not have to ask why progress stopped.
+
+- Before a costly run, name the user-visible assertion, expected observable progress, elapsed-time budget, and safe interruption/recovery boundary. Use an existing measured budget where available. For an unmeasured path, allow at most 15 minutes before a mandatory diagnostic checkpoint; this is not an automatic process-kill timeout. Known replay failures already trigger diagnosis and must not consume that allowance again.
+- At the budget breach, or the second attempt with the same failure and no new evidence, stop launching dependent work. Inspect the process/provider state and identify where time is spent. Distinguish journal loading, provider work, and verification. Report the evidence, current hypothesis, and one bounded check that can confirm or reject it. Change the approach when that check rejects the hypothesis.
+- A long build or provider operation may continue only with observed useful progress, a revised finite checkpoint, and a reason waiting is preferable to safe interruption. Process liveness, repeated polls, and an advancing replay counter on a known unusable path are insufficient. Preserve ambiguous transactions; never reset history to get past a delay.
+- Retry only after a relevant input, implementation, or observed external condition changes, or for an explicitly bounded transient-failure diagnostic. After the fix, prove the previously failing public path and retain the measurements before resuming dependent work. Report accepted behavior and remaining blockers; command count, patch count, and passing unrelated tests are not progress evidence.
+
+Reviews of remaining checkpoints must test the riskiest operational assumption against code and representative evidence, including aggregate command cost and recovery after interruption. A completed prerequisite can contain a newly discovered blocking defect. Assign that defect and prevent affected execution immediately rather than deferring it to final release assembly. Do not require a new broad audit before fixing the known blocker.
+
 **Resume procedure after the 2026-09-28 scope reduction.** Follow this procedure before selecting implementation work:
 
 1. Read the current Vision & Scope and Progress, then the selected child's current milestones and recorded acceptance evidence. The revised scope governs; historical notes are evidence, not instructions to resume deferred work. EP-161 is Cancelled. Do not continue new live-overwrite, interactive-maintenance, or scheduled-prune feature work from an older handoff.
 2. Preserve concurrent edits and retained fixture/state identities. Before mutating a selected fixture, inspect its existing transaction/fence/session state through the supported read-only path. An already-admitted operation may need its existing evidence-bound recovery; do not reset its history or treat cancellation as completion.
-3. **Next implementation checkpoint: EP-153's deferred-admission and retained-recovery boundary.** Prove new deferred operations refuse at command and shared saved-review admission while already-admitted records remain recoverable. Use its finite route list and existing fixtures; this is not a new full command audit or a requirement to finish all of EP-153 first. Recheck the older registration fix only if current evidence or changes invalidate it.
+3. After the immediate replay gate above passes, reconcile EP-153's deferred-admission and retained-recovery checkpoint, which Progress already records as passing. Reuse that proof while its inputs remain applicable; do not repeat a full command audit. Continue any remaining boundary assertions only when current evidence identifies them.
 4. Reconcile the bounded EP-154 installed smoke, EP-155 fixture/health, and EP-157 evidence-input checkpoints. Skip accepted outputs whose evidence remains applicable. Then take the first unmet supported assertion in orders 3–4: EP-159 receipts/retention reporting and EP-160 isolated database/new-PVC recovery. Existing three-engine local roundtrips are inputs to this assessment, not work to restart by default. Keep EP-160 M1 accepted.
 5. Continue ready supported platform/access/lifecycle work in order 5 and the complete final-candidate gates in order 6. MP-24/EP-163 research, K8up/Velero evaluation, and tool adoption are not prerequisites. Record the exact next child/assertion at every handoff; do not end at a passing partial checkpoint when more authorized work is ready.
 
@@ -391,18 +409,25 @@ EP-159's accepted listing now recognizes an older object format by the accepted 
 
 | Order | Work and owner | Required handoff |
 |---|---|---|
+| 0 — blocking defect | EP-156 GCS replay and retained transaction state | Diagnose the current transaction without another unchanged replay; fix and pass the measured replay, integrity, and recovery gate before resuming this sequence. |
 | 1 — accepted | EP-160 M1 shared fence | Retain accepted proof and recovery interfaces; do not reopen this milestone for deferred consumers. |
 | 2 — bounded preparation | EP-153 registration and deferred-admission guards; EP-154 installed smoke; EP-155 local fixture; EP-157 evidence schema | Reconcile existing passing checkpoints, then prove the declared support boundary before native feature expansion. Keep guards separate from historical transaction recovery. |
 | 3 — representative recovery | EP-159 PostgreSQL scheduled receipt after Job cleanup → EP-160 isolated restore/content check | Reuse recorded compatible runs; verify receipt/source/version binding through the public saved-review path. No maintenance session handoff. |
 | 4 — remaining recovery | EP-159 receipts for all three engines and honest retention reporting; EP-160 isolated engine restores and new-PVC restore | Known data recovered, sources preserved, interruption handled without replay. No scheduled-prune, live-overwrite, or interactive-maintenance expansion. |
 | 5 — independent supported work | EP-158 access/CDN; EP-153 platform/consumer cutover; EP-155 bounded native migration/collection | Keep the existing finite families and one retained PostgreSQL rename. Add no engine or generic lifecycle framework. |
-| 6 — final candidate | EP-154 every native system; EP-155 local; EP-156 actual Compute Engine/NixOS/k3s/GCS; EP-157 non-publishing assembly | Same candidate, complete supported coverage plus guarded exclusions, all required native assertions. No GKE. |
+| 6 — final candidate | EP-154 every native system; EP-155 local; EP-156 actual Compute Engine/NixOS/k3s/GCS; EP-157 non-publishing assembly | Same candidate, complete supported coverage plus guarded exclusions, all required native assertions. EP-156's measured GCS replay-performance gate must pass before further cloud proof or release assembly. No GKE. |
 
 EP-155's fixture and EP-157's missing-input tests grow alongside feature work. External-tool evaluation is not a prerequisite. Final native proof may be reused only when recorded inputs and assertions remain applicable; relevant implementation changes invalidate affected proof. A documentation-only scope edit does not itself invalidate unchanged native behavior, but final manifests must identify the final candidate and support contract.
 
+The 2026-09-28 disposable GCS run exposed a multi-minute journal replay at only 54 events, including repeated per-object `gcloud` subprocess reads. Treat this as a release blocker owned by EP-156, with the cold/warm 50/500-event timing, remote-command-count, integrity, and same-transaction recovery checks specified there. A functional convergence receipt alone does not close the GCS acceptance gate.
+
+The first bulk-read candidate did converge the retained host transaction, but its full `inventory resume` still took 382.16 seconds at 61 events. EP-156 remains blocked on end-to-end latency, including repeated history/object-store calls, workspace initialization, and host IAP probes. Recheck physical identity and reviewed old closure at effect time. Record separate warm and second-root timings before claiming operational acceptance; do not use the convergence receipt as a substitute.
+
+**Stop/go sequence for the remaining proof.** The 2026-09-29 warm no-op run still took 41.04 seconds at 61 events, so the live fixture is paused. First, retain public command regressions for each open P1 in [the findings tracker](../audits/mp23-findings.md), including F09 recovery before an admitted prune effect and after partial deletion; generic transaction tests and a successful compile do not count as that proof. Second, run local 50/500-event replay, gap/lost-ack, command-count, and interrupted-host tests against the exact candidate, recording elapsed time by registry setup, journal read, append, provider probe, and finalization. Third, freeze that candidate and run one bounded disposable GCS/host rehearsal with the EP-156 latency limits and second-root recovery check. Stop at the first failed gate, record its cause and changed assertion in the tracker and child plan, and return to the first step before any further cloud mutation. Do not infer closure from a passing neighboring suite or a converged receipt.
+
 **Finite remaining outcomes.** EP-159 must finish scheduled receipts, source/schedule history, interrupted uploads, and GCS binding, while making deferred scheduled retention explicit. EP-160 must close all three isolated engine restores and new-PVC recovery. EP-153 must close existing platform/consumer gaps and prevent new deferred operations at all entrypoints. EP-154–157 retain their complete package/local/cloud/evidence obligations for that supported set. EP-158 is unchanged. Recovery of pre-existing partial prunes, fences, and sessions cannot be removed or relabelled successful.
 
-Earlier hour ranges are uncalibrated historical estimates, not a forecast for this revised scope. Report the selected assertion, last newly passing production-path check, and next concrete blocker. Before adding helpers, connect compile → saved review → native execution → verification/recovery in the corresponding fixture. Two cycles without progress require revisiting that path. Findings must map to a supported assertion, a missing binding, or an explicit new scope proposal; do not turn missing evidence into an exclusion. No new provider, generalized security framework, or child plan enters implicitly.
+Earlier hour ranges are uncalibrated historical estimates, not a forecast for this revised scope. Report the selected assertion, last newly passing production-path check, and next concrete blocker. Before adding helpers, connect compile → saved review → native execution → verification/recovery in the corresponding fixture. Apply the timed execution-control procedure at the implementation entrypoint whenever progress stalls. Findings must map to a supported assertion, a missing binding, or an explicit new scope proposal; do not turn missing evidence into an exclusion. No new provider, generalized security framework, or child plan enters implicitly.
 
 Historical implementation findings below describe the contract in force at their date. Their former live-restore, maintenance, and scheduled-prune completion requirements are superseded by the 2026-09-28 decision; their observations and recovery records remain evidence.
 
@@ -612,6 +637,8 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 
 
 ## Revision Notes
+
+2026-09-28: Make the observed GCS replay defect the immediate implementation priority, reconcile the stale EP-153 entrypoint, and replace vague stalled-work advice with timed diagnosis, evidence-based waiting/retry decisions, and representative operational review. This changes execution order and responsibility; it does not claim the replay defect is fixed.
 
 2026-09-28: Align the external-tool reference with the operator's K8up-first evaluation preference and Velero project-direction concern; release scope and gates remain as previously agreed.
 
