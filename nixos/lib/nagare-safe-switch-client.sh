@@ -31,6 +31,16 @@ nagare_safe_switch() {
     fi
   }
 
+  _nagare_fresh_ssh() {
+    # OpenSSH keeps the first value for each option. Put the fresh-connection
+    # requirements before NIX_SSHOPTS, which may name a live control socket.
+    if [ "${#sshopts[@]}" -gt 0 ]; then
+      ssh -o ControlMaster=no -o ControlPath=none -o BatchMode=yes -o ConnectTimeout=15 "${sshopts[@]}" "$@"
+    else
+      ssh -o ControlMaster=no -o ControlPath=none -o BatchMode=yes -o ConnectTimeout=15 "$@"
+    fi
+  }
+
   _nagare_remote() {
     local remote
     remote="$(printf '%q ' sudo -n bash -c "$script" nagare-safe-activate "$@")"
@@ -52,7 +62,7 @@ nagare_safe_switch() {
     # "verify" a host nobody can log in to.
     # Compare stdout only: ssh warnings (e.g. "Permanently added … to known hosts") go to
     # stderr and must not turn a working login into a failed verification.
-    out="$(_nagare_ssh -o ControlMaster=no -o ControlPath=none -o BatchMode=yes -o ConnectTimeout=15 \
+    out="$(_nagare_fresh_ssh \
       "$target" 'sudo -n true && readlink -f /run/current-system' </dev/null 2>"$err")" || true
     out="$(printf '%s\n' "$out" | tail -n 1)"
     if [ "$out" = "$new" ]; then

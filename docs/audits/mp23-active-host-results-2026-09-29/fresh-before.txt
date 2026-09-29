@@ -1,0 +1,7 @@
+Artifacts: /var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/mp23-fresh-login-p6_oatym
+{"safeSwitchExit": 0, "committed": true}
+Traceback (most recent call last):
+  File "/Users/shinzui/Keikaku/bokuno/nagare/scripts/test-host-fresh-login.py", line 107, in <module>
+    assert result.returncode == 4 and not (root/'committed').exists(), 'revoked key was accepted through the old connection'
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: revoked key was accepted through the old connection

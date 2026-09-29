@@ -1,0 +1,6 @@
+["config", "config-helper", "--format=json", "--min-expiry=120s", "--quiet"]
+["storage", "buckets", "describe", "gs://tan-ng-labs-ep150-pmkjjpp-state", "--raw", "--format=value(projectNumber)"]
+["projects", "describe", "tan-ng-labs", "--format=value(projectNumber)"]
+["config", "config-helper", "--format=json", "--min-expiry=120s", "--quiet"]
+["storage", "buckets", "describe", "gs://tan-ng-labs-ep150-pmkjjpp-state", "--raw", "--format=value(projectNumber)"]
+["projects", "describe", "tan-ng-labs", "--format=value(projectNumber)"]

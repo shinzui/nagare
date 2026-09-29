@@ -1,0 +1,80 @@
+Resolving dependencies...
+Build profile: -w ghc-9.12.4 -O1
+In order, the following will be built (use -v for more details):
+ - nagare-dsl-0.4.0 (lib) (configuration changed)
+ - nagarectl-0.4.0 (lib) (configuration changed)
+ - nagarectl-0.4.0 (test:nagarectl-test) (configuration changed)
+Configuring library for nagare-dsl-0.4.0...
+Preprocessing library for nagare-dsl-0.4.0...
+Building library for nagare-dsl-0.4.0...
+Configuring library for nagarectl-0.4.0...
+Preprocessing library for nagarectl-0.4.0...
+Building library for nagarectl-0.4.0...
+Configuring test suite 'nagarectl-test' for nagarectl-0.4.0...
+Preprocessing test suite 'nagarectl-test' for nagarectl-0.4.0...
+Building test suite 'nagarectl-test' for nagarectl-0.4.0...
+Running 1 test suites...
+Test suite nagarectl-test: RUNNING...
+nagarectl
+  Nagare.Host
+    IR-14: derives distinct default host names without changing the instance name:                    OK
+    IR-14: rejects lossy or overlong default host-name derivation:                                    OK
+    IR-14: discovers an implicit host-name collision across context-owned flakes:                     OK
+    IR-13: the rendered operator module matches the golden host.nix checked against the NixOS module: OK
+    IR-20: reads the context-owned explicit host name:                                                OK
+    BUG-2: rejects missing, absent, duplicate, and unreadable generated host names:                   OK
+    BUG-2: upgrade host environment overwrites ambient logical identities:                            OK
+  host inventory adapter
+    host declaration includes system, durable mount, and explicit activation:                         OK
+    preflight refuses a timer-armed host without cancelling rollback:                                 OK
+    reverted activation is safe to retry; committed closure has durable proof:                        OK
+    effect-time drift after preflight cannot run host activation:                                     OK
+    local flake evidence cannot substitute for a remote committed closure:                            OK
+    fresh-login host receipt binds the committed closure:                                             OK
+    subprocess runtime retains the prepared closure across execution:                                 OK (0.38s)
+  Kubernetes inventory adapter
+    Kubernetes omission of empty Pod hostAliases is not StatefulSet drift:                            OK
+  reviewed CDN DNS
+    one app owns its domain and DNS record while another app cannot claim the hostname:               OK
+    offline Cloudflare owner review binds complete rules and independent host records:                OK (0.02s)
+  Nagare.Platform (EP-106)
+    EP-121: host identity is read from the indented comments a generated flake carries:               OK
+    missing host and cluster identities remain a non-blocking legacy warning:                         OK
+  Nagare.Ops
+    parseSkipTagResolvingHosts: host present:                                                         OK
+    IR-18: host age-key ready record grades OK alongside df output:                                   OK
+    IR-18: malformed, absent, and unsupported host records remain UNKNOWN:                            OK
+  Nagare.Ops.Doctor
+    IR-18: host age-key remediation is exact and confirmed absence fails doctor:                      OK
+  GCS data-movement Job hostAliases (EP-1)
+    db backup Job renders the metadata hostAliases and the cloud-sdk image:                           OK
+    db restore Job renders the metadata hostAliases and the cloud-sdk image:                          OK
+    volume snapshot Job renders the metadata hostAliases and the cloud-sdk image:                     OK
+    volume restore Job renders the metadata hostAliases and the cloud-sdk image:                      OK
+  Nagare.Database (EP-45)
+    Nagare.Database.Secret
+      composeConnectionUrl percent-encodes hostile credentials:                                       OK
+  Nagare.Database.Connection (EP-46)
+    connectionEnv per engine
+      Postgres host/port/user/db are literals:                                                        OK
+      Redis host/port literals; password/URL secret refs:                                             OK
+  Nagare.Cdn (EP-57)
+    composed Cloudflare rules keep both hosts and stable precedence:                                  OK
+  Nagare.Cdn.Provision (EP-58)
+    Google CDN accepts only apex and one-label base-domain hosts:                                     OK
+    gcloudDnsListArgs: exact project and hostname read before mutation:                               OK
+  Nagare.Cdn.Status (EP-58)
+    formatCdnStatus: one host's field block:                                                          OK
+  Nagare.Access.Grants
+    accessTuple grants app viewer to a shomei user and canonicalizes host:                            OK
+  Nagare.Access.Resolve
+    deploymentAccessRoutes uses the Knative wildcard host when no custom domains exist:               OK
+    deploymentAccessRoutes uses every declared custom DomainMapping host:                             OK
+    portal with multiple public hosts is refused:                                                     nagarectl: an auth portal must have exactly one public host
+OK
+
+All 38 tests passed (0.43s)
+Test suite nagarectl-test: PASS
+Test suite logged to:
+/Users/shinzui/Keikaku/bokuno/nagare/cli/nagarectl/./dist-newstyle/build/aarch64-osx/ghc-9.12.4/nagarectl-0.4.0/t/nagarectl-test/test/nagarectl-0.4.0-nagarectl-test.log
+1 of 1 test suites (1 of 1 test cases) passed.

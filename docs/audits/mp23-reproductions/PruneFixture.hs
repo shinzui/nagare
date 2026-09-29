@@ -10,7 +10,8 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime)
-import System.Environment (getEnv)
+import System.Environment (getEnv, lookupEnv)
+import Data.Maybe (fromMaybe)
 import Nagare.Cluster.GcsJob (StoreBackend(..),MinioRef(..))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes
@@ -30,27 +31,28 @@ import OperationalHelpers (ok)
 
 must action = action >>= either (ioError . userError . show) pure
 name = ok . mkName
-binding = ContextBinding (ok (mkContextId "prune-spike")) (name "project")
 fixtureOwner token = ok (mkScopeId Standalone token)
 rid o key = mintResourceId o (ok (mkLogicalKey key)) (name "resource")
 clusterId' = rid (fixtureOwner "cluster") "cluster"
 member o key value = ok (bindKubernetesObject (KubernetesInput (rid o key) o clusterId' value
   (contentDigest (ok (canonicalValue value))) Retain Stateless Private (SourceLocation "fixture" key)))
-registry native present = ok (mkAdapterRegistry [mkKubernetesAdapter native KubernetesAdapterOps
+registry binding native present = ok (mkAdapterRegistry [mkKubernetesAdapter native KubernetesAdapterOps
   { kubernetesContext = binding ^. #identity
   , kubernetesObserve = \r -> pure $ if present r
       then let (_,bytes)=native Map.! r in KubernetesPresent (ok (mkPhysicalIdentity "ingestion-uid")) "7" (Just r) (contentDigest bytes)
       else KubernetesAbsent (contentDigest (TE.encodeUtf8 (resourceIdText r <> ":absent")))
   , kubernetesMutateConditional = \_ -> error "fixture generation cannot mutate a provider" }])
-prepare store candidate native present = do
+prepare binding store candidate native present = do
   history <- must (loadInventoryHistory store)
-  facts <- must (observeWithRegistry (registry native present) (requirementsByExecutor (observationRequirements candidate history)))
+  facts <- must (observeWithRegistry (registry binding native present) (requirementsByExecutor (observationRequirements candidate history)))
   before <- must (readStoreSnapshot store)
-  bundle <- must (prepareReview (registry native present) before (ok (planChanges candidate noLifecycleDecisions history facts)))
+  bundle <- must (prepareReview (registry binding native present) before (ok (planChanges candidate noLifecycleDecisions history facts)))
   void (must (publishReview store bundle))
   pure bundle
 main = do
   root <- getEnv "MP23_PRUNE_ROOT"
+  project <- T.pack . fromMaybe "project" <$> lookupEnv "MP23_PRUNE_PROJECT"
+  let binding = ContextBinding (ok (mkContextId "prune-spike")) (name project)
   store <- must (openFilesystemStore (root<>"/state/nagare/prune-spike/inventory"))
   initial <- must (initializeStore store binding "prune-spike")
   let backupOwner=fixtureOwner "backup"; policyOwner=fixtureOwner "policy"
@@ -78,7 +80,7 @@ main = do
       policy=declared policyOwner policyMember
       sourceNative=Map.fromList [(fst backupMember ^. #identity,backupMember),(fst policyMember ^. #identity,policyMember)]
       initialCandidate=ok (composeInventory (ok (mkScopeSnapshot binding Map.empty Map.empty)) (ReplaceScope backup :| [ReplaceScope policy]))
-  sourceReview <- prepare store initialCandidate sourceNative (const False)
+  sourceReview <- prepare binding store initialCandidate sourceNative (const False)
   let revisions=reviewDesiredRevisions (reviewBundleDocument sourceReview)
   must (replaceHeadIfGenerationMatches store (Just (headGeneration initial)) initial
     {headGeneration=headGeneration initial+1,headAccepted=revisions,headConverged=revisions})
@@ -89,7 +91,7 @@ main = do
       (prune,native)=ok (compileScheduledPruneScope request backup sourceNative)
       accepted=Map.fromList [(backupOwner,(revisionGeneration (revisions Map.! backupOwner),backup)),(policyOwner,(revisionGeneration (revisions Map.! policyOwner),policy))]
       candidate=ok (composeInventory (ok (mkScopeSnapshot binding accepted Map.empty)) (ReplaceScope prune :| []))
-  bundle <- prepare store candidate (Map.union native sourceNative) (`Map.member` sourceNative)
+  bundle <- prepare binding store candidate (Map.union native sourceNative) (`Map.member` sourceNative)
   void (must (writeReviewBundle (root<>"/review") bundle))
   let document=reviewBundleDocument bundle
       tx=ok (mkTransactionId ("tx-"<>digestText (reviewDigest bundle)))

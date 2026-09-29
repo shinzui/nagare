@@ -26,6 +26,16 @@ in
       touch "$out"
     '';
 
+  host-transport-recovery = pkgs.runCommand "host-transport-recovery"
+    {
+      nativeBuildInputs = [ pkgs.bash pkgs.coreutils pkgs.gawk pkgs.gnugrep pkgs.gnused pkgs.jq pkgs.perl pkgs.python3 ];
+    }
+    ''
+      bash ${src}/scripts/test-inventory-host-transport.sh
+      python3 ${src}/scripts/test-host-key-recovery.py
+      touch "$out"
+    '';
+
   nagare-clone-free-platform =
     let
       fakePulumi = pkgs.writeShellScriptBin "pulumi" ''

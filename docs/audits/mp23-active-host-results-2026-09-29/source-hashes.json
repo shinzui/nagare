@@ -1,0 +1,16 @@
+{
+  "nixos/lib/nagare-safe-switch-client.sh": "eb6d120b75cb1eb2a1084126dc1e96395bcb5934f6f8d8467b000acb7c97e9df",
+  "nixos/modules/nagare-host.nix": "0c185597e021b1fb7d8e577d46d315ebf48d9f84b892ccbe8938a4bf403b49fe",
+  "scripts/inventory-host-transport.sh": "34073461c290fc8da476a54d62d2f092c1dec61980a5312c8d6d786f174dd8e5",
+  "nix/checks/platform.nix": "3f9649e9a0463704bcd6e46d8c5eb0d7158d75a2b92833bba8b90fa5b06091ac",
+  "scripts/test-host-fresh-login.py": "95abda5c30ae1dda478bdc5aa2640e301bd5d746652f524118e7913c7673e0d3",
+  "scripts/test-host-key-recovery.py": "cdc527abf9e329225deba8b5a68d858daa8ddd4eee0a17e16722cb0362ff2b39",
+  "scripts/test-inventory-active-command-cost.py": "9abef87808a057719ef727604236b925385eae2317921a9284927fc447cf9ae1",
+  "scripts/test-inventory-gcs-active-cost.py": "36d1c5a86197c83d0874bbbed306186aa3fe9266b1fd98e958b9129ca0765073",
+  "docs/audits/mp23-reproductions/PruneFixture.hs": "2291d7519556cc26978d6614984ccaba50aa949ad75ed03f4de1b728cca02404",
+  "docs/audits/mp23-reproductions/GcsActiveTiming.hs": "7793771ca5761b30960263740a76190623b41a0b50a0b46580661494543fac1e",
+  "cli/nagarectl/src/Nagare/Inventory/Execute.hs": "39abec34db726d2f555af0129c27c1c65064028021df04d849ea29edb3916ba4",
+  "cli/nagarectl/src/Nagare/Inventory/Store.hs": "309421eb4c51fda7aadedbefa02acfed3ce0cb77c155005e9752396d4776cc1b",
+  "cli/nagarectl/src/Nagare/Inventory/Store/Gogol.hs": "64716ef69cdd04f99a119c00f84c4fc4b9d823de0f012a5036a887f3ecaefca1",
+  "cli/nagarectl/src/Nagare/Inventory/Adapters/HostRuntime.hs": "fa13dd3097e3656f2bb9d9067113811fb0540aa3610480eb54efc6058633105a"
+}

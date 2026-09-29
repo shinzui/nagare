@@ -1,0 +1,1926 @@
+{
+  "complete": true,
+  "claimRace": false,
+  "lostAcknowledgement": true,
+  "binarySha256": "8755bd9ef92675bef702f23b0b00b5bc056972b8d26393d756a6dc2602f3a739",
+  "sources": {
+    "cli/nagarectl/app/Main.hs": "db741bdf34e41b1366ae916542fccfe448dfac172c82a3eb6938efb7ce5bb749",
+    "cli/nagarectl/src/Nagare/Inventory/Command.hs": "87b664cdc5bde3870ef6495d8aa0fc48f6041b8281cbf2411aacfbdf4a1ea58e",
+    "cli/nagarectl/src/Nagare/Inventory/ObservationNative.hs": "3613a0fe4a18a7d01d25c69e7aa70bf61f7d9dbb8db06a16a8acdc953e15e08d",
+    "cli/nagarectl/src/Nagare/Inventory/Status.hs": "60c62bd43e8a80b7e9d191371c781aef14c0cf820bf2e129135dd2ade03df886",
+    "cli/nagarectl/src/Nagare/Inventory/Execute.hs": "39abec34db726d2f555af0129c27c1c65064028021df04d849ea29edb3916ba4",
+    "cli/nagarectl/src/Nagare/Inventory/Store.hs": "309421eb4c51fda7aadedbefa02acfed3ce0cb77c155005e9752396d4776cc1b",
+    "scripts/test-inventory-active-command-cost.py": "9abef87808a057719ef727604236b925385eae2317921a9284927fc447cf9ae1"
+  },
+  "results": [
+    {
+      "events": 50,
+      "reviews": 0,
+      "temperature": "cold",
+      "exit": 0,
+      "seconds": 2.259,
+      "subprocesses": 27,
+      "stdout": "converged tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941\n",
+      "stderr": "",
+      "commands": [
+        {
+          "provider": "gcloud",
+          "args": [
+            "config",
+            "config-helper",
+            "--format=json",
+            "--min-expiry=120s",
+            "--quiet"
+          ],
+          "at": 772887.59148125
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "buckets",
+            "describe",
+            "gs://audit.invalid",
+            "--raw",
+            "--format=value(projectNumber)"
+          ],
+          "at": 772887.647748
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "projects",
+            "describe",
+            "project",
+            "--format=value(projectNumber)"
+          ],
+          "at": 772887.693399125
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 772888.071934666
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 772888.150332416
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 772888.212874458
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 772888.264990625
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 772888.32463725
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "ingestion",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 772888.408533083
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 772888.491345458
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 772888.556838625
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 772888.609178166
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 772888.657842458
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 772888.705656083
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "ingestion",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 772888.761428083
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 772888.831638291
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 772888.889447208
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 772888.937260041
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 772889.00305875
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 772889.078129583
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "ingestion",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 772889.146233708
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 772889.208925208
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 772889.271957416
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 772889.350145125
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 772889.419158041
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 772889.482799166
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "ingestion",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 772889.552671916
+        }
+      ],
+      "callsByCategory": {
+        "initialization": 3,
+        "providerObservation": 24
+      },
+      "appended": [
+        {
+          "detail": "adapter recovery proved completion",
+          "operation": "op-62a42f7191e6f7ed29c0dd08",
+          "previousDigest": "89eed4f654854e92b012de92d1b1ce4dddb8ce3f9859ba725085a0fee79502b6",
+          "sequence": 50,
+          "state": {
+            "contents": "b1e373781a04b8513ccfb8473bee9154bf8de7cede021f09854b6e0534c97c0e",
+            "tag": "Completed"
+          },
+          "timestamp": "2026-09-29T21:17:34Z",
+          "transaction": "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+          "version": 1
+        },
+        {
+          "detail": "operation intent recorded",
+          "operation": "op-c6e68e749bb65103cbba93f2",
+          "previousDigest": "37c97230c0772d4ca53cbdec05b8f665d99d02395ae8cfad22bc5807132e97d7",
+          "sequence": 51,
+          "state": {
+            "tag": "IntentRecorded"
+          },
+          "timestamp": "2026-09-29T21:17:34Z",
+          "transaction": "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+          "version": 1
+        },
+        {
+          "detail": "operation completion verified",
+          "operation": "op-c6e68e749bb65103cbba93f2",
+          "previousDigest": "b2ce7323a31df73b678792e7fa972f22ee79fa47361cac76a62dfa265c029847",
+          "sequence": 52,
+          "state": {
+            "contents": "64cd576f0b83b7616edad22e4ac26a700a244978ed7a96c6363686ba5dccff15",
+            "tag": "Completed"
+          },
+          "timestamp": "2026-09-29T21:17:35Z",
+          "transaction": "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+          "version": 1
+        },
+        {
+          "detail": "transaction converged",
+          "operation": null,
+          "previousDigest": "94c83acd7fa41f5cbb43464dfbdc5063c9447a50894b169b16395f46d148a96f",
+          "sequence": 53,
+          "state": {
+            "contents": "f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+            "tag": "Completed"
+          },
+          "timestamp": "2026-09-29T21:17:35Z",
+          "transaction": "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+          "version": 1
+        }
+      ],
+      "finalHead": {
+        "accepted": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "database-scheduled-prune-default-notes-11111111-1111-1111-1111-111111111111"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "activeTransaction": null,
+        "binding": {
+          "identity": "prune-spike",
+          "project": "project"
+        },
+        "clientIdentity": "prune-spike",
+        "converged": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "database-scheduled-prune-default-notes-11111111-1111-1111-1111-111111111111"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "executorClaim": null,
+        "generation": 11,
+        "sequence": 54,
+        "version": 1
+      },
+      "httpCounts": {
+        "GET head media": 17,
+        "GET head metadata-or-upload": 17,
+        "GET journal media": 58,
+        "GET journal metadata-or-upload": 8,
+        "GET journal-list metadata-or-upload": 1,
+        "GET other media": 9,
+        "GET other metadata-or-upload": 9,
+        "POST head metadata-or-upload": 6,
+        "POST journal metadata-or-upload": 4
+      }
+    },
+    {
+      "events": 50,
+      "reviews": 0,
+      "temperature": "warm",
+      "exit": 0,
+      "seconds": 1.541,
+      "subprocesses": 27,
+      "stdout": "converged tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941\n",
+      "stderr": "",
+      "commands": [
+        {
+          "provider": "gcloud",
+          "args": [
+            "config",
+            "config-helper",
+            "--format=json",
+            "--min-expiry=120s",
+            "--quiet"
+          ],
+          "at": 772889.678061583
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "buckets",
+            "describe",
+            "gs://audit.invalid",
+            "--raw",
+            "--format=value(projectNumber)"
+          ],
+          "at": 772889.737487333
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "projects",
+            "describe",
+            "project",
+            "--format=value(projectNumber)"
+          ],
+          "at": 772889.782213416
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 772889.959628583
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 772890.018955791
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 772890.062628125
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 772890.106058166
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 772890.150070125
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "ingestion",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 772890.196687916
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 772890.255681541
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 772890.318404666
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 772890.375546333
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 772890.425258041
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 772890.466617041
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "ingestion",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 772890.505994916
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 772890.567456208
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 772890.608380625
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 772890.660310541
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 772890.70339175
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 772890.7595885
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "ingestion",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 772890.809288916
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 772890.859839625
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 772890.904307208
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 772890.946328333
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 772891.014375625
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 772891.059305833
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "ingestion",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 772891.11104175
+        }
+      ],
+      "callsByCategory": {
+        "initialization": 3,
+        "providerObservation": 24
+      },
+      "appended": [
+        {
+          "detail": "adapter recovery proved completion",
+          "operation": "op-62a42f7191e6f7ed29c0dd08",
+          "previousDigest": "89eed4f654854e92b012de92d1b1ce4dddb8ce3f9859ba725085a0fee79502b6",
+          "sequence": 50,
+          "state": {
+            "contents": "b1e373781a04b8513ccfb8473bee9154bf8de7cede021f09854b6e0534c97c0e",
+            "tag": "Completed"
+          },
+          "timestamp": "2026-09-29T21:17:35Z",
+          "transaction": "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+          "version": 1
+        },
+        {
+          "detail": "operation intent recorded",
+          "operation": "op-c6e68e749bb65103cbba93f2",
+          "previousDigest": "be2c059fdab70c925c6fcaa2aced8b96fd5a2b80def4b2f7c3525490a593dae9",
+          "sequence": 51,
+          "state": {
+            "tag": "IntentRecorded"
+          },
+          "timestamp": "2026-09-29T21:17:36Z",
+          "transaction": "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+          "version": 1
+        },
+        {
+          "detail": "operation completion verified",
+          "operation": "op-c6e68e749bb65103cbba93f2",
+          "previousDigest": "a43dbd6e42f7f91b508b5bf17dfcb8ac2dcc97f233a0c744b57ac016d0601c45",
+          "sequence": 52,
+          "state": {
+            "contents": "64cd576f0b83b7616edad22e4ac26a700a244978ed7a96c6363686ba5dccff15",
+            "tag": "Completed"
+          },
+          "timestamp": "2026-09-29T21:17:36Z",
+          "transaction": "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+          "version": 1
+        },
+        {
+          "detail": "transaction converged",
+          "operation": null,
+          "previousDigest": "d86f4b01a3de5481893b508f343640b8d4ab1a4e0cce770a5ec7f0c511eae8f0",
+          "sequence": 53,
+          "state": {
+            "contents": "f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+            "tag": "Completed"
+          },
+          "timestamp": "2026-09-29T21:17:36Z",
+          "transaction": "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+          "version": 1
+        }
+      ],
+      "finalHead": {
+        "accepted": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "database-scheduled-prune-default-notes-11111111-1111-1111-1111-111111111111"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "activeTransaction": null,
+        "binding": {
+          "identity": "prune-spike",
+          "project": "project"
+        },
+        "clientIdentity": "prune-spike",
+        "converged": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "database-scheduled-prune-default-notes-11111111-1111-1111-1111-111111111111"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "executorClaim": null,
+        "generation": 11,
+        "sequence": 54,
+        "version": 1
+      },
+      "httpCounts": {
+        "GET head media": 17,
+        "GET head metadata-or-upload": 17,
+        "GET journal media": 58,
+        "GET journal metadata-or-upload": 8,
+        "GET journal-list metadata-or-upload": 1,
+        "GET other media": 2,
+        "GET other metadata-or-upload": 2,
+        "POST head metadata-or-upload": 6,
+        "POST journal metadata-or-upload": 4
+      }
+    },
+    {
+      "events": 500,
+      "reviews": 0,
+      "temperature": "cold",
+      "exit": 0,
+      "seconds": 1.821,
+      "subprocesses": 27,
+      "stdout": "converged tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941\n",
+      "stderr": "",
+      "commands": [
+        {
+          "provider": "gcloud",
+          "args": [
+            "config",
+            "config-helper",
+            "--format=json",
+            "--min-expiry=120s",
+            "--quiet"
+          ],
+          "at": 772891.233764125
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "buckets",
+            "describe",
+            "gs://audit.invalid",
+            "--raw",
+            "--format=value(projectNumber)"
+          ],
+          "at": 772891.282773583
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "projects",
+            "describe",
+            "project",
+            "--format=value(projectNumber)"
+          ],
+          "at": 772891.339280041
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 772891.755120291
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 772891.801938291
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 772891.847311
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 772891.901818125
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 772891.942468708
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "ingestion",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 772891.982872208
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 772892.039604583
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 772892.081183208
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 772892.14567375
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 772892.190034541
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 772892.244859375
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "ingestion",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 772892.303828541
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 772892.371230875
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 772892.410648833
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 772892.45508625
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 772892.559463291
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 772892.610359
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "ingestion",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 772892.653531583
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 772892.700196958
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 772892.742960541
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 772892.788911083
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 772892.839335458
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 772892.887759291
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "ingestion",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 772892.931488958
+        }
+      ],
+      "callsByCategory": {
+        "initialization": 3,
+        "providerObservation": 24
+      },
+      "appended": [
+        {
+          "detail": "adapter recovery proved completion",
+          "operation": "op-62a42f7191e6f7ed29c0dd08",
+          "previousDigest": "a6e7a0efca7924ddb3bc4b0feca0397fa7dc8314143eab453fe23fe9364fcae3",
+          "sequence": 500,
+          "state": {
+            "contents": "b1e373781a04b8513ccfb8473bee9154bf8de7cede021f09854b6e0534c97c0e",
+            "tag": "Completed"
+          },
+          "timestamp": "2026-09-29T21:17:37Z",
+          "transaction": "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+          "version": 1
+        },
+        {
+          "detail": "operation intent recorded",
+          "operation": "op-c6e68e749bb65103cbba93f2",
+          "previousDigest": "6cd8b60cbead3b762530719021f3b5c65c92cba2d06d5fd5c2fb7a663dfeec98",
+          "sequence": 501,
+          "state": {
+            "tag": "IntentRecorded"
+          },
+          "timestamp": "2026-09-29T21:17:37Z",
+          "transaction": "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+          "version": 1
+        },
+        {
+          "detail": "operation completion verified",
+          "operation": "op-c6e68e749bb65103cbba93f2",
+          "previousDigest": "0db98077f566cf72797ab26fb748c1faedfcb75c6133eab395fee8359e08f471",
+          "sequence": 502,
+          "state": {
+            "contents": "64cd576f0b83b7616edad22e4ac26a700a244978ed7a96c6363686ba5dccff15",
+            "tag": "Completed"
+          },
+          "timestamp": "2026-09-29T21:17:38Z",
+          "transaction": "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+          "version": 1
+        },
+        {
+          "detail": "transaction converged",
+          "operation": null,
+          "previousDigest": "38df6b729dbdf26778c7b5d0ecfec0da78d4b2ce9eca107696bda36d5d25f117",
+          "sequence": 503,
+          "state": {
+            "contents": "f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+            "tag": "Completed"
+          },
+          "timestamp": "2026-09-29T21:17:38Z",
+          "transaction": "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+          "version": 1
+        }
+      ],
+      "finalHead": {
+        "accepted": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "database-scheduled-prune-default-notes-11111111-1111-1111-1111-111111111111"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "activeTransaction": null,
+        "binding": {
+          "identity": "prune-spike",
+          "project": "project"
+        },
+        "clientIdentity": "prune-spike",
+        "converged": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "database-scheduled-prune-default-notes-11111111-1111-1111-1111-111111111111"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "executorClaim": null,
+        "generation": 11,
+        "sequence": 504,
+        "version": 1
+      },
+      "httpCounts": {
+        "GET head media": 17,
+        "GET head metadata-or-upload": 17,
+        "GET journal media": 508,
+        "GET journal metadata-or-upload": 8,
+        "GET journal-list metadata-or-upload": 5,
+        "GET other media": 9,
+        "GET other metadata-or-upload": 9,
+        "POST head metadata-or-upload": 6,
+        "POST journal metadata-or-upload": 4
+      }
+    },
+    {
+      "events": 500,
+      "reviews": 0,
+      "temperature": "warm",
+      "exit": 0,
+      "seconds": 1.807,
+      "subprocesses": 27,
+      "stdout": "converged tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941\n",
+      "stderr": "",
+      "commands": [
+        {
+          "provider": "gcloud",
+          "args": [
+            "config",
+            "config-helper",
+            "--format=json",
+            "--min-expiry=120s",
+            "--quiet"
+          ],
+          "at": 772893.057277208
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "buckets",
+            "describe",
+            "gs://audit.invalid",
+            "--raw",
+            "--format=value(projectNumber)"
+          ],
+          "at": 772893.101946541
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "projects",
+            "describe",
+            "project",
+            "--format=value(projectNumber)"
+          ],
+          "at": 772893.153517166
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 772893.56899125
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 772893.608443208
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 772893.649382666
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 772893.700438
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 772893.740551291
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "ingestion",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 772893.785545375
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 772893.837658833
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 772893.877444916
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 772893.921450125
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 772893.961952
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 772894.009219291
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "ingestion",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 772894.048384833
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 772894.1078685
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 772894.187654333
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 772894.263072375
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 772894.326115125
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 772894.3777055
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "ingestion",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 772894.456749583
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 772894.507161125
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 772894.549952916
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "nagare-schedprune-7982b037075756209253ea62cf8a55af4efdc96a",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 772894.595052375
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "config",
+            "current-context"
+          ],
+          "at": 772894.651619041
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "get",
+            "nodes",
+            "-o",
+            "json",
+            "--request-timeout=10s"
+          ],
+          "at": 772894.70558875
+        },
+        {
+          "provider": "kubectl",
+          "args": [
+            "--context",
+            "prune-spike",
+            "--request-timeout=10s",
+            "get",
+            "job.batch",
+            "ingestion",
+            "--namespace",
+            "default",
+            "-o",
+            "json",
+            "--ignore-not-found"
+          ],
+          "at": 772894.751292916
+        }
+      ],
+      "callsByCategory": {
+        "initialization": 3,
+        "providerObservation": 24
+      },
+      "appended": [
+        {
+          "detail": "adapter recovery proved completion",
+          "operation": "op-62a42f7191e6f7ed29c0dd08",
+          "previousDigest": "a6e7a0efca7924ddb3bc4b0feca0397fa7dc8314143eab453fe23fe9364fcae3",
+          "sequence": 500,
+          "state": {
+            "contents": "b1e373781a04b8513ccfb8473bee9154bf8de7cede021f09854b6e0534c97c0e",
+            "tag": "Completed"
+          },
+          "timestamp": "2026-09-29T21:17:39Z",
+          "transaction": "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+          "version": 1
+        },
+        {
+          "detail": "operation intent recorded",
+          "operation": "op-c6e68e749bb65103cbba93f2",
+          "previousDigest": "35ae0966cfd588335b3b5d7b4fa380deda6f8aafd2b23913e85cf4ea70471d7f",
+          "sequence": 501,
+          "state": {
+            "tag": "IntentRecorded"
+          },
+          "timestamp": "2026-09-29T21:17:39Z",
+          "transaction": "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+          "version": 1
+        },
+        {
+          "detail": "operation completion verified",
+          "operation": "op-c6e68e749bb65103cbba93f2",
+          "previousDigest": "004a5a14a59c77ec68782724775156f7131408fb77df53a718436d8f6bcc0527",
+          "sequence": 502,
+          "state": {
+            "contents": "64cd576f0b83b7616edad22e4ac26a700a244978ed7a96c6363686ba5dccff15",
+            "tag": "Completed"
+          },
+          "timestamp": "2026-09-29T21:17:40Z",
+          "transaction": "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+          "version": 1
+        },
+        {
+          "detail": "transaction converged",
+          "operation": null,
+          "previousDigest": "26c161cffe66209547ed39ce2bb7c58bd2bd77df236c8590709ed4409d393a08",
+          "sequence": 503,
+          "state": {
+            "contents": "f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+            "tag": "Completed"
+          },
+          "timestamp": "2026-09-29T21:17:40Z",
+          "transaction": "tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941",
+          "version": 1
+        }
+      ],
+      "finalHead": {
+        "accepted": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "database-scheduled-prune-default-notes-11111111-1111-1111-1111-111111111111"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "activeTransaction": null,
+        "binding": {
+          "identity": "prune-spike",
+          "project": "project"
+        },
+        "clientIdentity": "prune-spike",
+        "converged": [
+          {
+            "revision": {
+              "digest": "0cb0c76b8bad120df65de0e9832c2b79951e6e01ecb3c1ad7fedaff5f7417614",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "backup"
+            }
+          },
+          {
+            "revision": {
+              "digest": "10255bcd236c0adeb30f17896f43a830075e31a7dc3040dfb454e16b3963e8a4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "database-scheduled-prune-default-notes-11111111-1111-1111-1111-111111111111"
+            }
+          },
+          {
+            "revision": {
+              "digest": "162a735dbb31b148a668aa7d7f6edf231468dc8d2ec5653ec0e01a192ad443b4",
+              "generation": 1
+            },
+            "scope": {
+              "kind": "Standalone",
+              "name": "policy"
+            }
+          }
+        ],
+        "executorClaim": null,
+        "generation": 11,
+        "sequence": 504,
+        "version": 1
+      },
+      "httpCounts": {
+        "GET head media": 17,
+        "GET head metadata-or-upload": 17,
+        "GET journal media": 508,
+        "GET journal metadata-or-upload": 8,
+        "GET journal-list metadata-or-upload": 5,
+        "GET other media": 2,
+        "GET other metadata-or-upload": 2,
+        "POST head metadata-or-upload": 6,
+        "POST journal metadata-or-upload": 4
+      }
+    }
+  ],
+  "rawReportSha256": "e3ed429057bfb5040e9e54836a447f9f5bb5cc13cb2558f2bf778449dbfafdee"
+}

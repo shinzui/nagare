@@ -108,6 +108,8 @@ F01 and F11 are independently Closed with [retained verification and source iden
 
 **Implementation update:** Commit `538b046d`: transport SHA-256 `76a00a92bbc2cbe07d36a7926d79453da2dcdf54327c49ee50c779aca7fa9e52`; shell regression `scripts/test-inventory-host-transport.sh` SHA-256 `aaa4558673486d1f7ed6a09fd7611810d73c03e54b70486714ceb70aac6caaa7`. `bash scripts/test-inventory-host-transport.sh` passed, capturing `ControlMaster=no` and `ControlPath=none` on both fresh-login paths. A real multiplexed-connection fixture remains for independent verification.
 
+**Additional implementation evidence (2026-09-29):** The [active/host proof](mp23-active-host-proof.md) reproduces a real control-master session falsely committing after key revocation: NIX_SSHOPTS preceded the mandatory no-multiplexing flags, and OpenSSH used its first values. Mandatory fresh options now precede ambient options. A real loopback sshd/master fixture proves all three production fresh-login paths reject the revoked key and accept restored authorization; safe-switch returns 4 without commit. Independent verification remains; this implementer does not close the finding.
+
 **Required verification:** Capture argv for every call that contributes fresh-login proof and assert both options. Retain a regression with multiplexing configured; verify the proof comes from a new connection.
 
 **Verification:** Not closed. Awaiting the checks above.
@@ -130,6 +132,8 @@ F01 and F11 are independently Closed with [retained verification and source iden
 
 **500-event cloud repair (2026-09-29):** [The scaling proof](mp23-gcs-scale-proof.md) records the first warm failure at 12.783 seconds and a failing local HTTP test proving seven workers idle behind a slow eighth response. Eight persistent workers now share a queue, preserving exact-generation reads and the concurrency cap. Three real 500-event cold/warm pairs pass at 7.670–9.139 / 8.042–9.371 seconds, with isolated fetch/setup measurements. The same binary also passes retained 61-event pairs at 3.669–4.089 / 3.688–4.066 seconds. All 977 tests and exact generation cleanup pass. F06 remains Partial for active claim/append/finalization/provider timing and independent verification; the no-op scaling evidence is now established.
 
+**Active driver measurement (2026-09-29):** The [active/host proof](mp23-active-host-proof.md) completes original-transaction recovery in twelve public CLI loopback cases; lost write acknowledgements still converge and claim races refuse before provider work. Real GCS production-driver samples take 9.063/14.582 seconds including auth/setup at 50/500 events, with four chained publications and released claims. Journal replay takes 0.937/6.893 seconds; four journal writes total 0.340 seconds at either size. All 598 exact benchmark generations were cleaned; the retained head is unchanged. Provider observations in this cloud probe are synthetic. F06 stays Partial for complete public active cloud/provider cost and independent verification, not for the already measured isolated append/finalization or no-op gates.
+
 **Required verification:** Retain append and resume command-count regressions, preserve conditional writes/lost-ack recovery, then pass EP-156 cold/warm real GCS timing gate. Record append/provider/replay timings separately; no closure from one batched cp.
 
 **Verification:** Not closed. Awaiting the checks above.
@@ -143,6 +147,8 @@ F01 and F11 are independently Closed with [retained verification and source iden
 **Audit evidence:** Extracted activate() with matching installed digest and unavailable Tailscale: two attempts each call status,status,IP then fail; neither reactivates. Helper preserves verified key before service restart.
 
 **Implementation update:** Commit `538b046d`: transport SHA-256 `76a00a92bbc2cbe07d36a7926d79453da2dcdf54327c49ee50c779aca7fa9e52`; shell regression SHA-256 `aaa4558673486d1f7ed6a09fd7611810d73c03e54b70486714ceb70aac6caaa7`. `bash scripts/test-inventory-host-transport.sh` passed: same installed key plus failed service triggers one helper activation and a fresh login, a ready host triggers none, and a different key refuses. Independent full retry verification remains.
+
+**Additional implementation evidence (2026-09-29):** The [active/host proof](mp23-active-host-proof.md) executes the actual helper body and transport functions with simulated privileged/service/network boundaries. Separate sops and Tailscale failures after verified key persistence recover on the identical activation request without rewriting its inode/mtime/content. A ready retry skips delivery; a wrong installed key refuses. This exposed helper diagnostic stdout preceding transport JSON; delivery diagnostics now go to stderr and the regression parses the entire stdout as one committed JSON response. The new Nix host-transport-recovery check and 38 focused host tests pass. Real Linux services, saved-host-transaction CLI recovery and independent verification remain open.
 
 **Required verification:** Simulate successful key persistence followed by sops/Tailscale failure, then retry the original operation. Prove activation resumes, no different key is written, fresh-login/readiness succeeds, and wrong keys still refuse.
 

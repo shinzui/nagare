@@ -1,0 +1,6 @@
+Artifacts: /var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/mp23-gcs-active-e_rigjlo
+50 events seeded; bounded production driver starting
+{"events": 50, "url": "gs://audit.invalid/private", "fixtureSha256": "4b9c35c6b2d9b5424d65707e656ebac5591bc936f61b6c6b77f512c8269b0cca", "exit": 0, "wallSeconds": 1.665, "driverSeconds": 0.104602, "openSeconds": 0.005547, "result": "Converged (TransactionId \"tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941\")", "setupSeconds": 0.377669, "syntheticProviderObservations": 8, "totalSeconds": 0.487818}
+500 events seeded; bounded production driver starting
+{"events": 500, "url": "gs://audit.invalid/private", "fixtureSha256": "847ef6473bd1635a6429188a2a59e7b69fe14c81d417735ec8d39a4935fdca4b", "exit": 0, "wallSeconds": 0.459, "driverSeconds": 0.255803, "openSeconds": 0.003697, "result": "Converged (TransactionId \"tx-f2ae688de99cee773253ae296a786fb09511d8b989bc6c424427471ac78e2941\")", "setupSeconds": 0.158996, "syntheticProviderObservations": 8, "totalSeconds": 0.418496}
+PASS: complete claim/append/finalization measured; no native effects; exact-generation cleanup complete

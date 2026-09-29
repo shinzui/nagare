@@ -212,7 +212,7 @@ activate() {
       # The helper accepts an identical installed key and reruns sops/Tailscale
       # activation. This closes an interrupted install-after-write window.
       bash "${script_dir}/iap-ssh.sh" send-file "${instance}" "${NAGARE_HOST_AGE_KEY_FILE}" -- \
-        sudo -- /run/current-system/sw/bin/nagare-host-age-key install --sha256 "${age_key_digest}"
+        sudo -- /run/current-system/sw/bin/nagare-host-age-key install --sha256 "${age_key_digest}" >&2
     fi
     key_status="$(host_ssh 'sudo /run/current-system/sw/bin/nagare-host-age-key status')"
     grep -Fq $'age-key\tready\t/var/lib/sops-nix/age-key.txt\t'"${age_key_digest}" <<<"${key_status}" || {

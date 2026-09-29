@@ -1,0 +1,2 @@
+age key ready at /var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/mp23-key-recovery-4kfga4mn/sops/host/key (sha256 15b2a1d1fd5a829af0168e247b508c94902486a975b14026cd414767efedb147); secrets activated and Tailscale autoconnect started
+HostTransportCommitted

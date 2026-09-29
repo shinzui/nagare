@@ -1,0 +1,132 @@
+{
+  "complete": true,
+  "claimRace": true,
+  "lostAcknowledgement": false,
+  "binarySha256": "8755bd9ef92675bef702f23b0b00b5bc056972b8d26393d756a6dc2602f3a739",
+  "sources": {
+    "cli/nagarectl/app/Main.hs": "db741bdf34e41b1366ae916542fccfe448dfac172c82a3eb6938efb7ce5bb749",
+    "cli/nagarectl/src/Nagare/Inventory/Command.hs": "87b664cdc5bde3870ef6495d8aa0fc48f6041b8281cbf2411aacfbdf4a1ea58e",
+    "cli/nagarectl/src/Nagare/Inventory/ObservationNative.hs": "3613a0fe4a18a7d01d25c69e7aa70bf61f7d9dbb8db06a16a8acdc953e15e08d",
+    "cli/nagarectl/src/Nagare/Inventory/Status.hs": "60c62bd43e8a80b7e9d191371c781aef14c0cf820bf2e129135dd2ade03df886",
+    "cli/nagarectl/src/Nagare/Inventory/Execute.hs": "39abec34db726d2f555af0129c27c1c65064028021df04d849ea29edb3916ba4",
+    "cli/nagarectl/src/Nagare/Inventory/Store.hs": "309421eb4c51fda7aadedbefa02acfed3ce0cb77c155005e9752396d4776cc1b",
+    "scripts/test-inventory-active-command-cost.py": "9abef87808a057719ef727604236b925385eae2317921a9284927fc447cf9ae1"
+  },
+  "results": [
+    {
+      "events": 50,
+      "reviews": 0,
+      "temperature": "cold",
+      "exit": 1,
+      "seconds": 0.526,
+      "subprocesses": 3,
+      "stdout": "",
+      "stderr": "[AdmissionError {admissionErrorCode = \"head-condition\", admissionErrorMessage = \"StoreConditionFailed \\\"inventory head generation changed\\\"\"}]\n",
+      "commands": [
+        {
+          "provider": "gcloud",
+          "args": [
+            "config",
+            "config-helper",
+            "--format=json",
+            "--min-expiry=120s",
+            "--quiet"
+          ],
+          "at": 772888.756672791
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "buckets",
+            "describe",
+            "gs://audit.invalid",
+            "--raw",
+            "--format=value(projectNumber)"
+          ],
+          "at": 772888.805355458
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "projects",
+            "describe",
+            "project",
+            "--format=value(projectNumber)"
+          ],
+          "at": 772888.85733775
+        }
+      ],
+      "callsByCategory": {
+        "initialization": 3
+      },
+      "httpCounts": {
+        "GET head media": 3,
+        "GET head metadata-or-upload": 3,
+        "GET journal media": 50,
+        "GET journal-list metadata-or-upload": 1,
+        "GET other media": 8,
+        "GET other metadata-or-upload": 8,
+        "POST head metadata-or-upload": 1
+      }
+    },
+    {
+      "events": 50,
+      "reviews": 0,
+      "temperature": "warm",
+      "exit": 1,
+      "seconds": 0.445,
+      "subprocesses": 3,
+      "stdout": "",
+      "stderr": "[AdmissionError {admissionErrorCode = \"head-condition\", admissionErrorMessage = \"StoreConditionFailed \\\"inventory head generation changed\\\"\"}]\n",
+      "commands": [
+        {
+          "provider": "gcloud",
+          "args": [
+            "config",
+            "config-helper",
+            "--format=json",
+            "--min-expiry=120s",
+            "--quiet"
+          ],
+          "at": 772889.157856625
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "storage",
+            "buckets",
+            "describe",
+            "gs://audit.invalid",
+            "--raw",
+            "--format=value(projectNumber)"
+          ],
+          "at": 772889.213556125
+        },
+        {
+          "provider": "gcloud",
+          "args": [
+            "projects",
+            "describe",
+            "project",
+            "--format=value(projectNumber)"
+          ],
+          "at": 772889.270203583
+        }
+      ],
+      "callsByCategory": {
+        "initialization": 3
+      },
+      "httpCounts": {
+        "GET head media": 3,
+        "GET head metadata-or-upload": 3,
+        "GET journal media": 50,
+        "GET journal-list metadata-or-upload": 1,
+        "GET other media": 1,
+        "GET other metadata-or-upload": 1,
+        "POST head metadata-or-upload": 1
+      }
+    }
+  ],
+  "rawReportSha256": "d49c7511919b3d9ae0d589bc06728381b4dfb888f49bb5a20825727bfba1b3a5"
+}
