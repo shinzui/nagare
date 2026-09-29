@@ -39,7 +39,7 @@ F01 and F11 are independently Closed with [retained verification and source iden
 
 **Audit evidence:** Actual HostAudit reproduction: all three mismatches previously invoked one mutation callback; after the implementation change all three refuse and invoke zero callbacks. Shell physical-ID guard source-inspected.
 
-**Implementation update:** Changed in the working tree; InventoryHostSpec now includes `effect-time drift after preflight cannot run host activation`.
+**Implementation update:** Working-tree `Adapters/Host.hs` SHA-256 `9f5d28607bc60a384b7c8031b0c91d360b34817e96468a09b5f4686ec9a9e264`; `InventoryHostSpec.hs` `016bfbdfee91d6f8b281524e6c2b4dbcdcecc03eb67f4cefe156b31263e9d9dd`. `effect-time drift after preflight cannot run host activation` passed in the focused host run; the verifier's independent closure evidence is linked below.
 
 **Required verification:** Run that checked-in regression; exercise the shell identity mismatch with a command recorder and prove no age-key install/host-switch occurs. Record revision or source hashes and results.
 
@@ -53,7 +53,7 @@ F01 and F11 are independently Closed with [retained verification and source iden
 
 **Audit evidence:** Actual StoreAudit: valid 50/500-event chains now give successful status with zero single reads and one batch each.
 
-**Implementation update:** Changed to readJournalPrefix in the working tree. Existing batch test exercises the store primitive, not this status caller.
+**Implementation update:** Commit `90e06e29`: `Status.hs` SHA-256 `6e16cf573810b7191ab040dbe7ba639160ab137f255901f9dfc5d1b6c2b9d85b`; `InventoryObjectOpsSpec.hs` `e264701f0b2cc9cd5ee3f1a5ba63f6b33bfbb143f49484218e42a20d53cc76ca`. `cabal test nagarectl-test --test-options=--pattern=object` passed 52 tests, including `active status verifies 50 and 500 chained events with one batch each` and gap rejection in the store test. Await independent verification; live timing is F06.
 
 **Required verification:** Add or name a retained regression invoking loadActiveTransactionStatus at both sizes; preserve chain/gap rejection. The wider live timing gate belongs to F06/EP-156.
 
@@ -67,7 +67,7 @@ F01 and F11 are independently Closed with [retained verification and source iden
 
 **Audit evidence:** Source trace: resume readJournal then execute readJournal. New executeWithJournal receives already validated events.
 
-**Implementation update:** Fix source-inspected, not independently exercised through complete resume yet.
+**Implementation update:** Commit `90e06e29`: `Execute.hs` SHA-256 `f85330076f5fd386ef572f0dd7a36690c5d3ee9323233e6096ccde2bb6f60f1d`. The same object-group command passed `converged replay needs no provider registry or repeated journal pass` with one batch and `lost journal acknowledgement cannot duplicate an effect`; an active same-transaction batch-count/receipt regression remains.
 
 **Required verification:** Run a same-transaction resume with batch counts and retained operation receipts; require one prefix read and no repeated completed native effect.
 
@@ -81,7 +81,7 @@ F01 and F11 are independently Closed with [retained verification and source iden
 
 **Audit evidence:** loadNativeFor expands every review and its scope/native members. Status invokes accepted and retained loaders. A cold cache makes historical review count a remote-I/O multiplier.
 
-**Implementation update:** Empty-retained fast path added. Accepted scan and nonempty-retained duplicate work remain.
+**Implementation update:** Commit `90e06e29`: `Status.hs` SHA-256 `6e16cf573810b7191ab040dbe7ba639160ab137f255901f9dfc5d1b6c2b9d85b` adds the empty-retained fast path. The object-group tests passed, but they do not measure unrelated review history; accepted and nonempty-retained scans remain unresolved.
 
 **Required verification:** Hold current inventory fixed while increasing unrelated review history; record remote/member decode counts and cold/warm cost. Demonstrate selection of only necessary native evidence while preserving incarnation binding.
 
@@ -95,7 +95,7 @@ F01 and F11 are independently Closed with [retained verification and source iden
 
 **Audit evidence:** New Tailnet calls omitted ControlMaster=no/ControlPath=none while the existing safe-switch verifier uses both.
 
-**Implementation update:** Both options now present in the working tree; source-inspected only.
+**Implementation update:** Working-tree transport SHA-256 `76a00a92bbc2cbe07d36a7926d79453da2dcdf54327c49ee50c779aca7fa9e52`; shell regression `scripts/test-inventory-host-transport.sh` SHA-256 `aaa4558673486d1f7ed6a09fd7611810d73c03e54b70486714ceb70aac6caaa7`. `bash scripts/test-inventory-host-transport.sh` passed, capturing `ControlMaster=no` and `ControlPath=none` on both fresh-login paths. A real multiplexed-connection fixture remains for independent verification.
 
 **Required verification:** Capture argv for every call that contributes fresh-login proof and assert both options. Retain a regression with multiplexing configured; verify the proof comes from a new connection.
 
@@ -109,7 +109,7 @@ F01 and F11 are independently Closed with [retained verification and source iden
 
 **Audit evidence:** Measured actual appendEvent ObjectOps trace: noninitial event has five found GETs, two absent GETs, two PUTs. Original transport expands to 27 subprocesses/event; successful PUT fast path projects 21. No cloud-duration claim from these counts.
 
-**Implementation update:** Successful conditional-upload acknowledgement optimization underway; redundant head/absence reads and full-prefix listing remain.
+**Implementation update:** Commit `90e06e29`: `Store.hs` SHA-256 `93391593cd3eee4d59ac8e2d75ab661dfee52d90fa3ef1f5d504c4701ecfe6a2`, `ObjectOps.hs` `028959447fd85a512c6ef1c28cb5f9b31aeb4193ea624fc4202a7e1334d5eef8`, and `Execute.hs` `f85330076f5fd386ef572f0dd7a36690c5d3ee9323233e6096ccde2bb6f60f1d` batch replay, use the successful-upload generation, and append from the observed head. The object-group command passed `known-head journal append uses one conditional write without rediscovery` and the lost-ack case. A complete append subprocess trace and real cold/warm 50/500-event latency are still missing; the last real warm no-op was 41.04 seconds at 61 events.
 
 **Required verification:** Retain append and resume command-count regressions, preserve conditional writes/lost-ack recovery, then pass EP-156 cold/warm real GCS timing gate. Record append/provider/replay timings separately; no closure from one batched cp.
 
@@ -123,7 +123,7 @@ F01 and F11 are independently Closed with [retained verification and source iden
 
 **Audit evidence:** Extracted activate() with matching installed digest and unavailable Tailscale: two attempts each call status,status,IP then fail; neither reactivates. Helper preserves verified key before service restart.
 
-**Implementation update:** Working tree now retries same-key helper when Tailscale IP check fails; independent post-fix reproduction pending.
+**Implementation update:** Working-tree transport SHA-256 `76a00a92bbc2cbe07d36a7926d79453da2dcdf54327c49ee50c779aca7fa9e52`; shell regression SHA-256 `aaa4558673486d1f7ed6a09fd7611810d73c03e54b70486714ceb70aac6caaa7`. `bash scripts/test-inventory-host-transport.sh` passed: same installed key plus failed service triggers one helper activation and a fresh login, a ready host triggers none, and a different key refuses. Independent full retry verification remains.
 
 **Required verification:** Simulate successful key persistence followed by sops/Tailscale failure, then retry the original operation. Prove activation resumes, no different key is written, fresh-login/readiness succeeds, and wrong keys still refuse.
 
@@ -137,7 +137,7 @@ F01 and F11 are independently Closed with [retained verification and source iden
 
 **Audit evidence:** buildHostStageCandidate recomputes credential-bound spec/inputs from NAGARE_HOST_AGE_KEY_FILE and compares the entire scope. Removing the variable or moving hostRoot causes accepted-scope mismatch despite unchanged remote intent.
 
-**Implementation update:** Sent to implementation session; no fix verified.
+**Implementation update:** Working-tree `Main.hs` SHA-256 `fd5d18972afe65e8368e97506a0d697424933ce48463b683436bbbf180314fb4` retains an accepted key digest and source binding when delivery-only environment is absent. `cabal build exe:nagarectl` passed before a comment-only edit; no public replan with the variable cleared or another operator root has passed, so this remains open.
 
 **Required verification:** After accepting a credential-bound host, clear delivery-only environment and replan; also use another operator root with identical host bytes. Require unchanged/verify-only result while intentional configuration or credential change still refuses/reviews correctly.
 
@@ -151,7 +151,7 @@ F01 and F11 are independently Closed with [retained verification and source iden
 
 **Audit evidence:** Registry factory runs provider preflight before public resume/recover. Admission includes prune scope in headAccepted; guard therefore classifies its backup as pruned, excludes it, then requires it present. Partial deletion also violates original provider-list check.
 
-**Implementation update:** Sent with full call-chain evidence. Applies to retained recovery even while new scheduled prune is deferred.
+**Implementation update:** Working-tree `Main.hs` SHA-256 `fd5d18972afe65e8368e97506a0d697424933ce48463b683436bbbf180314fb4` skips the pre-admission provider listing during resume/recover and resolves an admitted prune's source through its exact retained owner, revision, Job ID, and physical identity when it is no longer accepted. `cabal build exe:nagarectl` passed before a comment-only edit; `cabal test nagarectl-test --test-options=--pattern=transactions` passed 38 tests. Neither proves the public route. No cloud retry is authorized by these results. Add a public saved-review regression at both interruption points, then fix every registry and effect-time failure it exposes.
 
 **Required verification:** Exercise public resume/recover for an already admitted original prune, both before effect and after deletion of one member. Prove exact terminal recovery remains reachable, no blind deletion retry, and new deferred admission still refuses.
 
