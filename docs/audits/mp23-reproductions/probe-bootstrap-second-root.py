@@ -14,6 +14,7 @@ import time
 parser = argparse.ArgumentParser(__doc__)
 for name in ['binary', 'source-config', 'context', 'project', 'gcloud-configuration', 'zone', 'ssh-key', 'cluster-inputs', 'out']:
     parser.add_argument('--'+name, required=True)
+parser.add_argument('--expected-node-uid')
 args = parser.parse_args()
 root = Path(args.out)
 if root.exists():
@@ -79,10 +80,16 @@ try:
     nodes = json.loads((root/'node.stdout').read_text())['items']
     assert len(nodes) == 1 and any(c['type']=='Ready' and c['status']=='True'
                                  for c in nodes[0]['status']['conditions'])
+    if args.expected_node_uid:
+        assert nodes[0]['metadata']['uid'] == args.expected_node_uid
     assert run('cluster-plan', cli+['platform', 'bootstrap', 'plan', '--out', str(root/'cluster-review')], 360) == 0
     review = json.loads((root/'cluster-review/review.json').read_text())
-    forbidden = {'CloudFoundationExecutor', 'CloudExecutor', 'NixBuildExecutor', 'HostExecutor'}
+    forbidden = {'CloudFoundationExecutor', 'PulumiExecutor', 'HostExecutor'}
     assert not any(op['operation']['executor'] in forbidden for op in review['operations'])
+    preserved = {'cloud-foundation', 'cloud', 'host-image-build', 'host-image', 'host', 'kubeconfig'}
+    assert {entry['scope']['name'] for entry in review['baseRevisions']} == preserved
+    assert not any(resource.startswith('platform:'+owner+'/') for owner in preserved
+                   for op in review['operations'] for resource in op['operation']['resources'])
     assert not review['barriers']
     assert run('after', cli+['inventory', 'store', 'status', '--json'], 60) == 0
     after = json.loads((root/'after.stdout').read_text())

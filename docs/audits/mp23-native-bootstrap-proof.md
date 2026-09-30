@@ -175,12 +175,35 @@ final-candidate results separately from source timing and the original timeout.
 No cluster apply or global context switch occurred. This accepts the bounded
 planning repair, not cluster convergence or the second-root history repair.
 
+## Installed fresh-root discovery and credential acceptance
+
+The separate [repair proof](mp23-fresh-root-discovery-repair.md) accepts clean
+installed candidate `6082dbd6aac0` on a never-used config/state/cache root. No
+migration marker, journal, original Pulumi config or credential was copied.
+Bootstrap selects shared history and reaches the explicit missing-current-root
+credential refusal in 54.109 seconds under 120 seconds; validated local recovery
+succeeds in 7.713 seconds. The mode-0600 credential reaches the same Ready node
+in 0.348 seconds. The planner observes that accepted credential at its current
+local projection without rewriting retained scopes or effect envelopes.
+
+The installed cluster plan saves 210 operations and zero barriers in 319.659
+seconds under the unchanged 360-second bound. All six prerequisite scopes are
+exact base revisions, with no operations targeting them. Generation 113,
+sequence 65, head digest, global contexts and Ready node identity are unchanged;
+no local inventory is initialized and no cluster apply occurs. The
+[redacted metrics](mp23-native-bootstrap-results-2026-09-29/fresh-root-repair.json)
+retain exact package/review identity and timings. This accepts the fresh-root
+consumer boundary, not cluster convergence, independent F08 closure or M1/M2.
+Previously published immutable members may be reused; this is not a cold
+remote-publication benchmark.
+
 ## Remaining native work
 
 Three existing immutable auth image manifests were inspected read-only: all are
 Linux/amd64. Their runtime compatibility remains subject to cluster acceptance.
 A new disposable Grafana credential is encrypted under the fixture's existing age
-recipient; plaintext is absent from checked-in evidence. Second-root bootstrap
-still needs the shared-history discovery repair described above. No cluster apply
-has occurred in this checkpoint. M1/M2 and the broader MP-23 native/recovery/release
+recipient; plaintext is absent from checked-in evidence. Second-root discovery
+and credential continuation pass as recorded above. Cluster convergence and
+independent recovery verification remain. No cluster apply has occurred in this
+checkpoint. M1/M2 and the broader MP-23 native/recovery/release
 gates remain open.

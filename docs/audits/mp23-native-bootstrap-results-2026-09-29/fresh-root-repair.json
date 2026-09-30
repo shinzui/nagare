@@ -1,0 +1,189 @@
+{
+  "date": "2026-09-29",
+  "installedCandidate": "6082dbd6aac0fe4b2b197b43b3a7350ac98418fb",
+  "repairCommits": [
+    "27462937",
+    "6082dbd6"
+  ],
+  "status": "installed fresh-root discovery and credential consumer proof passed; cluster effects and broader EP-156 acceptance open",
+  "budgetsSeconds": {
+    "discovery": 60,
+    "status": 60,
+    "credentialPlan": 120,
+    "credentialRecovery": 120,
+    "nodeRead": 30,
+    "clusterPlan": 360
+  },
+  "isolation": {
+    "configStateCacheIsolated": true,
+    "copiedInputs": [
+      "context profile",
+      "host inputs"
+    ],
+    "copiedJournalOrMarkerOrPulumiConfigOrCredential": false,
+    "globalContextsUnchanged": true,
+    "sharedHeadUnchanged": true,
+    "clusterApplyIssued": false,
+    "localInventoryAbsent": true
+  },
+  "installed": {
+    "steps": [
+      {
+        "label": "before",
+        "exit": 0,
+        "seconds": 3.177
+      },
+      {
+        "label": "credential-plan",
+        "exit": 1,
+        "seconds": 54.109
+      },
+      {
+        "label": "credential-recovery",
+        "exit": 0,
+        "seconds": 7.713
+      },
+      {
+        "label": "node",
+        "exit": 0,
+        "seconds": 0.348
+      },
+      {
+        "label": "cluster-plan",
+        "exit": 0,
+        "seconds": 319.659
+      },
+      {
+        "label": "after",
+        "exit": 0,
+        "seconds": 3.736
+      }
+    ],
+    "reviewOperations": 210,
+    "reviewDigest": "1006f60f5e9afcf3e8e73b98462187b3cef1c268bcdb7035dccb6ab65e3262f1",
+    "globalContextsUnchanged": true,
+    "sharedStatusUnchanged": true,
+    "localInventoryAbsent": true,
+    "copiedMarkerOrJournalOrCredential": false,
+    "clusterApply": false,
+    "nodeUid": "d3745745-a1e2-4a07-9479-2832b893d7dc",
+    "sharedStatus": {
+      "activeTransaction": null,
+      "binding": {
+        "identity": "ep150-preview",
+        "project": "tan-ng-labs"
+      },
+      "dataFence": null,
+      "executorClaim": null,
+      "generation": 113,
+      "headDigest": "f536c6d2f48c5d5bde01460a072f15e2d328d2a49433a1f0e20c44baf59416fe",
+      "kind": "gcs",
+      "migration": null,
+      "url": "gs://tan-ng-labs-ep150-pmkjjpp-state/inventory"
+    },
+    "acceptedHeadSequence": 65,
+    "baseRevisions": [
+      {
+        "revision": {
+          "digest": "accb866ab683014c1b1ef71a2db6812734368ed2ba376d3fae0f2fc4a29cd08f",
+          "generation": 4
+        },
+        "scope": {
+          "kind": "Platform",
+          "name": "cloud"
+        }
+      },
+      {
+        "revision": {
+          "digest": "b9f3ecb7af759820236bda749ff3e91f210608e886c4ffc82318a09f77306872",
+          "generation": 3
+        },
+        "scope": {
+          "kind": "Platform",
+          "name": "cloud-foundation"
+        }
+      },
+      {
+        "revision": {
+          "digest": "dbf32e69f0167acb24d9f8e6e1487d4dff66b946bdd9694aea60b36b66f13cfb",
+          "generation": 1
+        },
+        "scope": {
+          "kind": "Platform",
+          "name": "host"
+        }
+      },
+      {
+        "revision": {
+          "digest": "a1e35c7da686d92fd08f25f56f47fdb60ffedd2832790c97a857b52d145efd33",
+          "generation": 1
+        },
+        "scope": {
+          "kind": "Platform",
+          "name": "host-image"
+        }
+      },
+      {
+        "revision": {
+          "digest": "3f809745e315bf91719283a1552e7ee2c4d5b485533f2a1922c44a348f0afbdc",
+          "generation": 1
+        },
+        "scope": {
+          "kind": "Platform",
+          "name": "host-image-build"
+        }
+      },
+      {
+        "revision": {
+          "digest": "2e361cc21bd64d0704a15c462beaff35c1ee2ba80aa48b84deeabde117ebb639",
+          "generation": 1
+        },
+        "scope": {
+          "kind": "Platform",
+          "name": "kubeconfig"
+        }
+      }
+    ],
+    "barrierCount": 0,
+    "executors": {
+      "KubernetesExecutor": 203,
+      "ArtifactExecutor": 2,
+      "HelmExecutor": 5
+    },
+    "operationsTargetingAcceptedPrerequisites": 0
+  },
+  "source": {
+    "firstConsumerPulumiDriftPlanSeconds": 104.249,
+    "credentialRefusalSeconds": 86.583,
+    "credentialRecoverySeconds": 13.08,
+    "oldDestinationRefusalSeconds": 146.447,
+    "repairedClusterPlanSeconds": 334.58,
+    "reviewOperations": 210,
+    "barrierCount": 0,
+    "reviewDigest": "44585ea54f0e10a1f8d630c0ece0fcb20c7e570a469d931bc8625f2a6cd35afd",
+    "sharedHeadUnchanged": true,
+    "globalContextsUnchanged": true,
+    "clusterApplyIssued": false
+  },
+  "localVerification": {
+    "cliTestsPassed": 983,
+    "originalFocusedTestsPassed": 81,
+    "artifactTestsPassed": 12,
+    "publicAuthorityCasesPassed": 36,
+    "publicFoundationBootstrapPassed": true,
+    "sdkMigrationPassed": true,
+    "sdkColdWarmReadOnlyPassed": true,
+    "haskellStylePassed": true,
+    "localBootstrapLimitation": "Optional fixture expects 209 operations but observes 217 on both repaired source and unchanged installed 2d6b57c0 baseline; no passing acceptance claimed."
+  },
+  "reproducer": {
+    "path": "docs/audits/mp23-reproductions/probe-bootstrap-second-root.py",
+    "sha256": "c06a4ca21a82149d29fcea29dd6cbfcf2e06cb053fb5c3cf242fa8d067fdfd3f"
+  },
+  "limitations": [
+    "No cluster apply or convergence accepted",
+    "No independent F08 closure",
+    "EP-156 M1/M2 and final native/release gates remain open",
+    "Previously published immutable members may be reused; not a cold remote-publication benchmark"
+  ]
+}

@@ -6,6 +6,9 @@ investigation. The cluster timeout repair `2d6b57c0` and its installed evidence
 `71fce0a4` remain separate accepted planning checkpoints. Neither this report nor
 the timeout proof accepts cluster convergence or EP-156 M1/M2.
 
+The subsequent [repair and acceptance report](mp23-fresh-root-discovery-repair.md)
+records implementation and consumer experiments separately from this baseline.
+
 ## Native counterexample
 
 The retained fixture is `ep150-preview` in `tan-ng-labs`, with Compute Engine
