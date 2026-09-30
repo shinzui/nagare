@@ -21,6 +21,7 @@ import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter (AdapterExecution (..))
 import Nagare.Inventory.Adapters.Foundation
 import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.Store.Remote (BucketDiscovery (..), probeRemoteBucket)
 import Nagare.Ops.PulumiBackend
   ( bucketProjectNumberArgs, projectNumberArgs )
 import Nagare.Platform.StackConfig (linkContextStackConfig)
@@ -34,13 +35,14 @@ import System.Process (CreateProcess (env), proc, readCreateProcessWithExitCode,
 
 data GcloudRunner = GcloudRunner
   { gcloudCapture :: !([String] -> IO (Either Text ByteString))
+  , gcloudBucketDiscovery :: !(Text -> Text -> IO BucketDiscovery)
   , gcloudEffect :: !([String] -> IO (Either Text ()))
   , pulumiCapture :: !(FoundationTarget -> [String] -> IO (Either Text ByteString))
   , pulumiEffect :: !(FoundationTarget -> [String] -> IO (Either Text ()))
   }
 
 realGcloudRunner :: GcloudRunner
-realGcloudRunner = GcloudRunner capture effect capturePulumi effectPulumi
+realGcloudRunner = GcloudRunner capture probeRemoteBucket effect capturePulumi effectPulumi
   where
     capture args = do
       result <- try (readProcessWithExitCode "gcloud" args "")
@@ -84,34 +86,30 @@ inspectTarget runner target = case target of
 
 inspectBucket :: GcloudRunner -> Name -> Name -> Name -> Maybe Text -> IO FoundationObservation
 inspectBucket runner project bucket location member = do
-  targetNumber <- readNumber runner (projectNumberArgs (nameText project))
-  listed <- gcloudCapture runner
-    ["storage", "buckets", "list", "--project=" <> T.unpack (nameText project), "--format=json(name)"]
-  case (targetNumber, listed >>= decodeBucketNames) of
-    (Left err, _) -> pure (FoundationUnavailable err)
-    (_, Left err) -> pure (FoundationUnavailable err)
-    (Right number, Right names)
-      | nameText bucket `notElem` names -> pure (FoundationAbsent
-          (contentDigest (TE.encodeUtf8 (nameText project <> ":" <> number <> ":" <> nameText bucket <> ":absent"))))
-      | otherwise -> do
-          described <- gcloudCapture runner
-            ["storage", "buckets", "describe", "gs://" <> T.unpack (nameText bucket),
-             "--raw", "--format=json"]
-          case described >>= decodeBucketState of
-            Left err -> pure (FoundationUnavailable err)
-            Right state
-              | bucketOwner state /= number -> pure (FoundationForeign
-                  (physicalBucket bucket) "bucket belongs to another project")
-              | otherwise -> do
-                  membership <- case member of
-                    Nothing -> pure (Right True)
-                    Just value -> bucketMemberPresent runner bucket value
-                  pure $ case membership of
-                    Left err -> FoundationUnavailable err
-                    Right hasMember -> FoundationPresent (physicalBucket bucket)
-                      (if bucketConverged location state && hasMember
-                        then foundationTargetDigest (FoundationBucket project bucket location member)
-                        else contentDigest (bucketRaw state))
+  observed <- gcloudBucketDiscovery runner (nameText project) (nameText bucket)
+  case observed of
+    BucketUnavailable err -> pure (FoundationUnavailable err)
+    BucketForeign reason -> pure (FoundationForeign (physicalBucket bucket) reason)
+    BucketAbsent ->
+      pure
+        ( FoundationAbsent
+            (contentDigest (TE.encodeUtf8 (nameText project <> ":" <> nameText bucket <> ":absent")))
+        )
+    BucketOwned bytes -> case decodeBucketState bytes of
+      Left err -> pure (FoundationUnavailable err)
+      Right state -> do
+        membership <- case member of
+          Nothing -> pure (Right True)
+          Just value -> bucketMemberPresent runner bucket value
+        pure $ case membership of
+          Left err -> FoundationUnavailable err
+          Right hasMember ->
+            FoundationPresent
+              (physicalBucket bucket)
+              ( if bucketConverged location state && hasMember
+                  then foundationTargetDigest (FoundationBucket project bucket location member)
+                  else contentDigest (bucketRaw state)
+              )
 
 inspectService :: GcloudRunner -> Name -> Name -> IO FoundationObservation
 inspectService runner project service = do
@@ -137,15 +135,11 @@ inspectStack runner target@(FoundationStack project stack backend pulumiDir _ ba
         exists <- doesDirectoryExist (T.unpack path)
         pure (Right exists)
     Just bucket -> do
-      number <- readNumber runner (projectNumberArgs (nameText project))
-      listed <- gcloudCapture runner
-        ["storage", "buckets", "list", "--project=" <> T.unpack (nameText project),
-         "--format=json(name)"]
-      case (number, listed >>= decodeBucketNames) of
-        (Left err, _) -> pure (Left err)
-        (_, Left err) -> pure (Left err)
-        (Right _, Right names) | nameText bucket `notElem` names -> pure (Right False)
-        _ -> fmap (fmap (const True)) (bucketOwnerMatches runner project bucket)
+      gcloudBucketDiscovery runner (nameText project) (nameText bucket) >>= \case
+        BucketAbsent -> pure (Right False)
+        BucketOwned _ -> pure (Right True)
+        BucketForeign reason -> pure (Left reason)
+        BucketUnavailable reason -> pure (Left reason)
   case ready of
     Left err -> pure (FoundationUnavailable err)
     Right False -> pure (FoundationAbsent (stackAbsenceProof target))
@@ -315,8 +309,7 @@ readNumber runner args = do
     pure trimmed
 
 data BucketState = BucketState
-  { bucketOwner :: !Text
-  , bucketLocation :: !Text
+  { bucketLocation :: !Text
   , bucketVersioning :: !Bool
   , bucketUniformAccess :: !Bool
   , bucketPublicAccessPrevention :: !Text
@@ -329,7 +322,6 @@ decodeBucketState bytes = do
   first T.pack (parseEither parser value)
   where
     parser = withObject "bucket" $ \o -> do
-      owner <- o .: "projectNumber"
       location <- o .: "location"
       versioningConfig <- o .:? "versioning"
       versioning <- maybe (pure False)
@@ -339,11 +331,16 @@ decodeBucketState bytes = do
         Nothing -> pure False
         Just configuration -> do
           access <- configuration .:? "uniformBucketLevelAccess"
-          maybe (pure False)
-            (\value -> fromMaybe False <$> value .:? "enabled") access
-      publicAccess <- maybe (pure "inherited")
-        (\configuration -> fromMaybe "inherited" <$> configuration .:? "publicAccessPrevention") iam
-      pure (BucketState owner location versioning uniform publicAccess bytes)
+          maybe
+            (pure False)
+            (\value -> fromMaybe False <$> value .:? "enabled")
+            access
+      publicAccess <-
+        maybe
+          (pure "inherited")
+          (\configuration -> fromMaybe "inherited" <$> configuration .:? "publicAccessPrevention")
+          iam
+      pure (BucketState location versioning uniform publicAccess bytes)
 
 bucketConverged :: Name -> BucketState -> Bool
 bucketConverged location state =
@@ -351,13 +348,6 @@ bucketConverged location state =
     && bucketVersioning state
     && bucketUniformAccess state
     && T.toLower (bucketPublicAccessPrevention state) == "enforced"
-
-decodeBucketNames :: ByteString -> Either Text [Text]
-decodeBucketNames bytes = do
-  value <- first T.pack (eitherDecodeStrict bytes)
-  first T.pack (parseEither (withArray "bucket list" (traverse one . toList)) value)
-  where
-    one = withObject "bucket" (.: "name")
 
 decodeServiceNames :: ByteString -> Either Text [Text]
 decodeServiceNames bytes = do

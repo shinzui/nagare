@@ -7,6 +7,7 @@ module Nagare.Inventory.Artifact
   , ArtifactExecutionSpec (..)
   , ArtifactDeclarationBundle (..)
   , compileArtifactScope
+  , sameKubeconfigProjection
   , artifactSpecsById
   , artifactExecutionSpecs
   , artifactExecutionSpecsFromDeclarations
@@ -14,9 +15,8 @@ module Nagare.Inventory.Artifact
   )
 where
 
-import Data.Generics.Labels ()
-
 import Data.Aeson (FromJSON (parseJSON), ToJSON (toJSON), defaultOptions, genericParseJSON, genericToJSON)
+import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
@@ -109,6 +109,43 @@ artifactExecutionSpecsFromDeclarations declarations = Map.fromList <$> traverse 
               (artifactLocalSource (resource ^. #source))
           )
       _ -> Left ("artifact declaration lacks its typed publication specification: " <> resourceIdText (resource ^. #identity))
+
+-- | A workstation projection may relocate an accepted kubeconfig's two local
+-- paths, but never its identity, bytes, producer, policies or operation envelope.
+-- This comparison does not rewrite the accepted declaration or retained review.
+sameKubeconfigProjection :: ScopeDeclaration -> ScopeDeclaration -> Bool
+sameKubeconfigProjection left right =
+  scopeId left == scopeId right
+    && scopeIdText (scopeId left) == "platform:kubeconfig"
+    && scopeConfigDigest left == scopeConfigDigest right
+    && scopeOverrides left == scopeOverrides right
+    && case (normalize left, normalize right) of
+      (Just a, Just b) -> a == b
+      _ -> False
+  where
+    normalize scope = case scopeBundles scope of
+      [bundle] | null (bundle ^. #operations) -> case bundle ^. #declarations of
+        [Managed resource] -> case resource ^. #spec of
+          ArtifactPublication kind _ digest complete
+            | kind == kindName KubeconfigArtifact
+            , resource ^. #executor == ArtifactExecutor
+            , resource ^. #source . #path == "kubeconfig-prepared-v1" ->
+                Just
+                  ( bundle
+                      & #declarations
+                      .~ [ Managed
+                             ( resource
+                                 & #spec
+                                 .~ ArtifactPublication kind "current-context" digest complete
+                                 & #source
+                                 . #file
+                                 .~ "current-context"
+                             )
+                         ]
+                  )
+          _ -> Nothing
+        _ -> Nothing
+      _ -> Nothing
 
 compileArtifactScope :: ArtifactDeclarationBundle -> Either (NonEmpty InventoryError) ScopeDeclaration
 compileArtifactScope bundle

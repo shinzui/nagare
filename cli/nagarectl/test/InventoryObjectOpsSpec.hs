@@ -22,6 +22,7 @@ import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal
 import Nagare.Inventory.Status (loadActiveTransactionStatus)
 import Nagare.Inventory.Store
+import Nagare.Inventory.Store.Discovery
 import Nagare.Inventory.Store.ObjectOps
 import Nagare.Ops.PulumiBackend (GcloudOps (..), bucketOwnershipVerdict, bucketProjectNumberArgs, gcsBucketOfUrl, projectNumberArgs, realGcloudOps)
 import Nagare.Resource.Types
@@ -36,7 +37,57 @@ import Test.Tasty.HUnit
 
 inventoryObjectOpsTests :: TestTree
 inventoryObjectOpsTests = testGroup "inventory object operations"
-  [ testCase "conditional upload accepts only an exact version-specific created URL" $ do
+  [ testCase "discovery distinguishes empty, incomplete, foreign and unavailable authority without writes" $ do
+      ops <- fakeObjectOps
+      writes <- newIORef (0 :: Int)
+      let readonly = ops {putObject = \_ _ _ -> modifyIORef' writes (+ 1) >> pure (PutNoEffect "discovery wrote")}
+          probe selected empty = discoverInventoryObjects selected (pure empty) fixtureBinding
+      probe readonly (Right True) >>= \case
+        DiscoveredEmptyPrefix -> pure ()
+        _ -> assertFailure "empty prefix not proved"
+      probe readonly (Right False) >>= \case
+        DiscoveryIncomplete _ -> pure ()
+        _ -> assertFailure "missing format with remaining history became fresh"
+      probe readonly (Left "denied") >>= \case
+        DiscoveryUnavailable _ -> pure ()
+        _ -> assertFailure "failed prefix query became fresh"
+      let unavailable = readonly {getObject = \_ -> pure (GetUnknown "offline")}
+      probe unavailable (Right True) >>= \case
+        DiscoveryUnavailable _ -> pure ()
+        _ -> assertFailure "failed format read became fresh"
+      store <- newObjectStore ops fixtureBinding "fixture" Nothing >>= either (assertFailure . show) pure
+      probe readonly (Right True) >>= \case
+        DiscoveryIncomplete _ -> pure ()
+        _ -> assertFailure "format without head became fresh"
+      initial <- initializeStore store fixtureBinding "fixture" >>= either (assertFailure . show) pure
+      probe readonly (Right True) >>= \case
+        DiscoveredHistory _ observed -> observed @?= initial
+        _ -> assertFailure "bound existing history was ignored"
+      let foreignBinding =
+            ContextBinding
+              (either (error . T.unpack) id (mkContextId "foreign"))
+              (either (error . T.unpack) id (mkName "project"))
+      replaceHeadIfGenerationMatches store (Just (headGeneration initial)) initial {headBinding = foreignBinding, headGeneration = headGeneration initial + 1}
+        >>= either (assertFailure . show) pure
+      probe readonly (Right True) >>= \case
+        DiscoveryForeign _ -> pure ()
+        _ -> assertFailure "matching format hid a foreign head"
+      readIORef writes >>= (@?= 0)
+      let remote = DiscoveredHistory store initial
+          destination = "gs://example/private"
+          migrated = initial {headMigration = Just (MigrationTombstone destination (contentDigest "initial"))}
+          nonempty = initial {headGeneration = 1}
+      chooseHistoryAuthority destination Nothing remote @?= Right UseRemoteHistory
+      chooseHistoryAuthority destination Nothing DiscoveredMissingBucket @?= Right UseLocalFoundation
+      chooseHistoryAuthority destination Nothing DiscoveredEmptyPrefix @?= Right UseLocalFoundation
+      assertBool "local conflict silently discarded" (isLeft (chooseHistoryAuthority destination (Just nonempty) remote))
+      chooseHistoryAuthority destination (Just migrated) remote @?= Right UseRemoteHistory
+      forM_ [DiscoveredMissingBucket, DiscoveredEmptyPrefix, DiscoveryUnavailable "denied", DiscoveryIncomplete "missing head", DiscoveryForeign "other"] $ \result ->
+        assertBool "migrated destination failure became new history" (isLeft (chooseHistoryAuthority destination (Just migrated) result))
+      assertBool
+        "wrong migration destination accepted"
+        (isLeft (chooseHistoryAuthority "gs://different/private" (Just migrated) remote))
+  , testCase "conditional upload accepts only an exact version-specific created URL" $ do
       let prefix = "gs://example-bucket/private/inventory"
           name = ObjectName "journal/00000000000000000001.json"
       createdGeneration prefix name "Created gs://example-bucket/private/inventory/journal/00000000000000000001.json#123\n"

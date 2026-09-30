@@ -528,7 +528,7 @@ import System.FilePath (dropExtension, takeBaseName, takeDirectory, takeExtensio
 import System.IO (hFlush, hIsTerminalDevice, hSetEcho, hSetEncoding, stderr, stdin, stdout, utf8)
 import System.IO.Error (isDoesNotExistError)
 import System.IO.Temp (createTempDirectory, withSystemTempDirectory, withTempDirectory)
-import System.Posix.Files (fileMode, getFileStatus, isDirectory, isRegularFile, setFileMode)
+import System.Posix.Files (createLink, fileMode, getFileStatus, isDirectory, isRegularFile, setFileMode)
 import System.Process
   ( CreateProcess (cwd, env)
   , proc
@@ -893,6 +893,7 @@ data HostCommand
 
 data KubeconfigCommand
   = KubeconfigFetch KubeconfigFetchOpts
+  | KubeconfigRecover
   deriving stock (Generic, Show)
 
 data KubeconfigFetchOpts = KubeconfigFetchOpts
@@ -2438,6 +2439,12 @@ opts =
                 )
                 (progDesc "Fetch k3s credentials over project-confined IAP and install them atomically")
             )
+            <> command
+              "recover"
+              ( info
+                  (pure KubeconfigRecover <**> helper)
+                  (progDesc "Materialize accepted shared-history credentials in this context root")
+              )
         )
     clusterCmd =
       info
@@ -4655,6 +4662,16 @@ runHost globalContext = \case
 
 runKubeconfig :: Maybe String -> KubeconfigCommand -> IO ()
 runKubeconfig globalContext = \case
+  KubeconfigRecover -> do
+    active <- activeTarget globalContext
+    selected <- foundationStageTarget active
+    snapshot <- Inventory.loadTargetSnapshotReadOnly selected
+    (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+    host <- buildHostStageCandidate active workspace snapshot
+    when (isJust host) (dieT "kubeconfig recovery requires an accepted host configuration")
+    recovered <- buildKubeconfigStageCandidateWithRecovery True active workspace snapshot
+    when (isJust recovered) (dieT "kubeconfig recovery requires an accepted credential scope")
+    TIO.putStrLn "Materialized the accepted kubeconfig in the selected context root"
   KubeconfigFetch options -> do
     active <- activeTarget (options ^. #context <|> globalContext)
     let profile = active ^. #profile
@@ -4919,44 +4936,61 @@ runInfraDestroy mctx yes = do
 runPlatformBootstrapPlan :: Maybe String -> FilePath -> IO ()
 runPlatformBootstrapPlan mctx output = do
   active <- activeTarget mctx
+  stageTarget <- foundationStageTarget active
   (paths, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   manifest <- readPayloadManifest paths >>= either (dieT . renderWorkspaceError) pure
-  foundationPending <- cloudFoundationPending active
+  foundationPending <- cloudFoundationPendingAt active stageTarget
   if foundationPending
     then do
-      stageTarget <- foundationStageTarget active
       snapshot <- Inventory.loadTargetSnapshot stageTarget
       candidate <- buildCloudFoundationCandidate active paths workspace snapshot
       Inventory.planInventoryCandidateWithPayloadIdentity
         (inventoryPlanRegistry active workspace)
-        ("nagare-bootstrap:" <> manifest ^. #payloadId) stageTarget candidate output
+        ("nagare-bootstrap:" <> manifest ^. #payloadId)
+        stageTarget
+        candidate
+        output
     else do
       snapshot <- Inventory.loadTargetSnapshot active
-      when (active ^. #profile . #mode == Cloud)
+      when
+        (active ^. #profile . #mode == Cloud)
         (void (selectReviewedPulumiForContext (active ^. #contextName) (active ^. #profile)))
       localStage <- buildLocalSubstrateCandidate active workspace snapshot
       case localStage of
         Just candidate -> do
           Inventory.planInventoryCandidateWithPayloadIdentity
             (inventoryPlanRegistry active workspace)
-            ("nagare-bootstrap:" <> manifest ^. #payloadId) active candidate output
+            ("nagare-bootstrap:" <> manifest ^. #payloadId)
+            active
+            candidate
+            output
         Nothing -> do
           cloudStage <- buildCloudStageCandidate active workspace snapshot
           case cloudStage of
-            Just candidate -> Inventory.planInventoryCandidateWithPayloadIdentity
-              (inventoryPlanRegistry active workspace)
-              ("nagare-bootstrap:" <> manifest ^. #payloadId) active candidate output
+            Just candidate ->
+              Inventory.planInventoryCandidateWithPayloadIdentity
+                (inventoryPlanRegistry active workspace)
+                ("nagare-bootstrap:" <> manifest ^. #payloadId)
+                active
+                candidate
+                output
             Nothing -> runAfterCloudStage active paths workspace snapshot manifest output
 
-runAfterCloudStage :: ActiveTarget -> PlatformPaths -> PlatformWorkspace
-  -> ResourceInventory.ScopeSnapshot -> PayloadManifest -> FilePath -> IO ()
+runAfterCloudStage ::
+  ActiveTarget ->
+  PlatformPaths ->
+  PlatformWorkspace ->
+  ResourceInventory.ScopeSnapshot ->
+  PayloadManifest ->
+  FilePath ->
+  IO ()
 runAfterCloudStage active paths workspace snapshot manifest output = do
   hostOwner <- either dieT pure (Resource.mkScopeId Resource.Platform "host")
   -- Once the host is accepted, installation media is no longer a prerequisite
   -- for adding cluster scopes. Still validate the exact accepted host inputs;
   -- a changed configuration requires an explicit reviewed host transition.
   if active ^. #profile . #mode == Cloud
-      && Map.member hostOwner (ResourceInventory.snapshotScopes snapshot)
+    && Map.member hostOwner (ResourceInventory.snapshotScopes snapshot)
     then afterImages
     else do
       imageBuild <- buildImageBuildStageCandidate active workspace snapshot
@@ -4968,9 +5002,13 @@ runAfterCloudStage active paths workspace snapshot manifest output = do
             Just candidate -> plan candidate
             Nothing -> afterImages
   where
-    plan = \candidate -> Inventory.planInventoryCandidateWithPayloadIdentity
-      (inventoryPlanRegistry active workspace)
-      ("nagare-bootstrap:" <> manifest ^. #payloadId) active candidate output
+    plan = \candidate ->
+      Inventory.planInventoryCandidateWithPayloadIdentity
+        (inventoryPlanRegistry active workspace)
+        ("nagare-bootstrap:" <> manifest ^. #payloadId)
+        active
+        candidate
+        output
     afterImages = do
       hostStage <- buildHostStageCandidate active workspace snapshot
       case hostStage of
@@ -4988,7 +5026,10 @@ runAfterCloudStage active paths workspace snapshot manifest output = do
               (candidate, native) <- buildPlatformCandidate active paths workspace snapshot
               Inventory.planInventoryCandidateWithPayloadIdentity
                 (inventoryPlanRegistryWithNative active workspace native)
-                ("nagare-bootstrap:" <> manifest ^. #payloadId) active candidate output
+                ("nagare-bootstrap:" <> manifest ^. #payloadId)
+                active
+                candidate
+                output
 
 runPlatformBootstrapApply :: Maybe String -> FilePath -> Bool -> IO ()
 runPlatformBootstrapApply mctx reviewDirectory yes = do
@@ -5008,55 +5049,28 @@ runPlatformBootstrapApply mctx reviewDirectory yes = do
     migrated <- Inventory.migrateTargetStore stageTarget InventoryStoreGcs False
     either (dieT . T.pack . show) TIO.putStrLn migrated
 
-localFoundationTarget :: ActiveTarget -> ActiveTarget
-localFoundationTarget active = active & #profile . #inventoryStore .~ InventoryStoreLocal
-
 foundationStageTarget :: ActiveTarget -> IO ActiveTarget
-foundationStageTarget active
-  | effectiveInventoryStore (active ^. #profile) == InventoryStoreLocal = pure active
-  | otherwise = do
-      let localTarget = localFoundationTarget active
-      opened <- Inventory.openTargetStoreReadOnly localTarget
-      case opened of
-        Left (InventoryStore.StoreConditionFailed "inventory store is not initialized") ->
-          pure localTarget
-        Left err -> dieT (T.pack (show err))
-        Right store -> do
-          headValue <- InventoryStore.readHead store >>= either (dieT . T.pack . show) pure
-          pure $ case headValue of
-            Just value | isJust (InventoryStore.headMigration value) -> active
-            _ -> localTarget
+foundationStageTarget active =
+  Inventory.selectFoundationStore active
+    >>= either (dieT . T.pack . show) pure
 
 cloudFoundationPending :: ActiveTarget -> IO Bool
-cloudFoundationPending active
+cloudFoundationPending active = foundationStageTarget active >>= cloudFoundationPendingAt active
+
+cloudFoundationPendingAt :: ActiveTarget -> ActiveTarget -> IO Bool
+cloudFoundationPendingAt active selected
   | active ^. #profile . #mode /= Cloud = pure False
-  | effectiveInventoryStore (active ^. #profile) == InventoryStoreLocal = do
-      snapshot <- Inventory.loadTargetSnapshot active
-      not <$> foundationScopeReady active snapshot
   | otherwise = do
-      let localTarget = localFoundationTarget active
-      local <- Inventory.openTargetStoreReadOnly localTarget
-      case local of
-        Left (InventoryStore.StoreConditionFailed "inventory store is not initialized") -> pure True
-        Left err -> dieT (T.pack (show err))
-        Right store -> do
-          headResult <- InventoryStore.readHead store >>= either (dieT . T.pack . show) pure
-          case headResult of
-            Just headValue | isJust (InventoryStore.headMigration headValue) -> do
-              snapshot <- Inventory.loadTargetSnapshot active
-              not <$> foundationScopeReady active snapshot
-            _ -> do
-              snapshot <- Inventory.loadTargetSnapshot localTarget
-              if Map.member foundationOwner (ResourceInventory.snapshotScopes snapshot)
-                then do
-                  migrated <- Inventory.migrateTargetStore localTarget InventoryStoreGcs False
-                  either (dieT . T.pack . show) (const (pure ())) migrated
-                  current <- Inventory.loadTargetSnapshot active
-                  not <$> foundationScopeReady active current
-                else pure True
-  where
-    foundationOwner = either (error . T.unpack) (\owner -> owner)
-      (Resource.mkScopeId Resource.Platform "cloud-foundation")
+      snapshot <- Inventory.loadTargetSnapshot selected
+      ready <- foundationScopeReady active snapshot
+      if ready
+        && effectiveInventoryStore (active ^. #profile) == InventoryStoreGcs
+        && effectiveInventoryStore (selected ^. #profile) == InventoryStoreLocal
+        then do
+          Inventory.migrateTargetStore selected InventoryStoreGcs False
+            >>= either (dieT . T.pack . show) (const (pure ()))
+          pure False
+        else pure (not ready)
 
 foundationScopeReady :: ActiveTarget -> ResourceInventory.ScopeSnapshot -> IO Bool
 foundationScopeReady active snapshot = case Map.lookup owner (ResourceInventory.snapshotScopes snapshot) of
@@ -5068,50 +5082,112 @@ foundationScopeReady active snapshot = case Map.lookup owner (ResourceInventory.
     project <- either dieT pure (Resource.mkName (profile ^. #project))
     location <- either dieT pure (Resource.mkName (profile ^. #region))
     backendBucket <- foundationPulumiBucket active
-    imageLink <- foundationImageLink active
-      (concatMap (concatMap ResourceInventory.declarations . ResourceInventory.scopeBundles . snd)
-        (Map.elems (ResourceInventory.snapshotScopes snapshot)))
+    imageLink <-
+      foundationImageLink
+        active
+        ( concatMap
+            (concatMap ResourceInventory.declarations . ResourceInventory.scopeBundles . snd)
+            (Map.elems (ResourceInventory.snapshotScopes snapshot))
+        )
     stackTarget <- foundationStackTarget active workspace imageLink
     let stackName = case stackTarget of
           FoundationStack _ name _ _ _ _ _ -> name
           _ -> error "foundationStackTarget did not return a stack"
-        stackId = Resource.mintResourceId owner
-          (either (error . T.unpack) (\key -> key) (Resource.mkLogicalKey "pulumi-stack")) stackName
+        stackId =
+          Resource.mintResourceId
+            owner
+            (either (error . T.unpack) (\key -> key) (Resource.mkLogicalKey "pulumi-stack"))
+            stackName
     expectedBuckets <- foundationBucketNames active
     case InventoryFoundation.foundationTargetsFromDeclarations
-      project location backendBucket (profile ^. #pulumiBackendMember)
-      (Just (foundationStackAddress project stackName, stackTarget)) declarations of
+      project
+      location
+      backendBucket
+      (profile ^. #pulumiBackendMember)
+      (Just (foundationStackAddress project stackName, stackTarget))
+      declarations of
       Left _ -> pure False
       Right targets -> do
-        let declaredServices = Set.fromList [Resource.nameText service
-              | FoundationService _ service <- Map.elems targets]
-            declared = maybe False
-              ((== foundationTargetDigest stackTarget) . foundationTargetDigest)
-              (Map.lookup stackId targets)
-              && Set.fromList [Resource.nameText bucket
-                | FoundationBucket _ bucket _ _ <- Map.elems targets] == expectedBuckets
-              && declaredServices `Set.isSubsetOf` Set.fromList requiredApis
-        if not declared then pure False else do
-          -- A newly materialized payload workspace has no stack config link yet.
-          -- Observe the accepted stack through its context-owned config.
-          linkContextStackConfig (active ^. #contextName) (workspace ^. #pulumiDir)
-            >>= either dieT (const (pure ()))
-          let runtime = mkFoundationRuntimeOps realGcloudRunner
-          observations <- traverse (\target ->
-            (,) target <$> foundationInspect runtime target) (Map.elems targets)
-          requiredServices <- forM requiredApis $ \api -> do
-            service <- either dieT pure (Resource.mkName api)
-            let target = FoundationService project service
-            (,) target <$> foundationInspect runtime target
-          pure (all (\(target, state) -> case state of
-            FoundationPresent _ digest -> digest == foundationTargetDigest target
-            _ -> False) observations
-            && all (\(target, state) -> case state of
-              FoundationPresent _ digest -> digest == foundationTargetDigest target
-              _ -> False) requiredServices)
+        let declaredServices =
+              Set.fromList
+                [ Resource.nameText service
+                | FoundationService _ service <- Map.elems targets
+                ]
+            declared =
+              maybe
+                False
+                ((== foundationTargetDigest stackTarget) . foundationTargetDigest)
+                (Map.lookup stackId targets)
+                && Set.fromList
+                  [ Resource.nameText bucket
+                  | FoundationBucket _ bucket _ _ <- Map.elems targets
+                  ]
+                  == expectedBuckets
+                && declaredServices `Set.isSubsetOf` Set.fromList requiredApis
+        if not declared
+          then pure False
+          else do
+            -- A newly materialized payload workspace has no stack config link yet.
+            -- Observe the accepted stack through its context-owned config.
+            configPath <-
+              linkContextStackConfig (active ^. #contextName) (workspace ^. #pulumiDir)
+                >>= either dieT pure
+            configBytes <- BS.readFile configPath
+            -- Pulumi's config command reads workstation YAML. Recover only an
+            -- empty context-owned file from the already accepted backend stack;
+            -- preserve every nonempty operator configuration for drift checks.
+            when (BS.null configBytes) $ do
+              ensurePulumiInWorkspaceWithDependencies
+                False
+                False
+                False
+                (active ^. #contextName)
+                profile
+                workspace
+              refreshed <-
+                pulumiQuiet
+                  [ "-C"
+                  , workspace ^. #pulumiDir
+                  , "config"
+                  , "refresh"
+                  , "--stack"
+                  , T.unpack (Resource.nameText stackName)
+                  , "--force"
+                  ]
+              unless
+                (refreshed == ExitSuccess)
+                (dieT "accepted Pulumi stack configuration is unavailable; cannot recover the empty local config")
+            let runtime = mkFoundationRuntimeOps realGcloudRunner
+            observations <-
+              traverse
+                ( \target ->
+                    (,) target <$> foundationInspect runtime target
+                )
+                (Map.elems targets)
+            requiredServices <- forM requiredApis $ \api -> do
+              service <- either dieT pure (Resource.mkName api)
+              let target = FoundationService project service
+              (,) target <$> foundationInspect runtime target
+            pure
+              ( all
+                  ( \(target, state) -> case state of
+                      FoundationPresent _ digest -> digest == foundationTargetDigest target
+                      _ -> False
+                  )
+                  observations
+                  && all
+                    ( \(target, state) -> case state of
+                        FoundationPresent _ digest -> digest == foundationTargetDigest target
+                        _ -> False
+                    )
+                    requiredServices
+              )
   where
-    owner = either (error . T.unpack) (\scope -> scope)
-      (Resource.mkScopeId Resource.Platform "cloud-foundation")
+    owner =
+      either
+        (error . T.unpack)
+        (\scope -> scope)
+        (Resource.mkScopeId Resource.Platform "cloud-foundation")
 
 buildCloudFoundationCandidate
   :: ActiveTarget -> PlatformPaths -> PlatformWorkspace -> ResourceInventory.ScopeSnapshot
@@ -5633,93 +5709,132 @@ buildHostStageCandidate active _ snapshot
         Nothing -> Just <$> either (dieT . T.pack . show) pure
           (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
 
-buildKubeconfigStageCandidate
-  :: ActiveTarget -> PlatformWorkspace -> ResourceInventory.ScopeSnapshot
-  -> IO (Maybe ResourceInventory.CompositionCandidate)
-buildKubeconfigStageCandidate active workspace snapshot = do
-      let context = active ^. #contextName
-          contextText = contextNameText context
-      destination <- kubeconfigPath context
-      stateRoot <- nagareStateDir
-      let preparedDir = stateRoot </> T.unpack contextText </> "prepared-kubeconfig"
-      createDirectoryIfMissing True preparedDir
-      setFileMode preparedDir 0o700
-      (bytes, producer) <- case active ^. #profile . #mode of
-        Cloud -> do
-          hostName <- readContextHostName context >>= either dieT pure
-          fetched <- withTempDirectory preparedDir "candidate-" $ \temporary -> do
-            let path = temporary </> "kubeconfig.yaml"
-                identity = KubeconfigIdentity contextText hostName
-                ops = defaultFetchOps (workspace ^. #scriptsDir </> "iap-ssh.sh")
-            fetchKubeconfig ops identity (active ^. #profile) path >>= either dieT pure
-            BS.readFile path
-          hostOwner <- either dieT pure (Resource.mkScopeId Resource.Platform "host")
-          hostKey <- either dieT pure (Resource.mkLogicalKey "nixos-system")
-          hostRole <- either dieT pure (Resource.mkName "system")
-          pure (fetched, Resource.mintResourceId hostOwner hostKey hostRole)
-        Local -> do
-          specBytes <- BS.readFile (workspace ^. #root </> "cluster/bootstrap/local-substrate.json")
-          spec <- either (dieT . T.pack) pure (Aeson.eitherDecodeStrict' specBytes)
-          (code, output, err) <- readProcessWithExitCode "k3d"
-            ["kubeconfig", "get", T.unpack (localSpecCluster spec)] ""
-          unless (code == ExitSuccess)
-            (dieT ("could not read reviewed local cluster kubeconfig: " <> T.pack err))
-          normalized <- either dieT pure (normalizeLocalKubeconfig contextText (BC.pack output))
-          clusterOwner <- either dieT pure (Resource.mkScopeId Resource.Platform "local-substrate")
-          clusterKey <- either dieT pure (Resource.mkLogicalKey "cluster")
-          clusterRole <- either dieT pure (Resource.mkName (localSpecCluster spec))
-          pure (normalized, Resource.mintResourceId clusterOwner clusterKey clusterRole)
-      let digest = InventoryDigest.contentDigest bytes
-          prepared = preparedDir </> T.unpack (Resource.digestText digest) <> ".yaml"
-      linked <- try (pathIsSymbolicLink prepared) >>= \case
-        Left (err :: IOException) | isDoesNotExistError err -> pure False
-        Left (err :: IOException) -> dieT ("could not inspect prepared kubeconfig: " <> T.pack (show err))
-        Right value -> pure value
-      when linked (dieT "prepared kubeconfig path is a symlink")
-      exists <- doesFileExist prepared
-      if exists then do
-        retained <- BS.readFile prepared
-        unless (retained == bytes) (dieT "prepared kubeconfig digest path contains different bytes")
-      else BS.writeFile prepared bytes
-      setFileMode prepared 0o600
-      owner <- either dieT pure (Resource.mkScopeId Resource.Platform "kubeconfig")
-      key <- either dieT pure (Resource.mkLogicalKey "context-kubeconfig")
-      role <- either dieT pure (Resource.mkName contextText)
-      let artifact = ArtifactResourceSpec
-            { artifactLogicalKey = key
-            , artifactRole = role
-            , artifactName = role
-            , artifactDestination = T.pack destination
-            , artifactContentDigest = digest
-            , artifactSpecDigest = digest
-            , artifactKind = InventoryArtifact.KubeconfigArtifact
-            , artifactOwnership = InventoryArtifact.OwnedArtifact
-            , artifactLifecycle = ResourcePolicy.Protect
-            , artifactDataPolicy = ResourcePolicy.Stateless
-            , artifactSensitivity = ResourcePolicy.Secret
-            , artifactDependencies = [ResourceReference.OrderedAfter producer]
-            , artifactConsumers = InventoryArtifact.ConsumerCompletenessUnknown
-            , artifactPublishOperation = False
-            , artifactSource = Resource.SourceLocation (T.pack prepared) "kubeconfig-prepared-v1"
-            }
-      scope <- either (dieT . T.pack . show) pure (InventoryArtifact.compileArtifactScope
-        (ArtifactDeclarationBundle 1 owner (artifact NE.:| [])))
-      case Map.lookup owner (ResourceInventory.snapshotScopes snapshot) of
-        Just (_, prior) | prior /= scope ->
+buildKubeconfigStageCandidate ::
+  ActiveTarget ->
+  PlatformWorkspace ->
+  ResourceInventory.ScopeSnapshot ->
+  IO (Maybe ResourceInventory.CompositionCandidate)
+buildKubeconfigStageCandidate = buildKubeconfigStageCandidateWithRecovery False
+
+buildKubeconfigStageCandidateWithRecovery ::
+  Bool ->
+  ActiveTarget ->
+  PlatformWorkspace ->
+  ResourceInventory.ScopeSnapshot ->
+  IO (Maybe ResourceInventory.CompositionCandidate)
+buildKubeconfigStageCandidateWithRecovery recover active workspace snapshot = do
+  let context = active ^. #contextName
+      contextText = contextNameText context
+  destination <- kubeconfigPath context
+  stateRoot <- nagareStateDir
+  let preparedDir = stateRoot </> T.unpack contextText </> "prepared-kubeconfig"
+  createDirectoryIfMissing True preparedDir
+  setFileMode preparedDir 0o700
+  (bytes, producer) <- case active ^. #profile . #mode of
+    Cloud -> do
+      hostName <- readContextHostName context >>= either dieT pure
+      fetched <- withTempDirectory preparedDir "candidate-" $ \temporary -> do
+        let path = temporary </> "kubeconfig.yaml"
+            identity = KubeconfigIdentity contextText hostName
+            ops = defaultFetchOps (workspace ^. #scriptsDir </> "iap-ssh.sh")
+        fetchKubeconfig ops identity (active ^. #profile) path >>= either dieT pure
+        BS.readFile path
+      hostOwner <- either dieT pure (Resource.mkScopeId Resource.Platform "host")
+      hostKey <- either dieT pure (Resource.mkLogicalKey "nixos-system")
+      hostRole <- either dieT pure (Resource.mkName "system")
+      pure (fetched, Resource.mintResourceId hostOwner hostKey hostRole)
+    Local -> do
+      specBytes <- BS.readFile (workspace ^. #root </> "cluster/bootstrap/local-substrate.json")
+      spec <- either (dieT . T.pack) pure (Aeson.eitherDecodeStrict' specBytes)
+      (code, output, err) <-
+        readProcessWithExitCode
+          "k3d"
+          ["kubeconfig", "get", T.unpack (localSpecCluster spec)]
+          ""
+      unless
+        (code == ExitSuccess)
+        (dieT ("could not read reviewed local cluster kubeconfig: " <> T.pack err))
+      normalized <- either dieT pure (normalizeLocalKubeconfig contextText (BC.pack output))
+      clusterOwner <- either dieT pure (Resource.mkScopeId Resource.Platform "local-substrate")
+      clusterKey <- either dieT pure (Resource.mkLogicalKey "cluster")
+      clusterRole <- either dieT pure (Resource.mkName (localSpecCluster spec))
+      pure (normalized, Resource.mintResourceId clusterOwner clusterKey clusterRole)
+  let digest = InventoryDigest.contentDigest bytes
+      prepared = preparedDir </> T.unpack (Resource.digestText digest) <> ".yaml"
+  linked <-
+    try (pathIsSymbolicLink prepared) >>= \case
+      Left (err :: IOException) | isDoesNotExistError err -> pure False
+      Left (err :: IOException) -> dieT ("could not inspect prepared kubeconfig: " <> T.pack (show err))
+      Right value -> pure value
+  when linked (dieT "prepared kubeconfig path is a symlink")
+  exists <- doesFileExist prepared
+  if exists
+    then do
+      retained <- BS.readFile prepared
+      unless (retained == bytes) (dieT "prepared kubeconfig digest path contains different bytes")
+    else BS.writeFile prepared bytes
+  setFileMode prepared 0o600
+  owner <- either dieT pure (Resource.mkScopeId Resource.Platform "kubeconfig")
+  key <- either dieT pure (Resource.mkLogicalKey "context-kubeconfig")
+  role <- either dieT pure (Resource.mkName contextText)
+  let artifact =
+        ArtifactResourceSpec
+          { artifactLogicalKey = key
+          , artifactRole = role
+          , artifactName = role
+          , artifactDestination = T.pack destination
+          , artifactContentDigest = digest
+          , artifactSpecDigest = digest
+          , artifactKind = InventoryArtifact.KubeconfigArtifact
+          , artifactOwnership = InventoryArtifact.OwnedArtifact
+          , artifactLifecycle = ResourcePolicy.Protect
+          , artifactDataPolicy = ResourcePolicy.Stateless
+          , artifactSensitivity = ResourcePolicy.Secret
+          , artifactDependencies = [ResourceReference.OrderedAfter producer]
+          , artifactConsumers = InventoryArtifact.ConsumerCompletenessUnknown
+          , artifactPublishOperation = False
+          , artifactSource = Resource.SourceLocation (T.pack prepared) "kubeconfig-prepared-v1"
+          }
+  scope <-
+    either
+      (dieT . T.pack . show)
+      pure
+      ( InventoryArtifact.compileArtifactScope
+          (ArtifactDeclarationBundle 1 owner (artifact NE.:| []))
+      )
+  case Map.lookup owner (ResourceInventory.snapshotScopes snapshot) of
+    Just (_, prior)
+      | not (InventoryArtifact.sameKubeconfigProjection prior scope) ->
           dieT "accepted kubeconfig differs from the selected host; use a reviewed credential transition"
-        _ -> pure ()
-      destinationLinked <- try (pathIsSymbolicLink destination) >>= \case
-        Left (err :: IOException) | isDoesNotExistError err -> pure False
-        Left (err :: IOException) -> dieT ("could not inspect context kubeconfig: " <> T.pack (show err))
-        Right value -> pure value
-      when destinationLinked (dieT "context kubeconfig destination is a symlink")
-      destinationExists <- doesFileExist destination
-      current <- if destinationExists then Just <$> BS.readFile destination else pure Nothing
-      let accepted = Map.member owner (ResourceInventory.snapshotScopes snapshot)
-      case (accepted, current) of
-        (True, Just currentBytes) | InventoryDigest.contentDigest currentBytes == digest -> pure Nothing
-        (True, Just _) -> dieT "accepted context kubeconfig has a different content digest"
-        _ -> Just <$> either (dieT . T.pack . show) pure
+    _ -> pure ()
+  destinationLinked <-
+    try (pathIsSymbolicLink destination) >>= \case
+      Left (err :: IOException) | isDoesNotExistError err -> pure False
+      Left (err :: IOException) -> dieT ("could not inspect context kubeconfig: " <> T.pack (show err))
+      Right value -> pure value
+  when destinationLinked (dieT "context kubeconfig destination is a symlink")
+  destinationExists <- doesFileExist destination
+  current <- if destinationExists then Just <$> BS.readFile destination else pure Nothing
+  let accepted = Map.member owner (ResourceInventory.snapshotScopes snapshot)
+  case (accepted, current) of
+    (True, Just currentBytes) | InventoryDigest.contentDigest currentBytes == digest -> pure Nothing
+    (True, Just _) -> dieT "accepted context kubeconfig has a different content digest"
+    (True, Nothing) | recover -> do
+      createDirectoryIfMissing True (takeDirectory destination)
+      setFileMode (takeDirectory destination) 0o700
+      withTempDirectory (takeDirectory destination) "recover-" $ \temporary -> do
+        let staged = temporary </> "kubeconfig.yaml"
+        BS.writeFile staged bytes
+        setFileMode staged 0o600
+        createLink staged destination
+      pure Nothing
+    (True, Nothing) -> dieT "accepted kubeconfig is absent in this context root; run nagarectl kubeconfig recover"
+    _ | recover -> dieT "kubeconfig recovery requires an accepted credential scope"
+    _ ->
+      Just
+        <$> either
+          (dieT . T.pack . show)
+          pure
           (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
 
 -- Keep payload paths explicit so a fresh context compiles one immutable

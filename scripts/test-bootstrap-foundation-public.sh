@@ -7,10 +7,29 @@ nagarectl_bin="${1:?pass the built nagarectl executable path}"
 real_pulumi="$(command -v pulumi)"
 real_helm="$(command -v helm)"
 fixture_root="$(mktemp -d "${TMPDIR:-/tmp}/nagare-bootstrap-foundation.XXXXXX")"
-trap 'rm -rf "$fixture_root"' EXIT
+bucket_fixture_pid=
+created_controller_archive=0
+cleanup() {
+  if test -n "$bucket_fixture_pid"; then kill "$bucket_fixture_pid" 2>/dev/null || true; fi
+  if test "$created_controller_archive" = 1; then rm -f "$controller_archive"; fi
+  rm -rf "$fixture_root"
+}
+trap cleanup EXIT
 
 export XDG_CONFIG_HOME="$fixture_root/config"
 export XDG_STATE_HOME="$fixture_root/state"
+export XDG_CACHE_HOME="$fixture_root/cache"
+mkdir -p "$XDG_STATE_HOME"
+python3 scripts/foundation_bucket_fixture.py "$XDG_STATE_HOME" "$fixture_root/storage-endpoint" &
+bucket_fixture_pid=$!
+for _ in {1..100}; do
+  test -s "$fixture_root/storage-endpoint" && break
+  sleep 0.05
+done
+test -s "$fixture_root/storage-endpoint"
+export CLOUDSDK_API_ENDPOINT_OVERRIDES_STORAGE="$(cat "$fixture_root/storage-endpoint")"
+export CLOUDSDK_ACTIVE_CONFIG_NAME=fixture
+export CLOUDSDK_CORE_ACCOUNT=fixture@example.invalid
 export NAGARE_PLATFORM_ROOT="$(pwd)"
 # The build subprocess is recorded below; no real builder tunnel is involved.
 export NIX_BUILDER_TUNNEL_PORT=28157
@@ -22,7 +41,7 @@ if test -L "$controller_archive"; then
 fi
 if test ! -e "$controller_archive"; then
   printf 'fixture controller image archive\n' > "$controller_archive"
-  trap 'rm -f "$controller_archive"; rm -rf "$fixture_root"' EXIT
+  created_controller_archive=1
 fi
 export PATH="$fixture_root/bin:$PATH"
 export NAGARE_REAL_HELM="$real_helm"
@@ -48,6 +67,15 @@ cat > "$fixture_root/bin/gcloud" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$XDG_STATE_HOME/gcloud.log"
 case "$*" in
+  "config config-helper --format=json --min-expiry=120s --quiet")
+    python3 - <<'PYHELPER'
+import json, os
+print(json.dumps({'credential': {'access_token': 'fixture-token', 'token_expiry': '2099-01-01T00:00:00Z'},
+ 'configuration': {'active_configuration': 'fixture', 'properties': {
+ 'core': {'account': 'fixture@example.invalid', 'project': 'fixture-project'},
+ 'api_endpoint_overrides': {'storage': os.environ['CLOUDSDK_API_ENDPOINT_OVERRIDES_STORAGE']}}}}))
+PYHELPER
+    ;;
   "auth list --filter=status:ACTIVE --format=value(account)") printf 'fixture@example.invalid\n' ;;
   "config get-value project") printf 'fixture-project\n' ;;
   "projects describe fixture-project --format=value(projectNumber)") printf '12345\n' ;;
@@ -127,6 +155,15 @@ cat > "$fixture_root/bin/gcloud" <<'EOF'
 set -euo pipefail
 printf '%s\n' "$*" >> "$XDG_STATE_HOME/gcloud-apply.log"
 case "$*" in
+  "config config-helper --format=json --min-expiry=120s --quiet")
+    python3 - <<'PYHELPER'
+import json, os
+print(json.dumps({'credential': {'access_token': 'fixture-token', 'token_expiry': '2099-01-01T00:00:00Z'},
+ 'configuration': {'active_configuration': 'fixture', 'properties': {
+ 'core': {'account': 'fixture@example.invalid', 'project': 'fixture-project'},
+ 'api_endpoint_overrides': {'storage': os.environ['CLOUDSDK_API_ENDPOINT_OVERRIDES_STORAGE']}}}}))
+PYHELPER
+    ;;
   "auth list --filter=status:ACTIVE --format=value(account)") printf 'fixture@example.invalid\n' ;;
   "auth print-access-token") printf 'fixture-access-token\n' ;;
   "config get-value project") printf 'fixture-project\n' ;;
@@ -266,6 +303,10 @@ print(json.dumps({"deployment": {"resources": [
     {"urn": urn, "id": f"fixture-{index}"} for index, urn in enumerate(urns)
 ]}}))
 PY
+    ;;
+  "config refresh")
+    # Restore workstation YAML from the fixture backend's accepted config.
+    printf 'config: {}\n' > "$XDG_CONFIG_HOME/nagare/pulumi/Pulumi.${NAGARE_PULUMI_STACK}.yaml"
     ;;
   "config set")
     printf '%s\t%s\n' "$7" "$8" >> "$XDG_STATE_HOME/pulumi-config.tsv" ;;
@@ -966,6 +1007,31 @@ assert len(head["accepted"]) == 6, head
 assert all(entry["scope"]["kind"] == "Platform" for entry in head["accepted"]), head
 PY
 printf 'public inventory resume proved the reviewed kubeconfig install after lost acknowledgement\n'
+# A distinct config root consumes the same controlled accepted fixture history.
+# Only profile/host inputs cross roots; immutable reviews and head stay untouched.
+second_config="$fixture_root/second-config"
+mkdir -p "$second_config/nagare/contexts" "$second_config/nagare/hosts"
+cp "$XDG_CONFIG_HOME/nagare/contexts/freshlocal.env" "$second_config/nagare/contexts/"
+cp -R "$XDG_CONFIG_HOME/nagare/hosts/freshlocal" "$second_config/nagare/hosts/"
+cp "$XDG_STATE_HOME/nagare/freshlocal/inventory/head.json" "$fixture_root/head-before-recovery"
+XDG_CONFIG_HOME="$second_config" "$nagarectl_bin" --context freshlocal kubeconfig recover \
+  > "$fixture_root/credential-recovery-out" 2>&1 || {
+  cat "$fixture_root/credential-recovery-out" >&2
+  exit 1
+}
+second_credential="$second_config/nagare/kubeconfigs/freshlocal.yaml"
+cmp "$kubeconfig_destination" "$second_credential"
+cmp "$fixture_root/head-before-recovery" "$XDG_STATE_HOME/nagare/freshlocal/inventory/head.json"
+printf 'changed credential' > "$second_credential"
+if XDG_CONFIG_HOME="$second_config" "$nagarectl_bin" --context freshlocal kubeconfig recover \
+    > "$fixture_root/changed-credential-out" 2>&1; then
+  printf 'credential recovery overwrote a different existing credential\n' >&2
+  exit 1
+fi
+test "$(cat "$second_credential")" = 'changed credential'
+grep -q 'different content digest' "$fixture_root/changed-credential-out"
+cmp "$fixture_root/head-before-recovery" "$XDG_STATE_HOME/nagare/freshlocal/inventory/head.json"
+printf 'public credential recovery materialized a second root and preserved changed-file refusal\n'
 cat > "$fixture_root/bin/skopeo" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail

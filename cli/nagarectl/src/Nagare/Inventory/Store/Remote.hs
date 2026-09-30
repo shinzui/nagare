@@ -1,6 +1,9 @@
 -- | One shared transport/ownership boundary for ordinary commands and migration.
-module Nagare.Inventory.Store.Remote (remoteObjectOps) where
+module Nagare.Inventory.Store.Remote (remoteObjectOps, BucketDiscovery (..), remoteDiscoveryOps, probeRemoteBucket) where
 
+import Data.Aeson (eitherDecodeStrict', withObject, (.:))
+import Data.Aeson.Types (parseEither)
+import Data.ByteString (ByteString)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Gogol qualified as G
@@ -13,6 +16,55 @@ import Nagare.Inventory.Store.ObjectOps
 import Nagare.Ops.PulumiBackend (GcloudOps (..), bucketOwnershipVerdict, bucketProjectNumberArgs, gcsBucketOfUrl, projectNumberArgs, realGcloudOps)
 import System.Environment (lookupEnv)
 import Text.Read (readMaybe)
+
+data BucketDiscovery
+  = BucketOwned !ByteString
+  | BucketAbsent
+  | BucketForeign !T.Text
+  | BucketUnavailable !T.Text
+  deriving stock (Eq, Show)
+
+-- | The SDK supplies structured global-name absence even when the operator
+-- selects the legacy object transport. Failed CLI descriptions are never proof.
+remoteDiscoveryOps :: T.Text -> T.Text -> IO (Either T.Text (BucketDiscovery, ObjectOps, IO (Either T.Text Bool)))
+remoteDiscoveryOps project url = case validateGogolLocation project url of
+  Left reason -> pure (Left reason)
+  Right () -> do
+    session <- newGcloudSession project
+    case session of
+      Left reason -> pure (Left reason)
+      Right auth -> case endpointOverride (sessionStorageEndpoint auth) of
+        Left reason -> pure (Left reason)
+        Right configure -> do
+          number <- sessionCapture auth (projectNumberArgs project)
+          case number of
+            Just expected
+              | not (T.null expected)
+              , T.all (`elem` ['0' .. '9']) expected -> do
+                  created <- newGogolDiscoveryWithToken (sessionToken auth) configure project url
+                  case created of
+                    Left reason -> pure (Left reason)
+                    Right sdk -> do
+                      observed <- discoveryBucket sdk
+                      selected <- lookupEnv "NAGARE_INVENTORY_GCS_TRANSPORT"
+                      let ops = case fromMaybe "gogol" selected of
+                            "gogol" -> Right (discoveryObjects sdk)
+                            "gcloud" -> Right (discoveryObjects sdk)
+                            _ -> Left "NAGARE_INVENTORY_GCS_TRANSPORT must be gogol or gcloud"
+                          verdict = case observed of
+                            Left reason -> BucketUnavailable reason
+                            Right Nothing -> BucketAbsent
+                            Right (Just bytes) -> case eitherDecodeStrict' bytes >>= parseEither (withObject "bucket" (.: "projectNumber")) of
+                              Right owner | owner == expected -> BucketOwned bytes
+                              Right (_ :: T.Text) -> BucketForeign "bucket belongs to another provider project"
+                              Left _ -> BucketUnavailable "bucket metadata has no valid owning project number"
+                      pure ((\objects -> (verdict, objects, discoveryPrefixEmpty sdk)) <$> ops)
+            _ -> pure (Left "selected provider project number is unavailable")
+
+probeRemoteBucket :: T.Text -> T.Text -> IO BucketDiscovery
+probeRemoteBucket project bucket = do
+  result <- remoteDiscoveryOps project ("gs://" <> bucket <> "/inventory-discovery")
+  pure $ either BucketUnavailable (\(verdict, _, _) -> verdict) result
 
 remoteObjectOps :: T.Text -> T.Text -> IO (Either T.Text ObjectOps)
 remoteObjectOps project url = do

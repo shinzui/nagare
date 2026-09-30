@@ -13,6 +13,7 @@ import Nagare.Inventory.Bootstrap (bootstrapCandidateScopeVectorDigest, bootstra
 import Nagare.Inventory.Adapter (Adapter (..), AdapterExecution (AdapterEffectCompleted), OperationAction (CreateResource), PlannedOperation (..), PreparedNative (..), RecoveryDecision (RecoveryProvedComplete))
 import Nagare.Inventory.Adapters.Foundation (FoundationAdapterOps (..), FoundationNativePlan (..), FoundationObservation (..), FoundationTarget (..), foundationTargetDigest, mkFoundationAdapter)
 import Nagare.Inventory.Adapters.FoundationRuntime (GcloudRunner (..), mkFoundationRuntimeOps)
+import Nagare.Inventory.Store.Remote (BucketDiscovery (..))
 import Nagare.Inventory.Components.Foundation
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Foundation (FoundationDeclarationBundle (..), FoundationResource (..), compileFoundationScope, foundationTargetsFromDeclarations, validateFoundationMember)
@@ -176,9 +177,15 @@ inventoryFoundationTests = testGroup "cluster foundation inventory"
           runner listResult describedResult = GcloudRunner
             { gcloudCapture = \args -> pure $ case args of
                 ["projects", "describe", _, _] -> projectNumber
-                ["storage", "buckets", "list", _, _] -> listResult
+                ["storage", "buckets", "list", _, _] -> error "project list must not decide global bucket absence"
                 ["storage", "buckets", "describe", _, "--raw", "--format=json"] -> describedResult
                 _ -> Left "unexpected gcloud observation"
+            , gcloudBucketDiscovery = \_ _ -> pure $ case (listResult, describedResult) of
+                (Left reason, _) -> BucketUnavailable reason
+                (Right "[]", Left _) -> BucketAbsent
+                (_, Right bytes) | "99999" `BC.isInfixOf` bytes -> BucketForeign "different project"
+                (_, Right bytes) -> BucketOwned bytes
+                (_, Left reason) -> BucketUnavailable reason
             , gcloudEffect = \_ -> pure (Left "mutation was not expected")
             , pulumiCapture = \_ _ -> pure (Left "Pulumi was not expected")
             , pulumiEffect = \_ _ -> pure (Left "Pulumi was not expected")
@@ -192,7 +199,7 @@ inventoryFoundationTests = testGroup "cluster foundation inventory"
       inspect (runner bucketList (Left "no describe")) >>= \case
         FoundationAbsent _ -> pure ()
         other -> assertFailure ("confirmed absence was lost: " <> show other)
-      inspect (runner listed (bucket "99999")) >>= \case
+      inspect (runner bucketList (bucket "99999")) >>= \case
         FoundationForeign _ _ -> pure ()
         other -> assertFailure ("foreign bucket was accepted: " <> show other)
       inspect (runner (Left "permission denied") (Left "no describe")) >>= \case

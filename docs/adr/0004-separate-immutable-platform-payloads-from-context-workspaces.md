@@ -84,3 +84,21 @@ changing or removing a Nix release cannot remove them. Release checks assert tha
 payload nor its materialized workspace contains `cluster/secrets`.
 Fetched kubeconfigs likewise survive release replacement and must be protected and backed up as
 cluster-admin credentials or regenerated from the host after recovery.
+
+## Amendment — 2026-09-29: recover workstation projections from accepted history
+
+An empty context-owned Pulumi configuration may be refreshed from the already
+accepted backend stack before drift observation. This restores configuration
+and encryption metadata locally; it does not create a stack, refresh provider
+resources or overwrite a nonempty operator configuration. Backend discovery
+and accepted declaration checks precede that recovery.
+
+Accepted kubeconfig history retains its original absolute paths and immutable
+reviews. `nagarectl kubeconfig recover` explicitly fetches credentials for the
+selected accepted host, checks the accepted identity, content/spec digests,
+producer dependencies and policies, then installs a mode-0600 current-root
+projection only when absent. Changed existing files and unresolved history
+refuse. A current-root comparison may disregard the two workstation paths for
+this non-mutating credential declaration; it cannot relocate a retained
+operation envelope or change history. Global kubeconfig and gcloud selections
+remain untouched. See [EP-156](../plans/156-prove-fresh-gcp-convergence-and-shared-history-recovery.md).

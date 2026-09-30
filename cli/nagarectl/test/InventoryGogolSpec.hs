@@ -43,7 +43,7 @@ import Text.Read (readMaybe)
 
 -- The SDK performs actual HTTP against this loopback server. No gcloud, ADC,
 -- Google endpoint, native provider, or operator credential is used.
-data Mode = Normal | HoldFirst | Denied | Unauthorized | RevokedAfterWrite | ListDenied | BadMetadata | PartialMedia | LostAck | UnreadableAck | CasRace | LoopPages | ForeignPage | DuplicatePage | Redirect
+data Mode = Normal | HoldFirst | Denied | Unauthorized | RevokedAfterWrite | ListDenied | BadMetadata | PartialMedia | LostAck | UnreadableAck | CasRace | LoopPages | ForeignPage | DuplicatePage | Redirect | BucketMissing | ForeignBucket
   deriving stock (Eq, Show)
 
 data Fixture = Fixture
@@ -62,7 +62,27 @@ inventoryGogolTests :: TestTree
 inventoryGogolTests =
   testGroup
     "Gogol inventory transport"
-    [ testCase "expired credentials refresh with the originally selected identity" credentialRefreshTest
+    [ testCase "global bucket and bounded prefix discovery preserve absence and uncertainty" $ do
+        f <- newFixture
+        testWithApplication (pure (server f)) $ \port -> do
+          let configure = Env.override (S.storageService & G.serviceHost .~ "127.0.0.1" & G.servicePort .~ port & G.serviceSecure .~ False)
+          sdk <-
+            newGogolDiscoveryWithToken (pure "fixture-token") configure "fixture-project" "gs://fixture-bucket/private/inventory"
+              >>= either (assertFailure . T.unpack) pure
+          discoveryBucket sdk >>= assertBool "valid bucket unavailable" . either (const False) isJust
+          writeIORef (mode f) BucketMissing
+          discoveryBucket sdk >>= (@?= Right Nothing)
+          forM_ [Denied, Unauthorized, BadMetadata, Redirect] $ \value -> do
+            writeIORef (mode f) value
+            discoveryBucket sdk >>= assertBool "unavailable bucket became absent" . isLeft
+          writeIORef (mode f) Normal
+          discoveryPrefixEmpty sdk >>= (@?= Right True)
+          writeIORef (objects f) (Map.singleton "private/inventory/head.json" (1, "head"))
+          discoveryPrefixEmpty sdk >>= (@?= Right False)
+          writeIORef (mode f) LoopPages
+          discoveryPrefixEmpty sdk >>= assertBool "partial page became empty" . isLeft
+          readIORef (writes f) >>= (@?= 0)
+    , testCase "expired credentials refresh with the originally selected identity" credentialRefreshTest
     , testCase "SDK backend obeys the existing store transaction contract" $ fixture $ \_ ops -> do
         store <- newObjectStore ops fixtureBinding "sdk-client" Nothing >>= either (assertFailure . show) pure
         exerciseStore store
@@ -215,6 +235,22 @@ server f req respond = do
           if modeValue == Redirect
             then respond (Wai.responseLBS status302 [(hLocation, "http://127.0.0.1:1/never")] "")
             else case (Wai.requestMethod req, key) of
+              ("GET", Nothing) | Wai.rawPathInfo req == "/storage/v1/b/fixture-bucket" ->
+                case modeValue of
+                  BucketMissing -> bad status404
+                  Denied -> bad status403
+                  BadMetadata -> send status200 (object ["name" .= ("wrong" :: T.Text)])
+                  _ ->
+                    send
+                      status200
+                      ( object
+                          [ "name" .= ("fixture-bucket" :: T.Text)
+                          , "projectNumber" .= (if modeValue == ForeignBucket then "99999" else "12345" :: T.Text)
+                          , "location" .= ("US-WEST1" :: T.Text)
+                          , "versioning" .= object ["enabled" .= True]
+                          , "iamConfiguration" .= object ["uniformBucketLevelAccess" .= object ["enabled" .= True], "publicAccessPrevention" .= ("enforced" :: T.Text)]
+                          ]
+                      )
               ("GET", Just _) | modeValue `elem` [Denied, UnreadableAck] -> bad status403
               ("GET", Just name) | modeValue == BadMetadata -> send status200 (object ["name" .= name])
               ("GET", Just name) -> do

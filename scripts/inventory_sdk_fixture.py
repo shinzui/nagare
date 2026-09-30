@@ -21,6 +21,9 @@ class StorageFixture:
         self.lost_ack = False
         self.head_only = True
         self.denied = False
+        self.bucket_status = 200
+        self.bucket_owner = '12345'
+        self.partial_listing = False
         fixture = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
@@ -55,15 +58,20 @@ class StorageFixture:
                     fixture.calls.append(dict(method=self.command, path=parsed.path, query=query))
                     if self.headers.get('Authorization') != 'Bearer fixture-token' or query.get('userProject') != 'project' or fixture.denied:
                         return self.respond(403, {})
+                    if self.command == 'GET' and parsed.path == '/storage/v1/b/audit.invalid':
+                        return self.respond(fixture.bucket_status, {
+                            'name': 'audit.invalid', 'projectNumber': fixture.bucket_owner,
+                            'location': 'US-WEST1'})
                     prefix = '/storage/v1/b/audit.invalid/o'
                     if self.command == 'GET' and parsed.path == prefix:
                         requested = query.get('prefix', '')
                         entries = [(k, v) for k, v in sorted(fixture.objects.items()) if k.removeprefix('gs://audit.invalid/').startswith(requested)]
                         offset = int(query.get('pageToken', 0))
-                        page = entries[offset:offset + 100]
+                        limit = min(100, int(query.get('maxResults', 100)))
+                        page = entries[offset:offset + limit]
                         result = {'items': [metadata(k, v) for k, v in page]}
-                        if offset + 100 < len(entries):
-                            result['nextPageToken'] = str(offset + 100)
+                        if offset + limit < len(entries) or fixture.partial_listing:
+                            result['nextPageToken'] = str(offset + limit)
                         if fixture.race and requested == 'private/journal/':
                             fixture.objects['gs://audit.invalid/private/head.json']['generation'] += 1
                             fixture.race = False

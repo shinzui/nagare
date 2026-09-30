@@ -1,26 +1,26 @@
 module InventoryArtifactSpec (inventoryArtifactTests) where
 
-import Nagare.Dsl.Prelude hiding ((.=))
-
-import Data.IORef
+import Control.Monad (forM_)
 import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
+import Data.IORef
 import Data.List (isPrefixOf)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types (mkSecretName)
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Artifact
 import Nagare.Inventory.Adapters.ArtifactRuntime
-import Nagare.Inventory.Artifact
 import Nagare.Inventory.Application (acceptedApplicationImage, acceptedImageBuildSecrets, acceptedImageResourceForDestination)
+import Nagare.Inventory.Artifact
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Environment (compileBuildSecretChannel)
-import Nagare.Inventory.Journal
 import Nagare.Inventory.ImageBuild (buildDockerArchiveWith, dockerBuildArguments, validateSecretMounts)
+import Nagare.Inventory.Journal
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
@@ -36,7 +36,37 @@ inventoryArtifactTests :: TestTree
 inventoryArtifactTests =
   testGroup
     "artifact inventory adapter"
-    [ testCase "local BuildKit archive uses required secret mounts without argv values" $ do
+    [ testCase "accepted kubeconfig projection relocates paths but rejects identity, bytes and producer changes" $ do
+        let owner = ok (mkScopeId Platform "kubeconfig")
+            credential =
+              imageSpec
+                { artifactKind = KubeconfigArtifact
+                , artifactPublishOperation = False
+                , artifactSource = SourceLocation "/first/prepared.yaml" "kubeconfig-prepared-v1"
+                , artifactDestination = "/first/kubeconfig.yaml"
+                }
+            compile resource = expectRight (compileArtifactScope (ArtifactDeclarationBundle 1 owner (resource :| [])))
+        accepted <- compile credential
+        relocated <-
+          compile
+            credential
+              { artifactDestination = "/second/kubeconfig.yaml"
+              , artifactSource = SourceLocation "/second/prepared.yaml" "kubeconfig-prepared-v1"
+              }
+        assertBool "relocation rejected" (sameKubeconfigProjection accepted relocated)
+        forM_
+          [ credential {artifactContentDigest = contentDigest "different"}
+          , credential {artifactSpecDigest = contentDigest "different"}
+          , credential {artifactRole = name "different"}
+          , credential {artifactDependencies = [OrderedAfter artifactResource]}
+          , credential {artifactPublishOperation = True}
+          , credential {artifactSource = SourceLocation "/second" "different"}
+          , credential {artifactLifecycle = Protect}
+          ]
+          $ \changed -> do
+            candidate <- compile changed
+            assertBool "changed credential accepted" (not (sameKubeconfigProjection accepted candidate))
+    , testCase "local BuildKit archive uses required secret mounts without argv values" $ do
         validateSecretMounts
           "FROM alpine\nRUN --mount=type=secret,id=TOKEN,required=true cat /run/secrets/TOKEN >/dev/null\n"
           ["TOKEN"] @?= Right ()

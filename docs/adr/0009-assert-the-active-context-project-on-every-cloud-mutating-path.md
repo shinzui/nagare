@@ -243,3 +243,23 @@ for Pulumi state. An unreadable number refuses. Inventory-only GCS contexts
 do not need an existing Pulumi stack, so their object-store guard uses the
 bucket identity proof directly instead of the Pulumi-stack-specific
 `projectGuardVerdict`. See [ExecPlan 151](../plans/151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes.md).
+
+## Amendment — 2026-09-29: discover shared authority before fresh foundation
+
+Bootstrap discovers the exact selected GCS authority read-only before provider
+setup, under a 60-second total deadline. A structured global bucket GET can
+prove a missing bucket; omission from a project bucket list cannot. Owned bucket
+metadata, matching canonical format and a supported head with the exact
+context/project binding establish usable remote history without a workstation
+migration marker. A missing format requires a one-member prefix query proving
+that no history remains. Missing heads, foreign bindings, migrated remote heads,
+partial responses, denied reads and timeouts refuse rather than initialize.
+Discovery uses the SDK for both ordinary and legacy object-transport selections.
+
+An unmarked substantive local history beside remote history requires explicit
+conflict resolution. Exact migration destinations, verified migration and
+missing-destination refusals remain enforced. Foundation apply repeats authority
+selection before constructing adapters, so a saved local review cannot silently
+follow newly appeared remote history. Existing transaction, claim and fence
+state stays visible to admission and explicit recovery. The implementation and
+bounded evidence belong to [EP-156](../plans/156-prove-fresh-gcp-convergence-and-shared-history-recovery.md).

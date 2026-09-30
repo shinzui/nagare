@@ -13,6 +13,8 @@ module Nagare.Inventory.Store.Gogol
   , newGogolObjectOpsWithToken
   , validateGogolLocation
   , inventoryManagerSettings
+  , GogolDiscoveryOps (..)
+  , newGogolDiscoveryWithToken
   )
 where
 
@@ -20,6 +22,7 @@ import Control.Concurrent.Async (mapConcurrently)
 import Control.Concurrent.MVar (modifyMVar, newMVar)
 import Control.Exception (Handler (..), IOException, catches)
 import Control.Monad (foldM)
+import Data.Aeson (encode)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
@@ -34,6 +37,7 @@ import Gogol qualified as G
 import Gogol.Auth qualified as Auth
 import Gogol.Env qualified as Env
 import Gogol.Storage qualified as S
+import Gogol.Storage.Buckets.Get qualified as BucketGet
 import Gogol.Storage.Objects.Get qualified as Get
 import Gogol.Storage.Objects.Insert qualified as Insert
 import Gogol.Storage.Objects.List qualified as List
@@ -49,6 +53,14 @@ import System.Timeout (timeout)
 type StorageEnv = G.Env '[S.Devstorage'ReadWrite]
 
 type StorageCredentials = Auth.Credentials '[S.Devstorage'ReadWrite]
+
+-- | Negative proofs use exact global bucket metadata and a one-member prefix
+-- query. Neither operation creates objects or enumerates the history archive.
+data GogolDiscoveryOps = GogolDiscoveryOps
+  { discoveryBucket :: !(IO (Either Text (Maybe ByteString)))
+  , discoveryPrefixEmpty :: !(IO (Either Text Bool))
+  , discoveryObjects :: !ObjectOps
+  }
 
 data Failure = Failure !(Maybe Int)
 
@@ -116,17 +128,63 @@ newGogolObjectOpsWithToken :: IO Text -> (StorageEnv -> StorageEnv) -> Text -> T
 newGogolObjectOpsWithToken token configureEnv project url = case location project url of
   Left reason -> pure (Left reason)
   Right _ -> do
-    manager <- HTTP.newManager inventoryManagerSettings
-    let environment = do
-          access <- token
-          withSystemTempFile "nagare-gcs-token" $ \path handle -> do
-            BS.hPut handle (TE.encodeUtf8 access)
-            hClose handle
-            configureEnv <$> (G.newEnvWith (Auth.FromTokenFile path) (\_ _ -> pure ()) manager :: IO StorageEnv)
+    environment <- tokenEnvironment token configureEnv
     pure (objectOpsWithEnvironment environment project url)
 
+tokenEnvironment :: IO Text -> (StorageEnv -> StorageEnv) -> IO (IO StorageEnv)
+tokenEnvironment token configureEnv = do
+  manager <- HTTP.newManager inventoryManagerSettings
+  pure $ do
+    access <- token
+    withSystemTempFile "nagare-gcs-token" $ \path handle -> do
+      BS.hPut handle (TE.encodeUtf8 access)
+      hClose handle
+      configureEnv <$> (G.newEnvWith (Auth.FromTokenFile path) (\_ _ -> pure ()) manager :: IO StorageEnv)
+
+newGogolDiscoveryWithToken :: IO Text -> (StorageEnv -> StorageEnv) -> Text -> Text -> IO (Either Text GogolDiscoveryOps)
+newGogolDiscoveryWithToken token configureEnv project url = case location project url of
+  Left reason -> pure (Left reason)
+  Right (bucket, root) -> do
+    environment <- tokenEnvironment token configureEnv
+    let sdk :: (StorageEnv -> IO a) -> IO (Either Failure a)
+        sdk action = attempt (environment >>= action . Env.configure (G.serviceTimeout ?~ 20))
+        probe = do
+          result <- sdk $ \env ->
+            G.runResourceT $
+              G.send
+                env
+                ((S.newStorageBucketsGet bucket) {BucketGet.userProject = Just project})
+          pure $ case result of
+            Right value
+              | value.name == Just bucket
+              , Just number <- value.projectNumber
+              , number > 0 ->
+                  Right (Just (LBS.toStrict (encode value)))
+            Right _ -> Left "bucket metadata has no valid name or owning project number"
+            Left (Failure (Just 404)) -> Right Nothing
+            Left _ -> Left "bucket metadata is unavailable; absence is not proved"
+        empty = do
+          result <- sdk $ \env ->
+            G.runResourceT $
+              G.send
+                env
+                ( (S.newStorageObjectsList bucket)
+                    { List.prefix = Just (root <> "/")
+                    , List.maxResults = 1
+                    , List.userProject = Just project
+                    }
+                )
+          pure $ case result of
+            Right response | not (null (fromMaybe [] response.items)) -> Right False
+            Right response | isNothing response.nextPageToken -> Right True
+            _ -> Left "inventory prefix emptiness could not be proved in one bounded page"
+    pure (GogolDiscoveryOps probe empty <$> objectOpsWithEnvironmentPolicy True environment project url)
+
 objectOpsWithEnvironment :: IO StorageEnv -> Text -> Text -> Either Text ObjectOps
-objectOpsWithEnvironment environment project url = do
+objectOpsWithEnvironment = objectOpsWithEnvironmentPolicy False
+
+objectOpsWithEnvironmentPolicy :: Bool -> IO StorageEnv -> Text -> Text -> Either Text ObjectOps
+objectOpsWithEnvironmentPolicy boundedAbsence environment project url = do
   (bucket, root) <- location project url
   let sdk :: (StorageEnv -> IO a) -> IO (Either Failure a)
       sdk action = attempt (environment >>= action . Env.configure (G.serviceTimeout ?~ 20))
@@ -188,10 +246,26 @@ objectOpsWithEnvironment environment project url = do
           case result of
             Right object -> either GetUnknown (uncurry ObjectFound) <$> download name object
             Left (Failure (Just 404)) -> do
-              listed <- listing name
-              pure $ case listed of
-                Right objects | Map.notMember name objects -> ObjectAbsent
-                _ -> GetUnknown "inventory object absence could not be confirmed"
+              if boundedAbsence
+                then do
+                  listed <- sdk $ \env ->
+                    G.runResourceT $
+                      G.send
+                        env
+                        ( (S.newStorageObjectsList bucket)
+                            { List.prefix = Just (full name)
+                            , List.maxResults = 1
+                            , List.userProject = Just project
+                            }
+                        )
+                  pure $ case listed of
+                    Right page | null (fromMaybe [] page.items), isNothing page.nextPageToken -> ObjectAbsent
+                    _ -> GetUnknown "inventory object absence could not be confirmed in one bounded page"
+                else do
+                  listed <- listing name
+                  pure $ case listed of
+                    Right objects | Map.notMember name objects -> ObjectAbsent
+                    _ -> GetUnknown "inventory object absence could not be confirmed"
             Left _ -> pure (GetUnknown "inventory object metadata could not be read")
       put condition name bytes = case (validateKey False name, conditionNumber condition) of
         (Left reason, _) -> pure (PutNoEffect reason)

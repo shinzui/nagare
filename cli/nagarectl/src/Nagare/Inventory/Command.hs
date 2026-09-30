@@ -3,8 +3,10 @@ module Nagare.Inventory.Command
   , compileInventory
   , loadCandidate
   , loadTargetSnapshot
+  , loadTargetSnapshotReadOnly
   , openTargetStore
   , openTargetStoreReadOnly
+  , selectFoundationStore
   , migrateTargetStore
   , planInventory
   , planInventoryWith
@@ -37,10 +39,10 @@ where
 import Control.Exception (IOException, try)
 import Control.Monad (forM, forM_)
 import Crypto.Random (getRandomBytes)
-import Data.Bits ((.&.))
 import Data.Aeson
 import Data.Aeson.KeyMap qualified as KM
 import Data.Aeson.Types (Parser, parseEither)
+import Data.Bits ((.&.))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
@@ -64,7 +66,9 @@ import Nagare.Inventory.Lifecycle
 import Nagare.Inventory.Migration
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
+import Nagare.Inventory.Store.Discovery
 import Nagare.Inventory.Store.Remote (remoteObjectOps)
+import Nagare.Inventory.Store.Remote qualified as Remote
 import Nagare.Ops.PulumiBackend (gcsBucketOfUrl)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
@@ -80,6 +84,7 @@ import System.IO.Error (isAlreadyExistsError)
 import System.IO.Temp (withTempDirectory)
 import System.Posix.Files (fileMode, getFileStatus, isDirectory, setFileMode)
 import System.Posix.IO (OpenMode (WriteOnly), creat, defaultFileFlags, exclusive, fdToHandle, openFd)
+import System.Timeout (timeout)
 
 -- | No context lookup and no provider process. Validation completes before IO.
 compileInput :: ByteString -> Either (NonEmpty InventoryError) [(FilePath, ByteString)]
@@ -586,6 +591,7 @@ openTargetStore target = do
           case localHead of
             Right (Just headValue) -> case headMigration headValue of
               Just marker | migrationDestination marker == remoteInventoryUrl target -> pure True
+              Nothing | not (hasSubstantiveHistory headValue) -> pure False
               _ -> dieText "local inventory history exists; migrate it before selecting the GCS store"
             Left err -> dieText (showText err)
             Right Nothing -> pure False
@@ -604,6 +610,69 @@ openTargetStoreReadOnly target = do
   case effectiveInventoryStore (target ^. #profile) of
     InventoryStoreLocal -> openFilesystemStoreReadOnly path
     InventoryStoreGcs -> openRemoteStore False target stateRoot
+
+-- | Select authority once before bootstrap work. This probe never creates local
+-- state, remote format/head, cache, or client identity; migration stays explicit.
+selectFoundationStore :: ActiveTarget -> IO (Either StoreError ActiveTarget)
+selectFoundationStore target
+  | effectiveInventoryStore (target ^. #profile) == InventoryStoreLocal = pure (Right target)
+  | otherwise = do
+      bounded <- timeout 60000000 discover
+      pure (fromMaybe (Left (StoreIoError "inventory discovery exceeded 60 seconds; remote absence is not proved")) bounded)
+  where
+    localTarget = target & #profile . #inventoryStore .~ InventoryStoreLocal
+    contextText = contextNameText (target ^. #contextName)
+    project = target ^. #profile . #project
+    refused = Left . StoreConditionFailed
+    discover = do
+      stateRoot <- nagareStateDir
+      let path = stateRoot </> T.unpack contextText </> "inventory"
+      exists <- doesPathExist path
+      local <-
+        if not exists
+          then pure (Right Nothing)
+          else do
+            opened <- openFilesystemStoreReadOnly path
+            case opened of
+              Left err -> pure (Left err)
+              Right store ->
+                readHead store >>= \case
+                  Right Nothing -> pure (refused "local inventory directory has no head; inspect incomplete history before bootstrap")
+                  result -> pure result
+      stored <- readContextProfile (target ^. #contextName)
+      ambient <- lookupEnv "CLOUDSDK_CORE_PROJECT"
+      case (mkContextId contextText, mkName project, stored, local) of
+        (Right context, Right provider, Right persisted, Right localHead)
+          | persisted ^. #project /= project -> pure (refused "active project disagrees with the stored inventory context")
+          | remoteInventoryUrl (target & #profile .~ persisted) /= remoteInventoryUrl target ->
+              pure (refused "active remote inventory URL disagrees with the stored context")
+          | Just actual <- ambient, T.pack actual /= project -> pure (refused "ambient gcloud project disagrees with the inventory context")
+          | maybe False ((/= ContextBinding context provider) . headBinding) localHead ->
+              pure (refused "local inventory head belongs to another context or provider project")
+          | Just marker <- localHead >>= headMigration
+          , migrationDestination marker /= remoteInventoryUrl target ->
+              pure (refused "local inventory migration destination differs from the selected remote store")
+          | otherwise -> do
+              remote <- Remote.remoteDiscoveryOps project (remoteInventoryUrl target)
+              case remote of
+                Left reason -> pure (Left (StoreIoError reason))
+                Right (Remote.BucketUnavailable reason, _, _) -> pure (Left (StoreIoError reason))
+                Right (Remote.BucketForeign reason, _, _) -> pure (refused reason)
+                Right (Remote.BucketAbsent, _, _) -> pure (choose localHead DiscoveredMissingBucket)
+                Right (Remote.BucketOwned _, ops, empty) ->
+                  discoverInventoryObjects ops empty (ContextBinding context provider) >>= \case
+                    DiscoveryUnavailable reason -> pure (Left (StoreIoError reason))
+                    DiscoveryForeign reason -> pure (refused reason)
+                    DiscoveryIncomplete reason -> pure (refused reason)
+                    result -> pure (choose localHead result)
+        (_, _, _, Left err) -> pure (Left err)
+        (_, _, Left reason, _) -> pure (refused reason)
+        (Left reason, _, _, _) -> pure (refused reason)
+        (_, Left reason, _, _) -> pure (refused reason)
+    choose localHead result = case chooseHistoryAuthority (remoteInventoryUrl target) localHead result of
+      Left reason -> refused reason
+      Right UseLocalFoundation -> Right localTarget
+      Right UseRemoteHistory -> Right target
 
 migrateTargetStore :: ActiveTarget -> InventoryStoreKind -> Bool -> IO (Either StoreError T.Text)
 migrateTargetStore target destinationKind dryRun = do
@@ -807,6 +876,25 @@ loadTargetSnapshot target = do
   let binding = ContextBinding context project
   store <- openTargetStore target
   _ <- initializeStore store binding (clientIdentity target) >>= either (dieText . showText) pure
+  history <- loadInventoryHistory store >>= either (dieText . showText) pure
+  either (dieText . showText . NE.toList) pure (mkScopeSnapshot binding
+    (Map.map (\(revision, declaration) -> (revisionGeneration revision, declaration)) (historyAccepted history))
+    (historyReservations history))
+
+-- | Local credential recovery requires accepted history and never initializes
+-- a new authority. An unresolved writer or data fence keeps recovery explicit.
+loadTargetSnapshotReadOnly :: ActiveTarget -> IO ScopeSnapshot
+loadTargetSnapshotReadOnly target = do
+  context <- either dieText pure (mkContextId (contextNameText (target ^. #contextName)))
+  project <- either dieText pure (mkName (target ^. #profile . #project))
+  let binding = ContextBinding context project
+  store <- openTargetStoreReadOnly target >>= either (dieText . showText) pure
+  headValue <- readHead store >>= either (dieText . showText) pure
+  observed <- maybe (dieText "accepted inventory history is absent") pure headValue
+  unless (headBinding observed == binding) (dieText "inventory head belongs to another context or project")
+  when (isJust (headActiveTransaction observed) || isJust (headExecutorClaim observed)
+      || isJust (headDataFence observed) || isJust (headMigration observed))
+    (dieText "accepted inventory has an unresolved transaction, claim, fence or migration; recover it first")
   history <- loadInventoryHistory store >>= either (dieText . showText) pure
   either (dieText . showText . NE.toList) pure (mkScopeSnapshot binding
     (Map.map (\(revision, declaration) -> (revisionGeneration revision, declaration)) (historyAccepted history))
