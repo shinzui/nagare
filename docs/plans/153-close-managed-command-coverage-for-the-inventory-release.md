@@ -52,6 +52,11 @@ provenance:
       at: 2026-09-29T15:00:50Z
       mode: "update"
       note: "Revise command-boundary repair work from retained append, history, recovery, and public CLI experiments"
+    - model: "gpt-6.1-sol"
+      harness: "codex-cli"
+      at: 2026-09-30T13:13:46Z
+      mode: "implement"
+      note: "Register accepted-history credential recovery and cloud authority consumers; preserve incomplete release coverage"
 ---
 
 # Close managed command coverage for the inventory release
@@ -66,6 +71,8 @@ Every supported mutation command and shipped recipe is mapped to its owner, revi
 
 
 ## Progress
+
+**Cloud prerequisite registration checkpoint (2026-09-30).** Registered `KubeconfigRecover` as bounded accepted-history credential materialization, added its exact coverage family, and registered the two production calls `loadTargetSnapshotReadOnly` and `selectFoundationStore`. The regenerated catalogue and `bash scripts/test-managed-command-audit.sh` pass with 140 routes, 34 recipes, 28 library calls, zero registration errors and injected mutation refusal. The deferred/recovery-only sets remain exact. Ten pending routes, seven recipes and 29 incomplete catalogue rows keep coverage incomplete. [The cloud continuation](../audits/mp23-cloud-continuation-2026-09-30.md) retains the installed consumer evidence and external login blocker; no runtime operation or M2 completion is claimed by this audit repair.
 
 **Current M2 entrypoint — production read/driver repairs, 2026-09-29.** The shared serial operation driver and immutable registry have saved-transaction proof, and EP-156's opaque selected observation reader now serves public status/explain. Preserve both checkpoints below. The [active-startup proof](../audits/mp23-active-startup-proof.md) now covers the real execution factory with unrelated reviews/events and no workspace. Factories share the validated store, selected source bytes avoid unrelated archived reviews, and legacy envelope fallback remains available. The [claim/publication repair](../audits/mp23-head-claims-proof.md) additionally retains original provider generations at claim CAS and removes publication archive listing from apply/resume/recover while preserving uncached publication verification. Next, finish remaining command-wide transport and supported command/host recovery prerequisites; do not reinstate whole-context observation or make old transaction recovery depend on materialized observation bytes. M2 and independent finding closure remain open.
 

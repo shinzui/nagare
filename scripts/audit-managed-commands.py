@@ -45,7 +45,10 @@ ROUTES = {
         "bounded": "HostInit",
         "pending": "HostPlaceAgeKey",
     },
-    "KubeconfigCommand": {"local": "KubeconfigFetch"},
+    "KubeconfigCommand": {
+        "local": "KubeconfigFetch",
+        "bounded": "KubeconfigRecover",
+    },
     "ClusterCommand": {"read": "ClusterGuard ClusterCertificatePolicy"},
     "ContextCommand": {
         "read": "ContextList ContextCurrent ContextShow ContextGuard ContextEnv",
@@ -176,6 +179,7 @@ FAMILY_ROUTES = {
     "Cleanup": "Image, stale-preview, and release-history cleanup",
     "ReleasePublish ReleaseCleanupStarter": "Global release payload publication",
     "HostCommand.HostPlaceAgeKey": "Host age-key placement",
+    "KubeconfigCommand.KubeconfigRecover": "Context kubeconfig fetch and accepted-history recovery",
     "DbCommand.DbBackup DbCommand.DbPruneBackup DbCommand.DbBackupReceipts DbCommand.DbPruneScheduledBackups DbCommand.DbRecoverScheduledPrune DbCommand.DbDisableBackupPrune DbCommand.DbRestore": "Database backup and restore",
     "DbCommand.DbShell": "Interactive database maintenance",
     "DbCommand.DbRestart BrokerCommand.BrokerRestart": "Manual task run/delete and database/broker restart",
@@ -222,7 +226,7 @@ RECIPE_FAMILY = {
 # Public library calls from production consumers are checked as an exact set.
 # Pure observations are included so a new write cannot hide as an unlisted call.
 LIBRARY_CALLS = {
-    "cli/nagarectl/app/Main.hs": "applyInventoryWithFactory compileInventory convergeInventoryCandidateWith executionBlockedAdapterFor exportInventory loadCandidate loadTargetSnapshot manifestAdapterFor migrateTargetStore openTargetStoreReadOnly planInventory planInventoryAdoptionWith planInventoryCandidateAdoptionWith planInventoryCandidateWith planInventoryCandidateWithPayloadIdentity planInventoryCandidateWithRetirements planInventoryCollectionWith planInventoryCollectionsWith planInventoryMigrationWith planInventoryRetirementWith planInventoryWithRetirements recoverInventoryWithFactory restoreInventory resumeInventoryWithFactoryTakeover",
+    "cli/nagarectl/app/Main.hs": "applyInventoryWithFactory compileInventory convergeInventoryCandidateWith executionBlockedAdapterFor exportInventory loadCandidate loadTargetSnapshot loadTargetSnapshotReadOnly manifestAdapterFor migrateTargetStore openTargetStoreReadOnly planInventory planInventoryAdoptionWith planInventoryCandidateAdoptionWith planInventoryCandidateWith planInventoryCandidateWithPayloadIdentity planInventoryCandidateWithRetirements planInventoryCollectionWith planInventoryCollectionsWith planInventoryMigrationWith planInventoryRetirementWith planInventoryWithRetirements recoverInventoryWithFactory restoreInventory resumeInventoryWithFactoryTakeover selectFoundationStore",
     "cli/nagarectl/nagared/Main.hs": "loadTargetSnapshot openTargetStoreReadOnly",
 }
 
