@@ -20,6 +20,7 @@ import Nagare.Inventory.Adapters.Helm
 import Nagare.Inventory.Adapters.Host
 import Nagare.Inventory.Adapters.Kubernetes
 import Nagare.Inventory.BootstrapRegistryRecovery
+import Nagare.Inventory.BootstrapRegistryTransport
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Execute hiding (withProcessLock)
 import Nagare.Inventory.Journal
@@ -36,7 +37,7 @@ import Nagare.Resource.Policy
 import Nagare.Resource.Reference (Dependency (..), OutputConstraint (NonEmptyOutput), SomeRef (..), Witness (NixCachePublicKeyW), outputRef)
 import Nagare.Resource.Types
 import Nagare.Resource.Wire
-import System.Directory (doesFileExist, listDirectory, removeFile)
+import System.Directory (doesFileExist, findExecutable, listDirectory, removeFile)
 import System.Environment (getEnvironment, getExecutablePath, lookupEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
@@ -1534,6 +1535,32 @@ inventoryTransactionTests =
           , saved {registryUnitStart = 0} ] $ \current ->
             assertBool "unproved phase combination authorized a unit action"
               (isLeft (registryReplayRequired saved current))
+    , testCase "registry host inspection accepts empty systemd Job and refuses pending or failed lookup" $
+        withSystemTempDirectory "registry-transport" $ \root -> do
+          jq <- findExecutable "jq" >>= maybe (assertFailure "jq missing" >> pure "") pure
+          let helper = root </> "ssh-fixture.sh"
+              prefix = root </> "host-fixture.sh"
+              plan = HostActivationPlan 1 (ok (mkOperationId "op-transport-test"))
+                (contentDigest "host") (fixtureBinding ^. #identity) (ok (mkName "host"))
+                (ok (mkPhysicalIdentity "gce://projects/project/zones/zone/instances/123"))
+                "deploy@host" (contentDigest "config") (contentDigest "lock") Nothing
+                "/nix/store/old-test-closure" "/nix/store/accepted-test-closure" "activation"
+              inspect job = runRegistryUnitTransport helper
+                [("NAGARE_TEST_PREFIX", prefix), ("NAGARE_TEST_JQ", jq),
+                 ("NAGARE_TEST_JOB", job)] "host" "registry.example.test" plan
+                (ok (mkPhysicalIdentity "deployment-uid")) Nothing
+          writeFile helper (unlines
+            [ "set -euo pipefail"
+            , "test \"$1\" = ssh && test \"$2\" = host && test \"$3\" = --"
+            , "arguments=\"${4#sudo /run/current-system/sw/bin/bash -s -- }\""
+            , "{ /bin/cat \"$NAGARE_TEST_PREFIX\"; /bin/cat; } | eval \"/bin/bash -s -- $arguments\""
+            ])
+          writeFile prefix registryHostFixture
+          result <- inspect "" >>= either (assertFailure . T.unpack) pure
+          result @?= RegistryUnitSnapshot 10 "original" "node" False True "boot" False
+          forM_ ["47", "lookup-failure"] $ \job -> do
+            refused <- inspect job
+            assertBool "pending or failed Job lookup admitted host recovery" (isLeft refused)
     , testCase "registry intent and receipt markers accept only exact digests" $ do
         let native = contentDigest "native"
             receipt = contentDigest "receipt"
@@ -2037,6 +2064,42 @@ preparedReadinessFixture store dependent policy kind effect recovery = do
   snapshot <- readStoreSnapshot store >>= expectRight
   reviewed <- either (assertFailure . show . NE.toList) pure (verifyReview snapshot bundle)
   pure (reviewed, registry)
+
+
+-- Execute the production transport's actual stdin script against host responses.
+-- Host primitives are intercepted; no credential file or provider is accessed.
+registryHostFixture :: String
+registryHostFixture = unlines
+  [ "systemctl() {"
+  , "  case \"$*\" in"
+  , "    *nagare-switch-rollback.timer*) printf 'inactive\\n' ;;"
+  , "    *--property=Environment*) printf 'PATH=/usr/bin\\n' ;;"
+  , "    *--property=ActiveState*) printf 'inactive\\n' ;;"
+  , "    *--property=ExecMainStatus*) printf '0\\n' ;;"
+  , "    *--property=Job*) [ \"$NAGARE_TEST_JOB\" != lookup-failure ] || return 31; printf '%s\\n' \"$NAGARE_TEST_JOB\" ;;"
+  , "    *--property=ExecMainStartTimestampMonotonic*) printf '10\\n' ;;"
+  , "    *--property=InvocationID*) printf 'original\\n' ;;"
+  , "    'is-active --quiet k3s.service') return 0 ;;"
+  , "    *) return 32 ;;"
+  , "  esac"
+  , "}"
+  , "curl() { case \"$*\" in */instance/id) printf '123\\n' ;; */default/token) printf '%s\\n' '{\"access_token\":\"fixture-token\",\"expires_in\":1200}' ;; *) return 33 ;; esac; }"
+  , "readlink() { printf '/nix/store/accepted-test-closure\\n'; }"
+  , "stat() { printf '600:0\\n'; }"
+  , "cat() { [ \"$1\" = /proc/sys/kernel/random/boot_id ] || return 34; printf 'boot\\n'; }"
+  , "awk() { return 1; }"
+  , "flock() { return 0; }"
+  , "jq() { \"$NAGARE_TEST_JQ\" \"$@\"; }"
+  , "k3s() {"
+  , "  case \"$*\" in"
+  , "    'kubectl get nodes '*) printf '%s\\n' '{\"items\":[{\"metadata\":{\"uid\":\"node\"}}]}' ;;"
+  , "    'kubectl get deployment '*) printf '%s\\n' '{\"metadata\":{\"uid\":\"deployment-uid\",\"generation\":1},\"spec\":{\"replicas\":1},\"status\":{\"observedGeneration\":1,\"readyReplicas\":0,\"updatedReplicas\":0,\"conditions\":[{\"type\":\"Available\",\"status\":\"False\"}]}}' ;;"
+  , "    'kubectl get replicasets '*) printf '%s\\n' '{\"items\":[{\"metadata\":{\"uid\":\"replica-uid\",\"ownerReferences\":[{\"uid\":\"deployment-uid\"}]}}]}' ;;"
+  , "    'kubectl get pods '*) printf '%s\\n' '{\"items\":[{\"metadata\":{\"ownerReferences\":[{\"uid\":\"replica-uid\"}]},\"status\":{\"containerStatuses\":[{\"state\":{\"waiting\":{\"reason\":\"ImagePullBackOff\"}}}]}}]}' ;;"
+  , "    *) return 35 ;;"
+  , "  esac"
+  , "}"
+  ]
 
 preparedRegistryFixture :: InventoryStore -> IO (ReviewBundle, ReviewedPlan, AdapterRegistry)
 preparedRegistryFixture store = do
