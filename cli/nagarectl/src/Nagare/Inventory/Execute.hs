@@ -369,7 +369,7 @@ executeWithJournal locked registry executable knownEvents = do
     then do
       let barriers = NE.fromList (reviewBarriers document)
       _ <- appendEvent locked transaction Nothing Pending "paused at review barrier"
-      _ <- releaseClaim locked transaction False
+      _ <- releaseClaim locked transaction Nothing
       pure (PausedAtBarrier transaction barriers)
     else do
       eventsResult <- maybe (readJournal locked) (pure . Right) knownEvents
@@ -378,7 +378,7 @@ executeWithJournal locked registry executable knownEvents = do
         Right events -> do
           outcome <- runOperations locked registry transaction reviewed events (reviewOperations document)
           case outcome of
-            Just result -> releaseClaim locked transaction False >> pure result
+            Just result -> releaseClaim locked transaction Nothing >> pure result
             Nothing -> do
               current <- readHead (lockedStore locked)
               case current of
@@ -391,10 +391,10 @@ executeWithJournal locked registry executable knownEvents = do
                       if not finalized
                         then pure (fallbackResult transaction document)
                         else do
-                          converged <- releaseClaim locked transaction True
+                          converged <- releaseClaim locked transaction (Just document)
                           pure $ if converged then Converged transaction else fallbackResult transaction document
                 _ -> do
-                  _ <- releaseClaim locked transaction False
+                  _ <- releaseClaim locked transaction Nothing
                   pure (fallbackResult transaction document)
 
 finalizeCollections :: LockedStore s -> TransactionId -> ReviewDocument -> IO Bool
@@ -497,14 +497,14 @@ resumeTransactionWithTakeover store registry transaction takeOver = do
                       bundleResult <- loadPublishedReview store digest
                       snapshotResult <- readReviewSnapshot store digest
                       case (bundleResult, snapshotResult) of
-                        (Left err, _) -> releaseClaim lock transaction False >> pure (failure "review" (showText err))
-                        (_, Left err) -> releaseClaim lock transaction False >> pure (failure "store" (showText err))
+                        (Left err, _) -> releaseClaim lock transaction Nothing >> pure (failure "review" (showText err))
+                        (_, Left err) -> releaseClaim lock transaction Nothing >> pure (failure "store" (showText err))
                         (Right bundle, Right snapshot) -> case verifyActiveReview snapshot (transactionIdText transaction) bundle of
-                          Left errors -> releaseClaim lock transaction False >> pure (Left (fmap reviewAdmission errors))
+                          Left errors -> releaseClaim lock transaction Nothing >> pure (Left (fmap reviewAdmission errors))
                           Right reviewed -> do
                             let preflightErrors = validateOperationInputs registry reviewed (operationStates transaction events)
                             case preflightErrors of
-                              firstError : rest -> releaseClaim lock transaction False >> pure (Left (firstError :| rest))
+                              firstError : rest -> releaseClaim lock transaction Nothing >> pure (Left (firstError :| rest))
                               [] -> Right <$> executeWithJournal lock registry
                                 (ExecutablePlan transaction reviewed) (Just events)
 
@@ -643,7 +643,7 @@ recordOperatorRecovery store registry input takeOver = do
                       case current of
                         Right (Just value) | isNothing (headActiveTransaction value) ->
                           pure True
-                        _ -> releaseClaim lock transaction False
+                        _ -> releaseClaim lock transaction Nothing
                   pure $ if released then result else failure "executor-claim" "could not release operator recovery claim"
     inspectRecovery :: forall s. LockedStore s -> [JournalEvent] -> Maybe DataFenceRecord
       -> IO (Either (NonEmpty AdmissionError) ())
@@ -1573,8 +1573,9 @@ acquireResumeClaim store transaction observed headValue takeOver = do
   where
     localClient = maybe (headClientIdentity headValue) id (storeClientIdentity store)
 
-releaseClaim :: LockedStore s -> TransactionId -> Bool -> IO Bool
-releaseClaim locked transaction converged = do
+releaseClaim :: LockedStore s -> TransactionId -> Maybe ReviewDocument -> IO Bool
+releaseClaim locked transaction completedReview = do
+  let converged = isJust completedReview
   let store = lockedStore locked
   headResult <- observeCurrentHead store
   case headResult of
@@ -1588,10 +1589,24 @@ releaseClaim locked transaction converged = do
                   { headGeneration = headGeneration headValue + 1
                   , headExecutorClaim = Nothing
                   , headActiveTransaction = if converged then Nothing else headActiveTransaction headValue
-                  , headConverged = if converged then headAccepted headValue else headConverged headValue
+                  , headConverged = maybe (headConverged headValue)
+                      (convergedSelectedScopes (headConverged headValue)) completedReview
                   }
           isRight <$> replaceObservedHead observed replacement
     _ -> pure False
+
+-- A completed review proves only the scopes it changed. An unrelated stopped
+-- application may retain accepted ownership without readiness or convergence.
+convergedSelectedScopes :: Map ScopeId ScopeRevision -> ReviewDocument
+  -> Map ScopeId ScopeRevision
+convergedSelectedScopes previous document = Map.union changed
+  (Map.withoutKeys previous retired)
+  where
+    desired = reviewDesiredRevisions document
+    base = reviewBaseRevisions document
+    changed = Map.differenceWith
+      (\next old -> if next == old then Nothing else Just next) desired base
+    retired = Map.keysSet base `Set.difference` Map.keysSet desired
 
 -- Stopping an incomplete application is neither rollback nor convergence.
 -- Keep its admitted ownership (including created retained data) and the prior

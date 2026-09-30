@@ -940,3 +940,10 @@ changes neither accepted ownership nor the wire format and grants no provider
 overwrite authority. Only planning that selects the unconverged application loads this exceptional
 journal proof. Ordinary status, explain, native inspection and unrelated scope
 planning retain selected declaration reads and never trigger this journal scan.
+
+Transaction completion advances convergence only for scope revisions changed
+by that immutable review, and removes convergence for its retired scopes.
+Unselected accepted scopes may include a previously stopped application whose
+resources remain owned but unready; another application's success grants no
+convergence evidence for it. Preserve its previous converged revision or its
+absence. This is independent from preserving the accepted ownership vector.

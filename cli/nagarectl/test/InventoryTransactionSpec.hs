@@ -1769,6 +1769,47 @@ inventoryTransactionTests =
             unrelatedCandidate = ok (composeInventory staleSnapshot (ReplaceScope unrelatedScope :| []))
         _ <- loadInventoryPlanningHistory store unrelatedCandidate >>= expectRight
         pure ()
+    , testCase "another application convergence preserves stopped application ownership and unready status" $ do
+        store <- newMemoryStore
+        (initialReview, initialRegistry) <- preparedApplicationStopFixture store Application Stateless
+          (\_ _ -> pure (AdapterEffectAmbiguous "capacity exhausted"))
+          (\_ _ -> pure (RecoveryAwaitingReadiness (ok (mkPhysicalIdentity "original-service-uid"))))
+        (tx, selected) <- applyReviewed store initialRegistry initialReview >>= expectRight >>= \case
+          StoppedAmbiguous tx op -> pure (tx, op)
+          other -> assertFailure (show other) >> undefined
+        recordOperatorRecovery store initialRegistry
+          (OperatorRecoveryInput tx selected (reviewDigestFor initialReview) StopIncompleteApplication) False >>= expectRight
+        history <- loadInventoryHistory store >>= expectRight
+        let [(stoppedOwner, _)] = Map.toList (historyAccepted history)
+            otherOwner = ok (mkScopeId Application "other-app")
+            cluster = mintResourceId otherOwner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+            otherMember = member otherOwner cluster "settings"
+            otherScope = ok (mkScopeDeclaration otherOwner [ResourceBundle [otherMember] [] [] [] [] []])
+            snapshot = ok (mkScopeSnapshot fixtureBinding
+              (Map.map (\(revision, declared) -> (revisionGeneration revision, declared))
+                (historyAccepted history)) Map.empty)
+            candidate = ok (composeInventory snapshot (ReplaceScope otherScope :| []))
+            observations = ok (observationSet [(resource, ConfirmedAbsent (contentDigest "absent"))
+              | resource <- Set.toList (requiredResources (observationRequirements candidate history))])
+        effects <- newIORef ([] :: [ResourceId])
+        let registry = recordingRegistry
+              (\operation _ -> modifyIORef' effects (<> NE.toList (plannedResources operation))
+                >> pure AdapterEffectCompleted)
+              (\operation _ -> pure (RecoveryProvedComplete (proof operation)))
+        proposal <- expectRight (planChanges candidate noLifecycleDecisions history observations)
+        before <- readStoreSnapshot store >>= expectRight
+        bundle <- prepareReview registry before proposal >>= expectRight
+        _ <- publishReview store bundle >>= expectRight
+        published <- readStoreSnapshot store >>= expectRight
+        reviewed <- either (assertFailure . show . NE.toList) pure (verifyReview published bundle)
+        applyReviewed store registry reviewed >>= expectRight >>= \case
+          Converged _ -> pure ()
+          other -> assertFailure (show other)
+        after <- loadInventoryHistory store >>= expectRight
+        Map.lookup stoppedOwner (historyAccepted after) @?= Map.lookup stoppedOwner (historyAccepted history)
+        Map.lookup stoppedOwner (historyConverged after) @?= Map.lookup stoppedOwner (historyConverged history)
+        Map.lookup otherOwner (historyConverged after) @?= fmap fst (Map.lookup otherOwner (historyAccepted after))
+        readIORef effects >>= (@?= [declarationId otherMember])
     , testCase "terminal isolated abandonment refuses an unrelated review" $ do
         store <- newMemoryStore
         let failed = ok (mkPhysicalIdentity "failed-job")

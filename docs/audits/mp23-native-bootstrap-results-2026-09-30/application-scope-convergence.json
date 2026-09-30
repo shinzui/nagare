@@ -1,0 +1,16 @@
+{
+  "sourceHashes": {
+    "cli/nagarectl/src/Nagare/Inventory/Execute.hs": "e04e36f246f32ae569a68672e6c2d6e9835eed023905756741a7e8ef6e58f378",
+    "cli/nagarectl/test/InventoryTransactionSpec.hs": "efe2eb94f116de2317e1cf6a4193eccf662dc054f13f018ea3500b878845f672"
+  },
+  "beforeRegression": "completing other-app changed stopped application convergence from Nothing to Just generation 1",
+  "afterFocusedTests": 8,
+  "cliTests": {
+    "passed": 998,
+    "seconds": 60.14
+  },
+  "structuralHaskellStyle": "passed",
+  "installedFinalCandidate": "pending",
+  "wireFormatChanged": false,
+  "independentF16Closure": "pending"
+}
