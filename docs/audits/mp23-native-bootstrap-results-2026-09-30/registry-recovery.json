@@ -1,0 +1,199 @@
+{
+  "cliRevision": "39842f8058bdaaf94819365b1f2511a3a7147246",
+  "payloadId": "nagare-0.4.0-6082dbd6aac0",
+  "payloadVersion": "0.4.0",
+  "originalTransaction": "tx-1006f60f5e9afcf3e8e73b98462187b3cef1c268bcdb7035dccb6ab65e3262f1",
+  "originalReviewDigest": "1006f60f5e9afcf3e8e73b98462187b3cef1c268bcdb7035dccb6ab65e3262f1",
+  "operation": "op-ea0fee62e00044dde0a47e87",
+  "recoveryNativeDigest": "e28e0e5a34767f7c6549cc960ae70d82a265feb848d5327927283ccda0199fc5",
+  "acceptedHostSourceReview": "e4c52b1595dda6ab02d96037aea30ef50bcad72ab3c085ad1e662edc99677ddd",
+  "acceptedHostRevision": {
+    "digest": "dbf32e69f0167acb24d9f8e6e1487d4dff66b946bdd9694aea60b36b66f13cfb",
+    "generation": 1
+  },
+  "acceptedHostNative": "b472aea5a2a64ac78535734505b810cf2e0438db332b127dc8bf65f0c52b2195",
+  "savedUnitProof": {
+    "registryBootId": "5f4dbec7-71b1-4e19-9c0b-6f0b6e7bfc8a",
+    "registryDeploymentReady": false,
+    "registryK3sInvocation": "0249f57149454053a10742acfab1dcc4",
+    "registryNodeUid": "d3745745-a1e2-4a07-9479-2832b893d7dc",
+    "registryPullFailure": true,
+    "registryTokenFresh": false,
+    "registryUnitStart": 23480761
+  },
+  "readOnlyPreparationSeconds": 102.643,
+  "recoverySeconds": 101.552,
+  "preparationPreservedHead": true,
+  "before": {
+    "activeTransaction": "tx-1006f60f5e9afcf3e8e73b98462187b3cef1c268bcdb7035dccb6ab65e3262f1",
+    "binding": {
+      "identity": "ep150-preview",
+      "project": "tan-ng-labs"
+    },
+    "dataFence": null,
+    "executorClaim": null,
+    "generation": 469,
+    "headDigest": "1b1dc15dbe0a6f4b19de31c76d5ad4ba2fede31cd3dff33b447bb93de1d1df76",
+    "kind": "gcs",
+    "migration": null,
+    "url": "gs://tan-ng-labs-ep150-pmkjjpp-state/inventory"
+  },
+  "afterHostRecovery": {
+    "activeTransaction": "tx-1006f60f5e9afcf3e8e73b98462187b3cef1c268bcdb7035dccb6ab65e3262f1",
+    "binding": {
+      "identity": "ep150-preview",
+      "project": "tan-ng-labs"
+    },
+    "dataFence": null,
+    "executorClaim": null,
+    "generation": 473,
+    "headDigest": "f393548d22b06582548bcf40d38e9a4521fc60fb69f8e529093cbdab0c003520",
+    "kind": "gcs",
+    "migration": null,
+    "url": "gs://tan-ng-labs-ep150-pmkjjpp-state/inventory"
+  },
+  "intentEvent": {
+    "detail": "bounded registry credential recovery selected; workload completion remains unproved",
+    "operation": "op-ea0fee62e00044dde0a47e87",
+    "previousDigest": "33bfd6c4503d85e8a8d8bdebde158897b43fcba62d6b15357ee0a0b239066556",
+    "sequence": 415,
+    "state": {
+      "contents": "bootstrap-registry-intent:e28e0e5a34767f7c6549cc960ae70d82a265feb848d5327927283ccda0199fc5",
+      "tag": "OperatorResolved"
+    },
+    "timestamp": "2026-09-30T17:09:56Z",
+    "transaction": "tx-1006f60f5e9afcf3e8e73b98462187b3cef1c268bcdb7035dccb6ab65e3262f1",
+    "version": 1
+  },
+  "receiptEvent": {
+    "detail": "accepted host registry policy recovered; resume must independently prove workload readiness",
+    "operation": "op-ea0fee62e00044dde0a47e87",
+    "previousDigest": "3d4cca8682e8f89a9f11b19007c26d4a461f87ce9325fb4d8e01370d371f54fd",
+    "sequence": 416,
+    "state": {
+      "contents": "bootstrap-registry-proved:e28e0e5a34767f7c6549cc960ae70d82a265feb848d5327927283ccda0199fc5:34e8626afbc89277aa5f0860333eeeaeef80f58fe8949001d10a17d47e599af1",
+      "tag": "OperatorResolved"
+    },
+    "timestamp": "2026-09-30T17:10:53Z",
+    "transaction": "tx-1006f60f5e9afcf3e8e73b98462187b3cef1c268bcdb7035dccb6ab65e3262f1",
+    "version": 1
+  },
+  "hostReceiptIsNotDeploymentCompletion": true,
+  "originalController": {
+    "uid": "83ba6feb-398d-4a9b-a302-5dc81b7118e5",
+    "generation": 1,
+    "observedGeneration": 1,
+    "readyReplicas": 1,
+    "availableReplicas": 1,
+    "originalUidPreserved": true
+  },
+  "servingDeploymentsReady": true,
+  "bootstrapContinuation": "converged original saved 210-operation transaction",
+  "steadyPrivatePlatformCredentialCoverage": "pending",
+  "independentF15Closure": "pending",
+  "safeUseAcceptance": "not established",
+  "resumeSeconds": 230.454,
+  "afterBootstrap": {
+    "activeTransaction": null,
+    "binding": {
+      "identity": "ep150-preview",
+      "project": "tan-ng-labs"
+    },
+    "dataFence": null,
+    "executorClaim": null,
+    "generation": 549,
+    "headDigest": "bedc5fbec42de2465187160b36f424de937c054a68e053c418104973275987d2",
+    "kind": "gcs",
+    "migration": null,
+    "url": "gs://tan-ng-labs-ep150-pmkjjpp-state/inventory"
+  },
+  "completionEvent": {
+    "detail": "transaction converged",
+    "operation": null,
+    "previousDigest": "da662dbbdb545c05ab82d561690f65b3992ae15818d99f55ce9ff6b90b52c343",
+    "sequence": 490,
+    "state": {
+      "contents": "1006f60f5e9afcf3e8e73b98462187b3cef1c268bcdb7035dccb6ab65e3262f1",
+      "tag": "Completed"
+    },
+    "timestamp": "2026-09-30T17:18:26Z",
+    "transaction": "tx-1006f60f5e9afcf3e8e73b98462187b3cef1c268bcdb7035dccb6ab65e3262f1",
+    "version": 1
+  },
+  "scopePreservation": {
+    "beforeGeneration": 469,
+    "afterGeneration": 549,
+    "acceptedScopeCount": 22,
+    "acceptedRevisionsPreserved": true,
+    "originalConvergedScopeCount": 6,
+    "finalConvergedScopeCount": 22,
+    "prerequisiteConvergedRevisionsPreserved": true,
+    "prerequisiteRevisions": [
+      {
+        "revision": {
+          "digest": "accb866ab683014c1b1ef71a2db6812734368ed2ba376d3fae0f2fc4a29cd08f",
+          "generation": 4
+        },
+        "scope": {
+          "kind": "Platform",
+          "name": "cloud"
+        }
+      },
+      {
+        "revision": {
+          "digest": "b9f3ecb7af759820236bda749ff3e91f210608e886c4ffc82318a09f77306872",
+          "generation": 3
+        },
+        "scope": {
+          "kind": "Platform",
+          "name": "cloud-foundation"
+        }
+      },
+      {
+        "revision": {
+          "digest": "dbf32e69f0167acb24d9f8e6e1487d4dff66b946bdd9694aea60b36b66f13cfb",
+          "generation": 1
+        },
+        "scope": {
+          "kind": "Platform",
+          "name": "host"
+        }
+      },
+      {
+        "revision": {
+          "digest": "a1e35c7da686d92fd08f25f56f47fdb60ffedd2832790c97a857b52d145efd33",
+          "generation": 1
+        },
+        "scope": {
+          "kind": "Platform",
+          "name": "host-image"
+        }
+      },
+      {
+        "revision": {
+          "digest": "3f809745e315bf91719283a1552e7ee2c4d5b485533f2a1922c44a348f0afbdc",
+          "generation": 1
+        },
+        "scope": {
+          "kind": "Platform",
+          "name": "host-image-build"
+        }
+      },
+      {
+        "revision": {
+          "digest": "2e361cc21bd64d0704a15c462beaff35c1ee2ba80aa48b84deeabde117ebb639",
+          "generation": 1
+        },
+        "scope": {
+          "kind": "Platform",
+          "name": "kubeconfig"
+        }
+      }
+    ]
+  },
+  "platformHealth": {
+    "runningPods": 31,
+    "allRunningContainersReady": true,
+    "succeededMigrationPods": 2
+  }
+}

@@ -33,7 +33,7 @@
   "structuralHaskellStyle": "passed",
   "newModulesFourmolu": "passed",
   "fixedRemoteScriptBashSyntax": "passed",
-  "nativeRecovery": "pending; no host unit effect performed",
+  "nativeRecovery": "passed; original controller UID/generation Ready; original 210-operation transaction converged",
   "steadyPrivatePlatformCredentialCoverage": "pending",
   "independentF15Closure": "pending",
   "recoveryEdges": [
@@ -46,5 +46,6 @@
   ],
   "initialRecoveryRevision": "1af2e317b0ecd86ffa566f49e06d4c1525598ccc",
   "productionTransportInspectionRegression": "passed; empty systemd Job accepted; pending or failed lookup refused",
-  "initialInstalledCandidate": "built; superseded before native use by Job-output guard correction"
+  "initialInstalledCandidate": "built; superseded before native use by Job-output guard correction",
+  "installedRevision": "39842f8058bdaaf94819365b1f2511a3a7147246"
 }
