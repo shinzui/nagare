@@ -909,6 +909,10 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
       , Set.member (resource ^. #identity) selectedIds]
     selectedScopeIds = Set.fromList
       [scopeId scope | ReplaceScope scope <- NE.toList (candidateChanges candidate)]
+    unconvergedSelectedScopeIds = Set.filter (\owner ->
+      case Map.lookup owner (historyAccepted history) of
+        Just (revision, _) -> Map.lookup owner (historyConverged history) /= Just revision
+        Nothing -> False) selectedScopeIds
     requiredTopics = Set.fromList
       [target
       | Managed consumer <- Map.elems desiredDeclarations
@@ -1117,6 +1121,7 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
         | sameManaged old resource ->
             ( []
             , if (bootstrapReview && resource ^. #executor `elem` [KubernetesExecutor, HelmExecutor])
+                || Set.member (resource ^. #owner) unconvergedSelectedScopeIds
                 || Set.member resourceId requiredTopics
                 then Just (resourceOperation VerifyResource resource)
                 else Nothing

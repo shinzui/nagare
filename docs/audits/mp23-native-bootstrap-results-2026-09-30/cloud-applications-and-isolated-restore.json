@@ -1,0 +1,46 @@
+{
+  "sourceRevision": "49db2199c3da73012072b0652a8ebec87f42c14d",
+  "headGeneration": 647,
+  "sequence": 575,
+  "scopeCount": 27,
+  "prior24ScopeRevisionsPreserved": true,
+  "allAcceptedConverged": true,
+  "sourceRow": "1|mp23-after-backup",
+  "otherApplicationRow": "1|mp23-untouched-app-b",
+  "scratchRow": "1|mp23-before-correction",
+  "scratchDatabase": "mp23-pg-a_restore_mp23pgav1",
+  "newScopes": [
+    "{\"kind\": \"Application\", \"name\": \"mp23-app-b\"}",
+    "{\"kind\": \"Standalone\", \"name\": \"database-backup-personal-mp23-pg-a-mp23-cloud-pg-a-v1\"}",
+    "{\"kind\": \"Standalone\", \"name\": \"database-restore-personal-mp23-pg-a-mp23pgav1\"}"
+  ],
+  "backupChecksum": "c44d692079e41c9250594ebeed0f6e5c9413ab4521e4151a63d771baee2bddae",
+  "backupReceiptDigest": "5f59d0c1a74a638727c3d485ca01dfbbb6705e81626b1f366bcc4a205f4a729d",
+  "applicationB": {
+    "reviewDigest": "e967d7680b9edd3c3b48781f6af121804513126100651903bff98ca3707bdc51",
+    "planSeconds": 35.717,
+    "applySeconds": 85.129,
+    "httpBody": "nagare-mp23-cloud-hello",
+    "serviceUid": "355084e3-b120-448c-adf0-56bfcd551ed3",
+    "statefulsetUid": "5a9139e6-2367-4a01-b999-2c5ecde7639a",
+    "pvcUid": "bc73ba73-ed96-496a-b753-5bcc4d3b435f"
+  },
+  "backup": {
+    "reviewDigest": "f38c3a13b128dc556e46dc22113d8182ca1c606fcc6ae24c8368bc9b2ec56c54",
+    "planSeconds": 26.031,
+    "applySeconds": 112.348,
+    "jobUid": "852766d3-fcdd-4f1e-a82b-cb72d68ab969",
+    "jobComplete": true,
+    "storedBytesVerified": true
+  },
+  "isolatedRestore": {
+    "reviewDigest": "7efad0d09ba76cc046c2cd78ff0ed126001e88e227aa0df721d9f6de7ac7437d",
+    "planSeconds": 26.276,
+    "applySeconds": 45.07,
+    "liveSourcePreserved": true,
+    "otherApplicationPreserved": true
+  },
+  "platformPayloadId": "nagare-0.4.0-6082dbd6aac0",
+  "platformUpgrade": false,
+  "wholeChildAcceptance": "pending"
+}

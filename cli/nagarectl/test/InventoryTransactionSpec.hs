@@ -1705,6 +1705,12 @@ inventoryTransactionTests =
         [(plannedAction operation, NE.toList (plannedResources operation))
           | operation <- proposalOperations proposal, plannedAction operation == CreateResource]
           @?= [(CreateResource, uncreated)]
+        let [waitingResources] = [NE.toList (plannedResources (reviewPlannedOperation entry))
+              | entry <- reviewOperations (reviewedDocument reviewed),
+                plannedOperationId (reviewPlannedOperation entry) == selected]
+        assertBool "unchanged stopped workload lacks fresh readiness proof"
+          (any (\operation -> plannedAction operation == VerifyResource
+            && NE.toList (plannedResources operation) == waitingResources) (proposalOperations proposal))
         case planChanges candidate noLifecycleDecisions history (observations (uncreated <> retained)) of
           Left errors -> [planErrorResources err | err <- NE.toList errors,
             planErrorCode err == "durable-resource-missing"] @?= [retained]

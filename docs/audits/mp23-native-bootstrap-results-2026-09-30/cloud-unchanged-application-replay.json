@@ -1,0 +1,49 @@
+{
+  "installedRevision": "eb582eb0ebdfa82958914f6a1a27906422839a13",
+  "reviewDigest": "d839cfe68ae33201c703e4bad01f97f7ee183ac34c655e39432a80f056d1cb00",
+  "planSeconds": 38.965,
+  "applySeconds": 48.678,
+  "operations": "11 Kubernetes VerifyResource only",
+  "headGeneration": 673,
+  "sequence": 599,
+  "acceptedChangedOnly": [
+    "{\"kind\": \"Application\", \"name\": \"mp23-app-a\"}"
+  ],
+  "other26ScopeRevisionsPreserved": true,
+  "resourceIdentitiesPreserved": [
+    {
+      "kind": "Service",
+      "name": "mp23-app-a",
+      "uid": "99316c5e-386c-4396-94b0-e1914c9b78ff"
+    },
+    {
+      "kind": "Service",
+      "name": "mp23-app-b",
+      "uid": "355084e3-b120-448c-adf0-56bfcd551ed3"
+    },
+    {
+      "kind": "StatefulSet",
+      "name": "mp23-pg-a",
+      "uid": "f38c8493-9898-421e-b2d5-18001b27ca78"
+    },
+    {
+      "kind": "StatefulSet",
+      "name": "mp23-pg-b",
+      "uid": "5a9139e6-2367-4a01-b999-2c5ecde7639a"
+    },
+    {
+      "kind": "PersistentVolumeClaim",
+      "name": "nagare-db-mp23-pg-a-data",
+      "uid": "dcc135ca-5450-4c79-8e73-00fbc9f117f0"
+    },
+    {
+      "kind": "PersistentVolumeClaim",
+      "name": "nagare-db-mp23-pg-b-data",
+      "uid": "bc73ba73-ed96-496a-b753-5bcc4d3b435f"
+    }
+  ],
+  "bothServicesReady": true,
+  "threeDataRowsPreserved": true,
+  "all27ScopesConverged": true,
+  "platformUpgrade": false
+}

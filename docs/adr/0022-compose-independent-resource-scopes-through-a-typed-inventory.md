@@ -947,3 +947,11 @@ Unselected accepted scopes may include a previously stopped application whose
 resources remain owned but unready; another application's success grants no
 convergence evidence for it. Preserve its previous converged revision or its
 absence. This is independent from preserving the accepted ownership vector.
+
+When replanning a selected accepted scope without convergence proof, unchanged
+managed members still require fresh native verification. Ownership and an
+unchanged declaration do not establish readiness. In particular, completing a
+never-started durable create must not silently converge its still-unready
+Knative Service. Native preparation refuses an unchanged unready workload; a
+corrected configuration uses the existing conditional update path instead.
+Converged unselected scopes retain their previous receipts.

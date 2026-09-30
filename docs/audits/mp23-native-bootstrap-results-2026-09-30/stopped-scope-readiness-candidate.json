@@ -1,0 +1,14 @@
+{
+  "sourceHashes": {
+    "cli/nagarectl/src/Nagare/Inventory/Plan.hs": "e5f9826745720d3aededfd69a8de5274953ed6d7138bb3f04f9a3b624058117d",
+    "cli/nagarectl/test/InventoryTransactionSpec.hs": "5cfaab23eeb0c4b1c25579046803105f593b779bb47c3d458fd28018375ac5f2"
+  },
+  "beforeRegression": "unchanged stopped Knative member omitted while remaining durable create could complete",
+  "cliTests": {
+    "passed": 998,
+    "seconds": 67.46
+  },
+  "structuralHaskellStyle": "passed",
+  "installedFinalCandidate": "pending",
+  "independentF16Closure": "pending"
+}
