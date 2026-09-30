@@ -36,7 +36,21 @@ inventoryArtifactTests :: TestTree
 inventoryArtifactTests =
   testGroup
     "artifact inventory adapter"
-    [ testCase "accepted kubeconfig projection relocates paths but rejects identity, bytes and producer changes" $ do
+    [ testCase "projection observation uses current bytes without reading or mutating the old envelope" $
+        withSystemTempDirectory "nagare-kubeconfig-projection" $ \temporary -> do
+          let current = temporary </> "current.yaml"
+              old = temporary </> "absent-old-root.yaml"
+              accepted = ArtifactExecutionSpec KubeconfigArtifact (Text.pack old)
+                expectedDigest expectedDigest False (Just (temporary </> "absent-old-source.yaml"))
+          BS.writeFile current "published-content"
+          observed <- observeKubeconfigProjectionAt current accepted >>= expectRight
+          observed @?= ObservedPresent (ok (mkPhysicalIdentity ("kubeconfig://" <> Text.pack current)))
+          executionArtifactDestination accepted @?= Text.pack old
+          doesPathExist old >>= (@?= False)
+          BS.writeFile current "changed"
+          observeKubeconfigProjectionAt current accepted >>= assertBool "changed bytes accepted" . either (const True) (const False)
+          observeKubeconfigProjectionAt old accepted >>= assertBool "missing bytes accepted" . either (const True) (const False)
+    , testCase "accepted kubeconfig projection relocates paths but rejects identity, bytes and producer changes" $ do
         let owner = ok (mkScopeId Platform "kubeconfig")
             credential =
               imageSpec

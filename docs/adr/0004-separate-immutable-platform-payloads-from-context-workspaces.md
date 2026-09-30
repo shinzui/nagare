@@ -100,5 +100,5 @@ producer dependencies and policies, then installs a mode-0600 current-root
 projection only when absent. Changed existing files and unresolved history
 refuse. A current-root comparison may disregard the two workstation paths for
 this non-mutating credential declaration; it cannot relocate a retained
-operation envelope or change history. Global kubeconfig and gcloud selections
+operation envelope or change history. The read-only planner observes an unchanged accepted credential at its validated current-root projection; native preparation and effect paths continue using the exact retained envelope. Global kubeconfig and gcloud selections
 remain untouched. See [EP-156](../plans/156-prove-fresh-gcp-convergence-and-shared-history-recovery.md).

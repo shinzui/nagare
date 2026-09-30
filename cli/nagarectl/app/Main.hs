@@ -7599,7 +7599,33 @@ inventoryPlanRegistryWithNative active workspace suppliedNative candidate histor
   artifact <-
         if Map.null artifactSpecs
           then pure (Inventory.manifestAdapterFor history ResourceInventory.ArtifactExecutor)
-          else inventoryArtifactAdapter active workspace artifactSpecs
+          else do
+            original <- inventoryArtifactAdapter active workspace artifactSpecs
+            -- Accepted credentials have workstation-local projections. Only the
+            -- read-only plan observer may use the validated current-root file;
+            -- native preparation and every effect retain their reviewed paths.
+            let owner = either (error . T.unpack) (\scope -> scope) (Resource.mkScopeId Resource.Platform "kubeconfig")
+                eligible = case (Map.lookup owner (InventoryPlan.historyAccepted history),
+                    Map.lookup owner (ResourceInventory.inventoryScopes inventory)) of
+                  (Just (_, prior), Just desired)
+                    | prior == desired
+                    , InventoryArtifact.sameKubeconfigProjection prior desired ->
+                        Map.restrictKeys artifactSpecs (Set.fromList
+                          [resource ^. #identity | bundle <- ResourceInventory.scopeBundles prior,
+                            ResourceInventory.Managed resource <- ResourceInventory.declarations bundle])
+                  _ -> Map.empty
+            destination <- kubeconfigPath (active ^. #contextName)
+            pure original {InventoryAdapter.adapterObserve = \requested -> do
+              ordinary <- InventoryAdapter.adapterObserve original
+                (filter (`Map.notMember` eligible) requested)
+              projected <- forM [resource | resource <- requested, Map.member resource eligible] $ \resource -> do
+                fact <- observeKubeconfigProjectionAt destination (eligible Map.! resource)
+                pure ((resource,) <$> fact)
+              pure $ do
+                base <- ordinary
+                facts <- sequence projected
+                InventoryAdapter.observationSet (Map.toAscList (InventoryAdapter.observationMap base) <> facts)
+              }
   host <- maybe (pure (Inventory.manifestAdapterFor history ResourceInventory.HostExecutor))
     (inventoryHostAdapter active workspace (hostScopeAccepted history) scopes) hostInputs
   (cache, cacheKey) <- if Map.null cacheSpecs

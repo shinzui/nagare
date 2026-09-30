@@ -21,6 +21,7 @@ class StorageFixture:
         self.lost_ack = False
         self.head_only = True
         self.denied = False
+        self.denied_objects = False
         self.bucket_status = 200
         self.bucket_owner = '12345'
         self.partial_listing = False
@@ -62,6 +63,8 @@ class StorageFixture:
                         return self.respond(fixture.bucket_status, {
                             'name': 'audit.invalid', 'projectNumber': fixture.bucket_owner,
                             'location': 'US-WEST1'})
+                    if fixture.denied_objects:
+                        return self.respond(403, {})
                     prefix = '/storage/v1/b/audit.invalid/o'
                     if self.command == 'GET' and parsed.path == prefix:
                         requested = query.get('prefix', '')

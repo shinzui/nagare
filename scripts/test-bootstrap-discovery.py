@@ -52,7 +52,7 @@ cases = [
     migration={'destination': 'gs://different/private', 'headDigest': hashlib.sha256(b'old').hexdigest()}))}, {}, False),
  ('future-head', {format_key: member(format_value), head_key: member({'version': 2})}, {}, False),
  ('partial-list', {}, {'partial_listing': True}, False),
- ('denied-format', {}, {'denied': True}, False),
+ ('denied-format', {}, {'denied_objects': True}, False),
  ('local-conflict', {format_key: member(format_value), head_key: member(head)}, {}, False),
  ('wrong-migration', {format_key: member(format_value), head_key: member(head)}, {}, False),
  ('missing-migrated-destination', {}, {'bucket_status': 404}, False),
@@ -78,7 +78,7 @@ try:
     local.write_text(canonical(value)); local.chmod(0o600); local.parent.chmod(0o700)
    original = local.read_bytes() if local.exists() else None
    emulator.reset(objects)
-   emulator.bucket_status, emulator.bucket_owner, emulator.partial_listing = 200, '12345', False
+   emulator.bucket_status, emulator.bucket_owner, emulator.partial_listing, emulator.denied_objects = 200, '12345', False, False
    for key, value in settings.items(): setattr(emulator, key, value)
    p = subprocess.run([binary, '--context', 'audit', 'platform', 'bootstrap', 'plan', '--out', str(case/'review')],
        env=env, cwd=case, capture_output=True, text=True, timeout=25)
@@ -91,7 +91,7 @@ try:
    assert not (case/'cache').exists() and not (case/'review').exists()
    commands = [json.loads(line) for line in calls.read_text().splitlines()]
    assert all(a[:2] in [['config','config-helper'], ['projects','describe']] for a in commands), commands
-   if not selects:
+   if not selects or label == 'active-writer':
     recovery = subprocess.run([binary, '--context', 'audit', 'kubeconfig', 'recover'],
        env=env, cwd=case, capture_output=True, text=True, timeout=25)
     assert recovery.returncode != 0 and 'missing-workspace' not in recovery.stderr

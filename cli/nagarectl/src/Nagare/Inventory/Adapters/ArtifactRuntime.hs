@@ -7,11 +7,13 @@
 module Nagare.Inventory.Adapters.ArtifactRuntime
   ( ArtifactRuntimeConfig (..)
   , mkArtifactRuntimeOps
+  , observeKubeconfigProjectionAt
   )
 where
 
 import Control.Exception (IOException, try)
 import Data.Aeson
+import Data.ByteString qualified as BS
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -22,9 +24,11 @@ import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Artifact
 import Nagare.Inventory.Artifact
+import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
+import System.Directory (pathIsSymbolicLink)
 import System.Environment (getEnvironment)
 import System.Exit (ExitCode (..))
 import System.Process (CreateProcess (env), proc, readCreateProcessWithExitCode)
@@ -62,6 +66,23 @@ mkArtifactRuntimeOps config =
     , artifactInspectRemote = inspectRemote config
     , artifactPublish = publishArtifact config
     }
+
+-- | Observe an explicitly materialized workstation projection without
+-- relocating the immutable specification used by prepare/preflight/effect.
+observeKubeconfigProjectionAt :: FilePath -> ArtifactExecutionSpec -> IO (Either Text ResourceObservation)
+observeKubeconfigProjectionAt destination spec
+  | executionArtifactKind spec /= KubeconfigArtifact = pure (Left "projection is not an accepted kubeconfig")
+  | otherwise = do
+      observed <- try $ do
+        linked <- pathIsSymbolicLink destination
+        when linked (ioError (userError "context kubeconfig is a symlink"))
+        BS.readFile destination
+      pure $ case observed of
+        Left (_ :: IOException) -> Left "accepted current-root kubeconfig is unavailable; run nagarectl kubeconfig recover"
+        Right bytes
+          | contentDigest bytes /= executionArtifactContentDigest spec ->
+              Left "current-root kubeconfig differs from the accepted content digest"
+          | otherwise -> ObservedPresent <$> mkPhysicalIdentity ("kubeconfig://" <> T.pack destination)
 
 observeResources :: ArtifactRuntimeConfig -> [ResourceId] -> IO (Either Text ObservationSet)
 observeResources config resources = do
