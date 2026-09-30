@@ -27,7 +27,7 @@ import Data.Aeson.Types (Parser)
 import Data.ByteString (ByteString)
 import Data.Either (isRight)
 import Data.Generics.Labels ()
-import Data.List (find)
+import Data.List (find, sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
@@ -1027,10 +1027,61 @@ runOperations locked registry transaction reviewed initialEvents operations = go
                                       (plannedOperationId operation)
                                   )
                               )
+                      RecoveryAwaitingReadiness _ -> continueReadiness events reviewOperation
                       RecoveryTerminalFailure _ ->
                         pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
                       RecoveryUnresolved _ ->
                         pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
+    -- Keep the original ambiguous operation and its readiness requirement.
+    -- Only an untouched, independent stateless Deployment create may proceed;
+    -- no retry, data operation, fence, or dependent work is authorized here.
+    -- Each completed create re-enters recovery and freshly proves the waiting
+    -- object's ownership/digest before considering another original operation.
+    continueReadiness events waiting = do
+      scopes <- traverse loadDesiredScope
+        (Map.elems (reviewDesiredRevisions (reviewedDocument reviewed)))
+      let states = operationStates transaction events
+          remaining = filter ((/= operationId waiting) . operationId) operations
+          declarations = do
+            loaded <- sequence scopes
+            first showText (Resource.composedDeclarations
+              (Map.fromList [(Resource.scopeId scope, scope) | scope <- loaded]))
+          safeCreate members entry =
+            let planned = reviewPlannedOperation entry
+                selected = NE.toList (plannedResources planned)
+             in plannedAction planned == CreateResource
+                && plannedExecutor planned == KubernetesExecutor
+                && isNothing (reviewFenceDigest entry)
+                && case [member | Resource.Managed member <- members,
+                      member ^. #identity `elem` selected] of
+                  [member] | selected == [member ^. #identity]
+                    , member ^. #dataPolicy == Stateless -> case member ^. #address of
+                        Kubernetes _ "apps" kind _ _ -> nameText kind == "deployment"
+                        _ -> False
+                  _ -> False
+          untouched entry = case Map.lookup (operationId entry) states of
+            Nothing -> True
+            Just Pending -> True
+            _ -> False
+          candidate = do
+            members <- either (const Nothing) Just declarations
+            if not (safeCreate members waiting) then Nothing else
+              case nextOperation remaining states of
+                ExecuteOperation _ -> find (\entry -> untouched entry
+                  && safeCreate members entry && dependenciesComplete states entry)
+                  (sortOn operationId remaining)
+                _ -> Nothing
+      case candidate of
+        Just entry -> executeOne events entry
+        Nothing -> pure (Just (StoppedAmbiguous transaction (operationId waiting)))
+    operationId = plannedOperationId . reviewPlannedOperation
+    loadDesiredScope revision = do
+      result <- readObject (lockedStore locked) (scopeKey (revisionDigest revision))
+      pure $ do
+        bytes <- first showText result >>= maybe (Left "missing desired scope") Right
+        if contentDigest bytes /= revisionDigest revision
+          then Left "desired scope digest mismatch"
+          else first showText (decodeScope bytes)
     executeOne events reviewOperation = do
       let operation = reviewPlannedOperation reviewOperation
           operationId = plannedOperationId operation

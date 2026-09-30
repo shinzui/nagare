@@ -755,6 +755,22 @@ original source before transferring it into retained history. The existing
 future destination readiness. Neither admission check becomes an up-front resume
 requirement. The following checkpoint records selected-read and store-cost implementation.
 
+Readiness recovery amendment (2026-09-30): a created Kubernetes Deployment
+whose exact reviewed ownership stamp and native digest still match may report
+that it is awaiting readiness, rather than unknown effect state. This is not
+completion or permission to repeat its create. The shared driver may then create
+an untouched, stateless Deployment from the same immutable review whose declared
+predecessors have durable completion proofs. Both operations must be unfenced;
+another uncertain or blocked operation stops this continuation. Re-enter the
+waiting Deployment's guarded recovery after each completed create. Only actual
+readiness may append its completion proof, satisfy dependents, or converge the
+transaction. Missing or changed scope evidence, foreign ownership, changed native
+bytes, failed workloads, data operations and updates remain stopped. This bounded
+path repairs already-admitted initial bootstrap ordering omissions without
+rewriting reviews, abandoning accepted history, or treating unready objects as
+healthy. Future Knative reviews order activator after its autoscaler healthcheck
+dependency explicitly.
+
 
 Observation/store implementation (2026-09-29): resource status/explain now consume
 an opaque `ObservationNative` value instead of an execution-review projection.

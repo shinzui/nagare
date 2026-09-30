@@ -114,7 +114,11 @@ pinnedUpstreamInputs cluster root =
       , upstreamConfigMapData = Map.empty
       , upstreamImageOverrides = Map.empty
       , upstreamGenerated = []
-      , upstreamAfter = Map.empty
+      , upstreamAfter = if name == "serving"
+          then Map.singleton
+            (either (error . T.unpack) id (kubernetesAddress cluster "apps/v1" "Deployment" (Just "knative-serving") "activator"))
+            [either (error . T.unpack) id (kubernetesAddress cluster "apps/v1" "Deployment" (Just "knative-serving") "autoscaler")]
+          else Map.empty
       , upstreamExternalAfter = Map.empty
       , upstreamOrderDeployments = True
       }

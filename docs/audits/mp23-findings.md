@@ -37,8 +37,23 @@ Implementation owner: existing session `01a0e893-337f-7b82-ac5d-16f41bf5ce21` (I
 | [F11](#f11) | Build | Conditional-upload optimization has ambiguous try exception type | Closed | EP-156 |
 | [F12](#f12) | P1 | A later operation’s preflight blocks recovery of its ambiguous prerequisite | Verifying | EP-153 / EP-159 |
 | [F13](#f13) | P1 | Ordinary executor recovery has no terminal-failure branch | Verifying | EP-153 / EP-159 |
+| [F14](#f14) | P1 | Initial Knative activator readiness blocks its uncreated autoscaler | Verifying | EP-156 |
 
 F01 and F11 are independently Closed with [retained verification and source identities](mp23-verification.md). F02 has passing local call-count evidence but still needs its retained status-caller regression. All other entries remain Open, Partial, or Verifying as shown.
+
+## F14
+
+**Initial Knative activator readiness blocks its uncreated autoscaler** — P1; **Verifying**; owner EP-156.
+
+**Locations:** cli/nagarectl/src/Nagare/Inventory/Components/Upstream.hs; Adapters/Kubernetes.hs; Execute.hs.
+
+**Native evidence:** Installed candidate `6082dbd6aac0` admitted the original 210-operation review, then created activator before autoscaler. Activator's running pod cannot pass its healthcheck because the autoscaler websocket is unavailable; autoscaler's Service exists but its Deployment has not been created. Diagnosis occurred before the fifteen-minute checkpoint. The bounded rollout wait stopped naturally, retaining the original ambiguous transaction at shared generation 416 with no executor claim/fence. See [the continuation report](mp23-cloud-continuation-2026-09-30.md).
+
+**Implementation update:** The candidate adds the autoscaler predecessor to pinned and configured Serving declarations. A new typed awaiting-readiness recovery result requires exact owned created Deployment bytes and an original absent precondition. The shared driver permits only an untouched, unfenced, dependency-ready stateless Deployment create from the same review, refusing other uncertain/blocked operations, durable members and non-Deployment effects. Each completion returns to fresh guarded recovery; only real readiness can complete the waiting operation. All 987 CLI tests pass, including `Knative activator waits for autoscaler readiness in pinned and configured inputs`, `only an exact created Deployment can await readiness during recovery`, `resume creates an independent Deployment while exact predecessor waits for readiness`, and `readiness continuation refuses dependent, durable and non-Deployment creates`.
+
+**Required verification:** Independently run the named tests and inspect foreign/digest/failed-workload, data/fence, dependency and other-uncertain refusals. Install the candidate and resume this original cloud transaction without review/history rewrites; require autoscaler and activator Ready with exact original identities and no repeated completed effect. Retain redacted native evidence and source identities.
+
+**Verification:** Not closed. Source regression acceptance is established; installed/native recovery and independent closure remain required.
 
 ## F01
 

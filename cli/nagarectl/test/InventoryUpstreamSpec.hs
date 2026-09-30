@@ -156,6 +156,27 @@ inventoryUpstreamTests = testGroup "pinned upstream bootstrap manifests"
       (fullBootstrap, fullNative) <- compilePinnedBootstrap snapshot foundation Nothing "../.." >>= expectRight
       Map.size (inventoryScopes (candidateInventory fullBootstrap)) @?= 5
       Map.size fullNative @?= Map.size native + 3
+  , testCase "Knative activator waits for autoscaler readiness in pinned and configured inputs" $ do
+      configured <- configuredUpstreamInputs fixtureCluster "../.." "example.test"
+        "registry.example.test" "cluster/bootstrap/knative-serving/config-certmanager.yaml"
+        >>= expectRight
+      mapM_ (\inputs -> do
+        servingInput <- case inputs of
+          [_, input, _, _] -> pure input
+          _ -> assertFailure "Serving component is missing" >> pure (error "unreachable")
+        (bundle, _) <- compileUpstream servingInput >>= expectRight
+        let named wanted = [resource | Managed resource <- declarations bundle,
+              case resource ^. #address of
+                Kubernetes _ "apps" kind _ name -> nameText kind == "deployment" && nameText name == wanted
+                _ -> False]
+        case (named "activator", named "autoscaler") of
+          ([activator], [autoscaler]) -> do
+            assertBool "activator can start before its healthcheck dependency"
+              (OrderedAfter (autoscaler ^. #identity) `elem` activator ^. #dependencies)
+            assertBool "autoscaler waits for activator and creates a cycle"
+              (OrderedAfter (activator ^. #identity) `notElem` autoscaler ^. #dependencies)
+          _ -> assertFailure "Serving readiness fixtures are incomplete")
+        [pinnedUpstreamInputs fixtureCluster "../..", configured]
   , testCase "Kourier gateway waits for its xDS controller" $ do
       configured <- configuredUpstreamInputs fixtureCluster "../.." "example.test"
         "registry.example.test" "cluster/bootstrap/knative-serving/config-certmanager.yaml"

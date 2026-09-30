@@ -142,6 +142,8 @@ data AdapterExecution
 data RecoveryDecision
   = RecoveryProvedComplete !ContentDigest
   | RecoverySafeToRetry
+  -- The exact created workload exists, but readiness is not completion.
+  | RecoveryAwaitingReadiness !PhysicalIdentity
   | RecoveryTerminalFailure !PhysicalIdentity
   | RecoveryUnresolved !Text
   deriving stock (Eq, Show, Generic)

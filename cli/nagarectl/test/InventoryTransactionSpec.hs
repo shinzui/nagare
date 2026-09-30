@@ -1508,10 +1508,47 @@ inventoryTransactionTests =
                   , "effect:RunDeclaredOperation"
                   ]
               )
+    , testCase "resume creates an independent Deployment while exact predecessor waits for readiness" $ do
+        store <- newMemoryStore
+        effects <- newIORef ([] :: [OperationId])
+        ready <- newIORef False
+        let effect operation _ = do
+              previous <- readIORef effects
+              modifyIORef' effects (<> [plannedOperationId operation])
+              if null previous then pure (AdapterEffectAmbiguous "readiness pending")
+                else writeIORef ready True >> pure AdapterEffectCompleted
+            recover operation _ = do
+              available <- readIORef ready
+              pure $ if available then RecoveryProvedComplete (proof operation)
+                else RecoveryAwaitingReadiness (ok (mkPhysicalIdentity "created-deployment"))
+        (reviewed, registry) <- preparedReadinessFixture store False Stateless "deployment" effect recover
+        stopped <- applyReviewed store registry reviewed >>= expectRight
+        transaction <- case stopped of StoppedAmbiguous value _ -> pure value; other -> assertFailure (show other) >> undefined
+        resumeTransaction store registry transaction >>= expectRight >>= (@?= Converged transaction)
+        resumeTransaction store registry transaction >>= expectRight >>= (@?= Converged transaction)
+        calls <- readIORef effects
+        length calls @?= 2
+        Set.size (Set.fromList calls) @?= 2
+        transactionIdText transaction @?= T.pack (transactionToken reviewed)
+    , testCase "readiness continuation refuses dependent, durable and non-Deployment creates" $ do
+        let durable = Durable (RecoveryIntent (ok (mkName "restore"))
+              (mkSecretRef (ok (mkName "password")) (ok (mkName "v1")) :| []))
+        forM_ [(True, Stateless, "deployment"), (False, durable, "deployment"),
+          (False, Stateless, "configmap")] $ \(dependent, policy, kind) -> do
+          store <- newMemoryStore
+          effects <- newIORef (0 :: Int)
+          let effect _ _ = modifyIORef' effects (+ 1) >> pure (AdapterEffectAmbiguous "readiness pending")
+              recover _ _ = pure (RecoveryAwaitingReadiness (ok (mkPhysicalIdentity "created-deployment")))
+          (reviewed, registry) <- preparedReadinessFixture store dependent policy kind effect recover
+          stopped <- applyReviewed store registry reviewed >>= expectRight
+          transaction <- case stopped of StoppedAmbiguous value _ -> pure value; other -> assertFailure (show other) >> undefined
+          resumeTransaction store registry transaction >>= expectRight >>= (@?= stopped)
+          readIORef effects >>= (@?= 1)
     , testCase "shared driver stops every unresolved or terminal recovery before dependent work" $ do
         forM_
           [ RecoveryTerminalFailure (ok (mkPhysicalIdentity "failed-job"))
           , RecoveryUnresolved "provider unavailable"
+          , RecoveryAwaitingReadiness (ok (mkPhysicalIdentity "unready-deployment"))
           ]
           $ \decision -> do
             store <- newMemoryStore
@@ -1795,6 +1832,36 @@ preparedDependentFixture store preflight effect recovery = do
   snapshot <- readStoreSnapshot store >>= expectRight
   reviewed <- either (assertFailure . show) pure (verifyReview snapshot bundle)
   length (reviewOperations (reviewedDocument reviewed)) @?= 2
+  pure (reviewed, registry)
+
+preparedReadinessFixture :: InventoryStore -> Bool -> DataPolicy -> Text
+  -> (PlannedOperation -> PreparedNative -> IO AdapterExecution)
+  -> (PlannedOperation -> PreparedNative -> IO RecoveryDecision)
+  -> IO (ReviewedPlan, AdapterRegistry)
+preparedReadinessFixture store dependent policy kind effect recovery = do
+  let owner = ok (mkScopeId Platform "readiness-driver")
+      cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+      workload role after = case member owner cluster role of
+        Managed resource -> Managed (resource
+          { address = Kubernetes cluster (if kind == "deployment" then "apps" else "")
+              (ok (mkName kind)) (Just (ok (mkName "system"))) (ok (mkName role))
+          , dataPolicy = policy, dependencies = after })
+        other -> other
+      first = workload "activator" []
+      second = workload "autoscaler" (if dependent then [OrderedAfter (declarationId first)] else [])
+      scope = ok (mkScopeDeclaration owner [ResourceBundle [first, second] [] [] [] [] []])
+      candidate = ok (composeInventory (ok (mkScopeSnapshot fixtureBinding Map.empty Map.empty))
+        (ReplaceScope scope :| []))
+      registry = recordingRegistry effect recovery
+  _ <- initializeStore store fixtureBinding "readiness-driver" >>= expectRight
+  history <- loadInventoryHistory store >>= expectRight
+  let observations = ok (observationSet [(declarationId member, ConfirmedAbsent (contentDigest "absent")) | member <- [first, second]])
+      proposal = ok (planChanges candidate noLifecycleDecisions history observations)
+  before <- readStoreSnapshot store >>= expectRight
+  bundle <- prepareReview registry before proposal >>= expectRight
+  _ <- publishReview store bundle >>= expectRight
+  snapshot <- readStoreSnapshot store >>= expectRight
+  reviewed <- either (assertFailure . show . NE.toList) pure (verifyReview snapshot bundle)
   pure (reviewed, registry)
 
 recordingRegistry :: (PlannedOperation -> PreparedNative -> IO AdapterExecution) -> (PlannedOperation -> PreparedNative -> IO RecoveryDecision) -> AdapterRegistry

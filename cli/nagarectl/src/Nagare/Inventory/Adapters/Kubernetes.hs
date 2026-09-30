@@ -198,6 +198,14 @@ mkKubernetesAdapterWithBackupReceiptAndBatch specs ops observeBatch readBackupRe
             Left _ -> pure $ case requireSameBefore mutation current of
               Right () -> RecoverySafeToRetry
               Left reason -> case current of
+                KubernetesNotReady physical _ (Just owner) digest
+                  | owner == mutationResource mutation
+                    && digest == mutationNativeDigest mutation
+                    && mutationAction mutation == CreateResource
+                    && (case mutationBefore mutation of KubernetesAbsent {} -> True; _ -> False)
+                    && (case mutationAddress mutation of
+                      Kubernetes _ "apps" kind _ _ -> nameText kind == "deployment"
+                      _ -> False) -> RecoveryAwaitingReadiness physical
                 KubernetesFailed physical _ (Just owner) digest
                   | owner == mutationResource mutation
                     && digest == mutationNativeDigest mutation

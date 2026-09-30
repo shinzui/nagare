@@ -276,6 +276,29 @@ inventoryKubernetesTests =
         Map.lookup resource (observationMap result) @?= Just (ObservedPresent physical)
         verified <- adapterVerify adapter createOperation prepared
         assertBool "unready object completed the reviewed operation" (case verified of Left _ -> True; Right _ -> False)
+    , testCase "only an exact created Deployment can await readiness during recovery" $ do
+        let native = object ["apiVersion" .= ("apps/v1" :: Text), "kind" .= ("Deployment" :: Text),
+              "metadata" .= object ["name" .= ("activator" :: Text), "namespace" .= ("knative-serving" :: Text)]]
+            bytes = ok (canonicalValue native)
+            declaration = input {inputObject = native, objectDigest = contentDigest bytes}
+            deploymentSpecs = Map.singleton resource (ok (bindKubernetesObject declaration))
+        state <- newIORef (KubernetesAbsent absence)
+        calls <- newIORef (0 :: Int)
+        let adapter = mkKubernetesAdapter deploymentSpecs (ops state calls)
+        prepared <- adapterPrepare adapter createOperation >>= expectRight
+        writeIORef state (KubernetesNotReady physical "5" (Just resource) (contentDigest bytes))
+        adapterRecover adapter createOperation prepared >>= (@?= RecoveryAwaitingReadiness physical)
+        verified <- adapterVerify adapter createOperation prepared
+        assertBool "readiness was treated as completion" (case verified of Left _ -> True; _ -> False)
+        mapM_ (\changed -> do
+            writeIORef state changed
+            result <- adapterRecover adapter createOperation prepared
+            assertBool "foreign, changed or failed object authorized continuation"
+              (case result of RecoveryUnresolved _ -> True; _ -> False))
+          [KubernetesNotReady physical "5" Nothing (contentDigest bytes),
+          KubernetesNotReady physical "5" (Just resource) (contentDigest "changed"),
+          KubernetesFailed physical "5" (Just resource) (contentDigest bytes)]
+        readIORef calls >>= (@?= 0)
     , testCase "reviewed create uses the retained native object and proves completion" $ do
         state <- newIORef (KubernetesAbsent absence)
         calls <- newIORef (0 :: Int)
