@@ -98,10 +98,8 @@ publication. The observation path visits those resources serially; each visit ru
 the cluster guard, which executes `kubectl config current-context` and
 `kubectl get nodes`, before the resource's own `kubectl get`. This is a measured
 location and a source-level command count, not yet proof that guard calls alone
-explain the full elapsed time. The next step is a focused observation repair that
-keeps context and node validation and effect-time guards, followed by a bounded
-development-binary probe, focused regression test, installed-package build, and
-exact public cluster review. Do not apply a cluster review until it is inspected.
+explain the full elapsed time. The repair and bounded runs below test that
+hypothesis while retaining context/node validation and effect-time guards.
 
 ## Kubernetes scan repair and source proof
 
@@ -134,8 +132,33 @@ The already accepted kubeconfig explains the difference from the public fixture'
 211 operations. This is development evidence against the retained installed
 payload, not final installed acceptance. The [redacted metrics](mp23-native-bootstrap-results-2026-09-29/cluster-plan.json)
 distinguish the original installed timeout from source proof. Temporary tracing
-has been removed. Installed-package validation is next; no cluster apply is
-authorized by this debugging checkpoint.
+has been removed. The installed acceptance below uses the committed clean
+candidate; no cluster apply is authorized by this debugging checkpoint.
+
+## Installed cluster-plan acceptance
+
+Clean candidate `2d6b57c0` built as an installed Darwin package and ran outside
+the checkout with the same isolated credentials and the original 360-second
+limit. Its fresh payload workspace installed the locked Pulumi Node dependencies.
+The complete public plan succeeded in **295.454 seconds** and saved review
+`90cd2f8cf18a441c4f6ae9f1261e6dff7def393c800233d1b9c0202688268f75`,
+bound to `nagare-bootstrap:nagare-0.4.0-2d6b57c02179` and the exact fixture
+context/project. The inspected review has 210 operations (203 Kubernetes, five
+Helm, two artifact), zero barriers, only platform resource identities, and a
+bootstrap marker depending on all 209 other operations. The two artifact
+operations create the controller image resource and run its declared operation;
+neither has executed.
+
+This run reused immutable members published by the successful source probe;
+it is not a cold publication benchmark. A fresh installed store status took
+5.356 seconds and returned unchanged head generation 113 and digest
+`f536c6d2f48c5d5bde01460a072f15e2d328d2a49433a1f0e20c44baf59416fe`,
+with no active transaction, executor claim or data fence. Explicit-kubeconfig
+verification took 0.583 seconds and found the same Ready node UID
+`d3745745-a1e2-4a07-9479-2832b893d7dc`. The linked redacted metrics retain these
+final-candidate results separately from source timing and the original timeout.
+No cluster apply or global context switch occurred. This accepts the bounded
+planning repair, not cluster convergence or the second-root history repair.
 
 ## Remaining native work
 

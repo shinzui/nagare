@@ -42,7 +42,13 @@
       "ArtifactExecutor": 2,
       "HelmExecutor": 5
     },
-    "barriers": 0
+    "barriers": 0,
+    "marker_dependencies": 209,
+    "binding": {
+      "identity": "ep150-preview",
+      "project": "tan-ng-labs"
+    },
+    "payload": "nagare-bootstrap:nagare-0.4.0-0870fa200d07"
   },
   "shared_status_before": {
     "generation": 113,
@@ -54,7 +60,55 @@
     "focused_kubernetes_tests": 77,
     "public_bootstrap_operations": 211,
     "structural_style": "passed",
-    "installed_acceptance": "pending"
+    "installed_acceptance": "passed",
+    "clean_focused_kubernetes_tests": 77
   },
-  "cluster_apply": false
+  "cluster_apply": false,
+  "repair_commit": "2d6b57c0",
+  "node_after_source_probe": {
+    "uid": "d3745745-a1e2-4a07-9479-2832b893d7dc",
+    "ready": true
+  },
+  "installed_after": {
+    "step": "cluster-plan",
+    "exit": 0,
+    "seconds": 295.454,
+    "package": "/nix/store/652fsjg830by7zirqcypzw9rpvnsjl81-nagarectl-0.4.0",
+    "candidate": "2d6b57c0",
+    "system": "aarch64-darwin",
+    "deadline_seconds": 360,
+    "fresh_payload_workspace": true,
+    "immutable_members_from_source_probe_present": true,
+    "review": {
+      "digest": "90cd2f8cf18a441c4f6ae9f1261e6dff7def393c800233d1b9c0202688268f75",
+      "operations": 210,
+      "executors": {
+        "KubernetesExecutor": 203,
+        "HelmExecutor": 5,
+        "ArtifactExecutor": 2
+      },
+      "barriers": 0,
+      "binding": {
+        "identity": "ep150-preview",
+        "project": "tan-ng-labs"
+      },
+      "payload": "nagare-bootstrap:nagare-0.4.0-2d6b57c02179",
+      "head_generation": 113,
+      "marker_dependencies": 209,
+      "all_resources_platform": true
+    }
+  },
+  "shared_status_after": {
+    "generation": 113,
+    "headDigest": "f536c6d2f48c5d5bde01460a072f15e2d328d2a49433a1f0e20c44baf59416fe",
+    "activeTransaction": null,
+    "executorClaim": null,
+    "dataFence": null,
+    "seconds": 5.356
+  },
+  "node_after_installed_plan": {
+    "uid": "d3745745-a1e2-4a07-9479-2832b893d7dc",
+    "ready": true,
+    "seconds": 0.583
+  }
 }
