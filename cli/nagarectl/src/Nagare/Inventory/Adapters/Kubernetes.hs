@@ -150,7 +150,7 @@ mkKubernetesAdapterWithBackupReceiptAndBatch specs ops observeBatch readBackupRe
       Right (resource, declaration, native) -> do
         before <- kubernetesObserve ops resource
         pure $ do
-          validateBefore operation resource (contentDigest native) before
+          validateBefore operation resource (address declaration) (contentDigest native) before
           mutation <- buildMutation (kubernetesContext ops) operation resource declaration native before
           bytes <- first (PrepareRefused (plannedOperationId operation)) (canonicalValue (toJSON mutation))
           pure (PreparedNative bytes (summary mutation))
@@ -205,6 +205,7 @@ mkKubernetesAdapterWithBackupReceiptAndBatch specs ops observeBatch readBackupRe
                     && (case mutationBefore mutation of KubernetesAbsent {} -> True; _ -> False)
                     && (case mutationAddress mutation of
                       Kubernetes _ "apps" kind _ _ -> nameText kind == "deployment"
+                      Kubernetes _ "serving.knative.dev" kind _ _ -> nameText kind == "service"
                       _ -> False) -> RecoveryAwaitingReadiness physical
                 KubernetesFailed physical _ (Just owner) digest
                   | owner == mutationResource mutation
@@ -299,13 +300,17 @@ singleSpec specs operation = do
     _ -> Left "Kubernetes declared operation must verify a bound Job"
   pure (resource, declaration, native)
 
-validateBefore :: PlannedOperation -> ResourceId -> ContentDigest -> KubernetesState -> Either PrepareError ()
-validateBefore operation resource desiredDigest state =
+validateBefore :: PlannedOperation -> ResourceId -> ProviderAddress -> ContentDigest -> KubernetesState -> Either PrepareError ()
+validateBefore operation resource target desiredDigest state =
   first (PrepareRefused (plannedOperationId operation)) $ case (plannedAction operation, state) of
     (CreateResource, KubernetesAbsent _) -> Right ()
     (AdoptResource, KubernetesPresent _ revision Nothing digest)
       | not (T.null revision) && digest == desiredDigest -> Right ()
     (UpdateResource, KubernetesPresent _ revision (Just owner) _) | owner == resource && not (T.null revision) -> Right ()
+    (UpdateResource, KubernetesNotReady _ revision (Just owner) _)
+      | owner == resource && not (T.null revision)
+      , Kubernetes _ "serving.knative.dev" kind (Just _) _ <- target
+      , nameText kind == "service" -> Right ()
     (VerifyResource, KubernetesPresent _ revision (Just owner) digest)
       | owner == resource && not (T.null revision) && digest == desiredDigest -> Right ()
     (RetireResource, KubernetesPresent _ revision (Just owner) digest)
@@ -419,7 +424,7 @@ decodeMutation context specs operation prepared = do
   value <- first T.pack (eitherDecodeStrict native)
   stamped <- stampNative context resource (contentDigest native) value
   unless (TE.encodeUtf8 (mutationNativeJson mutation) == stamped && mutationNativeDigest mutation == contentDigest native) (Left "Kubernetes native object differs from reviewed bytes")
-  case validateBefore operation resource (contentDigest native) (mutationBefore mutation) of
+  case validateBefore operation resource (address declaration) (contentDigest native) (mutationBefore mutation) of
     Left _ -> Left "Kubernetes mutation precondition is invalid"
     Right () -> Right mutation
 

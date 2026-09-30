@@ -146,7 +146,15 @@ mkKubernetesRuntimeOpsAndBatchWithCacheKey config resolveCacheKey specs =
             else case materialized of
               Left reason -> pure (Left reason)
               Right native -> materializeCacheKey resolveCacheKey native
-          request <- case (mutationAction mutation, mutationBefore mutation) of
+          -- Preserve the reviewed unready precondition in the adapter. The
+          -- transport uses the same UID/version conditional update form; it
+          -- still waits for actual readiness after the corrected write.
+          let updateBefore = case (mutationAction mutation, mutationAddress mutation, mutationBefore mutation) of
+                (UpdateResource, Kubernetes _ "serving.knative.dev" kind (Just _) _,
+                  KubernetesNotReady uid revision owner digest) | nameText kind == "service" ->
+                    KubernetesPresent uid revision owner digest
+                _ -> mutationBefore mutation
+          request <- case (mutationAction mutation, updateBefore) of
             (CreateResource, KubernetesAbsent _) ->
               pure ((["create", "--field-manager=nagare-inventory", "-f", "-"],) <$> resolved)
             (AdoptResource, KubernetesPresent uid revision Nothing digest)
@@ -264,6 +272,7 @@ supportedUpdateAddress (Kubernetes _ group kind _ _) =
     , ("", "resourcequota")
     , ("apps", "deployment")
     , ("apps", "statefulset")
+    , ("serving.knative.dev", "service")
     , ("batch", "cronjob")
     , ("networking.k8s.io", "networkpolicy")
     ]

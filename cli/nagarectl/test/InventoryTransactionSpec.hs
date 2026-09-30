@@ -1613,6 +1613,69 @@ inventoryTransactionTests =
         recordOperatorRecovery store registry input False >>= expectRight
         resumeTransaction store registry transaction >>= expectRight >>= (@?= Converged transaction)
         readIORef attempts >>= (@?= 2)
+    , testCase "stopping incomplete application retains admitted ownership without convergence or effects" $ do
+        store <- newMemoryStore
+        effects <- newIORef (0 :: Int)
+        let effect _ _ = modifyIORef' effects (+ 1) >> pure (AdapterEffectAmbiguous "capacity exhausted")
+            recover _ _ = pure (RecoveryAwaitingReadiness (ok (mkPhysicalIdentity "original-service-uid")))
+        (reviewed, registry) <- preparedApplicationStopFixture store Application Stateless effect recover
+        stopped <- applyReviewed store registry reviewed >>= expectRight
+        (transaction, selected) <- case stopped of
+          StoppedAmbiguous tx op -> pure (tx, op)
+          other -> assertFailure (show other) >> undefined
+        before <- readHead store >>= expectRight >>= maybe (assertFailure "head missing" >> undefined) pure
+        let decision = OperatorRecoveryInput transaction selected (reviewDigestFor reviewed) StopIncompleteApplication
+        recordOperatorRecovery store registry decision False >>= expectRight
+        after <- readHead store >>= expectRight >>= maybe (assertFailure "head missing" >> undefined) pure
+        headAccepted after @?= headAccepted before
+        headConverged after @?= headConverged before
+        headActiveTransaction after @?= Nothing
+        headExecutorClaim after @?= Nothing
+        readIORef effects >>= (@?= 1)
+        events <- readJournalPrefix store (headSequence after) >>= expectRight
+        let decoded = map (ok . decodeJournalEvent) events
+        assertBool "stop claimed workload completion" (not (any (\event -> eventOperation event == Just selected && case eventState event of Completed _ -> True; _ -> False) decoded))
+        assertBool "stop selection missing" (any (\event -> case eventState event of
+          OperatorResolved marker -> "stopped-incomplete-application:" `T.isPrefixOf` marker
+          _ -> False) decoded)
+        -- Recreate the boundary after the immutable stop event but before its
+        -- head CAS. Settlement must use this same decision without provider IO.
+        _ <- replaceHeadIfGenerationMatches store (Just (headGeneration after))
+          after {headGeneration = headGeneration after + 1,
+            headActiveTransaction = Just (transactionIdText transaction)} >>= expectRight
+        let noProbe = recordingRegistry effect (\_ _ -> assertFailure "saved stop probed provider" >> undefined)
+        bypass <- recordOperatorRecovery store noProbe
+          decision {recoveryAction = AcceptAdapterProof} False
+        assertBool "ordinary proof bypassed stop intent" (isLeft bypass)
+        recordOperatorRecovery store noProbe decision False >>= expectRight
+        settled <- readHead store >>= expectRight >>= maybe (assertFailure "head missing" >> undefined) pure
+        headAccepted settled @?= headAccepted before
+        headConverged settled @?= headConverged before
+        headActiveTransaction settled @?= Nothing
+        headSequence settled @?= headSequence after
+        resumed <- resumeTransaction store registry transaction
+        assertBool "stopped original transaction resumed" (case resumed of Right (Converged _) -> False; _ -> True)
+        readIORef effects >>= (@?= 1)
+    , testCase "incomplete application stop refuses foreign scope, durable workload and uncertain provider" $ do
+        let durable = Durable (RecoveryIntent (ok (mkName "backup"))
+              (mkSecretRef (ok (mkName "password")) (ok (mkName "v1")) :| []))
+        forM_ [(Platform, Stateless, RecoveryAwaitingReadiness (ok (mkPhysicalIdentity "uid"))),
+          (Application, durable, RecoveryAwaitingReadiness (ok (mkPhysicalIdentity "uid"))),
+          (Application, Stateless, RecoveryUnresolved "changed UID or digest"),
+          (Application, Stateless, RecoverySafeToRetry),
+          (Application, Stateless, RecoveryTerminalFailure (ok (mkPhysicalIdentity "failed-job")))] $ \(kind, policy, recovery) -> do
+            store <- newMemoryStore
+            effects <- newIORef (0 :: Int)
+            (reviewed, registry) <- preparedApplicationStopFixture store kind policy
+              (\_ _ -> modifyIORef' effects (+ 1) >> pure (AdapterEffectAmbiguous "pending"))
+              (\_ _ -> pure recovery)
+            stopped <- applyReviewed store registry reviewed >>= expectRight
+            (tx, op) <- case stopped of StoppedAmbiguous tx op -> pure (tx, op); other -> assertFailure (show other) >> undefined
+            refused <- recordOperatorRecovery store registry (OperatorRecoveryInput tx op (reviewDigestFor reviewed) StopIncompleteApplication) False
+            assertBool "unsafe stop accepted" (isLeft refused)
+            after <- readHead store >>= expectRight >>= maybe (assertFailure "missing head" >> undefined) pure
+            headActiveTransaction after @?= Just (transactionIdText tx)
+            readIORef effects >>= (@?= 1)
     , testCase "terminal isolated abandonment refuses an unrelated review" $ do
         store <- newMemoryStore
         let failed = ok (mkPhysicalIdentity "failed-job")
@@ -2033,6 +2096,47 @@ preparedDependentFixture store preflight effect recovery = do
   snapshot <- readStoreSnapshot store >>= expectRight
   reviewed <- either (assertFailure . show) pure (verifyReview snapshot bundle)
   length (reviewOperations (reviewedDocument reviewed)) @?= 2
+  pure (reviewed, registry)
+
+reviewDigestFor :: ReviewedPlan -> ContentDigest
+reviewDigestFor = contentDigest . encodeReviewDocument . reviewedDocument
+
+preparedApplicationStopFixture :: InventoryStore -> ScopeKind -> DataPolicy
+  -> (PlannedOperation -> PreparedNative -> IO AdapterExecution)
+  -> (PlannedOperation -> PreparedNative -> IO RecoveryDecision)
+  -> IO (ReviewedPlan, AdapterRegistry)
+preparedApplicationStopFixture store kind policy effect recovery = do
+  let owner = ok (mkScopeId kind "incomplete-app")
+      cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+      service = case member owner cluster "service" of
+        Managed resource -> Managed (resource
+          { address = Kubernetes cluster "serving.knative.dev" (ok (mkName "service"))
+              (Just (ok (mkName "personal"))) (ok (mkName "web"))
+          , spec = KnativeService (contentDigest "service"), dataPolicy = policy
+          , dependencies = [OrderedAfter (declarationId retained)] })
+        other -> other
+      retained = case member owner cluster "untouched" of
+        Managed resource -> Managed (resource
+          { address = Kubernetes cluster "" (ok (mkName "persistentvolumeclaim"))
+              (Just (ok (mkName "personal"))) (ok (mkName "retained-data"))
+          , dataPolicy = Durable (RecoveryIntent (ok (mkName "backup"))
+              (mkSecretRef (ok (mkName "password")) (ok (mkName "v1")) :| [])) })
+        other -> other
+      scope = ok (mkScopeDeclaration owner [ResourceBundle [service, retained] [] [] [] [] []])
+      candidate = ok (composeInventory (ok (mkScopeSnapshot fixtureBinding Map.empty Map.empty))
+        (ReplaceScope scope :| []))
+      registry = recordingRegistry
+        (\operation prepared -> if declarationId service `elem` NE.toList (plannedResources operation)
+          then effect operation prepared else pure AdapterEffectCompleted) recovery
+  _ <- initializeStore store fixtureBinding "stop-app-test" >>= expectRight
+  history <- loadInventoryHistory store >>= expectRight
+  let observations = ok (observationSet [(declarationId resource, ConfirmedAbsent (contentDigest "absent")) | resource <- [service, retained]])
+      proposal = ok (planChanges candidate noLifecycleDecisions history observations)
+  before <- readStoreSnapshot store >>= expectRight
+  bundle <- prepareReview registry before proposal >>= expectRight
+  _ <- publishReview store bundle >>= expectRight
+  after <- readStoreSnapshot store >>= expectRight
+  reviewed <- either (assertFailure . show . NE.toList) pure (verifyReview after bundle)
   pure (reviewed, registry)
 
 preparedReadinessFixture :: InventoryStore -> Bool -> DataPolicy -> Text

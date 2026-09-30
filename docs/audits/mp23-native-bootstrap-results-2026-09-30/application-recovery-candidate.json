@@ -1,0 +1,19 @@
+{
+  "sourceHashes": {
+    "cli/nagarectl/src/Nagare/Inventory/Execute.hs": "5d3d623104a0b58525ae03eb9c7aeded87b37a49a35ff3fcf4ec4cc51dacff3c",
+    "cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs": "e48b50a938e1eb080d81456bbd261fd9c4ff8d741d20f626014af96eaeb6c6f9",
+    "cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesRuntime.hs": "481474d3f6096bd76b44af9a1b29bab6e521249df9181b44ad6a5ba0de314bd4",
+    "cli/nagarectl/test/InventoryTransactionSpec.hs": "4f902146548b91b529018ee3f57c7170f51739189ea981b986502ec3c20d4e8b",
+    "cli/nagarectl/test/InventoryKubernetesSpec.hs": "bdae8e2be2030cc457e569ca45b889cfef74237f57a145b2d0d4adc16328563b"
+  },
+  "cliTests": {
+    "passed": 996,
+    "seconds": 64.45
+  },
+  "structuralHaskellStyle": "passed",
+  "commandAudit": "141 routes / 34 recipes / 29 library calls; injected mutation refused; coverage still incomplete",
+  "publicBootstrapFixture": "passed",
+  "installedRecovery": "pending",
+  "platformUpgrade": false,
+  "independentF16Closure": "pending"
+}

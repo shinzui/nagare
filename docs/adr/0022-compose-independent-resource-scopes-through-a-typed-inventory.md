@@ -906,3 +906,22 @@ execution, verification and recovery retain fresh individually guarded reads,
 and writes retain their API-server-enforced conditions. The
 [native checkpoint](../audits/mp23-native-bootstrap-proof.md) records the measured
 source result separately from installed acceptance and cluster convergence.
+
+Incomplete application creation recovery (2026-09-30): an owned, unchanged
+Knative Service create can remain unready while resources already created in
+its application scope include retained data. An explicit
+`stop-incomplete-application` decision may close that active transaction without
+provider effects, rollback or convergence. It requires one changed Application
+scope, only unfenced Kubernetes creates belonging to that scope, an exact owned
+originally absent stateless Knative Service still awaiting readiness, and no
+other uncertain operation. Journal the selection before clearing the writer.
+Preserve both admitted ownership and the prior converged revisions; do not
+restore the old accepted vector, erase created data ownership, or manufacture
+workload completion. A new reviewed configuration observes these same members.
+Lost acknowledgement after the journal record is settled only by the same stop
+decision with immutable review validation, without another provider probe or
+effect. Ordinary adapter proof cannot bypass a pending stop selection. This is
+an application creation recovery boundary, not a general transaction abort.
+Knative Service configuration updates retain exclusive non-status field
+ownership checks and API-server UID/resourceVersion write preconditions. Actual
+cloud update acceptance remains required before claiming this consumer proved.

@@ -1,0 +1,66 @@
+{
+  "cliRevision": "39842f8058bdaaf94819365b1f2511a3a7147246",
+  "payloadId": "nagare-0.4.0-6082dbd6aac0",
+  "context": "ep150-preview",
+  "project": "tan-ng-labs",
+  "imageReview": "6b270df2e237f6e514bd0ee24ed8efc3cbc4d22d450f58efc2cb2159173f30a7",
+  "imageApply": {
+    "step": "image-apply",
+    "exit": 0,
+    "seconds": 50.633
+  },
+  "applicationReview": "0d2c60cd1a9d07f9a0c5d4c0b482aeba52adecb7f5b091b6f2ea7b83514ab00e",
+  "applicationApply": {
+    "step": "app-a-apply",
+    "exit": 1,
+    "seconds": 365.186
+  },
+  "stoppedOperation": "op-711f755156b69c10be13390c",
+  "storeAfterFailure": {
+    "activeTransaction": "tx-0d2c60cd1a9d07f9a0c5d4c0b482aeba52adecb7f5b091b6f2ea7b83514ab00e",
+    "binding": {
+      "identity": "ep150-preview",
+      "project": "tan-ng-labs"
+    },
+    "dataFence": null,
+    "executorClaim": null,
+    "generation": 576,
+    "headDigest": "956d7768857f9d184a9f5cf2aa831d6dd83e474906b21d559c205480ed7d0328",
+    "kind": "gcs",
+    "migration": null,
+    "url": "gs://tan-ng-labs-ep150-pmkjjpp-state/inventory"
+  },
+  "capacityMilliCpu": 2000,
+  "allocatedMilliCpu": 1785,
+  "webPodRequestedMilliCpu": 275,
+  "originalKnativeServiceUid": "99316c5e-386c-4396-94b0-e1914c9b78ff",
+  "originalKnativeServiceGeneration": 1,
+  "conditions": [
+    {
+      "lastTransitionTime": "2026-09-30T17:50:17Z",
+      "message": "Revision \"mp23-app-a-00001\" failed with message: Initial scale was never achieved.",
+      "reason": "RevisionFailed",
+      "status": "False",
+      "type": "ConfigurationsReady"
+    },
+    {
+      "lastTransitionTime": "2026-09-30T17:50:17Z",
+      "message": "Configuration \"mp23-app-a\" does not have any ready Revision.",
+      "reason": "RevisionMissing",
+      "status": "False",
+      "type": "Ready"
+    },
+    {
+      "lastTransitionTime": "2026-09-30T17:50:17Z",
+      "message": "Configuration \"mp23-app-a\" does not have any ready Revision.",
+      "reason": "RevisionMissing",
+      "status": "False",
+      "type": "RoutesReady"
+    }
+  ],
+  "nonStatusFieldOwner": "nagare-inventory",
+  "postgresReady": true,
+  "retainedPvcBound": true,
+  "rawProviderRepair": false,
+  "recoveryStatus": "source candidate; installed proof pending"
+}

@@ -37,6 +37,7 @@ import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Data.Time (defaultTimeLocale, formatTime, getCurrentTime)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter
@@ -70,6 +71,7 @@ data RecoveryAction
   | AbandonPartialPrune
   | AbandonPartialVolumeRestore
   | AbandonPartialDatabaseRestore
+  | StopIncompleteApplication
   | RecoverBootstrapRegistry !ContentDigest
   deriving stock (Eq, Show)
 
@@ -101,6 +103,7 @@ instance FromJSON OperatorRecoveryInput where
       "abandon-partial-prune" -> pure AbandonPartialPrune
       "abandon-partial-volume-restore" -> pure AbandonPartialVolumeRestore
       "abandon-partial-database-restore" -> pure AbandonPartialDatabaseRestore
+      "stop-incomplete-application" -> pure StopIncompleteApplication
       _ | Just native <- T.stripPrefix "recover-bootstrap-registry:" action ->
           RecoverBootstrapRegistry <$> either (fail . T.unpack) pure (mkContentDigest native)
         | otherwise -> fail "unsupported operator recovery action"
@@ -616,13 +619,19 @@ recordOperatorRecovery store registry input takeOver = do
           , Just (native, Nothing) <- bootstrapRecoveryMarker marker
           , recoveryAction input /= RecoverBootstrapRegistry native ->
               pure (failure "recovery-prerequisite" "resolve the exact saved host recovery intent before accepting workload completion")
+          | Just (OperatorResolved marker) <- Map.lookup operationId (operationStates transaction events)
+          , isJust (applicationStopMarker marker)
+          , recoveryAction input /= StopIncompleteApplication ->
+              pure (failure "recovery-prerequisite" "settle the saved application stop before accepting workload completion")
           | otherwise -> do
               claimed <- acquireResumeClaim store transaction observed headValue takeOver
               case claimed of
                 Left err -> pure (Left err)
                 Right () -> do
                   result <- inspectRecovery lock events (headDataFence headValue)
-                  released <- if isRight result && isNothing (headDataFence headValue)
+                  released <- if isRight result && recoveryAction input == StopIncompleteApplication
+                    then releaseStoppedApplicationClaim lock transaction
+                    else if isRight result && isNothing (headDataFence headValue)
                     && (recoveryAction input `elem`
                       [AbandonPartialPrune, AbandonPartialVolumeRestore,
                        AbandonPartialDatabaseRestore]
@@ -701,9 +710,30 @@ recordOperatorRecovery store registry input takeOver = do
                       "active data fence differs from the private reviewed member")
                   Right selection -> do
                     let operation = reviewPlannedOperation reviewOperation
-                    decision <- withAdapterEnv transaction operation
-                      (adapterRecover adapter operation prepared)
+                    let previous = Map.lookup operationId (operationStates transaction events)
+                        savedStop = case previous of
+                          Just (OperatorResolved marker) -> applicationStopMarker marker
+                          _ -> Nothing
+                    decision <- if recoveryAction input == StopIncompleteApplication && isJust savedStop
+                      then pure (RecoveryUnresolved "saved stop needs only claim settlement")
+                      else withAdapterEnv transaction operation
+                        (adapterRecover adapter operation prepared)
                     case (recoveryAction input, decision) of
+                      (StopIncompleteApplication, _)
+                        | isNothing selection
+                        , incompleteApplicationOnlyReview published events operation
+                        , Just stopProof <- case (savedStop, decision) of
+                            (Just proof, _) -> Just proof
+                            (Nothing, RecoveryAwaitingReadiness physical) -> Just
+                              (contentDigest (preparedNativeBytes prepared
+                                <> TE.encodeUtf8 (physicalIdentityText physical)))
+                            _ -> Nothing -> do
+                              appended <- case savedStop of
+                                Just _ -> pure (Right ())
+                                Nothing -> (() <$) <$> appendEvent lock transaction (Just operationId)
+                                  (OperatorResolved ("stopped-incomplete-application:" <> digestText stopProof))
+                                  "application review stopped without convergence; accepted ownership and data retained for a new review"
+                              pure (first (\err -> AdmissionError "journal" (showText err) :| []) appended)
                       (RecoverBootstrapRegistry native, RecoveryAwaitingReadiness _)
                         | isNothing selection -> recoverBootstrap lock events operation prepared native
                       (RecoverBootstrapRegistry native, RecoveryProvedComplete _)
@@ -788,6 +818,44 @@ recordOperatorRecovery store registry input takeOver = do
                           <> ":" <> digestText receipt))
                         "accepted host registry policy recovered; resume must independently prove workload readiness"
                       pure (first (\err -> AdmissionError "journal" (showText err) :| []) (() <$ appended))
+    incompleteApplicationOnlyReview published events operation =
+      let document = reviewBundleDocument published
+          reviewed = reviewOperations document
+          changed = Map.keys (Map.differenceWith
+            (\desired base -> if desired == base then Nothing else Just desired)
+            (reviewDesiredRevisions document) (reviewBaseRevisions document))
+          scopes = mapMaybe (either (const Nothing) Just . decodeScope)
+            (Map.elems (reviewBundleScopes published))
+          selected = NE.toList (plannedResources operation)
+          previous = operationStates transaction events
+          otherSettled entry = plannedOperationId (reviewPlannedOperation entry) == operationId
+            || case Map.lookup (plannedOperationId (reviewPlannedOperation entry)) previous of
+              Nothing -> True
+              Just Pending -> True
+              Just (Completed _) -> True
+              _ -> False
+          owns scope resource = any (\bundle -> any
+            ((== resource) . Resource.declarationId) (Resource.declarations bundle))
+            (Resource.scopeBundles scope)
+       in case changed of
+            [owner] | scopeKind owner == Application -> case
+                [scope | scope <- scopes, Resource.scopeId scope == owner] of
+              [scope] -> all (\entry ->
+                  let planned = reviewPlannedOperation entry in
+                  plannedAction planned == CreateResource
+                    && plannedExecutor planned == KubernetesExecutor
+                    && isNothing (reviewFenceDigest entry)
+                    && all (owns scope) (NE.toList (plannedResources planned))) reviewed
+                && all otherSettled reviewed
+                && case [member | bundle <- Resource.scopeBundles scope,
+                    Resource.Managed member <- Resource.declarations bundle,
+                    [member ^. #identity] == selected] of
+                  [member] | member ^. #dataPolicy == Stateless -> case member ^. #address of
+                    Kubernetes _ "serving.knative.dev" kind (Just _) _ -> nameText kind == "service"
+                    _ -> False
+                  _ -> False
+              _ -> False
+            _ -> False
     scheduledPruneOnlyReview published operation =
       let reviewed = reviewOperations (reviewBundleDocument published)
           resource = NE.toList (plannedResources operation)
@@ -1092,6 +1160,7 @@ recordOperatorRecovery store registry input takeOver = do
       Just (OperatorResolved marker) ->
         "fenced-recovery-proved:" `T.isPrefixOf` marker
           || isJust (bootstrapRecoveryMarker marker)
+          || isJust (applicationStopMarker marker)
       _ -> False
     transactionDigest token = either (const Nothing) Just
       (mkContentDigest (T.drop 3 (transactionIdText token)))
@@ -1561,6 +1630,29 @@ releaseClaim locked transaction converged = do
                   }
           isRight <$> replaceObservedHead observed replacement
     _ -> pure False
+
+-- Stopping an incomplete application is neither rollback nor convergence.
+-- Keep its admitted ownership (including created retained data) and the prior
+-- converged vector. A subsequent review observes these same owned resources.
+releaseStoppedApplicationClaim :: LockedStore s -> TransactionId -> IO Bool
+releaseStoppedApplicationClaim locked transaction = do
+  let store = lockedStore locked
+  current <- observeCurrentHead store
+  case current of
+    Right (observed, Just headValue)
+      | headActiveTransaction headValue == Just (transactionIdText transaction)
+      , isNothing (headDataFence headValue)
+      , maybe True (\client -> maybe False ((== client) . claimClientIdentity)
+          (headExecutorClaim headValue)) (storeClientIdentity store) ->
+          isRight <$> replaceObservedHead observed
+            headValue {headGeneration = headGeneration headValue + 1,
+              headExecutorClaim = Nothing, headActiveTransaction = Nothing}
+    _ -> pure False
+
+applicationStopMarker :: Text -> Maybe ContentDigest
+applicationStopMarker marker = do
+  token <- T.stripPrefix "stopped-incomplete-application:" marker
+  either (const Nothing) Just (mkContentDigest token)
 
 -- | A proved rollback abandons the reviewed candidate. The accepted map was
 -- advanced at admission, so restore the prior converged map as well as

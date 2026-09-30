@@ -1,6 +1,7 @@
 module InventoryKubernetesSpec (inventoryKubernetesTests) where
 
 import Control.Exception (finally)
+import Control.Monad (forM_)
 import Data.Aeson (Value (..), eitherDecodeStrict, encode, object, (.=))
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
@@ -276,8 +277,8 @@ inventoryKubernetesTests =
         Map.lookup resource (observationMap result) @?= Just (ObservedPresent physical)
         verified <- adapterVerify adapter createOperation prepared
         assertBool "unready object completed the reviewed operation" (case verified of Left _ -> True; Right _ -> False)
-    , testCase "only an exact created Deployment can await readiness during recovery" $ do
-        let native = object ["apiVersion" .= ("apps/v1" :: Text), "kind" .= ("Deployment" :: Text),
+    , testCase "only exact created Deployments and Knative Services can await readiness during recovery" $ forM_ [("apps/v1", "Deployment"), ("serving.knative.dev/v1", "Service")] $ \(api, kind) -> do
+        let native = object ["apiVersion" .= (api :: Text), "kind" .= (kind :: Text),
               "metadata" .= object ["name" .= ("activator" :: Text), "namespace" .= ("knative-serving" :: Text)]]
             bytes = ok (canonicalValue native)
             declaration = input {inputObject = native, objectDigest = contentDigest bytes}
@@ -299,6 +300,30 @@ inventoryKubernetesTests =
           KubernetesNotReady physical "5" (Just resource) (contentDigest "changed"),
           KubernetesFailed physical "5" (Just resource) (contentDigest bytes)]
         readIORef calls >>= (@?= 0)
+    , testCase "unready owned Knative Service prepares an exact conditional correction" $ do
+        let value = object ["apiVersion" .= ("serving.knative.dev/v1" :: Text), "kind" .= ("Service" :: Text),
+              "metadata" .= object ["name" .= ("web" :: Text), "namespace" .= ("personal" :: Text)]]
+            bytes = ok (canonicalValue value)
+            bound = Map.singleton resource (ok (bindKubernetesObject
+              (input {inputObject = value, objectDigest = contentDigest bytes})))
+            before = KubernetesNotReady physical "4" (Just resource) (contentDigest "old-spec")
+        state <- newIORef before
+        calls <- newIORef (0 :: Int)
+        let adapter = mkKubernetesAdapter bound (ops state calls)
+        prepared <- adapterPrepare adapter updateOperation >>= expectRight
+        adapterPreflight adapter updateOperation prepared >>= expectRight
+        verified <- adapterVerify adapter updateOperation prepared
+        assertBool "unready workload claimed complete" (isLeft verified)
+        writeIORef state (KubernetesNotReady (ok (mkPhysicalIdentity "replacement")) "4" (Just resource) (contentDigest "old-spec"))
+        changed <- adapterPreflight adapter updateOperation prepared
+        assertBool "replacement used old conditional review" (isLeft changed)
+        refused <- adapterExecute adapter updateOperation prepared
+        case refused of AdapterEffectFailed (KnownNoEffect _) -> pure (); other -> assertFailure (show other)
+        readIORef calls >>= (@?= 0)
+        writeIORef state before
+        adapterExecute adapter updateOperation prepared >>= (@?= AdapterEffectCompleted)
+        _ <- adapterVerify adapter updateOperation prepared >>= expectRight
+        readIORef calls >>= (@?= 1)
     , testCase "reviewed create uses the retained native object and proves completion" $ do
         state <- newIORef (KubernetesAbsent absence)
         calls <- newIORef (0 :: Int)
@@ -2110,6 +2135,22 @@ inventoryKubernetesTests =
         assertBool "foreign field owner accepted" (either (const True) (const False) (confirmInventoryFieldOwnership physical "4" (metadata [own, foreignEntry])))
         assertBool "stale version accepted" (either (const True) (const False) (confirmInventoryFieldOwnership physical "5" (metadata [own])))
         assertBool "missing inventory field owner accepted" (either (const True) (const False) (confirmInventoryFieldOwnership physical "4" (metadata [status])))
+    , testCase "Knative Service update preserves exclusive template ownership and exact incarnation" $ do
+        let address = Kubernetes cluster "serving.knative.dev" (ok (mkName "service"))
+              (Just (ok (mkName "personal"))) (ok (mkName "web"))
+            entry manager fields = object ["manager" .= (manager :: Text), "fieldsV1" .= fields]
+            own = entry "nagare-inventory" (object ["f:spec" .= object ["f:template" .= object []]])
+            status = entry "controller" (object ["f:status" .= object ["f:conditions" .= object []]])
+            foreignWriter = entry "controller" (object ["f:spec" .= object ["f:template" .= object []]])
+            observed fields = object ["metadata" .= object
+              ["uid" .= physicalIdentityText physical, "resourceVersion" .= ("4" :: Text), "managedFields" .= fields]]
+        confirmInventoryFieldOwnershipFor (Just address) physical "4" (observed [own, status]) @?= Right ()
+        assertBool "foreign Knative template writer admitted" (isLeft
+          (confirmInventoryFieldOwnershipFor (Just address) physical "4" (observed [own, foreignWriter])))
+        assertBool "changed Knative UID admitted" (isLeft
+          (confirmInventoryFieldOwnershipFor (Just address) (ok (mkPhysicalIdentity "replacement")) "4" (observed [own, status])))
+        assertBool "stale Knative revision admitted" (isLeft
+          (confirmInventoryFieldOwnershipFor (Just address) physical "5" (observed [own, status])))
     , testCase "unproved Kubernetes update kind refuses before invoking kubectl" $ do
         let context = ok (mkContextId "unsupported-update")
             config = KubernetesRuntimeConfig context "missing-test-context" (pure (Right ()))
