@@ -16,8 +16,9 @@
     "installedPublicBootstrapFixture": "passed",
     "cloudPayload": "nagare-0.4.0-6082dbd6aac0",
     "fullReleaseAcceptance": "pending",
-    "nativeNotReadyReplanVerification": "pending",
-    "cloudInterruptionAndSecondRoot": "passed"
+    "nativeNotReadyReplanVerification": "passed",
+    "cloudInterruptionAndSecondRoot": "passed",
+    "nativeNotReadyEvidence": "cloud-stopped-notready-verification.json"
   },
   "independentF16Closure": "pending"
 }

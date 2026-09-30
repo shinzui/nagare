@@ -1,0 +1,128 @@
+{
+  "schemaVersion": 1,
+  "candidateRevision": "2101b834882a31a77036103b00c03b9a9cc07019",
+  "nativeSystem": "aarch64-darwin",
+  "payloadIdentity": "nagare-0.4.0-6082dbd6aac0",
+  "fixture": {
+    "context": "ep150-preview",
+    "project": "tan-ng-labs",
+    "cluster": "nagare-ep150"
+  },
+  "reviews": {
+    "incomplete": {
+      "digest": "7a37bba2662bbf1954ceb3ca70726aa439d8dc627f02a3ac633f7d008d7d0d21",
+      "operations": [
+        {
+          "id": "op-77a34a7f9426163c9225d6cf",
+          "action": "CreateResource"
+        },
+        {
+          "id": "op-e96286b984c85e93a4410d69",
+          "action": "CreateResource"
+        }
+      ]
+    },
+    "corrected": {
+      "digest": "304d40696322fb85dc7e62f5d6666c6eff5da86d441f95ed262e946a93101cae",
+      "operations": [
+        {
+          "id": "op-77a34a7f9426163c9225d6cf",
+          "action": "CreateResource"
+        },
+        {
+          "id": "op-e5c0fadb4bbc07d585d28d2d",
+          "action": "UpdateResource"
+        }
+      ]
+    }
+  },
+  "timings": {
+    "app-c-plan": {
+      "step": "app-c-plan",
+      "exit": 0,
+      "seconds": 69.142
+    },
+    "app-c-apply": {
+      "step": "app-c-apply",
+      "exit": 1,
+      "seconds": 318.231
+    },
+    "app-c-stop": {
+      "step": "app-c-stop",
+      "exit": 0,
+      "seconds": 11.489
+    },
+    "app-c-unchanged-plan": {
+      "step": "app-c-unchanged-plan",
+      "exit": 1,
+      "seconds": 26.03
+    },
+    "app-c-corrected-plan": {
+      "step": "app-c-corrected-plan",
+      "exit": 0,
+      "seconds": 26.823
+    },
+    "app-c-corrected-apply": {
+      "step": "app-c-corrected-apply",
+      "exit": 0,
+      "seconds": 27.258
+    },
+    "app-c-http": {
+      "step": "app-c-http",
+      "exit": 0,
+      "seconds": 3.268
+    }
+  },
+  "initialFailure": {
+    "cpuRequest": "250m",
+    "queueProxyRequest": "25m",
+    "cause": "Insufficient cpu",
+    "generation": 687,
+    "sequence": 608,
+    "acceptedScopes": 29,
+    "convergedScopes": 28,
+    "serviceUid": "906b9e6d-c7ab-4f80-9ad5-3b0055d2d326"
+  },
+  "guardedStop": {
+    "generation": 690,
+    "sequence": 609,
+    "acceptedAndConvergedRevisionsPreserved": true,
+    "activeTransaction": null
+  },
+  "unchangedReplan": {
+    "refusal": "Kubernetes object is present but its required condition is not ready",
+    "reviewCreated": false,
+    "exactHeadUnchanged": true
+  },
+  "correction": {
+    "cpuRequest": "20m",
+    "queueProxyRequest": "25m",
+    "sameServiceUid": "906b9e6d-c7ab-4f80-9ad5-3b0055d2d326",
+    "serviceGeneration": 2,
+    "ready": true,
+    "httpBody": "nagare-mp23-cloud-hello",
+    "onlySelectedAcceptedRevisionChanged": true
+  },
+  "preservation": {
+    "priorAcceptedRevisions": 28,
+    "priorAcceptedRevisionsUnchanged": true,
+    "applicationDatabaseAndPvcUidsUnchanged": true,
+    "dataValues": {
+      "app-a-data-after-c": "1|mp23-after-backup",
+      "app-b-data-after-c": "1|mp23-untouched-app-b",
+      "scratch-data-after-c": "1|mp23-before-correction"
+    }
+  },
+  "finalHead": {
+    "generation": 698,
+    "sequence": 615,
+    "acceptedScopes": 29,
+    "convergedScopes": 29,
+    "activeTransaction": null,
+    "executorClaim": null,
+    "dataFence": null,
+    "migration": null
+  },
+  "independentF16Closure": "pending",
+  "platformUpgradePerformed": false
+}
