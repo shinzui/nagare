@@ -9,6 +9,8 @@ module Nagare.Inventory.Adapters.KubernetesRuntime
   ( KubernetesRuntimeConfig (..)
   , mkKubernetesRuntimeOps
   , mkKubernetesRuntimeOpsWithCacheKey
+  , mkKubernetesRuntimeOpsAndBatchWithCacheKey
+  , observeKubernetesBatchWithGuard
   , desiredFieldsMatch
   , deploymentSelectorReplacement
   , statefulSetImmutableReplacement
@@ -88,40 +90,49 @@ mkKubernetesRuntimeOpsWithCacheKey
   -> Map ResourceId (ManagedResource, ByteString)
   -> KubernetesAdapterOps
 mkKubernetesRuntimeOpsWithCacheKey config resolveCacheKey specs =
-  KubernetesAdapterOps
+  fst (mkKubernetesRuntimeOpsAndBatchWithCacheKey config resolveCacheKey specs)
+
+mkKubernetesRuntimeOpsAndBatchWithCacheKey
+  :: KubernetesRuntimeConfig
+  -> (ResourceId -> IO (Either Text Text))
+  -> Map ResourceId (ManagedResource, ByteString)
+  -> (KubernetesAdapterOps, [ResourceId] -> IO [KubernetesState])
+mkKubernetesRuntimeOpsAndBatchWithCacheKey config resolveCacheKey specs =
+  (KubernetesAdapterOps
     { kubernetesContext = runtimeContext config
     , kubernetesObserve = observe
     , kubernetesMutateConditional = mutate
-    }
+    }, observeKubernetesBatchWithGuard (runtimeGuard config) observeWithoutGuard)
   where
-    observe resource = case Map.lookup resource specs of
+    observe resource = do
+      guarded <- runtimeGuard config
+      case guarded of
+        Left reason -> pure (KubernetesUnknown ("cluster guard refused: " <> reason))
+        Right () -> observeWithoutGuard resource
+    observeWithoutGuard resource = case Map.lookup resource specs of
       Nothing -> pure (KubernetesUnknown "Kubernetes resource has no native binding")
-      Just (declaration, native) -> do
-        guarded <- runtimeGuard config
-        case guarded of
-          Left reason -> pure (KubernetesUnknown ("cluster guard refused: " <> reason))
-          Right () -> case address declaration of
-            Kubernetes _ group kind namespace name -> do
-              result <- invoke config
-                (["get", kindToken group kind, T.unpack (nameText name)]
-                  <> namespaceArgs namespace <> ["-o", "json", "--ignore-not-found"])
-                ""
-              case result of
-                Left reason -> pure (KubernetesUnknown reason)
-                -- Before bootstrap installs a CRD, the API server can prove
-                -- that no instance of its kind is currently addressable.
-                -- Other get failures remain unknown, including authorization
-                -- and transport failures.
-                Right (ExitFailure _, _, errors)
-                  | "the server doesn't have a resource type" `T.isInfixOf` T.pack errors ->
-                      pure (KubernetesAbsent (contentDigest (TE.encodeUtf8 (resourceIdText resource <> ":absent"))))
-                  | otherwise -> pure (KubernetesUnknown "kubectl get failed")
-                Right (ExitSuccess, output, _)
-                  | null output -> pure (KubernetesAbsent (contentDigest (TE.encodeUtf8 (resourceIdText resource <> ":absent"))))
-                  | otherwise -> case parseObserved config resource native (T.pack output) of
-                      Left reason -> pure (KubernetesUnknown reason)
-                      Right state -> observeCacheClientOutput resolveCacheKey native (T.pack output) state
-            _ -> pure (KubernetesUnknown "bound resource has no Kubernetes address")
+      Just (declaration, native) -> case address declaration of
+        Kubernetes _ group kind namespace name -> do
+          result <- invoke config
+            (["get", kindToken group kind, T.unpack (nameText name)]
+              <> namespaceArgs namespace <> ["-o", "json", "--ignore-not-found"])
+            ""
+          case result of
+            Left reason -> pure (KubernetesUnknown reason)
+            -- Before bootstrap installs a CRD, the API server can prove
+            -- that no instance of its kind is currently addressable.
+            -- Other get failures remain unknown, including authorization
+            -- and transport failures.
+            Right (ExitFailure _, _, errors)
+              | "the server doesn't have a resource type" `T.isInfixOf` T.pack errors ->
+                  pure (KubernetesAbsent (contentDigest (TE.encodeUtf8 (resourceIdText resource <> ":absent"))))
+              | otherwise -> pure (KubernetesUnknown "kubectl get failed")
+            Right (ExitSuccess, output, _)
+              | null output -> pure (KubernetesAbsent (contentDigest (TE.encodeUtf8 (resourceIdText resource <> ":absent"))))
+              | otherwise -> case parseObserved config resource native (T.pack output) of
+                  Left reason -> pure (KubernetesUnknown reason)
+                  Right state -> observeCacheClientOutput resolveCacheKey native (T.pack output) state
+        _ -> pure (KubernetesUnknown "bound resource has no Kubernetes address")
     mutate mutation = do
       guarded <- runtimeGuard config
       case guarded of
@@ -177,6 +188,29 @@ mkKubernetesRuntimeOpsWithCacheKey config resolveCacheKey specs =
                       waitForCollection config (mutationAddress mutation)
                   | otherwise -> waitForReadiness config (mutationAddress mutation)
                 _ -> pure (AdapterEffectAmbiguous "Kubernetes write did not return success; reobserve before retry")
+
+-- | A review observes one explicit Kubernetes context. Validate the ambient
+-- context and server node before and after the read-only scan; discard every
+-- observation if either check fails. Individual effect paths retain their own
+-- fresh guard calls through 'kubernetesObserve' and 'kubernetesMutateConditional'.
+observeKubernetesBatchWithGuard
+  :: IO (Either Text ())
+  -> (ResourceId -> IO KubernetesState)
+  -> [ResourceId]
+  -> IO [KubernetesState]
+observeKubernetesBatchWithGuard checkGuard observe resources
+  | null resources = pure []
+  | otherwise = do
+      before <- checkGuard
+      case before of
+        Left reason -> pure (refused reason)
+        Right () -> do
+          states <- traverse observe resources
+          after <- checkGuard
+          pure (either refused (const states) after)
+  where
+    refused reason = replicate (length resources)
+      (KubernetesUnknown ("cluster guard refused: " <> reason))
 
 collectionDeleteRequest :: ProviderAddress -> PhysicalIdentity -> Text -> Either Text ([String], Text)
 collectionDeleteRequest address uid revision = case address of

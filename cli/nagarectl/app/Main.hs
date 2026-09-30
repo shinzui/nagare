@@ -244,8 +244,8 @@ import Nagare.Inventory.Adapters.Host (mkHostAdapter)
 import Nagare.Inventory.Adapters.HostRuntime
 import Nagare.Inventory.Adapters.Helm (HelmAdapterOps (..), helmStateHealth, mkHelmAdapter)
 import Nagare.Inventory.Adapters.HelmRuntime (HelmRuntimeConfig (..), helmRuntimeOps, helmObservation)
-import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps (..), KubernetesState (..), mkKubernetesAdapterWithBackupReceipt)
-import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), mkKubernetesRuntimeOpsWithCacheKey, observeKubernetesHealth, readBackupReceiptFromCompletedPod, readCompletedJobContainerMessage)
+import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps (..), KubernetesState (..), mkKubernetesAdapterWithBackupReceiptAndBatch)
+import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), mkKubernetesRuntimeOpsAndBatchWithCacheKey, mkKubernetesRuntimeOpsWithCacheKey, observeKubernetesHealth, readBackupReceiptFromCompletedPod, readCompletedJobContainerMessage)
 import Nagare.Inventory.Adapters.Pulumi (mkPulumiAdapter)
 import Nagare.Inventory.Adapters.PulumiRuntime
 import Nagare.Inventory.Adapters.Foundation (FoundationAdapterOps (..), FoundationObservation (..), FoundationTarget (..), foundationTargetDigest, mkFoundationAdapter)
@@ -7616,8 +7616,8 @@ inventoryKubernetesAdapter active binding cacheKey specs
       context <- either dieT pure (Resource.mkContextId (contextNameText (active ^. #contextName)))
       unless (context == binding ^. #identity) (dieT "Kubernetes inventory review belongs to a different context")
       let config = KubernetesRuntimeConfig context (contextNameText (active ^. #contextName)) (fmap (fmap (const ())) (guardKubernetesContext active))
-      pure (mkKubernetesAdapterWithBackupReceipt specs
-        (mkKubernetesRuntimeOpsWithCacheKey config cacheKey specs)
+          (ops, observeBatch) = mkKubernetesRuntimeOpsAndBatchWithCacheKey config cacheKey specs
+      pure (mkKubernetesAdapterWithBackupReceiptAndBatch specs ops observeBatch
         (readBackupReceiptFromCompletedPod config specs))
 
 inventoryHelmAdapter :: ActiveTarget -> PlatformWorkspace -> Resource.ContextBinding -> Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString) -> IO InventoryAdapter.Adapter

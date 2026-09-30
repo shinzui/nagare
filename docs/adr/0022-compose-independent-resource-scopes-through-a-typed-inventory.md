@@ -855,3 +855,14 @@ receive the error. Concurrent waiters must not each retry a failing helper or
 reuse the previous token. Recovery starts with a new command under the selected
 identity and, for mutations, the original transaction. Provider 401 responses
 remain uncertain/refused outcomes; they do not authorize an implicit write retry.
+
+Kubernetes review observation (2026-09-29): a read-only scan may validate the
+selected context and expected server node before and after its object reads,
+with every read still selecting the explicit context. Either guard refusal
+invalidates the entire scan, and an initial refusal performs no object reads.
+This reduces the repeated guard processes demonstrated by the 201-resource
+native bootstrap plan. It is a scan boundary only: native preparation, preflight,
+execution, verification and recovery retain fresh individually guarded reads,
+and writes retain their API-server-enforced conditions. The
+[native checkpoint](../audits/mp23-native-bootstrap-proof.md) records the measured
+source result separately from installed acceptance and cluster convergence.

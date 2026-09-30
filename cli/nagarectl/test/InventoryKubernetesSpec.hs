@@ -31,7 +31,7 @@ import Nagare.Dsl.Task.Render (renderTask)
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes
-import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), backupReceiptFromPodList, cacheClientDataMatches, certificateReady, collectionDeleteRequest, completedJobContainerMessageFromPodList, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, credentialDataMatches, deploymentAvailable, deploymentSelectorReplacement, desiredFieldsMatch, generatedCredentialTemplate, jobCompleted, knativeReady, materializeCacheKey, materializeCredential, mkKubernetesRuntimeOps, observeCacheClientOutput, parseObserved, readinessForAddress, statefulSetImmutableReplacement, statefulSetReady, supportedUpdateAddress, withoutCacheClientData)
+import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), backupReceiptFromPodList, cacheClientDataMatches, certificateReady, collectionDeleteRequest, completedJobContainerMessageFromPodList, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, credentialDataMatches, deploymentAvailable, deploymentSelectorReplacement, desiredFieldsMatch, generatedCredentialTemplate, jobCompleted, knativeReady, materializeCacheKey, materializeCredential, mkKubernetesRuntimeOps, observeCacheClientOutput, observeKubernetesBatchWithGuard, parseObserved, readinessForAddress, statefulSetImmutableReplacement, statefulSetReady, supportedUpdateAddress, withoutCacheClientData)
 import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
 import Nagare.Inventory.Database (compileDatabaseForBackend)
 import Nagare.Inventory.Backup (ManualBackupRequest (..), BackupReceiptExpectation (..), BackupSourceProof (..), VolumeSnapshotRequest (..), compileManualBackupScope, compileVolumeSnapshotScope, manualBackupJobReceiptExpectation, manualBackupJobSourcePins, manualBackupSourceProof, parseBackupReceipt, parseManualBackupReceipt, volumeSnapshotJobSourcePins)
@@ -117,7 +117,60 @@ inventoryKubernetesTests :: TestTree
 inventoryKubernetesTests =
   testGroup
     "Kubernetes inventory adapter"
-    [ testCase "PostgreSQL live restore compares full dumps across random guard tokens" $ do
+    [ testCase "read-only batch guards 201 Kubernetes observations at both boundaries" $ do
+        guardCalls <- newIORef (0 :: Int)
+        objectCalls <- newIORef (0 :: Int)
+        let checkGuard = modifyIORef' guardCalls (+ 1) >> pure (Right ())
+            observe _ = modifyIORef' objectCalls (+ 1) >> pure (KubernetesAbsent absence)
+            resources = replicate 201 resource
+        states <- observeKubernetesBatchWithGuard checkGuard observe resources
+        states @?= replicate 201 (KubernetesAbsent absence)
+        readIORef guardCalls >>= (@?= 2)
+        readIORef objectCalls >>= (@?= 201)
+        writeIORef objectCalls 0
+        beforeRefusal <- observeKubernetesBatchWithGuard
+          (pure (Left "wrong context")) observe resources
+        beforeRefusal @?= replicate 201 (KubernetesUnknown "cluster guard refused: wrong context")
+        readIORef objectCalls >>= (@?= 0)
+        checks <- newIORef (0 :: Int)
+        let changedGuard = do
+              checkNumber <- atomicModifyIORef' checks (\value -> (value + 1, value))
+              pure (if checkNumber == 0 then Right () else Left "node changed")
+        afterRefusal <- observeKubernetesBatchWithGuard changedGuard observe resources
+        afterRefusal @?= replicate 201 (KubernetesUnknown "cluster guard refused: node changed")
+        readIORef objectCalls >>= (@?= 201)
+    , testCase "batch observation retains individual reads throughout effect paths" $ do
+        state <- newIORef (KubernetesAbsent absence)
+        mutations <- newIORef (0 :: Int)
+        individualReads <- newIORef (0 :: Int)
+        batchReads <- newIORef (0 :: Int)
+        let ordinaryOps = (ops state mutations)
+              { kubernetesObserve = \_ -> do
+                  modifyIORef' individualReads (+ 1)
+                  readIORef state
+              }
+            scan resources = do
+              modifyIORef' batchReads (+ 1)
+              traverse (const (readIORef state)) resources
+            adapter = mkKubernetesAdapterWithBackupReceiptAndBatch specs ordinaryOps scan
+              (\_ _ -> pure (Left "no backup receipt in this fixture"))
+        _ <- adapterObserve adapter [resource] >>= expectRight
+        readIORef individualReads >>= (@?= 0)
+        prepared <- adapterPrepare adapter createOperation >>= expectRight
+        readIORef individualReads >>= (@?= 1)
+        _ <- adapterPreflight adapter createOperation prepared >>= expectRight
+        readIORef individualReads >>= (@?= 2)
+        adapterExecute adapter createOperation prepared >>= (@?= AdapterEffectCompleted)
+        readIORef individualReads >>= (@?= 3)
+        _ <- adapterVerify adapter createOperation prepared >>= expectRight
+        readIORef individualReads >>= (@?= 4)
+        recovered <- adapterRecover adapter createOperation prepared
+        assertBool "completed effect was not recovered" (case recovered of
+          RecoveryProvedComplete _ -> True
+          _ -> False)
+        readIORef individualReads >>= (@?= 5)
+        readIORef batchReads >>= (@?= 1)
+    , testCase "PostgreSQL live restore compares full dumps across random guard tokens" $ do
         let source = "-- source\n\\restrict ABC123\nCREATE TABLE t (id integer);\n\\unrestrict ABC123\n"
             restored = "-- source\n\\restrict XYZ456\nCREATE TABLE t (id integer);\n\\unrestrict XYZ456\n"
             changed = "-- source\n\\restrict XYZ456\nCREATE TABLE t (id text);\n\\unrestrict XYZ456\n"

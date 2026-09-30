@@ -103,6 +103,40 @@ keeps context and node validation and effect-time guards, followed by a bounded
 development-binary probe, focused regression test, installed-package build, and
 exact public cluster review. Do not apply a cluster review until it is inspected.
 
+## Kubernetes scan repair and source proof
+
+The runtime now brackets the read-only Kubernetes scan with two fresh cluster
+guards. Each object read still selects the explicit context. A refused check at
+either boundary makes every result unavailable; a failed initial check performs
+no object reads. Preparation, preflight, execution, verification and recovery
+retain their individual guarded observations and conditional write behavior.
+
+The focused suite passes 77 tests, including 201 reads with exactly two scan
+guards, both boundary refusals, and individual reads across all effect paths.
+The public bootstrap regression still produces its expected 211-operation review.
+The structural Haskell style scan passes. Whole-file Fourmolu checks fail on
+existing formatting at HEAD as well as the changed files; unrelated formatting
+was not rewritten for this repair.
+
+A 120-second source probe completed all 201 object reads in 40.424 seconds but
+did not complete the composed observation. Executor tracing then measured the
+Kubernetes scan at 44.036 seconds and located the diagnostic cutoff in artifact
+observation. A complete source run under the original 360-second bound succeeded
+in 341.907 seconds. It measured Kubernetes observation at 43.780 seconds and
+retained 203 individual preparation guards (49.751 seconds total). Review
+publication remains sequential and slow; the scan repair does not establish a
+separate publication performance gate.
+
+The saved source review has 210 operations (203 Kubernetes, two artifact, five
+Helm), zero barriers, and digest
+`25fa33d46d5d66da21441acb1a1977a7e868f641ae72cfd7332d07607d6a845b`.
+The already accepted kubeconfig explains the difference from the public fixture's
+211 operations. This is development evidence against the retained installed
+payload, not final installed acceptance. The [redacted metrics](mp23-native-bootstrap-results-2026-09-29/cluster-plan.json)
+distinguish the original installed timeout from source proof. Temporary tracing
+has been removed. Installed-package validation is next; no cluster apply is
+authorized by this debugging checkpoint.
+
 ## Remaining native work
 
 Three existing immutable auth image manifests were inspected read-only: all are

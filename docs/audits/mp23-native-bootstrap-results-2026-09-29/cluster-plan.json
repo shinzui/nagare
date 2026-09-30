@@ -1,0 +1,60 @@
+{
+  "candidate": "development@ea34032c+batch-phase-trace",
+  "target": {
+    "context": "ep150-preview",
+    "project": "tan-ng-labs",
+    "zone": "us-west1-a",
+    "vm": "nagare-ep150",
+    "cluster": "NixOS/k3s"
+  },
+  "installed_before": {
+    "deadline_seconds": 360,
+    "elapsed_seconds": 360.014,
+    "exit": 124,
+    "review_saved": false
+  },
+  "development_after": {
+    "step": "cluster-probe",
+    "exit": 0,
+    "seconds": 341.907,
+    "package": "development@ea34032c+batch-phase-trace"
+  },
+  "observations": {
+    "resources": 201,
+    "object_read_seconds": 43.053116,
+    "executor_seconds": {
+      "KubernetesExecutor": 43.779615,
+      "PulumiExecutor": 1.126293,
+      "CloudFoundationExecutor": 8.367999,
+      "HostExecutor": 1.308417,
+      "ArtifactExecutor": 3.832653,
+      "HelmExecutor": 2.3668
+    },
+    "scan_guard_calls": 2,
+    "individual_guard_calls_during_preparation": 203,
+    "individual_guard_seconds_during_preparation": 49.751039
+  },
+  "review": {
+    "digest": "25fa33d46d5d66da21441acb1a1977a7e868f641ae72cfd7332d07607d6a845b",
+    "operations": 210,
+    "executors": {
+      "KubernetesExecutor": 203,
+      "ArtifactExecutor": 2,
+      "HelmExecutor": 5
+    },
+    "barriers": 0
+  },
+  "shared_status_before": {
+    "generation": 113,
+    "active_transaction": null,
+    "executor_claim": null,
+    "data_fence": null
+  },
+  "validation": {
+    "focused_kubernetes_tests": 77,
+    "public_bootstrap_operations": 211,
+    "structural_style": "passed",
+    "installed_acceptance": "pending"
+  },
+  "cluster_apply": false
+}

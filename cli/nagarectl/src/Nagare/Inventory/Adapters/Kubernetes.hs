@@ -8,6 +8,7 @@ module Nagare.Inventory.Adapters.Kubernetes
   , KubernetesAdapterOps (..)
   , mkKubernetesAdapter
   , mkKubernetesAdapterWithBackupReceipt
+  , mkKubernetesAdapterWithBackupReceiptAndBatch
   , unstampNative
   )
 where
@@ -90,7 +91,20 @@ mkKubernetesAdapterWithBackupReceipt
   -> KubernetesAdapterOps
   -> (ResourceId -> PhysicalIdentity -> IO (Either Text ByteString))
   -> Adapter
-mkKubernetesAdapterWithBackupReceipt specs ops readBackupReceipt =
+mkKubernetesAdapterWithBackupReceipt specs ops =
+  mkKubernetesAdapterWithBackupReceiptAndBatch specs ops
+    (traverse (kubernetesObserve ops))
+
+-- | Planning may validate the cluster once around a read-only batch. Effect
+-- preparation, preflight, execution, verification, and recovery still use the
+-- individually guarded 'kubernetesObserve' operation.
+mkKubernetesAdapterWithBackupReceiptAndBatch
+  :: Map ResourceId (ManagedResource, ByteString)
+  -> KubernetesAdapterOps
+  -> ([ResourceId] -> IO [KubernetesState])
+  -> (ResourceId -> PhysicalIdentity -> IO (Either Text ByteString))
+  -> Adapter
+mkKubernetesAdapterWithBackupReceiptAndBatch specs ops observeBatch readBackupReceipt =
   Adapter
     { adapterExecutor = KubernetesExecutor
     , adapterIdentity = "kubernetes-conditional-object"
@@ -104,7 +118,7 @@ mkKubernetesAdapterWithBackupReceipt specs ops readBackupReceipt =
     }
   where
     observeAll resources = do
-      states <- traverse (kubernetesObserve ops) resources
+      states <- observeBatch resources
       pure (observationSet (zipWith toObservation resources states))
     toObservation resource state = (resource, case state of
       KubernetesAbsent proof -> ConfirmedAbsent proof
