@@ -984,3 +984,13 @@ activate a new closure or silently broaden an accepted host declaration. An
 installed fresh-host expiry and private-image re-pull proof is still required
 before safe-use acceptance. Existing-context platform upgrades remain deferred
 until the initial feature set is complete and safe to use.
+
+
+No-operation retirement still requires fresh native observations of its exact
+retained identities. The execution registry must keep the immutable review's
+retention and collection input keys even when no mutation operation selects
+them. An empty mutation list cannot substitute blocked adapters for these
+observation duties. Retention does not remove dependency history: a retained
+release-history object that still names its Service blocks that Service's
+collection. Do not erase the edge or infer deletion authority from retirement
+alone; prove eligible collection separately.

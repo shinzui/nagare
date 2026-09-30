@@ -40,8 +40,21 @@ Implementation owner: existing session `01a0e893-337f-7b82-ac5d-16f41bf5ce21` (I
 | [F14](#f14) | P1 | Initial Knative activator readiness blocks its uncreated autoscaler | Verifying | EP-156 |
 | [F15](#f15) | P1 | Patched certificate controller lacks refreshed private-image credentials | Verifying | EP-156 / EP-154 |
 | [F16](#f16) | P1 | Unready application creation cannot yield to a corrected reviewed configuration | Verifying | EP-153 / EP-156 |
+| [F17](#f17) | P1 | Effect-free retirement discards required native identity observations | Verifying | EP-153 / EP-156 |
 
 F01 and F11 are independently Closed with [retained verification and source identities](mp23-verification.md). F02 has passing local call-count evidence but still needs its retained status-caller regression. All other entries remain Open, Partial, or Verifying as shown.
+
+## F17
+
+**Effect-free retirement discards required native identity observations** — P1; **Verifying**; owners EP-153 / EP-156.
+
+**Native evidence:** Installed `2101b834882a31a77036103b00c03b9a9cc07019` saves Application C retirement review `164d1a480405e5a2274b5f0e6fca564bf765cf428076b71e0eb963da4d624ace` in 21.180 seconds. It has zero mutation operations and exactly two retention proofs, bound to the accepted Service and release-history UIDs. Public apply refuses after 4.810 seconds with `retention-observation`; the exact generation 698/sequence 615 head remains unchanged. No transaction or deletion is admitted.
+
+**Implementation update:** The runtime already loads the retained resources' accepted immutable native inputs, but then restricts them to mutation-operation IDs. A zero-operation retirement therefore constructs blocked observation adapters. Preserve the exact retained Kubernetes and Helm input keys alongside selected operation/source keys; do not broaden the input set beyond the immutable review's retention/collection members. The source CLI builds; six focused retained regressions pass (4.15 seconds), along with structural style and command registration. A development-binary public-path diagnostic refuses an injected foreign UID in 10.201 seconds and preserves the exact head, then admits the original saved retirement review in 14.013 seconds. All other 28 accepted/converged revisions, application/database/PVC UIDs and data remain exact at generation 702/sequence 617. The Service and release-history object stay retained. [Exact source and native diagnostic evidence](mp23-native-bootstrap-results-2026-09-30/retirement-runtime-selection-candidate.json) is retained. Subsequent Service collection refuses its known retained release-history dependency; no delete or review is published. Immutable installed verification and eligible collection proof remain open.
+
+**Required verification:** Through the public apply path, prove the original saved retirement review reobserves both retained UIDs, refuses a foreign observed UID without changing the head, and admits unchanged exact identities. Preserve all other accepted/converged revisions, data, and native objects; retirement does not delete them. Prove subsequent collection separately. Record source hashes and executable-build identity, and repeat on the immutable installed candidate before independent closure.
+
+**Verification:** Independent closure remains pending.
 
 ## F16
 

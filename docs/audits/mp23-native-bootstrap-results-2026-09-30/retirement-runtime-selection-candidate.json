@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "sourceHashes": {
+    "cli/nagarectl/app/Main.hs": "ead41c8021cb8bd6698aa6dc528a42fdb92d8a8d132e77c3bb9ff3e009d39eaa"
+  },
+  "sourceBaseRevision": "41687bf4",
+  "fixture": {
+    "context": "ep150-preview",
+    "project": "tan-ng-labs",
+    "payloadIdentity": "nagare-0.4.0-6082dbd6aac0"
+  },
+  "review": {
+    "digest": "164d1a480405e5a2274b5f0e6fca564bf765cf428076b71e0eb963da4d624ace",
+    "mutationOperations": 0,
+    "exactRetentionProofs": {
+      "application:mp23-app-c/mp23-app-c/release-history": "38d51c58-af16-46c4-94a5-4651d85d8556",
+      "application:mp23-app-c/mp23-app-c/service": "906b9e6d-c7ab-4f80-9ad5-3b0055d2d326"
+    },
+    "planSeconds": 21.18
+  },
+  "before": {
+    "immutableInstalledRevision": "2101b834882a31a77036103b00c03b9a9cc07019",
+    "refusal": "retention-observation",
+    "seconds": 4.81,
+    "exactHeadUnchanged": true
+  },
+  "after": {
+    "binary": "development executable; not an immutable installed acceptance claim",
+    "cliBuild": "passed",
+    "foreignUidDiagnostic": {
+      "seconds": 10.201,
+      "readOnlyKubectlCalls": 6,
+      "changedResponseUids": 1,
+      "liveObjectsChanged": 0,
+      "admissionRefused": true,
+      "exactHeadUnchanged": true
+    },
+    "originalReviewApplySeconds": 14.013,
+    "retirement": {
+      "sameServiceStillPresent": true,
+      "retainedResources": 2,
+      "providerDeletions": 0
+    }
+  },
+  "preservation": {
+    "otherAcceptedRevisions": 28,
+    "otherAcceptedRevisionsUnchanged": true,
+    "originalApplicationDatabasePvcUidsUnchanged": true,
+    "values": {
+      "app-a-data-after-retirement": "1|mp23-after-backup",
+      "app-b-data-after-retirement": "1|mp23-untouched-app-b",
+      "scratch-data-after-retirement": "1|mp23-before-correction"
+    }
+  },
+  "finalHead": {
+    "generation": 702,
+    "sequence": 617,
+    "acceptedScopes": 28,
+    "convergedScopes": 28,
+    "activeTransaction": null,
+    "executorClaim": null,
+    "dataFence": null,
+    "migration": null
+  },
+  "focusedRetainedRegressions": {
+    "passed": 6,
+    "seconds": 4.15
+  },
+  "structuralHaskellStyle": "passed",
+  "commandRegistrationAudit": "passed",
+  "installedFinalCandidateVerification": "pending",
+  "helmRetirementNativeVerification": "pending",
+  "subsequentCollectionVerification": {
+    "result": "refused before a review",
+    "seconds": 11.587,
+    "cause": "retained release-history ConfigMap still has an OrderedAfter dependency on the Service",
+    "serviceStillRetained": true,
+    "providerDeletionPerformed": false
+  },
+  "independentF17Closure": "pending",
+  "platformUpgradePerformed": false
+}

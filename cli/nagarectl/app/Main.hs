@@ -6833,9 +6833,9 @@ inventoryExecutionRegistry mctx store bundle = do
   let kubernetesSpecs = Map.restrictKeys
         (Map.unions [reviewedKubernetesSpecs, retiringKubernetesSpecs, sourceNative])
         (Set.union (selected ResourceInventory.KubernetesExecutor)
-          (Map.keysSet sourceNative))
+          (Map.keysSet sourceNative `Set.union` Map.keysSet retiringKubernetesSpecs))
       allHelmSpecs = Map.restrictKeys (Map.union helmSpecs retiringHelmSpecs)
-        (selected ResourceInventory.HelmExecutor)
+        (selected ResourceInventory.HelmExecutor `Set.union` Map.keysSet retiringHelmSpecs)
   if null registrations && Set.null (selected ResourceInventory.CloudFoundationExecutor) && Map.null artifactSpecs && isNothing hostInputs && Map.null kubernetesSpecs && Map.null cacheSpecs && Map.null topicSpecs && Map.null dnsSpecs && Map.null cloudflareSpecs && Map.null allHelmSpecs
     then either dieT pure (InventoryAdapter.mkAdapterRegistry (map Inventory.executionBlockedAdapterFor [ResourceInventory.KubernetesExecutor, ResourceInventory.PulumiExecutor, ResourceInventory.CloudFoundationExecutor, ResourceInventory.HostExecutor, ResourceInventory.ArtifactExecutor, ResourceInventory.CacheExecutor, ResourceInventory.BrokerExecutor, ResourceInventory.HelmExecutor, ResourceInventory.CdnExecutor]))
     else do
