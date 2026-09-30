@@ -3,10 +3,12 @@
 let
   # The Artifact Registry Docker host the cluster pulls private images from.
   registryHost = config.nagare.host.registryHost;
-  # Private platform images (such as the in-cluster Attic cache) run in
-  # nagare-system, while user workloads run in personal.  Keep both default
-  # ServiceAccounts wired to the short-lived Artifact Registry pull Secret.
-  imagePullNamespaces = [ "personal" "nagare-system" ];
+  # Legacy accepted modules keep their original two-account policy. Fresh
+  # typed modules opt into the exact host-owned footprint and controller grant.
+  credentialOwner = config.nagare.host.registryCredentialOwner;
+  controllerOwner = config.nagare.host.registryServingControllerOwner;
+  imagePullTargets = [ "personal|default|" "nagare-system|default|" ]
+    ++ pkgs.lib.optional (controllerOwner != "") "knative-serving|controller|${controllerOwner}";
   registrySourceVersion = builtins.hashFile "sha256" ./registries.nix;
 
   # Refresh script: mint a fresh OAuth access token for the node service account
@@ -77,7 +79,8 @@ let
       exit 0
     fi
 
-    for ns in ${builtins.concatStringsSep " " imagePullNamespaces}; do
+    for target in ${pkgs.lib.escapeShellArgs imagePullTargets}; do
+      IFS='|' read -r ns account expected_account_owner <<< "$target"
       if ! kubectl get namespace "$ns" >/dev/null 2>&1; then
         echo "nagare-registry-pull-secret: namespace $ns does not exist; skipping" >&2
         continue
@@ -87,7 +90,10 @@ let
         fail_or_retry "failed to inspect pull Secret in $ns"
       fi
       if [ -n "$EXISTING_SECRET" ] && ! printf '%s' "$EXISTING_SECRET" \
-        | ${pkgs.jq}/bin/jq -e '.metadata.annotations["nagare.dev/delegated-owner"] == "host-registry-timer"' >/dev/null; then
+        | ${pkgs.jq}/bin/jq -e --arg owner '${credentialOwner}' '
+          .metadata.annotations["nagare.dev/delegated-owner"] == "host-registry-timer"
+          and ($owner == "" or .metadata.annotations["nagare.dev/resource-id"] == $owner)
+        ' >/dev/null; then
         fail_or_retry "pull Secret in $ns is not owned by the host registry timer"
       fi
       WRITE_ACTION=create
@@ -99,18 +105,23 @@ let
           fail_or_retry "pull Secret in $ns has no resource version"
         fi
       fi
-      if ! EXISTING_ACCOUNT="$(kubectl -n "$ns" get serviceaccount default -o json)"; then
-        fail_or_retry "failed to inspect default ServiceAccount in $ns"
+      if ! EXISTING_ACCOUNT="$(kubectl -n "$ns" get serviceaccount "$account" -o json)"; then
+        fail_or_retry "failed to inspect ServiceAccount $account in $ns"
       fi
-      if ! printf '%s' "$EXISTING_ACCOUNT" | ${pkgs.jq}/bin/jq -e '
+      if ! printf '%s' "$EXISTING_ACCOUNT" | ${pkgs.jq}/bin/jq -e \
+        --arg account_owner "$expected_account_owner" --arg host_owner '${credentialOwner}' '
         ((.imagePullSecrets // []) | all(.name == "nagare-registry-pull"))
         and ((.metadata.annotations["nagare.dev/delegated-owner"] // "host-registry-timer") == "host-registry-timer")
+        and ($account_owner == "" or (
+          .metadata.annotations["nagare.dev/resource-id"] == $account_owner
+          and .metadata.annotations["nagare.dev/registry-credential-controller"] == $host_owner
+        ))
       ' >/dev/null; then
-        fail_or_retry "default ServiceAccount in $ns has a conflicting pull reference or owner"
+        fail_or_retry "ServiceAccount $account in $ns has a conflicting pull reference, owner or grant"
       fi
       if ! ACCOUNT_VERSION="$(printf '%s' "$EXISTING_ACCOUNT" | ${pkgs.jq}/bin/jq -er \
         '.metadata.resourceVersion | select(type == "string" and length > 0)')"; then
-        fail_or_retry "default ServiceAccount in $ns has no resource version"
+        fail_or_retry "ServiceAccount $account in $ns has no resource version"
       fi
 
       if ! kubectl -n "$ns" create secret docker-registry nagare-registry-pull \
@@ -118,13 +129,13 @@ let
         --docker-username=oauth2accesstoken \
         --docker-password="$TOKEN" \
         --dry-run=client -o json \
-        | ${pkgs.jq}/bin/jq --arg version "${registrySourceVersion}" --arg expiry "$EXPIRES_AT" --arg rv "$RESOURCE_VERSION" \
+        | ${pkgs.jq}/bin/jq --arg version "${registrySourceVersion}" --arg expiry "$EXPIRES_AT" --arg rv "$RESOURCE_VERSION" --arg owner '${credentialOwner}' \
           '(if $rv == "" then del(.metadata.resourceVersion) else .metadata.resourceVersion = $rv end)
           | .metadata.annotations = ((.metadata.annotations // {}) + {
             "nagare.dev/delegated-owner": "host-registry-timer",
             "nagare.dev/credential-source-version": $version,
             "nagare.dev/credential-expires-at": $expiry
-          })' \
+          } + (if $owner == "" then {} else {"nagare.dev/resource-id":$owner} end))' \
         | kubectl -n "$ns" "$WRITE_ACTION" -f -; then
         fail_or_retry "failed to write pull Secret in $ns"
       fi
@@ -134,9 +145,9 @@ let
           "nagare.dev/delegated-owner":"host-registry-timer",
           "nagare.dev/credential-source-version":$version
         }},imagePullSecrets:[{name:"nagare-registry-pull"}]}')"
-      if ! kubectl -n "$ns" patch serviceaccount default \
+      if ! kubectl -n "$ns" patch serviceaccount "$account" \
         --type=merge -p "$PATCH"; then
-        fail_or_retry "failed to patch the default ServiceAccount in $ns"
+        fail_or_retry "failed to patch ServiceAccount $account in $ns"
       fi
     done
   '';

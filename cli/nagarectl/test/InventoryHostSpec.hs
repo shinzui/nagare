@@ -1,18 +1,21 @@
 module InventoryHostSpec (inventoryHostTests) where
 
-import Nagare.Dsl.Prelude hiding ((.=), contains)
-
 import Data.ByteString.Char8 qualified as BC
+import Data.Generics.Labels ()
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified
+import Data.Text.Encoding qualified as TE
+import Nagare.Dsl.Prelude hiding (contains, (.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Host
 import Nagare.Inventory.Adapters.HostRuntime
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Host
 import Nagare.Inventory.Journal
+import Nagare.Inventory.RegistryCredentials
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
 import Nagare.Resource.Types
@@ -35,6 +38,56 @@ inventoryHostTests =
               [activation] -> operationKind activation @?= ActivateHost
               values -> assertFailure ("expected one activation operation, got " <> show (length values))
           values -> assertFailure ("expected one resource bundle, got " <> show (length values))
+    , testCase "registry footprint reserves exact Secrets against another scope" $ do
+        let first :| rest = hostResources hostBundle
+            configured = hostBundle {hostResources = first {hostLogicalKey = logicalKey "nixos-system"} :| rest}
+        declared <- expectRight (compileHostScopeWithRegistryCredentials configured registryClusterIdentity)
+        footprint <- expectRight (registryCredentialAliases registryClusterIdentity)
+        let members = [r | b <- scopeBundles declared, Managed r <- declarations b]
+        system <- case [r | r <- members, r ^. #identity == registryHostIdentity] of
+          [r] -> pure r
+          _ -> assertFailure "typed registry host missing" >> pure (error "unreachable")
+        system ^. #aliases @?= footprint
+        let otherOwner = ok (mkScopeId Standalone "foreign-secret")
+            foreignSecret =
+              system
+                { identity = ok (mkResourceId "standalone:foreign-secret/pull/secret")
+                , owner = otherOwner
+                , executor = KubernetesExecutor
+                , address = head footprint
+                , aliases = []
+                , lifecycle = Retain
+                }
+            other = ok (mkScopeDeclaration otherOwner [ResourceBundle [Managed foreignSecret] [] [] [] [] []])
+            binding = ContextBinding (ok (mkContextId "fixture")) (name "project")
+            snapshot = ok (mkScopeSnapshot binding Map.empty Map.empty)
+        case composeInventory snapshot (ReplaceScope declared :| [ReplaceScope other]) of
+          Left errors -> assertBool "canonical footprint conflict" (any ((== "claim-conflict") . (^. #code)) errors)
+          Right _ -> assertFailure "another scope claimed the host credential Secret"
+    , testCase "registry module and snapshot refuse partial grants while preserving legacy hosts" $ do
+        registryCredentialModuleEnabled registryClusterIdentity "legacy module" @?= Right False
+        fields <- expectRight (registryCredentialModuleFields registryClusterIdentity)
+        let rendered =
+              TE.encodeUtf8
+                ( Data.Text.unlines
+                    ["    " <> key <> " = \"" <> value <> "\";" | (key, value) <- fields]
+                )
+        registryCredentialModuleEnabled registryClusterIdentity rendered @?= Right True
+        case registryCredentialModuleEnabled registryClusterIdentity (rendered <> rendered) of
+          Left _ -> pure ()
+          Right _ -> assertFailure "duplicate generated host grant accepted"
+        let partial = TE.encodeUtf8 ("registryCredentialOwner = \"" <> resourceIdText registryHostIdentity <> "\";")
+        case registryCredentialModuleEnabled registryClusterIdentity partial of
+          Left _ -> pure ()
+          Right _ -> assertFailure "partial generated host grant accepted"
+        let first :| rest = hostResources hostBundle
+            configured = hostBundle {hostResources = first {hostLogicalKey = logicalKey "nixos-system"} :| rest}
+            binding = ContextBinding (ok (mkContextId "fixture")) (name "project")
+            snapshot scopeValue = ok (mkScopeSnapshot binding (Map.singleton scope (ok (mkScopeGeneration 1), scopeValue)) Map.empty)
+        legacy <- expectRight (compileHostScope configured)
+        registryCredentialHost (snapshot legacy) registryClusterIdentity @?= Right Nothing
+        declared <- expectRight (compileHostScopeWithRegistryCredentials configured registryClusterIdentity)
+        registryCredentialHost (snapshot declared) registryClusterIdentity @?= Right (Just registryHostIdentity)
     , testCase "preflight refuses a timer-armed host without cancelling rollback" $ do
         state <- newIORef (HostTimerArmed instanceIdentity "/nix/store/test-active")
         let adapter = mkHostAdapter (ops state)
@@ -56,21 +109,26 @@ inventoryHostTests =
         state <- newIORef (HostBeforeActivation instanceIdentity "/nix/store/old")
         effects <- newIORef (0 :: Int)
         let base = ops state
-            adapter = mkHostAdapter base
-              { hostRunActivation = \_ -> modifyIORef' effects (+ 1) >> pure AdapterEffectCompleted }
+            adapter =
+              mkHostAdapter
+                base
+                  { hostRunActivation = \_ -> modifyIORef' effects (+ 1) >> pure AdapterEffectCompleted
+                  }
         prepared <- adapterPrepare adapter operation >>= expectRight
         adapterPreflight adapter operation prepared >>= expectRight
         let replacement = ok (mkPhysicalIdentity "gce://replacement")
-        mapM_ (\changed -> do
-                writeIORef state changed
-                result <- adapterExecute adapter operation prepared
-                case result of
-                  AdapterEffectFailed (KnownNoEffect _) -> pure ()
-                  other -> assertFailure ("effect-time drift was not refused: " <> show other))
+        mapM_
+          ( \changed -> do
+              writeIORef state changed
+              result <- adapterExecute adapter operation prepared
+              case result of
+                AdapterEffectFailed (KnownNoEffect _) -> pure ()
+                other -> assertFailure ("effect-time drift was not refused: " <> show other)
+          )
           [ HostBeforeActivation replacement "/nix/store/old"
-              , HostBeforeActivation instanceIdentity "/nix/store/other"
-              , HostCommitted replacement "/nix/store/new" acknowledgement
-              ]
+          , HostBeforeActivation instanceIdentity "/nix/store/other"
+          , HostCommitted replacement "/nix/store/new" acknowledgement
+          ]
         readIORef effects >>= (@?= 0)
     , testCase "local flake evidence cannot substitute for a remote committed closure" $ do
         state <- newIORef (HostBeforeActivation instanceIdentity "/nix/store/old")

@@ -266,7 +266,7 @@ import Nagare.Inventory.Components.ObservabilityExtras (compileObservabilityExtr
 import Nagare.Inventory.Components.ObservabilitySecrets (compileObservabilitySecrets, loadObservabilitySecretObjects, readAlertmanagerEnabled)
 import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
-import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
+import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindHostRegistryCredentials, bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Application (ApplicationScopeInput (..), GoogleCdnBinding (..), CloudflareCdnBinding (..), ReviewedCdnBinding (..), DatabaseBinding, ServiceAction (..), acceptedAccessBinding, acceptedApplicationImage, acceptedImageBuildSecrets, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationDeployment, compileServiceActionScope, compileStandaloneServiceWithReleaseAndBuild, compileStandaloneWorkerWithDependenciesAndBuild, databaseRecoveryBindings, hostnameClaimOwned, legacyApplicationReleaseImport, legacyStandaloneReleaseImport, nativeWorkloadOwned, recordReviewedStandaloneOverrides, reviewedTaskImages, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
 import Nagare.Inventory.Site (acceptedSitePreviewDependencies, acceptedSiteReleaseLog, acceptedSiteSource, compileServerSitePreviewScopeWithBuild, compileServerSiteRollbackScopeWithBuild, compileServerSiteScopeWithBuild, compileStaticSitePreviewScope, compileStaticSiteRollbackScope, compileStaticSiteRollbackScopeWithCdn, compileStaticSiteRollbackScopeWithCloudflare, compileStaticSiteScope, compileStaticSiteScopeWithCdn, compileStaticSiteScopeWithCloudflare, legacyServerSiteReleaseImport, legacyStaticSiteReleaseImport, sitePreviewRetirementScope, siteVolumeRecoveryBindings)
@@ -303,6 +303,7 @@ import Nagare.Inventory.DataFence.KubernetesIntent (parseObservedDatabaseServer)
 import Nagare.Inventory.DataFence.StatefulWriter qualified as StatefulWriter
 import Nagare.Inventory.DataFence.VolumeState (kubectlVolumeTransport)
 import Nagare.Inventory.TaskRun (compileTaskRunScope)
+import Nagare.Inventory.RegistryCredentials qualified as RegistryCredentials
 import Nagare.Inventory.TaskLifecycle (compileTaskSuspensionScope, retireSuspendedTaskScope, taskSuspended)
 import Nagare.Inventory.Lifecycle qualified as InventoryLifecycle
 import Nagare.Inventory.DataService (NativeDataKind (..), acceptedFoundationNamespace, brokerNativeOwned, brokerTopicChangeRequiresReview, compileBackupPruneRemovalScope, compileStandaloneBroker, compileStandaloneDatabase, compileStatefulSetRestartScope, dataCommandNativeOwned, databaseNativeOwned, standaloneRetirementScope)
@@ -5662,6 +5663,8 @@ buildHostStageCandidate active _ snapshot
       hostName <- readContextHostName (active ^. #contextName) >>= either dieT pure
       flake <- BS.readFile (hostRoot </> "flake.nix")
       hostModule <- BS.readFile (hostRoot </> "host.nix")
+      registryCredentials <- either dieT pure (RegistryCredentials.registryCredentialModuleEnabled
+        RegistryCredentials.registryClusterIdentity hostModule)
       lock <- BS.readFile (hostRoot </> "flake.lock")
       owner <- either dieT pure (Resource.mkScopeId Resource.Platform "host")
       key <- either dieT pure (Resource.mkLogicalKey "nixos-system")
@@ -5712,9 +5715,13 @@ buildHostStageCandidate active _ snapshot
             , InventoryHost.hostDependencies = [ResourceReference.OrderedAfter vmId]
             , InventoryHost.hostSource = source
             }
-      scope <- either (dieT . T.pack . show) pure (InventoryHost.compileHostScope
-        (InventoryHost.HostDeclarationBundle 1 owner vmId (resource NE.:| [])
-          configurationDigest lockDigest ageKeyDigest))
+      let declaration = InventoryHost.HostDeclarationBundle 1 owner vmId (resource NE.:| [])
+            configurationDigest lockDigest ageKeyDigest
+      scope <- either (dieT . T.pack . show) pure
+        (if registryCredentials
+          then InventoryHost.compileHostScopeWithRegistryCredentials declaration
+            RegistryCredentials.registryClusterIdentity
+          else InventoryHost.compileHostScope declaration)
       case Map.lookup owner (ResourceInventory.snapshotScopes snapshot) of
         Just (_, prior) | ResourceWire.encodeCanonicalScope prior /= ResourceWire.encodeCanonicalScope scope ->
           dieT "accepted host configuration differs from the selected context; use a reviewed host transition"
@@ -5891,12 +5898,18 @@ buildPlatformCandidate active paths workspace snapshot = do
     (dieT "external domain TLS belongs to cloud bootstrap; local TLS is enabled by its own issuer")
   rawUpstream <- configuredUpstreamInputsWithIssuer cluster root (profile ^. #baseDomain)
     (profile ^. #registryHost) issuer >>= either dieT pure
+  credentialUpstream <- case profile ^. #mode of
+    Local -> pure rawUpstream
+    Cloud -> do
+      host <- either dieT pure (RegistryCredentials.registryCredentialHost snapshot cluster)
+      maybe (pure rawUpstream)
+        (\controller -> either dieT pure (bindHostRegistryCredentials controller cluster rawUpstream)) host
   let controllerRegistry = if profile ^. #mode == Local
         then profile ^. #registryHost else registryPrefix profile
   (controllerImageScope, controllerImage, controllerPublish) <-
     compileControllerImage root controllerRegistry >>= either (dieT . T.pack . show) pure
   upstream <- either dieT pure
-    (bindNetCertManagerControllerImage cluster controllerImage controllerPublish rawUpstream)
+    (bindNetCertManagerControllerImage cluster controllerImage controllerPublish credentialUpstream)
   metricsInput <- case observabilityInputs of
     firstRelease : _ | Resource.nameText (packagedName firstRelease) == "vmks" ->
       pure firstRelease

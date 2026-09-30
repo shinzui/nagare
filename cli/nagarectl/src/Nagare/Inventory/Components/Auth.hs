@@ -113,6 +113,7 @@ compileAuth input = do
                 , upstreamAfter = internalOrder
                 , upstreamExternalAfter = Map.empty
                 , upstreamOrderDeployments = False
+                , upstreamRegistryDelegations = Map.empty
                 }
           compiled <- compileUpstream upstream
           pure $ do

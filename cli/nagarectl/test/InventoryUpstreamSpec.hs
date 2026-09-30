@@ -15,6 +15,8 @@ import Nagare.Inventory.Components.Upstream
 import Nagare.Inventory.Components.ControllerImage (compileControllerImage, controllerImageDeclaration)
 import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapCandidate, compileConfiguredBootstrap, compileIssuerBootstrap, compilePinnedBootstrap)
 import Nagare.Inventory.Components.Foundation (FoundationInput (..))
+import Nagare.Inventory.RegistryCredentials
+import Nagare.Resource.Policy (DelegatedOperation (RefreshCredential), Delegation (Delegation))
 import Nagare.Inventory.KubernetesSources (validateSuppliedKubernetesMembers)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
@@ -27,7 +29,44 @@ import System.IO.Temp (withSystemTempDirectory)
 
 inventoryUpstreamTests :: TestTree
 inventoryUpstreamTests = testGroup "pinned upstream bootstrap manifests"
-  [ testCase "release assets compile to one exact reviewed membership" $ do
+  [ testCase "host credential delegation binds only the actual Serving account" $ do
+        configured <-
+          expectRight
+            ( bindHostRegistryCredentials
+                registryHostIdentity
+                fixtureCluster
+                (pinnedUpstreamInputs fixtureCluster "../..")
+            )
+        serving <- case [input | input <- configured, upstreamOwner input == componentOwner "serving"] of
+          [input] -> pure input
+          _ -> assertFailure "Serving input missing" >> pure (error "unreachable")
+        (bundle, native) <- compileUpstream serving >>= expectRight
+        accountId <- expectRight (registryControllerAccountIdentity fixtureCluster)
+        let granted = [resource | Managed resource <- declarations bundle, not (null (resource ^. #delegations))]
+        case granted of
+          [account] -> do
+            account ^. #identity @?= accountId
+            account ^. #delegations @?= [registryControllerDelegation registryHostIdentity]
+            foreignGrant <- compileUpstream serving {upstreamRegistryDelegations =
+              Map.singleton (account ^. #address) (ok (mkResourceId "platform:host/foreign/system"))}
+            assertBool "foreign host credential grant accepted" (either (const True) (const False) foreignGrant)
+            let (bound, bytes) = native Map.! accountId
+            bound @?= account
+            value <- expectRight (eitherDecodeStrict bytes :: Either String Value)
+            case value of
+              Object root
+                | Just (Object metadata) <- KM.lookup "metadata" root
+                , Just (Object annotations) <- KM.lookup "annotations" metadata ->
+                    KM.lookup "nagare.dev/registry-credential-controller" annotations
+                      @?= Just (String (resourceIdText registryHostIdentity))
+              _ -> assertFailure "native controller grant missing"
+            case account ^. #delegations of
+              [Delegation controller _ operations] -> do
+                controller @?= registryHostIdentity
+                operations @?= RefreshCredential :| []
+              _ -> assertFailure "controller grant malformed"
+          _ -> assertFailure "credential refresh delegated beyond the named Serving account"
+  , testCase "release assets compile to one exact reviewed membership" $ do
       (certInput, servingInput, kourierInput, netInput) <-
         case pinnedUpstreamInputs fixtureCluster "../.." of
           [certInput, servingInput, kourierInput, netInput] ->
@@ -381,7 +420,7 @@ inventoryUpstreamTests = testGroup "pinned upstream bootstrap manifests"
   ]
 
 component :: Text -> [(FilePath, ContentDigest)] -> UpstreamInput
-component name files = UpstreamInput (componentOwner name) fixtureCluster (ok (mkLogicalKey name)) "../.." files Map.empty Set.empty Map.empty Map.empty [] Map.empty Map.empty True
+component name files = UpstreamInput (componentOwner name) fixtureCluster (ok (mkLogicalKey name)) "../.." files Map.empty Set.empty Map.empty Map.empty [] Map.empty Map.empty True Map.empty
 
 componentOwner :: Text -> ScopeId
 componentOwner name = ok (mkScopeId Platform name)

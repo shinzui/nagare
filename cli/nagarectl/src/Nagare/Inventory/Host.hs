@@ -3,20 +3,40 @@ module Nagare.Inventory.Host
   ( HostResourceSpec (..)
   , HostDeclarationBundle (..)
   , compileHostScope
+  , compileHostScopeWithRegistryCredentials
   , hostSystemResourceId
   , hostExecutionInputsFromScopes
   )
 where
 
 import Data.Generics.Labels ()
-
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.RegistryCredentials (registryCredentialAliases, registryHostIdentity)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
 import Nagare.Resource.Reference
 import Nagare.Resource.Types
+
+compileHostScopeWithRegistryCredentials :: HostDeclarationBundle -> ResourceId -> Either (NonEmpty InventoryError) ScopeDeclaration
+compileHostScopeWithRegistryCredentials bundle cluster = do
+  unless
+    (hostSystemResourceId bundle == registryHostIdentity)
+    (Left (inventoryError "registry-host-identity" "registry credentials require the canonical host system identity" :| []))
+  original <- compileHostScope bundle
+  footprint <-
+    first
+      (\message -> inventoryError "registry-host-footprint" message :| [])
+      (registryCredentialAliases cluster)
+  let addFootprint (Managed resource)
+        | resource ^. #identity == registryHostIdentity = Managed resource {aliases = footprint}
+      addFootprint other = other
+      bundles =
+        [ entry {declarations = map addFootprint (entry ^. #declarations)}
+        | entry <- scopeBundles original
+        ]
+  mkScopeDeclaration (hostScope bundle) bundles
 
 data HostResourceSpec = HostResourceSpec
   { hostLogicalKey :: !LogicalKey
@@ -66,8 +86,9 @@ compileHostScope bundle
             [ DeclaredOperation
                 { identity = activationId
                 , affects = systemId :| filter (/= systemId) resourceIds
-                , inputs = [ContentInput (hostConfigurationDigest bundle), ContentInput (hostLockDigest bundle)]
-                    <> maybe [] (\digest -> [ContentInput digest]) (hostAgeKeyDigest bundle)
+                , inputs =
+                    [ContentInput (hostConfigurationDigest bundle), ContentInput (hostLockDigest bundle)]
+                      <> maybe [] (\digest -> [ContentInput digest]) (hostAgeKeyDigest bundle)
                 , recovery = OperatorRecovery
                 , operationKind = ActivateHost
                 }

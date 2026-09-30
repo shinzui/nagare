@@ -7,12 +7,13 @@ module Nagare.Inventory.Components.Upstream
   , configuredUpstreamInputs
   , configuredUpstreamInputsWithIssuer
   , bindNetCertManagerControllerImage
+  , bindHostRegistryCredentials
   , compileUpstream
   ) where
 
 import Control.Exception (IOException, try)
 import Control.Monad (foldM)
-import Data.Aeson (Value (..), encode, toJSON)
+import Data.Aeson (Value (..), encode)
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
 import Data.Yaml qualified as Yaml
@@ -33,7 +34,8 @@ import Data.Text.Encoding qualified as TE
 import Data.Vector qualified as V
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Digest (contentDigest)
-import Nagare.Inventory.Kubernetes (bindKubernetesObject)
+import Nagare.Inventory.Kubernetes (bindKubernetesObject, kubernetesObjectIdentity)
+import Nagare.Inventory.RegistryCredentials (registryControllerDelegation, registryHostIdentity)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes
 import Nagare.Resource.Policy
@@ -56,12 +58,30 @@ data UpstreamInput = UpstreamInput
   , upstreamAfter :: !(Map ProviderAddress [ProviderAddress])
   , upstreamExternalAfter :: !(Map ProviderAddress [ResourceId])
   , upstreamOrderDeployments :: !Bool
+  , upstreamRegistryDelegations :: !(Map ProviderAddress ResourceId)
   }
 
 data IssuerMode
   = CloudIssuer !Text !Text !Text !Bool
   | LocalIssuer
   deriving stock (Eq, Show)
+
+bindHostRegistryCredentials :: ResourceId -> ResourceId -> [UpstreamInput] -> Either Text [UpstreamInput]
+bindHostRegistryCredentials host cluster inputs = do
+  unless
+    (host == registryHostIdentity)
+    (Left "registry controller delegation requires the canonical host identity")
+  owner <- mkScopeId Platform "serving"
+  address <- kubernetesAddress cluster "v1" "ServiceAccount" (Just "knative-serving") "controller"
+  unless
+    (length [input | input <- inputs, upstreamOwner input == owner] == 1)
+    (Left "registry controller delegation requires one Serving component")
+  pure
+    [ if upstreamOwner input == owner
+        then input {upstreamRegistryDelegations = Map.singleton address host}
+        else input
+    | input <- inputs
+    ]
 
 -- | Replace only the controller image in the pinned net-certmanager release.
 -- The immutable reference is retained in the reviewed native Deployment.
@@ -121,6 +141,7 @@ pinnedUpstreamInputs cluster root =
           else Map.empty
       , upstreamExternalAfter = Map.empty
       , upstreamOrderDeployments = True
+      , upstreamRegistryDelegations = Map.empty
       }
 
 -- | Bind the context's Knative policy into the reviewed release members.
@@ -274,6 +295,7 @@ issuerComponent cluster root mode = do
       , upstreamAfter = ordering
       , upstreamExternalAfter = Map.empty
       , upstreamOrderDeployments = True
+      , upstreamRegistryDelegations = Map.empty
       }
   where
     replaceOne input (slot, value) = do
@@ -310,6 +332,9 @@ compileUpstream input = do
     unless (Map.keysSet (upstreamExternalAfter input) `Set.isSubsetOf` Set.fromList
         [resource ^. #address | (resource, _) <- uniqueMembers])
       (Left (single (invalid "upstream external ordering target is absent from the component")))
+    unless (Map.keysSet (upstreamRegistryDelegations input) `Set.isSubsetOf` Set.fromList
+        [resource ^. #address | (resource, _) <- uniqueMembers])
+      (Left (single (invalid "registry delegation target is absent from the component")))
     let retained = filter (\(resource, _) -> Set.notMember (resource ^. #address) (upstreamTransferred input)) uniqueMembers
         namespaceIds = Map.fromList
           [(name, resource ^. #identity) | (resource, _) <- retained,
@@ -351,14 +376,18 @@ compileUpstream input = do
       imaged <- case Map.lookup (probed ^. #address) (upstreamImageOverrides input) of
         Nothing -> Right configured
         Just images -> first (single . invalid) (setDeploymentImages images configured)
-      native <- first (single . invalid) (canonicalValue imaged)
-      addressBytes <- first (single . invalid) (canonicalValue (toJSON (probed ^. #address)))
-      let role = known ("object-" <> T.take 40 (digestText (contentDigest addressBytes)))
-          identity = mintResourceId (upstreamOwner input) (upstreamKey input) role
-          actual = template {resourceId = identity, inputObject = imaged, objectDigest = contentDigest native}
+      delegated <- case Map.lookup (probed ^. #address) (upstreamRegistryDelegations input) of
+        Nothing -> Right imaged
+        Just host -> first (single . invalid) (registryGrant host imaged)
+      native <- first (single . invalid) (canonicalValue delegated)
+      identity <- first (single . invalid) (kubernetesObjectIdentity
+        (upstreamOwner input) (upstreamKey input) (probed ^. #address))
+      let actual = template {resourceId = identity, inputObject = delegated, objectDigest = contentDigest native}
       (resource, bound) <- first single (bindKubernetesObject actual)
       unless (bound == native) (Left (single (invalid "upstream native bytes changed during binding")))
-      pure (resource, bound)
+      let grants = maybe [] (pure . registryControllerDelegation)
+            (Map.lookup (probed ^. #address) (upstreamRegistryDelegations input))
+      pure (resource {delegations = grants}, bound)
     known = either (error . T.unpack) id . mkName
     keepIdentical accumulated (resource, bytes) = do
       existing <- accumulated
@@ -387,6 +416,39 @@ compileUpstream input = do
           edges = filter (/= OrderedAfter own)
             (namespaceEdges <> crdEdges <> webhookEdges <> prerequisiteEdges <> explicitEdges <> externalEdges)
        in (resource {dependencies = Set.toList (Set.fromList edges <> Set.fromList (resource ^. #dependencies))}, bound)
+
+registryGrant :: ResourceId -> Value -> Either Text Value
+registryGrant host (Object root)
+  | host == registryHostIdentity
+  , KM.lookup "apiVersion" root == Just (String "v1")
+  , KM.lookup "kind" root == Just (String "ServiceAccount")
+  , Just (Object metadata) <- KM.lookup "metadata" root
+  , KM.lookup "namespace" metadata == Just (String "knative-serving")
+  , KM.lookup "name" metadata == Just (String "controller") = do
+      annotations <- case KM.lookup "annotations" metadata of
+        Nothing -> Right KM.empty
+        Just (Object values) -> Right values
+        _ -> Left "registry controller annotations are malformed"
+      let value = String (resourceIdText host)
+          key = "nagare.dev/registry-credential-controller"
+      unless
+        (KM.lookup key annotations `elem` [Nothing, Just value])
+        (Left "registry controller grant conflicts with a preexisting annotation")
+      pure
+        ( Object
+            ( KM.insert
+                "metadata"
+                ( Object
+                    ( KM.insert
+                        "annotations"
+                        (Object (KM.insert key value annotations))
+                        metadata
+                    )
+                )
+                root
+            )
+        )
+registryGrant _ _ = Left "registry delegation targets only the named Serving controller ServiceAccount"
 
 isCrd :: ManagedResource -> Bool
 isCrd resource = case resource ^. #address of

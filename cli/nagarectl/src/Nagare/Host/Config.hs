@@ -37,6 +37,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.RegistryCredentials (registryClusterIdentity, registryCredentialModuleFields)
 import Nagare.Target (ContextName, contextNameText, mkContextName, nagareConfigDir)
 import Nagare.Version (BuildVersion (..))
 import System.Directory
@@ -269,16 +270,25 @@ renderHostFlake config buildVersion =
 renderHostModule :: HostConfig -> Text
 renderHostModule config =
   T.unlines
-    [ "{ ... }:"
-    , ""
-    , "{"
-    , "  nagare.host = {"
-    , "    hostName = " <> nixString (config ^. #name) <> ";"
-    , "    instanceName = " <> nixString (config ^. #instanceName) <> ";"
-    , "    registryHost = " <> nixString (config ^. #registryHost) <> ";"
-    , "    deployUser = " <> nixString (config ^. #deployUser) <> ";"
-    , "    authorizedKeys = ["
-    ]
+    ( [ "{ ... }:"
+      , ""
+      , "{"
+      , "  nagare.host = {"
+      , "    hostName = " <> nixString (config ^. #name) <> ";"
+      , "    instanceName = " <> nixString (config ^. #instanceName) <> ";"
+      , "    registryHost = " <> nixString (config ^. #registryHost) <> ";"
+      ]
+        <> [ "    " <> key <> " = " <> nixString value <> ";"
+           | (key, value) <-
+               either
+                 (error . T.unpack)
+                 id
+                 (registryCredentialModuleFields registryClusterIdentity)
+           ]
+        <> [ "    deployUser = " <> nixString (config ^. #deployUser) <> ";"
+           , "    authorizedKeys = ["
+           ]
+    )
     <> T.concat ["      " <> nixString key <> "\n" | key <- NonEmpty.toList (config ^. #authorizedKeys)]
     <> T.unlines
       [ "    ];"

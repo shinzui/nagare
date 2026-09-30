@@ -47,6 +47,7 @@ compileObservabilityExtras root foundation metricsRelease = do
             , upstreamAfter = Map.empty
             , upstreamExternalAfter = Map.fromList [(address, [metricsRelease]) | address <- addresses]
             , upstreamOrderDeployments = False
+            , upstreamRegistryDelegations = Map.empty
             }
       result <- compileUpstream input
       pure $ do

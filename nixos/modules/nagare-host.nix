@@ -210,6 +210,18 @@ in
       description = "Artifact Registry host used for private application images.";
     };
 
+    registryCredentialOwner = lib.mkOption {
+      type = lib.types.str;
+      default = "";
+      description = "Typed host system identity owning the exact registry pull Secret footprint.";
+    };
+
+    registryServingControllerOwner = lib.mkOption {
+      type = lib.types.str;
+      default = "";
+      description = "Typed Serving controller account identity granting bounded credential refresh.";
+    };
+
     deployUser = lib.mkOption {
       type = lib.types.str;
       default = "deploy";
@@ -266,6 +278,18 @@ in
       {
         assertion = cfg.registryHost != "";
         message = "nagare.host.registryHost must not be empty";
+      }
+      {
+        assertion = (cfg.registryCredentialOwner == "") == (cfg.registryServingControllerOwner == "");
+        message = "registry credential ownership and the Serving account grant must be configured together";
+      }
+      {
+        assertion = cfg.registryCredentialOwner == "" || cfg.registryCredentialOwner == "platform:host/nixos-system/system";
+        message = "registry credential ownership must name the canonical typed host system";
+      }
+      {
+        assertion = cfg.registryServingControllerOwner == "" || builtins.match "platform:serving/serving/object-[0-9a-f]{40}" cfg.registryServingControllerOwner != null;
+        message = "registry Serving account ownership must name a typed Serving object";
       }
       {
         assertion = lib.hasPrefix "/" cfg.ageKeyFile

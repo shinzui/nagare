@@ -148,4 +148,5 @@ compileLocalObjectStore root foundation store
           ,(deployment, [credential]), (service, [deployment]), (bucketJob, [credential, deployment, service])]
       , upstreamExternalAfter = Map.empty
       , upstreamOrderDeployments = False
+      , upstreamRegistryDelegations = Map.empty
       }

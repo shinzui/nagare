@@ -90,6 +90,7 @@ compileObservabilitySecrets foundation objects = case traverse validate objects 
             , upstreamAfter = Map.empty
             , upstreamExternalAfter = Map.empty
             , upstreamOrderDeployments = False
+            , upstreamRegistryDelegations = Map.empty
             }
       result <- compileUpstream input
       pure $ do

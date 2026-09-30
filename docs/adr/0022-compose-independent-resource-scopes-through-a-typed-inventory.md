@@ -955,3 +955,32 @@ never-started durable create must not silently converge its still-unready
 Knative Service. Native preparation refuses an unchanged unready workload; a
 corrected configuration uses the existing conditional update path instead.
 Converged unselected scopes retain their previous receipts.
+
+
+## Amendment — 2026-09-30: fresh host registry credential delegation
+
+Fresh generated host declarations reserve the three exact `nagare-registry-pull`
+Secret addresses in `personal`, `nagare-system` and `knative-serving` as aliases
+of the canonical host system resource. Another scope cannot claim one of these
+addresses. The Serving controller account keeps its existing direct-object
+identity, computed by the same canonical address algorithm as all upstream
+objects, and grants that host only `RefreshCredential` for the pull reference
+and registry credential metadata roles. Reviewed native account bytes bind the
+static grant to the host identity. Credential values remain runtime-only.
+
+The host timer can refresh the named `knative-serving/controller` account only
+when both its exact resource identity and static host grant match. A present
+Secret must carry the host identity and delegated timer marker; unmarked or
+foreign Secrets and conflicting pull references refuse rather than being
+adopted. Secret replacement and account patching use API-server resource-version
+conditions. This authority does not grant deletion, owner replacement, or
+arbitrary account changes.
+
+The generated host module binds both exact owner identities. Missing both fields
+preserves the existing two-default-account policy; partial, duplicate or changed
+bindings refuse during typed host compilation. Accepted legacy hosts and their
+original reviews retain that legacy footprint. The implementation does not
+activate a new closure or silently broaden an accepted host declaration. An
+installed fresh-host expiry and private-image re-pull proof is still required
+before safe-use acceptance. Existing-context platform upgrades remain deferred
+until the initial feature set is complete and safe to use.
