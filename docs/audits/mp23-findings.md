@@ -31,7 +31,7 @@ Implementation owner: existing session `01a0e893-337f-7b82-ac5d-16f41bf5ce21` (I
 | [F05](#f05) | P1 | New fresh-login checks can reuse an SSH multiplexed connection | Verifying | EP-156 |
 | [F06](#f06) | P1 | Journal appends retain excessive serial cloud-command cost | Partial | EP-156 |
 | [F07](#f07) | P1 | Installed key with failed service activation cannot recover by retry | Verifying | EP-156 |
-| [F08](#f08) | P2 | Unchanged host bootstrap depends on transient key-file environment and source root | Open | EP-156 |
+| [F08](#f08) | P2 | Unchanged host bootstrap depends on transient key-file environment and source root | Partial | EP-156 |
 | [F09](#f09) | P1 | Scheduled-prune preflight prevents recovery after admission | Verifying | EP-159 / EP-153 |
 | [F10](#f10) | P2 | Explaining one resource observes the whole context | Verifying | EP-153 |
 | [F11](#f11) | Build | Conditional-upload optimization has ambiguous try exception type | Closed | EP-156 |
@@ -156,7 +156,7 @@ F01 and F11 are independently Closed with [retained verification and source iden
 
 ## F08
 
-**Unchanged host bootstrap depends on transient key-file environment and source root** — P2; **Open**; owner EP-156.
+**Unchanged host bootstrap depends on transient key-file environment and source root** — P2; **Partial**; owner EP-156.
 
 **Locations:** cli/nagarectl/app/Main.hs: buildHostStageCandidate.
 
@@ -164,7 +164,7 @@ F01 and F11 are independently Closed with [retained verification and source iden
 
 **Implementation update:** Commit `538b046d`: `Main.hs` SHA-256 `fd5d18972afe65e8368e97506a0d697424933ce48463b683436bbbf180314fb4` retains an accepted key digest and source binding when delivery-only environment is absent. `cabal build exe:nagarectl` passed; no public replan with the variable cleared or another operator root has passed, so this remains open.
 
-**Native continuation repair (2026-09-29):** [The native checkpoint](mp23-native-bootstrap-proof.md) confirms fresh host login, then reproduces a further source dependency: bootstrap and build observation reevaluated mutable installation source after host acceptance. The repair preserves accepted host-input checks and observes the exact reviewed build output. The public bootstrap regression now rejects each changed host input and completes kubeconfig recovery and the 211-operation cluster review with Nix disabled after host acceptance. The next native run proved matching digests but rejected serialized input ordering; canonical scope comparison now passes an adversarial-order public fixture. The second-root attempt separately reproduced missing local-marker discovery of GCS history. Installed continuation and second-root repair remain pending; this does not independently close F08.
+**Native continuation repair (2026-09-29):** [The native checkpoint](mp23-native-bootstrap-proof.md) confirms fresh host login, then reproduces a further source dependency: bootstrap and build observation reevaluated mutable installation source after host acceptance. The repair preserves accepted host-input checks and observes the exact reviewed build output. The public bootstrap regression now rejects each changed host input and completes kubeconfig recovery and the 211-operation cluster review with Nix disabled after host acceptance. The next native run proved matching digests but rejected serialized input ordering; canonical scope comparison now passes an adversarial-order public fixture. The second-root attempt separately reproduced missing local-marker discovery of GCS history. Installed candidate `0870fa200d07` now replans without the delivery-key variable and completes the native kubeconfig transaction. F08 is Partial for second-root discovery/verification and independent closure.
 
 **Required verification:** After accepting a credential-bound host, clear delivery-only environment and replan; also use another operator root with identical host bytes. Require unchanged/verify-only result while intentional configuration or credential change still refuses/reviews correctly.
 
