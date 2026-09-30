@@ -1,0 +1,30 @@
+{
+  "identitiesPreserved": {
+    "Service": "99316c5e-386c-4396-94b0-e1914c9b78ff",
+    "StatefulSet": "f38c8493-9898-421e-b2d5-18001b27ca78",
+    "PersistentVolumeClaim": "dcc135ca-5450-4c79-8e73-00fbc9f117f0"
+  },
+  "acceptedChangedOnly": [
+    "{\"kind\": \"Application\", \"name\": \"mp23-app-a\"}"
+  ],
+  "allAcceptedConverged": true,
+  "headGeneration": 605,
+  "sequence": 539,
+  "serviceGeneration": 2,
+  "httpBody": "nagare-mp23-cloud-hello",
+  "retainedRow": "1|mp23-before-correction",
+  "installedRevision": "49db2199c3da73012072b0652a8ebec87f42c14d",
+  "reviewDigest": "2bf8f3e473403fb2a207605c5ae654d10d88a08f5650c7670904eabbcc93be0a",
+  "planSeconds": 42.372,
+  "applySeconds": 63.123,
+  "conditionalBefore": {
+    "digest": "4c9f45f369525f97854466b0423d8b7435c981e6fe368439d2f899526f86ecb8",
+    "kind": "not-ready",
+    "owner": "application:mp23-app-a/mp23-app-a/service",
+    "physical": "99316c5e-386c-4396-94b0-e1914c9b78ff",
+    "resourceVersion": "80364"
+  },
+  "platformPayloadId": "nagare-0.4.0-6082dbd6aac0",
+  "platformUpgrade": false,
+  "independentF16Closure": "pending"
+}

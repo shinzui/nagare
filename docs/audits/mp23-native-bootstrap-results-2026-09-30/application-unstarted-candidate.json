@@ -12,7 +12,8 @@
   "structuralHaskellStyle": "passed",
   "commandAudit": "141 routes / 34 recipes / 29 library calls; injected mutation refused; coverage still incomplete",
   "installedStop": "0f6fa7db succeeded; see application-stop-and-replan.json",
-  "installedCorrectedConvergence": "pending",
+  "installedCorrectedConvergence": "49db2199 converged; see application-correction.json",
   "platformUpgrade": false,
-  "independentF16Closure": "pending"
+  "independentF16Closure": "pending",
+  "publicBootstrapFixture": "installed 49db2199 passed"
 }
