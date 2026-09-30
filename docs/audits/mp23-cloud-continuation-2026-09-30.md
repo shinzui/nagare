@@ -197,4 +197,32 @@ Installed `49db2199` saves and converges the corrected Application A review in 4
 
 [The replay proof](mp23-native-bootstrap-results-2026-09-30/cloud-unchanged-application-replay.json) records installed `eb582eb0`: an unchanged Application A review saves in 38.965 seconds and converges through 11 verification-only operations in 48.678 seconds. Both Services, both PostgreSQL instances and both PVCs retain their UIDs, and all three data rows remain exact. Only Application A's revision advances; the other 26 revisions remain unchanged. Generation 673/sequence 599 is idle and all 27 scopes converge. The original platform payload remains installed.
 
-The follow-up [readiness candidate](mp23-native-bootstrap-results-2026-09-30/stopped-scope-readiness-candidate.json) requires fresh native verification for unchanged managed members of a selected unconverged scope. This prevents remaining creates from silently completing an unchanged, still-unready workload. All 998 CLI tests pass in 67.46 seconds and structural style passes. Installed final-candidate validation, interruption/second-root recovery, remaining operational/engine/volume checks, steady private credential coverage, exact cleanup and final local/native/release gates remain open. These representative proofs do not complete EP-156 or safe-use acceptance.
+The follow-up [readiness candidate](mp23-native-bootstrap-results-2026-09-30/stopped-scope-readiness-candidate.json) requires fresh native verification for unchanged managed members of a selected unconverged scope. This prevents remaining creates from silently completing an unchanged, still-unready workload. All 998 CLI tests pass in 67.46 seconds and structural style passes. The installed package and public bootstrap fixture now pass at `2101b834`; the next section records interruption/second-root recovery. Native verification of the unready replan guard, remaining operational/engine/volume checks, steady private credential coverage, exact cleanup and final local/native/release gates remain open. These representative proofs do not complete EP-156 or safe-use acceptance.
+
+
+## Installed interruption and second-root recovery
+
+[The retained redacted proof](mp23-native-bootstrap-results-2026-09-30/cloud-interruption-and-second-root.json) binds installed `2101b834882a31a77036103b00c03b9a9cc07019`, the original `nagare-0.4.0-6082dbd6aac0` payload, the same Ready node and the original cloud history. Its immutable aarch64-darwin package and installed public foundation/bootstrap fixture pass. Full native-system/release acceptance remains open.
+
+The new operator root contains only copied context and host declarations, with no copied credential, migration marker, journal or cache. Public store status reads generation 673 in 4.836 seconds. Credential recovery initially refuses after 16.058 seconds because the selected provider project number is unavailable; the kubeconfig remains absent and the shared head is exact. A read-only probe using the same frozen gcloud identity returns the correct project number in 2.17 seconds. One bounded recovery retry succeeds in 18.747 seconds. The mode-0600 credential reaches the original Ready node in 0.642 seconds.
+
+A separate backup review saves in 24.804 seconds. Its only operations create and verify `nagare-dbbackup-mp23-pg-a-mp23-pg-a-recovery`; only the new standalone owner changes. After that Job exists, the local executor is paused at generation 676/sequence 601, then interrupted after the clean root refuses its foreign claim in 11.295 seconds. The refusal and interruption leave the exact head and claim unchanged. No remote process is signalled. After verifying that the original executor exited, explicit takeover resumes the original immutable review in 23.858 seconds. Sequence 601 records `adapter recovery proved completion` for the original create intent. The same Job UID is Complete, and no second create intent appears. The original verification operation checks actual stored GCS bytes; an independent download matches receipt SHA-256 `bf3195efa54ad971761b18902e2ae4d4c83834f2693e5f84cb069c3eb9823c65` and contains the current source row.
+
+Generation 682/sequence 605 has all 28 scopes converged and no active transaction, executor claim, data fence or migration. All prior 27 accepted revisions are exact. Both Knative Services are Ready, both PostgreSQL instances are Ready and both original PVCs remain Bound with unchanged UIDs. The live source retains `mp23-after-backup`, the existing isolated database retains `mp23-before-correction`, and the other application retains `mp23-untouched-app-b`.
+
+The public recovery procedure is:
+
+```bash
+nagarectl --context ep150-preview inventory store status --json
+nagarectl --context ep150-preview kubeconfig recover
+# A live foreign executor claim refuses ordinary resume. Verify that the
+# original executor has exited before taking over its exact transaction.
+nagarectl --context ep150-preview inventory resume \
+  tx-f9f4add089cd0b6859706c2726eda192b2a27305423a062dfbf466d543e8f039 \
+  --yes --take-over
+nagarectl --context ep150-preview inventory store status --json
+```
+
+Use the selected isolated operator root and unchanged fixture/payload inputs. Refuse a changed context, missing accepted credential/host binding, changed physical identity, incomplete history or an executor whose termination is unproved. Resume the original published transaction; a new review cannot replace uncertain original effects. These commands document the completed fixture procedure rather than instructing another unchanged replay.
+
+Steady private platform credential expiry/re-pull coverage, remaining supported cloud assertions, engines/volumes, exact retirement/cleanup, complete local integration and final native/release gates remain open. Platform upgrades follow initial feature completion and safe-use acceptance.

@@ -1,0 +1,181 @@
+{
+  "schemaVersion": 1,
+  "candidateRevision": "2101b834882a31a77036103b00c03b9a9cc07019",
+  "nativeSystem": "aarch64-darwin",
+  "payloadIdentity": "nagare-0.4.0-6082dbd6aac0",
+  "fixture": {
+    "context": "ep150-preview",
+    "project": "tan-ng-labs",
+    "cluster": "nagare-ep150",
+    "nodeUid": "d3745745-a1e2-4a07-9479-2832b893d7dc"
+  },
+  "freshRoot": {
+    "copiedInputs": [
+      "context declaration",
+      "host declaration"
+    ],
+    "copiedHistory": false,
+    "copiedCredential": false,
+    "readHeadSeconds": 4.836,
+    "initialCredentialRecovery": {
+      "exit": 1,
+      "seconds": 16.058,
+      "refusal": "selected provider project number is unavailable",
+      "effects": 0
+    },
+    "diagnosis": "same frozen gcloud identity returns matching project number in 2.17 seconds; head unchanged",
+    "credentialRecoverySeconds": 18.747,
+    "credentialMode": "0600",
+    "sameReadyNode": true
+  },
+  "review": {
+    "digest": "f9f4add089cd0b6859706c2726eda192b2a27305423a062dfbf466d543e8f039",
+    "operations": 2,
+    "actions": [
+      "CreateResource",
+      "RunDeclaredOperation"
+    ],
+    "owner": "standalone:database-backup-personal-mp23-pg-a-mp23-pg-a-recovery",
+    "planSeconds": 24.804
+  },
+  "interruption": {
+    "localExecutorOnly": true,
+    "createdJobUid": "d29ec563-1059-43c6-bfe9-fc8eb5ca905a",
+    "pausedHeadGeneration": 676,
+    "pausedHeadSequence": 601,
+    "foreignResumeRefused": true,
+    "refusalSeconds": 11.295,
+    "refusalPreservesExactHead": true,
+    "originalExecutorExitedBeforeTakeover": true,
+    "explicitTakeoverSeconds": 23.858,
+    "originalTransactionResumed": true,
+    "sameCompletedJobUid": true,
+    "createIntentCount": 1,
+    "createCompletionCount": 1,
+    "createCompletionSequence": 601,
+    "createCompletionDetail": "adapter recovery proved completion"
+  },
+  "journal": [
+    {
+      "sequence": 599,
+      "operation": null,
+      "state": {
+        "tag": "Pending"
+      },
+      "detail": "admitted review f9f4add089cd0b6859706c2726eda192b2a27305423a062dfbf466d543e8f039",
+      "sha256": "65e3d2d46f47a41f5671db81e3b8b55f12171675ef26e6e84a6bd00119c6b6cd"
+    },
+    {
+      "sequence": 600,
+      "operation": "op-cf28b59865b09630151284a3",
+      "state": {
+        "tag": "IntentRecorded"
+      },
+      "detail": "operation intent recorded",
+      "sha256": "8c2f249b13331984c20cdd90ac26fa9dee53e4631f51f912aef171782bfed84d"
+    },
+    {
+      "sequence": 601,
+      "operation": "op-cf28b59865b09630151284a3",
+      "state": {
+        "contents": "7d57605422003d695895d7d17844ea7ff61db17a835358f5dfa0f20316cd8f34",
+        "tag": "Completed"
+      },
+      "detail": "adapter recovery proved completion",
+      "sha256": "cf9e91c8a5111b3270413e4301bd8391917f25850b9c818e62cefb1399336a79"
+    },
+    {
+      "sequence": 602,
+      "operation": "op-8b2ee228f752d30d9c45ff54",
+      "state": {
+        "tag": "IntentRecorded"
+      },
+      "detail": "operation intent recorded",
+      "sha256": "e2a8eb88c3d10fec1c17adca47c8b5c2563a1b87becf537466987888ef9cf98d"
+    },
+    {
+      "sequence": 603,
+      "operation": "op-8b2ee228f752d30d9c45ff54",
+      "state": {
+        "contents": "9792eacbd37ee898e64c4c7250b4fb0038c0cf5a883cd79feced1b13a5d88e93",
+        "tag": "Completed"
+      },
+      "detail": "operation completion verified",
+      "sha256": "c9a081e5898e74fadfd32af0b5af0664832b982d8bbc42a4a69e63ac2625b8ac"
+    },
+    {
+      "sequence": 604,
+      "operation": null,
+      "state": {
+        "contents": "f9f4add089cd0b6859706c2726eda192b2a27305423a062dfbf466d543e8f039",
+        "tag": "Completed"
+      },
+      "detail": "transaction converged",
+      "sha256": "637e8df8bb72b38f9086e19d1c369770271ba7af8311f7452364adb3b650cc1c"
+    }
+  ],
+  "storedBackup": {
+    "sha256": "bf3195efa54ad971761b18902e2ae4d4c83834f2693e5f84cb069c3eb9823c65",
+    "storedBytes": 638,
+    "sourceRowInBackup": "1|mp23-after-backup",
+    "receiptMatchesStoredBytes": true
+  },
+  "preservation": {
+    "originalAcceptedRevisions": 27,
+    "originalRevisionsUnchanged": true,
+    "applicationAndDatabaseIdentities": [
+      {
+        "kind": "Service",
+        "name": "mp23-app-a",
+        "uid": "99316c5e-386c-4396-94b0-e1914c9b78ff"
+      },
+      {
+        "kind": "Service",
+        "name": "mp23-app-b",
+        "uid": "355084e3-b120-448c-adf0-56bfcd551ed3"
+      },
+      {
+        "kind": "StatefulSet",
+        "name": "mp23-pg-a",
+        "uid": "f38c8493-9898-421e-b2d5-18001b27ca78"
+      },
+      {
+        "kind": "StatefulSet",
+        "name": "mp23-pg-b",
+        "uid": "5a9139e6-2367-4a01-b999-2c5ecde7639a"
+      },
+      {
+        "kind": "PersistentVolumeClaim",
+        "name": "nagare-db-mp23-pg-a-data",
+        "uid": "dcc135ca-5450-4c79-8e73-00fbc9f117f0"
+      },
+      {
+        "kind": "PersistentVolumeClaim",
+        "name": "nagare-db-mp23-pg-b-data",
+        "uid": "bc73ba73-ed96-496a-b753-5bcc4d3b435f"
+      }
+    ],
+    "values": {
+      "app-a-data": "1|mp23-after-backup",
+      "app-b-data": "1|mp23-untouched-app-b",
+      "scratch-data": "1|mp23-before-correction"
+    }
+  },
+  "finalHead": {
+    "generation": 682,
+    "sequence": 605,
+    "acceptedScopes": 28,
+    "convergedScopes": 28,
+    "activeTransaction": null,
+    "executorClaim": null,
+    "dataFence": null,
+    "migration": null
+  },
+  "remaining": [
+    "steady private credential expiry/re-pull coverage",
+    "remaining supported operational/engine/volume acceptance",
+    "exact cleanup",
+    "full local/native/release acceptance",
+    "independent finding closure"
+  ]
+}

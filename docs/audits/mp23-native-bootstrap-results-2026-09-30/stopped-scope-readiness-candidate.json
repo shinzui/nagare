@@ -9,6 +9,15 @@
     "seconds": 67.46
   },
   "structuralHaskellStyle": "passed",
-  "installedFinalCandidate": "pending",
+  "installedFinalCandidate": {
+    "revision": "2101b834882a31a77036103b00c03b9a9cc07019",
+    "nativeSystem": "aarch64-darwin",
+    "immutablePackageBuild": "passed",
+    "installedPublicBootstrapFixture": "passed",
+    "cloudPayload": "nagare-0.4.0-6082dbd6aac0",
+    "fullReleaseAcceptance": "pending",
+    "nativeNotReadyReplanVerification": "pending",
+    "cloudInterruptionAndSecondRoot": "passed"
+  },
   "independentF16Closure": "pending"
 }
