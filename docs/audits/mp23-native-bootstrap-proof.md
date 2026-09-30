@@ -69,6 +69,21 @@ refusals for nonempty local history. Verify both an actually fresh foundation an
 an existing shared GCS head before claiming this repaired; copying a migration
 marker is not the acceptance path.
 
+The [fresh-root investigation](mp23-fresh-root-discovery-proof.md) now reproduces
+that blocker on clean installed candidate `2d6b57c0`. Direct status from the same
+never-used config/state/cache root reads correctly bound shared history in 3.434
+seconds; bootstrap uses empty local history and refuses the stamped bucket/stack
+in 38.228 seconds. Shared head generation 113 and the global context files remain
+unchanged. Installed recording-provider probes distinguish missing/unavailable/
+foreign state and expose project-list false absence, incomplete-prefix and head-
+binding boundaries. A real separate empty-prefix read refuses in 2.873 seconds
+without local state/cache writes. The report and
+[redacted results](mp23-native-bootstrap-results-2026-09-29/fresh-root-discovery.json)
+define the effective repair and its source-established follow-on kubeconfig path
+portability check. The 38 object-operation and 17 SDK transport tests pass.
+No production discovery fix or cluster apply was made; this remains separate
+from the accepted cluster planning timeout repair below.
+
 ## Installed native kubeconfig acceptance
 
 Candidate `0870fa200d07` built as an installed Darwin package. Its complete public

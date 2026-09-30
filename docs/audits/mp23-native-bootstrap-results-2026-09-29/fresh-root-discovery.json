@@ -1,0 +1,302 @@
+{
+  "sourceHead": "71fce0a4",
+  "installedCandidate": "2d6b57c02179",
+  "date": "2026-09-29",
+  "status": "discovery defect proved; repair unimplemented",
+  "nativeBudgetsSeconds": {
+    "status": 60,
+    "bootstrapPlan": 120,
+    "headRead": 30
+  },
+  "faultBudgetSeconds": 30,
+  "isolation": {
+    "globalContextHashesUnchanged": true,
+    "configStateCacheIsolated": true,
+    "copiedJournalOrMigrationMarker": false,
+    "clusterApplyIssued": false
+  },
+  "native": [
+    {
+      "label": "status-before",
+      "exit": 0,
+      "seconds": 3.434,
+      "status": {
+        "activeTransaction": null,
+        "binding": {
+          "identity": "ep150-preview",
+          "project": "tan-ng-labs"
+        },
+        "dataFence": null,
+        "executorClaim": null,
+        "generation": 113,
+        "headDigest": "f536c6d2f48c5d5bde01460a072f15e2d328d2a49433a1f0e20c44baf59416fe",
+        "kind": "gcs",
+        "migration": null,
+        "url": "gs://tan-ng-labs-ep150-pmkjjpp-state/inventory"
+      }
+    },
+    {
+      "label": "bootstrap-plan",
+      "exit": 1,
+      "seconds": 38.228
+    },
+    {
+      "label": "status-after",
+      "exit": 0,
+      "seconds": 3.327,
+      "status": {
+        "activeTransaction": null,
+        "binding": {
+          "identity": "ep150-preview",
+          "project": "tan-ng-labs"
+        },
+        "dataFence": null,
+        "executorClaim": null,
+        "generation": 113,
+        "headDigest": "f536c6d2f48c5d5bde01460a072f15e2d328d2a49433a1f0e20c44baf59416fe",
+        "kind": "gcs",
+        "migration": null,
+        "url": "gs://tan-ng-labs-ep150-pmkjjpp-state/inventory"
+      }
+    }
+  ],
+  "localHeadAfterFailedPlan": {
+    "binding": {
+      "identity": "ep150-preview",
+      "project": "tan-ng-labs"
+    },
+    "generation": 1,
+    "sequence": 0,
+    "accepted": [],
+    "activeTransaction": null,
+    "executorClaim": null
+  },
+  "nativeReadOnly": [
+    {
+      "label": "head-read",
+      "exit": 0,
+      "seconds": 3.055,
+      "binding": {
+        "identity": "ep150-preview",
+        "project": "tan-ng-labs"
+      },
+      "generation": 113,
+      "sequence": 65,
+      "acceptedScopeCount": 6,
+      "acceptedScopes": [
+        {
+          "kind": "Platform",
+          "name": "cloud"
+        },
+        {
+          "kind": "Platform",
+          "name": "cloud-foundation"
+        },
+        {
+          "kind": "Platform",
+          "name": "host"
+        },
+        {
+          "kind": "Platform",
+          "name": "host-image"
+        },
+        {
+          "kind": "Platform",
+          "name": "host-image-build"
+        },
+        {
+          "kind": "Platform",
+          "name": "kubeconfig"
+        }
+      ],
+      "activeTransaction": null,
+      "executorClaim": null
+    },
+    {
+      "label": "empty-prefix-status",
+      "exit": 1,
+      "seconds": 2.873
+    }
+  ],
+  "faultProviderResults": [
+    {
+      "case": "bucket-absent",
+      "command": "status",
+      "exit": 1,
+      "seconds": 0.601,
+      "bucketDescribeCalls": 1,
+      "remoteObjectCalls": 0,
+      "error": "nagarectl: StoreConditionFailed \"refusing: gs://fixture-project-nagare-pulumi-state is owned by project number '<unknown>', not the target project 'fixture-project' (number '12345'). GCS bucket names are global; choose a state bucket name that is unique across all of Google Cloud, or set NAGARE_PULUMI_BACKEND_URL to gs://<unique-name>/nagare/<context>.\""
+    },
+    {
+      "case": "bucket-absent",
+      "command": "plan",
+      "exit": 0,
+      "seconds": 1.744,
+      "bucketDescribeCalls": 0,
+      "remoteObjectCalls": 0,
+      "error": "",
+      "operations": [
+        [
+          "platform:cloud-foundation/state-fixture-project-nagare-pulumi-state/fixture-project-nagare-pulumi-state"
+        ],
+        [
+          "platform:cloud-foundation/pulumi-stack/fresh"
+        ]
+      ]
+    },
+    {
+      "case": "foreign-bucket",
+      "command": "status",
+      "exit": 1,
+      "seconds": 0.183,
+      "bucketDescribeCalls": 1,
+      "remoteObjectCalls": 0,
+      "error": "nagarectl: StoreConditionFailed \"refusing: gs://fixture-project-nagare-pulumi-state is owned by project number '99999', not the target project 'fixture-project' (number '12345'). GCS bucket names are global; choose a state bucket name that is unique across all of Google Cloud, or set NAGARE_PULUMI_BACKEND_URL to gs://<unique-name>/nagare/<context>.\""
+    },
+    {
+      "case": "foreign-bucket",
+      "command": "plan",
+      "exit": 0,
+      "seconds": 1.181,
+      "bucketDescribeCalls": 0,
+      "remoteObjectCalls": 0,
+      "error": "",
+      "operations": [
+        [
+          "platform:cloud-foundation/state-fixture-project-nagare-pulumi-state/fixture-project-nagare-pulumi-state"
+        ],
+        [
+          "platform:cloud-foundation/pulumi-stack/fresh"
+        ]
+      ]
+    },
+    {
+      "case": "bucket-unavailable",
+      "command": "status",
+      "exit": 1,
+      "seconds": 0.181,
+      "bucketDescribeCalls": 1,
+      "remoteObjectCalls": 0,
+      "error": "nagarectl: StoreConditionFailed \"refusing: gs://fixture-project-nagare-pulumi-state is owned by project number '<unknown>', not the target project 'fixture-project' (number '12345'). GCS bucket names are global; choose a state bucket name that is unique across all of Google Cloud, or set NAGARE_PULUMI_BACKEND_URL to gs://<unique-name>/nagare/<context>.\""
+    },
+    {
+      "case": "bucket-unavailable",
+      "command": "plan",
+      "exit": 0,
+      "seconds": 1.083,
+      "bucketDescribeCalls": 0,
+      "remoteObjectCalls": 0,
+      "error": "",
+      "operations": [
+        [
+          "platform:cloud-foundation/state-fixture-project-nagare-pulumi-state/fixture-project-nagare-pulumi-state"
+        ],
+        [
+          "platform:cloud-foundation/pulumi-stack/fresh"
+        ]
+      ]
+    },
+    {
+      "case": "prefix-absent",
+      "command": "status",
+      "exit": 1,
+      "seconds": 0.232,
+      "bucketDescribeCalls": 1,
+      "remoteObjectCalls": 2,
+      "error": "nagarectl: StoreConditionFailed \"inventory object prefix is not initialized\""
+    },
+    {
+      "case": "prefix-unavailable",
+      "command": "status",
+      "exit": 1,
+      "seconds": 0.281,
+      "bucketDescribeCalls": 1,
+      "remoteObjectCalls": 2,
+      "error": "nagarectl: StoreIoError \"object listing failed\""
+    },
+    {
+      "case": "foreign-format",
+      "command": "status",
+      "exit": 1,
+      "seconds": 0.283,
+      "bucketDescribeCalls": 1,
+      "remoteObjectCalls": 2,
+      "error": "nagarectl: StoreConditionFailed \"inventory object prefix belongs to a different context or format\""
+    },
+    {
+      "case": "list-unavailable",
+      "command": "status",
+      "exit": 1,
+      "seconds": 0.177,
+      "bucketDescribeCalls": 1,
+      "remoteObjectCalls": 0,
+      "error": "nagarectl: StoreConditionFailed \"refusing: gs://fixture-project-nagare-pulumi-state is owned by project number '<unknown>', not the target project 'fixture-project' (number '12345'). GCS bucket names are global; choose a state bucket name that is unique across all of Google Cloud, or set NAGARE_PULUMI_BACKEND_URL to gs://<unique-name>/nagare/<context>.\""
+    },
+    {
+      "case": "list-unavailable",
+      "command": "plan",
+      "exit": 1,
+      "seconds": 1.14,
+      "bucketDescribeCalls": 0,
+      "remoteObjectCalls": 0,
+      "error": "[PlanError {planErrorCode = \"observation-unavailable\", planErrorMessage = \"required resource observation is unavailable\", planErrorResources = [ResourceId \"platform:cloud-foundation/pulumi-stack/fresh\",ResourceId \"platform:cloud-foundation/state-fixture-project-nagare-pulumi-state/fixture-project-nagare-pulumi-state\"]}]"
+    }
+  ],
+  "headFaultProviderResults": [
+    {
+      "case": "foreign-head",
+      "command": "status",
+      "exit": 0,
+      "seconds": 1.069,
+      "bucketDescribeCalls": 1,
+      "remoteObjectCalls": 8,
+      "error": "",
+      "status": {
+        "activeTransaction": null,
+        "binding": {
+          "identity": "foreign",
+          "project": "fixture-project"
+        },
+        "dataFence": null,
+        "executorClaim": null,
+        "generation": 1,
+        "headDigest": "eb1505a79e900fdf63a19d5b7875fb3ad694704e1d497e9bc14574295815ae9f",
+        "kind": "gcs",
+        "migration": null,
+        "url": "gs://fixture-project-nagare-pulumi-state/nagare/fresh/inventory"
+      }
+    },
+    {
+      "case": "head-missing",
+      "command": "status",
+      "exit": 1,
+      "seconds": 0.337,
+      "bucketDescribeCalls": 1,
+      "remoteObjectCalls": 4,
+      "error": "nagarectl: inventory history is not initialized"
+    },
+    {
+      "case": "format-missing-with-head",
+      "command": "status",
+      "exit": 1,
+      "seconds": 0.224,
+      "bucketDescribeCalls": 1,
+      "remoteObjectCalls": 2,
+      "error": "nagarectl: StoreConditionFailed \"inventory object prefix is not initialized\""
+    }
+  ],
+  "tests": {
+    "inventoryObjectOperations": 38,
+    "gogolInventoryTransport": 17,
+    "gatedRealBucketEnabled": false
+  },
+  "sourceEstablishedFollowOnRisk": "accepted kubeconfig scope embeds first-root absolute source/destination; no post-repair native continuation tested",
+  "productionSourceEdits": false,
+  "clusterApplyIssued": false,
+  "reproducer": {
+    "path": "docs/audits/mp23-reproductions/probe-fresh-root-discovery.py",
+    "sha256": "ea3bf9625afd14c96e68a9b07652ac73d869a9c87150b51f0fe20f2b96b25bb4",
+    "verificationCases": 14
+  }
+}
