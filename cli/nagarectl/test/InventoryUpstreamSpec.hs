@@ -1,6 +1,6 @@
 module InventoryUpstreamSpec (inventoryUpstreamTests) where
 
-import Data.Aeson (Value (..), eitherDecodeStrict)
+import Data.Aeson (Value (..), eitherDecodeStrict, toJSON)
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
@@ -56,9 +56,22 @@ inventoryUpstreamTests = testGroup "pinned upstream bootstrap manifests"
             case value of
               Object root
                 | Just (Object metadata) <- KM.lookup "metadata" root
-                , Just (Object annotations) <- KM.lookup "annotations" metadata ->
+                , Just (Object annotations) <- KM.lookup "annotations" metadata -> do
                     KM.lookup "nagare.dev/registry-credential-controller" annotations
                       @?= Just (String (resourceIdText registryHostIdentity))
+                    KM.lookup "imagePullSecrets" root
+                      @?= Just (toJSON [Object (KM.singleton "name" (String "nagare-registry-pull"))])
+                    let foreignReferences = Object (KM.insert "imagePullSecrets"
+                          (toJSON [Object (KM.singleton "name" (String "foreign-pull"))]) root)
+                    conflicting <- compileUpstream serving
+                      { upstreamFiles = []
+                      , upstreamGenerated = [(SourceLocation "credential-fixture" "controller", foreignReferences)]
+                      }
+                    case conflicting of
+                      Left errors -> assertBool "foreign pull reference refused for an unrelated reason"
+                        ("registry controller grant conflicts with preexisting image pull references"
+                          `T.isInfixOf` T.pack (show errors))
+                      Right _ -> assertFailure "foreign image pull reference was overwritten"
               _ -> assertFailure "native controller grant missing"
             case account ^. #delegations of
               [Delegation controller _ operations] -> do

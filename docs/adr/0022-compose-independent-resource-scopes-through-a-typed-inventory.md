@@ -966,7 +966,13 @@ addresses. The Serving controller account keeps its existing direct-object
 identity, computed by the same canonical address algorithm as all upstream
 objects, and grants that host only `RefreshCredential` for the pull reference
 and registry credential metadata roles. Reviewed native account bytes bind the
-static grant to the host identity. Credential values remain runtime-only.
+static grant to the host identity. The same reviewed account bytes contain the
+single fixed `nagare-registry-pull` reference before any controller Pod is
+admitted. Kubernetes copies ServiceAccount image pull references into new Pods;
+a later timer patch alone cannot repair that initial inheritance. Conflicting
+preexisting references refuse instead of being overwritten. The timer refreshes
+the credential Secret and maintains this exact reference within its bounded
+authority. Credential values remain runtime-only.
 
 The host timer can refresh the named `knative-serving/controller` account only
 when both its exact resource identity and static host grant match. A present

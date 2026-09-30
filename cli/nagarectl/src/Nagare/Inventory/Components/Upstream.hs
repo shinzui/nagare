@@ -431,9 +431,14 @@ registryGrant host (Object root)
         _ -> Left "registry controller annotations are malformed"
       let value = String (resourceIdText host)
           key = "nagare.dev/registry-credential-controller"
+          -- Pods inherit these references at admission, before timer refresh.
+          pullSecrets = Array (V.singleton (Object (KM.singleton "name" (String "nagare-registry-pull"))))
       unless
         (KM.lookup key annotations `elem` [Nothing, Just value])
         (Left "registry controller grant conflicts with a preexisting annotation")
+      unless
+        (KM.lookup "imagePullSecrets" root `elem` [Nothing, Just (Array V.empty), Just pullSecrets])
+        (Left "registry controller grant conflicts with preexisting image pull references")
       pure
         ( Object
             ( KM.insert
@@ -445,7 +450,7 @@ registryGrant host (Object root)
                         metadata
                     )
                 )
-                root
+                (KM.insert "imagePullSecrets" pullSecrets root)
             )
         )
 registryGrant _ _ = Left "registry delegation targets only the named Serving controller ServiceAccount"
