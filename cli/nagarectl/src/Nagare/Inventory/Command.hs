@@ -291,7 +291,7 @@ planInventoryMigrationWith sourceRegistryFor destinationRegistryFor target input
   let binding = inventoryBinding (candidateInventory candidate)
   _ <- initializeStore store binding (clientIdentity target) >>= either (dieText . showText) pure
   _ <- seedInventoryHistory store candidate >>= either (dieText . showText) pure
-  history <- loadInventoryHistory store >>= either (dieText . showText) pure
+  history <- loadInventoryPlanningHistory store candidate >>= either (dieText . showText) pure
   destinationRegistry <- destinationRegistryFor candidate history
   sourceRegistry <- sourceRegistryFor candidate history
   let requirements = observationRequirements candidate history
@@ -424,7 +424,7 @@ prepareInventoryCandidateWithDeciderPayload registryFor decide payloadIdentity t
   let binding = inventoryBinding (candidateInventory candidate)
   _ <- initializeStore store binding (clientIdentity target) >>= either (dieText . showText) pure
   _ <- seedInventoryHistory store candidate >>= either (dieText . showText) pure
-  history <- loadInventoryHistory store >>= either (dieText . showText) pure
+  history <- loadInventoryPlanningHistory store candidate >>= either (dieText . showText) pure
   registry <- registryFor candidate history
   let requirements = observationRequirements candidate history
   observations <- observeWithRegistry registry (requirementsByExecutor requirements) >>= either dieText pure
@@ -537,6 +537,8 @@ recoverInventoryWithFactory registryFor target transactionToken operationToken d
   registry <- registryFor store bundle
   recordOperatorRecovery store registry input takeOver >>= either (dieText . showText . NE.toList) pure
   case recoveryAction input of
+    StopIncompleteApplication ->
+      TIO.putStrLn "Incomplete application review stopped; ownership and data retained; inspect inventory status before saving a corrected review"
     AbandonPartialPrune ->
       TIO.putStrLn "Terminal scheduled prune review abandoned; exact provider members remain unresolved until a separate reviewed recovery"
     AbandonPartialVolumeRestore ->

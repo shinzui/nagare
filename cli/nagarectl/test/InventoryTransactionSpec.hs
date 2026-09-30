@@ -1676,6 +1676,99 @@ inventoryTransactionTests =
             after <- readHead store >>= expectRight >>= maybe (assertFailure "missing head" >> undefined) pure
             headActiveTransaction after @?= Just (transactionIdText tx)
             readIORef effects >>= (@?= 1)
+    , testCase "corrected stopped application creates only its never-started durable member" $ do
+        store <- newMemoryStore
+        (reviewed, registry) <- preparedApplicationStopFixture store Application Stateless
+          (\_ _ -> pure (AdapterEffectAmbiguous "capacity exhausted"))
+          (\_ _ -> pure (RecoveryAwaitingReadiness (ok (mkPhysicalIdentity "original-service-uid"))))
+        (tx, selected) <- applyReviewed store registry reviewed >>= expectRight >>= \case
+          StoppedAmbiguous tx op -> pure (tx, op)
+          other -> assertFailure (show other) >> undefined
+        recordOperatorRecovery store registry
+          (OperatorRecoveryInput tx selected (reviewDigestFor reviewed) StopIncompleteApplication) False >>= expectRight
+        baseHistory <- loadInventoryHistory store >>= expectRight
+        let accepted = historyAccepted baseHistory
+            [(owner, (_, scope))] = Map.toList accepted
+            uncreated = [mintResourceId owner (ok (mkLogicalKey "uncreated")) (ok (mkName "resource"))]
+            retained = [mintResourceId owner (ok (mkLogicalKey "untouched")) (ok (mkName "resource"))]
+            snapshot = ok (mkScopeSnapshot fixtureBinding
+              (Map.map (\(revision, declared) -> (revisionGeneration revision, declared)) accepted) Map.empty)
+            candidate = ok (composeInventory snapshot (ReplaceScope scope :| []))
+            observations missing = ok (observationSet
+              [(resource, if resource `elem` missing then ConfirmedAbsent (contentDigest "absent")
+                else ObservedPresent (ok (mkPhysicalIdentity "original-uid")))
+              | resource <- Set.toList (requiredResources (observationRequirements candidate baseHistory))])
+        history <- loadInventoryPlanningHistory store candidate >>= expectRight
+        length uncreated @?= 1
+        length retained @?= 1
+        proposal <- expectRight (planChanges candidate noLifecycleDecisions history (observations uncreated))
+        [(plannedAction operation, NE.toList (plannedResources operation))
+          | operation <- proposalOperations proposal, plannedAction operation == CreateResource]
+          @?= [(CreateResource, uncreated)]
+        case planChanges candidate noLifecycleDecisions history (observations (uncreated <> retained)) of
+          Left errors -> [planErrorResources err | err <- NE.toList errors,
+            planErrorCode err == "durable-resource-missing"] @?= [retained]
+          Right _ -> assertFailure "completed retained data was authorized for recreation"
+        let foreignObservation = ok (observationSet [(resource,
+              if resource `elem` uncreated then ObservedUnowned (ok (mkPhysicalIdentity "foreign-key"))
+                else ObservedPresent (ok (mkPhysicalIdentity "original-uid")))
+              | resource <- Set.toList (requiredResources (observationRequirements candidate baseHistory))])
+        assertBool "unstarted proof authorized foreign adoption"
+          (isLeft (planChanges candidate noLifecycleDecisions history foreignObservation))
+        let changeKey (Managed managed) | managed ^. #identity `elem` uncreated =
+              Managed (managed {spec = NativeObject (contentDigest "different-backup-key")})
+            changeKey declaration = declaration
+            changedScope = ok (mkScopeDeclaration owner
+              [bundle {declarations = map changeKey (declarations bundle)} | bundle <- scopeBundles scope])
+            changedCandidate = ok (composeInventory snapshot (ReplaceScope changedScope :| []))
+        assertBool "unstarted proof authorized a changed durable declaration"
+          (isLeft (planChanges changedCandidate noLifecycleDecisions history (observations uncreated)))
+        -- A later committed intent makes effect state uncertain. Absence must
+        -- not authorize repeating that durable create, even after this stop.
+        stoppedHead <- readHead store >>= expectRight >>= maybe (assertFailure "head missing" >> undefined) pure
+        journal <- readJournalPrefix store (headSequence stoppedHead) >>= expectRight
+        let previous = journalEventDigest (ok (decodeJournalEvent (last journal)))
+            [unstartedOperation] = [reviewPlannedOperation entry | entry <- reviewOperations (reviewedDocument reviewed),
+              NE.toList (plannedResources (reviewPlannedOperation entry)) == uncreated]
+            intent = JournalEvent 1 (headSequence stoppedHead) (Just previous) tx
+              (Just (plannedOperationId unstartedOperation)) IntentRecorded "test" "uncertain late effect"
+        _ <- appendAtSequence store (headSequence stoppedHead) (encodeJournalEvent intent) >>= expectRight
+        _ <- replaceHeadIfGenerationMatches store (Just (headGeneration stoppedHead))
+          stoppedHead {headGeneration = headGeneration stoppedHead + 1,
+            headSequence = headSequence stoppedHead + 1} >>= expectRight
+        uncertainHistory <- loadInventoryPlanningHistory store candidate >>= expectRight
+        assertBool "durable intent was treated as never-started"
+          (isLeft (planChanges candidate noLifecycleDecisions uncertainHistory (observations uncreated)))
+        -- The proof must not survive a new accepted revision, even if its
+        -- declaration bytes are the same. It also grants no foreign adoption.
+        headValue <- readHead store >>= expectRight >>= maybe (assertFailure "head missing" >> undefined) pure
+        let oldRevision = headAccepted headValue Map.! owner
+            replacement = oldRevision {revisionGeneration = ok (mkScopeGeneration 2)}
+        _ <- replaceHeadIfGenerationMatches store (Just (headGeneration headValue))
+          headValue {headGeneration = headGeneration headValue + 1,
+            headAccepted = Map.insert owner replacement (headAccepted headValue)} >>= expectRight
+        staleBase <- loadInventoryHistory store >>= expectRight
+        let staleSnapshot = ok (mkScopeSnapshot fixtureBinding
+              (Map.map (\(revision, declared) -> (revisionGeneration revision, declared))
+                (historyAccepted staleBase)) Map.empty)
+            staleCandidate = ok (composeInventory staleSnapshot (ReplaceScope scope :| []))
+        staleHistory <- loadInventoryPlanningHistory store staleCandidate >>= expectRight
+        assertBool "stop proof survived a different accepted revision"
+          (isLeft (planChanges staleCandidate noLifecycleDecisions staleHistory (observations uncreated)))
+        changedHead <- readHead store >>= expectRight >>= maybe (assertFailure "head missing" >> undefined) pure
+        _ <- replaceHeadIfGenerationMatches store (Just (headGeneration changedHead))
+          changedHead {headGeneration = headGeneration changedHead + 1,
+            headSequence = headSequence changedHead + 1} >>= expectRight
+        broken <- loadInventoryPlanningHistory store staleCandidate
+        assertBool "missing committed journal member granted planning authority" (isLeft broken)
+        -- Ordinary inspection remains a selected declaration read. Historical
+        -- execution evidence is an explicit planning requirement only.
+        loadInventoryHistory store >>= expectRight >>= \inspected ->
+          historyAccepted inspected @?= historyAccepted staleHistory
+        let unrelatedScope = ok (mkScopeDeclaration (ok (mkScopeId Platform "unrelated")) [])
+            unrelatedCandidate = ok (composeInventory staleSnapshot (ReplaceScope unrelatedScope :| []))
+        _ <- loadInventoryPlanningHistory store unrelatedCandidate >>= expectRight
+        pure ()
     , testCase "terminal isolated abandonment refuses an unrelated review" $ do
         store <- newMemoryStore
         let failed = ok (mkPhysicalIdentity "failed-job")
@@ -2122,7 +2215,15 @@ preparedApplicationStopFixture store kind policy effect recovery = do
           , dataPolicy = Durable (RecoveryIntent (ok (mkName "backup"))
               (mkSecretRef (ok (mkName "password")) (ok (mkName "v1")) :| [])) })
         other -> other
-      scope = ok (mkScopeDeclaration owner [ResourceBundle [service, retained] [] [] [] [] []])
+      uncreated = case member owner cluster "uncreated" of
+        Managed resource -> Managed (resource
+          { address = Kubernetes cluster "" (ok (mkName "secret"))
+              (Just (ok (mkName "personal"))) (ok (mkName "backup-key"))
+          , dataPolicy = Durable (RecoveryIntent (ok (mkName "backup"))
+              (mkSecretRef (ok (mkName "password")) (ok (mkName "v1")) :| []))
+          , dependencies = [OrderedAfter (declarationId service)] })
+        other -> other
+      scope = ok (mkScopeDeclaration owner [ResourceBundle [service, retained, uncreated] [] [] [] [] []])
       candidate = ok (composeInventory (ok (mkScopeSnapshot fixtureBinding Map.empty Map.empty))
         (ReplaceScope scope :| []))
       registry = recordingRegistry
@@ -2130,7 +2231,7 @@ preparedApplicationStopFixture store kind policy effect recovery = do
           then effect operation prepared else pure AdapterEffectCompleted) recovery
   _ <- initializeStore store fixtureBinding "stop-app-test" >>= expectRight
   history <- loadInventoryHistory store >>= expectRight
-  let observations = ok (observationSet [(declarationId resource, ConfirmedAbsent (contentDigest "absent")) | resource <- [service, retained]])
+  let observations = ok (observationSet [(declarationId resource, ConfirmedAbsent (contentDigest "absent")) | resource <- [service, retained, uncreated]])
       proposal = ok (planChanges candidate noLifecycleDecisions history observations)
   before <- readStoreSnapshot store >>= expectRight
   bundle <- prepareReview registry before proposal >>= expectRight

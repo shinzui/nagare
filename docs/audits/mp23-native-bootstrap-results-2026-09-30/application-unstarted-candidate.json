@@ -1,0 +1,18 @@
+{
+  "sourceHashes": {
+    "cli/nagarectl/src/Nagare/Inventory/Plan.hs": "985ef1037f47734dcc7373b63e19dac35346b0eebb5a7e484d2fdc82aad68502",
+    "cli/nagarectl/src/Nagare/Inventory/Execute.hs": "847844887f9047d478764e9b7db823d572ce986b1d102085eb7749e8820c8e52",
+    "cli/nagarectl/src/Nagare/Inventory/Command.hs": "e9fff6cf81ffe72ca8f09576fd288af98e7498e1731592230d3ad59e95e5860e",
+    "cli/nagarectl/test/InventoryTransactionSpec.hs": "7e2564a71c843a087f749762f2fe905b2c07860b3ee7502a5dd09ebdb5fa4f04"
+  },
+  "cliTests": {
+    "passed": 997,
+    "seconds": 52.48
+  },
+  "structuralHaskellStyle": "passed",
+  "commandAudit": "141 routes / 34 recipes / 29 library calls; injected mutation refused; coverage still incomplete",
+  "installedStop": "0f6fa7db succeeded; see application-stop-and-replan.json",
+  "installedCorrectedConvergence": "pending",
+  "platformUpgrade": false,
+  "independentF16Closure": "pending"
+}

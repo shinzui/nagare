@@ -721,7 +721,7 @@ recordOperatorRecovery store registry input takeOver = do
                     case (recoveryAction input, decision) of
                       (StopIncompleteApplication, _)
                         | isNothing selection
-                        , incompleteApplicationOnlyReview published events operation
+                        , incompleteApplicationOnlyReview published events transaction operationId operation
                         , Just stopProof <- case (savedStop, decision) of
                             (Just proof, _) -> Just proof
                             (Nothing, RecoveryAwaitingReadiness physical) -> Just
@@ -818,44 +818,6 @@ recordOperatorRecovery store registry input takeOver = do
                           <> ":" <> digestText receipt))
                         "accepted host registry policy recovered; resume must independently prove workload readiness"
                       pure (first (\err -> AdmissionError "journal" (showText err) :| []) (() <$ appended))
-    incompleteApplicationOnlyReview published events operation =
-      let document = reviewBundleDocument published
-          reviewed = reviewOperations document
-          changed = Map.keys (Map.differenceWith
-            (\desired base -> if desired == base then Nothing else Just desired)
-            (reviewDesiredRevisions document) (reviewBaseRevisions document))
-          scopes = mapMaybe (either (const Nothing) Just . decodeScope)
-            (Map.elems (reviewBundleScopes published))
-          selected = NE.toList (plannedResources operation)
-          previous = operationStates transaction events
-          otherSettled entry = plannedOperationId (reviewPlannedOperation entry) == operationId
-            || case Map.lookup (plannedOperationId (reviewPlannedOperation entry)) previous of
-              Nothing -> True
-              Just Pending -> True
-              Just (Completed _) -> True
-              _ -> False
-          owns scope resource = any (\bundle -> any
-            ((== resource) . Resource.declarationId) (Resource.declarations bundle))
-            (Resource.scopeBundles scope)
-       in case changed of
-            [owner] | scopeKind owner == Application -> case
-                [scope | scope <- scopes, Resource.scopeId scope == owner] of
-              [scope] -> all (\entry ->
-                  let planned = reviewPlannedOperation entry in
-                  plannedAction planned == CreateResource
-                    && plannedExecutor planned == KubernetesExecutor
-                    && isNothing (reviewFenceDigest entry)
-                    && all (owns scope) (NE.toList (plannedResources planned))) reviewed
-                && all otherSettled reviewed
-                && case [member | bundle <- Resource.scopeBundles scope,
-                    Resource.Managed member <- Resource.declarations bundle,
-                    [member ^. #identity] == selected] of
-                  [member] | member ^. #dataPolicy == Stateless -> case member ^. #address of
-                    Kubernetes _ "serving.knative.dev" kind (Just _) _ -> nameText kind == "service"
-                    _ -> False
-                  _ -> False
-              _ -> False
-            _ -> False
     scheduledPruneOnlyReview published operation =
       let reviewed = reviewOperations (reviewBundleDocument published)
           resource = NE.toList (plannedResources operation)

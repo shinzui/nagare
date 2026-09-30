@@ -2,12 +2,14 @@
 module Nagare.Inventory.Plan
   ( InventoryHistory
   , loadInventoryHistory
+  , loadInventoryPlanningHistory
   , historyHead
   , seedInventoryHistory
   , historyAccepted
   , historyConverged
   , historyRetained
   , historyReservations
+  , incompleteApplicationOnlyReview
   , ObservationRequirements
   , observationRequirements
   , requiredResources
@@ -103,6 +105,7 @@ data InventoryHistory = InventoryHistory
   , historyAccepted :: !(Map ScopeId (ScopeRevision, ScopeDeclaration))
   , historyConverged :: !(Map ScopeId ScopeRevision)
   , historyRetained :: !(Map ResourceId (RetainedIncarnation, ManagedResource))
+  , historyUnstartedCreates :: !(Set ResourceId)
   }
   deriving stock (Eq, Show)
 
@@ -149,7 +152,7 @@ loadInventoryHistory store = do
                   (Set.fromList (map snd (NE.toList (claimsOf (Managed source)))))
                   (Set.fromList (map snd (NE.toList (claimsOf (Managed destination)))))) -> pure ()
             _ -> Left (StoreInvalidObject "head.json" "active retained resource lacks a disjoint reviewed migration")
-        pure (InventoryHistory headValue accepted (headConverged headValue) historical)
+        pure (InventoryHistory headValue accepted (headConverged headValue) historical Set.empty)
   where
     loadScope inventoryStore (scope, revision) = do
       bytesResult <- readObject inventoryStore (scopeKey (revisionDigest revision))
@@ -202,6 +205,119 @@ loadInventoryHistory store = do
         proof <- maybe (Left (StoreInvalidObject key "migration proof is missing")) Right
           (Map.lookup resourceId (reviewMigrations document))
         pure (resourceId, proof)
+
+incompleteApplicationOnlyReview :: ReviewBundle -> [JournalEvent] -> TransactionId
+  -> OperationId -> PlannedOperation -> Bool
+incompleteApplicationOnlyReview published events transaction operationId operation =
+  let document = reviewBundleDocument published
+      reviewed = reviewOperations document
+      changed = Map.keys (Map.differenceWith
+        (\desired base -> if desired == base then Nothing else Just desired)
+        (reviewDesiredRevisions document) (reviewBaseRevisions document))
+      scopes = mapMaybe (either (const Nothing) Just . decodeScope)
+        (Map.elems (reviewBundleScopes published))
+      selected = NE.toList (plannedResources operation)
+      previous = operationStates transaction events
+      otherSettled entry = plannedOperationId (reviewPlannedOperation entry) == operationId
+        || case Map.lookup (plannedOperationId (reviewPlannedOperation entry)) previous of
+          Nothing -> True
+          Just Pending -> True
+          Just (Completed _) -> True
+          _ -> False
+      owns scope resource = any (\bundle -> any
+        ((== resource) . declarationId) (declarations bundle))
+        (scopeBundles scope)
+   in case changed of
+        [owner] | scopeKind owner == Application -> case
+            [scope | scope <- scopes, scopeId scope == owner] of
+          [scope] -> all (\entry ->
+              let planned = reviewPlannedOperation entry in
+              plannedAction planned == CreateResource
+                && plannedExecutor planned == KubernetesExecutor
+                && isNothing (reviewFenceDigest entry)
+                && all (owns scope) (NE.toList (plannedResources planned))) reviewed
+            && all otherSettled reviewed
+            && case [member | bundle <- scopeBundles scope,
+                Managed member <- declarations bundle,
+                [member ^. #identity] == selected] of
+              [member] | member ^. #dataPolicy == Stateless -> case member ^. #address of
+                Kubernetes _ "serving.knative.dev" kind (Just _) _ -> nameText kind == "service"
+                _ -> False
+              _ -> False
+          _ -> False
+        _ -> False
+
+-- Only an idle, unconverged application needs this exceptional history proof.
+-- Fetch one committed journal prefix, not a remote read per event. Neither an
+-- absent provider object nor a nonconverged revision alone proves no data was
+-- created. The original stopped review must still own this exact revision.
+loadInventoryPlanningHistory :: InventoryStore -> CompositionCandidate
+  -> IO (Either StoreError InventoryHistory)
+loadInventoryPlanningHistory store candidate = do
+  loaded <- loadInventoryHistory store
+  case loaded of
+    Left err -> pure (Left err)
+    Right history -> do
+      unstarted <- loadUnstartedApplicationCreates store selected (historyHead history)
+      pure ((\proof -> history {historyUnstartedCreates = proof}) <$> unstarted)
+  where
+    selected = Set.fromList [scopeId declaration | ReplaceScope declaration <- NE.toList (candidateChanges candidate)]
+
+loadUnstartedApplicationCreates :: InventoryStore -> Set ScopeId -> HeadManifest
+  -> IO (Either StoreError (Set ResourceId))
+loadUnstartedApplicationCreates store selectedOwners headValue
+  | not (isNothing (headActiveTransaction headValue)) || Set.null incomplete =
+      pure (Right Set.empty)
+  | otherwise = do
+      loaded <- readJournalPrefix store (headSequence headValue)
+      case loaded >>= traverse (first (StoreInvalidObject "journal") . decodeJournalEvent)
+          >>= first (StoreInvalidObject "journal") . validateJournal of
+        Left err -> pure (Left err)
+        Right events -> do
+          proofs <- traverse (loadProof events) [event | event <- events, stopped event]
+          pure (Set.unions <$> sequence proofs)
+  where
+    incomplete = Map.keysSet (Map.filterWithKey (\owner revision ->
+      Set.member owner selectedOwners && scopeKind owner == Application
+        && Map.lookup owner (headConverged headValue) /= Just revision)
+      (headAccepted headValue))
+    stopped event = case eventState event of
+      OperatorResolved marker -> case T.stripPrefix "stopped-incomplete-application:" marker of
+        Just token -> either (const False) (const True) (mkContentDigest token)
+        Nothing -> False
+      _ -> False
+    loadProof events stop = case (eventOperation stop,
+        T.stripPrefix "tx-" (transactionIdText (eventTransaction stop)) >>= either (const Nothing) Just . mkContentDigest) of
+      (Just selected, Just digest) -> do
+        published <- loadPublishedReview store digest
+        pure $ do
+          bundle <- published
+          let document = reviewBundleDocument bundle
+              prefix = takeWhile ((<= eventSequence stop) . eventSequence) events
+              transaction = eventTransaction stop
+              changed = Map.keysSet (Map.differenceWith
+                (\desired base -> if desired == base then Nothing else Just desired)
+                (reviewDesiredRevisions document) (reviewBaseRevisions document))
+              currentRevision = all (\owner ->
+                Map.lookup owner (reviewDesiredRevisions document) == Map.lookup owner (headAccepted headValue))
+                (Set.toList changed)
+              selectedOperations = [reviewPlannedOperation entry | entry <- reviewOperations document,
+                plannedOperationId (reviewPlannedOperation entry) == selected]
+              validStop = case selectedOperations of
+                [operation] -> incompleteApplicationOnlyReview bundle prefix transaction selected operation
+                _ -> False
+              neverStarted operation = all (\event ->
+                eventTransaction event /= transaction
+                  || eventOperation event /= Just (plannedOperationId operation)
+                  || eventState event == Pending) events
+          pure $ if reviewContextBinding document == headBinding headValue
+              && changed `Set.isSubsetOf` incomplete && not (Set.null changed)
+              && currentRevision && validStop && null (reviewBarriers document)
+            then Set.fromList [resource | entry <- reviewOperations document,
+              let operation = reviewPlannedOperation entry,
+              neverStarted operation, resource <- NE.toList (plannedResources operation)]
+            else Set.empty
+      _ -> pure (Left (StoreInvalidObject "journal" "application stop has no canonical review transaction or operation"))
 
 historyReservations :: InventoryHistory -> Map CanonicalClaim ClaimHolder
 historyReservations = retainedReservations . historyRetained
@@ -983,14 +1099,17 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
               ([], Nothing)
         Stateless -> ([], Just (resourceOperation CreateResource resource))
         Durable _ ->
-          (
-            [ PlanError
-                "durable-resource-missing"
-                "accepted durable resource is absent; recover its data before replanning"
-                [resourceId]
-            ]
-          , Nothing
-          )
+          if Set.member resourceId (historyUnstartedCreates history)
+              && sameManaged old resource
+            then ([], Just (resourceOperation CreateResource resource))
+            else
+              ( [ PlanError
+                    "durable-resource-missing"
+                    "accepted durable resource is absent; recover its data before replanning"
+                    [resourceId]
+                ]
+              , Nothing
+              )
       (Just _, Just (ObservedDrifted _ _)) -> ([], Just (resourceOperation UpdateResource resource))
       (Just _, Just (ObservedReplacementRequired _ _)) ->
         ([PlanError "replacement-review-required" "provider requires an explicit reviewed replacement or migration" [resourceId]], Nothing)

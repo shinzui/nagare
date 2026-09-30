@@ -1,0 +1,37 @@
+{
+  "acceptedRevisionsPreserved": true,
+  "convergedRevisionsPreserved": true,
+  "acceptedCount": 24,
+  "convergedCount": 23,
+  "resourceIdentitiesPreserved": [
+    {
+      "kind": "Service",
+      "name": "mp23-app-a",
+      "uid": "99316c5e-386c-4396-94b0-e1914c9b78ff"
+    },
+    {
+      "kind": "StatefulSet",
+      "name": "mp23-pg-a",
+      "uid": "f38c8493-9898-421e-b2d5-18001b27ca78"
+    },
+    {
+      "kind": "PersistentVolumeClaim",
+      "name": "nagare-db-mp23-pg-a-data",
+      "uid": "dcc135ca-5450-4c79-8e73-00fbc9f117f0"
+    }
+  ],
+  "installedRevision": "0f6fa7db6c07fb0154138b26ef6af9eef6d3c8f3",
+  "stopSeconds": 12.441,
+  "headGeneration": 579,
+  "journalSequence": 515,
+  "activeTransaction": null,
+  "executorClaim": null,
+  "dataFence": null,
+  "migration": null,
+  "correctedPlan": {
+    "seconds": 17.365,
+    "result": "refused durable-resource-missing for backup-signing-key; original create never executed"
+  },
+  "platformUpgrade": false,
+  "independentF16Closure": "pending"
+}

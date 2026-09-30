@@ -925,3 +925,18 @@ an application creation recovery boundary, not a general transaction abort.
 Knative Service configuration updates retain exclusive non-status field
 ownership checks and API-server UID/resourceVersion write preconditions. Actual
 cloud update acceptance remains required before claiming this consumer proved.
+
+A stopped application may admit durable members whose original creates never
+started. Accepted absence alone cannot distinguish these from lost data. For an
+idle unconverged Application revision only, load and validate the committed
+journal prefix and original stopped create review. The review must still name
+the exact accepted revision and pass the same application-only stop contract.
+Only creates with no committed state beyond Pending anywhere in that original
+transaction may receive a never-started proof. A corrected plan may create such
+a member only when its managed declaration is unchanged and fresh observation
+confirms absence. Completed, intent-recorded, ambiguous, foreign, changed, or
+superseded members retain normal refusal/recovery requirements. This proof
+changes neither accepted ownership nor the wire format and grants no provider
+overwrite authority. Only planning that selects the unconverged application loads this exceptional
+journal proof. Ordinary status, explain, native inspection and unrelated scope
+planning retain selected declaration reads and never trigger this journal scan.
