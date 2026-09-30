@@ -68,7 +68,11 @@
   },
   "structuralHaskellStyle": "passed",
   "commandRegistrationAudit": "passed",
-  "installedFinalCandidateVerification": "pending",
+  "installedFinalCandidateVerification": {
+    "result": "passed for exact Kubernetes no-operation retirement and eligible collection",
+    "revision": "8482c2f2382353b7ecd41f37c75c00a8f52dba9d",
+    "evidence": "cloud-installed-retirement-and-collection.json"
+  },
   "helmRetirementNativeVerification": "pending",
   "subsequentCollectionVerification": {
     "result": "refused before a review",

@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "installedPackage": {
+    "platformVersion": "0.4.0",
+    "revision": "8482c2f2382353b7ecd41f37c75c00a8f52dba9d",
+    "version": "0.4.0"
+  },
+  "immutableBuild": "passed",
+  "installedPublicBootstrapFixture": "passed",
+  "fixture": {
+    "context": "ep150-preview",
+    "project": "tan-ng-labs",
+    "payloadIdentity": "nagare-0.4.0-6082dbd6aac0"
+  },
+  "resource": "standalone:database-backup-personal-mp23-pg-a-mp23-pg-a-recovery/mp23-pg-a-recovery/job",
+  "physicalUid": "d29ec563-1059-43c6-bfe9-fc8eb5ca905a",
+  "retirement": {
+    "reviewDigest": "4e5e0109bebd7d48f18fc8e20ea01fcc0eee44ae132199cfdac4e2c60909a302",
+    "mutationOperations": 0,
+    "exactRetentionProofs": 1,
+    "foreignUidRefusal": {
+      "step": "f17-installed-retire-negative",
+      "exit": 1,
+      "seconds": 7.29
+    },
+    "exactHeadUnchangedOnRefusal": true,
+    "readOnlyKubectlCalls": 5,
+    "changedObservedUids": 1,
+    "liveObjectsChangedByFaultFixture": 0,
+    "originalReviewApply": {
+      "step": "f17-installed-retire-positive",
+      "exit": 0,
+      "seconds": 16.34
+    },
+    "sameCompleteJobStillPresent": true,
+    "otherAcceptedRevisionsPreserved": 27
+  },
+  "collection": {
+    "reviewDigest": "bc659e295b49fdd837e35d6a223bec229904831deb7d00aedaad648cea6df4ca",
+    "plan": {
+      "step": "f17-installed-collect-plan",
+      "exit": 0,
+      "seconds": 27.883
+    },
+    "apply": {
+      "step": "f17-installed-collect-apply",
+      "exit": 0,
+      "seconds": 20.622
+    },
+    "exactSelectedJobs": 1,
+    "jobAbsentAfterApply": true,
+    "acceptedAndConvergedRevisionsUnchanged": true,
+    "otherRetainedIncarnationsUnchanged": true
+  },
+  "preservation": {
+    "originalApplicationDatabasePvcUidsUnchanged": true,
+    "backupReceiptUnchanged": true,
+    "backupArchiveSelectedForDeletion": false,
+    "values": {
+      "app-a-data-after-job-collection": "1|mp23-after-backup",
+      "app-b-data-after-job-collection": "1|mp23-untouched-app-b",
+      "scratch-data-after-job-collection": "1|mp23-before-correction"
+    }
+  },
+  "finalHead": {
+    "generation": 713,
+    "sequence": 623,
+    "acceptedScopes": 27,
+    "convergedScopes": 27,
+    "retainedIncarnations": 2,
+    "activeTransaction": null,
+    "executorClaim": null
+  },
+  "helmRetirementNativeVerification": "pending",
+  "independentF17Closure": "pending",
+  "platformUpgradePerformed": false
+}
