@@ -240,8 +240,10 @@ import Nagare.Inventory.Adapters.GitHubRelease qualified as GitHubRelease
 import Nagare.Inventory.Adapters.GitHubReleaseRuntime (githubReleaseOps)
 import Nagare.Inventory.Adapters.Cache (cacheSpecsFromDeclarations, mkCacheAdapter)
 import Nagare.Inventory.Adapters.CacheRuntime qualified as CacheRuntime
-import Nagare.Inventory.Adapters.Host (mkHostAdapter)
+import Nagare.Inventory.Adapters.Host (HostActivationPlan (..), HostAdapterOps (..), mkHostAdapter)
 import Nagare.Inventory.Adapters.HostRuntime
+import Nagare.Inventory.BootstrapRegistryRecovery (mkBootstrapRegistryRecovery)
+import Nagare.Inventory.BootstrapRegistryTransport (runRegistryUnitTransport)
 import Nagare.Inventory.Adapters.Helm (HelmAdapterOps (..), helmStateHealth, mkHelmAdapter)
 import Nagare.Inventory.Adapters.HelmRuntime (HelmRuntimeConfig (..), helmRuntimeOps, helmObservation)
 import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps (..), KubernetesState (..), mkKubernetesAdapterWithBackupReceiptAndBatch)
@@ -820,6 +822,7 @@ data Command
   | InventoryApply FilePath Bool
   | InventoryResume String Bool Bool
   | InventoryRecover String String FilePath Bool
+  | InventoryRegistryRecoveryPlan String String FilePath
   | InventoryExport FilePath
   | InventoryRestore FilePath Bool
   | InventoryStatus Bool
@@ -2261,6 +2264,12 @@ opts =
                   (info (InventoryResume <$> strArgument (metavar "TRANSACTION") <*> switch (long "yes")
                     <*> switch (long "take-over") <**> helper) (progDesc "Resume an unresolved inventory transaction"))
                 <> command
+                  "registry-recovery-plan"
+                  (info (InventoryRegistryRecoveryPlan <$> strArgument (metavar "TRANSACTION")
+                    <*> strOption (long "operation" <> metavar "OPERATION")
+                    <*> strOption (long "out" <> metavar "FILE") <**> helper)
+                    (progDesc "Save bounded credential recovery for an existing bootstrap Deployment"))
+                <> command
                   "recover"
                   (info (InventoryRecover <$> strArgument (metavar "TRANSACTION")
                     <*> strOption (long "operation" <> metavar "OPERATION")
@@ -3281,6 +3290,10 @@ main = do
     InventoryResume transaction yes takeOver -> runInventoryResume mctx (T.pack transaction) yes takeOver
     InventoryRecover transaction operation decisionFile takeOver ->
       runInventoryRecover mctx (T.pack transaction) (T.pack operation) decisionFile takeOver
+    InventoryRegistryRecoveryPlan transaction operation output -> do
+      target <- activeTarget mctx
+      Inventory.prepareRegistryRecoveryWithFactory (inventoryExecutionRegistry mctx)
+        target (T.pack transaction) (T.pack operation) output
     InventoryExport output -> activeTarget mctx >>= \target -> Inventory.exportInventory target output
     InventoryRestore backup yes -> activeTarget mctx >>= \target -> Inventory.restoreInventory target backup yes
     InventoryStatus json -> runInventoryStatus mctx Nothing json Nothing
@@ -6904,9 +6917,48 @@ inventoryExecutionRegistry mctx store bundle = do
       withMaintenance <- either dieT pure (registerMaintenanceFence runtime binding
         (InventoryPlan.reviewDesiredRevisions document) scopes declarations
         maintenanceAcceptedNative registry)
-      either dieT pure (registerLiveRestoreFence runtime binding
+      withLiveRestore <- either dieT pure (registerLiveRestoreFence runtime binding
         (InventoryPlan.reviewDesiredRevisions document) scopes declarations
         liveRestoreAcceptedNative restoreRecovery verifyRecovery withMaintenance)
+      if active ^. #profile . #mode == Cloud
+          && "nagare-bootstrap:" `T.isPrefixOf` InventoryPlan.reviewPayloadIdentity document
+        then either dieT pure (InventoryAdapter.withAdapterRecovery withLiveRestore
+          (bootstrapRegistryRecovery active store bundle kubernetes))
+        else pure withLiveRestore
+
+-- Registry construction installs callbacks without native discovery. Only an
+-- explicit bounded recovery may load the completed historical host plan.
+bootstrapRegistryRecovery :: ActiveTarget -> InventoryStore.InventoryStore
+  -> InventoryPlan.ReviewBundle -> InventoryAdapter.Adapter
+  -> InventoryAdapter.AdapterRecovery
+bootstrapRegistryRecovery active store bundle kubernetes =
+  mkBootstrapRegistryRecovery store bundle (profile ^. #registryHost)
+    inspect units (InventoryAdapter.adapterRecover kubernetes)
+  where
+    profile = active ^. #profile
+    additions = [("NAGARE_CONTEXT", T.unpack (contextNameText (active ^. #contextName)))]
+    selectedWorkspace = snd <$> resolvePlatformWorkspace (active ^. #contextName)
+    inspect plan = do
+      root <- selectedWorkspace
+      let config = HostRuntimeConfig
+            { runtimeHostExecutable = root ^. #scriptsDir </> "inventory-host-transport.sh"
+            , runtimeHostEnvironment = additions
+            , runtimeHostContext = hostPlanContext plan
+            , runtimeHostAttribute = hostPlanAttribute plan
+            , runtimeHostProject = profile ^. #project
+            , runtimeHostZone = profile ^. #zone
+            , runtimeHostInstanceName = profile ^. #instanceName
+            , runtimeHostDestination = hostPlanDestination plan
+            , runtimeHostConfigurationDigest = hostPlanConfigurationDigest plan
+            , runtimeHostLockDigest = hostPlanLockDigest plan
+            , runtimeHostAgeKeyDigest = hostPlanAgeKeyDigest plan
+            , runtimeHostAccepted = True
+            }
+      hostInspectActivation (mkHostRuntimeOps config) plan
+    units plan deployment saved = do
+      root <- selectedWorkspace
+      runRegistryUnitTransport (root ^. #scriptsDir </> "iap-ssh.sh") additions
+        (profile ^. #instanceName) (profile ^. #registryHost) plan deployment saved
 
 -- Reconstruct maintenance source bytes from the still-accepted revisions.
 -- These are private replay inputs; the public review carries only digests.

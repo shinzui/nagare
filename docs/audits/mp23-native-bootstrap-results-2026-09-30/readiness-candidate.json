@@ -1,0 +1,25 @@
+{
+  "revision": "0c757b7410b3cdf14cdaa026cd2ca9b6f6427de2",
+  "sourceHashes": {
+    "cli/nagarectl/src/Nagare/Inventory/Adapter.hs": "6d209eba896d4ffe580cb4a1ac29a91edc97696330f5af1cfe1ce383487a2128",
+    "cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs": "79e9e5e4d91f9d1bf84522031fa8b94b3d57d6f348f5af4c04085b3f92a445ce",
+    "cli/nagarectl/src/Nagare/Inventory/Components/Upstream.hs": "becca5cdba6802cd125c7f631953a498932994a1baba69f08383ad29f79945d5",
+    "cli/nagarectl/src/Nagare/Inventory/Execute.hs": "fffde2851fb42ae154c5a77dcac1ccc665f5218ce7f49deb465d89ddad1ac475",
+    "cli/nagarectl/test/InventoryKubernetesSpec.hs": "f9261ee3b7b08a4b8bdc01d7e8b3df3c6010b0faa18a1c4525c5b45028c0f4d2",
+    "cli/nagarectl/test/InventoryTransactionSpec.hs": "2749650844d6bf0e92186f2c1bbf04d41e06f2b27af7e091bdd3fd42eac37621",
+    "cli/nagarectl/test/InventoryUpstreamSpec.hs": "455f08db5c4c16ccc09d3124fd64dee4c46365307779bfcd1fb4698ae4e1323d"
+  },
+  "cliTests": {
+    "passed": 987
+  },
+  "publicBootstrapFixture": "passed",
+  "commandRegistrationAudit": "passed",
+  "injectedMutationRefusal": "passed",
+  "structuralHaskellStyle": "passed",
+  "fourmolu": {
+    "candidate": "existing file-wide drift",
+    "baseline": "also fails for the same files"
+  },
+  "nativeOriginalTransactionRecovery": "proved: original activator completion at sequence 372; unchanged Deployment and pod UIDs; overall bootstrap blocked by F15",
+  "independentF14Closure": "pending"
+}

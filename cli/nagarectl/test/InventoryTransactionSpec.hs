@@ -2,7 +2,7 @@ module InventoryTransactionSpec (inventoryTransactionTests, exerciseStore, fixtu
 
 import Control.Concurrent (threadDelay)
 import Control.Monad (forM_)
-import Data.Aeson (eitherDecode, encode, toJSON)
+import Data.Aeson (eitherDecode, encode, object, toJSON, (.=))
 import Data.ByteString qualified as BS
 import Data.Either (isLeft)
 import Data.Generics.Labels ()
@@ -17,9 +17,13 @@ import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Helm
+import Nagare.Inventory.Adapters.Host
+import Nagare.Inventory.Adapters.Kubernetes
+import Nagare.Inventory.BootstrapRegistryRecovery
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Execute hiding (withProcessLock)
 import Nagare.Inventory.Journal
+import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.Lifecycle (AdoptionInput (..), AdoptionTarget (..), decideAdoption, decideRetirement)
 import Nagare.Inventory.Plan
 import Nagare.Inventory.OperationStep
@@ -27,6 +31,7 @@ import Nagare.Inventory.Status qualified as InventoryStatus
 import Nagare.Inventory.Store
 import Nagare.Resource.Cache (LogicalCacheInput (..), compileLogicalCache)
 import Nagare.Resource.Inventory
+import Nagare.Resource.Kubernetes (KubernetesInput (..))
 import Nagare.Resource.Policy
 import Nagare.Resource.Reference (Dependency (..), OutputConstraint (NonEmptyOutput), SomeRef (..), Witness (NixCachePublicKeyW), outputRef)
 import Nagare.Resource.Types
@@ -1370,6 +1375,175 @@ inventoryTransactionTests =
         resumed <- resumeTransaction store registry transaction >>= expectRight
         case resumed of Converged value -> value @?= transaction; other -> assertFailure (show other)
         length <$> readIORef calls >>= (@?= 1)
+    , testCase "bounded registry recovery journals intent and requires actual workload readiness" $ do
+        store <- newMemoryStore
+        effects <- newIORef (0 :: Int)
+        prerequisite <- newIORef False
+        ready <- newIORef False
+        loseAcknowledgement <- newIORef True
+        let executeOnce _ _ = pure (AdapterEffectAmbiguous "image pull pending")
+            recover operation _ = do
+              complete <- readIORef ready
+              pure (if complete then RecoveryProvedComplete (proof operation)
+                else RecoveryAwaitingReadiness (ok (mkPhysicalIdentity "deployment-uid")))
+            native = "saved bounded host recovery"
+            receipt = contentDigest "unit recovery receipt"
+            capability = AdapterRecovery "bootstrap-registry-credentials"
+              (\_ _ -> pure (Right native))
+              (\_ _ bytes -> pure (if bytes == native then Right () else Left "foreign proof"))
+              (\_ _ _ -> do
+                headValue <- readHead store >>= expectRight >>= maybe
+                  (assertFailure "head missing") pure
+                assertBool "effect lacks a durable executor claim" (isJust (headExecutorClaim headValue))
+                events <- readJournalPrefix store (headSequence headValue) >>= expectRight
+                event <- either (assertFailure . T.unpack) pure (decodeJournalEvent (last events))
+                eventState event @?= OperatorResolved
+                  ("bootstrap-registry-intent:" <> digestText (contentDigest native))
+                landed <- readIORef prerequisite
+                unless landed (modifyIORef' effects (+ 1) >> writeIORef prerequisite True)
+                lost <- atomicModifyIORef' loseAcknowledgement (\old -> (False, old))
+                pure (if lost then Left "lost acknowledgement" else Right receipt))
+        (reviewed, original) <- preparedFixtureWith store executeOnce recover
+        registry <- either (assertFailure . T.unpack) pure (withAdapterRecovery original capability)
+        (transaction, operation) <- applyReviewed store registry reviewed >>= expectRight >>= \case
+          StoppedAmbiguous tx selected -> pure (tx, selected)
+          other -> assertFailure (show other) >> undefined
+        input <- prepareBootstrapRegistryRecovery store registry transaction operation
+          >>= either (assertFailure . T.unpack) pure
+        let originalDigest = contentDigest (encodeReviewDocument (reviewedDocument reviewed))
+        recoveryReview input @?= originalDigest
+        firstAttempt <- recordOperatorRecovery store registry input False
+        assertBool "lost acknowledgement unexpectedly proved completion" (isLeft firstAttempt)
+        before <- readHead store >>= expectRight
+        assertBool "claim was not released" (isNothing (before >>= headExecutorClaim))
+        blocked <- resumeTransaction store registry transaction >>= expectRight
+        case blocked of
+          StoppedFailed tx selected (PartialOrUnknown _) ->
+            (tx, selected) @?= (transaction, operation)
+          other -> assertFailure ("unresolved registry intent was not blocked: " <> show other)
+        -- Another capsule cannot overwrite the unresolved intent.
+        _ <- publishIfAbsent store (objectKeyFor "native" (contentDigest "foreign")) "foreign" >>= expectRight
+        changedProof <- recordOperatorRecovery store registry
+          (input {recoveryAction = RecoverBootstrapRegistry (contentDigest "foreign")}) False
+        assertBool "a different capsule replaced unresolved intent" (isLeft changedProof)
+        -- A ready Deployment alone cannot clear possibly pending host effects.
+        writeIORef ready True
+        ordinaryProof <- recordOperatorRecovery store registry
+          (input {recoveryAction = AcceptAdapterProof}) False
+        assertBool "ordinary workload proof bypassed the unsettled host intent" (isLeft ordinaryProof)
+        recordOperatorRecovery store registry input False >>= expectRight
+        readIORef effects >>= (@?= 1)
+        -- The explicit same-proof route settles host intent even after readiness.
+        current <- readHead store >>= expectRight >>= maybe (assertFailure "head missing") pure
+        events <- readJournalPrefix store (headSequence current) >>= expectRight
+          >>= either (assertFailure . T.unpack) pure . traverse decodeJournalEvent
+        Map.lookup operation (operationStates transaction events) @?= Just
+          (OperatorResolved ("bootstrap-registry-proved:" <> digestText (contentDigest native)
+            <> ":" <> digestText receipt))
+        writeIORef ready True
+        resumeTransaction store registry transaction >>= expectRight >>= (@?= Converged transaction)
+        readIORef effects >>= (@?= 1)
+    , testCase "registry recovery binds completed host history and original private Deployment" $ do
+        store <- newMemoryStore
+        effects <- newIORef (0 :: Int)
+        hostDrift <- newIORef False
+        deploymentDrift <- newIORef False
+        lostUnitReceipt <- newIORef True
+        unitState <- newIORef (RegistryUnitSnapshot 10 "original" "node" False True "boot" False)
+        (bundle, reviewed, registry) <- preparedRegistryFixture store
+        let physical = ok (mkPhysicalIdentity "deployment-uid")
+            recover operation _ = do
+              changed <- readIORef deploymentDrift
+              current <- readIORef unitState
+              pure (if registryDeploymentReady current && not changed
+                then RecoveryProvedComplete (proof operation)
+                else RecoveryAwaitingReadiness
+                  (if changed then ok (mkPhysicalIdentity "replacement-uid") else physical))
+            inspect plan = do
+              changed <- readIORef hostDrift
+              pure (HostCommitted (hostPlanInstance plan)
+                (if changed then "changed-closure" else hostPlanNewClosure plan)
+                (contentDigest "fresh-login"))
+            units _ uid saved = do
+              uid @?= physical
+              case saved of
+                Nothing -> Right <$> readIORef unitState
+                Just original -> do
+                  current <- readIORef unitState
+                  case registryReplayRequired original current of
+                    Left reason -> pure (Left reason)
+                    Right (False, False) -> pure (Right current)
+                    Right _ -> do
+                      modifyIORef' effects (+ 1)
+                      let completed = original {registryUnitStart = 20,
+                            registryK3sInvocation = "restarted", registryTokenFresh = True}
+                      writeIORef unitState completed
+                      lost <- atomicModifyIORef' lostUnitReceipt (\old -> (False, old))
+                      pure (if lost then Left "lost unit receipt" else Right completed)
+            capability = mkBootstrapRegistryRecovery store bundle "registry.example.test"
+              inspect units recover
+        liveRegistry <- either (assertFailure . T.unpack) pure (mkAdapterRegistry
+          [ok (lookupAdapter registry HostExecutor),
+           (ok (lookupAdapter registry KubernetesExecutor)) {adapterRecover = recover}])
+        withRecovery <- either (assertFailure . T.unpack) pure (withAdapterRecovery liveRegistry capability)
+        (transaction, operation) <- applyReviewed store withRecovery reviewed >>= expectRight >>= \case
+          StoppedAmbiguous tx selected -> pure (tx, selected)
+          other -> assertFailure (show other) >> undefined
+        input <- prepareBootstrapRegistryRecovery store withRecovery transaction operation
+          >>= either (assertFailure . T.unpack) pure
+        writeIORef hostDrift True
+        recordOperatorRecovery store withRecovery input False >>= \value ->
+          assertBool "changed committed host authorized registry effects" (isLeft value)
+        readIORef effects >>= (@?= 0)
+        writeIORef hostDrift False
+        writeIORef deploymentDrift True
+        recordOperatorRecovery store withRecovery input False >>= \value ->
+          assertBool "replacement Deployment authorized registry effects" (isLeft value)
+        writeIORef deploymentDrift False
+        original <- readIORef unitState
+        writeIORef unitState (original {registryNodeUid = "replacement-node"})
+        recordOperatorRecovery store withRecovery input False >>= \value ->
+          assertBool "replacement node authorized registry effects" (isLeft value)
+        readIORef effects >>= (@?= 0)
+        writeIORef unitState original
+        firstEffect <- recordOperatorRecovery store withRecovery input False
+        assertBool "lost unit receipt unexpectedly cleared intent" (isLeft firstEffect)
+        readIORef effects >>= (@?= 1)
+        -- Even after reboot/readiness, the exact saved capsule can settle the
+        -- now-unnecessary prerequisite without repeating either host phase.
+        modifyIORef' unitState (\current -> current {registryDeploymentReady = True,
+          registryTokenFresh = False, registryPullFailure = False, registryBootId = "new-boot"})
+        recordOperatorRecovery store withRecovery input False >>= expectRight
+        readIORef effects >>= (@?= 1)
+        resumeTransaction store withRecovery transaction >>= expectRight >>= (@?= Converged transaction)
+    , testCase "registry unit recovery preserves landed phases across expiry and settles ready workloads" $ do
+        let saved = RegistryUnitSnapshot 10 "original" "node" False True "boot" False
+        registryReplayRequired saved saved @?= Right (True, True)
+        let refreshed = saved {registryUnitStart = 20, registryTokenFresh = True}
+        registryReplayRequired saved refreshed @?= Right (False, True)
+        let completed = refreshed {registryK3sInvocation = "new"}
+        registryReplayRequired saved completed @?= Right (False, False)
+        registryReplayRequired saved (completed {registryTokenFresh = False}) @?= Right (False, False)
+        registryReplayRequired saved (refreshed {registryTokenFresh = False}) @?= Right (True, True)
+        registryReplayRequired saved (saved {registryDeploymentReady = True, registryBootId = "new-boot"})
+          @?= Right (False, False)
+        forM_ [ saved {registryNodeUid = "other"}
+          , saved {registryBootId = "other"}
+          , saved {registryK3sInvocation = "new"}
+          , saved {registryDeploymentReady = True, registryNodeUid = "replacement"}
+          , saved {registryUnitStart = 0} ] $ \current ->
+            assertBool "unproved phase combination authorized a unit action"
+              (isLeft (registryReplayRequired saved current))
+    , testCase "registry intent and receipt markers accept only exact digests" $ do
+        let native = contentDigest "native"
+            receipt = contentDigest "receipt"
+        bootstrapRecoveryMarker ("bootstrap-registry-intent:" <> digestText native)
+          @?= Just (native, Nothing)
+        bootstrapRecoveryMarker ("bootstrap-registry-proved:" <> digestText native
+          <> ":" <> digestText receipt) @?= Just (native, Just receipt)
+        forM_ ["bootstrap-registry-proved:any:any", "bootstrap-registry-intent:",
+          "bootstrap-registry-proved:" <> digestText native <> ":" <> digestText receipt <> ":extra"] $ \marker ->
+            bootstrapRecoveryMarker marker @?= Nothing
     , testCase "operator recovery records only the adapter-proved action" $ do
         store <- newMemoryStore
         calls <- newIORef (0 :: Int)
@@ -1863,6 +2037,84 @@ preparedReadinessFixture store dependent policy kind effect recovery = do
   snapshot <- readStoreSnapshot store >>= expectRight
   reviewed <- either (assertFailure . show . NE.toList) pure (verifyReview snapshot bundle)
   pure (reviewed, registry)
+
+preparedRegistryFixture :: InventoryStore -> IO (ReviewBundle, ReviewedPlan, AdapterRegistry)
+preparedRegistryFixture store = do
+  _ <- initializeStore store fixtureBinding "registry-bootstrap" >>= expectRight
+  let hostOwner = ok (mkScopeId Platform "host")
+      owner = ok (mkScopeId Platform "net-certmanager")
+      cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+      hostMember = case member hostOwner cluster "system" of
+        Managed resource -> Managed (resource {executor = HostExecutor,
+          address = Host cluster (ok (mkName "system"))})
+        other -> other
+      controllerId = declarationId (member owner cluster "net-certmanager-controller")
+      rawObject = object ["apiVersion" .= ("apps/v1" :: Text), "kind" .= ("Deployment" :: Text),
+        "metadata" .= object ["name" .= ("net-certmanager-controller" :: Text),
+          "namespace" .= ("knative-serving" :: Text)], "spec" .= object
+        ["template" .= object ["spec" .= object ["containers" .=
+          [object ["name" .= ("controller" :: Text),
+            "image" .= ("registry.example.test/controller@sha256:" <> T.replicate 64 "a")]]]]]]
+      (controllerMember, nativeObject) = ok (bindKubernetesObject (KubernetesInput
+        controllerId owner cluster rawObject (contentDigest (ok (canonicalValue rawObject)))
+        Retain Stateless Public (SourceLocation "test" "registry controller")))
+      controller = Managed controllerMember
+      hostActivation = DeclaredOperation
+        (mintResourceId hostOwner (ok (mkLogicalKey "activation")) (ok (mkName "apply")))
+        (declarationId hostMember :| [])
+        [ContentInput (contentDigest "configuration"), ContentInput (contentDigest "lock")]
+        OperatorRecovery ActivateHost
+      hostScope = ok (mkScopeDeclaration hostOwner
+        [ResourceBundle [hostMember] [] [] [] [hostActivation] []])
+      controllerScope = ok (mkScopeDeclaration owner [ResourceBundle [controller] [] [] [] [] []])
+      hostPlan operation = HostActivationPlan 1 (plannedOperationId operation)
+        (plannedInputDigest operation) (fixtureBinding ^. #identity)
+        (ok (mkName "host")) (ok (mkPhysicalIdentity "gce://projects/project/zones/zone/instances/123"))
+        "deploy@host" (contentDigest "configuration") (contentDigest "lock") Nothing
+        "/nix/store/old-test-closure" "/nix/store/accepted-test-closure" "activation"
+      kubernetes = mkKubernetesAdapter (Map.singleton controllerId (controllerMember, nativeObject))
+        (KubernetesAdapterOps (fixtureBinding ^. #identity)
+          (\_ -> pure (KubernetesAbsent (contentDigest "absent")))
+          (\_ -> pure AdapterEffectCompleted))
+      base = recordingRegistry
+        (\operation _ -> pure (if plannedExecutor operation == HostExecutor
+          then AdapterEffectCompleted else AdapterEffectAmbiguous "pull failure"))
+        (\_ _ -> pure (RecoveryAwaitingReadiness (ok (mkPhysicalIdentity "deployment-uid"))))
+      adapter executor = (ok (lookupAdapter base executor))
+        { adapterIdentity = if executor == HostExecutor then "nixos-safe-activation"
+            else "kubernetes-conditional-object"
+        , adapterPrepare = \operation -> if executor == HostExecutor
+            then pure (Right (PreparedNative
+              (ok (canonicalValue (toJSON (hostPlan operation)))) "accepted host"))
+            else adapterPrepare kubernetes operation }
+      registry = ok (mkAdapterRegistry (map adapter [HostExecutor, KubernetesExecutor]))
+      save payload scope = do
+        history <- loadInventoryHistory store >>= expectRight
+        let snapshot = ok (mkScopeSnapshot fixtureBinding
+              (Map.map (\(revision, scope) -> (revisionGeneration revision, scope))
+                (historyAccepted history)) Map.empty)
+            candidate = ok (composeInventory snapshot (ReplaceScope scope :| []))
+            acceptedIds = Set.fromList [declarationId declaration
+              | (_, (_, accepted)) <- Map.toList (historyAccepted history)
+              , resourceBundle <- scopeBundles accepted
+              , declaration <- declarations resourceBundle]
+            required = requiredResources (observationRequirements candidate history)
+            observations = ok (observationSet [(resource,
+              if Set.member resource acceptedIds then ObservedPresent (ok (mkPhysicalIdentity "accepted"))
+              else ConfirmedAbsent (contentDigest "absent")) | resource <- Set.toList required])
+            proposal = ok (planChanges candidate noLifecycleDecisions history observations)
+        before <- readStoreSnapshot store >>= expectRight
+        bundle <- prepareReviewWithPayloadIdentity payload registry before proposal >>= expectRight
+        _ <- publishReview store bundle >>= expectRight
+        after <- readStoreSnapshot store >>= expectRight
+        reviewed <- either (assertFailure . show . NE.toList) pure (verifyReview after bundle)
+        pure (bundle, reviewed)
+  (_, hostReview) <- save "host-policy" hostScope
+  applyReviewed store registry hostReview >>= expectRight >>= \case
+    Converged _ -> pure ()
+    other -> assertFailure ("host fixture did not converge: " <> show other)
+  (bundle, reviewed) <- save "nagare-bootstrap:original-payload" controllerScope
+  pure (bundle, reviewed, registry)
 
 recordingRegistry :: (PlannedOperation -> PreparedNative -> IO AdapterExecution) -> (PlannedOperation -> PreparedNative -> IO RecoveryDecision) -> AdapterRegistry
 recordingRegistry execution recovery =

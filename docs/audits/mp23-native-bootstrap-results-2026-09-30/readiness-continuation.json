@@ -1,0 +1,80 @@
+{
+  "cliRevision": "0c757b7410b3cdf14cdaa026cd2ca9b6f6427de2",
+  "payloadId": "nagare-0.4.0-6082dbd6aac0",
+  "resume": {
+    "step": "resume",
+    "exit": 1,
+    "seconds": 54.204,
+    "cliRevision": "0c757b7410b3cdf14cdaa026cd2ca9b6f6427de2",
+    "payloadId": "nagare-0.4.0-6082dbd6aac0"
+  },
+  "after": {
+    "activeTransaction": "tx-1006f60f5e9afcf3e8e73b98462187b3cef1c268bcdb7035dccb6ab65e3262f1",
+    "binding": {
+      "identity": "ep150-preview",
+      "project": "tan-ng-labs"
+    },
+    "dataFence": null,
+    "executorClaim": null,
+    "generation": 424,
+    "headDigest": "d519cea5eeaa9f77efb02fd4613446769ae8f662436da84e9be95e178576ae98",
+    "kind": "gcs",
+    "migration": null,
+    "url": "gs://tan-ng-labs-ep150-pmkjjpp-state/inventory"
+  },
+  "deployments": [
+    {
+      "name": "activator",
+      "uid": "c4f97afa-c174-4535-bdb6-92f9ab7ea7f7",
+      "ready": 0
+    },
+    {
+      "name": "autoscaler",
+      "uid": "06edf482-c99d-44f3-8725-a4ed13a925eb",
+      "ready": 1
+    },
+    {
+      "name": "controller",
+      "uid": "72f949e7-1d72-4860-bae1-ad30f7c6c58d",
+      "ready": 1
+    },
+    {
+      "name": "webhook",
+      "uid": "5d3f6bf9-2e26-4414-a425-7dd8e4811f11",
+      "ready": 1
+    }
+  ],
+  "activatorUidPreserved": true,
+  "diagnosis": "earlier liveness failures put activator in a five-minute container restart backoff; autoscaler endpoints now Ready; wait for controller-managed restart with original pod and Deployment identities",
+  "secondResume": {
+    "step": "resume-2",
+    "exit": 1,
+    "seconds": 436.558,
+    "cliRevision": "0c757b7410b3cdf14cdaa026cd2ca9b6f6427de2",
+    "payloadId": "nagare-0.4.0-6082dbd6aac0"
+  },
+  "afterSecondResume": {
+    "activeTransaction": "tx-1006f60f5e9afcf3e8e73b98462187b3cef1c268bcdb7035dccb6ab65e3262f1",
+    "binding": {
+      "identity": "ep150-preview",
+      "project": "tan-ng-labs"
+    },
+    "dataFence": null,
+    "executorClaim": null,
+    "generation": 469,
+    "headDigest": "1b1dc15dbe0a6f4b19de31c76d5ad4ba2fede31cd3dff33b447bb93de1d1df76",
+    "kind": "gcs",
+    "migration": null,
+    "url": "gs://tan-ng-labs-ep150-pmkjjpp-state/inventory"
+  },
+  "activatorCompletion": {
+    "operation": "op-20d6ec98f9c99327a21d7fcf",
+    "state": {
+      "contents": "013803e35984a35348323ab8f3773c89d8f67f893ef4ee8f6f242035c64ac6f0",
+      "tag": "Completed"
+    },
+    "detail": "adapter recovery proved completion",
+    "sequence": 372
+  },
+  "remainingBlocker": "net-certmanager-controller ImagePullBackOff: registry token request 401 Unauthorized; host credential refresh lacks knative-serving/controller coverage"
+}

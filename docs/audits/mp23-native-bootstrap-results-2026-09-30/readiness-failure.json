@@ -1,0 +1,40 @@
+{
+  "deployments": [
+    {
+      "name": "activator",
+      "uid": "c4f97afa-c174-4535-bdb6-92f9ab7ea7f7",
+      "ready": 0,
+      "available": 0
+    }
+  ],
+  "healthcheckEvidence": [
+    {
+      "message": "Failed to send ping message to ws://autoscaler.knative-serving.svc.cluster.local:8080",
+      "error": "connection has not yet been established"
+    },
+    {
+      "message": "Failed to send ping message to ws://autoscaler.knative-serving.svc.cluster.local:8080",
+      "error": "connection has not yet been established"
+    }
+  ],
+  "reviewDigest": "1006f60f5e9afcf3e8e73b98462187b3cef1c268bcdb7035dccb6ab65e3262f1",
+  "apply": {
+    "step": "apply",
+    "exit": 1,
+    "seconds": 1032.826
+  },
+  "after": {
+    "activeTransaction": "tx-1006f60f5e9afcf3e8e73b98462187b3cef1c268bcdb7035dccb6ab65e3262f1",
+    "binding": {
+      "identity": "ep150-preview",
+      "project": "tan-ng-labs"
+    },
+    "dataFence": null,
+    "executorClaim": null,
+    "generation": 416,
+    "headDigest": "3cd2bb79c02007a96e8173a77314feea23f5768f51da3e8adfd55cee739095af",
+    "kind": "gcs",
+    "migration": null,
+    "url": "gs://tan-ng-labs-ep150-pmkjjpp-state/inventory"
+  }
+}

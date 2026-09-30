@@ -100,7 +100,18 @@ readiness-proof, same-transaction continuation and refusal cases. The managed
 command audit and structural Haskell style check pass. Fourmolu check reports
 existing file-wide formatting drift; the unrelated formatting debt is retained
 and remains a final package/release check concern. The installed native recovery
-has not yet been accepted.
+has not yet converged; the bounded continuation below records actual progress.
+
+The [redacted failure](mp23-native-bootstrap-results-2026-09-30/readiness-failure.json)
+retains the activator UID, healthcheck message, elapsed apply time and stopped
+head. The [candidate source identities](mp23-native-bootstrap-results-2026-09-30/readiness-candidate.json)
+retain exact revision `0c757b7410b3cdf14cdaa026cd2ca9b6f6427de2`, hashes and
+named acceptance results. The complete public bootstrap fixture also passes,
+including original lost-acknowledgement resume, changed host-input refusals,
+second-root credential recovery and the full cluster review. Cold/warm read-only
+SDK CLI probes against the retained cloud head take 10.046/4.705 seconds and
+preserve its object generation. These are bounded regression results, not native
+cluster convergence.
 
 The existing local application archive is ARM64. A separate Linux AMD64
 stdlib HTTP fixture built against the existing Python 3.12 example's image
@@ -117,3 +128,47 @@ payload version through an unsupported path now.
 
 Private continuation evidence is retained separately at
 `/tmp/nagare-mp23-cloud-continuation-20260930-login-restored`.
+
+## Installed original-review readiness continuation
+
+Installed CLI `0c757b7410b3cdf14cdaa026cd2ca9b6f6427de2` built successfully.
+The public `platform root --json` command selects the original installed payload
+`nagare-0.4.0-6082dbd6aac0` with its unchanged digest and workspace; no context
+payload/version transition occurred. Public pre-resume status verifies exact
+unchanged generation 416 and no claim/fence. Original-review `inventory resume`
+creates webhook, controller and autoscaler through the journal. All three become
+Ready. It stops after 54.204 seconds with activator still uncompleted; generation
+424 retains the same transaction and no claim/fence. The activator Deployment UID
+remains `c4f97afa-c174-4535-bdb6-92f9ab7ea7f7`. See the
+[redacted continuation](mp23-native-bootstrap-results-2026-09-30/readiness-continuation.json).
+
+The original pod has nine container restarts from earlier liveness failures and
+is in Kubernetes' five-minute restart backoff. Autoscaler has a Ready endpoint
+on port 8080. Wait for its ordinary container restart and actual availability
+with a bounded read-only condition watch. A rollout-status watch refuses the
+previously exceeded progress deadline immediately; use the Availability
+condition rather than pretending that stale status is successful. No raw
+restart, object replacement, review rewrite or manufactured completion is
+authorized by this observation. Resume again only after new readiness evidence.
+Private evidence is retained at `/tmp/nagare-mp23-readiness-recovery-20260930`.
+
+The ordinary restart restores activator availability with its original Deployment
+and pod UIDs. A second public resume takes 436.558 seconds and records the
+activator's real adapter completion at journal sequence 372. It continues through
+Kourier and certificate-controller configuration, then stops naturally at the
+private `net-certmanager-controller` image pull: Artifact Registry responds 401.
+Shared generation 469/digest
+`1b1dc15dbe0a6f4b19de31c76d5ad4ba2fede31cd3dff33b447bb93de1d1df76`
+retains the original transaction and no claim/fence/migration. Public status takes
+4.206 seconds. This establishes installed F14 recovery; F15 now blocks bootstrap.
+
+The accepted host's boot registry token has expired. Recurring pull Secrets cover
+only the `personal` and `nagare-system` default accounts, while this private
+controller uses the `knative-serving` controller account. A bounded recovery
+candidate binds the original Deployment to its accepted host activation and unit
+stamps, journals intent, and replays only the unchanged host's bootstrap credential
+policy plus k3s restart. All 991 CLI tests pass (49.47 seconds), including real completed host-history/private Deployment binding, lost acknowledgement, same-proof replay and drift/marker refusals. The complete public bootstrap fixture, command audit/injected-mutation fixture and structural style checks pass; both new modules pass Fourmolu. Installed recovery proof remains pending.
+No such host effect has run. General steady credential coverage remains an initial
+safe-use requirement; a successful one-time recovery will not establish that gate.
+
+The final source recheck passes all 991 CLI tests in 74.29 seconds and seven selected registry tests in 0.05 seconds. The recovery transport locks before inspection, refuses pending unit jobs, preserves landed phase proof across credential expiry, and permits read-only settlement when the original Deployment becomes ready. A lost host acknowledgement cannot be cleared through ordinary Kubernetes proof; the exact saved recovery capsule must first establish quiescent host execution. Production capability regression proves readiness after lost acknowledgement and changed boot requires no repeated unit effect. Installed proof remains pending.

@@ -1,0 +1,47 @@
+{
+  "candidateBaseRevision": "0c757b7410b3cdf14cdaa026cd2ca9b6f6427de2",
+  "sourceHashes": {
+    "cli/nagarectl/app/Main.hs": "45a39ddc859068fbdf8940bd2dbae840b5dd88b3850a73d75b36d9265a83bd97",
+    "cli/nagarectl/nagarectl.cabal": "3dce33ec77e6b4ccd7f73d79c82e754fd417da645db98cf3f9288cfd26277886",
+    "scripts/audit-managed-commands.py": "a8cc2cd6d4a980d423e730b9bedf2940867439c4a8a1260a044085b7e35855e3",
+    "cli/nagarectl/src/Nagare/Inventory/Adapter.hs": "ad92f503ec937263eb219b47fd5d9288b0b198ea4884659e9bfa8de18abd52f6",
+    "cli/nagarectl/src/Nagare/Inventory/Command.hs": "11ea92314d8e73a1f6de69501d03385b41bf652ae7cb32c2fb09bfdfe07b643b",
+    "cli/nagarectl/src/Nagare/Inventory/Execute.hs": "884369c390eb9ba6775b4bc74539804e7b80da049525e13500c43ffb788c540b",
+    "cli/nagarectl/src/Nagare/Inventory/Journal.hs": "f17b55ab08fe9097e7eb6b9a3c5fe88c3fa68cf0903e1dcb61996859003559f3",
+    "cli/nagarectl/src/Nagare/Inventory/OperationStep.hs": "1e99f8748cd3f492894f9d5f02e2d3b5fc9432d5fbadaee789dcf48eb004b63e",
+    "cli/nagarectl/src/Nagare/Inventory/BootstrapRegistryRecovery.hs": "9dc8f3e0bbcdb3407bcacb09487ee2489c47d3560cfc9fce152775f9a45d3dd9",
+    "cli/nagarectl/src/Nagare/Inventory/BootstrapRegistryTransport.hs": "efe7a5feba079c76c2235eb45ab0f2fa1cfe6a680cb3dc423e76ebb7ef95b616",
+    "cli/nagarectl/test/InventoryTransactionSpec.hs": "901986ef94ff35830a872fa36f75300146a3a8180873a14b7bb501f320cab1a8"
+  },
+  "cliTests": {
+    "passed": 991,
+    "seconds": 74.29
+  },
+  "focusedRegistryTests": {
+    "passed": 7,
+    "seconds": 0.05
+  },
+  "publicBootstrapFixture": "passed",
+  "commandRegistrationAudit": {
+    "registeredRoutes": 141,
+    "recipes": 34,
+    "libraryCalls": 29,
+    "errors": 0,
+    "incomplete": true
+  },
+  "injectedMutationRefusal": "passed",
+  "structuralHaskellStyle": "passed",
+  "newModulesFourmolu": "passed",
+  "fixedRemoteScriptBashSyntax": "passed",
+  "nativeRecovery": "pending; no host unit effect performed",
+  "steadyPrivatePlatformCredentialCoverage": "pending",
+  "independentF15Closure": "pending",
+  "recoveryEdges": [
+    "native lock acquired before inspection/effects; active old transport or unit jobs refuse",
+    "ordinary workload proof cannot bypass unresolved host intent",
+    "same saved capsule settles quiescent original ready workload without repeated host effects",
+    "completed unit stamps remain proved after token expiry",
+    "known stale partial credentials renew accepted policy before still-unperformed restart",
+    "changed node or unproved restart refuses; changed boot refuses unit replay"
+  ]
+}

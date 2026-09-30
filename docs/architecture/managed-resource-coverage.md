@@ -8,7 +8,7 @@ authority.
 <!-- managed-command-registry:start -->
 | Entrypoint | Registered routes | Unresolved routes |
 | --- | ---: | --- |
-| `Command` | 68 | `Cleanup` |
+| `Command` | 69 | `Cleanup` |
 | `HostCommand` | 5 | `HostPlaceAgeKey` |
 | `KubeconfigCommand` | 2 | none |
 | `ClusterCommand` | 2 | none |
@@ -26,7 +26,7 @@ authority.
 | `DomainsCommand` | 2 | none |
 | `CdnCommand` | 4 | `CdnDisable`, `CdnPurge` |
 | `justfile` | 34 | `host-image`, `host-switch`, `infra-destroy`, `local-smoke`, `smoke`, `vm-start`, `vm-stop` |
-| `Inventory.Command` production calls | 28 | none |
+| `Inventory.Command` production calls | 29 | none |
 <!-- managed-command-registry:end -->
 
 Each row names the lifecycle-owning scope, declaration compiler, native executor,

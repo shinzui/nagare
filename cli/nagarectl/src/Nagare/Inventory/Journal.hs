@@ -15,6 +15,7 @@ module Nagare.Inventory.Journal
   , decodeJournalEvent
   , journalEventDigest
   , validateJournal
+  , operationStates
   )
 where
 
@@ -22,6 +23,8 @@ import Data.Aeson
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.List (sortOn)
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude hiding ((.=))
@@ -142,6 +145,14 @@ decodeJournalEvent bytes = do
 
 journalEventDigest :: JournalEvent -> ContentDigest
 journalEventDigest = contentDigest . encodeJournalEvent
+
+-- | Latest per-operation state from a validated journal in sequence order.
+operationStates :: TransactionId -> [JournalEvent] -> Map OperationId OperationState
+operationStates transaction = foldl
+  (\states event -> case eventOperation event of
+    Just operation | eventTransaction event == transaction ->
+      Map.insert operation (eventState event) states
+    _ -> states) Map.empty
 
 validateJournal :: [JournalEvent] -> Either Text [JournalEvent]
 validateJournal events = go Nothing 0 (sortOn eventSequence events)

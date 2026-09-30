@@ -16,6 +16,7 @@ module Nagare.Inventory.Execute
   , RecoveryAction (..)
   , decodeOperatorRecoveryInput
   , recordOperatorRecovery
+  , prepareBootstrapRegistryRecovery
   )
 where
 
@@ -69,6 +70,7 @@ data RecoveryAction
   | AbandonPartialPrune
   | AbandonPartialVolumeRestore
   | AbandonPartialDatabaseRestore
+  | RecoverBootstrapRegistry !ContentDigest
   deriving stock (Eq, Show)
 
 data OperatorRecoveryInput = OperatorRecoveryInput
@@ -99,7 +101,9 @@ instance FromJSON OperatorRecoveryInput where
       "abandon-partial-prune" -> pure AbandonPartialPrune
       "abandon-partial-volume-restore" -> pure AbandonPartialVolumeRestore
       "abandon-partial-database-restore" -> pure AbandonPartialDatabaseRestore
-      _ -> fail "unsupported operator recovery action"
+      _ | Just native <- T.stripPrefix "recover-bootstrap-registry:" action ->
+          RecoverBootstrapRegistry <$> either (fail . T.unpack) pure (mkContentDigest native)
+        | otherwise -> fail "unsupported operator recovery action"
     OperatorRecoveryInput <$> o .: "transaction" <*> o .: "operation"
       <*> o .: "review" <*> pure decision
 
@@ -501,6 +505,73 @@ resumeTransactionWithTakeover store registry transaction takeOver = do
                               [] -> Right <$> executeWithJournal lock registry
                                 (ExecutablePlan transaction reviewed) (Just events)
 
+-- | Save one bounded prerequisite recovery without changing accepted desired
+-- state. Provider inspection is read-only; publication is conditional and the
+-- head must remain exact across inspection.
+prepareBootstrapRegistryRecovery :: InventoryStore -> AdapterRegistry
+  -> TransactionId -> OperationId -> IO (Either Text OperatorRecoveryInput)
+prepareBootstrapRegistryRecovery store registry transaction operationId = do
+  before <- readHead store
+  case before of
+    Right (Just headValue)
+      | headActiveTransaction headValue == Just (transactionIdText transaction)
+      , isNothing (headExecutorClaim headValue)
+      , isNothing (headDataFence headValue)
+      , isNothing (headMigration headValue) -> do
+          let digestResult = mkContentDigest (T.drop 3 (transactionIdText transaction))
+          case digestResult of
+            Left reason -> pure (Left reason)
+            Right digest -> do
+              bundle <- loadPublishedReview store digest
+              snapshot <- readReviewSnapshot store digest
+              events <- readJournalAtHead store headValue
+              let checked = do
+                    published <- first showText bundle
+                    state <- first showText snapshot
+                    journal <- first showText events
+                    unless (storeSnapshotHead state == headValue)
+                      (Left "inventory history changed during recovery preparation")
+                    reviewed <- first (showText . NE.toList)
+                      (verifyActiveReview state (transactionIdText transaction) published)
+                    selected <- maybe (Left "recovery operation is absent") Right
+                      (find ((== operationId) . plannedOperationId . reviewPlannedOperation)
+                        (reviewOperations (reviewedDocument reviewed)))
+                    unless (Map.lookup operationId (operationStates transaction journal)
+                        `elem` [Just IntentRecorded, Just Ambiguous]
+                        || case Map.lookup operationId (operationStates transaction journal) of
+                             Just (Failed (PartialOrUnknown _)) -> True
+                             _ -> False)
+                      (Left "recovery requires an uncertain original effect")
+                    prepared <- preparedFor reviewed selected
+                    fence <- selectedFence registry reviewed selected prepared
+                    unless (isNothing fence) (Left "registry recovery refuses a fenced operation")
+                    adapter <- lookupAdapter registry
+                      (plannedExecutor (reviewPlannedOperation selected))
+                    unless (adapterIdentity adapter == reviewAdapterIdentity selected
+                        && adapterVersion adapter == reviewAdapterVersion selected)
+                      (Left "recovery adapter differs from the original review")
+                    capability <- maybe (Left "bootstrap registry recovery is not registered") Right
+                      (lookupAdapterRecovery registry "bootstrap-registry-credentials")
+                    pure (reviewPlannedOperation selected, prepared, adapter, capability)
+              case checked of
+                Left reason -> pure (Left reason)
+                Right (operation, prepared, adapter, capability) -> do
+                  decision <- adapterRecover adapter operation prepared
+                  case decision of
+                    RecoveryAwaitingReadiness _ -> do
+                      proof <- recoveryPrepare capability operation prepared
+                      after <- readHead store
+                      case proof of
+                        Right bytes | after == before -> do
+                          let native = contentDigest bytes
+                          published <- publishIfAbsent store (objectKeyFor "native" native) bytes
+                          pure (OperatorRecoveryInput transaction operationId digest
+                            (RecoverBootstrapRegistry native) <$ first showText published)
+                        Left reason -> pure (Left reason)
+                        _ -> pure (Left "inventory history changed during recovery preparation")
+                    _ -> pure (Left "registry recovery requires the exact original created Deployment awaiting readiness")
+    _ -> pure (Left "registry recovery requires an idle active transaction with no fence or migration")
+
 -- | The decision file selects an action; the adapter must independently prove
 -- that action from the current provider state under the writer lock. An
 -- unresolved adapter outcome never becomes operator authority.
@@ -541,6 +612,10 @@ recordOperatorRecovery store registry input takeOver = do
               pure (failure "recovery-review" "decision file review digest differs from transaction")
           | not (recoverableState (Map.lookup operationId (operationStates transaction events))) ->
               pure (failure "recovery-state" "operation has no uncertain effect to resolve")
+          | Just (OperatorResolved marker) <- Map.lookup operationId (operationStates transaction events)
+          , Just (native, Nothing) <- bootstrapRecoveryMarker marker
+          , recoveryAction input /= RecoverBootstrapRegistry native ->
+              pure (failure "recovery-prerequisite" "resolve the exact saved host recovery intent before accepting workload completion")
           | otherwise -> do
               claimed <- acquireResumeClaim store transaction observed headValue takeOver
               case claimed of
@@ -629,6 +704,10 @@ recordOperatorRecovery store registry input takeOver = do
                     decision <- withAdapterEnv transaction operation
                       (adapterRecover adapter operation prepared)
                     case (recoveryAction input, decision) of
+                      (RecoverBootstrapRegistry native, RecoveryAwaitingReadiness _)
+                        | isNothing selection -> recoverBootstrap lock events operation prepared native
+                      (RecoverBootstrapRegistry native, RecoveryProvedComplete _)
+                        | isNothing selection -> recoverBootstrap lock events operation prepared native
                       (AbandonPartialPrune, RecoveryTerminalFailure physical)
                         | scheduledPruneOnlyReview published operation -> do
                             appended <- appendEvent lock transaction (Just operationId)
@@ -666,6 +745,49 @@ recordOperatorRecovery store registry input takeOver = do
                               (OperatorResolved "adapter-proved-safe-retry") "operator selected adapter-proved safe retry"
                             pure (first (\err -> AdmissionError "journal" (showText err) :| []) (() <$ appended))
                       _ -> pure (failure "unsupported-recovery" "adapter did not prove the operator's requested action")
+    recoverBootstrap :: forall s. LockedStore s -> [JournalEvent]
+      -> PlannedOperation -> PreparedNative -> ContentDigest
+      -> IO (Either (NonEmpty AdmissionError) ())
+    recoverBootstrap lock events operation prepared native = case
+        lookupAdapterRecovery registry "bootstrap-registry-credentials" of
+      Nothing -> pure (failure "recovery-capability" "bootstrap registry recovery is not registered")
+      Just capability -> do
+        let prior = Map.lookup operationId (operationStates transaction events)
+            selected = case prior of
+              Just (OperatorResolved marker) -> case bootstrapRecoveryMarker marker of
+                Just (saved, _) -> saved == native
+                _ -> False
+              _ -> True
+        saved <- readObject store (objectKeyFor "native" native)
+        case saved of
+          Left err -> pure (failure "recovery-native" (showText err))
+          Right (Just bytes) | selected && contentDigest bytes == native -> do
+            validated <- recoveryValidate capability operation prepared bytes
+            case validated of
+              Left reason -> pure (failure "recovery-prerequisite" reason)
+              Right () -> executeRecovery capability bytes
+          _ -> pure (failure "recovery-native" "saved recovery is missing, corrupt, or differs from the unresolved intent")
+      where
+        executeRecovery capability bytes = do
+            intent <- appendEvent lock transaction (Just operationId)
+              (OperatorResolved ("bootstrap-registry-intent:" <> digestText native))
+              "bounded registry credential recovery selected; workload completion remains unproved"
+            case intent of
+              Left err -> pure (failure "journal" (showText err))
+              Right _ -> do
+                claimed <- executorStillClaimed lock transaction
+                if not claimed then pure (failure "executor-claim" "registry recovery lost its executor claim")
+                else do
+                  proved <- withAdapterEnv transaction operation
+                    (recoveryExecute capability operation prepared bytes)
+                  case proved of
+                    Left reason -> pure (failure "recovery-prerequisite" reason)
+                    Right receipt -> do
+                      appended <- appendEvent lock transaction (Just operationId)
+                        (OperatorResolved ("bootstrap-registry-proved:" <> digestText native
+                          <> ":" <> digestText receipt))
+                        "accepted host registry policy recovered; resume must independently prove workload readiness"
+                      pure (first (\err -> AdmissionError "journal" (showText err) :| []) (() <$ appended))
     scheduledPruneOnlyReview published operation =
       let reviewed = reviewOperations (reviewBundleDocument published)
           resource = NE.toList (plannedResources operation)
@@ -969,6 +1091,7 @@ recordOperatorRecovery store registry input takeOver = do
       Just (Failed (PartialOrUnknown _)) -> True
       Just (OperatorResolved marker) ->
         "fenced-recovery-proved:" `T.isPrefixOf` marker
+          || isJust (bootstrapRecoveryMarker marker)
       _ -> False
     transactionDigest token = either (const Nothing) Just
       (mkContentDigest (T.drop 3 (transactionIdText token)))
@@ -1375,12 +1498,6 @@ readJournalAtHead store headValue = do
     bytes <- loaded
     events <- traverse (first (StoreInvalidObject "journal") . decodeJournalEvent) bytes
     first (StoreInvalidObject "journal") (validateJournal events)
-
-operationStates :: TransactionId -> [JournalEvent] -> Map OperationId OperationState
-operationStates transaction =
-  foldl
-    (\states event -> case eventOperation event of Just operation | eventTransaction event == transaction -> Map.insert operation (eventState event) states; _ -> states)
-    Map.empty
 
 -- | This journal proof is written before writer release. If the process dies
 -- after release, a later recovery or resume can close the abandoned review

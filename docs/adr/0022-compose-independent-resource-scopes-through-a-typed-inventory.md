@@ -866,6 +866,30 @@ explicit default, because an empty endpoint is invalid. The legacy transport is
 an explicit compatibility choice, never an automatic retry after uncertainty.
 State formats, ownership checks and cloud mutation gates are unchanged.
 
+Bootstrap registry recovery (2026-09-30): an original created private-image
+Deployment may remain unready after its accepted host's boot credential expires.
+Recovery must not rewrite the Kubernetes review or add unreviewed ServiceAccount
+or Secret authority. A separately saved private recovery proof binds the original
+review/operation/native digest and Deployment UID to one completed accepted host
+activation, its VM and closure, node UID, boot ID and original unit stamps.
+The explicit decision journals intent under the original transaction claim before
+replaying only `nagare-registries-refresh.service` and restarting `k3s.service`.
+Each phase checks the unchanged VM/running/boot closure and rollback state.
+Uncertain acknowledgement leaves the saved intent blocked; explicit same-proof
+recovery holds a native host lock and requires quiescent unit jobs before
+observing stamps or issuing effects. It skips completed phases even if their
+credential later expires. A known expired credential is renewed through the
+accepted policy only before a still-unperformed restart. A changed node or
+unproved restart refuses; a changed boot refuses unit replay. A now-ready
+original Deployment permits read-only settlement of an unnecessary prerequisite,
+including after reboot, once the same host and quiescent units are proved.
+Ordinary workload completion cannot bypass a pending host intent. The host receipt returns
+execution to provider observation, never to a fabricated Deployment completion.
+Actual Kubernetes readiness remains required. Credential bytes stay in the
+root-only host process. This is a bounded replay of accepted policy, not a
+payload-version upgrade or a general host maintenance surface. Steady credential
+coverage for future private platform workloads remains a separate safe-use proof.
+
 A failed gcloud refresh invalidates the command-local token cache before callers
 receive the error. Concurrent waiters must not each retry a failing helper or
 reuse the previous token. Recovery starts with a new command under the selected

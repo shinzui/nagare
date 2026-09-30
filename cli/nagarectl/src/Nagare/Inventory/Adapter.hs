@@ -18,6 +18,9 @@ module Nagare.Inventory.Adapter
   , Adapter (..)
   , AdapterFence (..)
   , AdapterRegistry
+  , AdapterRecovery (..)
+  , withAdapterRecovery
+  , lookupAdapterRecovery
   , mkAdapterRegistry
   , emptyAdapterRegistry
   , withAdapterFence
@@ -217,42 +220,62 @@ instance ToJSON ReviewBarrier where toJSON = genericToJSON defaultOptions
 
 instance FromJSON ReviewBarrier where parseJSON = genericParseJSON defaultOptions
 
+-- Recovery prerequisites have their own immutable native proof. They cannot
+-- replace a reviewed operation or manufacture its completion evidence.
+data AdapterRecovery = AdapterRecovery
+  { recoveryCapability :: !Text
+  , recoveryPrepare :: !(PlannedOperation -> PreparedNative -> IO (Either Text ByteString))
+  , recoveryValidate :: !(PlannedOperation -> PreparedNative -> ByteString -> IO (Either Text ()))
+  , recoveryExecute :: !(PlannedOperation -> PreparedNative -> ByteString -> IO (Either Text ContentDigest))
+  }
+
 data AdapterRegistry = AdapterRegistry
   (Map Executor Adapter) (Map Executor (Map Text AdapterFence))
+  (Map Text AdapterRecovery)
 
 mkAdapterRegistry :: [Adapter] -> Either Text AdapterRegistry
 mkAdapterRegistry adapters
-  | length adapters == Map.size registry = Right (AdapterRegistry registry Map.empty)
+  | length adapters == Map.size registry = Right (AdapterRegistry registry Map.empty Map.empty)
   | otherwise = Left "adapter registry contains duplicate executors"
   where
     registry = Map.fromList [(adapterExecutor adapter, adapter) | adapter <- adapters]
 
 emptyAdapterRegistry :: AdapterRegistry
-emptyAdapterRegistry = AdapterRegistry Map.empty Map.empty
+emptyAdapterRegistry = AdapterRegistry Map.empty Map.empty Map.empty
 
 withAdapterFence :: AdapterRegistry -> Executor -> AdapterFence
   -> Either Text AdapterRegistry
-withAdapterFence (AdapterRegistry adapters fences) executor fence
+withAdapterFence (AdapterRegistry adapters fences recoveries) executor fence
   | Map.notMember executor adapters = Left "data fence has no registered adapter"
   | T.null (fenceCapability fence) = Left "data fence capability identity is empty"
   | Map.member (fenceCapability fence) (Map.findWithDefault Map.empty executor fences) =
       Left "adapter already has this data fence capability"
   | otherwise = Right (AdapterRegistry adapters (Map.insertWith Map.union executor
-      (Map.singleton (fenceCapability fence) fence) fences))
+      (Map.singleton (fenceCapability fence) fence) fences) recoveries)
+
+withAdapterRecovery :: AdapterRegistry -> AdapterRecovery -> Either Text AdapterRegistry
+withAdapterRecovery (AdapterRegistry adapters fences recoveries) capability
+  | T.null key = Left "adapter recovery capability identity is empty"
+  | Map.member key recoveries = Left "adapter recovery capability is duplicated"
+  | otherwise = Right (AdapterRegistry adapters fences (Map.insert key capability recoveries))
+  where key = recoveryCapability capability
+
+lookupAdapterRecovery :: AdapterRegistry -> Text -> Maybe AdapterRecovery
+lookupAdapterRecovery (AdapterRegistry _ _ recoveries) key = Map.lookup key recoveries
 
 lookupAdapter :: AdapterRegistry -> Executor -> Either Text Adapter
-lookupAdapter (AdapterRegistry registry _) executor =
+lookupAdapter (AdapterRegistry registry _ _) executor =
   maybe (Left ("no adapter registered for " <> showText executor)) Right (Map.lookup executor registry)
   where
     showText = T.pack . show
 
 lookupAdapterFences :: AdapterRegistry -> Executor -> [AdapterFence]
-lookupAdapterFences (AdapterRegistry _ fences) executor =
+lookupAdapterFences (AdapterRegistry _ fences _) executor =
   maybe [] Map.elems (Map.lookup executor fences)
 
 lookupAdapterFenceByCapability :: AdapterRegistry -> Executor -> Text
   -> Maybe AdapterFence
-lookupAdapterFenceByCapability (AdapterRegistry _ fences) executor capability =
+lookupAdapterFenceByCapability (AdapterRegistry _ fences _) executor capability =
   Map.lookup executor fences >>= Map.lookup capability
 
 observeWithRegistry :: AdapterRegistry -> Map Executor [ResourceId] -> IO (Either Text ObservationSet)

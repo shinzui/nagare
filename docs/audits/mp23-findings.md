@@ -38,6 +38,7 @@ Implementation owner: existing session `01a0e893-337f-7b82-ac5d-16f41bf5ce21` (I
 | [F12](#f12) | P1 | A later operation’s preflight blocks recovery of its ambiguous prerequisite | Verifying | EP-153 / EP-159 |
 | [F13](#f13) | P1 | Ordinary executor recovery has no terminal-failure branch | Verifying | EP-153 / EP-159 |
 | [F14](#f14) | P1 | Initial Knative activator readiness blocks its uncreated autoscaler | Verifying | EP-156 |
+| [F15](#f15) | P1 | Patched certificate controller lacks refreshed private-image credentials | Verifying | EP-156 / EP-154 |
 
 F01 and F11 are independently Closed with [retained verification and source identities](mp23-verification.md). F02 has passing local call-count evidence but still needs its retained status-caller regression. All other entries remain Open, Partial, or Verifying as shown.
 
@@ -53,7 +54,23 @@ F01 and F11 are independently Closed with [retained verification and source iden
 
 **Required verification:** Independently run the named tests and inspect foreign/digest/failed-workload, data/fence, dependency and other-uncertain refusals. Install the candidate and resume this original cloud transaction without review/history rewrites; require autoscaler and activator Ready with exact original identities and no repeated completed effect. Retain redacted native evidence and source identities.
 
-**Verification:** Not closed. Source regression acceptance is established; installed/native recovery and independent closure remain required.
+**Native implementation continuation:** Installed revision `0c757b7410b3cdf14cdaa026cd2ca9b6f6427de2` resumes the original transaction and creates the original-review webhook/controller/autoscaler Deployments. They become Ready. The original activator Deployment and pod UIDs remain exact; its normal container restart leaves it Ready. The second resume records its adapter completion at sequence 372, then proceeds to the private certificate controller. The transaction stops there on an independent image credential failure (F15), at generation 469 with no claim/fence. See [the redacted native continuation](mp23-native-bootstrap-results-2026-09-30/readiness-continuation.json).
+
+**Verification:** Not closed. Installed/native readiness recovery is now retained; independent closure remains required. Overall bootstrap convergence is blocked by F15.
+
+## F15
+
+**Patched certificate controller lacks refreshed private-image credentials** — P1; **Verifying**; owners EP-156 / EP-154.
+
+**Locations:** nixos/hosts/nagare-01/registries.nix; bootstrap private certificate-controller Deployment and ServiceAccount declarations.
+
+**Native evidence:** The original saved bootstrap creates `net-certmanager-controller` in `knative-serving`; its private Artifact Registry image receives a 401 token response. The accepted host supplies boot-only k3s registry credentials, which have expired. Its recurring Secret policy covers `personal` and `nagare-system` default ServiceAccounts; this controller uses the `knative-serving` controller account. The bounded rollout stops naturally after 436.558 seconds. Shared generation 469 retains the same original transaction with no claim/fence. Serving and public-image certificate webhook workloads are Ready.
+
+**Implementation update:** A bounded explicit registry recovery candidate passes all 991 CLI tests, the public foundation/bootstrap regression, registration/injected-mutation audit and structural style checks. Named regressions include `bounded registry recovery journals intent and requires actual workload readiness`, `registry recovery binds completed host history and original private Deployment`, `registry unit recovery preserves landed phases across expiry and settles ready workloads`, and strict intent/receipt parsing. It saves the original Deployment/host/unit proof separately, journals intent before replaying only the accepted registry bootstrap unit and k3s service, and retains independent Deployment readiness as the completion criterion. No native recovery has run and no new Secret/ServiceAccount authority is introduced. This preserves the original payload version and review. The final 991-test recheck also proves exact-capsule settlement after lost acknowledgement/readiness, refuses ordinary proof bypass, and retains completed unit evidence after credential expiry. Native locking and quiescent unit jobs bound uncertain host execution. Steady private platform credential coverage still needs a typed ownership/delegation contract and installed acceptance before safe use.
+
+**Required verification:** Exercise source drift, foreign VM/closure/node/boot/workload, malformed or changed recovery proof, lost acknowledgement and partial-unit replay with zero repeated proved phases. Verify the installed original-transaction path and real image readiness without raw provider repair or review reset. Prove future credential expiry/re-pull coverage before initial safe-use acceptance.
+
+**Verification:** Source regressions are established; installed original-transaction recovery and steady credential refresh/re-pull coverage remain open. Independent closure is required.
 
 ## F01
 

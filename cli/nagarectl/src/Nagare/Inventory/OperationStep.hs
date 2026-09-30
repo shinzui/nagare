@@ -6,6 +6,7 @@ module Nagare.Inventory.OperationStep
   , nextOperation
   , validateOperationGraph
   , dependenciesComplete
+  , bootstrapRecoveryMarker
   )
 where
 
@@ -14,10 +15,12 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
+import Data.Text qualified as T
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Journal
 import Nagare.Inventory.Plan (ReviewOperation (..))
+import Nagare.Resource.Types (ContentDigest, mkContentDigest)
 
 data OperationStep
   = OperationsFinished
@@ -79,7 +82,20 @@ operationPhase (Just state) = case state of
     | marker == "adapter-proved-safe-retry"
         || marker == "fence-not-reserved-safe-retry" ->
         Execute
+    | Just (_, Just _) <- bootstrapRecoveryMarker marker -> Recover
     | otherwise -> Blocked ("operator resolution requires explicit recovery: " <> marker)
+
+-- Only a strictly parsed receipt returns to observation. An intent stays
+-- blocked until the exact saved recovery is explicitly resolved.
+bootstrapRecoveryMarker :: Text -> Maybe (ContentDigest, Maybe ContentDigest)
+bootstrapRecoveryMarker marker = case T.splitOn ":" marker of
+  ["bootstrap-registry-intent", native] ->
+    (, Nothing) <$> either (const Nothing) Just (mkContentDigest native)
+  ["bootstrap-registry-proved", native, receipt] -> do
+    selected <- either (const Nothing) Just (mkContentDigest native)
+    proof <- either (const Nothing) Just (mkContentDigest receipt)
+    pure (selected, Just proof)
+  _ -> Nothing
 
 identity :: ReviewOperation -> OperationId
 identity = plannedOperationId . reviewPlannedOperation

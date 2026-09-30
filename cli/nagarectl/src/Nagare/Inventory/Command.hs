@@ -29,6 +29,7 @@ module Nagare.Inventory.Command
   , resumeInventoryWithFactory
   , resumeInventoryWithFactoryTakeover
   , recoverInventoryWithFactory
+  , prepareRegistryRecoveryWithFactory
   , exportInventory
   , restoreInventory
   , manifestAdapterFor
@@ -493,6 +494,33 @@ resumeInventoryWithFactoryTakeover registryFor target transactionToken yes takeO
   case result of
     Converged _ -> pure ()
     _ -> exitFailure
+
+prepareRegistryRecoveryWithFactory
+  :: (InventoryStore -> ReviewBundle -> IO AdapterRegistry) -> ActiveTarget
+  -> Text -> Text -> FilePath -> IO ()
+prepareRegistryRecoveryWithFactory registryFor target transactionToken operationToken output = do
+  rejectReentry
+  transaction <- either dieText pure (mkTransactionId transactionToken)
+  operation <- either dieText pure (mkOperationId operationToken)
+  digest <- either dieText pure (mkContentDigest (T.drop 3 transactionToken))
+  store <- openTargetStore target
+  bundle <- loadPublishedReview store digest >>= either (dieText . showText) pure
+  registry <- registryFor store bundle
+  input <- prepareBootstrapRegistryRecovery store registry transaction operation
+    >>= either dieText pure
+  action <- case recoveryAction input of
+    RecoverBootstrapRegistry native -> pure ("recover-bootstrap-registry:" <> digestText native)
+    _ -> dieText "registry recovery preparation returned another action"
+  bytes <- either dieText pure (canonicalValue (object
+    [ "version" .= (1 :: Int), "transaction" .= recoveryTransaction input
+    , "operation" .= recoveryOperation input, "review" .= recoveryReview input
+    , "action" .= action ]))
+  handle <- openFd output WriteOnly
+    (defaultFileFlags {creat = Just 0o600, exclusive = True}) >>= fdToHandle
+  BS.hPut handle bytes
+  hClose handle
+  TIO.putStrLn ("Saved bounded host registry recovery: " <> T.pack output)
+  TIO.putStrLn "Replay accepted nagare-registries-refresh.service and restart k3s.service only; workload readiness remains independently required"
 
 recoverInventoryWithFactory
   :: (InventoryStore -> ReviewBundle -> IO AdapterRegistry) -> ActiveTarget -> Text -> Text -> FilePath -> Bool -> IO ()
