@@ -21,6 +21,7 @@ import Nagare.Inventory.KubernetesSources (validateSuppliedKubernetesMembers)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
+import Nagare.Resource.Wire qualified
 import Test.Tasty
 import Test.Tasty.HUnit
 import System.Directory (createDirectoryIfMissing)
@@ -41,6 +42,8 @@ inventoryUpstreamTests = testGroup "pinned upstream bootstrap manifests"
           [input] -> pure input
           _ -> assertFailure "Serving input missing" >> pure (error "unreachable")
         (bundle, native) <- compileUpstream serving >>= expectRight
+        _ <- expectRight (validateSuppliedKubernetesMembers
+          [resource | Managed resource <- declarations bundle] native)
         accountId <- expectRight (registryControllerAccountIdentity fixtureCluster)
         let granted = [resource | Managed resource <- declarations bundle, not (null (resource ^. #delegations))]
         case granted of
@@ -53,6 +56,15 @@ inventoryUpstreamTests = testGroup "pinned upstream bootstrap manifests"
             let (bound, bytes) = native Map.! accountId
             bound @?= account
             value <- expectRight (eitherDecodeStrict bytes :: Either String Value)
+            let resources = [resource | Managed resource <- declarations bundle]
+            changedNative <- expectRight (Nagare.Resource.Wire.canonicalValue
+              (case value of
+                Object root | Just (Object metadata) <- KM.lookup "metadata" root ->
+                  Object (KM.insert "metadata" (Object (KM.delete "annotations" metadata)) root)
+                other -> other))
+            assertBool "changed delegated native authority accepted"
+              (either (const True) (const False) (validateSuppliedKubernetesMembers resources
+                (Map.insert accountId (account, changedNative) native)))
             case value of
               Object root
                 | Just (Object metadata) <- KM.lookup "metadata" root

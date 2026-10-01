@@ -873,7 +873,11 @@ PY
 }
 test "$(wc -l < "$XDG_STATE_HOME/applied-urns")" -eq 26
 printf 'reviewed image config enabled and converged both VM registrations\n'
-printf 'hostName = "freshlocal-nagare";\n' > "$XDG_CONFIG_HOME/nagare/hosts/freshlocal/host.nix"
+cat > "$XDG_CONFIG_HOME/nagare/hosts/freshlocal/host.nix" <<'EOF'
+hostName = "freshlocal-nagare";
+    registryCredentialOwner = "platform:host/nixos-system/system";
+    registryServingControllerOwner = "platform:serving/serving/object-cb13aaa7348f14c3bc1ee1cf94987eb1803ad266";
+EOF
 printf '{}\n' > "$XDG_CONFIG_HOME/nagare/hosts/freshlocal/flake.lock"
 # Persisted operation inputs are sorted canonically. Force their wire order to
 # differ from the compiler's configuration-then-lock order, as in the GCP fixture.
@@ -1203,6 +1207,15 @@ cluster_members = [resource for resource in managed if resource["executor"] in
                    ("KubernetesExecutor", "HelmExecutor")]
 assert cluster_members, managed
 assert all(edge in resource["dependencies"] for resource in cluster_members)
+delegated_accounts = [resource for resource in cluster_members if resource["delegations"]]
+assert len(delegated_accounts) == 1, delegated_accounts
+account = delegated_accounts[0]
+assert account["identity"] == "platform:serving/serving/object-cb13aaa7348f14c3bc1ee1cf94987eb1803ad266"
+assert account["delegations"] == [{
+    "controller": "platform:host/nixos-system/system",
+    "fields": ["registry-credential-metadata", "registry-pull-reference"],
+    "operations": ["RefreshCredential"],
+}], account
 marker_members = [resource for resource in managed if resource["identity"] == marker_id]
 assert len(marker_members) == 1, marker_members
 assert edge in marker_members[0]["dependencies"]

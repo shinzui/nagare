@@ -125,6 +125,10 @@ validateSuppliedKubernetesMembers declarations supplied =
       let
           reboundDeclaration = recompiled
             { dependencies = declaration ^. #dependencies
+            -- Static owner grants, like dependency edges, belong to the typed
+            -- inventory rather than the native object's recompiler. Composition
+            -- validates their authority; native content and identity stay exact.
+            , delegations = declaration ^. #delegations
             , spec = if generatedNamespace || generatedBackend || generatedShomei
                 then declaration ^. #spec else recompiled ^. #spec
             }
