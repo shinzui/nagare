@@ -1816,6 +1816,10 @@ inventoryTransactionTests =
         Map.lookup stoppedOwner (historyConverged after) @?= Map.lookup stoppedOwner (historyConverged history)
         Map.lookup otherOwner (historyConverged after) @?= fmap fst (Map.lookup otherOwner (historyAccepted after))
         readIORef effects >>= (@?= [declarationId otherMember])
+    , testCase "fixed-seed in-memory driver model recovers every operation boundary" $ do
+        forM_ [(17, 1), (29, 2), (43, 3), (71, 4)]
+          (uncurry runFixedSeedDriverModel)
+        modelAssertStoppedScopePreserved
     , testCase "terminal isolated abandonment refuses an unrelated review" $ do
         store <- newMemoryStore
         let failed = ok (mkPhysicalIdentity "failed-job")
@@ -2155,6 +2159,233 @@ exerciseStore store = do
   _ <- replaceHeadIfGenerationMatches store (Just 0) replacement >>= expectRight
   stale <- replaceHeadIfGenerationMatches store (Just 0) replacement
   assertBool "stale head generation is refused" (isLeft stale)
+
+-- This is deliberately a small, fixed model rather than an unbounded property:
+-- it runs the planner, review publisher, driver, and recovery path on the
+-- in-memory conditional store.  The four cases interrupt each of the four
+-- effect boundaries (create alpha, create beta, update alpha, verify alpha).
+-- The final retirement is a reviewed, effect-free ownership transition.
+runFixedSeedDriverModel :: Int -> Int -> Assertion
+runFixedSeedDriverModel seed interruptionBoundary = do
+  store <- newMemoryStore
+  _ <- initializeStore store fixtureBinding "fixed-seed-driver" >>= expectRight
+  effects <- newIORef (Map.empty :: Map.Map OperationId Int)
+  attempted <- newIORef (0 :: Int)
+  let execution operation _ = do
+        attempt <- atomicModifyIORef' attempted (\count -> (count + 1, count + 1))
+        modifyIORef' effects (Map.insertWith (+) (plannedOperationId operation) 1)
+        pure $ if attempt == interruptionBoundary
+          then AdapterEffectAmbiguous "fixed-seed interruption"
+          else AdapterEffectCompleted
+      registry = modelRecordingRegistry execution
+        (\operation _ -> pure (RecoveryProvedComplete (proof operation)))
+      seedTag = T.pack (show seed)
+      alphaOwner = ok (mkScopeId Application ("model-alpha-" <> seedTag))
+      betaOwner = ok (mkScopeId Application ("model-beta-" <> seedTag))
+      alpha = modelScope alphaOwner "alpha" ("alpha-v1-" <> seedTag)
+      alphaUpdated = modelScope alphaOwner "alpha" ("alpha-v2-" <> seedTag)
+      beta = modelScope betaOwner "beta" ("beta-v1-" <> seedTag)
+
+  history0 <- loadInventoryHistory store >>= expectRight
+  candidate1 <- modelCandidate history0 (ReplaceScope alpha :| [])
+  reviewed1 <- modelReview store registry candidate1 noLifecycleDecisions
+  modelApplyAndRecover store registry reviewed1
+  history1 <- modelAssertInvariants store Nothing
+  modelAssertStaleConditionalWrite store
+
+  candidate2 <- modelCandidate history1 (ReplaceScope beta :| [])
+  reviewed2 <- modelReview store registry candidate2 noLifecycleDecisions
+  modelApplyAndRecover store registry reviewed2
+  history2 <- modelAssertInvariants store (Just (historyHead history1))
+  modelAssertStaleConditionalWrite store
+  let betaRevision = Map.lookup betaOwner (historyAccepted history2)
+
+  candidate3 <- modelCandidate history2 (ReplaceScope alphaUpdated :| [])
+  reviewed3 <- modelReview store registry candidate3 noLifecycleDecisions
+  modelApplyAndRecover store registry reviewed3
+  history3 <- modelAssertInvariants store (Just (historyHead history2))
+  modelAssertStaleConditionalWrite store
+  Map.lookup betaOwner (historyAccepted history3) @?= betaRevision
+  Map.lookup betaOwner (historyConverged history3) @?= fmap fst betaRevision
+
+  -- Losing only alpha's convergence proof must yield a readiness verification
+  -- for the unchanged alpha resource.  This is the planner regression fixed by
+  -- 7c957c02, exercised through a real reviewed execution.
+  headBeforeVerify <- readHead store >>= expectRight >>= maybe
+    (assertFailure "model store has no head" >> pure (error "unreachable")) pure
+  _ <- replaceHeadIfGenerationMatches store (Just (headGeneration headBeforeVerify))
+    headBeforeVerify
+      { headGeneration = headGeneration headBeforeVerify + 1
+      , headConverged = Map.delete alphaOwner (headConverged headBeforeVerify)
+      } >>= expectRight
+  historyBeforeVerify <- loadInventoryHistory store >>= expectRight
+  candidate4 <- modelCandidate historyBeforeVerify (ReplaceScope alphaUpdated :| [])
+  verification <- modelReview store registry candidate4 noLifecycleDecisions
+  assertBool "unconverged selected scope did not receive a verification"
+    (any ((== VerifyResource) . plannedAction)
+      (reviewOperations (reviewedDocument verification) <&> reviewPlannedOperation))
+  modelApplyAndRecover store registry verification
+  history4 <- modelAssertInvariants store (Just (historyHead historyBeforeVerify))
+  modelAssertStaleConditionalWrite store
+
+  -- A retirement is still a review decision even when RetainResources means
+  -- the executor has no provider effect to run.
+  retirement <- modelCandidate history4 (RetireScope betaOwner RetainResources :| [])
+  retirementObservations <- modelObservations retirement history4
+  let betaResource = declarationId (modelMember betaOwner "beta" ("beta-v1-" <> seedTag))
+      decision = LifecycleProposal betaResource ApproveRetirement
+        (lifecycleObservationDigest fixtureBinding betaResource
+          (observationMap retirementObservations Map.! betaResource))
+  decisions <- expectRight (validateLifecycleDecisions retirement history4
+    retirementObservations [decision])
+  reviewedRetirement <- modelReview store registry retirement decisions
+  modelApplyAndRecover store registry reviewedRetirement
+  _ <- modelAssertInvariants store (Just (historyHead history4))
+
+  recorded <- readIORef effects
+  assertBool "recovery repeated a recorded provider effect"
+    (all (<= 1) (Map.elems recorded))
+
+modelMember :: ScopeId -> Text -> Text -> Declaration
+modelMember owner role version = case member owner cluster role of
+  Managed resource -> Managed (resource
+    { spec = NativeObject (contentDigest (TE.encodeUtf8 version)) })
+  declaration -> declaration
+  where
+    cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+
+modelScope :: ScopeId -> Text -> Text -> ScopeDeclaration
+modelScope owner role version = ok (mkScopeDeclaration owner
+  [ResourceBundle [modelMember owner role version] [] [] [] [] []])
+
+modelCandidate :: InventoryHistory -> NonEmpty ScopeChange -> IO CompositionCandidate
+modelCandidate history changes = pure (ok (composeInventory snapshot changes))
+  where
+    snapshot = ok (mkScopeSnapshot fixtureBinding
+      (Map.map (\(revision, scope) -> (revisionGeneration revision, scope))
+        (historyAccepted history)) (historyReservations history))
+
+modelRecordingRegistry
+  :: (PlannedOperation -> PreparedNative -> IO AdapterExecution)
+  -> (PlannedOperation -> PreparedNative -> IO RecoveryDecision)
+  -> AdapterRegistry
+modelRecordingRegistry execution recovery = ok (mkAdapterRegistry [adapter])
+  where
+    adapter = (ok (lookupAdapter (recordingRegistry execution recovery) KubernetesExecutor))
+      { adapterObserve = \resources -> pure (observationSet
+          [ (resource, ObservedPresent (ok (mkPhysicalIdentity
+              ("model:" <> resourceIdText resource))))
+          | resource <- resources
+          ])
+      }
+
+modelObservations :: CompositionCandidate -> InventoryHistory -> IO ObservationSet
+modelObservations candidate history = pure (ok (observationSet
+  [ (resource, if Set.member resource accepted
+      then ObservedPresent (ok (mkPhysicalIdentity ("model:" <> resourceIdText resource)))
+      else ConfirmedAbsent (contentDigest (TE.encodeUtf8 ("absent:" <> resourceIdText resource))))
+  | resource <- Set.toAscList (requiredResources (observationRequirements candidate history))
+  ]))
+  where
+    accepted = Set.fromList
+      [ declarationId declaration
+      | (_, (_, scope)) <- Map.toAscList (historyAccepted history)
+      , bundle <- scopeBundles scope
+      , declaration <- declarations bundle
+      ]
+
+modelReview :: InventoryStore -> AdapterRegistry -> CompositionCandidate -> LifecycleDecisions
+  -> IO ReviewedPlan
+modelReview store registry candidate decisions = do
+  history <- loadInventoryHistory store >>= expectRight
+  observations <- modelObservations candidate history
+  proposal <- expectRight (planChanges candidate decisions history observations)
+  before <- readStoreSnapshot store >>= expectRight
+  bundle <- prepareReview registry before proposal >>= expectRight
+  _ <- publishReview store bundle >>= expectRight
+  published <- readStoreSnapshot store >>= expectRight
+  either (assertFailure . show . NE.toList) pure (verifyReview published bundle)
+
+modelApplyAndRecover :: InventoryStore -> AdapterRegistry -> ReviewedPlan -> Assertion
+modelApplyAndRecover store registry reviewed = do
+  result <- applyReviewed store registry reviewed >>= expectRight
+  case result of
+    Converged _ -> pure ()
+    StoppedAmbiguous transaction _ -> do
+      -- Model the second executor at the claim boundary.  It must not resume
+      -- the first executor's transaction until an explicit takeover is chosen.
+      current <- readHead store >>= expectRight >>= maybe
+        (assertFailure "ambiguous model run has no head" >> pure (error "unreachable")) pure
+      _ <- replaceHeadIfGenerationMatches store (Just (headGeneration current)) current
+        { headGeneration = headGeneration current + 1
+        , headExecutorClaim = Just (ExecutorClaim (transactionIdText transaction)
+            "second-model-executor" 1 "2026-09-30T00:00:00Z")
+        } >>= expectRight
+      refused <- resumeTransaction store registry transaction
+      case refused of
+        Left errors -> assertBool "second executor was not refused before takeover"
+          (any ((== "executor-claim") . admissionErrorCode) (NE.toList errors))
+        Right value -> assertFailure ("second executor resumed without takeover: " <> show value)
+      resumed <- resumeTransactionWithTakeover store registry transaction True >>= expectRight
+      case resumed of
+        Converged value -> value @?= transaction
+        other -> assertFailure ("takeover did not converge recovered model run: " <> show other)
+    other -> assertFailure ("model run stopped outside ambiguous recovery: " <> show other)
+
+modelAssertInvariants :: InventoryStore -> Maybe HeadManifest -> IO InventoryHistory
+modelAssertInvariants store previous = do
+  history <- loadInventoryHistory store >>= expectRight
+  let headValue = historyHead history
+  assertBool "converged revision is not an accepted revision"
+    (all (\(scope, revision) -> fmap fst (Map.lookup scope (historyAccepted history)) == Just revision)
+      (Map.toAscList (historyConverged history)))
+  case previous of
+    Nothing -> pure ()
+    Just old -> do
+      assertBool "head generation did not advance monotonically"
+        (headGeneration headValue > headGeneration old)
+      assertBool "journal sequence did not advance monotonically"
+        (headSequence headValue >= headSequence old)
+  headActiveTransaction headValue @?= Nothing
+  pure history
+
+modelAssertStaleConditionalWrite :: InventoryStore -> Assertion
+modelAssertStaleConditionalWrite store = do
+  before <- readHead store >>= expectRight >>= maybe
+    (assertFailure "conditional-write model has no head" >> pure (error "unreachable")) pure
+  stale <- replaceHeadIfGenerationMatches store (Just (headGeneration before - 1)) before
+  assertBool "stale conditional write unexpectedly succeeded" (isLeft stale)
+  after <- readHead store >>= expectRight
+  after @?= Just before
+
+-- Keep the eb582eb0 assertion inside the model checkpoint as well as in its
+-- focused regression: a later, unrelated completed review must not promote a
+-- stopped scope to converged merely because both scopes are accepted.
+modelAssertStoppedScopePreserved :: Assertion
+modelAssertStoppedScopePreserved = do
+  store <- newMemoryStore
+  (stoppedReview, stoppedRegistry) <- preparedApplicationStopFixture store Application Stateless
+    (\_ _ -> pure (AdapterEffectAmbiguous "model stopped scope"))
+    (\_ _ -> pure (RecoveryAwaitingReadiness (ok (mkPhysicalIdentity "model-service-uid"))))
+  (transaction, selected) <- applyReviewed store stoppedRegistry stoppedReview >>= expectRight >>= \case
+    StoppedAmbiguous value operation -> pure (value, operation)
+    other -> assertFailure ("model did not stop its selected scope: " <> show other) >> pure (error "unreachable")
+  recordOperatorRecovery store stoppedRegistry
+    (OperatorRecoveryInput transaction selected (reviewDigestFor stoppedReview) StopIncompleteApplication) False
+      >>= expectRight
+  stoppedHistory <- loadInventoryHistory store >>= expectRight
+  let [(stoppedOwner, _)] = Map.toAscList (historyAccepted stoppedHistory)
+      otherOwner = ok (mkScopeId Application "model-unrelated")
+      otherScope = modelScope otherOwner "settings" "model-unrelated-v1"
+      registry = modelRecordingRegistry
+        (\_ _ -> pure AdapterEffectCompleted)
+        (\operation _ -> pure (RecoveryProvedComplete (proof operation)))
+  candidate <- modelCandidate stoppedHistory (ReplaceScope otherScope :| [])
+  reviewed <- modelReview store registry candidate noLifecycleDecisions
+  modelApplyAndRecover store registry reviewed
+  after <- loadInventoryHistory store >>= expectRight
+  Map.lookup stoppedOwner (historyAccepted after) @?= Map.lookup stoppedOwner (historyAccepted stoppedHistory)
+  Map.lookup stoppedOwner (historyConverged after) @?= Map.lookup stoppedOwner (historyConverged stoppedHistory)
 
 preparedFixture :: InventoryStore -> IORef [OperationId] -> (PlannedOperation -> IO AdapterExecution) -> (PlannedOperation -> IO RecoveryDecision) -> IO (ReviewedPlan, AdapterRegistry)
 preparedFixture store calls execution recovery =
