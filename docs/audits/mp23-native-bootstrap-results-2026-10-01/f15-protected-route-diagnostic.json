@@ -128,10 +128,10 @@
   },
   "installedCorrectionAccepted": false,
   "remainingSteps": [
-    "complete full CLI suite and installed candidate gate",
-    "review exact application-only correction",
+    "operator decision on one exact controller-created ingress metadata requeue",
+    "resume original correction transaction once original route is Ready",
     "prove protected route functional without direct public backend",
-    "continue the bounded sequence and operator safe-use review"
+    "continue bounded application/access/recovery and operator safe-use review"
   ],
   "fullCliTests": {
     "passed": true,
@@ -153,5 +153,27 @@
       "headGenerationPreserved": 517
     }
   },
-  "nextInstalledCandidateRequired": true
+  "nextInstalledCandidateRequired": false,
+  "finalInstalledCandidate": {
+    "revision": "f18c318d84347eac48b55de9a5da8f392a51be1c",
+    "buildPassed": true,
+    "localCandidateGate": "local-platform-candidate-f18c318d.json",
+    "localCandidateGatePassed": true,
+    "correctionReviewDigest": "059618b83f59b28fe46afc08cbf487fa49138120845bd4a6af1266d038903e56",
+    "ownedServiceUpdates": 1,
+    "verificationOperations": 12,
+    "applyExit": 1,
+    "applySeconds": 42.838,
+    "stoppedOperation": "op-b3093f1babad73fadc1c0aeb",
+    "failure": "KnownNoEffect adapter preflight refused",
+    "backendNowClusterLocal": true,
+    "originalServiceDatabasePvcUidsPreserved": true,
+    "conflictingPublicBackendIngressRemovedByController": true,
+    "domainMappingStillUnready": true,
+    "headGeneration": 542,
+    "headSequence": 515,
+    "executorClaim": null,
+    "requeueReview": "f15-ingress-requeue-review.json",
+    "requeueApprovalPending": true
+  }
 }

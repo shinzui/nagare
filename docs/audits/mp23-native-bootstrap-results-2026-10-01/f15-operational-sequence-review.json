@@ -43,7 +43,7 @@
       "mp23-f15-pg-a",
       "mp23-f15-pg-b"
     ],
-    "isolatedRestoreDatabase": "mp23-f15-pg-a-scratch",
+    "isolatedRestoreDatabase": "mp23-f15-pg-a_restore_mp23f15pgav1",
     "namespace": "personal",
     "syntheticAccessSubject": "mp23-f15-reviewer",
     "fixtureAuthChanges": [
@@ -61,7 +61,9 @@
     "standingResourceChanges": 0,
     "newCloudVMs": 0,
     "newLocalVMs": 0,
-    "fixtureAuthContributionUpdatesExplicitlyAllowed": true
+    "fixtureAuthContributionUpdatesExplicitlyAllowed": true,
+    "isolatedRestoreBoundary": "new logical database within the existing PostgreSQL instance; source database and PVC preserved",
+    "boundedOwnedApplicationCorrectionAllowed": true
   },
   "laterReviewsRequiredBeforeEveryApply": true,
   "guardPolicy": [
@@ -137,5 +139,6 @@
     "nativeProtectedRouteReady": false,
     "nativeFailure": "DomainConflict",
     "scopeConvergedDoesNotEstablishFunctionalAccess": true
-  }
+  },
+  "nextCandidate": "f18c318d84347eac48b55de9a5da8f392a51be1c"
 }

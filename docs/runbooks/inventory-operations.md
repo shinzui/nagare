@@ -137,9 +137,13 @@ uses candidate `2101b834` on `ep150-preview`, preserving payload `6082dbd6`.
 The [fresh F15 stage report](../audits/mp23-native-bootstrap-results-2026-09-30/f15-cloud-sequence-rehearsal.json)
 separately records original-payload image publication (249.546 s), image binding
 (37.798 s), VM creation (51.569 s), guarded host operations (86.780 s), and private
-kubeconfig installation (13.778 s). Cluster convergence and credential
-expiry/re-pull on this fresh context are pending. Check measured provider work
-and journal progress before interpreting a long command as an operator crash.
+kubeconfig installation (13.778 s). Fresh cluster convergence passed in 1,284.026
+seconds on `71288437`: 22 exact scopes converged with 31 Ready workloads and two
+Succeeded migration Pods. The expired boot registry token returned 401, the timer
+refreshed all three owned Secrets, and an authenticated native re-pull passed
+without a k3s restart or cache eviction. These accepted checks are preserved across
+the narrowly changed operator candidate. Check measured provider work and journal
+progress before interpreting a long command as an operator crash.
 
 ## Supported recovery and remaining constraints
 
@@ -153,8 +157,11 @@ before selecting any archive for deletion.
 MP-23 does not support an in-place platform-version upgrade after inventory
 admission. Preserve the accepted payload during maintenance and recovery.
 Database and volume restores use isolated destinations; they do not provide an
-automatic application cutover or live overwrite. New custom interactive mutating
-maintenance and generalized scheduled pruning remain unavailable. Existing
+automatic application cutover or live overwrite. The PostgreSQL procedure creates a
+new logical database within the accepted PostgreSQL instance/PVC; it does not
+provision a separate instance or storage volume. The bounded fixture restore name
+is `mp23-f15-pg-a_restore_mp23f15pgav1`, and the original database remains intact.
+New custom interactive mutating maintenance and generalized scheduled pruning remain unavailable. Existing
 admitted historical operations retain their evidence-bound recovery paths.
 
 Real low-risk workloads remain gated on fresh-context operational evidence,

@@ -1,0 +1,115 @@
+{
+  "operatorRevision": "f18c318d84347eac48b55de9a5da8f392a51be1c",
+  "context": {
+    "identity": "f15-preview",
+    "project": "tan-ng-labs"
+  },
+  "review": "059618b83f59b28fe46afc08cbf487fa49138120845bd4a6af1266d038903e56",
+  "head": {
+    "activeTransaction": "tx-059618b83f59b28fe46afc08cbf487fa49138120845bd4a6af1266d038903e56",
+    "binding": {
+      "identity": "f15-preview",
+      "project": "tan-ng-labs"
+    },
+    "dataFence": null,
+    "executorClaim": null,
+    "generation": 542,
+    "headDigest": "5f15fac686251196722d3eeecd545326882fd7ea3edf8bb51b621b5446fc7695",
+    "kind": "gcs",
+    "migration": null,
+    "url": "gs://tan-ng-labs-f15-0930-pmkjjpp-state/inventory"
+  },
+  "ingressUid": "2b3749cb-a468-42ce-b925-b10166e3c1b8",
+  "ingressResourceVersion": "20148",
+  "domainMappingUid": "f5c676b1-7093-4fe4-884c-8ff0e0b2db04",
+  "patch": [
+    {
+      "op": "test",
+      "path": "/metadata/uid",
+      "value": "2b3749cb-a468-42ce-b925-b10166e3c1b8"
+    },
+    {
+      "op": "test",
+      "path": "/metadata/resourceVersion",
+      "value": "20148"
+    },
+    {
+      "op": "test",
+      "path": "/metadata/ownerReferences",
+      "value": [
+        {
+          "apiVersion": "serving.knative.dev/v1beta1",
+          "blockOwnerDeletion": true,
+          "controller": true,
+          "kind": "DomainMapping",
+          "name": "mp23-f15-app-a.personal.f15-0930.labs.topagentnetwork.net",
+          "uid": "f5c676b1-7093-4fe4-884c-8ff0e0b2db04"
+        }
+      ]
+    },
+    {
+      "op": "test",
+      "path": "/metadata/annotations",
+      "value": {
+        "nagare.dev/context-id": "f15-preview",
+        "nagare.dev/resource-id": "application:mp23-f15-app-a/mp23-f15-app-a.personal.f15-0930.labs.topagentnetwork.net/domain-mapping",
+        "nagare.dev/spec-digest": "e05b0daabc4bacda19749196894c7aefd2b9a61662beedae929dbe4d094b7daf",
+        "networking.knative.dev/ingress.class": "kourier.ingress.networking.knative.dev",
+        "serving.knative.dev/creator": "system:admin",
+        "serving.knative.dev/lastModifier": "system:admin"
+      }
+    },
+    {
+      "op": "test",
+      "path": "/spec",
+      "value": {
+        "httpOption": "Enabled",
+        "rules": [
+          {
+            "hosts": [
+              "mp23-f15-app-a.personal.f15-0930.labs.topagentnetwork.net"
+            ],
+            "http": {
+              "paths": [
+                {
+                  "rewriteHost": "nagare-access.nagare-system.svc.cluster.local",
+                  "splits": [
+                    {
+                      "appendHeaders": {
+                        "K-Original-Host": "mp23-f15-app-a.personal.f15-0930.labs.topagentnetwork.net"
+                      },
+                      "percent": 100,
+                      "serviceName": "nagare-access",
+                      "serviceNamespace": "nagare-system",
+                      "servicePort": 80
+                    }
+                  ]
+                }
+              ]
+            },
+            "visibility": "ExternalIP"
+          }
+        ]
+      }
+    },
+    {
+      "op": "add",
+      "path": "/metadata/annotations/nagare.dev~1reconcile-request",
+      "value": "mp23-059618b83f59b28f"
+    }
+  ],
+  "changes": "one reconcile-request annotation on exact controller-created application ingress",
+  "specChange": false,
+  "deletion": false,
+  "providerEffectsExecuted": false,
+  "approvalRequired": "exception for controller-created metadata requeue outside original saved verification operation",
+  "upstream": {
+    "project": "mori://knative-extensions/net-kourier",
+    "artifactUriPending": true,
+    "projectRelativePath": "pkg/reconciler/ingress/ingress.go",
+    "commit": "918ac848960ac865662b3d8dba3bc003dc218eed",
+    "tag": "knative-v1.22.0"
+  },
+  "serverDryRunPassed": true,
+  "nativeResourceVersionUnchangedAfterDryRun": true
+}
