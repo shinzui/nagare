@@ -283,7 +283,7 @@
   "deletes": 0,
   "cloudApplyStarted": true,
   "sequenceApproval": "operator approved bounded sequence in current session",
-  "nextReviewBoundary": "fix saved-review and observation native rebinding, prove the installed local gate on the next immutable CLI, then apply the original saved 6861cf4c review; do not replace its accepted payload or rerender the review",
+  "nextReviewBoundary": "observe the original 6861cf4c review applying under installed 71288437; readiness, credential expiry/re-pull, operational checks and cleanup remain pending",
   "convergedStages": [
     {
       "stage": "24-resource perimeter",
@@ -385,8 +385,8 @@
       "diagnosis": "GCS object metadata proves member publication over final 136 seconds; retry changed condition is exact immutable members now present"
     }
   ],
-  "activeOperatorRevision": "e84983f1b885b7eb8e79f2512e3c6560db5e4a09",
-  "installedLocalGate": "../mp23-native-bootstrap-results-2026-10-01/local-platform-candidate-e84983f1.json",
+  "activeOperatorRevision": "712884376ae367361627aa057afb28178d6e768b",
+  "installedLocalGate": "../mp23-native-bootstrap-results-2026-10-01/local-platform-candidate-71288437.json",
   "clusterReview": {
     "digest": "6861cf4c5f12df9917f591acdf14ce73e90cc6455c00d646e1a894444fa5f7e6",
     "headGeneration": 55,
@@ -409,13 +409,24 @@
     "reusedImmutableMembers": true,
     "applyStarted": true,
     "converged": false,
-    "admitted": false,
-    "applyResult": {
-      "exit": 1,
-      "seconds": 4.793,
-      "reason": "saved-review native reconstruction drops typed Serving credential delegation",
-      "effects": false,
-      "headGenerationUnchanged": 55
+    "admitted": true,
+    "applyRetries": [
+      {
+        "exit": 1,
+        "seconds": 4.793,
+        "reason": "saved-review native reconstruction drops typed Serving credential delegation",
+        "effects": false,
+        "headGenerationUnchanged": 55
+      }
+    ],
+    "activeApplyCandidate": "712884376ae367361627aa057afb28178d6e768b",
+    "transaction": "tx-6861cf4c5f12df9917f591acdf14ce73e90cc6455c00d646e1a894444fa5f7e6",
+    "observedActiveProgress": {
+      "generation": 254,
+      "sequence": 234,
+      "operation": "reconcile Helm release platform:observability-vmks/observability/release",
+      "state": "IntentRecorded",
+      "executorClaimEpoch": 1
     }
   },
   "credentialReadOnlyProbe": {
@@ -426,6 +437,18 @@
     "k3sInvocation": "e248569c2ecb4494be3bba013d054b0e",
     "bootCredentialUnitStart": "Thu 2026-10-01 14:44:13 UTC",
     "timerStart": "Thu 2026-10-01 16:46:33 UTC",
+    "timerResult": "success",
+    "bootCredentialMtime": 1790865853,
+    "credentialBytesLeftHost": false
+  },
+  "credentialReadOnlyProgressProbe": {
+    "at": "2026-10-01T17:40:18Z",
+    "bootCredentialRegistryStatus": "401",
+    "freshCredentialRegistryStatus": "200",
+    "freshLifetimeSeconds": 374,
+    "k3sInvocation": "e248569c2ecb4494be3bba013d054b0e",
+    "bootCredentialUnitStart": "Thu 2026-10-01 14:44:13 UTC",
+    "timerStart": "Thu 2026-10-01 17:16:33 UTC",
     "timerResult": "success",
     "bootCredentialMtime": 1790865853,
     "credentialBytesLeftHost": false

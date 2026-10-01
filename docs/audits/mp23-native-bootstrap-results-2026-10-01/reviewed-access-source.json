@@ -64,5 +64,6 @@
     "EP-158 M2 CDN operations",
     "MP-23 safe-use and full release gates"
   ],
-  "installedCandidateRevision": "e84983f1b885b7eb8e79f2512e3c6560db5e4a09"
+  "installedCandidateRevision": "712884376ae367361627aa057afb28178d6e768b",
+  "installedLocalGate": "local-platform-candidate-71288437.json"
 }
