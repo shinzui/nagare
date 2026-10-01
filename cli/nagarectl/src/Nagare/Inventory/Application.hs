@@ -149,7 +149,11 @@ compileServiceActionScope serviceName namespaceName action accepted native = do
   canonical <- first invalid (canonicalValue value)
   unless (resource ^. #spec == KnativeService (contentDigest canonical))
     (Left (invalid "accepted Service native digest differs from its declaration"))
-  changed <- first invalid (applyServiceAction action value)
+  let upstream = "http://" <> serviceName <> "." <> namespaceName <> ".svc.cluster.local"
+      protected = any (\case
+        RegisterBackend _ _ _ target _ _ -> target == upstream
+        _ -> False) [request | bundle <- scopeBundles accepted, request <- contributions bundle]
+  changed <- first invalid (applyServiceAction protected action value)
   changedBytes <- first invalid (canonicalValue changed)
   let updated = resource & #spec .~ KnativeService (contentDigest changedBytes)
       replace :: ResourceBundle -> ResourceBundle
@@ -167,14 +171,15 @@ compileServiceActionScope serviceName namespaceName action accepted native = do
         Just digest -> withScopeConfigDigest digest base
   pure (revised, Map.insert (resource ^. #identity) (updated, changedBytes) native)
 
-applyServiceAction :: ServiceAction -> Value -> Either T.Text Value
-applyServiceAction action (Object root) = do
+applyServiceAction :: Bool -> ServiceAction -> Value -> Either T.Text Value
+applyServiceAction protected action (Object root) = do
   metadata <- objectAt "metadata" root
   labels <- objectAt "labels" metadata
   spec <- objectAt "spec" root
   let visibility = K.fromText "networking.knative.dev/visibility"
       changedLabels = case action of
         StopService -> KM.insert visibility (String "cluster-local") labels
+        RestartService _ | protected -> KM.insert visibility (String "cluster-local") labels
         RestartService _ -> KM.delete visibility labels
       changedMetadata = KM.insert "labels" (Object changedLabels) metadata
   changedSpec <- case action of
@@ -197,7 +202,7 @@ applyServiceAction action (Object root) = do
     objectAt key fields = case KM.lookup key fields of
       Just (Object value) -> Right value
       _ -> Left ("Service has no object " <> K.toText key)
-applyServiceAction _ _ = Left "Service native evidence is not an object"
+applyServiceAction _ _ _ = Left "Service native evidence is not an object"
 
 -- | Bind public command inputs to the standalone scope only after checking
 -- that they agree with the rollout and accepted image used by its compiler.
@@ -2119,9 +2124,14 @@ compileServiceMembers owner service rollout cluster namespaceId imageId database
   rendered <- first invalid (renderServiceObjects rollout renderedService)
   let volumes = service ^. #volumes
       (volumeRendered, serviceRendered) = splitAt (length volumes) rendered
-  serviceBytes <- case serviceRendered of
+  renderedServiceBytes <- case serviceRendered of
     ("service", manifest) : _ -> Right manifest
     _ -> Left (invalid "service renderer produced unexpected members")
+  serviceBytes <- if null accessIds then Right renderedServiceBytes else do
+    value <- first (invalid . T.pack . show)
+      (Yaml.decodeEither' renderedServiceBytes :: Either Yaml.ParseException Value)
+    private <- first invalid (privateService value)
+    first invalid (canonicalValue private)
   let domainRendered = drop 1 serviceRendered
   unless (length domainRendered == length domains && all ((== "service") . fst) domainRendered)
     (Left (invalid "service domain renderer produced unexpected members"))
@@ -2153,6 +2163,14 @@ compileServiceMembers owner service rollout cluster namespaceId imageId database
     invalid message = single (inventoryError "invalid-service-declaration" message
       & #sources .~ [source])
     single errorValue = errorValue :| []
+    privateService (Object root) = case KM.lookup "metadata" root of
+      Just (Object metadata) -> case KM.lookup "labels" metadata of
+        Just (Object labels) -> Right (Object (KM.insert "metadata"
+          (Object (KM.insert "labels" (Object (KM.insert
+            "networking.knative.dev/visibility" (String "cluster-local") labels)) metadata)) root))
+        _ -> Left "protected Service has no object labels"
+      _ -> Left "protected Service has no object metadata"
+    privateService _ = Left "protected Service native evidence is not an object"
     compileVolume (volume, bytes) = do
       recovery <- case volume ^. #retention of
         Dsl.Retain -> Just <$> maybe (Left (invalid "retained service volume has no recovery intent")) Right

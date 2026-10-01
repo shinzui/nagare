@@ -1901,6 +1901,24 @@ renderTests =
             [OrderedAfter enforcerId, OrderedAfter (backendMapResourceId authOwner)]) accessRoutes)
       assertBool "reviewed app route does not target the accepted enforcer"
         (any (BS.isInfixOf "nagare-access" . snd) (Map.elems accessNative))
+      let protectedServices = [member | bundle <- scopeBundles accessScope,
+            Managed member <- declarations bundle,
+            case member ^. #address of
+              Resource.Kubernetes _ "serving.knative.dev" kind _ _ ->
+                kind == unsafe (Resource.mkName "service")
+              _ -> False]
+          privateService bytes = BC.isInfixOf
+            "\"networking.knative.dev/visibility\":\"cluster-local\"" bytes
+      assertBool "protected backend retained a public Knative route"
+        (not (null protectedServices) && all (\member -> maybe False
+          (privateService . snd) (Map.lookup (member ^. #identity) accessNative)) protectedServices)
+      (accessRestarted, accessRestartedNative) <- either (fail . show) pure
+        (compileServiceActionScope "kizashi-serve" "personal" (RestartService "protected-r2")
+          accessScope accessNative)
+      assertBool "restart exposed a protected backend"
+        (all (\member -> maybe False (privateService . snd)
+          (Map.lookup (member ^. #identity) accessRestartedNative)) protectedServices)
+      Map.lookup "operational.visibility" (scopeOverrides accessRestarted) @?= Nothing
       accessCandidate <- either (fail . show) pure (composeInventory authSnapshot
         (ReplaceScope accessScope :| []))
       Map.lookup authOwner (candidateGenerations accessCandidate) @?= Just databaseGeneration
@@ -1919,7 +1937,7 @@ renderTests =
         (ReplaceScope portalScope :| []))
       let accessService = independentService & #brokers .~ []
             & #domains .~ [] & #access .~ Just requireLogin
-      (standaloneAccessScope, _) <- either (fail . show) pure
+      (standaloneAccessScope, standaloneAccessNative) <- either (fail . show) pure
         (compileStandaloneServiceWithDependencies serviceOwner accessService serviceRollout
           cluster namespaceId publication Map.empty Map.empty Map.empty Map.empty Map.empty
           Map.empty (Just accessBinding) (scopeSource input))
@@ -1932,6 +1950,8 @@ renderTests =
                   && host == unsafe (Resource.mkName "kizashi-serve.personal.apps.example.com")
               _ -> False]
       length defaultRoutes @?= 1
+      assertBool "standalone protected backend retained a public Knative route"
+        (any (privateService . snd) (Map.elems standaloneAccessNative))
       _ <- either (fail . show) pure (composeInventory authSnapshot
         (ReplaceScope standaloneAccessScope :| []))
       assertBool "access intent accepted without auth evidence"

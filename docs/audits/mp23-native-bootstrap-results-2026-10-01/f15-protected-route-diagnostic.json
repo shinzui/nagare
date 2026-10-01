@@ -1,0 +1,134 @@
+{
+  "operatorRevision": "712884376ae367361627aa057afb28178d6e768b",
+  "context": "f15-preview",
+  "payloadPreserved": "nagare-0.4.0-d73c1dc4d379",
+  "reviewDigest": "e08853f21459fab31c2d968744240937b9440d132515021dcc37dc88da584ed6",
+  "applyResult": {
+    "exit": 0,
+    "seconds": 81.53
+  },
+  "head": {
+    "generation": 517,
+    "sequence": 492,
+    "acceptedScopes": 24,
+    "convergedScopes": 24,
+    "idle": true
+  },
+  "objects": [
+    {
+      "kind": "Service",
+      "name": "mp23-f15-app-a",
+      "uid": "dd71a271-a18a-42c6-b7e1-53fa79c807af",
+      "generation": 1,
+      "resourceId": "application:mp23-f15-app-a/mp23-f15-app-a/service",
+      "specDigest": "faedcf9baa7319dc34c61f4c8e87e2dd209b23517a1e09406aaf1ad6ea40699d",
+      "visibility": null,
+      "conditions": [
+        {
+          "lastTransitionTime": "2026-10-01T19:08:42Z",
+          "status": "True",
+          "type": "ConfigurationsReady"
+        },
+        {
+          "lastTransitionTime": "2026-10-01T19:08:42Z",
+          "status": "True",
+          "type": "Ready"
+        },
+        {
+          "lastTransitionTime": "2026-10-01T19:08:42Z",
+          "status": "True",
+          "type": "RoutesReady"
+        }
+      ]
+    },
+    {
+      "kind": "StatefulSet",
+      "name": "mp23-f15-pg-a",
+      "uid": "c5f3b976-be6c-4b26-89dc-fbd6b4f47a29",
+      "generation": 1,
+      "resourceId": "application:mp23-f15-app-a/mp23-f15-pg-a/statefulset",
+      "specDigest": "f127c754dce92b53c5d5fc33c22614d72243f10131779cb5eda50e571f4fb601",
+      "visibility": null,
+      "conditions": []
+    },
+    {
+      "kind": "PersistentVolumeClaim",
+      "name": "nagare-db-mp23-f15-pg-a-data",
+      "uid": "3c640f86-c4db-4b03-9636-3db011941464",
+      "generation": null,
+      "resourceId": "application:mp23-f15-app-a/mp23-f15-pg-a/pvc",
+      "specDigest": "42d51fe710ce3c6721d69ca6d7ee6885c090be4e1db4190a0c414ca420b82d75",
+      "visibility": null,
+      "conditions": []
+    },
+    {
+      "kind": "DomainMapping",
+      "name": "mp23-f15-app-a.personal.f15-0930.labs.topagentnetwork.net",
+      "uid": "f5c676b1-7093-4fe4-884c-8ff0e0b2db04",
+      "generation": 1,
+      "resourceId": "application:mp23-f15-app-a/mp23-f15-app-a.personal.f15-0930.labs.topagentnetwork.net/domain-mapping",
+      "specDigest": "e05b0daabc4bacda19749196894c7aefd2b9a61662beedae929dbe4d094b7daf",
+      "visibility": null,
+      "conditions": [
+        {
+          "lastTransitionTime": "2026-10-01T19:08:51Z",
+          "message": "external-domain-tls is not enabled",
+          "reason": "TLSNotEnabled",
+          "status": "True",
+          "type": "CertificateProvisioned"
+        },
+        {
+          "lastTransitionTime": "2026-10-01T19:08:51Z",
+          "status": "True",
+          "type": "DomainClaimed"
+        },
+        {
+          "lastTransitionTime": "2026-10-01T19:08:51Z",
+          "message": "Ingress rejected: ingress has a conflicting domain with another ingress",
+          "reason": "DomainConflict",
+          "status": "False",
+          "type": "IngressReady"
+        },
+        {
+          "lastTransitionTime": "2026-10-01T19:08:51Z",
+          "message": "Ingress rejected: ingress has a conflicting domain with another ingress",
+          "reason": "DomainConflict",
+          "status": "False",
+          "type": "Ready"
+        },
+        {
+          "lastTransitionTime": "2026-10-01T19:08:51Z",
+          "status": "True",
+          "type": "ReferenceResolved"
+        }
+      ]
+    }
+  ],
+  "safeUseAccepted": false,
+  "diagnosis": [
+    "protected backend publishes the same default hostname as the central DomainMapping",
+    "DomainMapping readiness is not checked by the current installed adapter"
+  ],
+  "sourceRegressions": {
+    "protectedBackendPrivateAndRestartPreservesVisibility": {
+      "failedBefore": true,
+      "passedAfter": true
+    },
+    "failedDomainMappingObservationAndHealth": {
+      "failedBefore": true,
+      "passedAfter": true
+    }
+  },
+  "installedCorrectionAccepted": false,
+  "remainingSteps": [
+    "complete full CLI suite and installed candidate gate",
+    "review exact application-only correction",
+    "prove protected route functional without direct public backend",
+    "continue the bounded sequence and operator safe-use review"
+  ],
+  "fullCliTests": {
+    "passed": true,
+    "tests": 1010,
+    "seconds": 50.22
+  }
+}

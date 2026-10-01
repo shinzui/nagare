@@ -1991,6 +1991,27 @@ inventoryKubernetesTests =
         readinessForAddress (address "batch" "job") ready @?= Just True
         readinessForAddress (address "batch" "job") (object []) @?= Just False
         readinessForAddress (address "" "configmap") ready @?= Nothing
+    , testCase "conflicting protected DomainMapping remains unready in observation and health" $ do
+        let config = KubernetesRuntimeConfig (ok (mkContextId "test")) "unused" (pure (Right ()))
+            address = Kubernetes resource "serving.knative.dev" (ok (mkName "domainmapping"))
+              (Just (ok (mkName "nagare-system"))) (ok (mkName "protected.example.test"))
+            desired = object
+              ["apiVersion" .= ("serving.knative.dev/v1beta1" :: Text), "kind" .= ("DomainMapping" :: Text),
+               "metadata" .= object ["name" .= ("protected.example.test" :: Text)]]
+            native = BL.toStrict (encode desired)
+            live state = object
+              ["apiVersion" .= ("serving.knative.dev/v1beta1" :: Text), "kind" .= ("DomainMapping" :: Text),
+               "metadata" .= object ["name" .= ("protected.example.test" :: Text), "uid" .= physical,
+                 "resourceVersion" .= ("5" :: Text)],
+               "status" .= object ["conditions" .= [object
+                 ["type" .= ("Ready" :: Text), "status" .= (state :: Text),
+                  "reason" .= ("DomainConflict" :: Text)]]]]
+            observe state = parseObserved config resource native
+              (TE.decodeUtf8 (BL.toStrict (encode (live state))))
+        observe "False" @?= Right (KubernetesNotReady physical "5" Nothing (contentDigest native))
+        observe "True" @?= Right (KubernetesPresent physical "5" Nothing (contentDigest native))
+        readinessForAddress address (live "False") @?= Just False
+        readinessForAddress address (live "True") @?= Just True
     , testCase "StatefulSet health requires current generation and ready updated replicas" $ do
         let address = Kubernetes resource "apps" (ok (mkName "statefulset"))
               (Just (ok (mkName "default"))) (ok (mkName "example"))

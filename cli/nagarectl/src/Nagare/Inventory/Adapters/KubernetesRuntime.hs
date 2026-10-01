@@ -289,6 +289,8 @@ waitForReadiness config address = case address of
       waitCondition "ready" (T.unpack (nameText kind)) namespace name "cert-manager resource"
   Kubernetes _ "serving.knative.dev" kind namespace name | nameText kind == "service" ->
     waitCondition "ready" "ksvc" namespace name "Knative Service"
+  Kubernetes _ "serving.knative.dev" kind namespace name | nameText kind == "domainmapping" ->
+    waitCondition "ready" "domainmapping.serving.knative.dev" namespace name "Knative DomainMapping"
   Kubernetes _ "apps" kind namespace name | nameText kind == "deployment" -> do
     result <- invoke config
       (["rollout", "status", "deployment/" <> T.unpack (nameText name)]
@@ -346,7 +348,7 @@ readinessForAddress address value = case address of
   Kubernetes _ "batch" kind _ _ | nameText kind == "job" -> Just (jobCompleted value)
   Kubernetes _ "apiextensions.k8s.io" kind _ _ | nameText kind == "customresourcedefinition" -> Just (crdEstablished value)
   Kubernetes _ "cert-manager.io" kind _ _ | nameText kind `elem` ["certificate", "clusterissuer"] -> Just (certificateReady value)
-  Kubernetes _ "serving.knative.dev" kind _ _ | nameText kind == "service" -> Just (knativeReady value)
+  Kubernetes _ "serving.knative.dev" kind _ _ | nameText kind `elem` ["service", "domainmapping"] -> Just (knativeReady value)
   Kubernetes _ "apps" kind _ _ | nameText kind == "deployment" -> Just (deploymentAvailable value)
   Kubernetes _ "apps" kind _ _ | nameText kind == "statefulset" -> Just (statefulSetReady value)
   _ -> Nothing
@@ -540,6 +542,7 @@ observedReady (Object root) = case (KM.lookup "apiVersion" root, KM.lookup "kind
   (_, Just (String "Certificate")) -> certificateReady (Object root)
   (_, Just (String "ClusterIssuer")) -> certificateReady (Object root)
   (Just (String "serving.knative.dev/v1"), Just (String "Service")) -> knativeReady (Object root)
+  (Just (String "serving.knative.dev/v1beta1"), Just (String "DomainMapping")) -> knativeReady (Object root)
   (_, Just (String "Deployment")) -> deploymentAvailable (Object root)
   (Just (String "apps/v1"), Just (String "StatefulSet")) -> statefulSetReady (Object root)
   _ -> True

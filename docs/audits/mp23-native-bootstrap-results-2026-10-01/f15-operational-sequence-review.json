@@ -60,7 +60,8 @@
     "portalSyncOperationsMaximum": 3,
     "standingResourceChanges": 0,
     "newCloudVMs": 0,
-    "newLocalVMs": 0
+    "newLocalVMs": 0,
+    "fixtureAuthContributionUpdatesExplicitlyAllowed": true
   },
   "laterReviewsRequiredBeforeEveryApply": true,
   "guardPolicy": [
@@ -87,7 +88,7 @@
   "currentActivePodCpuRequestsMillicores": 1785,
   "nodeAllocatableMillicores": 4000,
   "sequenceApproved": true,
-  "firstReviewApplied": false,
+  "firstReviewApplied": true,
   "safeUseAccepted": false,
   "protectedApplicationReadOnlyPreflight": {
     "seconds": 7.79,
@@ -102,5 +103,39 @@
     "instruction": "i want to do 1-6 in a deliberate way and like to know when 4 is complete to review what's usable and what needs to wait",
     "boundsUnchanged": true,
     "step4ReviewBeforeStep5": true
+  },
+  "firstReviewApplyResult": {
+    "exit": 0,
+    "seconds": 44.066
+  },
+  "imageConvergedHead": {
+    "activeTransaction": null,
+    "binding": {
+      "identity": "f15-preview",
+      "project": "tan-ng-labs"
+    },
+    "dataFence": null,
+    "executorClaim": null,
+    "generation": 487,
+    "headDigest": "bec8558bd370ae859ce8aa95594a5752d541cdf6301439aa5029bf24d9f48772",
+    "kind": "gcs",
+    "migration": null,
+    "url": "gs://tan-ng-labs-f15-0930-pmkjjpp-state/inventory"
+  },
+  "protectedApplicationReview": {
+    "digest": "e08853f21459fab31c2d968744240937b9440d132515021dcc37dc88da584ed6",
+    "headGeneration": 487,
+    "operations": 13,
+    "creates": 12,
+    "fixtureBackendMapUpdates": 1,
+    "unrelatedRevisionsPreserved": true,
+    "applied": true,
+    "applyResult": {
+      "exit": 0,
+      "seconds": 81.53
+    },
+    "nativeProtectedRouteReady": false,
+    "nativeFailure": "DomainConflict",
+    "scopeConvergedDoesNotEstablishFunctionalAccess": true
   }
 }
