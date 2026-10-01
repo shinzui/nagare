@@ -283,7 +283,7 @@
   "deletes": 0,
   "cloudApplyStarted": true,
   "sequenceApproval": "operator approved bounded sequence in current session",
-  "nextReviewBoundary": "observe the original 6861cf4c review applying under installed 71288437; readiness, credential expiry/re-pull, operational checks and cleanup remain pending",
+  "nextReviewBoundary": "prepare bounded native access and fresh operational rehearsal reviews; broader safe-use checks, operator verification and exact cleanup remain pending",
   "convergedStages": [
     {
       "stage": "24-resource perimeter",
@@ -325,6 +325,13 @@
       "review": "b1b713803f06bdae1d4d4019b074e63c58795e5e6abd788f0a9783d7b3500d55",
       "exit": 0,
       "seconds": 13.778
+    },
+    {
+      "stage": "original 210-operation cluster review",
+      "review": "6861cf4c5f12df9917f591acdf14ce73e90cc6455c00d646e1a894444fa5f7e6",
+      "operatorRevision": "712884376ae367361627aa057afb28178d6e768b",
+      "exit": 0,
+      "seconds": 1284.026
     }
   ],
   "vmReview": {
@@ -340,7 +347,7 @@
     "physicalInstanceId": "1728624546096074622"
   },
   "safeUseAccepted": false,
-  "credentialExpiryRepullAccepted": false,
+  "credentialExpiryRepullAccepted": true,
   "hostReview": {
     "digest": "df782b33169a75a43489f9de7ec736a15b75a12f1e986a5ceb9b6e7d331b8e14",
     "operations": 2,
@@ -408,7 +415,7 @@
     "planSeconds": 334.687,
     "reusedImmutableMembers": true,
     "applyStarted": true,
-    "converged": false,
+    "converged": true,
     "admitted": true,
     "applyRetries": [
       {
@@ -427,7 +434,16 @@
       "operation": "reconcile Helm release platform:observability-vmks/observability/release",
       "state": "IntentRecorded",
       "executorClaimEpoch": 1
-    }
+    },
+    "applyExit": 0,
+    "applySeconds": 1284.026,
+    "finalHeadGeneration": 479,
+    "finalHeadSequence": 458,
+    "acceptedScopes": 22,
+    "convergedScopes": 22,
+    "originalDesiredVectorPreserved": true,
+    "runningPodsReady": 31,
+    "migrationPodsSucceeded": 2
   },
   "credentialReadOnlyProbe": {
     "at": "2026-10-01T16:55:25Z",
@@ -452,5 +468,105 @@
     "timerResult": "success",
     "bootCredentialMtime": 1790865853,
     "credentialBytesLeftHost": false
+  },
+  "nativeSteadyCredentialCheckpoint": {
+    "timerProbe": {
+      "at": "2026-10-01T17:46:51Z",
+      "bootCredentialRegistryStatus": "401",
+      "freshCredentialRegistryStatus": "200",
+      "freshLifetimeSeconds": 3547,
+      "k3sInvocation": "e248569c2ecb4494be3bba013d054b0e",
+      "bootCredentialUnitStart": "Thu 2026-10-01 14:44:13 UTC",
+      "timerStart": "Thu 2026-10-01 17:46:33 UTC",
+      "timerResult": "success",
+      "bootCredentialMtime": 1790865853
+    },
+    "controller": {
+      "deployment": {
+        "name": "net-certmanager-controller",
+        "uid": "02f5eb1f-ed62-4e43-b1f0-557b5b77c9db",
+        "resourceVersion": "5752",
+        "owner": "platform:net-certmanager/net-certmanager/object-7a754eb9acba543834ca7bd16885a09721275520",
+        "generation": 1,
+        "observedGeneration": 1,
+        "availableReplicas": 1,
+        "serviceAccount": "controller",
+        "containers": [
+          {
+            "name": "controller",
+            "image": "us-west1-docker.pkg.dev/tan-ng-labs/nagare-f15-0930/net-certmanager-controller@sha256:005c6492f8b0322d4c1436910179c74df0f7bc634452f54cf4879c76a85ceceb",
+            "imagePullPolicy": "IfNotPresent"
+          }
+        ]
+      },
+      "pods": [
+        {
+          "name": "net-certmanager-controller-56cc574c4-tmnjf",
+          "uid": "0568ac73-9776-48da-886c-64bc53efebb4",
+          "created": "2026-10-01T17:47:46Z",
+          "pullRefs": [
+            {
+              "name": "nagare-registry-pull"
+            }
+          ],
+          "statuses": [
+            {
+              "imageID": "us-west1-docker.pkg.dev/tan-ng-labs/nagare-f15-0930/net-certmanager-controller@sha256:005c6492f8b0322d4c1436910179c74df0f7bc634452f54cf4879c76a85ceceb",
+              "ready": true,
+              "restartCount": 0
+            }
+          ]
+        }
+      ],
+      "pullEvents": [
+        {
+          "at": "2026-10-01T17:47:46Z",
+          "reason": "Pulling",
+          "uid": "0568ac73-9776-48da-886c-64bc53efebb4",
+          "message": "Pulling image \"us-west1-docker.pkg.dev/tan-ng-labs/nagare-f15-0930/net-certmanager-controller@sha256:005c6492f8b0322d4c1436910179c74df0f7bc634452f54cf4879c76a85ceceb\""
+        },
+        {
+          "at": "2026-10-01T17:47:49Z",
+          "reason": "Pulled",
+          "uid": "0568ac73-9776-48da-886c-64bc53efebb4",
+          "message": "Successfully pulled image \"us-west1-docker.pkg.dev/tan-ng-labs/nagare-f15-0930/net-certmanager-controller@sha256:005c6492f8b0322d4c1436910179c74df0f7bc634452f54cf4879c76a85ceceb\" in 3.02s (3.02s including waiting). Image size: 87378788 bytes."
+        }
+      ]
+    },
+    "secondAuthenticatedPullAccepted": true,
+    "secondAuthenticatedPull": {
+      "at": "2026-10-01T18:02:03Z",
+      "image": "us-west1-docker.pkg.dev/tan-ng-labs/nagare-f15-0930/net-certmanager-controller@sha256:005c6492f8b0322d4c1436910179c74df0f7bc634452f54cf4879c76a85ceceb",
+      "imageID": "sha256:aef42279f08f20958db84a4fa3fca82baff560070a0b2765cc0e1e4c10fe90a1",
+      "withoutSecretExit": 1,
+      "withoutSecretUnauthorized": true,
+      "ownedSecretRepullExit": 0,
+      "credentialsLeftHost": false,
+      "k3sRestarted": false,
+      "cacheEvicted": false,
+      "workloadChanged": false
+    },
+    "secondAuthenticatedPullSeconds": 4.722
+  },
+  "freshRootRecovery": {
+    "seconds": 10.347,
+    "headUnchanged": true,
+    "credentialMode": "0600",
+    "copiedCredential": false,
+    "copiedJournal": false,
+    "copiedMarker": false,
+    "suppliedInputs": [
+      "context profile",
+      "host.nix",
+      "flake.nix",
+      "flake.lock"
+    ],
+    "sameReadyNode": {
+      "uid": "5d5681ad-2a0f-4066-8fdb-05adda99ac5d",
+      "name": "nagare-f15-0930",
+      "providerID": "k3s://nagare-f15-0930",
+      "Ready": true
+    },
+    "activeWriterCredentialRecoveryRefused": true
   }
 }
