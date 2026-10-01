@@ -42,6 +42,11 @@ provenance:
       at: 2026-09-28T16:56:05Z
       mode: "implement"
       note: "Pass exact-revision Darwin clone-free and typed-config negative package checks"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-30T04:43:10Z
+      mode: "update"
+      note: "Prioritize cloud integration and safe ongoing operation ahead of full local integration; retain final release gates"
 ---
 
 # Validate installed inventory packages on every supported system
@@ -56,6 +61,8 @@ The installed operator and developer packages run the inventory commands outside
 
 
 ## Progress
+
+**Cloud-first scheduling (operator request, 2026-09-29).** Prioritize the installed operator and runtime-resource checks required by EP-156 cloud continuation. Do not require the complete local scenario or full multi-system release matrix before the next cloud assertion. All M1/M2 package checks and both supported native-system gates remain required for final release acceptance.
 
 2026-09-28 scope update: no milestone is newly accepted by this edit. Use the revised MP-23 support boundary; historical findings retain their observations but do not reinstate deferred live overwrite, maintenance, or scheduled-pruning requirements.
 
@@ -88,6 +95,8 @@ Full rehearsal regression (2026-09-28): `bash scripts/rehearse-clone-free-releas
 
 ## Decision Log
 
+2026-09-29: Prioritize the installed operator and runtime-resource checks required by EP-156 cloud continuation. Do not require the complete local scenario or full multi-system release matrix before the next cloud assertion. All M1/M2 package checks and both supported native-system gates remain required for final release acceptance.
+
 2026-09-28: Align with the operator-approved MP-23 reduction and ADR 22 amendment. Keep complete evidence for supported behavior and explicit guards/recovery compatibility for deferred routes. EP-161 is Cancelled and no longer a completion dependency; earlier full-feature decomposition instructions are superseded.
 
 2026-09-26: Redirect unfinished EP-148 dependencies to EP-158–161 and preserve this plan’s assigned integration, package, or release obligations. EP-148 is superseded history, not a pending completion gate.
@@ -113,6 +122,8 @@ nix/platform-package.nix, nix/nagare-packages.nix, nix/haskell-packages.nix, nix
 
 
 ## Plan of Work
+
+**Cloud-first scheduling (operator request, 2026-09-29).** Prioritize the installed operator and runtime-resource checks required by EP-156 cloud continuation. Do not require the complete local scenario or full multi-system release matrix before the next cloud assertion. All M1/M2 package checks and both supported native-system gates remain required for final release acceptance.
 
 **Revised packaging boundary (2026-09-28).** Package the supported commands and the guards/retained recovery required by EP-153. Do not remove fence, session, or partial-prune decoders/handlers merely because new admission is deferred. EP-161 no longer supplies a new-session release requirement. All systems in release.json and the complete clone-free native gates remain mandatory.
 

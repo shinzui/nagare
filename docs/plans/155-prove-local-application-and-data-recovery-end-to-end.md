@@ -32,6 +32,11 @@ provenance:
       at: 2026-09-28T15:02:11Z
       mode: "update"
       note: "Reduce MP-23 lifecycle scope while retaining journal/state, existing recovery, and full supported-feature evidence"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-30T04:43:10Z
+      mode: "update"
+      note: "Prioritize cloud integration and safe ongoing operation ahead of full local integration; retain final release gates"
 ---
 
 # Prove local application and data recovery end to end
@@ -46,6 +51,8 @@ One reproducible disposable local run proves that the installed Nagare candidate
 
 
 ## Progress
+
+**Cloud-first scheduling (operator request, 2026-09-29).** Full local integration follows EP-156 cloud convergence and recovery. Preserve the existing platform/two-application/no-op and recovery evidence. Run focused local regressions or repair a shared binding when a concrete cloud assertion needs them; do not expand the complete k3d/MinIO scenario as a prerequisite of cloud progress. EP-155 retains ownership of its local scenario, bounded PostgreSQL rename and collection obligations, and both milestones remain required before EP-157 release acceptance.
 
 2026-09-28 scope update: no milestone is newly accepted by this edit. Use the revised MP-23 support boundary; historical findings retain their observations but do not reinstate deferred live overwrite, maintenance, or scheduled-pruning requirements.
 
@@ -93,6 +100,8 @@ Installed revision `e97d65e1` read-only replanned both accepted apps in the six-
 
 ## Decision Log
 
+2026-09-29: Full local integration follows EP-156 cloud convergence and recovery. Preserve the existing platform/two-application/no-op and recovery evidence. Run focused local regressions or repair a shared binding when a concrete cloud assertion needs them; do not expand the complete k3d/MinIO scenario as a prerequisite of cloud progress. EP-155 retains ownership of its local scenario, bounded PostgreSQL rename and collection obligations, and both milestones remain required before EP-157 release acceptance.
+
 2026-09-28: Align with the operator-approved MP-23 reduction and ADR 22 amendment. Keep complete evidence for supported behavior and explicit guards/recovery compatibility for deferred routes. EP-161 is Cancelled and no longer a completion dependency; earlier full-feature decomposition instructions are superseded.
 
 2026-09-26: Redirect unfinished EP-148 dependencies to EP-158–161 and preserve this plan’s assigned integration, package, or release obligations. EP-148 is superseded history, not a pending completion gate.
@@ -119,7 +128,9 @@ cli/nagarectl/test/InventoryIntegrationSpec.hs currently injects loss at each op
 
 ## Plan of Work
 
-**Early fixture handoff.** Prepare the existing scenario health checks and first installed platform/application path before broad recovery implementation. Add each new feature assertion to that same scenario as its command becomes usable. Agree its run identity and evidence shape with EP-157 before collecting expensive native results. Finish transferred native bindings and the complete final-candidate scenario later; beginning fixture work does not require all feature plans to be Complete.
+**Cloud-first scheduling (operator request, 2026-09-29).** Full local integration follows EP-156 cloud convergence and recovery. Preserve the existing platform/two-application/no-op and recovery evidence. Run focused local regressions or repair a shared binding when a concrete cloud assertion needs them; do not expand the complete k3d/MinIO scenario as a prerequisite of cloud progress. EP-155 retains ownership of its local scenario, bounded PostgreSQL rename and collection obligations, and both milestones remain required before EP-157 release acceptance.
+
+**Early fixture handoff (historical preparation; cloud-first scheduling above governs).** The existing scenario health checks and first installed platform/application path remain reusable inputs to recovery implementation. Add each new feature assertion to that same scenario as its command becomes usable. Agree its run identity and evidence shape with EP-157 before collecting expensive native results. Finish transferred native bindings and the complete final-candidate scenario later; beginning fixture work does not require all feature plans to be Complete.
 
 **Execution order within the existing milestones (2026-09-27).** Build/run the smallest production path of the already specified fixture first: accepted platform → application with database → unchanged replay with app/owner isolation. Record the exact failing assertion, then wire or fix that path before adding every scenario variant. Grow this same fixture through the remaining M1/M2 assertions; this intermediate result never closes either full milestone. Native lifecycle work transferred here is real implementation, not a short final smoke: bind one retained PostgreSQL rename to create/migrate/content verification/retire, and enumerate the existing catalogue's eligible database/broker companions, topic, schedule, and preview cleanup cases before implementing their native bindings. A missing binding maps to one of those obligations; a new provider or operation is a scope proposal. Consume EP-160's accepted recovery contracts and EP-153's deferred-admission/recovery boundary. Do not add a second fence or continue EP-161's cancelled session expansion.
 
