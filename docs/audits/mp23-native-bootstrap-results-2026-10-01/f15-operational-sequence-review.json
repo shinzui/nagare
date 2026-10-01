@@ -1,0 +1,92 @@
+{
+  "operatorRevision": "712884376ae367361627aa057afb28178d6e768b",
+  "acceptedPayloadPreserved": "nagare-0.4.0-d73c1dc4d379",
+  "context": "f15-preview",
+  "project": "tan-ng-labs",
+  "initialHead": {
+    "generation": 479,
+    "sequence": 458,
+    "headDigest": "a91c2421c57a879f0f4bbe66a4ba27b197ae8f2cf994fbf5c67867b1b450f848",
+    "idle": true
+  },
+  "privateFirstReview": "/tmp/nagare-mp23-fresh-credentials-20260930/evidence/rehearsal-20261001-native-ops-image-review",
+  "firstReviewDigest": "b6df15448db990f4aba8ad096505b4fc52130283688b31706050b17d4e300edb",
+  "firstReviewOperations": 2,
+  "firstReviewActions": [
+    "CreateResource",
+    "RunDeclaredOperation"
+  ],
+  "firstReviewUpdates": 0,
+  "firstReviewDeletes": 0,
+  "original22ScopeRevisionsPreserved": true,
+  "firstPublicationResource": "publication:app-image-mp23-f15-hello-ep156-v1/mp23-f15-hello-ep156-v1/oci-image",
+  "destination": "us-west1-docker.pkg.dev/tan-ng-labs/nagare-f15-0930/mp23-hello:ep156-v1",
+  "archiveSha256": "469811a54b50e9b06ff880ebb2dc17d9c60ee87d2ebd47927fc2ebd6832c2568",
+  "applicationInputs": [
+    {
+      "file": "/tmp/nagare-mp23-fresh-credentials-20260930/evidence/rehearsal-20261001-native-ops-inputs/AppA.hs",
+      "sha256": "3b15ca0e870c6e706decee43c49ba2fc0f5285dd13b332830b3eff52ac37c937",
+      "protected": true
+    },
+    {
+      "file": "/tmp/nagare-mp23-fresh-credentials-20260930/evidence/rehearsal-20261001-native-ops-inputs/AppB.hs",
+      "sha256": "4b0c2ec4881dd6f817c4e28f9324ee219db35bb53d637f6da213710e6437de98",
+      "protected": false
+    }
+  ],
+  "stagedBounds": {
+    "applications": [
+      "mp23-f15-app-a",
+      "mp23-f15-app-b"
+    ],
+    "databases": [
+      "mp23-f15-pg-a",
+      "mp23-f15-pg-b"
+    ],
+    "isolatedRestoreDatabase": "mp23-f15-pg-a-scratch",
+    "namespace": "personal",
+    "syntheticAccessSubject": "mp23-f15-reviewer",
+    "fixtureAuthChanges": [
+      "complete backend-map and Shomei settings contributions",
+      "reviewed Shomei rollout",
+      "exact viewer grant then revoke"
+    ],
+    "gcsBackupBucket": "tan-ng-labs-f15-0930-pmkjjpp-backups",
+    "applicationCreateOperationsMaximumEach": 20,
+    "restoreCreateOperationsMaximum": 12,
+    "backupAndInterruptionJobRunsMaximum": 3,
+    "grantOperationsMaximum": 1,
+    "revokeOperationsMaximum": 1,
+    "portalSyncOperationsMaximum": 3,
+    "standingResourceChanges": 0,
+    "newCloudVMs": 0,
+    "newLocalVMs": 0
+  },
+  "laterReviewsRequiredBeforeEveryApply": true,
+  "guardPolicy": [
+    "exact context/project/payload and shared head",
+    "no barriers, migrations or live overwrite",
+    "exact owner scopes and preserved unrelated revisions",
+    "exact namespace and fixture object names",
+    "accepted auth, route, database, PVC and Job UIDs",
+    "stable backup receipt generation and content digest",
+    "original transaction recovery and explicit takeover only after stopped executor",
+    "exact retirement/collection of test Jobs and web resources; retain database/PVC data"
+  ],
+  "installedLocalCandidateGate": "local-platform-candidate-71288437.json",
+  "nativeEnAtomicCapabilityProbe": {
+    "passed": true,
+    "atomicPreconditions": true,
+    "conditionalDeletes": true,
+    "credentialExported": false
+  },
+  "node": {
+    "name": "nagare-f15-0930",
+    "uid": "5d5681ad-2a0f-4066-8fdb-05adda99ac5d"
+  },
+  "currentActivePodCpuRequestsMillicores": 1785,
+  "nodeAllocatableMillicores": 4000,
+  "sequenceApproved": false,
+  "firstReviewApplied": false,
+  "safeUseAccepted": false
+}

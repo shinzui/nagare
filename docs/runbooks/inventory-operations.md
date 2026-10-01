@@ -27,7 +27,14 @@ nagarectl --context "$CONTEXT" inventory store status --json
 The selected context, project and store binding must agree. Keep the context's
 mode-0600 kubeconfig private. A fresh workstation without that credential uses
 `nagarectl --context "$CONTEXT" kubeconfig recover`; recovery checks the accepted
-host and content rather than admitting new infrastructure. Do not copy a migration
+host and content rather than admitting new infrastructure. Supply the context
+profile and the exact declared `hosts/$CONTEXT/host.nix`, `flake.nix` and
+`flake.lock` inputs in the new config root; retain their accepted bytes. These
+inputs describe the host and are separate from the private kubeconfig. Recovery
+refuses an active transaction/claim/fence/migration and incomplete or changed
+host inputs before materializing credentials. The installed `71288437` fresh-root
+run recovered a mode-0600 kubeconfig in 10.347 seconds, reached the same Ready
+node and left generation 479/sequence 458 unchanged. Do not copy a migration
 marker or edit shared history to make discovery succeed. Use the actual NixOS/k3s
 host; this runbook never selects a GKE cluster.
 
