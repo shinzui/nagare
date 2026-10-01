@@ -2683,7 +2683,7 @@ opts =
             (info (pure PortalShow <**> helper) (progDesc "Show the registered authentication portal"))
             <> command
               "sync"
-              (info (PortalSync <$> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save the complete accepted portal configuration review")) <**> helper) (progDesc "Re-apply the registered portal configuration to Shomei"))
+              (info (PortalSync <$> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save the complete accepted portal configuration review")) <**> helper) (progDesc "Review complete portal settings and roll their startup readers"))
         )
     siteCmd =
       info

@@ -1,0 +1,141 @@
+{
+  "operatorRevision": "f18c318d84347eac48b55de9a5da8f392a51be1c",
+  "payloadPreserved": "nagare-0.4.0-d73c1dc4d379",
+  "context": "f15-preview",
+  "applicationB": {
+    "reviewDigest": "d2364a0c8fea32b95bdfe3d52a15f79b574a3862fe0cb875146a58f8e9521f5c",
+    "creates": 11,
+    "apply": {
+      "exit": 0,
+      "seconds": 69.352
+    }
+  },
+  "applicationAConfiguration": {
+    "reviewDigest": "01278f1cbba9d9569436eaba6ab0cb5de897024c4be458e84adfb95932b49e1f",
+    "change": "CPU request 50m to 40m",
+    "ownedServiceUpdates": 1,
+    "verifyOperations": 12,
+    "apply": {
+      "exit": 0,
+      "seconds": 49.417
+    },
+    "neighborScopeDigestsUnchanged": true
+  },
+  "unchangedApplicationReplay": {
+    "reviewDigest": "2e2d51bd45696ff51593b951424124635b85be7fa08f4cf3a0967a34bfe27e5b",
+    "verifyOperations": 13,
+    "providerMutations": 0,
+    "sameSelectedContentDigest": true,
+    "apply": {
+      "exit": 0,
+      "seconds": 52.289
+    }
+  },
+  "access": {
+    "grantReviewDigest": "b9ac254c2f639b176071b4ef46d1bd83578f8b41770491a7c890e3879daa41a4",
+    "grantApply": {
+      "exit": 1,
+      "seconds": 15.324
+    },
+    "grantResume": {
+      "exit": 0,
+      "seconds": 12.83
+    },
+    "revokeReviewDigest": "29ce4d955c93a45e651fefb1eb74773fc80c1ad0aad8629710a37e32f48d77f9",
+    "revokeApply": {
+      "exit": 0,
+      "seconds": 16.151
+    },
+    "transport": {
+      "port": 19463,
+      "upstreamPort": 19462,
+      "grantRequestsForwarded": 1,
+      "revokeRequestsForwarded": 1,
+      "queryRequests": 10,
+      "grantAcknowledgementDropped": true,
+      "credentialLogged": false
+    },
+    "credentialLogged": false,
+    "ownedForwardAndProxyStopped": true
+  },
+  "head": {
+    "generation": 650,
+    "sequence": 609,
+    "acceptedScopes": 26,
+    "convergedScopes": 26,
+    "idle": true
+  },
+  "objects": [
+    {
+      "kind": "Service",
+      "name": "mp23-f15-app-a",
+      "uid": "dd71a271-a18a-42c6-b7e1-53fa79c807af",
+      "ready": true,
+      "phase": null
+    },
+    {
+      "kind": "Service",
+      "name": "mp23-f15-app-b",
+      "uid": "80560c4d-6bd8-4fe4-9c55-e67620554924",
+      "ready": true,
+      "phase": null
+    },
+    {
+      "kind": "StatefulSet",
+      "name": "mp23-f15-pg-a",
+      "uid": "c5f3b976-be6c-4b26-89dc-fbd6b4f47a29",
+      "ready": null,
+      "phase": null
+    },
+    {
+      "kind": "StatefulSet",
+      "name": "mp23-f15-pg-b",
+      "uid": "edf0fccf-232e-4b2a-b71c-675f6d889a66",
+      "ready": null,
+      "phase": null
+    },
+    {
+      "kind": "PersistentVolumeClaim",
+      "name": "nagare-db-mp23-f15-pg-a-data",
+      "uid": "3c640f86-c4db-4b03-9636-3db011941464",
+      "ready": null,
+      "phase": "Bound"
+    },
+    {
+      "kind": "PersistentVolumeClaim",
+      "name": "nagare-db-mp23-f15-pg-b-data",
+      "uid": "ddf32efa-0e36-4a88-bc2a-7d64f0284aed",
+      "ready": null,
+      "phase": "Bound"
+    },
+    {
+      "kind": "Pod",
+      "name": "mp23-f15-app-a-00002-deployment-5ffd7854cc-btmpn",
+      "uid": "d65bd77f-e662-4019-a0de-7c2ac642f116",
+      "ready": false,
+      "phase": "Running"
+    },
+    {
+      "kind": "Pod",
+      "name": "mp23-f15-pg-a-0",
+      "uid": "c525036d-f5e5-4e32-8129-623bed13e339",
+      "ready": true,
+      "phase": "Running"
+    },
+    {
+      "kind": "Pod",
+      "name": "mp23-f15-pg-b-0",
+      "uid": "03cad3b9-d48b-434d-b974-4271eb21f586",
+      "ready": true,
+      "phase": "Running"
+    },
+    {
+      "kind": "DomainMapping",
+      "name": "mp23-f15-app-a.personal.f15-0930.labs.topagentnetwork.net",
+      "uid": "f5c676b1-7093-4fe4-884c-8ff0e0b2db04",
+      "ready": true,
+      "phase": null
+    }
+  ],
+  "safeUseAccepted": false
+}

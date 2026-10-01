@@ -11,7 +11,7 @@ module Nagare.Inventory.Access
   )
 where
 
-import Control.Monad (forM_)
+import Control.Monad (forM, forM_)
 import Data.Aeson
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
@@ -33,86 +33,95 @@ import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
 
--- | A new explicit synchronization rolls Shomei after the complete settings
--- maps. ConfigMap-backed environment variables are read when Pods start.
+-- | Explicit synchronization rolls both startup readers after the complete
+-- settings maps: Shomei reads environment variables and the enforcer loads its
+-- backend file once. Accepted images, configuration and physical names stay fixed.
 compilePortalSyncScope ::
   ScopeDeclaration ->
-  ManagedResource ->
-  ByteString ->
+  [(ManagedResource, ByteString)] ->
   Text ->
   Either Text (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compilePortalSyncScope scope deployment native token = do
+compilePortalSyncScope scope workloads token = do
   owner <- mkScopeId Platform "auth"
   unless
-    ( scopeId scope == owner
-        && deployment ^. #owner == owner
-        && case deployment ^. #address of
-          Kubernetes _ "apps" kind (Just namespace) name ->
-            nameText kind == "deployment"
-              && nameText namespace == "nagare-system"
-              && nameText name == "shomei"
+    (scopeId scope == owner && not (T.null token))
+    (Left "portal sync requires the accepted auth owner and a nonempty rollout token")
+  let workloadKind resource = case resource ^. #address of
+        Kubernetes _ group kind (Just namespace) name
+          | nameText namespace == "nagare-system"
+          , (group, nameText kind, nameText name)
+              `elem` [("apps", "deployment", "shomei"), ("serving.knative.dev", "service", "nagare-access")] ->
+              Just (nameText name)
+        _ -> Nothing
+  unless
+    ( Set.fromList (map (workloadKind . fst) workloads) == Set.fromList [Just "shomei", Just "nagare-access"]
+        && length workloads == 2
+    )
+    (Left "portal sync requires exactly the accepted Shomei Deployment and access enforcer Service")
+  members <- forM workloads $ \(resource, native) -> do
+    unless
+      ( resource ^. #owner == owner && case resource ^. #spec of
+          NativeObject digest -> digest == contentDigest native
+          KnativeService digest -> digest == contentDigest native
           _ -> False
-    )
-    (Left "portal sync requires the accepted auth Shomei Deployment")
-  unless
-    (deployment ^. #spec == NativeObject (contentDigest native) && not (T.null token))
-    (Left "portal sync Deployment bytes differ from accepted intent")
-  unless
-    ( [ resource
-      | bundle <- scopeBundles scope
-      , Managed resource <- bundle ^. #declarations
-      , resource ^. #identity == deployment ^. #identity
-      ]
-        == [deployment]
-    )
-    (Left "portal sync Deployment differs from its accepted owner scope")
-  value <- first (const "invalid accepted Shomei Deployment") (eitherDecodeStrict native)
-  updated <- updateAt ["spec", "template", "metadata"] (withAnnotations token) value
-  bytes <- canonicalValue updated
-  let revised =
-        deployment
-          & #spec
-          .~ NativeObject (contentDigest bytes)
-          & #dependencies
-          .~ Set.toAscList
-            ( Set.fromList
-                ( deployment ^. #dependencies
-                    <> [OrderedAfter (backendMapResourceId owner), OrderedAfter (shomeiSettingsResourceId owner)]
-                )
-            )
-      replace (Managed resource) | resource ^. #identity == deployment ^. #identity = Managed revised
+      )
+      (Left "portal sync workload bytes differ from accepted auth intent")
+    unless
+      ( [ accepted
+        | bundle <- scopeBundles scope
+        , Managed accepted <- bundle ^. #declarations
+        , accepted ^. #identity == resource ^. #identity
+        ]
+          == [resource]
+      )
+      (Left "portal sync workload differs from its accepted owner scope")
+    value <- first (const "invalid accepted portal workload") (eitherDecodeStrict native)
+    updated <- updateAt ["spec", "template", "metadata"] (withAnnotations token) value
+    bytes <- canonicalValue updated
+    let revised =
+          resource
+            & #spec
+            .~ ( case resource ^. #spec of
+                   KnativeService _ -> KnativeService (contentDigest bytes)
+                   _ -> NativeObject (contentDigest bytes)
+               )
+            & #dependencies
+            .~ Set.toAscList
+              ( Set.fromList
+                  (resource ^. #dependencies <> [OrderedAfter (backendMapResourceId owner), OrderedAfter (shomeiSettingsResourceId owner)])
+              )
+    pure (revised ^. #identity, (revised, bytes))
+  let rollout = Map.fromList members
+      replace (Managed resource) = case Map.lookup (resource ^. #identity) rollout of
+        Just (revised, _) -> Managed revised
+        Nothing -> Managed resource
       replace declaration = declaration
   complete <-
     first
       (T.pack . show)
-      ( mkScopeDeclaration
-          owner
-          [bundle & #declarations %~ map replace | bundle <- scopeBundles scope]
-      )
-  pure (complete, Map.singleton (revised ^. #identity) (revised, bytes))
+      (mkScopeDeclaration owner [bundle & #declarations %~ map replace | bundle <- scopeBundles scope])
+  pure (complete, rollout)
   where
     withAnnotations stamp (Object metadata) = do
       annotations <- case KM.lookup "annotations" metadata of
         Nothing -> Right KM.empty
         Just (Object values) -> Right values
-        _ -> Left "Shomei Pod template annotations are malformed"
+        _ -> Left "portal workload Pod template annotations are malformed"
       pure
         ( Object
             ( KM.insert
                 "annotations"
-                ( Object
-                    (KM.insert "nagare.dev/portal-sync" (String stamp) annotations)
-                )
+                (Object (KM.insert "nagare.dev/portal-sync" (String stamp) annotations))
                 metadata
             )
         )
-    withAnnotations _ _ = Left "Shomei Pod template metadata is malformed"
+    withAnnotations _ _ = Left "portal workload Pod template metadata is malformed"
     updateAt [] change value = change value
     updateAt (field : remaining) change (Object fields) = do
-      value <- maybe (Left "Shomei Deployment lacks its accepted Pod template") Right (KM.lookup field fields)
+      value <- maybe (Left "portal workload lacks its accepted Pod template") Right (KM.lookup field fields)
       updated <- updateAt remaining change value
       pure (Object (KM.insert field updated fields))
-    updateAt _ _ _ = Left "Shomei Deployment Pod template is malformed"
+    updateAt _ _ _ = Left "portal workload Pod template is malformed"
 
 -- These dependencies come from the composed owner declarations, not live lists.
 data AccessBinding = AccessBinding

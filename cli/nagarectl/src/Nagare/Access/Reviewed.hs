@@ -2,6 +2,7 @@
 module Nagare.Access.Reviewed (planAccess, accessPlanRegistry, planPortalSync, accessAdapter) where
 
 import Control.Exception (bracket)
+import Control.Monad (forM)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
@@ -9,8 +10,8 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Time (defaultTimeLocale, formatTime, getCurrentTime)
-import Nagare.Dsl.Prelude
 import Nagare.Cluster.Kubeconfig (kubeconfigPath)
+import Nagare.Dsl.Prelude
 import Nagare.Inventory.Access
 import Nagare.Inventory.AccessRuntime
 import Nagare.Inventory.Adapter
@@ -24,8 +25,8 @@ import Nagare.Inventory.Store (headBinding)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Types
 import Nagare.Target
-import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Directory (doesFileExist)
+import System.Environment (lookupEnv, setEnv, unsetEnv)
 
 planAccess ::
   ActiveTarget ->
@@ -102,12 +103,15 @@ accessPlanRegistry active guard candidate history = do
 accessAdapter :: ActiveTarget -> IO (Either Text ()) -> [Declaration] -> InventoryHistory -> IO Adapter
 accessAdapter active guard declarations history = do
   specs <- either (fail . T.unpack) pure (accessBindings declarations)
-  selectedGuard <- if Map.null specs then pure guard else do
-    selected <- kubeconfigPath (active ^. #contextName)
-    exists <- doesFileExist selected
-    if exists
-      then setEnv "KUBECONFIG" selected >> pure guard
-      else pure (pure (Left "selected context kubeconfig is missing for access observation"))
+  selectedGuard <-
+    if Map.null specs
+      then pure guard
+      else do
+        selected <- kubeconfigPath (active ^. #contextName)
+        exists <- doesFileExist selected
+        if exists
+          then setEnv "KUBECONFIG" selected >> pure guard
+          else pure (pure (Left "selected context kubeconfig is missing for access observation"))
   let accepted =
         Map.fromList
           [ (r ^. #identity, r)
@@ -141,30 +145,32 @@ planPortalSync active guard output = do
   inventory <- either (fail . show) pure (composeSnapshot snapshot)
   store <- Command.openTargetStoreReadOnly active >>= either (fail . show) pure
   history <- loadInventoryHistory store >>= either (fail . show) pure
-  deployment <- case [ resource
-                     | Managed resource <- inventoryDeclarations inventory
-                     , resource ^. #owner == owner
-                     , Kubernetes _ "apps" kind (Just namespace) name <- [resource ^. #address]
-                     , nameText kind == "deployment"
-                     , nameText namespace == "nagare-system"
-                     , nameText name == "shomei"
-                     ] of
-    [single] -> pure single
-    _ -> fail "portal sync requires one accepted Shomei Deployment"
+  let workloads =
+        [ resource
+        | Managed resource <- inventoryDeclarations inventory
+        , resource ^. #owner == owner
+        , Kubernetes _ group kind (Just namespace) name <- [resource ^. #address]
+        , nameText namespace == "nagare-system"
+        , (group, nameText kind, nameText name)
+            `elem` [("apps", "deployment", "shomei"), ("serving.knative.dev", "service", "nagare-access")]
+        ]
+  unless
+    (length workloads == 2)
+    (fail "portal sync requires one accepted Shomei Deployment and access enforcer Service")
   (acceptedNative, _) <-
-    loadAcceptedNativeSelected (Set.singleton (deployment ^. #identity)) store history inventory
+    loadAcceptedNativeSelected (Set.fromList (map (^. #identity) workloads)) store history inventory
       >>= either (fail . T.unpack) pure
-  (_, deploymentBytes) <-
+  members <- forM workloads $ \resource ->
     maybe
-      (fail "accepted Shomei native evidence is missing")
+      (fail "accepted portal workload native evidence is missing")
       pure
-      (Map.lookup (deployment ^. #identity) acceptedNative)
+      (Map.lookup (resource ^. #identity) acceptedNative)
   stamp <- T.pack . formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%S%QZ" <$> getCurrentTime
   (revised, rollout) <-
     either
       (fail . T.unpack)
       pure
-      (compilePortalSyncScope scope deployment deploymentBytes stamp)
+      (compilePortalSyncScope scope members stamp)
   candidate <- either (fail . show) pure (composeInventory snapshot (ReplaceScope revised :| []))
   let declarations = inventoryDeclarations inventory
   backends <- either (fail . T.unpack) pure (compileContributedBackendMaps declarations)
@@ -189,7 +195,7 @@ planPortalSync active guard output = do
             provider = mkKubernetesAdapter native (mkKubernetesRuntimeOps runtime native)
             manifest = Command.manifestAdapterFor history KubernetesExecutor
             -- Other owner objects are unchanged accepted dependencies. Only these
-            -- maps and Shomei rollout can be prepared; synchronization cannot advance
+            -- maps and both startup-reader rollouts can be prepared; synchronization cannot advance
             -- a previously unconverged auth owner or mutate another resource.
             kubernetes =
               provider

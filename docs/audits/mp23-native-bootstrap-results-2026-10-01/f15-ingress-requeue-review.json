@@ -101,7 +101,7 @@
   "changes": "one reconcile-request annotation on exact controller-created application ingress",
   "specChange": false,
   "deletion": false,
-  "providerEffectsExecuted": false,
+  "providerEffectsExecuted": true,
   "approvalRequired": "exception for controller-created metadata requeue outside original saved verification operation",
   "upstream": {
     "project": "mori://knative-extensions/net-kourier",
@@ -111,5 +111,22 @@
     "tag": "knative-v1.22.0"
   },
   "serverDryRunPassed": true,
-  "nativeResourceVersionUnchangedAfterDryRun": true
+  "nativeResourceVersionUnchangedAfterDryRun": true,
+  "approved": true,
+  "approvalEvidence": "2026-10-01 operator: i approve",
+  "result": {
+    "ingressUid": "2b3749cb-a468-42ce-b925-b10166e3c1b8",
+    "beforeResourceVersion": "20148",
+    "afterResourceVersion": "30628",
+    "specUnchanged": true,
+    "ownerUnchanged": true,
+    "providerEffects": 1,
+    "historyHeadUnchanged": true,
+    "originalTransaction": "tx-059618b83f59b28fe46afc08cbf487fa49138120845bd4a6af1266d038903e56"
+  },
+  "originalDomainMappingReady": true,
+  "originalTransactionResume": {
+    "exit": 0,
+    "seconds": 17.091
+  }
 }

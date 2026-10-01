@@ -239,8 +239,10 @@ command with `inventory resume ID --yes`. Recovery observes the exact direct
 Grant and revoke preserve other subjects, hosts, and application/auth revisions.
 
 `access portal sync --save-plan DIR` composes all accepted backend and portal
-contributions, reviews the shared settings, and rolls Shomei after the settings
-are ready. Apply that saved review through `inventory apply`. Direct forms
+contributions, reviews the shared settings, and rolls Shomei and the access enforcer after the settings
+are ready. Both processes load their settings at startup; updating a ConfigMap
+alone does not activate a new protected backend. The rollout preserves accepted
+images and workload names. Apply that saved review through `inventory apply`. Direct forms
 without `--save-plan` remain available only before inventory initialization;
 read-only `access list` and `access portal show` remain available afterward.
 

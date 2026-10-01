@@ -63,7 +63,8 @@
     "newLocalVMs": 0,
     "fixtureAuthContributionUpdatesExplicitlyAllowed": true,
     "isolatedRestoreBoundary": "new logical database within the existing PostgreSQL instance; source database and PVC preserved",
-    "boundedOwnedApplicationCorrectionAllowed": true
+    "boundedOwnedApplicationCorrectionAllowed": true,
+    "authStartupReaderReload": "portal sync rolls the accepted Shomei and nagare-access workloads after complete settings, within the existing three-operation bound; images and identities stay fixed"
   },
   "laterReviewsRequiredBeforeEveryApply": true,
   "guardPolicy": [
@@ -140,5 +141,7 @@
     "nativeFailure": "DomainConflict",
     "scopeConvergedDoesNotEstablishFunctionalAccess": true
   },
-  "nextCandidate": "f18c318d84347eac48b55de9a5da8f392a51be1c"
+  "nextCandidate": "f18c318d84347eac48b55de9a5da8f392a51be1c",
+  "latestProgress": "f15-application-access-progress.json",
+  "nextCandidateBuildPending": true
 }

@@ -7,6 +7,7 @@ import Data.Generics.Labels ()
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -46,9 +47,16 @@ inventoryAccessTests =
         Map.restrictKeys (inventoryScopes (candidateInventory candidate)) (Map.keysSet originals) @?= originals
         void (either (fail . show) pure (decodeScope (encodeCanonicalScope scope)))
         let resource = accessResource (accessBinding True)
-            reserved = ok (mkScopeSnapshot (snapshotBinding snapshot) (snapshotScopes snapshot)
-              (Map.singleton (canonicalClaim (resource ^. #address))
-                (ClaimHolder (resource ^. #owner) (resource ^. #identity) physical ResourceInventory.RetainedIncarnation)))
+            reserved =
+              ok
+                ( mkScopeSnapshot
+                    (snapshotBinding snapshot)
+                    (snapshotScopes snapshot)
+                    ( Map.singleton
+                        (canonicalClaim (resource ^. #address))
+                        (ClaimHolder (resource ^. #owner) (resource ^. #identity) physical ResourceInventory.RetainedIncarnation)
+                    )
+                )
             input = CandidateInput reserved (ReplaceScope scope :| [])
         let encoded = ok (canonicalValue (candidateInputValue input))
         decoded <- either (fail . show) pure (decodeCandidateInput encoded)
@@ -70,6 +78,28 @@ inventoryAccessTests =
               (const False)
               (compileAccessScope snapshot "foreign.example.test" "alice" "http://localhost:8090" True)
           )
+    , testCase "portal synchronization rolls exactly both accepted startup readers" $ do
+        let owner = ok (mkScopeId Platform "auth")
+            scope = maybe (error "auth fixture absent") snd (Map.lookup owner (snapshotScopes snapshot))
+            readers = [fixtureShomei, fixtureEnforcer]
+            (revised, rollout) = ok (compilePortalSyncScope scope readers "bounded-sync")
+        scopeId revised @?= owner
+        Map.keysSet rollout @?= Set.fromList [resource ^. #identity | (resource, _) <- readers]
+        forM_ readers $ \(original, _) -> do
+          let (changed, _) = rollout Map.! (original ^. #identity)
+          (changed & #spec .~ (original ^. #spec) & #dependencies .~ (original ^. #dependencies)) @?= original
+          assertBool "backend-map dependency missing" (OrderedAfter (backendMapResourceId owner) `elem` (changed ^. #dependencies))
+          assertBool "Shomei-settings dependency missing" (OrderedAfter (shomeiSettingsResourceId owner) `elem` (changed ^. #dependencies))
+        forM_
+          [ [fixtureShomei]
+          , [fixtureShomei, fixtureShomei]
+          , [fixtureShomei, (fst fixtureEnforcer, "changed-image")]
+          , [fixtureShomei, (fst fixtureEnforcer & #owner .~ ok (mkScopeId Application "foreign"), snd fixtureEnforcer)]
+          ]
+          $ \invalid ->
+            assertBool
+              "foreign, missing, duplicate or changed reader accepted"
+              (either (const True) (const False) (compilePortalSyncScope scope invalid "bounded-sync"))
     , testCase "atomic wire uses exact direct-subject filter and fully consistent observation" $ do
         let binding = accessBinding True
             before = AccessFact physical False
@@ -242,7 +272,7 @@ fixtures = [clusterScope, authScope, app "one", app "two"]
         ( mkScopeDeclaration
             authOwner
             [ ResourceBundle
-                [Managed auth, Managed (fst fixtureShomei)]
+                [Managed auth, Managed (fst fixtureShomei), Managed (fst fixtureEnforcer)]
                 []
                 []
                 []
@@ -348,6 +378,39 @@ fixtureShomei =
               ]
         ]
 
+fixtureEnforcer :: (ManagedResource, BS.ByteString)
+fixtureEnforcer =
+  ok
+    ( bindKubernetesObject
+        KubernetesInput
+          { resourceId = ok (mkResourceId "platform:auth/nagare-access/service")
+          , ownerScope = ok (mkScopeId Platform "auth")
+          , clusterId = ok (mkResourceId "platform:cluster/cluster/local")
+          , inputObject = value
+          , objectDigest = contentDigest bytes
+          , lifecyclePolicy = Protect
+          , inputDataPolicy = Stateless
+          , inputSensitivity = Public
+          , sourceLocation = SourceLocation "fixture" "nagare-access"
+          }
+    )
+  where
+    bytes = ok (canonicalValue value)
+    value =
+      object
+        [ "apiVersion" .= ("serving.knative.dev/v1" :: Text)
+        , "kind" .= ("Service" :: Text)
+        , "metadata" .= object ["name" .= ("nagare-access" :: Text), "namespace" .= ("nagare-system" :: Text)]
+        , "spec"
+            .= object
+              [ "template"
+                  .= object
+                    [ "metadata" .= object ["annotations" .= object []]
+                    , "spec" .= object ["containers" .= [object ["image" .= ("fixture-enforcer:accepted" :: Text)]]]
+                    ]
+              ]
+        ]
+
 writeFixture :: FilePath -> IO ()
 writeFixture root = do
   createDirectoryIfMissing True root
@@ -363,10 +426,11 @@ writeFixture root = do
           (encodeCanonicalScope scope)
           >>= either (fail . show) pure
       )
-  void
-    ( publishIfAbsent store (objectKeyFor "native" (contentDigest (snd fixtureShomei))) (snd fixtureShomei)
-        >>= either (fail . show) pure
-    )
+  forM_ [fixtureShomei, fixtureEnforcer] $ \(_, bytes) ->
+    void
+      ( publishIfAbsent store (objectKeyFor "native" (contentDigest bytes)) bytes
+          >>= either (fail . show) pure
+      )
   void
     ( replaceHeadIfGenerationMatches
         store
@@ -404,9 +468,8 @@ writeFixture root = do
                 [ object ["resource" .= resourceId, "native" .= TE.decodeUtf8 bytes]
                 | (resourceId, (_, bytes)) <-
                     Map.toAscList
-                      ( Map.insert
-                          (fst fixtureShomei ^. #identity)
-                          fixtureShomei
+                      ( Map.union
+                          (Map.fromList [(resource ^. #identity, member) | member@(resource, _) <- [fixtureShomei, fixtureEnforcer]])
                           native
                       )
                 ]

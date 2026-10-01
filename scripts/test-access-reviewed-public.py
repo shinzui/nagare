@@ -52,9 +52,9 @@ def main():
                             annotations={"nagare.dev/context-id": "access-test",
                                          "nagare.dev/resource-id": item["resource"],
                                          "nagare.dev/spec-digest": hashlib.sha256(native).hexdigest()})
-            if value["kind"] == "Deployment":
+            if value["kind"] in ["Deployment", "Service"]:
                 metadata["generation"] = 1
-                value["status"] = {"observedGeneration": 1, "conditions": [{"type": "Available", "status": "True"}]}
+                value["status"] = {"observedGeneration": 1, "conditions": [{"type": "Available" if value["kind"] == "Deployment" else "Ready", "status": "True"}]}
             (root / (metadata["name"] + ".json")).write_text(json.dumps(value))
         kubectl = root / "bin/kubectl"
         kubectl.write_text('''#!/usr/bin/env python3
@@ -68,24 +68,29 @@ a=a[2:]
 if a[0]=='rollout':
  assert a==['rollout','status','deployment/shomei','--namespace','nagare-system','--timeout=300s'],a
  print('fixture rollout available');sys.exit(0)
+if a[0]=='wait':
+ assert a==['wait','--for=condition=ready','ksvc/nagare-access','--namespace','nagare-system','--timeout=300s'],a
+ print('fixture enforcer available');sys.exit(0)
 if a[0]=='apply':
  assert '--server-side' in a,a
  value=json.loads(sys.stdin.read()); name=value['metadata']['name']; path=r/(name+'.json')
  prior=json.loads(path.read_text())
  assert value['metadata']['uid']==prior['metadata']['uid']
  assert value['metadata']['resourceVersion']==prior['metadata']['resourceVersion']
- assert name in ['nagare-shomei-settings','shomei'],name
+ assert name in ['nagare-shomei-settings','shomei','nagare-access'],name
  value['metadata']['resourceVersion']=str(int(prior['metadata']['resourceVersion'])+1)
  value['metadata']['managedFields']=prior['metadata']['managedFields']
- if name=='shomei':
+ if name in ['shomei','nagare-access']:
   value['metadata']['generation']=prior['metadata']['generation']+1
-  value['status']={'observedGeneration':value['metadata']['generation'],'conditions':[{'type':'Available','status':'True'}]}
+  value['status']={'observedGeneration':value['metadata']['generation'],'conditions':[{'type':'Available' if name=='shomei' else 'Ready','status':'True'}]}
+ if name=='nagare-access':
+  (r/'enforcer-loaded-backends.json').write_text(json.loads((r/'nagare-access-backends.json').read_text())['data']['backends.json'])
  path.write_text(json.dumps(value))
  with (r/'map-writes').open('a') as log: log.write(name+'\\n')
  print(json.dumps(value));sys.exit(0)
 assert a[0]=='get',a
 kind,name=a[1:3]
-if kind in ['configmap','deployment.apps']:
+if kind in ['configmap','deployment.apps','service.serving.knative.dev']:
  value=json.loads((r/(name+'.json')).read_text())
  if (r/'foreign-map').exists(): value['metadata']['annotations']['nagare.dev/resource-id']='application:other/map/foreign'
  print(json.dumps(value));sys.exit(0)
@@ -240,6 +245,7 @@ print(json.dumps({'metadata':{'uid':uid,'annotations':{
         backend_path = root / "nagare-access-backends.json"
         settings_path = root / "nagare-shomei-settings.json"
         backend_before = backend_path.read_bytes()
+        enforcer_before = json.loads((root / "nagare-access.json").read_text())
         desired_settings = json.loads(settings_path.read_text())["data"]
         drifted = json.loads(settings_path.read_text())
         drifted["data"]["public-base-url"] = "https://stale.example.test"
@@ -252,12 +258,17 @@ print(json.dumps({'metadata':{'uid':uid,'annotations':{
         portal = root / "portal"
         run("access", "portal", "sync", "--save-plan", portal)
         portal_review = json.loads((portal / "review.json").read_bytes())
-        assert len(portal_review["operations"]) == 2
+        assert len(portal_review["operations"]) == 3
         assert all(operation["operation"]["executor"] == "KubernetesExecutor" for operation in portal_review["operations"])
         run("inventory", "apply", portal, "--yes")
         assert json.loads(settings_path.read_text())["data"] == desired_settings
         assert backend_path.read_bytes() == backend_before
-        assert (root / "map-writes").read_text().splitlines() == ["nagare-shomei-settings", "shomei"]
+        assert set((root / "map-writes").read_text().splitlines()) == {"nagare-shomei-settings", "shomei", "nagare-access"}
+        assert json.loads((root / "enforcer-loaded-backends.json").read_text()) == json.loads(json.loads(backend_before)["data"]["backends.json"])
+        enforcer_after = json.loads((root / "nagare-access.json").read_text())
+        assert enforcer_after["metadata"]["uid"] == enforcer_before["metadata"]["uid"]
+        assert enforcer_after["spec"]["template"]["spec"] == enforcer_before["spec"]["template"]["spec"]
+        assert enforcer_after["spec"]["template"]["metadata"]["annotations"]["nagare.dev/portal-sync"]
         assert state["writes"] == 2 and state["tuples"] == neighbors
         for file in root.rglob("*.json"):
             assert b"fixture-private-key" not in file.read_bytes(), "credential leaked in review/history"
