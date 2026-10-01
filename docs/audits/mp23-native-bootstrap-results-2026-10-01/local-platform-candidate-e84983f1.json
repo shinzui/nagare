@@ -1,0 +1,31 @@
+{
+  "operatorRevision": "e84983f1b885b7eb8e79f2512e3c6560db5e4a09",
+  "system": "aarch64-darwin",
+  "colimaProfile": "nagare-mp23-cp3",
+  "acceptedPayloadPreserved": "nagare-0.4.0-705716b7bdb7",
+  "gate": "installed public local platform bootstrap plan/apply on retained accepted cluster",
+  "reviewDigest": "f72c3362bd2bb8ecefec6f53b2b1286fd8dac55aca835e78cf74fc1372465b75",
+  "operations": 213,
+  "actions": [
+    "VerifyResource"
+  ],
+  "providerMutations": 0,
+  "planSeconds": 43.304,
+  "applySeconds": 49.644,
+  "acceptedScopeContentDigestsUnchanged": true,
+  "bootstrapStampGeneration": 2,
+  "head": {
+    "generation": 886,
+    "sequence": 875,
+    "activeTransaction": null,
+    "executorClaim": null
+  },
+  "acceptedScopeCount": 19,
+  "convergedScopeCount": 19,
+  "podsReadyOrSucceeded": 35,
+  "installedBootstrapPublicFixturePassed": true,
+  "installedAccessPublicFixturePassed": true,
+  "freshCandidatePayloadBootstrap": false,
+  "cloudCandidateUsePermitted": true,
+  "safeUseAccepted": false
+}

@@ -3,7 +3,7 @@
   "date": "2026-10-01",
   "baseRevision": "3d627edd5772de75faf7600641d7ff18e6a85ec4",
   "sourceChangesInThisCheckpoint": true,
-  "installedCandidateAccepted": false,
+  "installedCandidateAccepted": true,
   "nativeCloudAccepted": false,
   "sourceHashes": {
     "cli/nagare-dsl/src/Nagare/Resource/Types.hs": "57298731b90019a946ad74a39b65ff2afc92e1a730d32f6db2e565a2745aebba",
@@ -47,11 +47,22 @@
         "no private key in reviews/history/errors",
         "canonical viewer-claim reservation survives candidate wire roundtrip"
       ]
+    },
+    "fullDslSuite": {
+      "tests": 460,
+      "passed": true
+    },
+    "installedPublicCommandFixture": {
+      "passed": true,
+      "nativeProvider": false,
+      "typedSeed": "source test executable at same source boundary",
+      "transport": "bounded HTTP server and recording Kubernetes transport"
     }
   },
   "remaining": [
     "installed native access/protected-route integration in EP-155/156",
     "EP-158 M2 CDN operations",
     "MP-23 safe-use and full release gates"
-  ]
+  ],
+  "installedCandidateRevision": "e84983f1b885b7eb8e79f2512e3c6560db5e4a09"
 }
