@@ -1,0 +1,74 @@
+{
+  "finding": "F18",
+  "status": "candidate; installed recovery pending",
+  "originalOperatorRevision": "d73c1dc4d3790c980be877f42cb68ea32b7575bd",
+  "context": "f15-preview",
+  "project": "tan-ng-labs",
+  "fixtureTarget": "fixtures/inventory-release/gcp/f15-target.json",
+  "originalReviewDigest": "03deb235a67fd7576e66248c1867ba317ced759d60d3dff1394a1b747d6aa6c5",
+  "reviewPayloadIdentity": "nagare-bootstrap:nagare-0.4.0-d73c1dc4d379",
+  "originalOperations": [
+    {
+      "id": "op-2f8fdfb63086ed4605daf162",
+      "executor": "CloudFoundationExecutor",
+      "action": {
+        "tag": "CreateResource"
+      },
+      "resources": [
+        "platform:cloud-foundation/pulumi-stack/f15-preview"
+      ]
+    },
+    {
+      "id": "op-c90116a9db4c5f3a0c04d38f",
+      "executor": "CloudFoundationExecutor",
+      "action": {
+        "tag": "CreateResource"
+      },
+      "resources": [
+        "platform:cloud-foundation/state-tan-ng-labs-f15-0930-pmkjjpp-state/tan-ng-labs-f15-0930-pmkjjpp-state"
+      ]
+    }
+  ],
+  "before": {
+    "generation": 6,
+    "sequence": 3,
+    "activeTransaction": "tx-03deb235a67fd7576e66248c1867ba317ced759d60d3dff1394a1b747d6aa6c5",
+    "executorClaim": null,
+    "migration": null
+  },
+  "originalApply": {
+    "step": "foundation-apply",
+    "exit": 1,
+    "seconds": 53.68
+  },
+  "blockedResume": {
+    "step": "foundation-resume",
+    "exit": 1,
+    "seconds": 0.156,
+    "reason": "local inventory history exists; migrate it before selecting the GCS store"
+  },
+  "sourceHashes": {
+    "cli/nagarectl/app/Main.hs": "55354936a07e4030bba3ae988fc1ef4344061e8de8bca796252b4b7455c71583",
+    "scripts/test-bootstrap-foundation-public.sh": "1b6fc7b6a1a4f5a993d134c5bbc101d11ee41fc163bee938410b2df7156c85a7",
+    "scripts/foundation_bucket_fixture.py": "62ddc792a94b94f4f73a55095870d57fe0c8f37ed2fa3e248980bb7ed1b28c6b"
+  },
+  "checks": {
+    "sourceCliBuild": "passed",
+    "structuralHaskellStyle": "passed",
+    "publicInitialGcsRecovery": "passed",
+    "publicUnrelatedActiveLocalRefusal": "passed",
+    "wholePublicBootstrapFixture": "passed; complete source CLI fixture",
+    "installedCandidate": "pending",
+    "counterfactualD73Installed": "failed at new GCS recovery with exact original local-history migration refusal; expected"
+  },
+  "untouched": [
+    "original review bytes",
+    "original local journal",
+    "standing cloud resources",
+    "old ep150 fixture",
+    "VM creation not started",
+    "no platform upgrades"
+  ],
+  "preflightCause": "The original stack inspection refused; a later exact read-only stack listing succeeded. No transient root cause is claimed.",
+  "independentClosure": "pending"
+}

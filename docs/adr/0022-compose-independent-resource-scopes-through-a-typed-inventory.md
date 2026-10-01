@@ -1000,3 +1000,13 @@ observation duties. Retention does not remove dependency history: a retained
 release-history object that still names its Service blocks that Service's
 collection. Do not erase the edge or infer deletion authority from retirement
 alone; prove eligible collection separately.
+
+The initial cloud foundation transaction owns the state bucket that will hold
+the remote inventory. Its original journal therefore remains local until that
+transaction converges. Public resume uses the same read-only authority discovery
+as bootstrap: remote absence or a proved empty prefix permits local recovery
+only for the exact active, published, payload-bound initial foundation review.
+The review has an empty base, the sole cloud-foundation scope and only foundation
+executor operations. Other local histories, foreign or incomplete remote
+histories, and changed bindings refuse. Recovery retains the original review and
+journal; migration follows successful convergence, never an active transaction.

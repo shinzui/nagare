@@ -41,8 +41,19 @@ Implementation owner: existing session `01a0e893-337f-7b82-ac5d-16f41bf5ce21` (I
 | [F15](#f15) | P1 | Patched certificate controller lacks refreshed private-image credentials | Verifying | EP-156 / EP-154 |
 | [F16](#f16) | P1 | Unready application creation cannot yield to a corrected reviewed configuration | Verifying | EP-153 / EP-156 |
 | [F17](#f17) | P1 | Effect-free retirement discards required native identity observations | Verifying | EP-153 / EP-156 |
+| [F18](#f18) | P1 | Initial GCS foundation transaction cannot resume its local journal | Verifying | EP-153 / EP-156 |
 
 F01 and F11 are independently Closed with [retained verification and source identities](mp23-verification.md). F02 has passing local call-count evidence but still needs its retained status-caller regression. All other entries remain Open, Partial, or Verifying as shown.
+
+## F18
+
+**Initial GCS foundation transaction cannot resume its local journal** — P1; **Verifying**; owners EP-153 / EP-156.
+
+**Native evidence:** Immutable `d73c1dc4d3790c980be877f42cb68ea32b7575bd` plans the disposable `f15-preview` foundation review `03deb235a67fd7576e66248c1867ba317ced759d60d3dff1394a1b747d6aa6c5`. Apply creates and verifies only its new state bucket, then stops before the Pulumi stack mutation with `KnownNoEffect "adapter preflight refused"`. The local generation 6/sequence 3 head retains the exact original transaction, without a claim or migration. Generic public resume refuses in 0.156 seconds with `local inventory history exists; migrate it before selecting the GCS store`. Store status also refuses the uninitialized remote prefix. A later exact read-only Pulumi stack listing succeeds; the original transient preflight cause remains unproved. No VM or subsequent platform resource has been created.
+
+**Implementation update:** The candidate routes public resume through read-only foundation authority discovery. Remote ownership, complete prefix, context/project and migration guards remain authoritative. A local fallback requires the exact active transaction and published payload-bound initial review: empty base, exactly `platform:cloud-foundation`, unchanged accepted revision vector, and only foundation executor operations. Other local histories refuse. Resume retains its existing immutable-input and execution checks; migration occurs only after convergence. The complete source CLI bootstrap fixture passes, including stopped initial GCS recovery with one bucket creation, one stack initialization and preserved migrated journal, plus a legitimate unrelated active transaction refusal with exact unchanged head and no Pulumi call. Immutable `d73c1dc4` fails the new regression at the original migration refusal, confirming the consumer counterfactual. Source CLI compilation and structural style pass. [Exact candidate identities and evidence](mp23-native-bootstrap-results-2026-09-30/foundation-initial-gcs-recovery-candidate.json) are retained. Installed native recovery verification remains pending.
+
+**Required verification:** Reproduce a stopped first bootstrap configured for GCS, resume its original review without repeated bucket creation, and preserve the complete original journal during migration after convergence. Refuse a legitimate unrelated local active transaction without changing its head or invoking its provider. Verify the immutable installed operator against the original native transaction and retain exact source/build/evidence identities. Independent closure remains required.
 
 ## F17
 

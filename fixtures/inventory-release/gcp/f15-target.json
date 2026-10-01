@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "context": "f15-preview",
+  "project": "tan-ng-labs",
+  "gcloudConfiguration": "labs",
+  "region": "us-west1",
+  "zone": "us-west1-a",
+  "cluster": "nagare-f15-0930",
+  "instance": "nagare-f15-0930",
+  "serviceAccountId": "nagare-f15-0930",
+  "artifactRegistryId": "nagare-f15-0930",
+  "stateBucket": "tan-ng-labs-f15-0930-pmkjjpp-state",
+  "imageBucket": "tan-ng-labs-f15-0930-pmkjjpp-images",
+  "backupBucket": "tan-ng-labs-f15-0930-pmkjjpp-backups",
+  "nixCacheBucket": "tan-ng-labs-f15-0930-pmkjjpp-nix-cache",
+  "domain": "f15-0930.labs.topagentnetwork.net",
+  "parentZone": "nagare-zone-89da8ae",
+  "initialMachineType": "e2-standard-4",
+  "acceptance": "fresh credential timer expiry and first uncached private controller pull; existing fixture unchanged",
+  "builder": {
+    "project": "tan-ng-labs",
+    "zone": "us-west1-a",
+    "instance": "nix-builder-ep150",
+    "usage": "reuse the existing disposable builder only for reviewed artifact builds; no replacement or resize"
+  }
+}

@@ -10,9 +10,14 @@ fixture_root="$(mktemp -d "${TMPDIR:-/tmp}/nagare-bootstrap-foundation.XXXXXX")"
 bucket_fixture_pid=
 created_controller_archive=0
 cleanup() {
+  local result=$?
   if test -n "$bucket_fixture_pid"; then kill "$bucket_fixture_pid" 2>/dev/null || true; fi
   if test "$created_controller_archive" = 1; then rm -f "$controller_archive"; fi
-  rm -rf "$fixture_root"
+  if test "$result" = 0; then
+    rm -rf "$fixture_root"
+  else
+    printf 'Failed fixture retained at %s\n' "$fixture_root" >&2
+  fi
 }
 trap cleanup EXIT
 
@@ -284,6 +289,11 @@ fi
 printf '%s %s\n' "${PULUMI_BACKEND_URL:-unset}" "$*" >> "$XDG_STATE_HOME/pulumi.log"
 case "${3:-} ${4:-}" in
   "stack ls")
+    if test -e "$XDG_STATE_HOME/fail-next-stack-list"; then
+      mv "$XDG_STATE_HOME/fail-next-stack-list" "$XDG_STATE_HOME/failed-stack-list-once"
+      printf 'simulated unavailable stack inspection\n' >&2
+      exit 43
+    fi
     if test -e "$XDG_STATE_HOME/stack-created"; then
       printf '[{"name":"freshlocal","current":false}]\n'
     else
@@ -475,6 +485,76 @@ assert len(head["accepted"]) == 1, head
 PY
 printf 'public foundation apply converged and retained its local inventory journal\n'
 
+# Initial GCS recovery must use the original local foundation journal before
+# migrating it. Stop after the bucket exists, with no stack mutation intent.
+(
+  export XDG_CONFIG_HOME="$fixture_root/gcs-recovery/config"
+  export XDG_STATE_HOME="$fixture_root/gcs-recovery/state"
+  export XDG_CACHE_HOME="$fixture_root/gcs-recovery/cache"
+  mkdir -p "$XDG_CONFIG_HOME/nagare/contexts" "$XDG_STATE_HOME"
+  sed 's/NAGARE_INVENTORY_STORE=local/NAGARE_INVENTORY_STORE=gcs/' \
+    "$fixture_root/original-backend.env" > "$XDG_CONFIG_HOME/nagare/contexts/freshlocal.env"
+  python3 scripts/foundation_bucket_fixture.py "$XDG_STATE_HOME" "$fixture_root/gcs-recovery/endpoint" &
+  recovery_fixture_pid=$!
+  trap 'kill "$recovery_fixture_pid" 2>/dev/null || true' EXIT
+  for _ in {1..100}; do
+    test -s "$fixture_root/gcs-recovery/endpoint" && break
+    sleep 0.05
+  done
+  export CLOUDSDK_API_ENDPOINT_OVERRIDES_STORAGE="$(cat "$fixture_root/gcs-recovery/endpoint")"
+  "$nagarectl_bin" --context freshlocal platform bootstrap plan \
+    --out "$fixture_root/gcs-recovery/review" > "$fixture_root/gcs-recovery/plan.out" 2>&1 || {
+    cat "$fixture_root/gcs-recovery/plan.out" >&2; exit 1;
+  }
+  touch "$XDG_STATE_HOME/fail-next-stack-list"
+  if "$nagarectl_bin" --context freshlocal platform bootstrap apply \
+    "$fixture_root/gcs-recovery/review" --yes > "$fixture_root/gcs-recovery/apply.out" 2>&1; then
+    printf 'initial GCS foundation unexpectedly passed unavailable stack inspection\n' >&2; exit 1
+  fi
+  test -e "$XDG_STATE_HOME/bucket-created"
+  test -e "$XDG_STATE_HOME/failed-stack-list-once"
+  test ! -e "$XDG_STATE_HOME/stack-created"
+  transaction="$(python3 - "$XDG_STATE_HOME/nagare/freshlocal/inventory/head.json" <<'PY'
+import json, sys
+head = json.load(open(sys.argv[1]))
+assert head['activeTransaction'] is not None, head
+assert head.get('migration') is None, head
+print(head['activeTransaction'])
+PY
+)"
+  "$nagarectl_bin" --context freshlocal inventory resume "$transaction" --yes \
+    > "$fixture_root/gcs-recovery/resume.out" 2>&1 || {
+    cat "$fixture_root/gcs-recovery/resume.out" >&2; exit 1;
+  }
+  test "$(grep -c '^storage buckets create ' "$XDG_STATE_HOME/gcloud-apply.log")" -eq 1
+  test "$(grep -c ' stack init ' "$XDG_STATE_HOME/pulumi.log")" -eq 1
+  python3 - "$XDG_STATE_HOME" <<'PY'
+import json, sys
+from pathlib import Path
+root = Path(sys.argv[1])
+local = json.loads((root/'nagare/freshlocal/inventory/head.json').read_text())
+assert local['activeTransaction'] is None, local
+assert local['accepted'] == local['converged'], local
+assert local.get('migration') is not None, local
+objects = json.loads((root/'remote-objects.json').read_text())
+heads = [json.loads(v['bytes']) for k, v in objects.items() if k.endswith('/head.json')]
+assert len(heads) == 1, heads
+remote = heads[0]
+assert remote['activeTransaction'] is None, remote
+assert remote['accepted'] == local['accepted'], (remote, local)
+assert remote['converged'] == local['converged'], (remote, local)
+assert remote['sequence'] == local['sequence'], (remote, local)
+for path in (root/'nagare/freshlocal/inventory/journal').glob('*.json'):
+    copies = [v['bytes'] for k, v in objects.items() if k.endswith('/journal/'+path.name)]
+    assert copies == [path.read_text()], path
+PY
+  "$nagarectl_bin" --context freshlocal inventory store status --json \
+    > "$fixture_root/gcs-recovery/status.out" 2>&1 || {
+    cat "$fixture_root/gcs-recovery/status.out" >&2; exit 1;
+  }
+  printf 'initial GCS foundation resumed its original local journal and migrated only after convergence\n'
+)
+
 cp "$XDG_STATE_HOME/enabled-services" "$fixture_root/enabled-services.saved"
 sed '/^compute.googleapis.com$/d' "$fixture_root/enabled-services.saved" \
   > "$XDG_STATE_HOME/enabled-services"
@@ -530,6 +610,23 @@ assert head["activeTransaction"] is not None, head
 print(head["activeTransaction"])
 PY
 )"
+cp "$XDG_CONFIG_HOME/nagare/contexts/freshlocal.env" "$fixture_root/local-profile-before-refusal.env"
+sed 's/NAGARE_INVENTORY_STORE=local/NAGARE_INVENTORY_STORE=gcs/' \
+  "$fixture_root/local-profile-before-refusal.env" > "$XDG_CONFIG_HOME/nagare/contexts/freshlocal.env"
+cp "$XDG_STATE_HOME/nagare/freshlocal/inventory/head.json" "$fixture_root/nonfoundation-head-before.json"
+cp "$XDG_STATE_HOME/pulumi.log" "$fixture_root/nonfoundation-pulumi-before.log"
+if "$nagarectl_bin" --context freshlocal inventory resume "$transaction" --yes \
+  > "$fixture_root/nonfoundation-resume-refusal.out" 2>&1; then
+  printf 'GCS recovery unexpectedly selected a non-foundation local transaction\n' >&2; exit 1
+fi
+grep -q 'local inventory recovery requires the exact active initial cloud foundation review' \
+  "$fixture_root/nonfoundation-resume-refusal.out" || {
+  cat "$fixture_root/nonfoundation-resume-refusal.out" >&2; exit 1;
+}
+cmp "$fixture_root/nonfoundation-head-before.json" "$XDG_STATE_HOME/nagare/freshlocal/inventory/head.json"
+cmp "$fixture_root/nonfoundation-pulumi-before.log" "$XDG_STATE_HOME/pulumi.log"
+cp "$fixture_root/local-profile-before-refusal.env" "$XDG_CONFIG_HOME/nagare/contexts/freshlocal.env"
+printf 'initial GCS recovery refused an unrelated active local transaction without effects\n'
 "$nagarectl_bin" --context freshlocal inventory resume "$transaction" --yes \
   > "$fixture_root/cloud-layer-resume-out" 2>&1 || {
   cat "$fixture_root/cloud-layer-resume-out" >&2
