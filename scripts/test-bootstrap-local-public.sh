@@ -377,9 +377,9 @@ import sys
 with open(sys.argv[1], encoding="utf-8") as source:
     review = json.load(source)
 operations = [item["operation"] for item in review["operations"]]
-assert len(operations) == 209, len(operations)
+assert len(operations) == 217, len(operations)
 assert collections.Counter(item["executor"] for item in operations) == {
-    "KubernetesExecutor": 202,
+    "KubernetesExecutor": 210,
     "HelmExecutor": 5,
     "ArtifactExecutor": 2,
 }
@@ -405,8 +405,12 @@ assert all(edge in resource["dependencies"] for resource in cluster_members)
 marker_members = [resource for resource in managed if resource["identity"] == marker_id]
 assert len(marker_members) == 1, marker_members
 assert edge in marker_members[0]["dependencies"]
+for database in ("en-db", "shomei-db"):
+    for role in ("backup-account", "backup-read-role", "backup-read-binding", "backup-signing-key"):
+        identity = f"platform:auth/{database}/{role}"
+        assert sum(identity in item["resources"] for item in operations) == 1, identity
 PY
-printf 'public local bootstrap planned 209 cluster operations after its kubeconfig\n'
+printf 'public local bootstrap planned 217 cluster operations after its kubeconfig\n'
 
 sed 's/NAGARE_PLATFORM_VERSION=0.4.0/NAGARE_PLATFORM_VERSION=0.4.1/' \
   "$fixture_root/localfresh.env.saved" > "$XDG_CONFIG_HOME/nagare/contexts/localfresh.env"

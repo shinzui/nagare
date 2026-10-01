@@ -105,6 +105,8 @@ F01 and F11 are independently Closed with [retained verification and source iden
 
 **Verification:** Not closed. Installed/native readiness recovery is now retained; independent closure remains required. The subsequent installed registry recovery resumes the same original transaction to full bootstrap convergence; steady credential coverage and independent F15 closure remain open.
 
+**Implementation update (2026-09-30):** The [installed local candidate gate](mp23-native-bootstrap-results-2026-09-30/local-platform-candidate-705716b7.json) runs full native bootstrap with CLI/payload `705716b7`, rather than only the recording marker fixture. Autoscaler is Ready before activator, all 217 platform operations converge through the public driver, all 19 scopes are idle/converged, and the final marker names the candidate. A transient certificate readiness result settles through resume of the retained transaction. An unchanged replan contains 213 verification-only operations and no barriers. This proves the corrected fresh-bootstrap order locally; F14 safe-use Verification remains the operator's end-to-end runbook on `f15-preview`.
+
 ## F15
 
 **Patched certificate controller lacks refreshed private-image credentials** — P1; **Verifying**; owners EP-156 / EP-154.

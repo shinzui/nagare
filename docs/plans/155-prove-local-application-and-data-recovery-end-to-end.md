@@ -37,6 +37,11 @@ provenance:
       at: 2026-09-30T04:43:10Z
       mode: "update"
       note: "Prioritize cloud integration and safe ongoing operation ahead of full local integration; retain final release gates"
+    - model: "gpt-6.1-sol"
+      harness: "codex-cli"
+      at: 2026-10-01T05:44:42Z
+      mode: "implement"
+      note: "Accept installed full native local platform-bootstrap candidate gate and repair stale recording-fixture membership"
 ---
 
 # Prove local application and data recovery end to end
@@ -51,6 +56,8 @@ One reproducible disposable local run proves that the installed Nagare candidate
 
 
 ## Progress
+
+**Installed candidate platform gate (2026-09-30).** CLI `705716b7bdb74849442f1c38aa8557eee3944def` and its installed payload `nagare-0.4.0-705716b7bdb7` converge a fresh native platform in isolated Colima profile `nagare-mp23-cp3` (six CPUs, 12 GiB) and private root `/tmp/nagare-mp23-cp3.1EQ78L`. Registry/cluster and kubeconfig reviews converge, followed by the 217-operation platform review; its journal spans 496 seconds including certificate-readiness recovery through the original transaction. Autoscaler is Ready before activator. All 19 scopes converge at generation 456/sequence 447, with no transaction, claim, fence or migration, and the final marker names the installed candidate. An unchanged replan has 213 verification-only operations and zero barriers. The recording fixture now requires the eight exact backup companion members that explain its obsolete 209-operation expectation; it passes. [Retained evidence](../audits/mp23-native-bootstrap-results-2026-09-30/local-platform-candidate-705716b7.json) distinguishes native bootstrap from recording fixture proof. This satisfies the candidate's local platform-bootstrap gate, not M1/M2 or safe-use acceptance. The isolated native fixture remains retained for exact cleanup; continue the parent entrypoint's F15 cloud review before expanding the full local scenario.
 
 **Cloud-first scheduling (operator request, 2026-09-29).** Full local integration follows EP-156 cloud convergence and recovery. Preserve the existing platform/two-application/no-op and recovery evidence. Run focused local regressions or repair a shared binding when a concrete cloud assertion needs them; do not expand the complete k3d/MinIO scenario as a prerequisite of cloud progress. EP-155 retains ownership of its local scenario, bounded PostgreSQL rename and collection obligations, and both milestones remain required before EP-157 release acceptance.
 
