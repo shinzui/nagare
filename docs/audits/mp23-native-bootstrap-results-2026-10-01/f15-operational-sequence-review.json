@@ -88,5 +88,13 @@
   "nodeAllocatableMillicores": 4000,
   "sequenceApproved": false,
   "firstReviewApplied": false,
-  "safeUseAccepted": false
+  "safeUseAccepted": false,
+  "protectedApplicationReadOnlyPreflight": {
+    "seconds": 7.79,
+    "typedConfigurationLoaded": true,
+    "refusal": "image resource is absent or ambiguous in accepted inventory",
+    "publicationPrerequisitePending": true,
+    "effects": false,
+    "headGenerationUnchanged": 479
+  }
 }
