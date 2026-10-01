@@ -111,6 +111,9 @@ kubernetesSpecsFromReview bundle = do
       let
           reboundDeclaration = recompiled
             { dependencies = declaration ^. #dependencies
+            -- These grants belong to the composed declaration. Rebinding still
+            -- checks the exact reviewed native bytes, address and specification.
+            , delegations = declaration ^. #delegations
             , spec = if generatedNamespace || generatedBackend || generatedShomei
                 then declaration ^. #spec else recompiled ^. #spec
             }

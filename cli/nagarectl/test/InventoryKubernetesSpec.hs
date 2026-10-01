@@ -2216,23 +2216,38 @@ inventoryKubernetesTests =
           BS.writeFile (root </> "object.json") "{}"
           changed <- loadKubernetesSources root [sourceDeclaration]
           assertBool "changed packaged source accepted" (either (const True) (const False) changed)
-    , testCase "private review reconstructs the native member without source files" $ do
+    , testCase "private review reconstructs delegated native members without source files" $ do
         state <- newIORef (KubernetesAbsent absence)
         calls <- newIORef (0 :: Int)
         let binding = ContextBinding (ok (mkContextId "test")) (ok (mkName "project"))
-            scopeDeclaration = ok (mkScopeDeclaration scope [ResourceBundle [Managed declaration] [] [] [] [] []])
+            accountId = mintResourceId scope (ok (mkLogicalKey "pull-account")) (ok (mkName "resource"))
+            accountObject = object
+              [ "apiVersion" .= ("v1" :: Text), "kind" .= ("ServiceAccount" :: Text)
+              , "metadata" .= object ["name" .= ("pull-account" :: Text), "namespace" .= ("personal" :: Text)]
+              , "imagePullSecrets" .= [object ["name" .= ("nagare-registry-pull" :: Text)]]
+              ]
+            (plainAccount, accountBytes) = ok (bindKubernetesObject input
+              {resourceId = accountId, inputObject = accountObject,
+                objectDigest = contentDigest (ok (canonicalValue accountObject))})
+            account = plainAccount {delegations = [Delegation resource
+              (ok (mkName "registry-pull-reference") :| []) (RefreshCredential :| [])]}
+            members = Map.insert accountId (account, accountBytes) specs
+            scopeDeclaration = ok (mkScopeDeclaration scope
+              [ResourceBundle [Managed declaration, Managed account] [] [] [] [] []])
             snapshot = ok (mkScopeSnapshot binding Map.empty Map.empty)
             candidate = ok (composeInventory snapshot (ReplaceScope scopeDeclaration :| []))
-            adapter = mkKubernetesAdapter specs (ops state calls)
+            adapter = mkKubernetesAdapter members (ops state calls)
             registry = ok (mkAdapterRegistry [adapter])
-            observations = ok (observationSet [(resource, ConfirmedAbsent absence)])
+            observations = ok (observationSet [(selected, ConfirmedAbsent absence) | selected <- Map.keys members])
         store <- newMemoryStore
         _ <- initializeStore store binding "client-test" >>= expectRight
         history <- loadInventoryHistory store >>= expectRight
         let proposal = ok (planChanges candidate noLifecycleDecisions history observations)
         snapshotBefore <- readStoreSnapshot store >>= expectRight
         bundle <- prepareReview registry snapshotBefore proposal >>= expectRight
-        kubernetesSpecsFromReview bundle @?= Right specs
+        digest <- publishReview store bundle >>= expectRight
+        published <- loadPublishedReview store digest >>= expectRight
+        kubernetesSpecsFromReview published @?= Right members
     , testCase "retired native member remains observable from its original immutable review" $ do
         state <- newIORef (KubernetesAbsent absence)
         calls <- newIORef (0 :: Int)

@@ -26,6 +26,7 @@ import Nagare.Inventory.Status (loadAcceptedNativeSelected)
 import Nagare.Inventory.Store
 import Nagare.Inventory.Store.ObjectOps
 import Nagare.Resource.Inventory
+import Nagare.Resource.Policy (Delegation (..), DelegatedOperation (RefreshCredential))
 import Nagare.Resource.Kubernetes
 import Nagare.Resource.Policy
 import Nagare.Resource.Types
@@ -108,7 +109,11 @@ inventoryObservationTests =
         _ <- must (initializeStore store binding "fixture")
         _ <- prepare store 0
         let member = fst selected
-            revised = member {source = SourceLocation "new.yaml" "document[7]"}
+            revised = member
+              { source = SourceLocation "new.yaml" "document[7]"
+              , delegations = [Delegation (member ^. #identity)
+                  (name "registry-pull-reference" :| []) (RefreshCredential :| [])]
+              }
         result <- must (loadObservationNative store [revised])
         Map.elems (observationKubernetes result) @?= [(revised, snd selected)]
         let moved = member {address = Kubernetes fixtureCluster "" (name "configmap") (Just (name "personal")) (name "other")}

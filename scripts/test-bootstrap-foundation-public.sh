@@ -1226,6 +1226,35 @@ if grep -Fq 'fixture-password' "$fixture_root/cluster-review/review.json"; then
 fi
 printf 'public bootstrap planned 211 cluster operations with kubeconfig edges and a final marker\n'
 
+# A controlled head race reaches the apply factory and its native loaders, then
+# must refuse admission. Planning alone cannot prove that saved grants survive
+# reconstruction for apply/resume.
+cp "$XDG_STATE_HOME/nagare/freshlocal/inventory/head.json" "$fixture_root/cluster-head-before-race"
+python3 - "$XDG_STATE_HOME/nagare/freshlocal/inventory/head.json" <<'PYTEST'
+import json
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+head = json.loads(path.read_text())
+assert head["activeTransaction"] is None and head["executorClaim"] is None
+head["generation"] += 1
+path.write_text(json.dumps(head, sort_keys=True, separators=(",", ":")))
+PYTEST
+cp "$XDG_STATE_HOME/nagare/freshlocal/inventory/head.json" "$fixture_root/cluster-head-after-race"
+if "$nagarectl_bin" --context freshlocal platform bootstrap apply "$fixture_root/cluster-review" --yes \
+  > "$fixture_root/cluster-stale-apply-out" 2>&1; then
+  printf 'cluster apply accepted a changed head\n' >&2
+  exit 1
+fi
+if ! grep -q 'stale-head' "$fixture_root/cluster-stale-apply-out"; then
+  cat "$fixture_root/cluster-stale-apply-out" >&2
+  printf 'cluster apply refused before completing native reconstruction\n' >&2
+  exit 1
+fi
+cmp "$fixture_root/cluster-head-after-race" "$XDG_STATE_HOME/nagare/freshlocal/inventory/head.json"
+cp "$fixture_root/cluster-head-before-race" "$XDG_STATE_HOME/nagare/freshlocal/inventory/head.json"
+printf 'public cluster apply reconstructed the Serving grant and refused a stale head before admission\n'
+
 # A separate context exercises the same reviewed stack operation with the
 # actual Pulumi CLI and an isolated file backend. No cloud provider is used.
 sed -e 's/NAGARE_PULUMI_BACKEND=gcs/NAGARE_PULUMI_BACKEND=local/' \

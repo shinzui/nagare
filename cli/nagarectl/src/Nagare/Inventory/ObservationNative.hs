@@ -190,6 +190,7 @@ loadObservationNativeChecked store declarations = do
           let bound =
                 compiled
                   { dependencies = member ^. #dependencies
+                  , delegations = member ^. #delegations
                   , spec = case nativeDigest (member ^. #spec) of
                       Nothing -> member ^. #spec
                       Just _ -> compiled ^. #spec
