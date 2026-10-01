@@ -67,6 +67,11 @@ provenance:
       at: 2026-10-01T03:41:20Z
       mode: "update"
       note: "Add driver-consolidation and model-based driver test checkpoints from the independent review"
+    - model: "gpt-5.6-terra"
+      harness: "codex-cli"
+      at: 2026-10-01T04:02:25Z
+      mode: "implement"
+      note: "Accept driver-consolidation checkpoint and record source evidence"
 ---
 
 # Close managed command coverage for the inventory release
@@ -84,7 +89,7 @@ Every supported mutation command and shipped recipe is mapped to its owner, revi
 
 **Next checkpoints from the 2026-09-30 independent review (prerequisites of the MP-23 safe-use gate).** Take these ahead of remaining route coverage; each is bounded and reuses existing harnesses.
 
-1. Driver consolidation. `prepareBootstrapRegistryRecovery` in cli/nagarectl/src/Nagare/Inventory/Execute.hs acquires the executor claim and rechecks it before effects, but executes adapters outside `runOperations`, so the claim and lock guards exist twice. Re-express it as a recovery decision handled inside the shared driver so one function authorizes every effect. Keep its journaled intent, exact-capsule settlement, and workload-readiness completion criterion, and keep the existing F15 regressions unchanged. Add a regression proving the legacy `upgradeOps` apply flows in app/Main.hs refuse any context with inventory history before any provider call. Acceptance: recording-adapter tests show the registry recovery running through the driver with identical journal events to the retained proof; the upgrade-runner refusal test passes; no effect path exists outside the driver.
+1. Driver consolidation — accepted 2026-09-30. `runOperations` now accepts the bounded bootstrap-registry recovery decision and alone journals its intent, rechecks the executor claim, invokes the recovery capability, and records the exact capsule receipt; decision preparation remains read-only. The existing F15 recording-adapter regressions remain unchanged and pass, preserving lost-acknowledgement settlement, exact capsule refusal, host/Deployment/node binding, and independent workload-readiness completion. `scripts/test-inventory-entrypoint-guards.sh` now also proves `platform upgrade --apply --resume missing --yes` refuses an inventory-admitted context before it can load an upgrade transaction or invoke a provider. The focused registry suite, all 1,001 `nagarectl` tests, executable build, entrypoint guard script, structural style, and all 460 `nagare-dsl` tests pass. This is source-level safety evidence only; F15 verification and the installed credential expiry/re-pull proof remain open.
 2. Model-based driver tests. On the in-memory store with recording adapters, generate random reviews (creates, updates, verifications, retirements across several scopes) and inject interruption at every operation boundary and at each conditional write, then resume. Invariants: no effect executes twice; converged is a subset of accepted; completing a review changes only the revisions it selects; head generation and journal sequence are monotonic; every ambiguous journal entry resolves to exactly one finite recovery outcome; a second executor is refused without takeover. Acceptance: the property suite runs inside the normal `cabal test nagarectl-test` with a fixed seed and bounded case count, and it fails when the fixes from `eb582eb0` or `7c957c02` are reverted.
 3. Hardening while there. Replace partial functions that fire on runtime data (`physicalStack` in Adapters/FoundationRuntime.hs, the platform-marker shape in Bootstrap.hs, the missing host revision in BootstrapRegistryRecovery.hs) with typed refusals, and move Main.hs policy for each command into a named module as that command is touched.
 

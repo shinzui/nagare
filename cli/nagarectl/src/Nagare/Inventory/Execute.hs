@@ -376,7 +376,7 @@ executeWithJournal locked registry executable knownEvents = do
       case eventsResult of
         Left _ -> ambiguousFallback transaction document
         Right events -> do
-          outcome <- runOperations locked registry transaction reviewed events (reviewOperations document)
+          outcome <- runOperations locked registry transaction reviewed events (reviewOperations document) Nothing
           case outcome of
             Just result -> releaseClaim locked transaction Nothing >> pure result
             Nothing -> do
@@ -735,9 +735,9 @@ recordOperatorRecovery store registry input takeOver = do
                                   "application review stopped without convergence; accepted ownership and data retained for a new review"
                               pure (first (\err -> AdmissionError "journal" (showText err) :| []) appended)
                       (RecoverBootstrapRegistry native, RecoveryAwaitingReadiness _)
-                        | isNothing selection -> recoverBootstrap lock events operation prepared native
+                        | isNothing selection -> runBootstrapThroughDriver lock events reviewed native
                       (RecoverBootstrapRegistry native, RecoveryProvedComplete _)
-                        | isNothing selection -> recoverBootstrap lock events operation prepared native
+                        | isNothing selection -> runBootstrapThroughDriver lock events reviewed native
                       (AbandonPartialPrune, RecoveryTerminalFailure physical)
                         | scheduledPruneOnlyReview published operation -> do
                             appended <- appendEvent lock transaction (Just operationId)
@@ -775,49 +775,14 @@ recordOperatorRecovery store registry input takeOver = do
                               (OperatorResolved "adapter-proved-safe-retry") "operator selected adapter-proved safe retry"
                             pure (first (\err -> AdmissionError "journal" (showText err) :| []) (() <$ appended))
                       _ -> pure (failure "unsupported-recovery" "adapter did not prove the operator's requested action")
-    recoverBootstrap :: forall s. LockedStore s -> [JournalEvent]
-      -> PlannedOperation -> PreparedNative -> ContentDigest
-      -> IO (Either (NonEmpty AdmissionError) ())
-    recoverBootstrap lock events operation prepared native = case
-        lookupAdapterRecovery registry "bootstrap-registry-credentials" of
-      Nothing -> pure (failure "recovery-capability" "bootstrap registry recovery is not registered")
-      Just capability -> do
-        let prior = Map.lookup operationId (operationStates transaction events)
-            selected = case prior of
-              Just (OperatorResolved marker) -> case bootstrapRecoveryMarker marker of
-                Just (saved, _) -> saved == native
-                _ -> False
-              _ -> True
-        saved <- readObject store (objectKeyFor "native" native)
-        case saved of
-          Left err -> pure (failure "recovery-native" (showText err))
-          Right (Just bytes) | selected && contentDigest bytes == native -> do
-            validated <- recoveryValidate capability operation prepared bytes
-            case validated of
-              Left reason -> pure (failure "recovery-prerequisite" reason)
-              Right () -> executeRecovery capability bytes
-          _ -> pure (failure "recovery-native" "saved recovery is missing, corrupt, or differs from the unresolved intent")
-      where
-        executeRecovery capability bytes = do
-            intent <- appendEvent lock transaction (Just operationId)
-              (OperatorResolved ("bootstrap-registry-intent:" <> digestText native))
-              "bounded registry credential recovery selected; workload completion remains unproved"
-            case intent of
-              Left err -> pure (failure "journal" (showText err))
-              Right _ -> do
-                claimed <- executorStillClaimed lock transaction
-                if not claimed then pure (failure "executor-claim" "registry recovery lost its executor claim")
-                else do
-                  proved <- withAdapterEnv transaction operation
-                    (recoveryExecute capability operation prepared bytes)
-                  case proved of
-                    Left reason -> pure (failure "recovery-prerequisite" reason)
-                    Right receipt -> do
-                      appended <- appendEvent lock transaction (Just operationId)
-                        (OperatorResolved ("bootstrap-registry-proved:" <> digestText native
-                          <> ":" <> digestText receipt))
-                        "accepted host registry policy recovered; resume must independently prove workload readiness"
-                      pure (first (\err -> AdmissionError "journal" (showText err) :| []) (() <$ appended))
+    runBootstrapThroughDriver :: forall s. LockedStore s -> [JournalEvent] -> ReviewedPlan
+      -> ContentDigest -> IO (Either (NonEmpty AdmissionError) ())
+    runBootstrapThroughDriver lock events reviewed native = do
+      outcome <- runOperations lock registry transaction reviewed events
+        (reviewOperations (reviewedDocument reviewed)) (Just (operationId, RecoverBootstrapRegistry native))
+      pure $ case outcome of
+        Nothing -> Right ()
+        Just _ -> failure "recovery-prerequisite" "registry recovery driver could not prove the selected action"
     scheduledPruneOnlyReview published operation =
       let reviewed = reviewOperations (reviewBundleDocument published)
           resource = NE.toList (plannedResources operation)
@@ -1127,18 +1092,23 @@ recordOperatorRecovery store registry input takeOver = do
     transactionDigest token = either (const Nothing) Just
       (mkContentDigest (T.drop 3 (transactionIdText token)))
 
-runOperations :: LockedStore s -> AdapterRegistry -> TransactionId -> ReviewedPlan -> [JournalEvent] -> [ReviewOperation] -> IO (Maybe TransactionResult)
-runOperations locked registry transaction reviewed initialEvents operations = go initialEvents
+runOperations :: LockedStore s -> AdapterRegistry -> TransactionId -> ReviewedPlan -> [JournalEvent] -> [ReviewOperation]
+  -> Maybe (OperationId, RecoveryAction) -> IO (Maybe TransactionResult)
+runOperations locked registry transaction reviewed initialEvents operations recoveryDecision = go initialEvents
   where
-    go events = case nextOperation operations (operationStates transaction events) of
-      OperationsFinished -> pure Nothing
-      OperationBlocked operation reason ->
-        pure
-          ( Just
-              (StoppedFailed transaction operation (PartialOrUnknown reason))
-          )
-      RecoverOperation operation -> recoverOrStop events operation
-      ExecuteOperation operation -> executeOne events operation
+    go events = case recoveryDecision of
+      Just (selected, _) -> case find ((== selected) . operationId) operations of
+        Just operation -> recoverOrStop events operation
+        Nothing -> pure (Just (StoppedAmbiguous transaction selected))
+      Nothing -> case nextOperation operations (operationStates transaction events) of
+        OperationsFinished -> pure Nothing
+        OperationBlocked operation reason ->
+          pure
+            ( Just
+                (StoppedFailed transaction operation (PartialOrUnknown reason))
+            )
+        RecoverOperation operation -> recoverOrStop events operation
+        ExecuteOperation operation -> executeOne events operation
     recoverOrStop events reviewOperation =
       let operation = reviewPlannedOperation reviewOperation
        in case preparedFor reviewed reviewOperation of
@@ -1151,41 +1121,81 @@ runOperations locked registry transaction reviewed initialEvents operations = go
                     pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
                 | Left _ <- selectedFence registry reviewed reviewOperation prepared ->
                     pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
-                | otherwise -> do
-                    decision <-
-                      withAdapterEnv
-                        transaction
-                        operation
-                        (adapterRecover adapter operation prepared)
-                    case decision of
-                      RecoveryProvedComplete proof -> do
-                        appended <-
-                          appendEvent
-                            locked
-                            transaction
-                            (Just (plannedOperationId operation))
-                            (Completed proof)
-                            "adapter recovery proved completion"
-                        case appended of
-                          Left _ -> pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
-                          Right event -> go (events <> [event])
-                      RecoverySafeToRetry
-                        | isNothing (reviewFenceDigest reviewOperation)
-                        , dependenciesComplete (operationStates transaction events) reviewOperation ->
-                            executeOne events reviewOperation
-                        | otherwise ->
-                            pure
-                              ( Just
-                                  ( StoppedAmbiguous
-                                      transaction
-                                      (plannedOperationId operation)
-                                  )
-                              )
-                      RecoveryAwaitingReadiness _ -> continueReadiness events reviewOperation
-                      RecoveryTerminalFailure _ ->
-                        pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
-                      RecoveryUnresolved _ ->
-                        pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
+                | otherwise -> case recoveryDecision of
+                    Just (selected, RecoverBootstrapRegistry native)
+                      | selected == plannedOperationId operation ->
+                          recoverBootstrapDecision events reviewOperation adapter prepared native
+                      | otherwise -> pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
+                    Just _ -> pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
+                    Nothing -> ordinaryRecovery events reviewOperation operation adapter prepared
+    ordinaryRecovery events reviewOperation operation adapter prepared = do
+      decision <- withAdapterEnv transaction operation (adapterRecover adapter operation prepared)
+      case decision of
+        RecoveryProvedComplete proof -> do
+          appended <- appendEvent locked transaction (Just (plannedOperationId operation))
+            (Completed proof) "adapter recovery proved completion"
+          case appended of
+            Left _ -> pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
+            Right event -> go (events <> [event])
+        RecoverySafeToRetry
+          | isNothing (reviewFenceDigest reviewOperation)
+          , dependenciesComplete (operationStates transaction events) reviewOperation ->
+              executeOne events reviewOperation
+          | otherwise -> pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
+        RecoveryAwaitingReadiness _ -> continueReadiness events reviewOperation
+        RecoveryTerminalFailure _ -> pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
+        RecoveryUnresolved _ -> pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
+    -- The operator decision supplies the immutable capsule, but this shared
+    -- driver still owns intent, claim recheck, effect execution, and receipt.
+    -- A successful prerequisite deliberately stops here: workload readiness is
+    -- independently proved by the normal resume path.
+    recoverBootstrapDecision events reviewOperation adapter prepared native = do
+      decision <- withAdapterEnv transaction (reviewPlannedOperation reviewOperation)
+        (adapterRecover adapter (reviewPlannedOperation reviewOperation) prepared)
+      case decision of
+        RecoveryAwaitingReadiness _ -> executeBootstrapRecovery
+        RecoveryProvedComplete _ -> executeBootstrapRecovery
+        _ -> pure (Just (StoppedAmbiguous transaction (plannedOperationId (reviewPlannedOperation reviewOperation))))
+      where
+        operation = reviewPlannedOperation reviewOperation
+        operationId = plannedOperationId operation
+        executeBootstrapRecovery = case lookupAdapterRecovery registry "bootstrap-registry-credentials" of
+          Nothing -> pure (Just (StoppedAmbiguous transaction operationId))
+          Just capability -> do
+            let prior = Map.lookup operationId (operationStates transaction events)
+                selected = case prior of
+                  Just (OperatorResolved marker) -> case bootstrapRecoveryMarker marker of
+                    Just (saved, _) -> saved == native
+                    _ -> False
+                  _ -> True
+            saved <- readObject (lockedStore locked) (objectKeyFor "native" native)
+            case saved of
+              Right (Just bytes) | selected && contentDigest bytes == native -> do
+                validated <- recoveryValidate capability operation prepared bytes
+                case validated of
+                  Left _ -> pure (Just (StoppedAmbiguous transaction operationId))
+                  Right () -> do
+                    intent <- appendEvent locked transaction (Just operationId)
+                      (OperatorResolved ("bootstrap-registry-intent:" <> digestText native))
+                      "bounded registry credential recovery selected; workload completion remains unproved"
+                    case intent of
+                      Left _ -> pure (Just (StoppedAmbiguous transaction operationId))
+                      Right _ -> do
+                        claimed <- executorStillClaimed locked transaction
+                        if not claimed
+                          then pure (Just (StoppedAmbiguous transaction operationId))
+                          else do
+                            proved <- withAdapterEnv transaction operation
+                              (recoveryExecute capability operation prepared bytes)
+                            case proved of
+                              Left _ -> pure (Just (StoppedAmbiguous transaction operationId))
+                              Right receipt -> do
+                                appended <- appendEvent locked transaction (Just operationId)
+                                  (OperatorResolved ("bootstrap-registry-proved:" <> digestText native
+                                    <> ":" <> digestText receipt))
+                                  "accepted host registry policy recovered; resume must independently prove workload readiness"
+                                pure (either (const (Just (StoppedAmbiguous transaction operationId))) (const Nothing) appended)
+              _ -> pure (Just (StoppedAmbiguous transaction operationId))
     -- Keep the original ambiguous operation and its readiness requirement.
     -- Only an untouched, independent stateless Deployment create may proceed;
     -- no retry, data operation, fence, or dependent work is authorized here.

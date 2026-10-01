@@ -96,6 +96,7 @@ refuse 'host credential placement' host place-age-key --context guarded --key-fi
 refuse 'platform adoption' --context guarded platform adopt --version 0.2.2 --yes
 refuse 'platform re-pin' --context guarded platform repin --version 0.2.2 --yes
 refuse 'platform upgrade' --context guarded platform upgrade --to 0.2.2
+refuse 'platform upgrade apply' --context guarded platform upgrade --apply --resume missing --yes
 refuse 'platform rollback' --context guarded platform upgrade rollback missing --yes
 refuse 'platform Pulumi recovery' --context guarded platform upgrade recover-pulumi missing --outcome retry --yes
 test -f "$context_dir/guarded.env"
@@ -116,4 +117,4 @@ chmod 600 "$store_dir/head.json"
 "$nagarectl_bin" context delete guarded --yes > "$fixture_root/out"
 test ! -e "$context_dir/guarded.env"
 test -f "$store_dir/head.json"
-printf 'inventory entrypoint guards: five image-free deploy refusals, three unreviewed change refusals, eleven admitted refusals, untouched-store delete allowed\n'
+printf 'inventory entrypoint guards: five image-free deploy refusals, three unreviewed change refusals, twelve admitted refusals, untouched-store delete allowed\n'
