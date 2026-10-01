@@ -313,6 +313,12 @@ validateBefore operation resource target desiredDigest state =
       , nameText kind == "service" -> Right ()
     (VerifyResource, KubernetesPresent _ revision (Just owner) digest)
       | owner == resource && not (T.null revision) && digest == desiredDigest -> Right ()
+    -- A dependency can repair this route before its read-only verification.
+    -- Execution still requires Ready under the same UID, owner and digest.
+    (VerifyResource, KubernetesNotReady _ revision (Just owner) digest)
+      | owner == resource && not (T.null revision) && digest == desiredDigest
+      , Kubernetes _ "serving.knative.dev" kind (Just _) _ <- target
+      , nameText kind == "domainmapping" -> Right ()
     (RetireResource, KubernetesPresent _ revision (Just owner) digest)
       | owner == resource && not (T.null revision) && digest == desiredDigest -> Right ()
     (RetireResource, KubernetesNotReady _ revision (Just owner) digest)
@@ -494,6 +500,13 @@ requireSameBefore mutation current =
           | expectedPhysical == physical && expectedOwner == owner
           , owner == mutationResource mutation
           , expectedDigest == digest && digest == mutationNativeDigest mutation -> Right ()
+        (KubernetesNotReady expectedPhysical _ (Just expectedOwner) expectedDigest,
+          KubernetesPresent physical _ (Just owner) digest)
+          | Kubernetes _ "serving.knative.dev" kind (Just _) _ <- mutationAddress mutation
+          , nameText kind == "domainmapping"
+          , expectedPhysical == physical && expectedOwner == owner
+          , owner == mutationResource mutation
+          , expectedDigest == digest && digest == mutationNativeDigest mutation -> Right ()
         _ -> Left "Kubernetes object identity or desired fields changed since review"
     else if current == mutationBefore mutation
       then Right ()
@@ -501,6 +514,8 @@ requireSameBefore mutation current =
 
 completionProof :: KubernetesMutation -> KubernetesState -> Either Text ContentDigest
 completionProof mutation state
+  | mutationAction mutation == VerifyResource
+  , Left reason <- requireSameBefore mutation state = Left reason
   | mutationAction mutation == RetireResource = case state of
       KubernetesAbsent absence -> case mutationBefore mutation of
         KubernetesPresent physical _ _ _ -> contentDigest <$> canonicalValue

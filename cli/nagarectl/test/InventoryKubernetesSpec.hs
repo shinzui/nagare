@@ -2476,6 +2476,48 @@ inventoryKubernetesTests =
         assertBool "Job deletion dropped preconditions or background pod cleanup"
           (all (\part -> BS.isInfixOf part (TE.encodeUtf8 body))
             ["manual-job-uid", "resource-version", "Background"])
+    , testCase "unready access route prepares read-only verification but requires its original ready incarnation" $ do
+        let value = object
+              ["apiVersion" .= ("serving.knative.dev/v1beta1" :: Text), "kind" .= ("DomainMapping" :: Text),
+               "metadata" .= object ["name" .= ("protected.example.test" :: Text), "namespace" .= ("nagare-system" :: Text)],
+               "spec" .= object ["ref" .= object
+                 ["apiVersion" .= ("serving.knative.dev/v1" :: Text), "kind" .= ("Service" :: Text),
+                  "name" .= ("nagare-access" :: Text), "namespace" .= ("nagare-system" :: Text)]]]
+            bytes = ok (canonicalValue value)
+            native = ok (bindKubernetesObject
+              (input {inputObject = value, objectDigest = contentDigest bytes}))
+            before = KubernetesNotReady physical "4" (Just resource) (contentDigest bytes)
+            verification = operation VerifyResource
+        state <- newIORef before
+        calls <- newIORef (0 :: Int)
+        let adapter = mkKubernetesAdapter (Map.singleton resource native) (ops state calls)
+        prepared <- adapterPrepare adapter verification >>= expectRight
+        blocked <- adapterPreflight adapter verification prepared
+        assertBool "unready route passed execution preflight" (isLeft blocked)
+        _ <- adapterExecute adapter verification prepared >>= \result -> case result of
+          AdapterEffectFailed KnownNoEffect {} -> pure ()
+          _ -> assertFailure "unready route completed read-only verification"
+        failed <- adapterVerify adapter verification prepared
+        assertBool "unready route proved complete" (isLeft failed)
+        writeIORef state (KubernetesPresent physical "5" (Just resource) (contentDigest bytes))
+        adapterPreflight adapter verification prepared >>= expectRight
+        adapterExecute adapter verification prepared >>= (@?= AdapterEffectCompleted)
+        _ <- adapterVerify adapter verification prepared >>= expectRight
+        recovered <- adapterRecover adapter verification prepared
+        assertBool "ready original route could not recover" (case recovered of RecoveryProvedComplete {} -> True; _ -> False)
+        writeIORef state (KubernetesPresent (ok (mkPhysicalIdentity "replacement-route")) "6" (Just resource) (contentDigest bytes))
+        replaced <- adapterPreflight adapter verification prepared
+        assertBool "replacement route passed verification preflight" (isLeft replaced)
+        replacementProof <- adapterVerify adapter verification prepared
+        assertBool "replacement route proved completion" (isLeft replacementProof)
+        replacementRecovery <- adapterRecover adapter verification prepared
+        assertBool "replacement route recovered the old verification" (case replacementRecovery of RecoveryUnresolved {} -> True; _ -> False)
+        readIORef calls >>= (@?= 0)
+        forM_ [KubernetesNotReady physical "4" Nothing (contentDigest bytes),
+            KubernetesNotReady physical "4" (Just resource) (contentDigest "changed")] $ \foreignState -> do
+          writeIORef state foreignState
+          refused <- adapterPrepare adapter verification
+          assertBool "foreign or changed unready route prepared verification" (isLeft refused)
     , testCase "retained unready access route can be conditionally collected" $ do
         let value = object
               [ "apiVersion" .= ("serving.knative.dev/v1beta1" :: Text)

@@ -117,6 +117,13 @@
     "failedDomainMappingObservationAndHealth": {
       "failedBefore": true,
       "passedAfter": true
+    },
+    "unreadyRoutePreparationAndOriginalReadyIncarnation": {
+      "failedBefore": true,
+      "passedAfter": true,
+      "providerWrites": 0,
+      "unreadyExecutionRefused": true,
+      "replacementVerificationAndRecoveryRefused": true
     }
   },
   "installedCorrectionAccepted": false,
@@ -128,7 +135,23 @@
   ],
   "fullCliTests": {
     "passed": true,
-    "tests": 1010,
-    "seconds": 50.22
-  }
+    "tests": 1011,
+    "seconds": 49.95
+  },
+  "installedRepairCandidate": {
+    "revision": "ee4a3f110b632947f3286c2aeda97550a172e96a",
+    "buildPassed": true,
+    "installedAccessPublicFixturePassed": true,
+    "localCandidateGate": "local-platform-candidate-ee4a3f11.json",
+    "cloudCorrectionAccepted": false,
+    "localCandidateGatePassed": true,
+    "cloudCorrectionPlanning": {
+      "exit": 1,
+      "seconds": 27.432,
+      "refusal": "Kubernetes object is present but its required condition is not ready",
+      "effectsAdmitted": false,
+      "headGenerationPreserved": 517
+    }
+  },
+  "nextInstalledCandidateRequired": true
 }
