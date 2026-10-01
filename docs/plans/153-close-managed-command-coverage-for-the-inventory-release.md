@@ -72,6 +72,11 @@ provenance:
       at: 2026-10-01T04:02:25Z
       mode: "implement"
       note: "Accept driver-consolidation checkpoint and record source evidence"
+    - model: "gpt-6.1-sol"
+      harness: "codex-cli"
+      at: 2026-10-01T16:25:29Z
+      mode: "implement"
+      note: "Write bounded operator apply/resume/recovery/takeover runbook with measured cloud timings and pending fresh-context verification"
 ---
 
 # Close managed command coverage for the inventory release
@@ -155,6 +160,9 @@ M2 consumer checkpoint (2026-09-27): The first installed `local-up` on a fresh i
 M2 deferred-admission checkpoint (2026-09-28): New direct/reviewed `db shell`, scheduled prune, and live database/volume restore routes now refuse before provider access. The lock-scoped shared admission path rejects saved live restore and maintenance actions and detects a new scheduled-prune scope from its stored member. Existing transaction resume, fence recovery, and receipt-only partial-prune recovery remain separate paths. A published saved-prune review was refused before adapter effects in `InventoryTransactionSpec`; the public entrypoint fixture checked all four command families and left the inventory head unchanged. The full `nagarectl-test` suite, command audit with injected mutation, evidence assembler fixture, Haskell style, and strict `docs/user` validation passed. The audit now registers 138 routes, 34 recipes, and 26 library calls with zero registration errors and an exact four-variant deferred set plus one recovery-only route. It remains incomplete with ten pending routes, seven pending recipes, and 29 incomplete catalogue rows. Next in the parent order: reconcile EP-154 installed smoke, EP-155 local fixture health, and EP-157 evidence inputs before the representative scheduled receipt/isolated restore handoff. M2 is still open.
 
 Inherited baseline: legacy upgrade/Pulumi/context/cleanup/host-credential guards, eleven CLI refusal assertions, and the coverage catalogue already exist. Several guarded operations remain unavailable after admission; their guards are not evidence of a working replacement.
+
+
+**Operator runbook checkpoint (2026-10-01).** [The inventory operations runbook](../runbooks/inventory-operations.md) specifies selected private context credentials, saved-review inspection/apply, original-transaction resume, proof-bound recover, shared-store status and explicit takeover after a crashed operator. It records exact retained-cloud timings, unenforced scheduled retention, isolated recovery destinations and the no-in-place-upgrade boundary. Fresh `f15-preview` operator execution and F14–F18 verification remain pending; writing the runbook does not accept that gate or complete M2. EP-158 M1 source command proofs are accepted at `c4524c24`, with installed native integration still pending. The cloud-native delegation validator repair at `e84983f1` is building as the next installed candidate; its required local bootstrap precedes the cloud retry.
 
 
 ## Surprises & Discoveries

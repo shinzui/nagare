@@ -446,6 +446,8 @@ IR-24 verification-case evidence map (update when a case gains proof; do not inf
 
 Platform-version upgrades remain excluded for admitted contexts in MP-23; isolated restore also does not establish automatic application promotion/cutover. On 2026-09-30 the operator confirmed that upgrade work follows completion of the initial supported feature set and its safe-use acceptance. Finish the existing cloud/local operational and release gates before starting that next phase. This sequencing does not waive any current maintenance or recovery proof and does not authorize an in-place payload-version change now.
 
+**Operator procedure (2026-10-01).** [The inventory operations runbook](../runbooks/inventory-operations.md) is written with retained-cloud command timings and explicit recovery/takeover and support constraints. Its fresh-context operator execution and F14–F18 verification remain pending; this is documentation preparation, not safe-use acceptance.
+
 **Safe-use gate (2026-09-30).** This is a cross-plan acceptance gate separate from EP-157 release acceptance: it is what must be true before real low-risk intranet workloads run on an inventory-backed cloud context. Release acceptance (order 6) continues behind it and is not waived. The gate is met when every item below has installed evidence on one candidate and the independent-verification question is settled by decision.
 
 - The six cloud operational checks above on a fresh context bootstrapped with the typed-host credential delegation, including steady credential expiry and re-pull (F15) and exact cleanup of the rehearsal's disposable resources.
