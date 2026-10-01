@@ -43,6 +43,7 @@ import InventoryArtifactSpec (inventoryArtifactTests)
 import InventoryCacheSpec (inventoryCacheTests)
 import InventoryFoundationSpec (inventoryFoundationTests)
 import InventoryUpstreamSpec (inventoryUpstreamTests)
+import InventoryAccessSpec (inventoryAccessTests)
 import InventoryAuthSpec (inventoryAuthTests)
 import InventoryObservabilitySpec (inventoryObservabilityTests)
 import InventoryPublicationSpec (inventoryPublicationTests)
@@ -472,7 +473,8 @@ main = do
       defaultMain $
         localOption (NumThreads 1) $
           testGroup "nagarectl" $
-            [ testGroup "Nagare.Static.Image" dockerfileTests
+            [ inventoryAccessTests
+            , testGroup "Nagare.Static.Image" dockerfileTests
             , hostTests
             , inventoryArtifactTests
             , inventoryCacheTests

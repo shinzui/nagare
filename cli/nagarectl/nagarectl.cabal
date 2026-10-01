@@ -38,6 +38,7 @@ library
   exposed-modules:
     Nagare.Access.Grants
     Nagare.Access.Resolve
+    Nagare.Access.Reviewed
     Nagare.App
     Nagare.App.Deploy
     Nagare.App.Deployments
@@ -85,6 +86,8 @@ library
     Nagare.Image
     Nagare.Infra.Plan
     Nagare.Init
+    Nagare.Inventory.Access
+    Nagare.Inventory.AccessRuntime
     Nagare.Inventory.Adapter
     Nagare.Inventory.Adapters.Artifact
     Nagare.Inventory.Adapters.ArtifactRuntime
@@ -314,6 +317,7 @@ test-suite nagarectl-test
   hs-source-dirs: test
   other-modules:
     AccessGrantsSpec
+    InventoryAccessSpec
     AccessResolveSpec
     AppDeploySpec
     CertificateMigrationSpec

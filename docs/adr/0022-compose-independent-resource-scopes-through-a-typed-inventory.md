@@ -555,9 +555,10 @@ new native name from bypassing the context journal.
 
 Direct CDN purge and disable and access grant, revoke, and portal sync are also
 legacy operational writes. They refuse once the context inventory is
-initialized, including for a new hostname. Their reviewed operations and
-recovery policy remain M3 work; read-only inspection and CDN dry-runs remain
-available.
+initialized, including for a new hostname. Saved access grant/revoke and portal
+synchronization reviews are now available through the shared journal as defined
+in the 2026-10-01 amendment below. CDN review coverage remains open; read-only
+inspection and CDN dry-runs remain available.
 
 
 ## Amendment — 2026-09-26: preserve release acceptance across plan decomposition
@@ -1010,3 +1011,12 @@ The review has an empty base, the sole cloud-foundation scope and only foundatio
 executor operations. Other local histories, foreign or incomplete remote
 histories, and changed bindings refuse. Recovery retains the original review and
 journal; migration follows successful convergence, never an active transaction.
+
+
+## Amendment — 2026-10-01: review direct access relationships and complete portal synchronization
+
+A direct En `app#viewer@user` relationship has a typed `AccessTuple` address and an independent Standalone scope derived from the accepted auth owner, exact hostname, and subject. Grant and revoke change that scope through the existing review and journal; they preserve application and platform-auth revisions. The auth Service and protected DomainMapping supply owner/UID guards. Revocation records desired absence, preserving the relationship's historical ownership rather than assigning authority over neighboring tuples. An existing unowned, caveated, userset, or ambiguous relationship is not implicitly adopted.
+
+Observation uses a complete fully consistent exact-tuple query. The write carries the exact must-exist/must-not-exist precondition in the same atomic request as its insert/delete. This contract follows the registered upstream source at mori://shinzui/en/packages/en-servant. The runtime checks the service's published capability schema before admitting a write, because older request decoders can ignore unknown precondition fields. A lost acknowledgement is completed only by observing the exact desired tuple under the same reviewed owner identities; absence of that proof remains unresolved. Private bearer credentials are supplied at execution, never retained in public reviews or diagnostic bodies.
+
+Portal synchronization composes the complete accepted backend and Shomei settings contributions through the auth owner's existing grants. It requires a converged auth scope, reads its Shomei Deployment from immutable accepted native evidence, and preserves every other auth member and contributing application scope. Only the two shared maps and a Pod-template rollout annotation may be prepared. The rollout depends on both maps and uses the existing conditional Kubernetes adapter, so running Shomei processes reload their ConfigMap-backed environment after synchronization. Replaying the same review preserves its rollout identity; a new explicit synchronization requests a new rollout. Native local/cloud acceptance remains part of EP-155/156, separately from the bounded HTTP and Kubernetes command fixtures.

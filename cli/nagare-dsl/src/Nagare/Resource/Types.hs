@@ -172,6 +172,7 @@ data ProviderAddress
   | DatabaseName ResourceId Name
   | BackendRoute ResourceId Name
   | AtticCache ResourceId Name
+  | AccessTuple ResourceId Name Text
   | BrokerTopic ResourceId Name
   | Helm ResourceId Name Name
   | DnsRecord Name Name Name
@@ -186,6 +187,9 @@ mkProviderAddress :: ProviderAddress -> Either Text ProviderAddress
 mkProviderAddress address = case address of
   Kubernetes _ group _ _ _ -> do
     unless (T.null group) (void (mkName group))
+    pure address
+  AccessTuple _ _ subject -> do
+    unless (not (T.null (T.strip subject)) && not (T.any (< ' ') subject)) (Left "invalid access subject")
     pure address
   PulumiUrn urn -> do
     unless ("urn:pulumi:" `T.isPrefixOf` urn && length (T.splitOn "::" urn) == 4 && all (not . T.null) (T.splitOn "::" urn) && not (T.any (< ' ') urn)) (Left "invalid Pulumi URN")
@@ -217,6 +221,7 @@ canonicalClaim =
     DatabaseName r n -> ["database", resourceIdText r, nameText n]
     BackendRoute r n -> ["route", resourceIdText r, nameText n]
     AtticCache r n -> ["attic-cache", resourceIdText r, nameText n]
+    AccessTuple r host subject -> ["access-tuple", resourceIdText r, nameText host, subject, "viewer"]
     BrokerTopic r n -> ["broker-topic", resourceIdText r, nameText n]
     Helm r namespace n -> ["helm", resourceIdText r, nameText namespace, nameText n]
     DnsRecord account zone host -> ["dns-record", nameText account, nameText zone, nameText host]

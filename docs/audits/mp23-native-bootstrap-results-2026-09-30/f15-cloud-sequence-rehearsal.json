@@ -1,0 +1,378 @@
+{
+  "operatorRevision": "705716b7bdb74849442f1c38aa8557eee3944def",
+  "payloadId": "nagare-0.4.0-d73c1dc4d379",
+  "context": "f15-preview",
+  "project": "tan-ng-labs",
+  "guardedStore": {
+    "generation": 11,
+    "sequence": 6,
+    "idle": true,
+    "headDigest": "b1eadcf568294ec3c47572673f00e463f1eeb0d96fad1e12ffbf124e438608ec"
+  },
+  "reviewDigest": "d98ba7d1a781aa8770a28650ad1dfdd5d333b107efe4c4b8a9d52388a0f4f87d",
+  "privateReview": "/tmp/nagare-mp23-fresh-credentials-20260930/evidence/rehearsal-20261001-stage1",
+  "nativePlanDigest": "fa63adb64e3766839abd65ff8563b1795f4e5ea425e3d8b1a22b632a69a2a867",
+  "inventoryCreates": 24,
+  "nativeSteps": [
+    {
+      "urn": "urn:pulumi:f15-preview::nagare::nagare:env:NagareNixCache::nagare-nix-cache",
+      "steps": [
+        "create"
+      ],
+      "type": "nagare:env:NagareNixCache",
+      "physicalInputs": {}
+    },
+    {
+      "urn": "urn:pulumi:f15-preview::nagare::nagare:env:NagarePerimeter$gcp:artifactregistry/repository:Repository::nagare-registry",
+      "steps": [
+        "create"
+      ],
+      "type": "gcp:artifactregistry/repository:Repository",
+      "physicalInputs": {
+        "repositoryId": "nagare-f15-0930"
+      }
+    },
+    {
+      "urn": "urn:pulumi:f15-preview::nagare::nagare:env:NagarePerimeter$gcp:compute/address:Address::nagare-ip",
+      "steps": [
+        "create"
+      ],
+      "type": "gcp:compute/address:Address",
+      "physicalInputs": {
+        "name": "nagare-ip-1042e8c",
+        "region": "us-west1"
+      }
+    },
+    {
+      "urn": "urn:pulumi:f15-preview::nagare::nagare:env:NagarePerimeter$gcp:compute/disk:Disk::nagare-data",
+      "steps": [
+        "create"
+      ],
+      "type": "gcp:compute/disk:Disk",
+      "physicalInputs": {
+        "name": "nagare-data-b1e72a7",
+        "zone": "us-west1-a",
+        "size": 100
+      }
+    },
+    {
+      "urn": "urn:pulumi:f15-preview::nagare::nagare:env:NagarePerimeter$gcp:compute/diskResourcePolicyAttachment:DiskResourcePolicyAttachment::nagare-data-snapshot-attach",
+      "steps": [
+        "create"
+      ],
+      "type": "gcp:compute/diskResourcePolicyAttachment:DiskResourcePolicyAttachment",
+      "physicalInputs": {
+        "name": "nagare-data-snapshots-751b5e7",
+        "zone": "us-west1-a"
+      }
+    },
+    {
+      "urn": "urn:pulumi:f15-preview::nagare::nagare:env:NagarePerimeter$gcp:compute/resourcePolicy:ResourcePolicy::nagare-data-snapshots",
+      "steps": [
+        "create"
+      ],
+      "type": "gcp:compute/resourcePolicy:ResourcePolicy",
+      "physicalInputs": {
+        "name": "nagare-data-snapshots-751b5e7",
+        "region": "us-west1"
+      }
+    },
+    {
+      "urn": "urn:pulumi:f15-preview::nagare::nagare:env:NagarePerimeter$gcp:dns/dnsManagedZoneIamMember:DnsManagedZoneIamMember::nagare-iam-dns-zone",
+      "steps": [
+        "create"
+      ],
+      "type": "gcp:dns/dnsManagedZoneIamMember:DnsManagedZoneIamMember",
+      "physicalInputs": {
+        "project": "tan-ng-labs",
+        "role": "roles/dns.admin"
+      }
+    },
+    {
+      "urn": "urn:pulumi:f15-preview::nagare::nagare:env:NagarePerimeter$gcp:dns/managedZone:ManagedZone::nagare-zone",
+      "steps": [
+        "create"
+      ],
+      "type": "gcp:dns/managedZone:ManagedZone",
+      "physicalInputs": {
+        "name": "nagare-zone-8b15976",
+        "dnsName": "f15-0930.labs.topagentnetwork.net."
+      }
+    },
+    {
+      "urn": "urn:pulumi:f15-preview::nagare::nagare:env:NagarePerimeter$gcp:dns/recordSet:RecordSet::nagare-apex",
+      "steps": [
+        "create"
+      ],
+      "type": "gcp:dns/recordSet:RecordSet",
+      "physicalInputs": {
+        "name": "f15-0930.labs.topagentnetwork.net."
+      }
+    },
+    {
+      "urn": "urn:pulumi:f15-preview::nagare::nagare:env:NagarePerimeter$gcp:dns/recordSet:RecordSet::nagare-wildcard",
+      "steps": [
+        "create"
+      ],
+      "type": "gcp:dns/recordSet:RecordSet",
+      "physicalInputs": {
+        "name": "*.f15-0930.labs.topagentnetwork.net."
+      }
+    },
+    {
+      "urn": "urn:pulumi:f15-preview::nagare::nagare:env:NagarePerimeter$gcp:projects/iAMMember:IAMMember::nagare-iam-ar",
+      "steps": [
+        "create"
+      ],
+      "type": "gcp:projects/iAMMember:IAMMember",
+      "physicalInputs": {
+        "project": "tan-ng-labs",
+        "role": "roles/artifactregistry.writer"
+      }
+    },
+    {
+      "urn": "urn:pulumi:f15-preview::nagare::nagare:env:NagarePerimeter$gcp:projects/iAMMember:IAMMember::nagare-iam-dns-read",
+      "steps": [
+        "create"
+      ],
+      "type": "gcp:projects/iAMMember:IAMMember",
+      "physicalInputs": {
+        "project": "tan-ng-labs",
+        "role": "roles/dns.reader"
+      }
+    },
+    {
+      "urn": "urn:pulumi:f15-preview::nagare::nagare:env:NagarePerimeter$gcp:serviceaccount/account:Account::nagare-sa",
+      "steps": [
+        "create"
+      ],
+      "type": "gcp:serviceaccount/account:Account",
+      "physicalInputs": {
+        "accountId": "nagare-f15-0930"
+      }
+    },
+    {
+      "urn": "urn:pulumi:f15-preview::nagare::nagare:env:NagarePerimeter$gcp:storage/bucket:Bucket::nagare-backups",
+      "steps": [
+        "create"
+      ],
+      "type": "gcp:storage/bucket:Bucket",
+      "physicalInputs": {
+        "name": "tan-ng-labs-f15-0930-pmkjjpp-backups"
+      }
+    },
+    {
+      "urn": "urn:pulumi:f15-preview::nagare::nagare:env:NagarePerimeter$gcp:storage/bucket:Bucket::nagare-images",
+      "steps": [
+        "create"
+      ],
+      "type": "gcp:storage/bucket:Bucket",
+      "physicalInputs": {
+        "name": "tan-ng-labs-f15-0930-pmkjjpp-images"
+      }
+    },
+    {
+      "urn": "urn:pulumi:f15-preview::nagare::nagare:env:NagarePerimeter$gcp:storage/bucketIAMMember:BucketIAMMember::nagare-backups-iam",
+      "steps": [
+        "create"
+      ],
+      "type": "gcp:storage/bucketIAMMember:BucketIAMMember",
+      "physicalInputs": {
+        "role": "roles/storage.objectAdmin"
+      }
+    },
+    {
+      "urn": "urn:pulumi:f15-preview::nagare::nagare:env:NagarePerimeter$nagare:net:NagareNetwork$gcp:compute/firewall:Firewall::nagare-network-fw-iap-ssh",
+      "steps": [
+        "create"
+      ],
+      "type": "gcp:compute/firewall:Firewall",
+      "physicalInputs": {
+        "name": "nagare-network-fw-iap-ssh-926a4d4"
+      }
+    },
+    {
+      "urn": "urn:pulumi:f15-preview::nagare::nagare:env:NagarePerimeter$nagare:net:NagareNetwork$gcp:compute/firewall:Firewall::nagare-network-fw-lb-health",
+      "steps": [
+        "create"
+      ],
+      "type": "gcp:compute/firewall:Firewall",
+      "physicalInputs": {
+        "name": "nagare-network-fw-lb-health-50c07b0"
+      }
+    },
+    {
+      "urn": "urn:pulumi:f15-preview::nagare::nagare:env:NagarePerimeter$nagare:net:NagareNetwork$gcp:compute/firewall:Firewall::nagare-network-fw-tailscale",
+      "steps": [
+        "create"
+      ],
+      "type": "gcp:compute/firewall:Firewall",
+      "physicalInputs": {
+        "name": "nagare-network-fw-tailscale-73fab39"
+      }
+    },
+    {
+      "urn": "urn:pulumi:f15-preview::nagare::nagare:env:NagarePerimeter$nagare:net:NagareNetwork$gcp:compute/firewall:Firewall::nagare-network-fw-web",
+      "steps": [
+        "create"
+      ],
+      "type": "gcp:compute/firewall:Firewall",
+      "physicalInputs": {
+        "name": "nagare-network-fw-web-04aabc4"
+      }
+    },
+    {
+      "urn": "urn:pulumi:f15-preview::nagare::nagare:env:NagarePerimeter$nagare:net:NagareNetwork$gcp:compute/network:Network::nagare-network-net",
+      "steps": [
+        "create"
+      ],
+      "type": "gcp:compute/network:Network",
+      "physicalInputs": {
+        "name": "nagare-network-net-fe141de"
+      }
+    },
+    {
+      "urn": "urn:pulumi:f15-preview::nagare::nagare:env:NagarePerimeter$nagare:net:NagareNetwork$gcp:compute/subnetwork:Subnetwork::nagare-network-subnet",
+      "steps": [
+        "create"
+      ],
+      "type": "gcp:compute/subnetwork:Subnetwork",
+      "physicalInputs": {
+        "name": "nagare-network-subnet-0862b3a",
+        "region": "us-west1"
+      }
+    },
+    {
+      "urn": "urn:pulumi:f15-preview::nagare::nagare:env:NagarePerimeter$nagare:net:NagareNetwork::nagare-network",
+      "steps": [
+        "create"
+      ],
+      "type": "nagare:net:NagareNetwork",
+      "physicalInputs": {}
+    },
+    {
+      "urn": "urn:pulumi:f15-preview::nagare::nagare:env:NagarePerimeter::nagare",
+      "steps": [
+        "create"
+      ],
+      "type": "nagare:env:NagarePerimeter",
+      "physicalInputs": {}
+    },
+    {
+      "urn": "urn:pulumi:f15-preview::nagare::pulumi:providers:gcp::default_8_41_1",
+      "steps": [
+        "create"
+      ],
+      "type": "pulumi:providers:gcp",
+      "physicalInputs": {
+        "region": "us-west1",
+        "zone": "us-west1-a",
+        "project": "tan-ng-labs"
+      }
+    },
+    {
+      "urn": "urn:pulumi:f15-preview::nagare::pulumi:pulumi:Stack::nagare-f15-preview",
+      "steps": [
+        "create"
+      ],
+      "type": "pulumi:pulumi:Stack",
+      "physicalInputs": {}
+    }
+  ],
+  "updates": 0,
+  "deletes": 0,
+  "cloudApplyStarted": true,
+  "sequenceApproval": "operator approved bounded sequence in current session",
+  "nextReviewBoundary": "cluster planning refused before saving a review: generated Serving credential delegation is lost by native rebinding; fix and prove locally, then use a new installed candidate after local platform-bootstrap gate",
+  "convergedStages": [
+    {
+      "stage": "24-resource perimeter",
+      "review": "d98ba7d1a781aa8770a28650ad1dfdd5d333b107efe4c4b8a9d52388a0f4f87d",
+      "exit": 0
+    },
+    {
+      "stage": "original-payload NixOS image build",
+      "review": "7517715de14e5940a75a1771e63c49d850bfbef1a07b05a7cb6627b2802d5f9b",
+      "exit": 0,
+      "seconds": 491.583
+    },
+    {
+      "stage": "exact Compute Engine image publication",
+      "review": "e3b007fa906ebcd1c5adc85014bc58a0c4236a2edb1442c99757894ab19c0fdf",
+      "exit": 0,
+      "seconds": 249.546
+    },
+    {
+      "stage": "exact image binding",
+      "review": "22cdc81df5646f46a917d4d9928ce4eb17312a629cd67242260bceb91ad23428",
+      "exit": 0,
+      "seconds": 37.798
+    },
+    {
+      "stage": "exact Compute Engine VM",
+      "review": "fb343624c1ec9d14d71241e927b1d4022754b753774d5134d7bbd7285fc901a7",
+      "exit": 0,
+      "seconds": 51.569
+    },
+    {
+      "stage": "reviewed host credential and guarded activation",
+      "review": "df782b33169a75a43489f9de7ec736a15b75a12f1e986a5ceb9b6e7d331b8e14",
+      "exit": 0,
+      "seconds": 86.78
+    },
+    {
+      "stage": "selected private context kubeconfig",
+      "review": "b1b713803f06bdae1d4d4019b074e63c58795e5e6abd788f0a9783d7b3500d55",
+      "exit": 0,
+      "seconds": 13.778
+    }
+  ],
+  "vmReview": {
+    "digest": "fb343624c1ec9d14d71241e927b1d4022754b753774d5134d7bbd7285fc901a7",
+    "nativePlanDigest": "569c126f5c239d892c2d2027ce9d5aba5e95587db971789228e6f1e5d7d810f7",
+    "creates": 2,
+    "updates": 0,
+    "deletes": 0,
+    "instance": "nagare-f15-0930",
+    "image": "nagare-image-szwq3x6b8hq3",
+    "applyStarted": true,
+    "converged": true,
+    "physicalInstanceId": "1728624546096074622"
+  },
+  "safeUseAccepted": false,
+  "credentialExpiryRepullAccepted": false,
+  "hostReview": {
+    "digest": "df782b33169a75a43489f9de7ec736a15b75a12f1e986a5ceb9b6e7d331b8e14",
+    "operations": 2,
+    "credentialDigestBound": true,
+    "converged": true,
+    "privateCredentialPublished": false,
+    "initialUnboundCredentialPlanRefusedBeforeEffects": true
+  },
+  "clusterPlanRefusals": [
+    {
+      "stage": "initial runner",
+      "reason": "stale global kubeconfig",
+      "reviewSaved": false,
+      "clusterEffects": false
+    },
+    {
+      "stage": "selected private kubeconfig",
+      "reason": "missing fresh context encrypted Grafana input",
+      "reviewSaved": false,
+      "clusterEffects": false
+    },
+    {
+      "stage": "encrypted fixture input",
+      "reason": "missing explicit immutable auth image references",
+      "reviewSaved": false,
+      "clusterEffects": false
+    },
+    {
+      "stage": "all bound inputs",
+      "reason": "generated native declaration mismatch on typed credential delegation",
+      "reviewSaved": false,
+      "clusterEffects": false
+    }
+  ]
+}

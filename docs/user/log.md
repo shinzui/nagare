@@ -1,5 +1,9 @@
 # Bundle Update Log
 
+## 2026-10-01
+
+* **Change**: Document saved access grant/revoke reviews, atomic En capability refusal, exact-tuple recovery, and complete accepted portal synchronization with a reviewed Shomei rollout.
+
 ## 2026-09-26
 * **Update**: Distinguish earlier direct local smoke proof from the reviewed smoke script, which still needs a current native run and scratch-volume sentinel readback.
 * **Change**: Route the local and cloud smoke examples through reviewed image publication, deployment, volume backup, and scratch restore. The local database drill also saves and applies backup and restore reviews. Keep accepted resources and review files for explicit collection and recovery after the run.

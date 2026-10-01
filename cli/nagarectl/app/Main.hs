@@ -49,6 +49,8 @@ import Data.Time.Format (defaultTimeLocale, parseTimeM)
 import Data.Time.Format.ISO8601 (iso8601Show)
 import GHC.IO.Encoding (setLocaleEncoding)
 import Nagare.Access.Grants (AccessGrantParams (..), AccessListParams (..), runAccessGrant, runAccessList, runAccessRevoke)
+import Nagare.Access.Reviewed qualified as ReviewedAccess
+import Nagare.Inventory.AccessRuntime (accessReviewAdapter)
 import Nagare.Access.Resolve
   ( ShomeiPortalChange (EnablePortal)
   , kubectlAccessOps
@@ -675,11 +677,12 @@ data AccessCommand
 
 data PortalCommand
   = PortalShow
-  | PortalSync
+  | PortalSync !(Maybe FilePath)
   deriving stock (Generic, Show)
 
 data AccessGrantOpts = AccessGrantOpts
-  { enUrl :: !(Maybe String)
+  { savePlan :: !(Maybe FilePath)
+  , enUrl :: !(Maybe String)
   , enApiKey :: !(Maybe String)
   , host :: !String
   , user :: !String
@@ -1717,7 +1720,8 @@ workerDeleteOptsParser =
 accessGrantOptsParser :: Parser AccessGrantOpts
 accessGrantOptsParser =
   AccessGrantOpts
-    <$> enUrlOpt
+    <$> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed access grant or revocation"))
+    <*> enUrlOpt
     <*> enApiKeyOpt
     <*> strOption (long "host" <> metavar "HOST" <> help "Protected site hostname, e.g. tools.apps.example.com")
     <*> strOption (long "user" <> metavar "USER" <> help "Shomei user id to grant or revoke")
@@ -2679,7 +2683,7 @@ opts =
             (info (pure PortalShow <**> helper) (progDesc "Show the registered authentication portal"))
             <> command
               "sync"
-              (info (pure PortalSync <**> helper) (progDesc "Re-apply the registered portal configuration to Shomei"))
+              (info (PortalSync <$> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save the complete accepted portal configuration review")) <**> helper) (progDesc "Re-apply the registered portal configuration to Shomei"))
         )
     siteCmd =
       info
@@ -6231,6 +6235,10 @@ runInventoryStatus mctx requested json gcOutput = do
   cacheFacts <- inspect cache ResourceInventory.CacheExecutor
   brokerFacts <- inspect broker ResourceInventory.BrokerExecutor
   cdnFacts <- inspect cdn ResourceInventory.CdnExecutor
+  access <- ReviewedAccess.accessAdapter active
+    (fmap (fmap (const ())) (guardKubernetesContext active))
+    (ResourceInventory.inventoryDeclarations inventory) history
+  accessFacts <- inspect access ResourceInventory.AccessExecutor
   let inspectRetained adapter executor = do
         let requestedIds = retainedIds executor
         if null requestedIds then pure [] else do
@@ -6290,7 +6298,7 @@ runInventoryStatus mctx requested json gcOutput = do
   finalHead <- InventoryStore.readHead store >>= either (dieT . T.pack . show) pure
   unless (finalHead == Just (InventoryPlan.historyHead history))
     (dieT "accepted inventory changed during status; retry against the new head")
-  let allFacts = kubeFacts <> helmFacts <> pulumiFacts <> artifactFacts <> hostFacts <> cacheFacts <> brokerFacts <> cdnFacts
+  let allFacts = kubeFacts <> helmFacts <> pulumiFacts <> artifactFacts <> hostFacts <> cacheFacts <> brokerFacts <> cdnFacts <> accessFacts
       knownFacts = Map.fromList allFacts
       remaining =
         [(resource ^. #identity, InventoryAdapter.ObservationUnavailable
@@ -6743,6 +6751,28 @@ runInventoryRecover mctx transaction operation decisionFile takeOver = do
   Inventory.recoverInventoryWithFactory (inventoryExecutionRegistry mctx) target transaction operation decisionFile takeOver
 
 inventoryExecutionRegistry :: Maybe String -> InventoryStore.InventoryStore -> InventoryPlan.ReviewBundle -> IO InventoryAdapter.AdapterRegistry
+inventoryExecutionRegistry mctx store bundle
+  | not (null operations)
+  , all ((== ResourceInventory.AccessExecutor) . InventoryAdapter.plannedExecutor) operations = do
+      active <- activeTarget mctx
+      selected <- kubeconfigPath (active ^. #contextName)
+      exists <- doesFileExist selected
+      unless exists (dieT "reviewed access requires the selected context kubeconfig")
+      setEnv "KUBECONFIG" selected
+      adapter <-
+        accessReviewAdapter
+          store
+          (InventoryPlan.reviewContextBinding (InventoryPlan.reviewBundleDocument bundle))
+          (contextNameText (active ^. #contextName))
+          (fmap (fmap (const ())) (guardKubernetesContext active))
+          bundle
+          >>= either dieT pure
+      either dieT pure (InventoryAdapter.mkAdapterRegistry [adapter])
+  where
+    operations =
+      map
+        InventoryPlan.reviewPlannedOperation
+        (InventoryPlan.reviewOperations (InventoryPlan.reviewBundleDocument bundle))
 inventoryExecutionRegistry mctx store bundle = do
   scopes <- traverse (either (dieT . T.pack . show) pure . ResourceWire.decodeScope) (Map.elems (InventoryPlan.reviewBundleScopes bundle))
   let document = InventoryPlan.reviewBundleDocument bundle
@@ -6874,8 +6904,8 @@ inventoryExecutionRegistry mctx store bundle = do
           (Map.keysSet sourceNative `Set.union` Map.keysSet retiringKubernetesSpecs))
       allHelmSpecs = Map.restrictKeys (Map.union helmSpecs retiringHelmSpecs)
         (selected ResourceInventory.HelmExecutor `Set.union` Map.keysSet retiringHelmSpecs)
-  if null registrations && Set.null (selected ResourceInventory.CloudFoundationExecutor) && Map.null artifactSpecs && isNothing hostInputs && Map.null kubernetesSpecs && Map.null cacheSpecs && Map.null topicSpecs && Map.null dnsSpecs && Map.null cloudflareSpecs && Map.null allHelmSpecs
-    then either dieT pure (InventoryAdapter.mkAdapterRegistry (map Inventory.executionBlockedAdapterFor [ResourceInventory.KubernetesExecutor, ResourceInventory.PulumiExecutor, ResourceInventory.CloudFoundationExecutor, ResourceInventory.HostExecutor, ResourceInventory.ArtifactExecutor, ResourceInventory.CacheExecutor, ResourceInventory.BrokerExecutor, ResourceInventory.HelmExecutor, ResourceInventory.CdnExecutor]))
+  if null registrations && Set.null (selected ResourceInventory.CloudFoundationExecutor) && Set.null (selected ResourceInventory.AccessExecutor) && Map.null artifactSpecs && isNothing hostInputs && Map.null kubernetesSpecs && Map.null cacheSpecs && Map.null topicSpecs && Map.null dnsSpecs && Map.null cloudflareSpecs && Map.null allHelmSpecs
+    then either dieT pure (InventoryAdapter.mkAdapterRegistry (map Inventory.executionBlockedAdapterFor [ResourceInventory.KubernetesExecutor, ResourceInventory.PulumiExecutor, ResourceInventory.CloudFoundationExecutor, ResourceInventory.HostExecutor, ResourceInventory.ArtifactExecutor, ResourceInventory.CacheExecutor, ResourceInventory.BrokerExecutor, ResourceInventory.HelmExecutor, ResourceInventory.CdnExecutor, ResourceInventory.AccessExecutor]))
     else do
       let needsWorkspace = selectedInfra
             || not (Set.null (selected ResourceInventory.CloudFoundationExecutor))
@@ -6898,8 +6928,9 @@ inventoryExecutionRegistry mctx store bundle = do
                 pure (prepared, Just workspace)
       let withWorkspace :: (PlatformWorkspace -> IO a) -> IO a
           withWorkspace action = maybe (dieT "selected executor requires a platform workspace") action workspace
-      when (active ^. #profile . #mode == Local
-          && (not (Map.null kubernetesSpecs) || not (Map.null allHelmSpecs))) $ do
+      when (not (Set.null (selected ResourceInventory.AccessExecutor))
+          || (active ^. #profile . #mode == Local
+            && (not (Map.null kubernetesSpecs) || not (Map.null allHelmSpecs)))) $ do
         selectedKubeconfig <- kubeconfigPath (active ^. #contextName)
         exists <- doesFileExist selectedKubeconfig
         unless exists (dieT "reviewed local context kubeconfig is missing")
@@ -6956,6 +6987,9 @@ inventoryExecutionRegistry mctx store bundle = do
         else withWorkspace (\root -> inventoryHelmAdapter active root binding allHelmSpecs)
       context <- either dieT pure (Resource.mkContextId
         (contextNameText (active ^. #contextName)))
+      access <- accessReviewAdapter store binding
+        (contextNameText (active ^. #contextName))
+        (fmap (fmap (const ())) (guardKubernetesContext active)) bundle >>= either dieT pure
       let runtime = KubernetesRuntimeConfig context
             (contextNameText (active ^. #contextName))
             (fmap (fmap (const ())) (guardKubernetesContext active))
@@ -6963,7 +6997,7 @@ inventoryExecutionRegistry mctx store bundle = do
             (Map.union liveRestoreAcceptedNative kubernetesSpecs)
             (maintenanceAdapter runtime scopes
               (Map.union maintenanceAcceptedNative kubernetesSpecs) kubernetesBase)
-          adapters = [pulumi, foundation, artifact, host, kubernetes, cache, broker, helm, dns]
+          adapters = [pulumi, foundation, artifact, host, kubernetes, cache, broker, helm, dns, access]
       registry <- either dieT pure (InventoryAdapter.mkAdapterRegistry adapters)
       withMaintenance <- either dieT pure (registerMaintenanceFence runtime binding
         (InventoryPlan.reviewDesiredRevisions document) scopes declarations
@@ -7747,6 +7781,8 @@ inventoryPlanRegistryWithNative active workspace suppliedNative candidate histor
     else inventoryHelmAdapter active workspace (ResourceInventory.inventoryBinding inventory) helmSpecs
   context <- either dieT pure (Resource.mkContextId
     (contextNameText (active ^. #contextName)))
+  access <- ReviewedAccess.accessAdapter active
+    (fmap (fmap (const ())) (guardKubernetesContext active)) declarations history
   let runtime = KubernetesRuntimeConfig context
         (contextNameText (active ^. #contextName))
         (fmap (fmap (const ())) (guardKubernetesContext active))
@@ -7754,7 +7790,7 @@ inventoryPlanRegistryWithNative active workspace suppliedNative candidate histor
         [allSuppliedNative, loaded, retiringNative]
       (kubernetes, restoreRecovery, verifyRecovery) = liveRestoreRuntime runtime scopes maintenanceNative
         (maintenanceAdapter runtime scopes maintenanceNative kubernetesBase)
-      adapters = [pulumi, foundation, artifact, host, kubernetes, cache, broker, helm, dns]
+      adapters = [pulumi, foundation, artifact, host, kubernetes, cache, broker, helm, dns, access]
   registry <- either dieT pure (InventoryAdapter.mkAdapterRegistry adapters)
   withMaintenance <- either dieT pure (registerMaintenanceFence runtime
     (ResourceInventory.inventoryBinding inventory)
@@ -11684,8 +11720,10 @@ runWorkerPlan mctx options output = do
 
 runAccess :: Maybe String -> AccessCommand -> IO ()
 runAccess mctx = \case
+  AccessGrant o | Just output <- o ^. #savePlan -> runReviewed True o output
+  AccessRevoke o | Just output <- o ^. #savePlan -> runReviewed False o output
   AccessGrant o -> do
-    refuseDirectLegacyOperationWhenManaged mctx "access grant" "a reviewed access grant is not yet available"
+    refuseDirectLegacyOperationWhenManaged mctx "access grant" "save the grant with --save-plan DIR, then inventory apply DIR --yes"
     runAccessGrant
       AccessGrantParams
         { enUrl = T.pack <$> o ^. #enUrl
@@ -11694,7 +11732,7 @@ runAccess mctx = \case
         , user = T.pack (o ^. #user)
         }
   AccessRevoke o -> do
-    refuseDirectLegacyOperationWhenManaged mctx "access revoke" "a reviewed access revocation is not yet available"
+    refuseDirectLegacyOperationWhenManaged mctx "access revoke" "save the revocation with --save-plan DIR, then inventory apply DIR --yes"
     runAccessRevoke
       AccessGrantParams
         { enUrl = T.pack <$> o ^. #enUrl
@@ -11716,8 +11754,18 @@ runAccess mctx = \case
       Nothing -> TIO.putStrLn "portal: (none; protected sites use the built-in sign-in pages)"
       Just (portalHost, entry) ->
         TIO.putStrLn ("portal: " <> publicHostText portalHost <> " -> " <> entry ^. #upstream)
-  AccessPortal PortalSync -> do
-    refuseDirectLegacyOperationWhenManaged mctx "access portal sync" "a reviewed portal synchronization is not yet available"
+  AccessPortal (PortalSync (Just output)) -> do
+    active <- activeTarget mctx
+    selected <- kubeconfigPath (active ^. #contextName)
+    exists <- doesFileExist selected
+    unless exists (dieT "reviewed portal sync requires the selected context kubeconfig")
+    setEnv "KUBECONFIG" selected
+    ReviewedAccess.planPortalSync
+      active
+      (fmap (fmap (const ())) (guardKubernetesContext active))
+      output
+  AccessPortal (PortalSync Nothing) -> do
+    refuseDirectLegacyOperationWhenManaged mctx "access portal sync" "save synchronization with --save-plan DIR, then inventory apply DIR --yes"
     backends <- kubectlAccessOps ^. #loadBackends
     case portalRegistration backends of
       Nothing -> TIO.putStrLn "no portal registered"
@@ -11727,6 +11775,22 @@ runAccess mctx = \case
         base <- either dieT pure (mkBaseDomain rawBase)
         (kubectlAccessOps ^. #applyShomeiPortal) (EnablePortal portalHost base)
         TIO.putStrLn ("synchronized portal: " <> publicHostText portalHost)
+  where
+    runReviewed granted options output = do
+      active <- activeTarget mctx
+      selected <- kubeconfigPath (active ^. #contextName)
+      exists <- doesFileExist selected
+      unless exists (dieT "reviewed access requires the selected context kubeconfig")
+      setEnv "KUBECONFIG" selected
+      ReviewedAccess.planAccess
+        active
+        (fmap (fmap (const ())) (guardKubernetesContext active))
+        (T.pack (options ^. #host))
+        (T.pack (options ^. #user))
+        (T.pack <$> options ^. #enUrl)
+        (T.pack <$> options ^. #enApiKey)
+        granted
+        output
 
 -- | Dispatch the @task@ command group (MasterPlan 10, EP-51). Mirrors 'runDb'.
 -- The @APP@ positional becomes an 'AppScope': @-@ means app-less, anything else is

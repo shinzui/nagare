@@ -22,6 +22,11 @@ provenance:
       at: 2026-10-01T03:11:58Z
       mode: "update"
       note: "Pull M1 forward as MP-23 safe-use prerequisite; align with 2026-09-28 reduction"
+    - model: "gpt-6.1-sol"
+      harness: "codex-cli"
+      at: 2026-10-01T13:58:23Z
+      mode: "implement"
+      note: "Implement independent reviewed tuple scope, private guarded HTTP transport and saved public grant/revoke routes"
 ---
 
 # Complete reviewed access and CDN operations
@@ -37,19 +42,29 @@ Operators can grant and revoke access, synchronize the protected-app portal, and
 
 ## Progress
 
-**Pulled forward as a safe-use prerequisite (2026-09-30).** MasterPlan 23's safe-use gate (its Progress section) requires M1 before real low-risk workloads run on an inventory-backed cloud context: access grant and revoke currently refuse on every admitted context, so nobody can be admitted to an application. Start M1 now; hard dependencies EP-146/147/149/151 are Complete. M2 CDN work stays in MasterPlan order 5. The 2026-09-28 scope reduction does not defer any access operation; align with the revised MP-23 support boundary and ADR 22 amendment as the sibling plans did. Every candidate passes the installed local k3d platform bootstrap before a cloud rehearsal.
+**Scheduling baseline (2026-09-30; M1 accepted below on 2026-10-01).** MasterPlan 23's safe-use gate (its Progress section) requires M1 before real low-risk workloads run on an inventory-backed cloud context: access grant and revoke currently refuse on every admitted context, so nobody can be admitted to an application. Start M1 now; hard dependencies EP-146/147/149/151 are Complete. M2 CDN work stays in MasterPlan order 5. The 2026-09-28 scope reduction does not defer any access operation; align with the revised MP-23 support boundary and ADR 22 amendment as the sibling plans did. Every candidate passes the installed local k3d platform bootstrap before a cloud rehearsal.
 
 
-- [ ] M1: Reviewed access grant/revoke and portal synchronization work through public commands, preserve other contributions, and recover a lost acknowledgement without duplicate or foreign effects.
+- [x] (2026-10-01) M1: Reviewed access grant/revoke and portal synchronization work through public commands, preserve other contributions, and recover a lost acknowledgement without duplicate or foreign effects. The bounded HTTP/Kubernetes command fixture and full CLI suite pass; installed native integration remains with EP-155/156.
 - [ ] M2: Reviewed CDN purge, disable, and exact owned retirement work for their supported providers, with bounded targets, replay handling, and selected-only evidence.
 
-Inherited: auth-owner backend/portal contributions, central routes, Google per-host DNS review with a disposable-zone probe, and Cloudflare host/zone ownership and offline transport tests. Access operations and CDN purge/disable currently refuse after inventory initialization; they are the new work.
+Inherited: auth-owner backend/portal contributions, central routes, Google per-host DNS review with a disposable-zone probe, and Cloudflare host/zone ownership and offline transport tests. Reviewed access commands are delivered by M1 below. CDN purge/disable still refuse after inventory initialization and remain M2 work.
+
+
+**M1 source acceptance (2026-10-01).** `cli/nagarectl/src/Nagare/Inventory/Access.hs`, `AccessRuntime.hs`, and `cli/nagarectl/src/Nagare/Access/Reviewed.hs` implement a typed standalone viewer-relationship scope and complete auth-owner portal synchronization. Saved grant/revoke reviews use the common apply/resume journal; a private runtime key never enters scopes, native envelopes or diagnostics. Exact accepted En Service and protected DomainMapping identities bind each tuple. Portal sync composes every accepted contribution and reviews a Shomei Deployment rollout after its configuration maps, because running process environment does not reload when a ConfigMap changes.
+
+`scripts/test-access-reviewed-public.py` uses the registered typed seed and actual public CLI against bounded HTTP and recording Kubernetes transports. It proves grant, one write despite a lost response and original-transaction resume, unchanged replay, revoke, changed-owner and stale-tuple refusal, unsupported API/caveat/hostname/missing-key refusals, selected-context status with missing-credential observation unavailable, complete portal sync and ordered rollout, unchanged neighbors and original scope revisions, and no credential leakage. The latest source build and fixture pass; the affected full suite passes all 1,009 tests, structural Haskell style and strict user-documentation validation pass. This change is the source checkpoint, not an installed cloud candidate. EP-155/156 still own real protected-route and installed native evidence, and MP-23 safe-use acceptance remains open.
 
 
 ## Surprises & Discoveries
 
 
 
+
+
+The existing pinned dependency already supports exact atomic tuple writes. Mori resolved `mori://shinzui/en/packages/en-servant`; inspection at Nagare's existing En revision `054afaddfc8a1eb631373f6cdd8bfd1f1c8c9634` confirms `tuples`, `deletes`, and `preconditions`, a complete direct-tuple query, and the OpenAPI capability fields. No dependency pin changed. Older servers may silently ignore unknown JSON fields, so reviews refuse unless their OpenAPI schema advertises atomic preconditions and deletes. A lost response is unresolved until fresh exact observation proves the requested tuple under the same owner UIDs; it never triggers a blind write retry.
+
+The generic recovery bundle may omit unchanged scopes. Accepted access authority therefore loads and hashes immutable base-scope bytes from the review's base revisions, rather than treating the newly admitted desired scope as previously owned during resume. Status also selects the private context kubeconfig; its absence reports unavailable observation without falling back to global Kubernetes credentials.
 
 
 ## Decision Log
@@ -103,6 +118,16 @@ Run from the repository root in the existing development environment. A newly na
 (cd cli/nagarectl && cabal build exe:nagarectl)
 bash scripts/test-application-entrypoint-guards.sh
 ```
+
+The accepted M1 command fixture uses the already built source executables and no local VM or cloud mutation:
+
+```bash
+python3 scripts/test-access-reviewed-public.py \
+  cli/nagarectl/dist-newstyle/build/aarch64-osx/ghc-9.12.4/nagarectl-0.4.0/x/nagarectl/build/nagarectl/nagarectl \
+  cli/nagarectl/dist-newstyle/build/aarch64-osx/ghc-9.12.4/nagarectl-0.4.0/t/nagarectl-test/build/nagarectl-test/nagarectl-test
+```
+
+For another native system, use `cabal list-bin exe:nagarectl` and `cabal list-bin test:nagarectl-test` from `cli/nagarectl` to obtain the equivalent built paths. Expected output is the single passing reviewed-access fixture summary. [The redacted source checkpoint](../audits/mp23-native-bootstrap-results-2026-10-01/reviewed-access-source.json) records source hashes and separates this proof from native installed acceptance.
 
 Expected result: selected tests and build exit zero; refusal fixtures prove zero unintended effects. At a milestone boundary also run the affected full suite, `bash scripts/check-haskell-style.sh`, and, when user docs change, `okf validate docs/user --strict --profile mori/user-documentation-profile.dhall --profile-enforce --log-enforce`. Add exact public-command native fixture invocations with their saved review paths before recording acceptance.
 

@@ -442,12 +442,15 @@ no `nagarectl job` command. See [Scheduled tasks](scheduled-tasks.md),
 
 | Command | Does |
 | --- | --- |
-| `nagarectl access grant --host HOST --user USER` | Grant one shomei user `access` on a protected host through en. |
-| `nagarectl access revoke --host HOST --user USER` | Revoke that host grant. |
+| `nagarectl access grant --host HOST --user USER --save-plan DIR` | Review one direct En viewer grant bound to the accepted protected host; apply with `inventory apply DIR --yes`. |
+| `nagarectl access revoke --host HOST --user USER --save-plan DIR` | Review removal of that accepted grant, preserving other relationships and scopes. |
 | `nagarectl access list --host HOST` | List users whose relationships expand to the host's `access` permission. |
+| `nagarectl access portal sync --save-plan DIR` | Review the complete accepted backend/portal settings and a Shomei rollout; apply with `inventory apply DIR --yes`. |
 
-All three accept `--en-url URL`; otherwise they use `NAGARE_EN_URL` or the
-in-cluster default. See [Identity-aware access](access.md).
+Grant, revoke, and list accept `--en-url URL`. Reviewed grants require that option
+or `NAGARE_EN_URL`, plus private `NAGARE_EN_API_KEY` for apply/recovery and an En
+service supporting atomic relationship preconditions. Direct forms refuse after
+inventory initialization. See [Identity-aware access](access.md).
 
 ## `nagarectl site` commands (static & full-stack hosting)
 

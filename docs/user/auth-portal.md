@@ -96,10 +96,18 @@ nagarectl access portal sync
 ```
 
 `sync` exits successfully with `no portal registered` when the backend map has none.
-When an accepted or retained inventory owner claims the backend or Shomei
-settings, `sync` refuses a direct rewrite. Submit the portal through its reviewed
-application scope so the platform auth owner composes both settings from the
-accepted contributions.
+When inventory is initialized, save and apply synchronization instead:
+
+```bash
+nagarectl access portal sync --save-plan ./portal-sync-review
+nagarectl inventory apply ./portal-sync-review --yes
+```
+
+The auth owner composes both maps from the complete accepted contributions and
+the review rolls its accepted Shomei Deployment after the settings update.
+Other application scopes and backend entries remain intact. Reapply or resume
+the original review after an interruption. A new explicit synchronization
+requests a new rollout; direct `sync` refuses after inventory initialization.
 
 ## Finish local passkey validation later on macOS
 

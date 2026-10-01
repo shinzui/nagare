@@ -216,9 +216,32 @@ export NAGARE_EN_API_KEY="$(kubectl -n nagare-system get secret nagare-en-api-ke
   -o jsonpath='{.data.read-write}' | base64 -d)"
 ```
 
-Live `access grant`, `access revoke`, and `access portal sync` are direct
-operations available only before the context initializes inventory history.
-Reviewed grant, revocation, and portal synchronization operations are pending;
+For an inventory-backed context, save and apply each change:
+
+```bash
+nagarectl --context "$CONTEXT" access grant --host "$HOST" --user alice --save-plan ./grant-review
+nagarectl --context "$CONTEXT" inventory apply ./grant-review --yes
+nagarectl --context "$CONTEXT" access revoke --host "$HOST" --user alice --save-plan ./revoke-review
+nagarectl --context "$CONTEXT" inventory apply ./revoke-review --yes
+```
+
+Set `NAGARE_EN_URL` and private `NAGARE_EN_API_KEY` for planning, apply, and
+recovery. Reviews contain the endpoint and selected relationship, never the key.
+The endpoint must remain the same for an accepted grant. The selected context's
+kubeconfig must be available; the CLI checks the accepted En Service and
+protected DomainMapping before the tuple write. En must support atomic
+relationship preconditions. Older services fail the capability check before a
+write. An existing relationship without an accepted owner also refuses.
+
+If a response is lost, resume the original transaction ID printed by the apply
+command with `inventory resume ID --yes`. Recovery observes the exact direct
+`viewer` tuple and its reviewed owners rather than repeating an uncertain write.
+Grant and revoke preserve other subjects, hosts, and application/auth revisions.
+
+`access portal sync --save-plan DIR` composes all accepted backend and portal
+contributions, reviews the shared settings, and rolls Shomei after the settings
+are ready. Apply that saved review through `inventory apply`. Direct forms
+without `--save-plan` remain available only before inventory initialization;
 read-only `access list` and `access portal show` remain available afterward.
 
 ## Request behavior

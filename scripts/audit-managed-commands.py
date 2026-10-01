@@ -84,9 +84,9 @@ ROUTES = {
     "AccessCommand": {
         "read": "AccessList",
         "group": "AccessPortal",
-        "pending": "AccessGrant AccessRevoke",
+        "reviewed": "AccessGrant AccessRevoke",
     },
-    "PortalCommand": {"read": "PortalShow", "pending": "PortalSync"},
+    "PortalCommand": {"read": "PortalShow", "reviewed": "PortalSync"},
     "DomainsCommand": {"read": "DomainsList DomainsCheck"},
     "CdnCommand": {
         "read": "CdnList CdnStatus",

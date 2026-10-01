@@ -453,6 +453,14 @@
           "additionalProperties": false
         },
         {
+          "type": "object", "properties": {
+            "tag": {"const": "AccessTuple"},
+            "contents": {"type": "array", "prefixItems": [
+              {"$ref": "#/$defs/resource"}, {"$ref": "#/$defs/name"},
+              {"type": "string", "minLength": 1}], "minItems": 3, "maxItems": 3}
+          }, "required": ["tag", "contents"], "additionalProperties": false
+        },
+        {
           "type": "object",
           "properties": {
             "tag": {"const": "BrokerTopic"},
@@ -665,6 +673,14 @@
           "additionalProperties": false
         },
         {
+          "type": "object", "properties": {
+            "tag": {"const": "AccessGrantSpec"},
+            "contents": {"type": "array", "prefixItems": [
+              {"type": "string", "minLength": 1}, {"type": "boolean"}],
+              "minItems": 2, "maxItems": 2}
+          }, "required": ["tag", "contents"], "additionalProperties": false
+        },
+        {
           "type": "object",
           "properties": {
             "tag": {"const": "LogicalBrokerTopic"},
@@ -870,7 +886,8 @@
             "ArtifactExecutor",
             "CacheExecutor",
             "BrokerExecutor",
-            "HelmExecutor"
+            "HelmExecutor",
+            "AccessExecutor"
           ]
         },
         "address": {

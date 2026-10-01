@@ -3,6 +3,7 @@ module Nagare.Resource.Inventory
   , DesiredSpec (..)
   , CloudflareCacheIntent (..)
   , CloudflareTlsMode (..)
+  , validAccessEndpoint
   , validDnsIpv4
   , ManagedResource (..)
   , Declaration (..)
@@ -72,7 +73,7 @@ import Nagare.Resource.Policy
 import Nagare.Resource.Reference
 import Nagare.Resource.Types
 
-data Executor = KubernetesExecutor | PulumiExecutor | CloudFoundationExecutor | HostExecutor | ArtifactExecutor | CacheExecutor | BrokerExecutor | HelmExecutor | CdnExecutor
+data Executor = KubernetesExecutor | PulumiExecutor | CloudFoundationExecutor | HostExecutor | ArtifactExecutor | CacheExecutor | BrokerExecutor | HelmExecutor | CdnExecutor | AccessExecutor
   deriving stock (Eq, Ord, Show, Generic)
 
 -- | Closed, versioned alternatives. Native bytes are referenced by content identity.
@@ -87,6 +88,7 @@ data DesiredSpec
   | NamespaceSpec !(Maybe ContentDigest)
   | BackendMapSpec ![(Name, Text, BackendRole)]
   | ShomeiSettingsSpec !Name !(Maybe Name)
+  | AccessGrantSpec !Text !Bool
   | LogicalCache !ContentDigest
   | LogicalBrokerTopic !Int !Int !(Maybe Int)
   | DnsARecord !Text !Int
@@ -104,6 +106,12 @@ data CloudflareCacheIntent = CloudflareCacheIntent
 
 data CloudflareTlsMode = CloudflareFlexible | CloudflareFull | CloudflareFullStrict
   deriving stock (Eq, Ord, Show, Generic)
+
+validAccessEndpoint :: Text -> Bool
+validAccessEndpoint endpoint =
+  ("https://" `Data.Text.isPrefixOf` endpoint || "http://" `Data.Text.isPrefixOf` endpoint)
+    && not (Data.Text.any (\c -> c <= ' ' || c `elem` ("@?#" :: String)) endpoint)
+    && not (Data.Text.null (Data.Text.takeWhile (/= '/') (Data.Text.drop 3 (snd (Data.Text.breakOn "://" endpoint)))))
 
 validDnsIpv4 :: Text -> Bool
 validDnsIpv4 address = case Data.Text.splitOn "." address of
@@ -299,6 +307,7 @@ validateDeclaration d@(Managed r) = [err m | m <- issues]
       PulumiUrn {} -> r ^. #executor == PulumiExecutor
       Host {} -> r ^. #executor == HostExecutor
       Artifact {} -> r ^. #executor == ArtifactExecutor
+      AccessTuple {} -> r ^. #executor == AccessExecutor
       AtticCache {} -> r ^. #executor == CacheExecutor
       BrokerTopic {} -> r ^. #executor == BrokerExecutor
       Helm {} -> r ^. #executor == HelmExecutor
@@ -317,6 +326,8 @@ validateDeclaration d@(Managed r) = [err m | m <- issues]
       (Kubernetes _ "" k (Just ns) n, ShomeiSettingsSpec {}) ->
         nameText k == "configmap" && nameText ns == "nagare-system" && nameText n == "nagare-shomei-settings"
       (Kubernetes _ g k _ _, NativeObject _) -> (g, nameText k) `notElem` [("serving.knative.dev", "service"), ("cert-manager.io", "certificate"), ("apps", "statefulset")]
+      (AccessTuple _ _ _, AccessGrantSpec endpoint _) -> validAccessEndpoint endpoint
+      (AccessTuple {}, _) -> False
       (AtticCache _ _, LogicalCache _) -> True
       (AtticCache {}, _) -> False
       (BrokerTopic _ _, LogicalBrokerTopic partitions replicas retention) ->

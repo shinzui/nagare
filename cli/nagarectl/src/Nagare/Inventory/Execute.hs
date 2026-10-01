@@ -1695,6 +1695,7 @@ withAdapterEnv transaction operation action = do
       BrokerExecutor -> "broker"
       HelmExecutor -> "helm"
       CdnExecutor -> "cdn"
+      AccessExecutor -> "access"
 
 timestamp :: IO Text
 timestamp = T.pack . formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ" <$> getCurrentTime

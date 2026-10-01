@@ -1,0 +1,57 @@
+{
+  "proof": "EP-158 M1 reviewed-access source command boundary",
+  "date": "2026-10-01",
+  "baseRevision": "3d627edd5772de75faf7600641d7ff18e6a85ec4",
+  "sourceChangesInThisCheckpoint": true,
+  "installedCandidateAccepted": false,
+  "nativeCloudAccepted": false,
+  "sourceHashes": {
+    "cli/nagare-dsl/src/Nagare/Resource/Types.hs": "57298731b90019a946ad74a39b65ff2afc92e1a730d32f6db2e565a2745aebba",
+    "cli/nagare-dsl/src/Nagare/Resource/Inventory.hs": "a55c074dd1eefa548004269c69fb116748c90bc3e8419f62dd1f962b9f4b83bc",
+    "cli/nagare-dsl/src/Nagare/Resource/Wire.hs": "606bb85c4e879e4e94172fdd6401c0d11ccbdcb982e7772ca0d9c18f707813b8",
+    "cli/nagarectl/app/Main.hs": "2abdbc1611f7a649b47951f3aa6c060e449f5adca9d17b19b9bb71736e830803",
+    "cli/nagarectl/src/Nagare/Inventory/Access.hs": "01e6a73774f1c00c4c8008ec4b4f6ec92c47eb219bf457902e4cec271044e0cc",
+    "cli/nagarectl/src/Nagare/Inventory/AccessRuntime.hs": "213034aeb83d61f1348fbdbf45d9fa6782c9d1e99cd86a0428ee3ad3d120a804",
+    "cli/nagarectl/src/Nagare/Access/Reviewed.hs": "07c10a8b45c1292378ce2d9f6a019f69d3df9089610634397b4f2d48b695daaa",
+    "cli/nagarectl/test/InventoryAccessSpec.hs": "299038488379378cfd25a49f2f5d8a5f7b4c0d31908fd3d2bbbaa6e1898f6dae",
+    "scripts/test-access-reviewed-public.py": "6c45895d15bbd98f32a67bc40cc2c0235a7cc4c5845d20db7a804ca234e56fcf"
+  },
+  "dependency": {
+    "project": "mori://shinzui/en/packages/en-servant",
+    "existingPin": "054afaddfc8a1eb631373f6cdd8bfd1f1c8c9634",
+    "pinChanged": false,
+    "atomicApiAndOpenApiVerifiedAtPin": true
+  },
+  "checks": {
+    "fullCliSuite": {
+      "tests": 1009,
+      "passed": true
+    },
+    "sourceExecutableBuild": true,
+    "structuralHaskellStyle": true,
+    "strictUserDocumentation": true,
+    "registrationAuditErrors": [],
+    "publicCommandFixture": {
+      "transport": "real bounded HTTP server and recording Kubernetes command transport",
+      "passed": true,
+      "assertions": [
+        "selected grant and exact conditional tuple write",
+        "lost acknowledgement resumes original transaction with one write",
+        "unchanged replay writes nothing",
+        "selected revoke preserves neighboring users and host",
+        "foreign owner and stale tuple refuse transport effects",
+        "old API, caveat, hostname and missing private key refuse initial planning",
+        "selected private kubeconfig and unavailable missing-credential observation",
+        "complete portal contributions and ordered Shomei rollout",
+        "original scope revisions preserved across grant/revoke",
+        "no private key in reviews/history/errors",
+        "canonical viewer-claim reservation survives candidate wire roundtrip"
+      ]
+    }
+  },
+  "remaining": [
+    "installed native access/protected-route integration in EP-155/156",
+    "EP-158 M2 CDN operations",
+    "MP-23 safe-use and full release gates"
+  ]
+}

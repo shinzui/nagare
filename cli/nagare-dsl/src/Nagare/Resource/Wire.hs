@@ -253,6 +253,8 @@ parseClaim parts = fmap canonicalClaim $ case parts of
   ["instance", p, z, n] -> CloudInstance <$> name p <*> name z <*> name n
   ["pulumi", n] -> pure (PulumiUrn n)
   ["host", c, n] -> Host <$> resource c <*> name n
+  ["access-tuple", auth, host, subject, "viewer"] ->
+    (AccessTuple <$> resource auth <*> name host <*> pure subject) >>= check . mkProviderAddress
   ["artifact", n, d] -> Artifact <$> name n <*> check (mkContentDigest d)
   ["hostname", n] -> Hostname <$> name n
   ["database", r, n] -> DatabaseName <$> resource r <*> name n
