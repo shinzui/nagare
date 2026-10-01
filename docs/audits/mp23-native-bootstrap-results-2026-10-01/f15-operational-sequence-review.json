@@ -86,7 +86,7 @@
   },
   "currentActivePodCpuRequestsMillicores": 1785,
   "nodeAllocatableMillicores": 4000,
-  "sequenceApproved": false,
+  "sequenceApproved": true,
   "firstReviewApplied": false,
   "safeUseAccepted": false,
   "protectedApplicationReadOnlyPreflight": {
@@ -96,5 +96,11 @@
     "publicationPrerequisitePending": true,
     "effects": false,
     "headGenerationUnchanged": 479
+  },
+  "sequenceAuthorization": {
+    "source": "operator instruction, 2026-10-01",
+    "instruction": "i want to do 1-6 in a deliberate way and like to know when 4 is complete to review what's usable and what needs to wait",
+    "boundsUnchanged": true,
+    "step4ReviewBeforeStep5": true
   }
 }

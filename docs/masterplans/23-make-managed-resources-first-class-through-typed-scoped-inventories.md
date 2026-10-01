@@ -419,6 +419,19 @@ These ownership, identity, review, storage, migration, and controller-delegation
 
 ## Progress
 
+**Operator-directed finish sequence (2026-10-01).** The operator requests deliberate execution of steps 1–6 below and a review when step 4 is complete. Continue steps 1–4, then stop before step 5 and present an evidence-backed usable/deferred capability list, restrictions, remaining defects and the exact candidate/context. Step 4 is complete only after the existing safe-use criteria below, including the operator's runbook verification, pass; implementer evidence alone is not that decision. This sequence changes scheduling and communication, not product scope or release acceptance.
+
+| Step | Concrete outcome and stopping condition | Current state |
+|---|---|---|
+| 1 — freeze | Installed operator `71288437`, admitted cloud payload and existing VM remain fixed; use only the retained local `nagare-mp23-cp3` profile. Preserve accepted bootstrap, credential and clean-root recovery evidence. | Accepted baseline; change only for a demonstrated defect. |
+| 2 — application/access | Two bounded fixture applications/databases; reviewed configuration change with neighboring ownership preserved; verification-only replay; installed grant/revoke, lost-response recovery and portal sync. | Prepared, authorized by the operator's instruction to execute steps 1–6; native results pending. |
+| 3 — recovery/cleanup | Known-content GCS backup and isolated restore with source preservation; one interrupted operation, writer refusal, explicit takeover and original-transaction resume; exact disposable-resource cleanup preserving retained data. | Pending on the fresh context; historical applicable evidence remains credited. |
+| 4 — safe-use review | All safe-use criteria pass on the frozen candidate and the operator verifies the runbook/F14–F18. Deliver a usable/deferred capability list with evidence and restrictions. | Open. Mandatory handoff to the operator before step 5. |
+| 5 — supported matrix | Finish remaining engine/volume backups and restores, CDN, command guards/coverage and the complete local scenario including bounded PostgreSQL rename/collection. | Pending; existing accepted milestones remain accepted. |
+| 6 — full closure | Resolve engineering/review gaps; validate installed packages on both native systems; assemble complete immutable evidence without publishing; finalize children, ADRs and MasterPlan. | Pending; full release requirements remain in force. |
+
+Every native check has a named assertion and a recorded result. Repeat accepted checks only when changed inputs or a relevant implementation change invalidate their proof. A failure gets a specific repair and only affected verification; do not restart a broad rehearsal without a concrete unmet requirement. The bounded cloud operational sequence is described in [its saved review report](../audits/mp23-native-bootstrap-results-2026-10-01/f15-operational-sequence-review.json).
+
 **Review snapshot (2026-09-30, independent, at `cf269e72`).** Direction is confirmed: the typed-scope, reviewed-plan, journal, and conditional-store foundations are implemented as recorded, and the representative cloud day-two path now has installed evidence for every item in the operational acceptance list below except steady credential expiry/re-pull (F15) and Helm-native retirement. The following cross-plan gates are not represented by any child and must be true before EP-157 assembles a candidate; they are the current coordination backlog.
 
 | Gate | State at review | Owner |
@@ -427,7 +440,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 | Independent closure of tracker findings | 16 of 18 findings are Partial/Verifying; no verifier entry since 2026-09-29 (F01/F11). For safe-use, the operator's runbook run is the check (Decision Log, 2026-09-30); release acceptance keeps the tracker rule. | Operator for safe-use; tracker steward for release |
 | IR-24 seven verification cases mapped to evidence (see table) | Cases 4 and 6 have installed cloud evidence; 5 is partial; 1, 2, 3, and 7 cite none. | EP-157 assembles; EP-144/149/155/156 supply |
 | `app/Main.hs` holds registration only | 13,557 lines (6,282 at `686a39d8`), including 600–700-line policy functions and the F18 authority check; see Surprises 2026-09-30. | EP-153 |
-| Safe-use gate (below) met on one candidate | Open: credential expiry/re-pull on `f15-preview`, installed EP-158 M1 integration (source command milestone accepted), runbook, F14–F18 disposition, final candidate local-bootstrap gate. | EP-156, EP-158, EP-153 |
+| Safe-use gate (below) met on one candidate | Open: installed EP-158 M1 integration, remaining fresh operational checks/cleanup, operator runbook and F14–F18 disposition. Installed `71288437` local platform gate, fresh cloud convergence, expired-credential re-pull and clean-root recovery are accepted in the current entrypoint/evidence. | EP-156, EP-158, EP-153 |
 | Digest ownership matches the recorded decision | Reversed by `84afb03e` without a Decision Log entry; operator decision pending (Surprises 2026-09-30). | EP-144 contract owner |
 
 IR-24 verification-case evidence map (update when a case gains proof; do not infer closure from neighboring cases):
@@ -516,6 +529,8 @@ Earlier architecture discoveries remain relevant: derived controller claims must
 
 
 ## Decision Log
+
+2026-10-01 (operator finish sequence): Execute the six-step sequence deliberately, preserving accepted proof and keeping `71288437` frozen for safe use. Stop after step 4 for the operator to review usable and deferred capabilities before step 5. The operator's instruction to perform steps 1–6 authorizes the already prepared bounded fresh operational sequence; each stage still requires its exact saved-review and history guards. No new standing-resource change or VM is included.
 
 2026-09-30 (verification policy): For the safe-use gate, the independent check for findings F14 through F18 and for the cloud operational checks is the operator running the runbook end to end on the fresh `f15-preview` context with the installed candidate, recording the result in the tracker. Rationale: the tracker's verifier role has produced nothing since 2026-09-29, implementer-written Verification entries do not meet its own rule, and an operator-run runbook validates the procedures and the findings in one pass. This policy covers safe-use only; EP-157 release acceptance keeps the tracker's closure rule for every remaining finding.
 
@@ -612,6 +627,8 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 
 
 ## Revision Notes
+
+2026-10-01: Record the operator-directed six-step finish sequence, mandatory step-4 capability review, finite verification policy and accepted credential/local gate status. Existing supported scope and full release requirements are unchanged.
 
 2026-09-30: Consolidate history into the evidence ledger, replace the dated entrypoint sequence with one current entrypoint, add the safe-use gate and the local-bootstrap-before-cloud rule, pull EP-158 M1 forward, and record the four decisions. Scope, dependencies, and release gates are unchanged; EP-158's registry row stays Not Started until its first checkpoint.
 
