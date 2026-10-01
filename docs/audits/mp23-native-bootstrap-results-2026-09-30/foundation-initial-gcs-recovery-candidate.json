@@ -1,6 +1,6 @@
 {
   "finding": "F18",
-  "status": "candidate; installed recovery pending",
+  "status": "installed native recovery verified; independent closure pending",
   "originalOperatorRevision": "d73c1dc4d3790c980be877f42cb68ea32b7575bd",
   "context": "f15-preview",
   "project": "tan-ng-labs",
@@ -58,7 +58,7 @@
     "publicInitialGcsRecovery": "passed",
     "publicUnrelatedActiveLocalRefusal": "passed",
     "wholePublicBootstrapFixture": "passed; complete source CLI fixture",
-    "installedCandidate": "pending",
+    "installedCandidate": "immutable build/version and complete installed CLI public fixture passed",
     "counterfactualD73Installed": "failed at new GCS recovery with exact original local-history migration refusal; expected"
   },
   "untouched": [
@@ -70,5 +70,39 @@
     "no platform upgrades"
   ],
   "preflightCause": "The original stack inspection refused; a later exact read-only stack listing succeeded. No transient root cause is claimed.",
-  "independentClosure": "pending"
+  "independentClosure": "pending",
+  "candidateRevision": "cf269e725e273ebe633250ee2921409588e79ca8",
+  "publicAssertions": [
+    "fresh cloud bootstrap planned nine reviewed foundation resources before Kubernetes",
+    "shared-project bootstrap left seven enabled APIs outside the owned fixture",
+    "public inventory resume proved a lost foundation API acknowledgement without repeating its write",
+    "public foundation apply converged and retained its local inventory journal",
+    "initial GCS foundation resumed its original local journal and migrated only after convergence",
+    "an observed foundation drift planned a focused reviewed repair",
+    "the next public review grouped all 24 Pulumi registrations in one saved plan",
+    "initial GCS recovery refused an unrelated active local transaction without effects",
+    "public inventory resume proved a lost grouped Pulumi acknowledgement without repeating its write",
+    "one public cloud review converged all 24 foundation-managed Pulumi registrations",
+    "an observed Pulumi absence planned one reviewed cloud repair",
+    "changed payload pin refused the retained build review before its provider effect",
+    "public bootstrap reviewed the Nix image build before its first build effect",
+    "public bootstrap bound the built tarball digest to a separate GCE image review",
+    "public inventory resume proved GCE image publication without repeating registration",
+    "reviewed image config enabled and converged both VM registrations",
+    "public bootstrap planned guarded host activation after the VM receipts",
+    "public inventory resume proved guarded host activation after lost commit acknowledgement",
+    "accepted host input changes refused before installation-image evaluation",
+    "public inventory resume proved the reviewed kubeconfig install after lost acknowledgement",
+    "public credential recovery materialized a second root and preserved changed-file refusal",
+    "public bootstrap planned 211 cluster operations with kubeconfig edges and a final marker",
+    "public foundation apply initialized and seeded a native local Pulumi stack"
+  ],
+  "counterfactualMessage": "local inventory history exists; migrate it before selecting the GCS store",
+  "validationLogs": {
+    "mp23-foundation-resume-cli.log": "0b15448990cf876a076df9050a55479e414d23db1bc729cad954a07aab7f8108",
+    "mp23-foundation-resume-public-v2.log": "dcf653db8a869233cef03f65952f8f11f2db9fc3deca0cd72783fa4f2fa8e7c5",
+    "mp23-foundation-resume-counterfactual.log": "f69ed95457fac02bc357211c03c2a871e16d2b3fcf426bb0aea92e6093369dbf",
+    "mp23-foundation-resume-style.log": "ce845914c7c302b39851b447acc2a4c570f5ce47634c3c8f4350373397ff3e95"
+  },
+  "installedNativeProof": "cloud-initial-gcs-foundation-recovery.json"
 }

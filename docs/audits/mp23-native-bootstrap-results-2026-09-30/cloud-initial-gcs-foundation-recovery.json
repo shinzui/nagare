@@ -1,0 +1,169 @@
+{
+  "finding": "F18",
+  "operatorRevision": "cf269e725e273ebe633250ee2921409588e79ca8",
+  "operatorPackage": "/nix/store/x7173s4q0jfka59yjg018m6z6vfgsyac-nagarectl-0.4.0",
+  "originalPayload": {
+    "digest": "550cec502a657ad7131343046c27ea4160b8282a4b50c0f0e8755b728f5be1bd",
+    "payloadId": "nagare-0.4.0-d73c1dc4d379",
+    "payloadRoot": "/nix/store/cgw0n38xhas0dxr1dnwmgb9r4qy2naxf-nagare-platform-0.4.0/share/nagare",
+    "platformVersion": "0.4.0",
+    "revision": "d73c1dc4d3790c980be877f42cb68ea32b7575bd",
+    "source": "installed",
+    "workspaceRoot": "/tmp/nagare-mp23-fresh-credentials-20260930/state/nagare/f15-preview/platform/nagare-0.4.0-d73c1dc4d379-550cec502a657ad7"
+  },
+  "originalReviewDigest": "03deb235a67fd7576e66248c1867ba317ced759d60d3dff1394a1b747d6aa6c5",
+  "resume": {
+    "step": "installed-foundation-resume",
+    "exit": 0,
+    "seconds": 38.282
+  },
+  "sharedStoreStatus": {
+    "activeTransaction": null,
+    "binding": {
+      "identity": "f15-preview",
+      "project": "tan-ng-labs"
+    },
+    "dataFence": null,
+    "executorClaim": null,
+    "generation": 11,
+    "headDigest": "b1eadcf568294ec3c47572673f00e463f1eeb0d96fad1e12ffbf124e438608ec",
+    "kind": "gcs",
+    "migration": null,
+    "url": "gs://tan-ng-labs-f15-0930-pmkjjpp-state/inventory"
+  },
+  "remoteSequence": 6,
+  "accepted": [
+    {
+      "revision": {
+        "digest": "87574bf16a8505c10f393046f972e5647c8dc8501327c1b889c1b34f758a34d2",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Platform",
+        "name": "cloud-foundation"
+      }
+    }
+  ],
+  "converged": [
+    {
+      "revision": {
+        "digest": "87574bf16a8505c10f393046f972e5647c8dc8501327c1b889c1b34f758a34d2",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Platform",
+        "name": "cloud-foundation"
+      }
+    }
+  ],
+  "localMigration": {
+    "destination": "gs://tan-ng-labs-f15-0930-pmkjjpp-state/inventory",
+    "headDigest": "b1eadcf568294ec3c47572673f00e463f1eeb0d96fad1e12ffbf124e438608ec"
+  },
+  "localGeneration": 12,
+  "originalReviewFilesUnchanged": true,
+  "originalPublishedReviewMigratedByteExactly": true,
+  "originalJournalMigratedByteExactly": {
+    "00000000000000000001.json": "92306e7baf99d9ed262a0ca06373346bb7481e1617cb11e20ea68a67b5d67ae1",
+    "00000000000000000000.json": "f72858bf492611ce01b67718cb67f270dfe871c1d0a8d0255d2e1ea6f98b9c56",
+    "00000000000000000002.json": "bdac6557c9ee1d3b20e39a78d86c895f4bc91741132c1dc370b908dd143bbb6c"
+  },
+  "mutationIntentCounts": {
+    "op-c90116a9db4c5f3a0c04d38f": 1,
+    "op-2f8fdfb63086ed4605daf162": 1
+  },
+  "completedOriginalBucketOperationReplayed": false,
+  "journal": [
+    {
+      "sequence": 0,
+      "operation": null,
+      "state": "Pending"
+    },
+    {
+      "sequence": 1,
+      "operation": "op-c90116a9db4c5f3a0c04d38f",
+      "state": "IntentRecorded"
+    },
+    {
+      "sequence": 2,
+      "operation": "op-c90116a9db4c5f3a0c04d38f",
+      "state": "Completed"
+    },
+    {
+      "sequence": 3,
+      "operation": "op-2f8fdfb63086ed4605daf162",
+      "state": "IntentRecorded"
+    },
+    {
+      "sequence": 4,
+      "operation": "op-2f8fdfb63086ed4605daf162",
+      "state": "Completed"
+    },
+    {
+      "sequence": 5,
+      "operation": null,
+      "state": "Completed"
+    }
+  ],
+  "publicExport": {
+    "step": "installed-foundation-export",
+    "exit": 0,
+    "seconds": 4.223
+  },
+  "exportedMembers": [
+    {
+      "digest": "01cc7c8a573d815d8f1c7f945b482d7fc7be096569a51775f71703be6885ae6f",
+      "path": "format.json"
+    },
+    {
+      "digest": "b1eadcf568294ec3c47572673f00e463f1eeb0d96fad1e12ffbf124e438608ec",
+      "path": "head.json"
+    },
+    {
+      "digest": "f72858bf492611ce01b67718cb67f270dfe871c1d0a8d0255d2e1ea6f98b9c56",
+      "path": "journal/00000000000000000000.json"
+    },
+    {
+      "digest": "92306e7baf99d9ed262a0ca06373346bb7481e1617cb11e20ea68a67b5d67ae1",
+      "path": "journal/00000000000000000001.json"
+    },
+    {
+      "digest": "bdac6557c9ee1d3b20e39a78d86c895f4bc91741132c1dc370b908dd143bbb6c",
+      "path": "journal/00000000000000000002.json"
+    },
+    {
+      "digest": "82a85aaa62cf95c411cea9a4be6e5cde1b4f6ac5a3c1c527e5ed93521820b424",
+      "path": "journal/00000000000000000003.json"
+    },
+    {
+      "digest": "79594b721d7826d138785d217d0d897b7305b811c0f4cdf8c94578dc95645679",
+      "path": "journal/00000000000000000004.json"
+    },
+    {
+      "digest": "f4e9ac6c8fc13c9ec184c85ce72391de5603fd58197b18c9b38f921ca2e33710",
+      "path": "journal/00000000000000000005.json"
+    },
+    {
+      "digest": "765f1d91a942c70ec6dec02aaa2b1c4a6c017a35223b0fae8b369743840982c6",
+      "path": "native/765f1d91a942c70ec6dec02aaa2b1c4a6c017a35223b0fae8b369743840982c6.json"
+    },
+    {
+      "digest": "e4abb6707a9dc6ad600408dbf0a39eb98f6196b2ab61182f9679009bd7fa3efd",
+      "path": "native/e4abb6707a9dc6ad600408dbf0a39eb98f6196b2ab61182f9679009bd7fa3efd.json"
+    },
+    {
+      "digest": "03deb235a67fd7576e66248c1867ba317ced759d60d3dff1394a1b747d6aa6c5",
+      "path": "reviews/03deb235a67fd7576e66248c1867ba317ced759d60d3dff1394a1b747d6aa6c5.json"
+    },
+    {
+      "digest": "87574bf16a8505c10f393046f972e5647c8dc8501327c1b889c1b34f758a34d2",
+      "path": "scopes/87574bf16a8505c10f393046f972e5647c8dc8501327c1b889c1b34f758a34d2.json"
+    }
+  ],
+  "vmCreationStarted": false,
+  "platformUpgradesPerformed": false,
+  "standingResourcesMutated": false,
+  "initialFeatureSafeUse": "not yet accepted",
+  "independentF18Closure": "pending",
+  "nextCheckpoint": "Pause before the new fixture cloud/VM review; continue fresh-host steady registry credential acceptance afterward."
+}
