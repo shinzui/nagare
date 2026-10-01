@@ -62,6 +62,11 @@ provenance:
       at: 2026-10-01T03:07:03Z
       mode: "implement"
       note: "Verify installed initial GCS foundation recovery and preserve the pre-VM checkpoint"
+    - model: "gpt-6.1-sol"
+      harness: "codex-cli"
+      at: 2026-10-01T05:46:32Z
+      mode: "implement"
+      note: "Preserve accepted F15 payload and record pre-review shared-store guard refusal after installed local candidate gate"
 ---
 
 # Prove fresh GCP convergence and shared history recovery
@@ -78,6 +83,8 @@ A production-shaped disposable GCP context proves reviewed cloud/host/cluster/ap
 
 
 ## Progress
+
+**F15 pre-review guard refusal (2026-09-30).** After EP-155's installed native local platform gate passed, CLI `705716b7` revalidated the original F15 payload `nagare-0.4.0-d73c1dc4d379` and digest `550cec502a657ad7131343046c27ea4160b8282a4b50c0f0e8755b728f5be1bd` in its retained context root. Public `inventory store status --json` then refused with `StoreConditionFailed "gcloud credential or ownership command failed or timed out"` under named configuration `labs`, before a cloud review or mutation. The operator's guard-refusal instruction stopped dependent work. Shared generation 11/sequence 6 remains the last accepted evidence, not a fresh observation. Next: restore a successful guarded shared-store read, recheck idle state and exact accepted foundation, then prepare/rehearse the bounded VM/cluster/credential sequence for the operator's single mutation approval. No VM or cloud effect was started; M1/M2 and safe-use acceptance remain open.
 
 **Current continuation (2026-09-30).** [The retained report](../audits/mp23-cloud-continuation-2026-09-30.md) and [redacted native results](../audits/mp23-native-bootstrap-results-2026-09-30/registry-recovery.json) prove installed `39842f8058bdaaf94819365b1f2511a3a7147246` recovers the original private-controller operation, with journaled accepted host-policy intent/receipt and independent readiness for the unchanged original Deployment/pod. Preparation leaves generation 469 exact; recovery takes 101.552 seconds. Public resume of the original 210-operation review converges in 230.454 seconds at generation 549/sequence 492 with no active transaction, claim, fence or migration. All 22 accepted revisions and six prerequisite converged revisions stay unchanged. All 22 scopes converge; 31 Running Pods have all containers Ready and two migrations Succeeded. The original payload remains `nagare-0.4.0-6082dbd6aac0`. The representative two-application/database and GCS backup-to-isolated-restore content scenario now passes; retain the linked cloud evidence and continue operational recovery. Steady private platform credential expiry/re-pull coverage remains required before safe use, and F14/F15 independent closure stays open. This is the bootstrap checkpoint, not M1/M2 acceptance. Complete remaining operational, exact cleanup and local/native/release gates; upgrades follow initial feature completion and safe-use acceptance.
 
