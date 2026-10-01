@@ -18,7 +18,9 @@ Implementation owner: existing session `01a0e893-337f-7b82-ac5d-16f41bf5ce21` (I
 - The implementation session updates each **Implementation update** with revision (or exact working-tree source hashes), change, named test/command, result, and remaining limitations. It must not overwrite the auditor's evidence or close its own finding.
 - The verifier updates status and **Verification** after checking the affected path. A sent message, acknowledged finding, source edit, test count, or passing unrelated suite is not closure.
 - Before advancing an affected native rehearsal, reconcile its P1 findings. Scope reductions do not waive recovery for already-admitted operations. Deferral/dispute requires an explicit reason recorded here; do not silently omit the issue.
-- At every handoff, state IDs still Open/Partial/Verifying and the next required check. Link durable evidence in the repository; temporary reproduction paths are supplemental. If sessions end, the next implementer reads this file through the MP-23 entrypoint.
+- At every handoff, state IDs still Open/Partial/Verifying and the next required check.
+- Safe-use verification policy (MP-23 Decision Log, 2026-09-30): for F14–F18 and the cloud operational checks, the operator's end-to-end runbook run on the fresh `f15-preview` context is the independent check; the operator records the result here. Release acceptance keeps the closure rule above for every remaining finding.
+ Link durable evidence in the repository; temporary reproduction paths are supplemental. If sessions end, the next implementer reads this file through the MP-23 entrypoint.
 
 ## Status register
 

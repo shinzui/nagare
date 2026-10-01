@@ -62,6 +62,11 @@ provenance:
       at: 2026-10-01T03:07:03Z
       mode: "implement"
       note: "Verify installed initial GCS foundation recovery and preserve the pre-VM checkpoint"
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-10-01T03:41:20Z
+      mode: "update"
+      note: "Add driver-consolidation and model-based driver test checkpoints from the independent review"
 ---
 
 # Close managed command coverage for the inventory release
@@ -76,6 +81,12 @@ Every supported mutation command and shipped recipe is mapped to its owner, revi
 
 
 ## Progress
+
+**Next checkpoints from the 2026-09-30 independent review (prerequisites of the MP-23 safe-use gate).** Take these ahead of remaining route coverage; each is bounded and reuses existing harnesses.
+
+1. Driver consolidation. `prepareBootstrapRegistryRecovery` in cli/nagarectl/src/Nagare/Inventory/Execute.hs acquires the executor claim and rechecks it before effects, but executes adapters outside `runOperations`, so the claim and lock guards exist twice. Re-express it as a recovery decision handled inside the shared driver so one function authorizes every effect. Keep its journaled intent, exact-capsule settlement, and workload-readiness completion criterion, and keep the existing F15 regressions unchanged. Add a regression proving the legacy `upgradeOps` apply flows in app/Main.hs refuse any context with inventory history before any provider call. Acceptance: recording-adapter tests show the registry recovery running through the driver with identical journal events to the retained proof; the upgrade-runner refusal test passes; no effect path exists outside the driver.
+2. Model-based driver tests. On the in-memory store with recording adapters, generate random reviews (creates, updates, verifications, retirements across several scopes) and inject interruption at every operation boundary and at each conditional write, then resume. Invariants: no effect executes twice; converged is a subset of accepted; completing a review changes only the revisions it selects; head generation and journal sequence are monotonic; every ambiguous journal entry resolves to exactly one finite recovery outcome; a second executor is refused without takeover. Acceptance: the property suite runs inside the normal `cabal test nagarectl-test` with a fixed seed and bounded case count, and it fails when the fixes from `eb582eb0` or `7c957c02` are reverted.
+3. Hardening while there. Replace partial functions that fire on runtime data (`physicalStack` in Adapters/FoundationRuntime.hs, the platform-marker shape in Bootstrap.hs, the missing host revision in BootstrapRegistryRecovery.hs) with typed refusals, and move Main.hs policy for each command into a named module as that command is touched.
 
 **Bounded bootstrap recovery registration (2026-09-30).** Registered `InventoryRegistryRecoveryPlan` and `prepareRegistryRecoveryWithFactory` under original-transaction review/recovery. The strict saved native pointer, journaled intent, same-proof replay and independent readiness requirement pass source regressions, including completed host-history binding and changed host/Deployment/node refusals. All 992 CLI tests and the public foundation/bootstrap fixture pass. The audit registers 141 routes, 34 recipes and 29 library calls with zero errors; its injected-mutation check passes. Coverage still has ten pending routes, seven pending recipes and 29 incomplete catalogue rows. EP-156 retains installed original-transaction recovery and full bootstrap convergence evidence for revision `39842f8058bdaaf94819365b1f2511a3a7147246`; steady credential expiry/re-pull coverage and M2 remain open.
 
@@ -154,6 +165,8 @@ The reviewed volume restore Job verifies the accepted receipt and archive hashes
 
 
 ## Decision Log
+
+2026-09-30: Take the driver-consolidation and model-based-test checkpoints from the independent review ahead of remaining route coverage. Rationale: the registry recovery path and the legacy upgrade runner duplicate rather than lack the claim and lock guards, and duplicated guards drift; the two 2026-09-30 planner defects were invariant violations that the existing in-memory store and recording adapters can catch under generated interruption. MP-23 records this in its Decision Log and safe-use gate.
 
 2026-09-29 (design reassessment): Replace the shared dispatch boundary as one cohesive change rather than distributing more preflight exceptions. A pure serial next-operation decision and one IO interpreter own phase order, while immutable registry construction and existing authority checks remain separate.
 

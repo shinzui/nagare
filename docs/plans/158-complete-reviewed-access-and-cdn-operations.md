@@ -17,6 +17,11 @@ provenance:
       at: 2026-09-27T13:29:05Z
       mode: "update"
       note: "Apply Codex execution-log diagnosis, fixed outcome ownership, production-path checkpoints, and restore/maintenance handoff without expanding release scope"
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-10-01T03:11:58Z
+      mode: "update"
+      note: "Pull M1 forward as MP-23 safe-use prerequisite; align with 2026-09-28 reduction"
 ---
 
 # Complete reviewed access and CDN operations
@@ -32,6 +37,8 @@ Operators can grant and revoke access, synchronize the protected-app portal, and
 
 ## Progress
 
+**Pulled forward as a safe-use prerequisite (2026-09-30).** MasterPlan 23's safe-use gate (its Progress section) requires M1 before real low-risk workloads run on an inventory-backed cloud context: access grant and revoke currently refuse on every admitted context, so nobody can be admitted to an application. Start M1 now; hard dependencies EP-146/147/149/151 are Complete. M2 CDN work stays in MasterPlan order 5. The 2026-09-28 scope reduction does not defer any access operation; align with the revised MP-23 support boundary and ADR 22 amendment as the sibling plans did. Every candidate passes the installed local k3d platform bootstrap before a cloud rehearsal.
+
 
 - [ ] M1: Reviewed access grant/revoke and portal synchronization work through public commands, preserve other contributions, and recover a lost acknowledgement without duplicate or foreign effects.
 - [ ] M2: Reviewed CDN purge, disable, and exact owned retirement work for their supported providers, with bounded targets, replay handling, and selected-only evidence.
@@ -46,6 +53,8 @@ Inherited: auth-owner backend/portal contributions, central routes, Google per-h
 
 
 ## Decision Log
+
+2026-09-30: Start M1 immediately as a prerequisite of the MasterPlan safe-use gate, ahead of its original order-5 slot. Rationale: an intranet nobody can be admitted to is not usable; the operator needs the cloud cluster maintainable and usable now. M2 is unchanged. Also align with the 2026-09-28 MP-23 reduction: no access or CDN operation is deferred by it.
 
 
 2026-09-26: Transfer a bounded unfinished EP-148 outcome into its own plan. Preserve delivered behavior and all release gates; no feature is dropped and no prior work is reset.
