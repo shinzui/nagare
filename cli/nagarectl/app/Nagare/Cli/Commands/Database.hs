@@ -7,6 +7,7 @@ where
 import Data.Generics.Labels ()
 import Data.List.NonEmpty qualified as NE
 import Data.Map qualified as Map
+import Data.Set qualified as Set
 import Data.Text qualified as T
 import Nagare.Cli.Data.Backup
   ( runReviewedDbBackupPlan
@@ -281,7 +282,11 @@ runDisableBackupPrunePlan mctx name namespaceName output = do
       pure
       (ResourceInventory.composeSnapshot snapshot)
   (acceptedNative, _) <-
-    InventoryStatus.loadAcceptedNative store history acceptedInventory
+    InventoryStatus.loadAcceptedNativeSelected
+      (Set.fromList [member ^. #identity | bundle <- ResourceInventory.scopeBundles scope, ResourceInventory.Managed member <- ResourceInventory.declarations bundle])
+      store
+      history
+      acceptedInventory
       >>= either dieT pure
   backend <-
     either
@@ -302,7 +307,11 @@ runDisableBackupPrunePlan mctx name namespaceName output = do
           (ResourceInventory.ReplaceScope revised NE.:| [])
       )
   Inventory.planInventoryCandidateWith
-    (inventoryPlanRegistryWithNative active workspace native)
+    ( inventoryPlanRegistryWithNative
+        active
+        workspace
+        (Map.filter ((/= "contribution") . (^. #source . #file) . fst) native)
+    )
     active
     candidate
     output

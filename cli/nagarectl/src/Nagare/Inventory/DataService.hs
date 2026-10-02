@@ -27,7 +27,7 @@ import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend)
-import Nagare.Database.Backup (renderDbBackupCronJob, renderInventoryDbBackupCronJob, renderPreviousInventoryDbBackupCronJob)
+import Nagare.Database.Backup (renderDbBackupCronJob, renderInventoryDbBackupCronJob, renderPreviousInventoryDbBackupCronJob, renderPreviousSignedInventoryDbBackupCronJob)
 import Nagare.Dsl.Broker (Broker (..), BrokerProvider (Redpanda), brokerNameText)
 import Nagare.Dsl.Broker.Render (brokerPvcName, renderBroker)
 import Nagare.Dsl.Database (Database (..), dbSecretName, parseEngine)
@@ -89,15 +89,17 @@ compileBackupPruneRemovalScope name namespaceName backend accepted native = do
   version <- textAt invalid ["metadata", "annotations", "nagare.dev/version"] statefulValue
   let legacy = renderDbBackupCronJob namespaceName name engine version backend 7
       previousSafe = renderPreviousInventoryDbBackupCronJob namespaceName name engine version backend 7
+      previousSigned = renderPreviousSignedInventoryDbBackupCronJob namespaceName name engine version backend 7
       safe = renderInventoryDbBackupCronJob namespaceName name engine version backend 7
   legacyCanonical <- decode invalid legacy >>= first invalid . canonicalValue
   previousSafeCanonical <- decode invalid previousSafe >>= first invalid . canonicalValue
+  previousSignedCanonical <- decode invalid previousSigned >>= first invalid . canonicalValue
   safeValue <- decode invalid safe
   safeCanonical <- first invalid (canonicalValue safeValue)
   if backupCanonical == safeCanonical
     then pure (accepted, native)
     else do
-      unless (backupCanonical `elem` [legacyCanonical, previousSafeCanonical])
+      unless (backupCanonical `elem` [legacyCanonical, previousSafeCanonical, previousSignedCanonical])
         (Left (invalid "accepted backup CronJob does not match a known earlier schedule"))
       cluster <- case backup ^. #address of
         Kubernetes clusterId _ _ _ _ -> Right clusterId

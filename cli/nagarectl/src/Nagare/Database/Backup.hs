@@ -40,6 +40,7 @@ module Nagare.Database.Backup
   , renderDbBackupCronJob
   , renderInventoryDbBackupCronJob
   , renderPreviousInventoryDbBackupCronJob
+  , renderPreviousSignedInventoryDbBackupCronJob
 
     -- * Read-only legacy preview
   , previewDbBackup
@@ -214,7 +215,10 @@ renderBackupJob i =
 -- | The shared Job @.spec@ body (backoffLimit + pod template with the two
 -- containers). Reused verbatim as a CronJob's @jobTemplate.spec@.
 backupJobSpecValue :: BackupJobInputs -> Value
-backupJobSpecValue i =
+backupJobSpecValue = backupJobSpecValueWithRecoveryPoint True
+
+backupJobSpecValueWithRecoveryPoint :: Bool -> BackupJobInputs -> Value
+backupJobSpecValueWithRecoveryPoint timed i =
   dataMovementJobSpec
     DataMovementJob
       { templateLabels = Just (labelsValue i)
@@ -226,8 +230,8 @@ backupJobSpecValue i =
             then
               Just (clickHouseSourceAffinity (i ^. #namespace) (i ^. #name))
             else Nothing
-      , initContainers = [sourceProbeContainer i | sourceAttested i] <> [dumpContainer i]
-      , containers = [uploadContainer i]
+      , initContainers = [sourceProbeContainer timed i | sourceAttested i] <> [dumpContainer i]
+      , containers = [uploadContainer timed i]
       , volumes =
           [object ["name" .= ("dump" :: Text), "emptyDir" .= object []]]
             <> [ object
@@ -275,13 +279,13 @@ sourceAttested i = case i ^. #receipt of
 -- The same read runs after stored-byte verification, rejecting a replacement
 -- that occurred while this Job was active. The account can read only these two
 -- named objects in its namespace.
-sourceProbeContainer :: BackupJobInputs -> Value
-sourceProbeContainer i =
+sourceProbeContainer :: Bool -> BackupJobInputs -> Value
+sourceProbeContainer timed i =
   object
     [ "name" .= ("source" :: Text)
     , "image" .= storeImage (i ^. #backend)
     , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
-    , "args" .= toJSON ["set -eu; python3 -c 'import datetime; print(datetime.datetime.now(datetime.timezone.utc).strftime(\"%Y-%m-%dT%H:%M:%SZ\"))' > /dump/recovery-point; " <> sourceProbeShell <> " > /dump/source.json"]
+    , "args" .= toJSON [(if timed then "set -eu; python3 -c 'import datetime; print(datetime.datetime.now(datetime.timezone.utc).strftime(\"%Y-%m-%dT%H:%M:%SZ\"))' > /dump/recovery-point; " else "") <> sourceProbeShell <> " > /dump/source.json"]
     , "env" .= toJSON [plainEnv "BACKUP_SOURCE_NAME" (i ^. #name)]
     , "volumeMounts" .= toJSON [dumpMount]
     ]
@@ -359,13 +363,13 @@ backupRunEnv i = case i ^. #destination of
 -- dump and uploads it to @$DEST@. Reviewed fixed-key Jobs create only; reviewed
 -- reviewed schedules use the Job UID and create only; legacy schedules retain
 -- their timestamp key and inline keep-last-N deletion.
-uploadContainer :: BackupJobInputs -> Value
-uploadContainer i =
+uploadContainer :: Bool -> BackupJobInputs -> Value
+uploadContainer timed i =
   object
     [ "name" .= ("upload" :: Text)
     , "image" .= storeImage (i ^. #backend)
     , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
-    , "args" .= toJSON [uploadShell i]
+    , "args" .= toJSON [uploadShellWithRecoveryPoint timed i]
     , "env"
         .= toJSON
           ( [plainEnv "DEST" url | BackupDestUrl url <- [i ^. #destination]]
@@ -471,7 +475,10 @@ dumpShell ClickHouse svc =
 -- schedules read back the exact stored bytes and compare SHA-256; fixed-key
 -- Jobs create only. Legacy schedules can still use keep-last-N deletion.
 uploadShell :: BackupJobInputs -> Text
-uploadShell i =
+uploadShell = uploadShellWithRecoveryPoint True
+
+uploadShellWithRecoveryPoint :: Bool -> BackupJobInputs -> Text
+uploadShellWithRecoveryPoint timed i =
   base <> if i ^. #selfPrune then "; " <> prune else ""
   where
     backend = i ^. #backend
@@ -565,8 +572,14 @@ uploadShell i =
     receiptPreamble (FixedReceiptTarget _) = ""
     receiptPreamble BackupObjectReceiptTarget =
       "; BACKUP_RECEIPT_DEST=\"${DEST}.receipt.json\""
-        <> "; printf '{\"sha256\":\"%s\",\"jobUid\":\"%s\",\"object\":\"%s\",\"source\":%s,\"backup\":%s,\"recoveryPoint\":\"%s\"}\\n'"
-        <> " \"$EXPECTED\" \"$BACKUP_RUN_ID\" \"$DEST\" \"$(cat /dump/source.json)\" \"$BACKUP_RECEIPT_METADATA\" \"$(cat /dump/recovery-point)\""
+        <> ( if timed
+               then
+                 "; printf '{\"sha256\":\"%s\",\"jobUid\":\"%s\",\"object\":\"%s\",\"source\":%s,\"backup\":%s,\"recoveryPoint\":\"%s\"}\\n'"
+                   <> " \"$EXPECTED\" \"$BACKUP_RUN_ID\" \"$DEST\" \"$(cat /dump/source.json)\" \"$BACKUP_RECEIPT_METADATA\" \"$(cat /dump/recovery-point)\""
+               else
+                 "; printf '{\"sha256\":\"%s\",\"jobUid\":\"%s\",\"object\":\"%s\",\"source\":%s,\"backup\":%s}\\n'"
+                   <> " \"$EXPECTED\" \"$BACKUP_RUN_ID\" \"$DEST\" \"$(cat /dump/source.json)\" \"$BACKUP_RECEIPT_METADATA\""
+           )
         <> " > /dump/backup.payload.json"
         <> "; RECEIPT_SIGNATURE=$(python3 -c 'import hashlib,hmac,json,os; "
         <> "payload=json.load(open(\"/dump/backup.payload.json\")); "
@@ -577,7 +590,7 @@ uploadShell i =
       "printf '{\"version\":1,\"sha256\":\"%s\",\"backup\":%s}\\n'"
         <> " \"$EXPECTED\" \"$BACKUP_RECEIPT_METADATA\""
     receiptBody BackupObjectReceiptTarget =
-      "printf '{\"version\":5,\"payload\":%s,\"hmacSha256\":\"%s\"}\\n'"
+      (if timed then "printf '{\"version\":5,\"payload\":%s,\"hmacSha256\":\"%s\"}\\n'" else "printf '{\"version\":4,\"payload\":%s,\"hmacSha256\":\"%s\"}\\n'")
         <> " \"$(cat /dump/backup.payload.json)\" \"$RECEIPT_SIGNATURE\""
     -- keep the last $KEEP objects under $PREFIX (newest sort last with reverse sort)
     prune =
@@ -603,7 +616,10 @@ renderBackupCronJob :: BackupCronInputs -> ByteString
 renderBackupCronJob = Y.encode . backupCronJobValue
 
 backupCronJobValue :: BackupCronInputs -> Value
-backupCronJobValue i =
+backupCronJobValue = backupCronJobValueWithRecoveryPoint True
+
+backupCronJobValueWithRecoveryPoint :: Bool -> BackupCronInputs -> Value
+backupCronJobValueWithRecoveryPoint timed i =
   object
     [ "apiVersion" .= ("batch/v1" :: Text)
     , "kind" .= ("CronJob" :: Text)
@@ -614,29 +630,33 @@ backupCronJobValue i =
           , "concurrencyPolicy" .= ("Forbid" :: Text)
           , "successfulJobsHistoryLimit" .= (3 :: Int)
           , "failedJobsHistoryLimit" .= (1 :: Int)
-          , "jobTemplate" .= object ["spec" .= backupJobSpecValue (i ^. #base)]
+          , "jobTemplate" .= object ["spec" .= backupJobSpecValueWithRecoveryPoint timed (i ^. #base)]
           ]
     ]
 
 -- | Legacy scheduled backup. Inline keep-last-N deletion is confined to
 -- unadmitted contexts while reviewed pruning remains a separate lifecycle action.
 renderDbBackupCronJob :: Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
-renderDbBackupCronJob = renderDbBackupCronJobWithOptions True False
+renderDbBackupCronJob = renderDbBackupCronJobWithOptions True False True
 
 -- | A reviewed database may schedule uploads, but the CronJob must not delete
 -- older backup objects without a separate reviewed pruning decision. The Job
 -- downloads the exact object and checks its SHA-256 before reporting success.
 renderInventoryDbBackupCronJob :: Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
-renderInventoryDbBackupCronJob = renderDbBackupCronJobWithOptions False True
+renderInventoryDbBackupCronJob = renderDbBackupCronJobWithOptions False True True
 
 -- | Native bytes issued before reviewed backup readback verification was added.
 -- Used only to recognize and upgrade an already accepted schedule.
 renderPreviousInventoryDbBackupCronJob :: Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
-renderPreviousInventoryDbBackupCronJob = renderDbBackupCronJobWithOptions False False
+renderPreviousInventoryDbBackupCronJob = renderDbBackupCronJobWithOptions False False True
 
-renderDbBackupCronJobWithOptions :: Bool -> Bool -> Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
-renderDbBackupCronJobWithOptions shouldPrune shouldVerify ns name eng version backend keep =
-  renderBackupCronJob $
+-- | Exact signed-v4 daily producer, for recognition of accepted schedules only.
+renderPreviousSignedInventoryDbBackupCronJob :: Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
+renderPreviousSignedInventoryDbBackupCronJob = renderDbBackupCronJobWithOptions False True False
+
+renderDbBackupCronJobWithOptions :: Bool -> Bool -> Bool -> Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
+renderDbBackupCronJobWithOptions shouldPrune shouldVerify timed ns name eng version backend keep =
+  Y.encode . backupCronJobValueWithRecoveryPoint timed $
     if shouldVerify
       then
         let provisional = withReceipt (T.replicate 64 "0")
@@ -646,7 +666,7 @@ renderDbBackupCronJobWithOptions shouldPrune shouldVerify ns name eng version ba
                     ( either
                         (error . T.unpack)
                         id
-                        (canonicalValue (backupCronJobValue provisional))
+                        (canonicalValue (backupCronJobValueWithRecoveryPoint timed provisional))
                     )
                 )
          in withReceipt revision
@@ -685,7 +705,7 @@ renderDbBackupCronJobWithOptions shouldPrune shouldVerify ns name eng version ba
               BackupObjectReceiptTarget
               (TE.decodeUtf8 (LBS.toStrict (Aeson.encode metadata)))
        in BackupCronInputs
-            "*/15 * * * *"
+            (if timed then "*/15 * * * *" else defaultBackupSchedule)
             (baseInputs {receipt = Just scheduledReceipt})
 
 -- ---------------------------------------------------------------------------

@@ -23,7 +23,7 @@ import Data.Time (UTCTime)
 import Data.Time.Format (defaultTimeLocale, parseTimeM)
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (MinioRef (..), StoreBackend (GcsBackend, MinioBackend))
-import Nagare.Database.Backup (renderDbBackupCronJob, renderPreviousInventoryDbBackupCronJob)
+import Nagare.Database.Backup (renderDbBackupCronJob, renderPreviousInventoryDbBackupCronJob, renderPreviousSignedInventoryDbBackupCronJob)
 import Nagare.Database.Secret (b64decode)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Database (Database (Database), Engine (..), defaultEngineVersion, engineVersionText, mkDatabaseName)
@@ -1830,22 +1830,27 @@ inventoryKubernetesTests =
             (GcsBackend "project" "other-bucket") legacyScope acceptedNative))
         assertBool "backup migration unexpectedly changed the safe schedule"
           (safeBytes == snd (updatedNative Map.! backupId))
-        let previousValue = ok (Yaml.decodeEither'
-              (renderPreviousInventoryDbBackupCronJob "personal" "pg-main" Postgres
-                (engineVersionText (defaultEngineVersion Postgres)) backend 7) :: Either Yaml.ParseException Value)
-            (previousBase, previousBytes) = ok (bindKubernetesObject KubernetesInput
-              { resourceId = backupId, ownerScope = owner, clusterId = cluster
-              , inputObject = previousValue, objectDigest = contentDigest (ok (canonicalValue previousValue))
-              , lifecyclePolicy = lifecycle safeMember, inputDataPolicy = dataPolicy safeMember
-              , inputSensitivity = sensitivity safeMember, sourceLocation = source safeMember })
-            previousMember = previousBase {dependencies = dependencies safeMember}
-            replacePrevious bundle = bundle {declarations = map (\case
-              Managed member | member ^. #identity == backupId -> Managed previousMember
-              existing -> existing) (declarations bundle)}
-            previousScope = ok (mkScopeDeclaration owner (map replacePrevious (scopeBundles safeScope)))
-            previousNative = Map.insert backupId (previousMember, previousBytes) safeNative
-        compileBackupPruneRemovalScope "pg-main" "personal" backend previousScope previousNative
-          @?= Right (safeScope, safeNative)
+        -- Frozen output of the a027d1f6 signed-v4 renderer, independent of the
+        -- current recognizer. A schedule update must preserve all other members.
+        signedV4 <- BS.readFile "test/fixtures/scheduled-v4-postgres-gcs.yaml"
+        signedV4 @?= renderPreviousSignedInventoryDbBackupCronJob "personal" "pg-main" Postgres
+          (engineVersionText (defaultEngineVersion Postgres)) backend 7
+        forM_ [renderPreviousInventoryDbBackupCronJob "personal" "pg-main" Postgres
+                 (engineVersionText (defaultEngineVersion Postgres)) backend 7, signedV4] $ \earlierBytes -> do
+          let previousValue = ok (Yaml.decodeEither' earlierBytes :: Either Yaml.ParseException Value)
+              (previousBase, previousBytes) = ok (bindKubernetesObject KubernetesInput
+                { resourceId = backupId, ownerScope = owner, clusterId = cluster
+                , inputObject = previousValue, objectDigest = contentDigest (ok (canonicalValue previousValue))
+                , lifecyclePolicy = lifecycle safeMember, inputDataPolicy = dataPolicy safeMember
+                , inputSensitivity = sensitivity safeMember, sourceLocation = source safeMember })
+              previousMember = previousBase {dependencies = dependencies safeMember}
+              replacePrevious bundle = bundle {declarations = map (\case
+                Managed member | member ^. #identity == backupId -> Managed previousMember
+                existing -> existing) (declarations bundle)}
+              previousScope = ok (mkScopeDeclaration owner (map replacePrevious (scopeBundles safeScope)))
+              previousNative = Map.insert backupId (previousMember, previousBytes) safeNative
+          compileBackupPruneRemovalScope "pg-main" "personal" backend previousScope previousNative
+            @?= Right (safeScope, safeNative)
     , testCase "disposable cluster updates a legacy backup CronJob without recreating it" $ do
         selected <- lookupEnv "NAGARE_EP148_BACKUP_TEST_CONTEXT"
         case selected of

@@ -1,0 +1,145 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  labels:
+    nagare.dev/database: pg-main
+    nagare.dev/managed-by: nagarectl
+  name: nagare-dbbackup-pg-main
+  namespace: personal
+spec:
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            nagare.dev/database: pg-main
+            nagare.dev/managed-by: nagarectl
+        spec:
+          containers:
+          - args:
+            - set -e; test -n "$BACKUP_RUN_ID"; case "$BACKUP_RUN_ID" in *[!a-f0-9-]*
+              ) exit 1;; esac; DEST="${PREFIX}${BACKUP_RUN_ID}.sql.gz"; command -v
+              sha256sum >/dev/null 2>&1; gzip -n -9 -c /dump/backup.sql > /dump/backup.gz;
+              EXPECTED=$(sha256sum /dump/backup.gz | cut -d' ' -f1); test ${#EXPECTED}
+              -eq 64; gcloud storage cp /dump/backup.gz "$DEST" --if-generation-match=0;
+              ACTUAL=$(gsutil cp "$DEST" - | sha256sum | cut -d' ' -f1); test ${#ACTUAL}
+              -eq 64; test "$EXPECTED" = "$ACTUAL"; python3 -c 'import json,os,ssl,urllib.request;
+              p="/var/run/secrets/kubernetes.io/serviceaccount/"; ns=open(p+"namespace").read().strip();
+              token=open(p+"token").read().strip(); ctx=ssl.create_default_context(cafile=p+"ca.crt");
+              base="https://"+os.environ["KUBERNETES_SERVICE_HOST"]+":"+os.environ.get("KUBERNETES_SERVICE_PORT_HTTPS","443");
+              name=os.environ["BACKUP_SOURCE_NAME"]; paths={"statefulSetUid":"/apis/apps/v1/namespaces/"+ns+"/statefulsets/"+name,"pvcUid":"/api/v1/namespaces/"+ns+"/persistentvolumeclaims/nagare-db-"+name+"-data"};
+              result={key:json.load(urllib.request.urlopen(urllib.request.Request(base+path,headers={"Authorization":"Bearer
+              "+token}),context=ctx,timeout=20))["metadata"]["uid"] for key,path in
+              paths.items()}; assert all(result.values()); print(json.dumps(result,sort_keys=True,separators=(",",":")))'
+              > /dump/source-after.json; test "$(sha256sum < /dump/source.json)" =
+              "$(sha256sum < /dump/source-after.json)"; rm -f /dump/source-after.json;
+              BACKUP_RECEIPT_DEST="${DEST}.receipt.json"; printf '{"sha256":"%s","jobUid":"%s","object":"%s","source":%s,"backup":%s}\n'
+              "$EXPECTED" "$BACKUP_RUN_ID" "$DEST" "$(cat /dump/source.json)" "$BACKUP_RECEIPT_METADATA"
+              > /dump/backup.payload.json; RECEIPT_SIGNATURE=$(python3 -c 'import
+              hashlib,hmac,json,os; payload=json.load(open("/dump/backup.payload.json"));
+              body=json.dumps(payload,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode("utf-8");
+              print(hmac.new(bytes.fromhex(os.environ["BACKUP_SIGNING_KEY"]),body,hashlib.sha256).hexdigest())');
+              test ${#RECEIPT_SIGNATURE} -eq 64; printf '{"version":4,"payload":%s,"hmacSha256":"%s"}\n'
+              "$(cat /dump/backup.payload.json)" "$RECEIPT_SIGNATURE" > /dump/backup.receipt.json;
+              RECEIPT_EXPECTED=$(sha256sum /dump/backup.receipt.json | cut -d' ' -f1);
+              test ${#RECEIPT_EXPECTED} -eq 64; gcloud storage cp /dump/backup.receipt.json
+              "$BACKUP_RECEIPT_DEST" --if-generation-match=0; gsutil cp "$BACKUP_RECEIPT_DEST"
+              - > /dump/backup.receipt.readback.json; RECEIPT_ACTUAL=$(sha256sum /dump/backup.receipt.readback.json
+              | cut -d' ' -f1); test ${#RECEIPT_ACTUAL} -eq 64; test "$RECEIPT_EXPECTED"
+              = "$RECEIPT_ACTUAL"; cat /dump/backup.receipt.readback.json > "${BACKUP_TERMINATION_LOG_PATH:-/dev/termination-log}";
+              rm -f /dump/backup.receipt.json /dump/backup.receipt.readback.json /dump/backup.payload.json;
+              rm -f /dump/backup.gz
+            command:
+            - /bin/sh
+            - -c
+            env:
+            - name: PREFIX
+              value: gs://bucket/databases/pg-main/
+            - name: KEEP
+              value: '7'
+            - name: BACKUP_RUN_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['batch.kubernetes.io/controller-uid']
+            - name: BACKUP_SOURCE_NAME
+              value: pg-main
+            - name: BACKUP_SIGNING_KEY
+              valueFrom:
+                secretKeyRef:
+                  key: HMAC_KEY
+                  name: nagare-dbbackup-pg-main-signing
+            - name: BACKUP_RECEIPT_METADATA
+              value: '{"database":"pg-main","engine":"postgres","format":"sql.gz","keep":7,"namespace":"personal","schedule":"nagare-dbbackup-pg-main","scheduleRevision":"e167a99020997525748217b813de35324c1dca03333b868863bc6679967da68c"}'
+            - name: GCE_METADATA_HOST
+              value: 169.254.169.254
+            - name: CLOUDSDK_CORE_PROJECT
+              value: project
+            image: google/cloud-sdk:slim
+            name: upload
+            volumeMounts:
+            - mountPath: /dump
+              name: dump
+          hostAliases:
+          - hostnames:
+            - metadata.google.internal
+            ip: 169.254.169.254
+          initContainers:
+          - args:
+            - python3 -c 'import json,os,ssl,urllib.request; p="/var/run/secrets/kubernetes.io/serviceaccount/";
+              ns=open(p+"namespace").read().strip(); token=open(p+"token").read().strip();
+              ctx=ssl.create_default_context(cafile=p+"ca.crt"); base="https://"+os.environ["KUBERNETES_SERVICE_HOST"]+":"+os.environ.get("KUBERNETES_SERVICE_PORT_HTTPS","443");
+              name=os.environ["BACKUP_SOURCE_NAME"]; paths={"statefulSetUid":"/apis/apps/v1/namespaces/"+ns+"/statefulsets/"+name,"pvcUid":"/api/v1/namespaces/"+ns+"/persistentvolumeclaims/nagare-db-"+name+"-data"};
+              result={key:json.load(urllib.request.urlopen(urllib.request.Request(base+path,headers={"Authorization":"Bearer
+              "+token}),context=ctx,timeout=20))["metadata"]["uid"] for key,path in
+              paths.items()}; assert all(result.values()); print(json.dumps(result,sort_keys=True,separators=(",",":")))'
+              > /dump/source.json
+            command:
+            - /bin/sh
+            - -c
+            env:
+            - name: BACKUP_SOURCE_NAME
+              value: pg-main
+            image: google/cloud-sdk:slim
+            name: source
+            volumeMounts:
+            - mountPath: /dump
+              name: dump
+          - args:
+            - set -e; i=0; until pg_isready -q -h pg-main >/dev/null 2>&1; do i=$((i+1));
+              if [ "$i" -ge 150 ]; then echo "pg-main is not accepting connections"
+              >&2; exit 1; fi; sleep 2; done; pg_dump --no-owner --no-privileges -h
+              pg-main -U "$POSTGRES_USER" -d "$POSTGRES_DB" > /dump/backup.sql
+            command:
+            - /bin/sh
+            - -c
+            env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: POSTGRES_PASSWORD
+                  name: nagare-db-pg-main
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  key: POSTGRES_USER
+                  name: nagare-db-pg-main
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  key: POSTGRES_DB
+                  name: nagare-db-pg-main
+            image: postgres:18
+            name: dump
+            volumeMounts:
+            - mountPath: /dump
+              name: dump
+          restartPolicy: Never
+          serviceAccountName: nagare-dbbackup-pg-main
+          volumes:
+          - emptyDir: {}
+            name: dump
+  schedule: 17 3 * * *
+  successfulJobsHistoryLimit: 3

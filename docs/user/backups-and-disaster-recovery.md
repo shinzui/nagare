@@ -168,6 +168,12 @@ is implemented; installed native acceptance remains pending. Existing schedules 
 remain restorable but cannot establish freshness because they lack a signed
 recovery-point timestamp.
 
+For an accepted earlier signed schedule, save a bounded update with
+`db disable-backup-prune pg-main --save-plan DIRECTORY`, inspect its CronJob-only
+change, then apply that review. This installs the current signed producer and
+cadence while preserving database credentials and existing receipt history.
+Unknown customized schedule scripts refuse this migration.
+
 Use `db backup-receipts pg-main --check-freshness` in operational monitoring.
 It freshly verifies accepted receipt/archive versions and reports a warning once
 the latest accepted recovery point is 30 minutes old, and unhealthy at one hour.
@@ -288,13 +294,24 @@ the continuous Litestream pattern (`cluster/examples/sqlite-litestream/`) for
 databases written while serving. Uploaded files, generated assets, and a stopped
 app's database snapshot cleanly.
 
-> **The three things you must keep off-machine yourself:** the **host age private
-> key** (without it you cannot decrypt secrets to rebuild), a **copy of this Git
-> repo and of your private operator repository** (contexts, host flake, encrypted
-> secrets), and a **copy of the active context's Pulumi state** — for a local
-> backend that means the `…/nagare/<context>/state` directory; for a context on
-> the opt-in GCS backend (`NAGARE_PULUMI_BACKEND=gcs`) the state already lives in a
-> versioned bucket off-machine. Everything else can be regenerated.
+Keep the host age private key offline, and preserve the private operator repository
+(contexts, host flake and encrypted secrets), exact platform release, Pulumi state,
+and accepted inventory history off-machine. A GCS state backend protects its state
+from workstation loss; it does not back up Kubernetes Secret values automatically.
+`inventory export` preserves reviewed native material, which can contain secrets,
+but generated database passwords, authentication keys, backup HMAC keys and local
+object-store credentials exist only in Kubernetes after creation. Their reviewed
+templates contain no generated values.
+
+Before admitting company data, capture the required live credentials into an
+encrypted recovery archive under the operator's recovery-key policy, retain it
+off-cluster, and prove decryption from a separate operator root. Record the exact
+context, Secret names and UIDs, accepted scope revisions, backup object generations
+and receipt digests alongside the encrypted archive. Keep plaintext out of Git,
+public reviews and diagnostic output. An inventory export alone does not satisfy
+this recovery-material requirement. The source-cluster-unavailable drill remains
+unaccepted until that archive and the exact backups recover verified content and
+usable service without the original cluster or workstation.
 
 ## The disaster-recovery runbook (target)
 

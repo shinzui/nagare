@@ -67,6 +67,27 @@ Every scheduled backup produces a durable, verifiable receipt for one exact obje
 
 ## Progress
 
+**Reviewed signed-schedule transition (2026-10-02).** Independent review found
+that `db disable-backup-prune` recognized unsigned predecessors but refused the
+accepted signed-v4 daily schedule. Its compiler now recognizes the exact former
+signed renderer and changes only the selected CronJob to the signed-v5
+fifteen-minute producer. A frozen fixture generated from `a027d1f6` verifies the
+old bytes independently; the transition preserves all other native members,
+scope overrides and configuration digest, and still refuses unknown scripts or
+a changed bucket. The public planner selects only the owner scope's native
+members and lets the registry regenerate composed contributions. The executable,
+42 backup tests, the exact transition regression, architecture/style checks and
+user-documentation validation pass. Installed transition and historical receipt
+consumption remain the next native assertion; no milestone closes here.
+
+The recovery-material audit also confirms generated database/authentication/HMAC
+and local object-store credentials are absent from their reviewed templates and
+therefore from inventory exports. The runbooks now require a separately encrypted
+off-cluster credential archive and a separate-root decryption/content drill before
+claiming source-cluster-loss recovery. This corrects documentation, not proof of
+an implemented automatic secret-backup facility.
+
+
 **Independent cloud ingestion and freshness source checkpoint (2026-10-02).**
 Installed `a027d1f6` passes the independent cp3 gate and exact GCS ingestion after
 the producer Job/Pod have been conditionally removed. The two-operation review

@@ -143,8 +143,12 @@ Apply that exact decision through `inventory recover`; do not patch a Secret,
 ServiceAccount or host unit outside its accepted authority.
 
 Private exports made with `inventory export --out "$PRIVATE_EXPORT"` contain
-native credentials and recovery material. Keep them private. Export is evidence
-preservation, not permission to replace live shared history with an older copy.
+reviewed native material and may contain credentials. Keep them private. Generated
+Kubernetes passwords, authentication keys and backup signing keys are absent from
+their reviewed templates; preserve those live values separately in the encrypted
+off-cluster recovery archive. Export is evidence preservation, not permission to
+replace live shared history with an older copy. See the
+[recovery-material requirement](../user/backups-and-disaster-recovery.md).
 
 ## Synchronize a newly protected backend
 
