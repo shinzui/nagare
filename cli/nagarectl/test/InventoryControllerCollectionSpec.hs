@@ -1,4 +1,4 @@
-module InventoryControllerCollectionSpec (controllerCollectionTests) where
+module InventoryControllerCollectionSpec (controllerCollectionTests, selected) where
 
 import Control.Exception (SomeException, try)
 import Data.Aeson (Value (..), object, toJSON, (.=))

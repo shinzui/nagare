@@ -460,6 +460,7 @@ test-suite nagarectl-test
     InventoryLifecycleSpec
     InventoryMaintenanceSpec
     InventoryMigrationSpec
+    InventoryNativeCollectionSpec
     InventoryObjectOpsSpec
     InventoryObservabilitySpec
     InventoryObservationSpec

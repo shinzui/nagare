@@ -34,7 +34,7 @@ import Nagare.Test.Effectful.Model (field, textField)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 
-data CollectionFault = Normal | BeforeDelete | LostDeleteAck | LyingWait | ImmediateDeletion | RaceUid | RaceVersion | Cascade | CascadeLostAck | IncompleteList
+data CollectionFault = Normal | BeforeDelete | LostDeleteAck | LyingWait | ImmediateDeletion | RaceUid | RaceVersion | Cascade | CascadeLostAck | IncompleteList | DiscoveryFailure | ListFailure | MalformedList
   deriving stock (Eq, Show)
 
 data CollectionWorld = CollectionWorld
@@ -43,6 +43,7 @@ data CollectionWorld = CollectionWorld
   , deleteBodies :: ![Value]
   , requests :: ![[String]]
   , virtualSeconds :: !Int
+  , discoveredApis :: ![Text]
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON, FromJSON)
@@ -58,7 +59,7 @@ writeCollectionWorld :: FilePath -> CollectionWorld -> IO ()
 writeCollectionWorld root = BL.writeFile (root </> "collection-world.json") . encode
 
 seedCollectionWorld :: FilePath -> IO ()
-seedCollectionWorld root = writeCollectionWorld root (CollectionWorld (Map.fromList entries) children [] [] 0)
+seedCollectionWorld root = writeCollectionWorld root (CollectionWorld (Map.fromList entries) children [] [] 0 modelApis)
   where
     entries = map seed (Map.toList collectionNative)
     seed (identity, (_, bytes)) =
@@ -129,16 +130,24 @@ collectionRequest root fault request = do
   writeCollectionWorld root world
   case args of
     ["api-resources", "--namespaced=true", "--verbs=list", "-o", "name"] ->
-      pure (Right (ExitSuccess, T.unpack (T.unlines modelApis), ""))
+      pure (if fault == DiscoveryFailure then Right (ExitFailure 1, T.unpack (T.unlines (take 74 (discoveredApis world))), "partial discovery unavailable") else Right (ExitSuccess, T.unpack (T.unlines (discoveredApis world)), ""))
     ["get", resource, "--namespace", "personal", "-o", "json"]
-      | T.pack resource `elem` modelApis ->
+      | T.pack resource `elem` discoveredApis world ->
           pure
-            ( success
-                ( object
-                    [ "metadata" .= object ["continue" .= (if fault == IncompleteList then "next-page" else "" :: Text)]
-                    , "items" .= [value | value <- Map.elems (resources world) <> Map.elems (descendants world), modelToken value == T.pack resource]
-                    ]
-                )
+            ( if fault == ListFailure && resource == "services"
+                then failure "Forbidden"
+                else
+                  if fault == MalformedList && resource == "services"
+                    then success (object ["items" .= ([] :: [Value])])
+                    else
+                      success
+                        ( object
+                            [ "apiVersion" .= ("v1" :: Text)
+                            , "kind" .= ("List" :: Text)
+                            , "metadata" .= object ["continue" .= (if fault == IncompleteList then "next-page" else "" :: Text)]
+                            , "items" .= [value | value <- Map.elems (resources world) <> Map.elems (descendants world), modelToken value == T.pack resource]
+                            ]
+                        )
             )
     ["get", kind, name, "--namespace", "personal", "-o", "json", "--ignore-not-found"] -> do
       unless (null (request ^. #input)) (fail "get with stdin")
@@ -256,4 +265,14 @@ modelToken value = case textField "kind" value of
   "Revision" -> "revisions.serving.knative.dev"
   "Deployment" -> "deployments.apps"
   "Pod" -> "pods"
+  "ReplicaSet" -> "replicasets.apps"
+  "Endpoints" -> "endpoints"
+  "EndpointSlice" -> "endpointslices.discovery.k8s.io"
+  "Image" -> "images.caching.internal.knative.dev"
+  "Ingress" -> "ingresses.networking.internal.knative.dev"
+  "PodAutoscaler" -> "podautoscalers.autoscaling.internal.knative.dev"
+  "Metric" -> "metrics.autoscaling.internal.knative.dev"
+  "ServerlessService" -> "serverlessservices.networking.internal.knative.dev"
+  "PodMetrics" -> "pods.metrics.k8s.io"
+  "ConfigMap" -> "configmaps"
   other -> error ("unmodeled kind " <> T.unpack other)

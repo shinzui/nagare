@@ -31,6 +31,7 @@ import InventoryKubernetesSpec (inventoryKubernetesTests)
 import InventoryLifecycleSpec (inventoryLifecycleTests)
 import InventoryMaintenanceSpec (inventoryMaintenanceTests)
 import InventoryMigrationSpec (inventoryMigrationTests)
+import InventoryNativeCollectionSpec (nativeCollectionTests)
 import InventoryObjectOpsSpec (inventoryObjectOpsTests)
 import InventoryObservabilitySpec (inventoryObservabilityTests)
 import InventoryObservationSpec (inventoryObservationTests)
@@ -156,6 +157,7 @@ main = do
             , inventoryPublicationTests
             , inventoryCloudTests
             , inventoryHostTests
+            , nativeCollectionTests
             , controllerCollectionTests
             , inventoryEffectfulCollectionTests
             , inventoryEffectfulTests

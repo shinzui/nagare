@@ -92,12 +92,105 @@ Consequently the aggregate managed-command audit stops at that existing gate;
 no limits were raised. The direct command-registration audit passes after adding
 the prior checkpoint's `test-inventory-effects` recipe to its registry.
 
+## Recorded native graph agreement (2026-10-02)
+
+[EP-156](../plans/156-prove-fresh-gcp-convergence-and-shared-history-recovery.md)
+now validates the existing interpreter against the frozen
+[Knative recording](mp23-native-bootstrap-results-2026-10-02/f15-knative-collection-exception-review.json)
+from `v1.35.8+k3s1`: sixteen descendants and seventy-five discovered namespaced
+listable APIs. The original exception proposal is unchanged and remains
+`awaiting-operator-approval`, with `providerMutationPerformed: false`.
+
+The [derived fixture](../../cli/nagarectl/test/fixtures/inventory/knative-collection-native.json)
+copies the complete API list and all sixteen recorded kind/API-version, name,
+namespace, UID and owner-reference records, with the source SHA-256. Run
+`python3 scripts/knative-collection-fixture.py --check` to detect drift against the
+recording; omit `--check` only to regenerate the derived test file. The script
+never modifies evidence or contacts a provider.
+
+The recording contains metadata summaries, not complete raw responses. The test
+wraps those summaries in Kubernetes object/list envelopes, supplies synthetic
+resource versions, and rebases only the two root owner references to the existing
+isolated `web` / `web-uid` parent. It preserves every descendant UID and transitive
+edge, including the two EndpointSlice paths, ReplicaSet, Image, Ingress, Metric,
+PodAutoscaler and ServerlessService. The recording contains no Pod descendant;
+Pod behavior remains covered by the existing synthetic graph. Other API lists are
+modeled empty except for the existing four protected fixture objects and a
+synthetic ownerless PodMetrics response. These fixtures do not claim to replay
+all native namespace contents or the nine native protected database members.
+PodMetrics uses the standard timestamp/window/container shape described in the
+[Kubernetes metrics documentation](https://kubernetes.io/docs/tasks/debug/debug-cluster/resource-metrics-pipeline/).
+List metadata and owner-reference interpretation were also checked in
+`mori://codedownio/kubernetes-api/packages/kubernetes-api-1.35`; no dependency
+bounds or versions changed.
+
+[Eighteen production-path scenarios](../../cli/nagarectl/test/InventoryNativeCollectionSpec.hs)
+reuse `collectionRequest`, `runKubectlWith`, the production planner/adapter and
+filesystem journal, including the existing fresh-process resume probe. They
+assert saved authority contains exactly sixteen descendant UIDs and all
+seventy-five APIs; shared, non-controller, independently inventoried, unsupported
+and cross-namespace descendants refuse review; partial discovery output with a
+failed exit, one forbidden list, continuation tokens and malformed list metadata
+cannot publish authority; changed discovery, ownership and unexpected descendants
+refuse before DELETE. Recovery refuses incomplete discovery, newly reachable
+transitive descendants and protected ownership drift. Two surviving deep
+EndpointSlices keep the original transaction pending even after intermediate
+owners disappear. Only explicit modeled cleanup permits its original tombstone;
+protected objects stay byte-for-byte equal and completed replay makes no calls.
+
+The tests demonstrated one production mismatch: an ownerless retained PVC with
+missing UID metadata was silently discarded by the generic projection exception,
+and the planner published an incomplete protected-object review. That regression
+failed before the fix. `parseCollectionNode` now permits UID omission only for
+ownerless, uninventoried `PodMetrics` from `pods.metrics.k8s.io`; incomplete
+persisted or owned objects refuse. The sixteen recorded descendant kinds/edges
+already fit the existing finite policy, so no controller authority was broadened.
+
+The tests enforce these exact request budgets, with the complete API-list multiset
+checked on every scan, including empty APIs:
+
+| Phase | Discovery calls | Namespace lists | Parent GETs | DELETE | Wait | Total |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Prepare/publish collection review | 1 | 75 | 2 | 0 | 0 | 78 |
+| Apply, accepted parent DELETE with descendants pending | 3 | 225 | 3 | 1 | 1 | 233 |
+| Each pending/partial/final-cleanup resume | 1 | 75 | 2 | 0 | 0 | 78 |
+| Already completed transaction replay | 0 | 0 | 0 | 0 | 0 | 0 |
+
+The three apply scans are admission preflight, execution preflight and completion
+verification. These are calls at the kubectl interpreter boundary, not counts of
+HTTP requests made internally by kubectl discovery or pagination. Native elapsed
+time and actual controller/GC cost remain unmeasured by this fixture. Failed
+preparation is bounded at 78 calls (three for failed API discovery); refused
+preflight and unresolved recovery are also bounded at 78. There is exactly one
+parent UID/resourceVersion-conditional Background DELETE across the successful
+review/recovery lifecycle, no child DELETE, no finalizer patch and no cloud call.
+
+```bash
+python3 scripts/knative-collection-fixture.py --check
+just test-inventory-effects
+cabal test nagarectl-test --project-dir=cli/nagarectl --test-show-details=failures
+```
+
+The focused suite passes all 43 interpreter tests in 6.92 seconds, excluding
+compilation; the full CLI suite passes all 1,060 tests in 54.70 seconds. The
+executable builds and both public Knative CLI variants pass again with local
+subprocess shims, including old-review Orphan behavior. Fixture
+consistency, Fourmolu, Cabal formatting, structural Haskell style and CLI
+architecture pass. The broad Haskell architecture gate still rejects the same
+unchanged `AppDeploySpec.hs` and `InventoryKubernetesSpec.hs` line limits recorded
+above. The existing `just test-inventory-effects` entrypoint now checks fixture
+drift before running the interpreter suite. This accepts recorded metadata
+agreement and bounded local behavior;
+it does not prove live admission, controller reconciliation, garbage collection,
+protected database contents, or complete raw native response compatibility.
+
 ## Remaining acceptance
 
 F20 remains Open for native agreement and independent verification. Models do
-not execute admission, Knative controllers or Kubernetes GC. Next, compare the
-discovered graph and request/response shapes against the supported native versions,
-then use one newly issued disposable collection review to prove actual descendant
+not execute admission, Knative controllers or Kubernetes GC. Recorded graph
+agreement is now covered locally; complete native request/response and controller
+agreement remain. The next native assertion still needs one newly issued
+disposable collection review to prove actual descendant
 cleanup, unchanged retained data and original-transaction recovery. Measure the
 complete discovery/list cost separately from DELETE/finalization. On a mismatch,
 capture and reproduce that boundary locally before another installed attempt.

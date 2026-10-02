@@ -57,6 +57,8 @@ parseCollectionNode resource =
             "metadata"
             ( \m -> do
                 identity <- m .:? "uid"
+                annotations <- m .:? "annotations" .!= KM.empty
+                owned <- annotations .:? "nagare.dev/resource-id"
                 refs <- m .:? "ownerReferences" .!= []
                 ownerIds <- traverse (withObject "ownerReference" (.: "uid")) refs
                 controllerIds <-
@@ -68,14 +70,20 @@ parseCollectionNode resource =
                       )
                       refs
                 case identity of
-                  Nothing | null ownerIds -> pure Nothing -- projected APIs, e.g. metrics
-                  Nothing -> fail "dependent lacks UID"
+                  -- Only the known non-persisted API may omit a UID. Treating
+                  -- every ownerless object as a projection silently drops
+                  -- incomplete persisted/protected evidence from the review.
+                  Nothing
+                    | resource == "pods.metrics.k8s.io"
+                    , k == "PodMetrics"
+                    , null ownerIds
+                    , owned == Nothing ->
+                        pure Nothing
+                  Nothing -> fail "persisted or owned collection object lacks UID"
                   Just ident -> do
                     ns <- m .: "namespace"
                     n <- m .: "name"
                     rv <- m .: "resourceVersion"
-                    annotations <- m .:? "annotations" .!= KM.empty
-                    owned <- annotations .:? "nagare.dev/resource-id"
                     unless (all (not . T.null) [resource, ns, n, ident, rv]) (fail "empty collection identity")
                     pure (Just (CollectionNode resource ns n ident rv k (sort ownerIds) (sort controllerIds) owned))
             )

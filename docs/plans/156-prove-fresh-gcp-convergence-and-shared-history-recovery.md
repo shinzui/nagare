@@ -92,6 +92,11 @@ provenance:
       at: 2026-10-02T14:57:48Z
       mode: "update"
       note: "Require affected interpreter and provider contract proof before native iterations"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-02T16:53:06Z
+      mode: "implement"
+      note: "Validate recorded Knative graph through existing interpreter; fix incomplete UID evidence and enforce request budgets"
 ---
 
 # Prove fresh GCP convergence and shared history recovery
@@ -108,6 +113,8 @@ A production-shaped disposable GCP context proves reviewed cloud/host/cluster/ap
 
 
 ## Progress
+
+- [x] (2026-10-02) Validate recorded Knative metadata through the existing production-path interpreter: all sixteen descendants and seventy-five APIs, ownership/completeness refusals, unexpected descendants, protected-object recovery and exact kubectl-call budgets. Eighteen new scenarios pass; the combined interpreter suite passes 43 tests. The [recorded agreement evidence](../audits/mp23-reviewed-controller-collection-proof.md#recorded-native-graph-agreement-2026-10-02) distinguishes synthetic envelopes/versions from recorded identities. A missing-UID protected-object regression demonstrated and fixed an overbroad projection exception. No native gate or F20 closure follows; the frozen cloud transaction and separate cascade exception remain untouched.
 
 **Cheap validation gate strengthened (2026-10-02).** The [Effectful restore pilot](../audits/mp23-effectful-restore-pilot.md) passes six local scenarios in about two seconds, including the rendered-script counterfactual for F19 and fresh-process recovery. The [local F20 deletion/finalizer checkpoint](../audits/mp23-effectful-collection-proof.md) now passes, including original-transaction fresh-process recovery. Its public CLI pending-Knative fixture also passes through the real subprocess interpreter with local shims. The [reviewed controller collection checkpoint](../audits/mp23-reviewed-controller-collection-proof.md) now also passes: 25 combined interpreter tests, 1,042 full CLI tests and both public Knative fixtures. EP-153 supplies explicit dynamic descendant authority; this plan next verifies supported native controller agreement. No native closure follows from these tests. Frozen `4c4b667e`, the pending original transaction and all accepted source/neighbor evidence remain unchanged.
 
@@ -244,6 +251,8 @@ Inherited baseline: EP-150 prepared a 27-create, zero-update/delete/import Pulum
 
 ## Surprises & Discoveries
 
+2026-10-02: The recorded sixteen-descendant graph fits the existing finite policy, but incomplete protected-object metadata exposed a parser defect: an ownerless PVC without a UID was silently treated as a projected API object. Only ownerless, uninventoried PodMetrics may now omit UID. The fixture preserves recorded kinds/identities/owner edges and supplies documented synthetic envelopes/resource versions. Full raw provider responses and real controller/GC behavior still need native proof. Exact kubectl-boundary costs are 78 calls for preparation, 233 for apply with pending descendants, 78 per unfinished/finalizing resume and zero for terminal replay; they are not HTTP request counts or native latency measurements.
+
 2026-09-30: Activator readiness depends on the autoscaler websocket, so object-name/operation-ID ordering cannot substitute for a typed dependency edge. The installed immutable review omitted this edge and stopped after creating activator. Future pinned/configured Serving inputs must order activator after autoscaler; the old review requires guarded readiness continuation that leaves the unready operation ambiguous, not a rewritten review or an unjournaled autoscaler apply. See F14 and the ADR 22 amendment.
 
 The installed fresh-root discovery experiment establishes a command-specific authority error rather than missing shared history: direct status finds six accepted scopes in GCS, but bootstrap selects a newly initialized local head without looking remotely. Project-list omission also cannot prove a GCS global name absent. The existing read-only opener checks format binding only; discovery must additionally check the head binding and distinguish incomplete history from a genuinely empty prefix. The [proof](../audits/mp23-fresh-root-discovery-proof.md) records native timing, installed fault results, and the source-established kubeconfig path portability risk separately from observed failures.
@@ -279,7 +288,7 @@ Current implementation findings are recorded in Progress. The state bucket, stac
 ## Outcomes & Retrospective
 
 
-Remaining-work plan created; no new acceptance run has been performed. Inherited capabilities are credited in Progress and must not be presented as newly completed work.
+2026-10-02: Recorded native graph agreement is locally validated through the existing interpreter and original-review recovery, with the demonstrated missing-UID parsing defect fixed. This checkpoint adds no cloud mutation, installation, cascade exception approval or M1/M2 completion. Real descendant cleanup, retained native data, independent F20 verification and the remaining native/release gates stay open. Inherited acceptance evidence retains its existing credit.
 
 
 ## Context and Orientation
@@ -296,7 +305,7 @@ scripts/rehearse-gcp-bootstrap.sh, scripts/rehearse-managed-resources.sh, infra/
 
 ### Interpreter agreement before native resumption
 
-The next bounded assertion is newly reviewed Knative descendant collection. First compare the supported versions’ API discovery and owner graph with the finite source policy, keeping discovery/list completeness and cost visible. Then use one disposable eligible Service under a newly issued `--controller-descendants` review to prove real Background GC, preserved retained data/neighbor UIDs and original-transaction recovery. Record parent acceptance separately from descendant completion. This is not an atomic exact-UID deletion set: trusted controllers and namespace writers remain assumptions, and unobserved new descendant chains can escape a later graph scan. Capture any native mismatch into the local request fixtures before another installed attempt. This procedure does not authorize changing the frozen old review or executing its separate exception; resolve its existing approval boundary before any work that would conflict with that transaction.
+The next bounded assertion is newly reviewed Knative descendant collection. The recorded sixteen-descendant/seventy-five-API metadata comparison now passes through the existing interpreter, with completeness and request budgets enforced by `cli/nagarectl/test/InventoryNativeCollectionSpec.hs`. Preserve that fixture and its explicit synthetic-envelope limits. Full native response shapes and actual discovery latency remain unverified. In a separately authorized native continuation, use one disposable eligible Service under a newly issued `--controller-descendants` review to prove real Background GC, preserved retained data/neighbor UIDs and original-transaction recovery. Record parent acceptance separately from descendant completion. This is not an atomic exact-UID deletion set: trusted controllers and namespace writers remain assumptions, and unobserved new descendant chains can escape a later graph scan. Capture any native mismatch into the local request fixtures before another installed attempt. This procedure does not authorize changing the frozen old review or executing its separate exception; resolve its existing approval boundary before any work that would conflict with that transaction.
 
 Require the affected production-path interpreter scenario, a negative/counterfactual check for the defect, and the real-interpreter request contract before native admission. For component upgrades, update request/response fixtures from the actual supported tool/controller contract and run only the bounded native behavior that the model cannot establish. Record simulation assumptions explicitly: admission/defaulting, real controllers/finalizers, IAM, networking, image utilities, real database execution and provider consistency still require native evidence. Do not treat simulated convergence as cloud acceptance. Reproduce a failed native boundary locally before a second installation/attempt. This gate reorders preparation without waiving any final local/cloud/release evidence.
 

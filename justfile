@@ -284,6 +284,7 @@ live-test:
 # MP-23: real restore/recovery logic with local request interpreters; no cloud.
 [group('test')]
 test-inventory-effects:
+    python3 scripts/knative-collection-fixture.py --check
     cabal test nagarectl-test --project-dir=cli/nagarectl --test-options='-p effectful' --test-show-details=direct
 
 # EP-119: enforce the production Haskell source contract and pinned formatting.
