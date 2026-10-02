@@ -894,5 +894,6 @@ data CdnDisableOpts = CdnDisableOpts
   { host :: !String
   , namespace :: !(Maybe String)
   , dryRun :: !Bool
+  , savePlan :: !(Maybe FilePath)
   }
   deriving stock (Generic, Show)

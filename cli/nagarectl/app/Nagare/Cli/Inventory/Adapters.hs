@@ -121,6 +121,7 @@ import Nagare.Inventory.Digest qualified as InventoryDigest
 import Nagare.Inventory.Plan qualified as InventoryPlan
 import Nagare.Inventory.Store qualified as InventoryStore
 import Nagare.Ops.ContextGuard (projectGuardVerdict)
+import Nagare.Ops.Pulumi (stackOutput)
 import Nagare.Platform.StackConfig (contextStackConfigPath)
 import Nagare.Platform.Workspace (PlatformWorkspace)
 import Nagare.Resource.Inventory qualified as ResourceInventory
@@ -284,13 +285,15 @@ inventoryDnsAdapter active workspace binding specs accepted
                       Nothing -> pure (Left "DNS resource is absent from the active context binding")
                       Just dnsBinding -> do
                         refs <- gatherGcpStackRefs (workspace ^. #pulumiDir) (active ^. #profile)
+                        origin <- stackOutput (workspace ^. #pulumiDir) "publicIp"
                         let expected = case ( dnsDeclaration dnsBinding ^. #address
                                             , dnsDeclaration dnsBinding ^. #spec
                                             ) of
                               (Resource.DnsRecord account zone _, ResourceInventory.DnsARecord target _)
                                 | Resource.nameText account == refs ^. #project
                                 , Resource.nameText zone == refs ^. #dnsZone
-                                , target == refs ^. #globalIp ->
+                                , target == refs ^. #globalIp
+                                    || (Just target == origin && Map.member resource accepted) ->
                                     Right ()
                               _ -> Left "reviewed DNS account, zone, or target differs from the platform outputs"
                         case expected of

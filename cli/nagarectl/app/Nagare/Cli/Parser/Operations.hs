@@ -102,7 +102,11 @@ cdnPurgeOptsParser =
 
 cdnDisableOptsParser :: Parser CdnDisableOpts
 cdnDisableOptsParser =
-  CdnDisableOpts <$> cdnHostArg <*> namespaceOpt <*> dryRunOpt
+  CdnDisableOpts
+    <$> cdnHostArg
+    <*> namespaceOpt
+    <*> dryRunOpt
+    <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save an exact reviewed DNS disable; apply with inventory apply"))
 
 -- | Options for @cleanup@ (MasterPlan 8, EP-41). @--confirm@ defaults 'False', so
 -- a plain run is the dry run; when none of @--images/--previews/--releases@ is

@@ -27,6 +27,11 @@ provenance:
       at: 2026-10-01T13:58:23Z
       mode: "implement"
       note: "Implement independent reviewed tuple scope, private guarded HTTP transport and saved public grant/revoke routes"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-02T19:14:32Z
+      mode: "implement"
+      note: "Implement scoped reviewed CDN disable while retaining open public and native acceptance"
 ---
 
 # Complete reviewed access and CDN operations
@@ -41,6 +46,24 @@ Operators can grant and revoke access, synchronize the protected-app portal, and
 
 
 ## Progress
+
+**M2 disable source checkpoint (2026-10-02).** `cdn disable HOST --save-plan DIR`
+now derives a replacement from the accepted workload scope. Google DNS keeps
+its exact owned record and points it at the platform origin; Cloudflare keeps
+its record identity, becomes DNS-only, and withdraws only that hostname's cache
+contribution from the shared zone rules. Scope inputs and neighboring hosts are
+preserved. The 11 reviewed CDN tests pass, including exact provider updates,
+unchanged neighboring objects, foreign-origin refusal, and unresolved-response
+handling without replay. This is source evidence only: native Google DNS
+acceptance, reviewed purge, and exact owned retirement remain open, so M2 is
+unchecked. Independent `scripts/test-cdn-disable-public.py` now exercises a
+contribution-bearing typed scope through the actual public CLI. It caught and
+closed generated-namespace native overlap and the runtime CDN-only IP guard;
+the saved review now contains one exact DNS update, preserves the accepted head
+and scope bytes, and refuses an unowned host. [Independent command evidence](../audits/mp23-independent-results-2026-10-02/public-cdn-disable.txt)
+separates this provider-recorder proof from native Google DNS acceptance.
+Backup/restore work retains the parent plan's next priority.
+
 
 **Native synchronization accepted (2026-10-01).** Installed `d871d913` passes the genuine local bootstrap gate (213 verification-only operations, zero writes, 19 unchanged content digests, 35 healthy/completed Pods) and strengthened public access fixture. The version-verified native sync plan takes 19.187 seconds; exact head/scope/UID/image/map guards pass and its two-workload apply converges in 28.036 seconds. Protected HTTP now gives document 302 and API 401, direct backend bypass gives 404, and the public neighbor retains the exact expected body. [The native proof](../audits/mp23-native-bootstrap-results-2026-10-01/f15-auth-synchronization.json) also records the temporary wrong-binary planning attempt and its no-review/no-effect boundary; runtime version verification now precedes every stage. No additional build or gate was repeated. HTTPS/browser login remains unaccepted. Parent step 3 has begun with exact known-content source/neighbor rows; step 4 is still open.
 
@@ -62,7 +85,7 @@ Operators can grant and revoke access, synchronize the protected-app portal, and
 - [x] (2026-10-01) M1: Reviewed access grant/revoke and portal synchronization work through public commands, preserve other contributions, and recover a lost acknowledgement without duplicate or foreign effects. The bounded HTTP/Kubernetes command fixture and full CLI suite pass; installed native integration remains with EP-155/156.
 - [ ] M2: Reviewed CDN purge, disable, and exact owned retirement work for their supported providers, with bounded targets, replay handling, and selected-only evidence.
 
-Inherited: auth-owner backend/portal contributions, central routes, Google per-host DNS review with a disposable-zone probe, and Cloudflare host/zone ownership and offline transport tests. Reviewed access commands are delivered by M1 below. CDN purge/disable still refuse after inventory initialization and remain M2 work.
+Inherited: auth-owner backend/portal contributions, central routes, Google per-host DNS review with a disposable-zone probe, and Cloudflare host/zone ownership and offline transport tests. Reviewed access commands are delivered by M1 below. CDN purge still refuses after inventory initialization. The reviewed disable source path is available; its public/native acceptance and exact owned retirement remain M2 work.
 
 
 **M1 source acceptance (2026-10-01).** `cli/nagarectl/src/Nagare/Inventory/Access.hs`, `AccessRuntime.hs`, and `cli/nagarectl/src/Nagare/Access/Reviewed.hs` implement a typed standalone viewer-relationship scope and complete auth-owner portal synchronization. Saved grant/revoke reviews use the common apply/resume journal; a private runtime key never enters scopes, native envelopes or diagnostics. Exact accepted En Service and protected DomainMapping identities bind each tuple. Portal sync composes every accepted contribution and reviews a Shomei Deployment rollout after its configuration maps, because running process environment does not reload when a ConfigMap changes.

@@ -6,6 +6,9 @@ where
 
 import Control.Monad (forM_)
 import Data.Generics.Labels ()
+import Data.List.NonEmpty (NonEmpty (..))
+import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Nagare.Cdn.Cloudflare (loadCloudflareCreds, purgeHostname)
@@ -21,6 +24,7 @@ import Nagare.Cdn.Status
   )
 import Nagare.Cli.Application.Cdn (gatherGcpStackRefs)
 import Nagare.Cli.Application.Config (appNamespace)
+import Nagare.Cli.Inventory.Planning (inventoryPlanRegistryWithNative)
 import Nagare.Cli.Options
   ( CdnCommand (..)
   , CdnDisableOpts (..)
@@ -34,15 +38,23 @@ import Nagare.Cli.Runtime.Ownership
   , refuseDirectCloudflareZoneMutationIfOwned
   , refuseDirectLegacyOperationWhenManaged
   )
-import Nagare.Cli.Runtime.Pulumi (ensurePulumiForActiveContext)
+import Nagare.Cli.Runtime.ProjectGuard (projectGuardInputsFor)
+import Nagare.Cli.Runtime.Pulumi (ensurePulumiForActiveContext, selectReviewedPulumiForContext)
 import Nagare.Cli.Runtime.Target
   ( activeProfile
+  , activeTarget
   , resolveDomainsBaseAt
   )
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.Command qualified as Inventory
+import Nagare.Inventory.Plan qualified as InventoryPlan
+import Nagare.Inventory.Status (loadAcceptedNativeSelected)
+import Nagare.Ops.ContextGuard (projectGuardVerdict)
 import Nagare.Ops.Domains (listNamespaces)
 import Nagare.Ops.Probe (captureTool)
 import Nagare.Ops.Pulumi (stackOutput)
+import Nagare.Resource.Cdn (compileCdnDisable)
+import Nagare.Resource.Inventory (Executor (KubernetesExecutor), ScopeChange (ReplaceScope), composeInventory, composeSnapshot)
 import Nagare.Target (contextNameText)
 
 -- | MasterPlan 11 / EP-58: the @nagarectl cdn@ command group dispatcher.
@@ -139,10 +151,43 @@ runCdnPurge mctx o = do
 -- @*.<baseDomain>@ wildcard (which points at the VM) wins again. @--dry-run@
 -- prints the planned revert without making it.
 runCdnDisable :: Maybe String -> CdnDisableOpts -> IO ()
+runCdnDisable mctx o | Just output <- o ^. #savePlan = do
+  when (o ^. #dryRun) (dieT "--save-plan already plans without effects; omit --dry-run")
+  active <- activeTarget mctx
+  snapshot <- Inventory.loadTargetSnapshotReadOnly active
+  workspace <- selectReviewedPulumiForContext (active ^. #contextName) (active ^. #profile)
+  inputs <- projectGuardInputsFor (active ^. #contextName) (active ^. #profile) workspace
+  either dieT pure (projectGuardVerdict inputs)
+  origin <-
+    stackOutput (workspace ^. #pulumiDir) "publicIp"
+      >>= maybe (dieT "reviewed CDN disable requires the accepted platform publicIp") pure
+  scope <- either dieT pure (compileCdnDisable snapshot (T.pack (o ^. #host)) origin)
+  candidate <- either (dieT . T.pack . show) pure (composeInventory snapshot (ReplaceScope scope :| []))
+  Inventory.planInventoryCandidateWith
+    ( \reviewCandidate history -> do
+        inventory <- either (dieT . T.pack . show) pure (composeSnapshot snapshot)
+        let required =
+              InventoryPlan.requirementsByExecutor
+                (InventoryPlan.observationRequirements reviewCandidate history)
+            selected = Set.fromList (Map.findWithDefault [] KubernetesExecutor required)
+        store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+        (native, _) <-
+          loadAcceptedNativeSelected selected store history inventory
+            >>= either dieT pure
+        inventoryPlanRegistryWithNative
+          active
+          workspace
+          (Map.filter ((/= "contribution") . (^. #source . #file) . fst) native)
+          reviewCandidate
+          history
+    )
+    active
+    candidate
+    output
 runCdnDisable mctx o = do
   let host = T.pack (o ^. #host)
   unless (o ^. #dryRun) $
-    refuseDirectLegacyOperationWhenManaged mctx "cdn disable" "a reviewed DNS retirement is not yet available"
+    refuseDirectLegacyOperationWhenManaged mctx "cdn disable" "save the DNS disable with --save-plan DIR, then inventory apply DIR --yes"
   (_, workspace) <- ensurePulumiForActiveContext mctx
   tp <- activeProfile mctx
   base <- resolveDomainsBaseAt mctx workspace Nothing

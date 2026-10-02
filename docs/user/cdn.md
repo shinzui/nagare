@@ -203,8 +203,12 @@ nagarectl cdn disable blog.example.com   # tear the CDN down and route DNS back 
 
 `purge` and `disable` accept `--dry-run` and print the planned action without
 making it. Once a context initializes inventory history, their live direct
-forms refuse even for a new hostname; reviewed purge and DNS retirement
-operations are pending. Read-only `list`, `status`, and `--dry-run` remain
+forms refuse even for a new hostname. Save a reviewed routing change with
+`cdn disable HOST --save-plan DIR`, then apply it with `inventory apply DIR --yes`.
+Google DNS retains the exact owned record and points it at the platform origin.
+Cloudflare changes that record to DNS-only and withdraws only the selected host's
+cache rules, preserving neighboring contributions. The public command fixture verifies this path; native Google disable acceptance,
+reviewed purge and exact DNS retirement remain pending. Read-only `list`, `status`, and `--dry-run` remain
 available. (Live `cdn list`/`status` discovery reads the cluster and the cloud
 provider, so it is part of the deferred live legs while the VM is off.)
 
