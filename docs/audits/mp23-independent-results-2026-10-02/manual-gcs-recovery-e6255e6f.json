@@ -1,0 +1,154 @@
+{
+  "candidate": "e6255e6f2106eda0f98cea0a717e37f354604dd0",
+  "context": {
+    "identity": "ep150-preview",
+    "project": "tan-ng-labs"
+  },
+  "producerJobAbsent": true,
+  "collectedTombstone": {
+    "resource": "standalone:database-backup-personal-mp23-pg-a-independentmanual/independentmanual/job",
+    "tombstone": {
+      "deletedAt": "2026-10-02T22:34:11Z",
+      "owner": {
+        "kind": "Standalone",
+        "name": "database-backup-personal-mp23-pg-a-independentmanual"
+      },
+      "physical": "b4cd1d21-d507-4caf-9d45-156b06e74a20",
+      "review": "937f92bf534e25ecc6d178c850875050d48061c3c6f284b5dc20f65c975292e1",
+      "revision": {
+        "digest": "81236cdf9440eec75c9a046077040eb20ab62d089a1749cd0567bdb85a5eeb39",
+        "generation": 1
+      }
+    }
+  },
+  "restoredJobUid": "c4ded1d9-0003-48c5-beaf-30bf1faa9783",
+  "restoreCompletedAt": "2026-10-02T22:35:52Z",
+  "restoredPodUid": "3ab63f58-e22b-4f73-9ae8-78465a1eeaae",
+  "downloadGenerationEnvironment": {
+    "OBJECT_VERSION": "1790980191138176",
+    "RECEIPT_VERSION": "1790980198244552"
+  },
+  "knownContent": {
+    "mp23-pg-a": {
+      "podUid": "9a89af09-8b7a-4a46-8ab9-c6eaa1563151",
+      "row": "1|mp23-after-backup"
+    },
+    "mp23-pg-a_restore_indmanualr1": {
+      "podUid": "9a89af09-8b7a-4a46-8ab9-c6eaa1563151",
+      "row": "1|mp23-after-backup"
+    },
+    "mp23-pg-b": {
+      "podUid": "01fee369-b65e-4165-adcb-b6467ad3f666",
+      "row": "1|mp23-untouched-app-b"
+    }
+  },
+  "priorScopesPreserved": 43,
+  "head": {
+    "generation": 990,
+    "sequence": 826,
+    "activeTransaction": null,
+    "executorClaim": null
+  },
+  "acceptedScopes": 45,
+  "reviewDigests": {
+    "backup": "bbbba60ba0a75dc53270c5e7e3fd0ed8524bff8e8258fa7e55451692e944331c",
+    "receipt": "9a37d9358ee47b633af3f1436e577109b66f9c34da1d19957f18650b13ce15ba",
+    "collection": "937f92bf534e25ecc6d178c850875050d48061c3c6f284b5dc20f65c975292e1",
+    "restore": "4faa94b625e9590c88ae0af032d0b7e573a482427b995acfec04fe7c909519f8"
+  },
+  "timings": {
+    "backup-plan": {
+      "label": "backup-plan",
+      "exit": 0,
+      "seconds": 25.566
+    },
+    "backup-apply": {
+      "label": "backup-apply",
+      "exit": 0,
+      "seconds": 47.689
+    },
+    "receipt-plan": {
+      "label": "receipt-plan",
+      "exit": 0,
+      "seconds": 34.047
+    },
+    "receipt-apply": {
+      "label": "receipt-apply",
+      "exit": 0,
+      "seconds": 15.407
+    },
+    "collection-plan": {
+      "label": "collection-plan",
+      "exit": 0,
+      "seconds": 21.723
+    },
+    "collection-apply": {
+      "label": "collection-apply",
+      "exit": 0,
+      "seconds": 17.986
+    },
+    "restore-plan": {
+      "label": "restore-plan",
+      "exit": 0,
+      "seconds": 30.641
+    },
+    "restore-apply": {
+      "label": "restore-apply",
+      "exit": 0,
+      "seconds": 40.513
+    }
+  },
+  "limits": [
+    "New eligible disposable backup, not retired F15 history; retired fixture was not accessed or altered",
+    "Original source and neighbor rows remain unchanged; this drill does not modify live data to create a new post-backup difference",
+    "Public isolated restore, not live cutover or source-cluster-unavailable command"
+  ],
+  "receiptFields": {
+    "backup.expiry": "retain",
+    "backup.id": "independentmanual",
+    "backup.job": "standalone:database-backup-personal-mp23-pg-a-independentmanual/independentmanual/job",
+    "backup.job.uid": "b4cd1d21-d507-4caf-9d45-156b06e74a20",
+    "backup.object": "gs://tan-ng-labs-ep150-pmkjjpp-backups/manual-databases/personal/mp23-pg-a/independentmanual.sql.gz",
+    "backup.object.length": "637",
+    "backup.object.sha256": "02f6cc24a754d8f171aad6045f78bcca712cfb144a484ad693d515e4f50fba6b",
+    "backup.object.version": "1790980191138176",
+    "backup.producer.generation": "1",
+    "backup.producer.revision": "81236cdf9440eec75c9a046077040eb20ab62d089a1749cd0567bdb85a5eeb39",
+    "backup.receipt": "gs://tan-ng-labs-ep150-pmkjjpp-backups/manual-databases/personal/mp23-pg-a/independentmanual.sql.gz.receipt.json",
+    "backup.receipt.digest": "3ee44bffe12265d42a3b37e219260c01ef2df2b4c505aa90d3929d4fdf3c512f",
+    "backup.receipt.length": "732",
+    "backup.receipt.metadata.digest": "331abfa62b3f8e9f9d748bbebe76b5ff405e695731e970753f55c701fc2f18af",
+    "backup.receipt.version": "1790980198244552",
+    "backup.record": "verified-v1",
+    "backup.source.generation": "4",
+    "backup.source.pvc": "application:mp23-app-a/mp23-pg-a/pvc",
+    "backup.source.pvc.uid": "dcc135ca-5450-4c79-8e73-00fbc9f117f0",
+    "backup.source.revision": "e9fd98a35da6a469750780907381031b56c32ed4351c038ce4aee2ff4f70921e",
+    "backup.source.scope": "application:mp23-app-a",
+    "backup.source.statefulset": "application:mp23-app-a/mp23-pg-a/statefulset",
+    "backup.source.statefulset.uid": "f38c8493-9898-421e-b2d5-18001b27ca78",
+    "backup.verification": "sha256-readback"
+  },
+  "restoreFields": {
+    "restore.backup.id": "independentmanual",
+    "restore.backup.object": "gs://tan-ng-labs-ep150-pmkjjpp-backups/manual-databases/personal/mp23-pg-a/independentmanual.sql.gz",
+    "restore.backup.object.version": "1790980191138176",
+    "restore.backup.receipt": "gs://tan-ng-labs-ep150-pmkjjpp-backups/manual-databases/personal/mp23-pg-a/independentmanual.sql.gz.receipt.json",
+    "restore.backup.receipt.digest": "3ee44bffe12265d42a3b37e219260c01ef2df2b4c505aa90d3929d4fdf3c512f",
+    "restore.backup.receipt.version": "1790980198244552",
+    "restore.backup.revision": "5cd16cb38b82190d0aa9758fedf543081b0073627b6d6da6ef673f2f150aeb5a",
+    "restore.backup.scope": "standalone:database-backup-personal-mp23-pg-a-independentmanual",
+    "restore.backup.sha256": "02f6cc24a754d8f171aad6045f78bcca712cfb144a484ad693d515e4f50fba6b",
+    "restore.database": "mp23-pg-a",
+    "restore.id": "indmanualr1",
+    "restore.namespace": "personal",
+    "restore.target.database": "mp23-pg-a_restore_indmanualr1",
+    "restore.target.generation": "4",
+    "restore.target.pvc": "application:mp23-app-a/mp23-pg-a/pvc",
+    "restore.target.pvc.uid": "dcc135ca-5450-4c79-8e73-00fbc9f117f0",
+    "restore.target.revision": "e9fd98a35da6a469750780907381031b56c32ed4351c038ce4aee2ff4f70921e",
+    "restore.target.scope": "application:mp23-app-a",
+    "restore.target.statefulset": "application:mp23-app-a/mp23-pg-a/statefulset",
+    "restore.target.statefulset.uid": "f38c8493-9898-421e-b2d5-18001b27ca78"
+  }
+}

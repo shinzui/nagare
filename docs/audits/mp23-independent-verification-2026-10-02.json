@@ -33,8 +33,14 @@
     "F06",
     "F07",
     "F08",
+    "F09",
+    "F10",
+    "F12",
+    "F13",
+    "F19",
     "F20",
-    "F21"
+    "F21",
+    "F22"
   ],
   "tests": {
     "objectGroup": {
@@ -173,12 +179,24 @@
   "installedE625Continuation": {
     "docs/audits/mp23-independent-results-2026-10-02/cloud-engine-recovery-e6255e6f.json": "c62fef1f608663191987c022420da3f6cafff53a9dd541baf6283e98d6a17870",
     "docs/audits/mp23-independent-results-2026-10-02/operation-driver-e6255e6f.json": "5b56a1a8c9f89abed600de9ce2510c21cd791d90957d5f9ca0963fc988b075b8",
-    "docs/audits/mp23-independent-results-2026-10-02/local-platform-candidate-e6255e6f.json": "53292c7a01b2207a1544b3df0ac24494f9db5b39ab604a78b89a6363b89f8599"
+    "docs/audits/mp23-independent-results-2026-10-02/local-platform-candidate-e6255e6f.json": "53292c7a01b2207a1544b3df0ac24494f9db5b39ab604a78b89a6363b89f8599",
+    "docs/audits/mp23-independent-results-2026-10-02/invalid-retained-source-e6255e6f.json": "7261fbe00e0aa4a7b73d88cde00e7c898d714cb96d03fae47a8cf103bfa27df9"
   },
   "independentRecoveryFindings": {
     "F12": "Closed",
     "F13": "Closed",
     "F22": "Closed",
-    "F09": "Verifying: separate exact retained-source CLI path remains"
+    "F09": "Closed against reachable current recovery contract; invalid retained dependency refuses before IO",
+    "F19": "Closed on installed e625 eligible producer-free manual GCS restore"
+  },
+  "selectedReadFinding": "F10 Closed at50/500siblings, public one-call/provider and early refusal",
+  "manualRecoveryAndPublicChecks": {
+    "docs/audits/mp23-independent-results-2026-10-02/manual-gcs-recovery-e6255e6f.json": "34875bca5d7e59dea9ee5b69578026246b7c73ea4c4c9f59ca08d12a7300cfb9",
+    "docs/audits/mp23-independent-results-2026-10-02/selected-read-scaling-e6255e6f.json": "06cb3d916873373816a529b4d7b8087f585fb046e052170aea2cac9c009a499a",
+    "docs/audits/mp23-independent-results-2026-10-02/foundation-e6255e6f.txt": "2056b1dafbfa6bfbd9bf67b518bac1d7e71543d003b0bbee94a516b2284ad860",
+    "docs/audits/mp23-independent-results-2026-10-02/manual-gcs-public-e6255e6f.txt": "e99d641b37cd45462fe50c02d7829d94a3e879a5145f32a0c46322d24681eadc",
+    "docs/audits/mp23-independent-results-2026-10-02/release-public-e6255e6f.txt": "9cad668627cdacf626d6f64d38b038ec21bf4c50642ff412f812ced2e39e2f32",
+    "docs/audits/mp23-independent-results-2026-10-02/readiness-registry-stop-e6255e6f.txt": "4fc68c358fd60919c631afdc4e5b635417dcbec4485dc16f54b1bd6b2a6175fe",
+    "docs/audits/mp23-independent-results-2026-10-02/registry-delegation-e6255e6f.txt": "22a6be26166f7ce9d85b3c17d757b1feab895304483355ca4c099f467bad9e59"
   }
 }

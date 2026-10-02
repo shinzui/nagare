@@ -397,3 +397,35 @@ new BackupReceipt memory import; production source is unchanged. F12/F13 close.
 F09 retains its finite separate retained-source CLI verification requirement.
 New scheduled-prune admission independently refuses before effects. No real
 provider deletion or newly supported prune mutation is claimed.
+
+The F09 retained-source follow-up is a negative graph-validity test: removing the
+source owner while its accepted prune still depends on it refuses before IO in
+all 11 commands, with identical history. It is not reachable supported history.
+The [recorded boundary](mp23-independent-results-2026-10-02/invalid-retained-source-e6255e6f.json)
+closes F09 against the existing supported contract and disposable-prerelease
+disposition; new pruning and invalid historical-state repair remain unsupported.
+
+## Producer-free manual GCS recovery and selected-read scaling
+
+The [installed manual recovery](mp23-independent-results-2026-10-02/manual-gcs-recovery-e6255e6f.json)
+passes on a new eligible disposable backup. Reviewed receipt acceptance retains
+the completed Job; a separate reviewed collection removes its exact UID. A fresh
+isolated restore then completes with the producer absent and both accepted GCS
+generations present in the real download-container environment. The known row,
+live source and neighbor rows/Pod UIDs remain exact; all 43 prior scopes survive.
+The source was not changed to manufacture a new post-backup difference. F19 closes
+without accessing or changing retired F15 history. The [installed public GCS
+regression](mp23-independent-results-2026-10-02/manual-gcs-public-e6255e6f.txt) also
+executes the rendered generation-pinned download shell with strict recorders.
+
+[Independent selected-read runs](mp23-independent-results-2026-10-02/selected-read-scaling-e6255e6f.json)
+at 50 and 500 unrelated resources preserve the same one-call Kubernetes/Helm
+boundary, early invalid-target refusal and unchanged history. F10 is Closed.
+The installed [foundation public fixture](mp23-independent-results-2026-10-02/foundation-e6255e6f.txt),
+[release evidence gate](mp23-independent-results-2026-10-02/release-public-e6255e6f.txt),
+[ten readiness/registry/stopped-driver tests](mp23-independent-results-2026-10-02/readiness-registry-stop-e6255e6f.txt),
+and [rendered registry delegation checks](mp23-independent-results-2026-10-02/registry-delegation-e6255e6f.txt)
+independently pass. These strengthen their source/public boundaries; they do not
+substitute for fresh-host credential expiry/re-pull acceptance or native Google
+CDN backend acceptance. Active ep150 still has its legacy accepted host and
+disabled platform CDN backend.

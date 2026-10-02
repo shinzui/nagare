@@ -78,6 +78,16 @@ for phase in ['before','partial','wrong-source-uid','completed','running']:
              NAGARE_PLATFORM_ROOT=str(payload),PATH=str(bins)+os.pathsep+baseenv['PATH'],
              MP23_CALLS=str(calls),MP23_FIXTURE=str(root/'fixture.json'),MP23_PRUNE_PHASE=phase)
     store=case/'state/nagare/prune-spike/inventory'
+    if os.environ.get('MP23_INVALID_RETAINED_SOURCE') == '1':
+        # Negative fixture: removing an accepted dependency cannot create valid retained history.
+        head_file = store/'head.json'
+        retained_head = json.loads(head_file.read_text())
+        source_ref, = [x for x in retained_head['accepted'] if x['scope']=={'kind':'Standalone','name':'backup'}]
+        source_entry, = [x for x in fixture['entries'] if x['id']=='standalone:backup/ingestion/resource']
+        for vector in ['accepted','converged']:
+            retained_head[vector] = [x for x in retained_head[vector] if x['scope']!=source_ref['scope']]
+        retained_head['retained'] = [{'resource':source_entry['id'],'incarnation':{'owner':source_ref['scope'],'revision':source_ref['revision'],'physical':source_entry['uid'],'retainedAt':'legacy-admitted-prune'}}]
+        head_file.write_text(json.dumps(retained_head,sort_keys=True,separators=(",",":")))
     if os.environ.get('MP23_LEGACY_OBSERVATION') == '1':
         # Model an old publisher: keep every immutable mutation envelope, but
         # remove the newly materialized observation-only copies in this case.
@@ -102,37 +112,42 @@ for phase in ['before','partial','wrong-source-uid','completed','running']:
         results.append(entry)
         print(json.dumps({k:v for k,v in entry.items() if k not in ['beforeHead','afterHead','providerCalls']}),flush=True)
         calls.write_text('')
-by_phase = {phase: [r for r in results if r['phase']==phase] for phase in ['before','partial','wrong-source-uid','completed','running']}
-before, = by_phase['before']
-partial_resume, partial_recover, partial_closed = by_phase['partial']
-changed_resume, changed_recover = by_phase['wrong-source-uid']
-assert before['exit'] == 1 and 'stopped ' in before['stdout'], before
-assert 'NAGARE_LOCAL_OBJECT_STORE' in before['stderr'], before
-assert 'KnownNoEffect' in before['stdout'], before
-assert not any('create' in c for c in before['providerCalls']), before
-assert before['beforeHead']['sequence'] == before['afterHead']['sequence']
-assert before['afterHead']['activeTransaction'] == fixture['transaction']
-for stopped in [partial_resume, changed_resume, by_phase['running'][0]]:
-    assert stopped['exit'] == 1 and 'ambiguous ' in stopped['stdout'], stopped
-    assert not stopped['stderr'], stopped
-    assert stopped['beforeHead']['sequence'] == stopped['afterHead']['sequence']
-    assert stopped['afterHead']['activeTransaction'] == fixture['transaction']
-assert partial_recover['exit'] == 0 and partial_recover['afterHead']['activeTransaction'] is None
-assert partial_recover['afterHead']['sequence'] == partial_recover['beforeHead']['sequence'] + 1
-assert changed_recover['exit'] == 1 and 'unsupported-recovery' in changed_recover['stderr']
-assert changed_recover['afterHead']['activeTransaction'] == fixture['transaction']
-assert changed_recover['afterHead']['sequence'] == changed_recover['beforeHead']['sequence']
-assert partial_closed['exit'] == 1 and 'inactive-transaction' in partial_closed['stderr'] and not partial_closed['providerCalls']
-for phase in ['completed','running']:
-    converged, replay = by_phase[phase][-2:]
-    assert converged['exit']==0 and 'converged ' in converged['stdout'], converged
-    assert converged['afterHead']['activeTransaction'] is None
-    assert converged['afterHead']['accepted']==converged['afterHead']['converged']
-    assert replay['exit']==0 and 'converged ' in replay['stdout'] and not replay['providerCalls'], replay
-    assert replay['beforeHead']==replay['afterHead'], replay
-for result in results:
-    assert all(c[0] == 'kubectl' and 'get' in c for c in result['providerCalls']), result
-report={'legacyObservationMissing':os.environ.get('MP23_LEGACY_OBSERVATION')=='1',
+if os.environ.get('MP23_INVALID_RETAINED_SOURCE') == '1':
+    for result in results:
+        assert result['exit']==1 and 'dangling-reference' in result['stderr'], result
+        assert result['beforeHead']==result['afterHead'] and not result['providerCalls'], result
+else:
+    by_phase = {phase: [r for r in results if r['phase']==phase] for phase in ['before','partial','wrong-source-uid','completed','running']}
+    before, = by_phase['before']
+    partial_resume, partial_recover, partial_closed = by_phase['partial']
+    changed_resume, changed_recover = by_phase['wrong-source-uid']
+    assert before['exit'] == 1 and 'stopped ' in before['stdout'], before
+    assert 'NAGARE_LOCAL_OBJECT_STORE' in before['stderr'], before
+    assert 'KnownNoEffect' in before['stdout'], before
+    assert not any('create' in c for c in before['providerCalls']), before
+    assert before['beforeHead']['sequence'] == before['afterHead']['sequence']
+    assert before['afterHead']['activeTransaction'] == fixture['transaction']
+    for stopped in [partial_resume, changed_resume, by_phase['running'][0]]:
+        assert stopped['exit'] == 1 and 'ambiguous ' in stopped['stdout'], stopped
+        assert not stopped['stderr'], stopped
+        assert stopped['beforeHead']['sequence'] == stopped['afterHead']['sequence']
+        assert stopped['afterHead']['activeTransaction'] == fixture['transaction']
+    assert partial_recover['exit'] == 0 and partial_recover['afterHead']['activeTransaction'] is None
+    assert partial_recover['afterHead']['sequence'] == partial_recover['beforeHead']['sequence'] + 1
+    assert changed_recover['exit'] == 1 and 'unsupported-recovery' in changed_recover['stderr']
+    assert changed_recover['afterHead']['activeTransaction'] == fixture['transaction']
+    assert changed_recover['afterHead']['sequence'] == changed_recover['beforeHead']['sequence']
+    assert partial_closed['exit'] == 1 and 'inactive-transaction' in partial_closed['stderr'] and not partial_closed['providerCalls']
+    for phase in ['completed','running']:
+        converged, replay = by_phase[phase][-2:]
+        assert converged['exit']==0 and 'converged ' in converged['stdout'], converged
+        assert converged['afterHead']['activeTransaction'] is None
+        assert converged['afterHead']['accepted']==converged['afterHead']['converged']
+        assert replay['exit']==0 and 'converged ' in replay['stdout'] and not replay['providerCalls'], replay
+        assert replay['beforeHead']==replay['afterHead'], replay
+    for result in results:
+        assert all(c[0] == 'kubectl' and 'get' in c for c in result['providerCalls']), result
+report={'invalidRetainedSource':os.environ.get('MP23_INVALID_RETAINED_SOURCE')=='1', 'legacyObservationMissing':os.environ.get('MP23_LEGACY_OBSERVATION')=='1',
         'binarySha256':hashlib.sha256(Path(binary).read_bytes()).hexdigest(),
         'sources':{p:hashlib.sha256((repo/p).read_bytes()).hexdigest() for p in [
             *[str(path.relative_to(repo))
@@ -146,5 +161,5 @@ report={'legacyObservationMissing':os.environ.get('MP23_LEGACY_OBSERVATION')=='1
             'docs/audits/mp23-reproductions/PruneFixture.hs']},
         'fixture':fixture,'results':results}
 (root/'rescue-cli.json').write_text(json.dumps(report,indent=2)+'\n')
-print('PASS: saved prune recovery, completion, interruption, changed UID and replay; provider effects refused')
+print('PASS: invalid retained dependency refused before IO' if os.environ.get('MP23_INVALID_RETAINED_SOURCE')=='1' else 'PASS: saved prune recovery, completion, interruption, changed UID and replay; provider effects refused')
 print('Artifacts: '+str(root))

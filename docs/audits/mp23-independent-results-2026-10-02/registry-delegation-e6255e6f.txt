@@ -1,0 +1,2 @@
+warning: Git tree '/private/tmp/nagare-mp23-independent-e6255e6f' has uncommitted changes
+registry timer: owned controller create/refresh, six foreign/race refusals and legacy policy passed

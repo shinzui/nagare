@@ -36,8 +36,8 @@ Implementation owner: existing session `01a0e893-337f-7b82-ac5d-16f41bf5ce21` (I
 | [F06](#f06) | P1 | Journal appends retain excessive serial cloud-command cost | Closed | EP-156 |
 | [F07](#f07) | P1 | Installed key with failed service activation cannot recover by retry | Closed | EP-156 |
 | [F08](#f08) | P2 | Unchanged host bootstrap depends on transient key-file environment and source root | Closed | EP-156 |
-| [F09](#f09) | P1 | Scheduled-prune preflight prevents recovery after admission | Verifying | EP-159 / EP-153 |
-| [F10](#f10) | P2 | Explaining one resource observes the whole context | Verifying | EP-153 |
+| [F09](#f09) | P1 | Scheduled-prune preflight prevents recovery after admission | Closed | EP-159 / EP-153 |
+| [F10](#f10) | P2 | Explaining one resource observes the whole context | Closed | EP-153 |
 | [F11](#f11) | Build | Conditional-upload optimization has ambiguous try exception type | Closed | EP-156 |
 | [F12](#f12) | P1 | A later operation’s preflight blocks recovery of its ambiguous prerequisite | Closed | EP-153 / EP-159 |
 | [F13](#f13) | P1 | Ordinary executor recovery has no terminal-failure branch | Closed | EP-153 / EP-159 |
@@ -46,7 +46,7 @@ Implementation owner: existing session `01a0e893-337f-7b82-ac5d-16f41bf5ce21` (I
 | [F16](#f16) | P1 | Unready application creation cannot yield to a corrected reviewed configuration | Verifying | EP-153 / EP-156 |
 | [F17](#f17) | P1 | Effect-free retirement discards required native identity observations | Verifying | EP-153 / EP-156 |
 | [F18](#f18) | P1 | Initial GCS foundation transaction cannot resume its local journal | Verifying | EP-153 / EP-156 |
-| [F19](#f19) | P1 | Rendered pinned GCS restore omits download generations | Verifying | EP-160 / EP-156 |
+| [F19](#f19) | P1 | Rendered pinned GCS restore omits download generations | Closed | EP-160 / EP-156 |
 | [F20](#f20) | P1 | Knative collection cannot orphan controller descendants | Closed | EP-153 / EP-156 |
 | [F21](#f21) | P1 | HTTP redirect automatically resubmits reviewed CDN purge | Closed | EP-158 |
 | [F22](#f22) | P1 | ClickHouse restore fails after a transient read-only verification refusal | Closed | EP-160 |
@@ -79,7 +79,7 @@ F01 and F11 retain their [earlier independent closure](mp23-verification.md). F0
 
 ## F19
 
-**Rendered pinned GCS restore omits download generations** — P1; **Verifying**; owners EP-160 / EP-156.
+**Rendered pinned GCS restore omits download generations** — P1; **Closed**; owners EP-160 / EP-156.
 
 **Native evidence:** Installed `8b6cb730` accepts the primary manual receipt and separately collects its Job. The Job-free `mp23f15pgav2` review creates Job UID `6406eaef-6d37-482c-aea6-504d4ab21102`, but `download` fails because the receipt address ends in `#`: the rendered environment omits both pinned generations. PostgreSQL never starts. Exact terminal recovery preserves the failed Job and returns history to idle generation 722/sequence 654. [Evidence](mp23-native-bootstrap-results-2026-10-02/f15-receipt-collection-and-download-failure.json) includes exact review/source identities.
 
@@ -88,6 +88,19 @@ F01 and F11 retain their [earlier independent closure](mp23-verification.md). F0
 **Installed follow-up:** Installed `4c4b667e` passes its local 213-verification gate and rendered GCS fixture. Job-free native restore converges in 34.101 seconds with completed UID `13f19521-86a2-4389-9b47-5e652769ec62` and the backed-up row. Source/neighbor rows and original physical identities remain exact; v2 database is absent and failed Job preserved. [Proof](mp23-native-bootstrap-results-2026-10-02/f15-receipt-only-restore-and-web-cleanup.json) separates this accepted restore from F20. Independent F19 closure stays open.
 
 **Required verification:** Verify the new immutable installed candidate and local gate, then restore from the same accepted GCS versions after producer Job removal into a fresh isolated destination. Check known backed-up rows, later live source/neighbor rows and unchanged physical UIDs. Preserve the prior failed Job and original history. Independent verification is required for closure.
+
+
+**Independent closure (2026-10-02):** Installed `e6255e6f` passes its cp3 gate
+and the public GCS rendered-download regression. On the eligible ep150 fixture,
+a new disposable manual backup is independently accepted as a durable receipt,
+its exact producer Job is publicly collected, and a fresh isolated restore then
+completes with that Job absent. The actual init environment pins both accepted
+GCS generations. Authenticated queries verify the known backed-up row and exact
+unchanged source/neighbor rows and Pod identities; all 43 prior scope revisions
+remain exact. [Independent native proof](mp23-independent-results-2026-10-02/manual-gcs-recovery-e6255e6f.json).
+F19 is Closed for the supported contract. The retired F15 fixture and original
+failed Job/history were neither accessed nor modified; the disposable-fixture
+decision is preserved. This is isolated recovery, not live-target cutover.
 
 ## F18
 
@@ -309,7 +322,7 @@ F01 and F11 retain their [earlier independent closure](mp23-verification.md). F0
 
 ## F09
 
-**Scheduled-prune preflight prevents recovery after admission** — P1; **Verifying**; owner EP-159 / EP-153.
+**Scheduled-prune preflight prevents recovery after admission** — P1; **Closed**; owner EP-159 / EP-153.
 
 **Locations:** cli/nagarectl/app/Main.hs: inventoryExecutionRegistry, verifyReviewedScheduledPruneProvider; cli/nagarectl/src/Nagare/Inventory/Command.hs: recoverInventoryWithFactory.
 
@@ -331,9 +344,21 @@ The fixture models terminal partial-prune state without executing provider delet
 The separate exact retained-source registry path remains to be independently
 exercised before closing F09; no new scheduled-prune mutation is authorized.
 
+
+**Independent current-contract closure (2026-10-02):** The remaining experiment
+removes the source owner from synthetic accepted history and adds its exact retained
+incarnation. All 11 public commands refuse `dangling-reference`, preserve the head,
+and make zero provider calls because the still-accepted prune Job depends on that
+source. [Negative fixture evidence](mp23-independent-results-2026-10-02/invalid-retained-source-e6255e6f.json).
+This is an invalid composition, not a reachable supported retained-source workflow.
+Under the explicit disposable-prerelease decision, repairing such historical states
+is not a release requirement. Independent saved-history recovery and deferred new
+admission proofs above close F09 for the supported contract. No live prune support,
+invalid-history repair, or new compatibility extension is claimed.
+
 ## F10
 
-**Explaining one resource observes the whole context** — P2; **Verifying**; owner EP-153.
+**Explaining one resource observes the whole context** — P2; **Closed**; owner EP-153.
 
 **Locations:** cli/nagarectl/app/Main.hs: runInventoryStatus / InventoryExplain; cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesRuntime.hs: observeKubernetesHealth.
 
@@ -346,6 +371,17 @@ exercised before closing F09; no new scheduled-prune mutation is authorized.
 **Required verification:** Record provider calls for one-resource explain and invalid ID; unrelated providers must receive none. Preserve dependency/consumer explanation and UID-bound health. Show call count does not grow with unrelated managed resources.
 
 **Verification:** Not closed. Awaiting the checks above.
+
+
+**Independent closure (2026-10-02):** The public selected-observation fixture
+passes on a detached `e6255e6f` build at both 50 and 500 unrelated resources.
+Selected Kubernetes and Helm reads issue one call each; unknown IDs, foreign
+context, missing/corrupt selected bytes and malformed unrelated history refuse
+or remain isolated as specified. Retained selection and explicit legacy
+materialization also pass, with exact unchanged heads. [Call-count evidence](mp23-independent-results-2026-10-02/selected-read-scaling-e6255e6f.json).
+Together with the independently exercised native selected UID/health paths and
+retained dependency observations above, this closes F10. No broad-context or
+legacy cold-history cost claim is made.
 
 ## F11
 

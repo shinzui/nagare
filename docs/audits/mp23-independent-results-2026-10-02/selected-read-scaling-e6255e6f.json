@@ -1,0 +1,542 @@
+{
+  "candidate": "e6255e6f2106eda0f98cea0a717e37f354604dd0",
+  "cases": [
+    {
+      "unrelatedResources": 50,
+      "binarySha256": "2c07f030e2bd900180b241c67438049d81483aff485070e5d3563e0033117b59",
+      "scopeBytes": 30225,
+      "results": [
+        {
+          "label": "selected-no-workspace",
+          "args": [
+            "inventory",
+            "explain",
+            "platform:observation/selected/resource",
+            "--json"
+          ],
+          "exit": 0,
+          "seconds": 0.345,
+          "providerCalls": [
+            [
+              "kubectl",
+              "--context",
+              "observation-fixture",
+              "--request-timeout=10s",
+              "get",
+              "configmap",
+              "selected",
+              "--namespace",
+              "personal",
+              "-o",
+              "json",
+              "--ignore-not-found"
+            ]
+          ]
+        },
+        {
+          "label": "selected-no-workspace",
+          "args": [
+            "inventory",
+            "explain",
+            "platform:observation/helm/resource",
+            "--json"
+          ],
+          "exit": 0,
+          "seconds": 0.214,
+          "providerCalls": [
+            [
+              "helm",
+              "status",
+              "metrics",
+              "--kube-context",
+              "observation-fixture",
+              "--namespace",
+              "monitoring",
+              "-o",
+              "json"
+            ]
+          ]
+        },
+        {
+          "label": "unknown-with-500-bad-reviews",
+          "args": [
+            "inventory",
+            "explain",
+            "platform:observation/missing/resource",
+            "--json"
+          ],
+          "exit": 1,
+          "seconds": 0.03,
+          "providerCalls": []
+        },
+        {
+          "label": "selected-with-500-bad-reviews",
+          "args": [
+            "inventory",
+            "explain",
+            "platform:observation/selected/resource",
+            "--json"
+          ],
+          "exit": 0,
+          "seconds": 0.078,
+          "providerCalls": [
+            [
+              "kubectl",
+              "--context",
+              "observation-fixture",
+              "--request-timeout=10s",
+              "get",
+              "configmap",
+              "selected",
+              "--namespace",
+              "personal",
+              "-o",
+              "json",
+              "--ignore-not-found"
+            ]
+          ]
+        },
+        {
+          "label": "selected-retained",
+          "args": [
+            "inventory",
+            "explain",
+            "platform:observation/selected/resource",
+            "--json"
+          ],
+          "exit": 0,
+          "seconds": 0.063,
+          "providerCalls": [
+            [
+              "kubectl",
+              "--context",
+              "observation-fixture",
+              "--request-timeout=10s",
+              "get",
+              "configmap",
+              "selected",
+              "--namespace",
+              "personal",
+              "-o",
+              "json",
+              "--ignore-not-found"
+            ]
+          ]
+        },
+        {
+          "label": "wrong-context-binding",
+          "args": [
+            "inventory",
+            "explain",
+            "platform:observation/selected/resource",
+            "--json"
+          ],
+          "exit": 1,
+          "seconds": 0.027,
+          "providerCalls": []
+        },
+        {
+          "label": "unrelated-native-absent",
+          "args": [
+            "inventory",
+            "explain",
+            "platform:observation/selected/resource",
+            "--json"
+          ],
+          "exit": 0,
+          "seconds": 0.096,
+          "providerCalls": [
+            [
+              "kubectl",
+              "--context",
+              "observation-fixture",
+              "--request-timeout=10s",
+              "get",
+              "configmap",
+              "selected",
+              "--namespace",
+              "personal",
+              "-o",
+              "json",
+              "--ignore-not-found"
+            ]
+          ]
+        },
+        {
+          "label": "selected-native-corrupt",
+          "args": [
+            "inventory",
+            "explain",
+            "platform:observation/selected/resource",
+            "--json"
+          ],
+          "exit": 1,
+          "seconds": 0.03,
+          "providerCalls": []
+        },
+        {
+          "label": "selected-native-missing",
+          "args": [
+            "inventory",
+            "explain",
+            "platform:observation/selected/resource",
+            "--json"
+          ],
+          "exit": 1,
+          "seconds": 0.029,
+          "providerCalls": []
+        },
+        {
+          "label": "legacy-fast-miss",
+          "args": [
+            "inventory",
+            "explain",
+            "platform:observation/selected/resource",
+            "--json"
+          ],
+          "exit": 1,
+          "seconds": 0.029,
+          "providerCalls": []
+        },
+        {
+          "label": "legacy-materialize",
+          "args": [
+            "inventory",
+            "store",
+            "materialize-native",
+            "--limit",
+            "1"
+          ],
+          "exit": 0,
+          "seconds": 0.065,
+          "providerCalls": []
+        },
+        {
+          "label": "legacy-restart-cursor",
+          "args": [
+            "inventory",
+            "store",
+            "materialize-native",
+            "--limit",
+            "1",
+            "--after",
+            "664bb7d79113b1a0c9a73a490fa68654c7daec2eb9ccd68dd3c330a0556e1282"
+          ],
+          "exit": 0,
+          "seconds": 0.043,
+          "providerCalls": []
+        },
+        {
+          "label": "legacy-idempotent-repeat",
+          "args": [
+            "inventory",
+            "store",
+            "materialize-native",
+            "--limit",
+            "1"
+          ],
+          "exit": 0,
+          "seconds": 0.041,
+          "providerCalls": []
+        },
+        {
+          "label": "legacy-materialized-selected",
+          "args": [
+            "inventory",
+            "explain",
+            "platform:observation/selected/resource",
+            "--json"
+          ],
+          "exit": 0,
+          "seconds": 0.077,
+          "providerCalls": [
+            [
+              "kubectl",
+              "--context",
+              "observation-fixture",
+              "--request-timeout=10s",
+              "get",
+              "configmap",
+              "selected",
+              "--namespace",
+              "personal",
+              "-o",
+              "json",
+              "--ignore-not-found"
+            ]
+          ]
+        }
+      ],
+      "originalReportSha256": "9c3a5827889a1b3d8c7faf8ddff9b6a03955fc0f79f708fc012035a993feee64"
+    },
+    {
+      "unrelatedResources": 500,
+      "binarySha256": "2c07f030e2bd900180b241c67438049d81483aff485070e5d3563e0033117b59",
+      "scopeBytes": 290677,
+      "results": [
+        {
+          "label": "selected-no-workspace",
+          "args": [
+            "inventory",
+            "explain",
+            "platform:observation/selected/resource",
+            "--json"
+          ],
+          "exit": 0,
+          "seconds": 0.266,
+          "providerCalls": [
+            [
+              "kubectl",
+              "--context",
+              "observation-fixture",
+              "--request-timeout=10s",
+              "get",
+              "configmap",
+              "selected",
+              "--namespace",
+              "personal",
+              "-o",
+              "json",
+              "--ignore-not-found"
+            ]
+          ]
+        },
+        {
+          "label": "selected-no-workspace",
+          "args": [
+            "inventory",
+            "explain",
+            "platform:observation/helm/resource",
+            "--json"
+          ],
+          "exit": 0,
+          "seconds": 0.231,
+          "providerCalls": [
+            [
+              "helm",
+              "status",
+              "metrics",
+              "--kube-context",
+              "observation-fixture",
+              "--namespace",
+              "monitoring",
+              "-o",
+              "json"
+            ]
+          ]
+        },
+        {
+          "label": "unknown-with-500-bad-reviews",
+          "args": [
+            "inventory",
+            "explain",
+            "platform:observation/missing/resource",
+            "--json"
+          ],
+          "exit": 1,
+          "seconds": 0.056,
+          "providerCalls": []
+        },
+        {
+          "label": "selected-with-500-bad-reviews",
+          "args": [
+            "inventory",
+            "explain",
+            "platform:observation/selected/resource",
+            "--json"
+          ],
+          "exit": 0,
+          "seconds": 0.117,
+          "providerCalls": [
+            [
+              "kubectl",
+              "--context",
+              "observation-fixture",
+              "--request-timeout=10s",
+              "get",
+              "configmap",
+              "selected",
+              "--namespace",
+              "personal",
+              "-o",
+              "json",
+              "--ignore-not-found"
+            ]
+          ]
+        },
+        {
+          "label": "selected-retained",
+          "args": [
+            "inventory",
+            "explain",
+            "platform:observation/selected/resource",
+            "--json"
+          ],
+          "exit": 0,
+          "seconds": 0.089,
+          "providerCalls": [
+            [
+              "kubectl",
+              "--context",
+              "observation-fixture",
+              "--request-timeout=10s",
+              "get",
+              "configmap",
+              "selected",
+              "--namespace",
+              "personal",
+              "-o",
+              "json",
+              "--ignore-not-found"
+            ]
+          ]
+        },
+        {
+          "label": "wrong-context-binding",
+          "args": [
+            "inventory",
+            "explain",
+            "platform:observation/selected/resource",
+            "--json"
+          ],
+          "exit": 1,
+          "seconds": 0.048,
+          "providerCalls": []
+        },
+        {
+          "label": "unrelated-native-absent",
+          "args": [
+            "inventory",
+            "explain",
+            "platform:observation/selected/resource",
+            "--json"
+          ],
+          "exit": 0,
+          "seconds": 0.109,
+          "providerCalls": [
+            [
+              "kubectl",
+              "--context",
+              "observation-fixture",
+              "--request-timeout=10s",
+              "get",
+              "configmap",
+              "selected",
+              "--namespace",
+              "personal",
+              "-o",
+              "json",
+              "--ignore-not-found"
+            ]
+          ]
+        },
+        {
+          "label": "selected-native-corrupt",
+          "args": [
+            "inventory",
+            "explain",
+            "platform:observation/selected/resource",
+            "--json"
+          ],
+          "exit": 1,
+          "seconds": 0.044,
+          "providerCalls": []
+        },
+        {
+          "label": "selected-native-missing",
+          "args": [
+            "inventory",
+            "explain",
+            "platform:observation/selected/resource",
+            "--json"
+          ],
+          "exit": 1,
+          "seconds": 0.042,
+          "providerCalls": []
+        },
+        {
+          "label": "legacy-fast-miss",
+          "args": [
+            "inventory",
+            "explain",
+            "platform:observation/selected/resource",
+            "--json"
+          ],
+          "exit": 1,
+          "seconds": 0.043,
+          "providerCalls": []
+        },
+        {
+          "label": "legacy-materialize",
+          "args": [
+            "inventory",
+            "store",
+            "materialize-native",
+            "--limit",
+            "1"
+          ],
+          "exit": 0,
+          "seconds": 0.348,
+          "providerCalls": []
+        },
+        {
+          "label": "legacy-restart-cursor",
+          "args": [
+            "inventory",
+            "store",
+            "materialize-native",
+            "--limit",
+            "1",
+            "--after",
+            "1843f7df258f67343b365b4ddb0621d7da9290d007a7d60afb88c78f3e2f5f8d"
+          ],
+          "exit": 0,
+          "seconds": 0.177,
+          "providerCalls": []
+        },
+        {
+          "label": "legacy-idempotent-repeat",
+          "args": [
+            "inventory",
+            "store",
+            "materialize-native",
+            "--limit",
+            "1"
+          ],
+          "exit": 0,
+          "seconds": 0.183,
+          "providerCalls": []
+        },
+        {
+          "label": "legacy-materialized-selected",
+          "args": [
+            "inventory",
+            "explain",
+            "platform:observation/selected/resource",
+            "--json"
+          ],
+          "exit": 0,
+          "seconds": 0.076,
+          "providerCalls": [
+            [
+              "kubectl",
+              "--context",
+              "observation-fixture",
+              "--request-timeout=10s",
+              "get",
+              "configmap",
+              "selected",
+              "--namespace",
+              "personal",
+              "-o",
+              "json",
+              "--ignore-not-found"
+            ]
+          ]
+        }
+      ],
+      "originalReportSha256": "7478cde06d09b071f186338a3a2333f0f4407cb229f23f19c422177372085aed"
+    }
+  ],
+  "limits": "Public provider-recording fixture; native selected UID/health behavior is separately bound by collection and active status evidence."
+}

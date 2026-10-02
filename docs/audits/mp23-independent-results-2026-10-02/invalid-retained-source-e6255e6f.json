@@ -1,0 +1,12 @@
+{
+  "candidate": "e6255e6f2106eda0f98cea0a717e37f354604dd0",
+  "binarySha256": "2c07f030e2bd900180b241c67438049d81483aff485070e5d3563e0033117b59",
+  "fixtureKind": "negative synthetic head: remove source owner while accepted prune still depends on its Job; add exact retained incarnation",
+  "commands": 11,
+  "allRefusedDanglingReference": true,
+  "providerCalls": 0,
+  "allHeadsExact": true,
+  "example": "nagarectl: InventoryError {code = \"dangling-reference\", message = \"dependency producer is absent\", scopes = [ScopeId Standalone (Name \"database-scheduled-prune-default-notes-11111111-1111-1111-1111-111111111111\")], resources = [ResourceId \"standalone:backup/ingestion/resource\",ResourceId \"standalone:database-scheduled-prune-default-notes-11111111-1111-1111-1111-111111111111/11111111-1111-1111-1111-111111111111/job\"], claims = [], sources = [SourceLocation {file = \"fixture\", path = \"scheduled-prune\"}]} :| []\n",
+  "probeSha256": "14d0c9a5732ddc95f23d36099ca24ea8324d1d50dbb81c8a798cac828f144f41",
+  "supportedDisposition": "This invalid graph is not a reachable current composition. Disposable-prerelease decision does not require repairing invalid historical states. Original valid admitted recovery remains supported; new scheduled pruning remains deferred."
+}

@@ -1,0 +1,16 @@
+nagarectl
+  pinned upstream bootstrap manifests
+    Knative activator waits for autoscaler readiness in pinned and configured inputs:           OK (0.31s)
+  Kubernetes inventory adapter
+    only exact created Deployments and Knative Services can await readiness during recovery:    OK
+  inventory transactions
+    bounded registry recovery journals intent and requires actual workload readiness:           OK
+    registry recovery binds completed host history and original private Deployment:             OK (0.01s)
+    registry unit recovery preserves landed phases across expiry and settles ready workloads:   OK
+    corrected stopped application creates only its never-started durable member:                OK
+    another application convergence preserves stopped application ownership and unready status: OK
+    fixed-seed in-memory driver model recovers every operation boundary:                        OK (0.05s)
+    resume creates an independent Deployment while exact predecessor waits for readiness:       OK
+    readiness continuation refuses dependent, durable and non-Deployment creates:               OK
+
+All 10 tests passed (0.41s)
