@@ -269,3 +269,30 @@ This paragraph is retained checkpoint history, superseded by the current MasterP
 ## 2026-10-02 — recorded Knative interpreter agreement
 
 EP-156 adds [eighteen production-path scenarios](mp23-reviewed-controller-collection-proof.md#recorded-native-graph-agreement-2026-10-02) from the frozen sixteen-descendant/seventy-five-API recording. The existing interpreter, planner, immutable review and fresh-process recovery now enforce complete discovery, ownership and unexpected-descendant refusals, preserved protected objects and exact kubectl-call budgets. A missing-UID protected PVC exposed the parser's overbroad projection exception; its regression fails before the narrow PodMetrics fix. All 43 interpreter tests pass. The recording is metadata-only: envelopes, descendant resource versions, empty API lists and GC progression remain explicit model assumptions. No cloud mutation or installed-candidate change occurred. Frozen `4c4b667e`, generation 752/sequence 673, original transaction/source/neighbor evidence and the unexecuted cascade exception remain unchanged. Actual controller/GC agreement, F20 independent closure and final native/release gates remain open.
+
+
+## Entrypoint superseded by bounded native controller agreement — 2026-10-02
+
+**Current entrypoint (2026-10-02).** The validated [Effectful restore pilot](../audits/mp23-effectful-restore-pilot.md) changes the implementation order: extend cheap production-path validation before another installation or cloud attempt. EP-153 owns the narrow external-effect boundaries; EP-160 owns the restore regressions; EP-156 owns interpreter/provider agreement and the remaining native proof. The [local F20 collection checkpoint](../audits/mp23-effectful-collection-proof.md) now passes eight scenarios covering pending finalizers/descendants, interruption, conditional-write races and preserved data. The [reviewed controller collection checkpoint](../audits/mp23-reviewed-controller-collection-proof.md) now adds an explicit opt-in Background review, preserved old-review semantics and descendant-aware recovery; 25 interpreter scenarios pass in 3.79 seconds. EP-156 now adds [recorded native graph agreement](../audits/mp23-reviewed-controller-collection-proof.md#recorded-native-graph-agreement-2026-10-02): eighteen scenarios consume all sixteen descendants and seventy-five APIs, fix incomplete-UID evidence parsing, and enforce kubectl-call budgets of 78 for preparation, 233 for pending apply, 78 per unfinished/finalizing resume and zero for terminal replay. The combined interpreter suite passes 43 tests; synthetic envelopes and real controller/GC limits remain explicit. Next, EP-156 must establish supported-controller agreement with one bounded newly reviewed disposable collection, including complete discovery cost, actual GC and retained-data preservation. The grant covers dynamic descendants and is not an atomic exact-UID effect set. Native preparation must retain the frozen transaction and its separate exception boundary; the local checkpoint does not close F20. Keep typed scopes, immutable reviews, journal and conditional storage. Adopt Effectful incrementally beneath real workflow logic, with persistent test worlds and explicit unknown outcomes; do not begin a repository-wide effect conversion. The installed candidate remains frozen at `4c4b667e`, with the original Knative collection transaction pending at generation 752/sequence 673. Preserve all accepted native evidence, source/neighbor rows and identities. The cascade exception remains unexecuted and requires its existing operator approval. Steps 3/4, F20, HTTPS/browser disposition and final native/release gates remain open; stop before step 5. The previous entrypoint is retained in [the evidence ledger](../audits/mp23-evidence-ledger.md).
+
+
+## 2026-10-02 — actual Knative GC and interrupted original-transaction recovery
+
+[Native evidence](mp23-native-bootstrap-results-2026-10-02/knative-controller-collection-native.json)
+records final installed `8a820ce8` and its passed local gate on separate ep150.
+Three native response mismatches have failing-before/passing-after production-path
+regressions; all 1,064 CLI tests pass. A new review binds 17 descendants and 41
+protected objects through all 75 APIs. One real conditional Background DELETE
+is accepted before SIGINT withholds its reply. Explicit takeover of the stopped
+process's original transaction stays ambiguous while its Pod completes normal
+300-second grace; another resume converges without repeating DELETE. Pod absence
+is observed after 301.238 seconds; API acceptance itself took 0.173 seconds.
+Preparation/interrupted apply/pending resume/final resume/terminal replay use
+78/155/78/78/0 collection calls plus 8/12/8/8/0 cluster-guard calls. Wall costs are
+67.497/90.482/52.072/56.136/13.226 seconds. Final scans preserve all 125 original
+identities, both database rows and all 27 original accepted/converged revisions;
+only the disposable history/Service tombstones are added. Ep150 head 742/639 is
+idle and terminal replay leaves it unchanged. Frozen F15 head 752/673 remains
+byte-identical; its cascade exception is unauthorized/unexecuted. Independent F20
+verification, disposition of the old transaction and broader release gates remain
+open. This accepts the bounded new-review native assertion only.

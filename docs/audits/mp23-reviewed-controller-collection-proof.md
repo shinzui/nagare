@@ -1,4 +1,4 @@
-# MP-23: reviewed controller collection, local proof
+# MP-23: reviewed controller collection, local and native proof
 
 Date: 2026-10-02. Baseline: `5c2d6d7e`. Implementation owner: [EP-153](../plans/153-close-managed-command-coverage-for-the-inventory-release.md). Native agreement: [EP-156](../plans/156-prove-fresh-gcp-convergence-and-shared-history-recovery.md).
 
@@ -7,8 +7,9 @@ Date: 2026-10-02. Baseline: `5c2d6d7e`. Implementation owner: [EP-153](../plans/
 `inventory collect --controller-descendants` now prepares an explicit Background
 collection review for one retained Knative Service. The distinct adapter identity
 `kubernetes-reviewed-controller-collection` prevents an ordinary adapter from
-executing that review. Existing reviews keep their Orphan semantics. No cloud
-operation or installed-candidate change was made.
+executing that review. Existing reviews keep their Orphan semantics. The initial
+checkpoint was local only; the bounded native continuation below now proves the
+new review on a separate disposable application, preserving frozen F15.
 
 [Authority](../../cli/nagarectl/src/Nagare/Inventory/Collection/Authority.hs),
 [observation](../../cli/nagarectl/src/Nagare/Inventory/Collection/Runtime.hs) and
@@ -218,18 +219,72 @@ as collection descendants. Separate refusal regressions cover both cases. All
 1,064 CLI tests pass after the repair; fixture regeneration, CLI architecture
 and Haskell style checks also pass.
 
+## Native controller and recovery agreement — 2026-10-02
+
+[The redacted native proof](mp23-native-bootstrap-results-2026-10-02/knative-controller-collection-native.json)
+records installed `8a820ce8` on the separate existing `ep150-preview` Compute
+Engine/NixOS/k3s `v1.35.8+k3s1` context, using checksum-verified kubectl `v1.35.8`.
+It passed the installed public Knative fixture and the
+[local platform gate](mp23-native-bootstrap-results-2026-10-02/local-platform-candidate-8a820ce8.json):
+213 verification operations, 19 unchanged scope contents, and 37 Ready/completed
+Pods. This validates the installed operator against the retained accepted local
+payload, not fresh candidate-payload creation.
+
+The disposable `mp23-gc-native` application was created with minimum scale one,
+retired, and its release history collected under exact separate reviews using
+`1033ec53`. The new controller review
+`6bc9ae1a81b7b6ccbfabfece05260ecc5ac144f31dd53d0c1823c0ee15a16686`
+then bound 17 real descendants, 41 protected inventoried objects and all 75 APIs.
+The extra descendant relative to the older sixteen-node recording is a running
+Pod. No database was created by this disposable application.
+
+A pass-through recorder executed the real UID/resourceVersion-conditional
+Background DELETE, recorded server acceptance, then withheld its genuine reply.
+The orchestrator sent SIGINT to the CLI process group before that reply reached
+the interpreter. After proving the process had exited, a fresh CLI explicitly
+took over the same transaction. Parent absence did not falsely converge: the
+first resume stayed ambiguous with one Pod inside its normal 300-second
+termination grace, no Service tombstone and all protected identities present.
+The normal Pod deletion was observed 301.238 seconds after the accepted request.
+A second resume of the original transaction verified the complete namespace and
+converged. No child DELETE, finalizer patch or repeated parent DELETE occurred.
+
+| Command | Collection kubectl calls | Cluster-guard calls | Complete 75-API scans | Wall seconds |
+| --- | ---: | ---: | ---: | ---: |
+| Prepare | 78 | 8 | 1 | 67.497 |
+| Apply, interrupted after accepted DELETE | 155 | 12 | 2 | 90.482 |
+| Pending resume with explicit takeover | 78 | 8 | 1 | 52.072 |
+| Final resume | 78 | 8 | 1 | 56.136 |
+| Terminal replay | 0 | 0 | 0 | 13.226 |
+
+Each scan includes discovery and every API list; the first scan's list calls
+cost 29.586 seconds. Server acceptance of the DELETE took 0.173 seconds, distinct
+from the Pod's grace period and final completeness verification. The interrupted
+155-call prefix ends before wait/verification; the modeled full pending-apply
+budget remains 233. Cluster guards account for the extra context/node commands
+outside the interpreter fixture's constant guard. GCS inventory calls are not
+separately counted. The extra diagnostic Pod watch and final read-only scan are
+separate from these public-command counts.
+
+A final 75-API scan independently checked the command's result: parent and all
+17 descendants absent, no newly reachable descendants, all 125 original object
+identities/ownership records unchanged, including 41 inventoried objects. Source
+`mp23-pg-a` still contains `1|mp23-after-backup`; neighbor `mp23-pg-b` still contains
+`1|mp23-untouched-app-b`. All 27 original accepted/converged revisions, original
+retentions and original tombstones remain exact. Only the disposable history and
+Service tombstones were added. Head generation 742/sequence 639 is idle. Terminal
+replay made zero kubectl calls and left that head unchanged.
+
 ## Remaining acceptance
 
-F20 remains Open for native agreement and independent verification. Models do
-not execute admission, Knative controllers or Kubernetes GC. Recorded graph
-agreement is now covered locally; complete native request/response and controller
-agreement remain. The next native assertion still needs one newly issued
-disposable collection review to prove actual descendant
-cleanup, unchanged retained data and original-transaction recovery. Measure the
-complete discovery/list cost separately from DELETE/finalization. On a mismatch,
-capture and reproduce that boundary locally before another installed attempt.
+The bounded new-review native assertion is complete. F20 remains Open for
+independent verification and disposition of its separately frozen old
+transaction. This is implementer-supplied proof on the declared controller
+versions, with existing database neighbors preserved; it does not claim native
+same-scope retained-database coverage or an atomic graph deletion boundary.
 
-The frozen `4c4b667e` candidate and old generation-752/sequence-673 transaction
-remain untouched. Its separately proposed cascade exception still requires its
-existing operator approval; this new review format cannot authorize or execute
-that exception retrospectively. No native/release gate closes here.
+Frozen `f15-preview`, candidate `4c4b667e`, generation 752/sequence 673 and original
+transaction `tx-b6886179d40d4618442997221cc02ca986f142ccdeef1661448cfca627765472`
+remain byte-identical at the head. Its cascade exception was neither authorized
+nor executed. No old review was rewritten, no frozen transaction was resumed,
+and no final native/release gate closes from this bounded proof.

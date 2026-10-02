@@ -1,0 +1,1288 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-02",
+  "result": "passed",
+  "context": "ep150-preview",
+  "infrastructure": "GCP Compute Engine / NixOS / k3s; separate existing ep150 fixture; no GKE",
+  "serverVersion": "v1.35.8+k3s1",
+  "kubectlVersion": "v1.35.8 (official binary checksum verified)",
+  "creationOperatorRevision": "1033ec53",
+  "collectionOperator": {
+    "platformVersion": "0.4.0",
+    "revision": "8a820ce89d532e441a3cde4374a38973d2639408",
+    "version": "0.4.0"
+  },
+  "knativeImages": {
+    "activator": {
+      "activator": "gcr.io/knative-releases/knative.dev/serving/cmd/activator@sha256:8f7e9df2642a8ba715ebc55b62abee17b0984b6b6af0c6ec00dabaadf5f8cccb"
+    },
+    "autoscaler": {
+      "autoscaler": "gcr.io/knative-releases/knative.dev/serving/cmd/autoscaler@sha256:ec66d97244395b57a67923d4a8c5a95f0264805f1fdb2ee0cdb49ec0f3bd7855"
+    },
+    "controller": {
+      "controller": "gcr.io/knative-releases/knative.dev/serving/cmd/controller@sha256:6833f2c83e9f356c274ddb2de40e5471ad2b1c08882c9bd11f5afa240e86d574"
+    },
+    "net-certmanager-controller": {
+      "controller": "us-west1-docker.pkg.dev/tan-ng-labs/nagare-ep150/net-certmanager-controller@sha256:005c6492f8b0322d4c1436910179c74df0f7bc634452f54cf4879c76a85ceceb"
+    },
+    "net-certmanager-webhook": {
+      "webhook": "gcr.io/knative-releases/knative.dev/net-certmanager/cmd/webhook@sha256:071447f170acb8bd11528eac7df1940ed9411da491af827e6a6d4749f1f2dc0d"
+    },
+    "net-kourier-controller": {
+      "controller": "gcr.io/knative-releases/knative.dev/net-kourier/cmd/kourier@sha256:a2e8f568a4bf68ef6391bc3afea956d11a8698f6a22c4be50844b1da4f8bcc74"
+    },
+    "webhook": {
+      "webhook": "gcr.io/knative-releases/knative.dev/serving/cmd/webhook@sha256:c505888f7ee34ccadc1b9a6877d6d49691f633ea28cf8cbe03fcfa6d3afcd584"
+    }
+  },
+  "installedLocalGate": {
+    "operatorRevision": "8a820ce8",
+    "system": "aarch64-darwin",
+    "colimaProfile": "nagare-mp23-cp3",
+    "acceptedPayloadPreserved": "nagare-0.4.0-705716b7bdb7",
+    "gate": "installed public local platform bootstrap plan/apply on retained accepted cluster",
+    "reviewDigest": "0f66adaf7823b8fbebf203d74d01a4157de6bb28e1c11198cd9dea38a40d79ed",
+    "operations": 213,
+    "actions": [
+      "VerifyResource"
+    ],
+    "providerMutations": 0,
+    "planSeconds": 60.514,
+    "applySeconds": 49.053,
+    "acceptedScopeContentDigestsUnchanged": true,
+    "head": {
+      "generation": 4756,
+      "sequence": 4727,
+      "activeTransaction": null,
+      "executorClaim": null
+    },
+    "acceptedScopeCount": 19,
+    "convergedScopeCount": 19,
+    "podsReadyOrSucceeded": 37,
+    "installedKnativePublicFixturePassed": true,
+    "freshCandidatePayloadBootstrap": false,
+    "cloudCandidateUsePermitted": true,
+    "safeUseAccepted": false
+  },
+  "fixture": {
+    "name": "mp23-gc-native",
+    "namespace": "personal",
+    "minScale": 1,
+    "dataResourcesCreated": 0,
+    "sourceDatabase": "mp23-pg-a",
+    "neighborDatabase": "mp23-pg-b",
+    "initialHead": {
+      "generation": 713,
+      "sequence": 623
+    },
+    "disposableHistoryUid": "ecc0ffaf-fcd6-43c0-a6d2-c3c89e967ff6"
+  },
+  "sourceRepairs": {
+    "1033ec53": [
+      "accept successful nonfatal warning responses while requiring complete valid lists",
+      "allow exclusive supported descendants carrying exactly their parent inventory resource ID"
+    ],
+    "8a820ce8": [
+      "coalesce matching core/grouped Event identities without skipping either API; reject conflicts and other duplicates"
+    ]
+  },
+  "validation": {
+    "cliTests": 1064,
+    "cliTestsSeconds": 95.02,
+    "effectfulScenarios": 47,
+    "nativeEventPairFailedBeforeRepair": true,
+    "installedPublicKnativeFixturePassed": true,
+    "fixtureRegenerationPassed": true,
+    "cliArchitecturePassed": true,
+    "haskellStylePassed": true
+  },
+  "review": {
+    "digest": "6bc9ae1a81b7b6ccbfabfece05260ecc5ac144f31dd53d0c1823c0ee15a16686",
+    "transaction": "tx-6bc9ae1a81b7b6ccbfabfece05260ecc5ac144f31dd53d0c1823c0ee15a16686",
+    "headGeneration": 732,
+    "headSequence": 635,
+    "operation": {
+      "adapterIdentity": "kubernetes-reviewed-controller-collection",
+      "adapterVersion": "1",
+      "nativeDigest": "f2531aa5adc9cbc6d14336bb3c2759852e950a146953813cfab5979be155ff39",
+      "operation": {
+        "action": {
+          "tag": "RetireResource"
+        },
+        "dependencies": [],
+        "executor": "KubernetesExecutor",
+        "id": "op-ec39593bb3df6eb4354c1e27",
+        "inputDigest": "b9ee1f4e2e1a7537403fc19d5e3c3d7ac6590b8fd0e28622d7fac48dcefca806",
+        "recovery": "Idempotent",
+        "resources": [
+          "application:mp23-gc-native/mp23-gc-native/service"
+        ]
+      },
+      "summary": "Kubernetes RetireResource application:mp23-gc-native/mp23-gc-native/service at Kubernetes (ResourceId \"platform:cluster/cluster/cluster\") \"serving.knative.dev\" (Name \"service\") (Just (Name \"personal\")) (Name \"mp23-gc-native\"); native digest 5330790f5c989bb6debe4bdfd4ed4c5bd3761b2bb4c1ecd4f77c7b4bc96ba7f3; Background garbage collection of exclusive controller descendants (including later-created descendants); observed 17; preserve inventoried neighbors"
+    },
+    "authority": {
+      "apiResources": [
+        "addons.k3s.cattle.io",
+        "certificaterequests.cert-manager.io",
+        "certificates.cert-manager.io",
+        "certificates.networking.internal.knative.dev",
+        "challenges.acme.cert-manager.io",
+        "configmaps",
+        "configurations.serving.knative.dev",
+        "controllerrevisions.apps",
+        "cronjobs.batch",
+        "csistoragecapacities.storage.k8s.io",
+        "daemonsets.apps",
+        "deployments.apps",
+        "domainmappings.serving.knative.dev",
+        "endpoints",
+        "endpointslices.discovery.k8s.io",
+        "events",
+        "events.events.k8s.io",
+        "helmchartconfigs.helm.cattle.io",
+        "helmcharts.helm.cattle.io",
+        "horizontalpodautoscalers.autoscaling",
+        "images.caching.internal.knative.dev",
+        "ingresses.networking.internal.knative.dev",
+        "ingresses.networking.k8s.io",
+        "issuers.cert-manager.io",
+        "jobs.batch",
+        "leases.coordination.k8s.io",
+        "limitranges",
+        "metrics.autoscaling.internal.knative.dev",
+        "networkpolicies.networking.k8s.io",
+        "orders.acme.cert-manager.io",
+        "persistentvolumeclaims",
+        "podautoscalers.autoscaling.internal.knative.dev",
+        "poddisruptionbudgets.policy",
+        "pods",
+        "pods.metrics.k8s.io",
+        "podtemplates",
+        "replicasets.apps",
+        "replicationcontrollers",
+        "resourceclaims.resource.k8s.io",
+        "resourceclaimtemplates.resource.k8s.io",
+        "resourcequotas",
+        "revisions.serving.knative.dev",
+        "rolebindings.rbac.authorization.k8s.io",
+        "roles.rbac.authorization.k8s.io",
+        "routes.serving.knative.dev",
+        "secrets",
+        "serverlessservices.networking.internal.knative.dev",
+        "serviceaccounts",
+        "services",
+        "services.serving.knative.dev",
+        "statefulsets.apps",
+        "vlagents.operator.victoriametrics.com",
+        "vlclusters.operator.victoriametrics.com",
+        "vlogs.operator.victoriametrics.com",
+        "vlsingles.operator.victoriametrics.com",
+        "vmagents.operator.victoriametrics.com",
+        "vmalertmanagerconfigs.operator.victoriametrics.com",
+        "vmalertmanagers.operator.victoriametrics.com",
+        "vmalerts.operator.victoriametrics.com",
+        "vmanomalies.operator.victoriametrics.com",
+        "vmanomalyconfigs.operator.victoriametrics.com",
+        "vmauths.operator.victoriametrics.com",
+        "vmclusters.operator.victoriametrics.com",
+        "vmdistributed.operator.victoriametrics.com",
+        "vmnodescrapes.operator.victoriametrics.com",
+        "vmpodscrapes.operator.victoriametrics.com",
+        "vmprobes.operator.victoriametrics.com",
+        "vmrules.operator.victoriametrics.com",
+        "vmscrapeconfigs.operator.victoriametrics.com",
+        "vmservicescrapes.operator.victoriametrics.com",
+        "vmsingles.operator.victoriametrics.com",
+        "vmstaticscrapes.operator.victoriametrics.com",
+        "vmusers.operator.victoriametrics.com",
+        "vtclusters.operator.victoriametrics.com",
+        "vtsingles.operator.victoriametrics.com"
+      ],
+      "descendants": [
+        {
+          "controllers": [
+            "b7149d1e-274f-4bde-8e1d-db8aaecb41f7"
+          ],
+          "inventoryOwner": null,
+          "kind": "Endpoints",
+          "name": "mp23-gc-native-00001",
+          "namespace": "personal",
+          "owners": [
+            "b7149d1e-274f-4bde-8e1d-db8aaecb41f7"
+          ],
+          "token": "endpoints",
+          "uid": "14934d04-793c-4f30-960b-f74ef10db98f",
+          "version": "553696"
+        },
+        {
+          "controllers": [
+            "14934d04-793c-4f30-960b-f74ef10db98f"
+          ],
+          "inventoryOwner": null,
+          "kind": "EndpointSlice",
+          "name": "mp23-gc-native-00001-9cvs4",
+          "namespace": "personal",
+          "owners": [
+            "14934d04-793c-4f30-960b-f74ef10db98f"
+          ],
+          "token": "endpointslices.discovery.k8s.io",
+          "uid": "4809c214-2477-4dd9-bf08-c04ba9eddf22",
+          "version": "553699"
+        },
+        {
+          "controllers": [
+            "f59d62b2-5586-48b3-8a48-e5968b16bf70"
+          ],
+          "inventoryOwner": null,
+          "kind": "Image",
+          "name": "mp23-gc-native-00001-cache-user-container",
+          "namespace": "personal",
+          "owners": [
+            "f59d62b2-5586-48b3-8a48-e5968b16bf70"
+          ],
+          "token": "images.caching.internal.knative.dev",
+          "uid": "4b4ca36a-afd1-49cb-a61f-c216fd9cdbcc",
+          "version": "553665"
+        },
+        {
+          "controllers": [
+            "79f1839b-860b-4672-9755-feeb82926212"
+          ],
+          "inventoryOwner": null,
+          "kind": "Pod",
+          "name": "mp23-gc-native-00001-deployment-6876b5544b-dd2gb",
+          "namespace": "personal",
+          "owners": [
+            "79f1839b-860b-4672-9755-feeb82926212"
+          ],
+          "token": "pods",
+          "uid": "70e9c563-e531-49a7-be92-dbb50b20e991",
+          "version": "553720"
+        },
+        {
+          "controllers": [
+            "b7149d1e-274f-4bde-8e1d-db8aaecb41f7"
+          ],
+          "inventoryOwner": null,
+          "kind": "Service",
+          "name": "mp23-gc-native-00001",
+          "namespace": "personal",
+          "owners": [
+            "b7149d1e-274f-4bde-8e1d-db8aaecb41f7"
+          ],
+          "token": "services",
+          "uid": "7141beb5-c5af-4c88-bb1d-7927c07be52a",
+          "version": "553685"
+        },
+        {
+          "controllers": [
+            "c2f037c0-82f9-4323-8b2b-856ef8634c73"
+          ],
+          "inventoryOwner": null,
+          "kind": "ReplicaSet",
+          "name": "mp23-gc-native-00001-deployment-6876b5544b",
+          "namespace": "personal",
+          "owners": [
+            "c2f037c0-82f9-4323-8b2b-856ef8634c73"
+          ],
+          "token": "replicasets.apps",
+          "uid": "79f1839b-860b-4672-9755-feeb82926212",
+          "version": "553723"
+        },
+        {
+          "controllers": [
+            "cc676bde-7d36-4a3b-a2b2-1230c0284a80"
+          ],
+          "inventoryOwner": "application:mp23-gc-native/mp23-gc-native/service",
+          "kind": "Ingress",
+          "name": "mp23-gc-native",
+          "namespace": "personal",
+          "owners": [
+            "cc676bde-7d36-4a3b-a2b2-1230c0284a80"
+          ],
+          "token": "ingresses.networking.internal.knative.dev",
+          "uid": "81132016-065d-4b9d-b809-373df3b44919",
+          "version": "553752"
+        },
+        {
+          "controllers": [
+            "cc676bde-7d36-4a3b-a2b2-1230c0284a80"
+          ],
+          "inventoryOwner": "application:mp23-gc-native/mp23-gc-native/service",
+          "kind": "Service",
+          "name": "mp23-gc-native",
+          "namespace": "personal",
+          "owners": [
+            "cc676bde-7d36-4a3b-a2b2-1230c0284a80"
+          ],
+          "token": "services",
+          "uid": "85764524-82e8-4925-9644-9855720baa7b",
+          "version": "553754"
+        },
+        {
+          "controllers": [
+            "f59d62b2-5586-48b3-8a48-e5968b16bf70"
+          ],
+          "inventoryOwner": null,
+          "kind": "PodAutoscaler",
+          "name": "mp23-gc-native-00001",
+          "namespace": "personal",
+          "owners": [
+            "f59d62b2-5586-48b3-8a48-e5968b16bf70"
+          ],
+          "token": "podautoscalers.autoscaling.internal.knative.dev",
+          "uid": "89721661-fa34-40fb-9b20-a3c7f7253dcb",
+          "version": "553737"
+        },
+        {
+          "controllers": [
+            "b7149d1e-274f-4bde-8e1d-db8aaecb41f7"
+          ],
+          "inventoryOwner": null,
+          "kind": "Service",
+          "name": "mp23-gc-native-00001-private",
+          "namespace": "personal",
+          "owners": [
+            "b7149d1e-274f-4bde-8e1d-db8aaecb41f7"
+          ],
+          "token": "services",
+          "uid": "b624f078-e89e-4bc0-84db-0ef5ab14a08b",
+          "version": "553683"
+        },
+        {
+          "controllers": [
+            "89721661-fa34-40fb-9b20-a3c7f7253dcb"
+          ],
+          "inventoryOwner": null,
+          "kind": "ServerlessService",
+          "name": "mp23-gc-native-00001",
+          "namespace": "personal",
+          "owners": [
+            "89721661-fa34-40fb-9b20-a3c7f7253dcb"
+          ],
+          "token": "serverlessservices.networking.internal.knative.dev",
+          "uid": "b7149d1e-274f-4bde-8e1d-db8aaecb41f7",
+          "version": "553734"
+        },
+        {
+          "controllers": [
+            "f59d62b2-5586-48b3-8a48-e5968b16bf70"
+          ],
+          "inventoryOwner": null,
+          "kind": "Deployment",
+          "name": "mp23-gc-native-00001-deployment",
+          "namespace": "personal",
+          "owners": [
+            "f59d62b2-5586-48b3-8a48-e5968b16bf70"
+          ],
+          "token": "deployments.apps",
+          "uid": "c2f037c0-82f9-4323-8b2b-856ef8634c73",
+          "version": "553726"
+        },
+        {
+          "controllers": [
+            "4a0a5fc6-4f5c-4b4d-9fb4-6a3eceed2294"
+          ],
+          "inventoryOwner": "application:mp23-gc-native/mp23-gc-native/service",
+          "kind": "Route",
+          "name": "mp23-gc-native",
+          "namespace": "personal",
+          "owners": [
+            "4a0a5fc6-4f5c-4b4d-9fb4-6a3eceed2294"
+          ],
+          "token": "routes.serving.knative.dev",
+          "uid": "cc676bde-7d36-4a3b-a2b2-1230c0284a80",
+          "version": "553755"
+        },
+        {
+          "controllers": [
+            "b624f078-e89e-4bc0-84db-0ef5ab14a08b"
+          ],
+          "inventoryOwner": null,
+          "kind": "EndpointSlice",
+          "name": "mp23-gc-native-00001-private-wjc9n",
+          "namespace": "personal",
+          "owners": [
+            "b624f078-e89e-4bc0-84db-0ef5ab14a08b"
+          ],
+          "token": "endpointslices.discovery.k8s.io",
+          "uid": "ea6cef8e-1028-4f8b-a4ae-3426ffbe2461",
+          "version": "553721"
+        },
+        {
+          "controllers": [
+            "89721661-fa34-40fb-9b20-a3c7f7253dcb"
+          ],
+          "inventoryOwner": null,
+          "kind": "Metric",
+          "name": "mp23-gc-native-00001",
+          "namespace": "personal",
+          "owners": [
+            "89721661-fa34-40fb-9b20-a3c7f7253dcb"
+          ],
+          "token": "metrics.autoscaling.internal.knative.dev",
+          "uid": "f309d594-2a95-440c-ae69-fbd416db5a7d",
+          "version": "553694"
+        },
+        {
+          "controllers": [
+            "fdfc2ecf-e447-41bf-b49c-e463ecaedebf"
+          ],
+          "inventoryOwner": null,
+          "kind": "Revision",
+          "name": "mp23-gc-native-00001",
+          "namespace": "personal",
+          "owners": [
+            "fdfc2ecf-e447-41bf-b49c-e463ecaedebf"
+          ],
+          "token": "revisions.serving.knative.dev",
+          "uid": "f59d62b2-5586-48b3-8a48-e5968b16bf70",
+          "version": "553740"
+        },
+        {
+          "controllers": [
+            "4a0a5fc6-4f5c-4b4d-9fb4-6a3eceed2294"
+          ],
+          "inventoryOwner": "application:mp23-gc-native/mp23-gc-native/service",
+          "kind": "Configuration",
+          "name": "mp23-gc-native",
+          "namespace": "personal",
+          "owners": [
+            "4a0a5fc6-4f5c-4b4d-9fb4-6a3eceed2294"
+          ],
+          "token": "configurations.serving.knative.dev",
+          "uid": "fdfc2ecf-e447-41bf-b49c-e463ecaedebf",
+          "version": "553735"
+        }
+      ],
+      "parent": {
+        "controllers": [],
+        "inventoryOwner": "application:mp23-gc-native/mp23-gc-native/service",
+        "kind": "Service",
+        "name": "mp23-gc-native",
+        "namespace": "personal",
+        "owners": [],
+        "token": "services.serving.knative.dev",
+        "uid": "4a0a5fc6-4f5c-4b4d-9fb4-6a3eceed2294",
+        "version": "553756"
+      },
+      "protected": [
+        {
+          "controllers": [],
+          "inventoryOwner": "application:mp23-app-b/mp23-pg-b/backup-read-role",
+          "kind": "Role",
+          "name": "nagare-dbbackup-mp23-pg-b",
+          "namespace": "personal",
+          "owners": [],
+          "token": "roles.rbac.authorization.k8s.io",
+          "uid": "0919681b-8958-4837-8ec8-93de2043b2f5",
+          "version": "96529"
+        },
+        {
+          "controllers": [],
+          "inventoryOwner": "application:mp23-app-b/mp23-pg-b/service",
+          "kind": "Service",
+          "name": "mp23-pg-b",
+          "namespace": "personal",
+          "owners": [],
+          "token": "services",
+          "uid": "0c05e882-144c-4f8b-92bb-14d85033a8fa",
+          "version": "96502"
+        },
+        {
+          "controllers": [],
+          "inventoryOwner": "application:mp23-app-a/mp23-pg-a/backup",
+          "kind": "CronJob",
+          "name": "nagare-dbbackup-mp23-pg-a",
+          "namespace": "personal",
+          "owners": [],
+          "token": "cronjobs.batch",
+          "uid": "1125251b-02e4-4ac4-89cc-e5d63d3000d2",
+          "version": "413071"
+        },
+        {
+          "controllers": [
+            "2f65cbc1-490b-41d5-ab55-ea26ff3a723d"
+          ],
+          "inventoryOwner": "application:mp23-app-c/mp23-app-c/service",
+          "kind": "Service",
+          "name": "mp23-app-c",
+          "namespace": "personal",
+          "owners": [
+            "2f65cbc1-490b-41d5-ab55-ea26ff3a723d"
+          ],
+          "token": "services",
+          "uid": "175f652d-e4d1-4430-990e-c41407852805",
+          "version": "115772"
+        },
+        {
+          "controllers": [],
+          "inventoryOwner": "application:mp23-app-a/mp23-pg-a/backup-account",
+          "kind": "ServiceAccount",
+          "name": "nagare-dbbackup-mp23-pg-a",
+          "namespace": "personal",
+          "owners": [],
+          "token": "serviceaccounts",
+          "uid": "1d9a971f-f289-428e-bf3a-61250c04747f",
+          "version": "78359"
+        },
+        {
+          "controllers": [],
+          "inventoryOwner": "platform:foundation/foundation/job-quota",
+          "kind": "ResourceQuota",
+          "name": "nagare-terminating-jobs",
+          "namespace": "personal",
+          "owners": [],
+          "token": "resourcequotas",
+          "uid": "23f76b1f-ca8b-42f4-a3cc-102f6599df4d",
+          "version": "39470"
+        },
+        {
+          "controllers": [],
+          "inventoryOwner": "application:mp23-app-a/mp23-app-a/release-history",
+          "kind": "ConfigMap",
+          "name": "nagare-app-deployments-mp23-app-a",
+          "namespace": "personal",
+          "owners": [],
+          "token": "configmaps",
+          "uid": "270d1afa-dde2-4703-b05c-8d6fe64f524c",
+          "version": "95116"
+        },
+        {
+          "controllers": [
+            "906b9e6d-c7ab-4f80-9ad5-3b0055d2d326"
+          ],
+          "inventoryOwner": "application:mp23-app-c/mp23-app-c/service",
+          "kind": "Route",
+          "name": "mp23-app-c",
+          "namespace": "personal",
+          "owners": [
+            "906b9e6d-c7ab-4f80-9ad5-3b0055d2d326"
+          ],
+          "token": "routes.serving.knative.dev",
+          "uid": "2f65cbc1-490b-41d5-ab55-ea26ff3a723d",
+          "version": "115773"
+        },
+        {
+          "controllers": [],
+          "inventoryOwner": "application:mp23-app-b/mp23-app-b/service",
+          "kind": "Service",
+          "name": "mp23-app-b",
+          "namespace": "personal",
+          "owners": [],
+          "token": "services.serving.knative.dev",
+          "uid": "355084e3-b120-448c-adf0-56bfcd551ed3",
+          "version": "96783"
+        },
+        {
+          "controllers": [],
+          "inventoryOwner": "application:mp23-app-c/mp23-app-c/release-history",
+          "kind": "ConfigMap",
+          "name": "nagare-app-deployments-mp23-app-c",
+          "namespace": "personal",
+          "owners": [],
+          "token": "configmaps",
+          "uid": "38d51c58-af16-46c4-94a5-4651d85d8556",
+          "version": "115794"
+        },
+        {
+          "controllers": [],
+          "inventoryOwner": "application:mp23-app-a/mp23-pg-a/service",
+          "kind": "Service",
+          "name": "mp23-pg-a",
+          "namespace": "personal",
+          "owners": [],
+          "token": "services",
+          "uid": "39f0dc2b-be3a-4e8b-a1c3-1577f494c1b8",
+          "version": "78403"
+        },
+        {
+          "controllers": [],
+          "inventoryOwner": "application:mp23-app-b/mp23-pg-b/credential",
+          "kind": "Secret",
+          "name": "nagare-db-mp23-pg-b",
+          "namespace": "personal",
+          "owners": [],
+          "token": "secrets",
+          "uid": "4ebbe794-bf8e-4cea-9f72-969eb9b8a3c1",
+          "version": "96544"
+        },
+        {
+          "controllers": [],
+          "inventoryOwner": "application:mp23-app-a/mp23-pg-a/backup-signing-key",
+          "kind": "Secret",
+          "name": "nagare-dbbackup-mp23-pg-a-signing",
+          "namespace": "personal",
+          "owners": [],
+          "token": "secrets",
+          "uid": "5a3b9be4-07fd-4531-9951-ab7888fc2d12",
+          "version": "95088"
+        },
+        {
+          "controllers": [],
+          "inventoryOwner": "application:mp23-app-b/mp23-pg-b/statefulset",
+          "kind": "StatefulSet",
+          "name": "mp23-pg-b",
+          "namespace": "personal",
+          "owners": [],
+          "token": "statefulsets.apps",
+          "uid": "5a9139e6-2367-4a01-b999-2c5ecde7639a",
+          "version": "96639"
+        },
+        {
+          "controllers": [
+            "5a9139e6-2367-4a01-b999-2c5ecde7639a"
+          ],
+          "inventoryOwner": "application:mp23-app-b/mp23-pg-b/statefulset",
+          "kind": "ControllerRevision",
+          "name": "mp23-pg-b-5d984ff59b",
+          "namespace": "personal",
+          "owners": [
+            "5a9139e6-2367-4a01-b999-2c5ecde7639a"
+          ],
+          "token": "controllerrevisions.apps",
+          "uid": "66282f53-41b0-48f9-93fa-843dfba9f5e4",
+          "version": "96566"
+        },
+        {
+          "controllers": [
+            "906b9e6d-c7ab-4f80-9ad5-3b0055d2d326"
+          ],
+          "inventoryOwner": "application:mp23-app-c/mp23-app-c/service",
+          "kind": "Configuration",
+          "name": "mp23-app-c",
+          "namespace": "personal",
+          "owners": [
+            "906b9e6d-c7ab-4f80-9ad5-3b0055d2d326"
+          ],
+          "token": "configurations.serving.knative.dev",
+          "uid": "678927a1-66d3-4d5f-abd0-00fc5a10e9b6",
+          "version": "115753"
+        },
+        {
+          "controllers": [
+            "355084e3-b120-448c-adf0-56bfcd551ed3"
+          ],
+          "inventoryOwner": "application:mp23-app-b/mp23-app-b/service",
+          "kind": "Route",
+          "name": "mp23-app-b",
+          "namespace": "personal",
+          "owners": [
+            "355084e3-b120-448c-adf0-56bfcd551ed3"
+          ],
+          "token": "routes.serving.knative.dev",
+          "uid": "69dd4c17-5da4-406a-ae6d-721a9957097a",
+          "version": "96782"
+        },
+        {
+          "controllers": [
+            "99316c5e-386c-4396-94b0-e1914c9b78ff"
+          ],
+          "inventoryOwner": "application:mp23-app-a/mp23-app-a/service",
+          "kind": "Configuration",
+          "name": "mp23-app-a",
+          "namespace": "personal",
+          "owners": [
+            "99316c5e-386c-4396-94b0-e1914c9b78ff"
+          ],
+          "token": "configurations.serving.knative.dev",
+          "uid": "6b0fde75-9981-43cf-971d-5470a92ba866",
+          "version": "95060"
+        },
+        {
+          "controllers": [
+            "ada229dd-7e1a-4693-a91c-563e715590df"
+          ],
+          "inventoryOwner": "application:mp23-app-a/mp23-app-a/service",
+          "kind": "Service",
+          "name": "mp23-app-a",
+          "namespace": "personal",
+          "owners": [
+            "ada229dd-7e1a-4693-a91c-563e715590df"
+          ],
+          "token": "services",
+          "uid": "7022a1a4-16e7-42a0-afe2-9ef20c2219bb",
+          "version": "95078"
+        },
+        {
+          "controllers": [],
+          "inventoryOwner": "application:mp23-app-a/mp23-pg-a/backup-read-binding",
+          "kind": "RoleBinding",
+          "name": "nagare-dbbackup-mp23-pg-a",
+          "namespace": "personal",
+          "owners": [],
+          "token": "rolebindings.rbac.authorization.k8s.io",
+          "uid": "73b21bdd-6097-471f-a6ad-87d6290a4339",
+          "version": "78393"
+        },
+        {
+          "controllers": [],
+          "inventoryOwner": "standalone:database-backup-personal-mp23-pg-a-mp23-cloud-pg-a-v1/mp23-cloud-pg-a-v1/job",
+          "kind": "Job",
+          "name": "nagare-dbbackup-mp23-pg-a-mp23-cloud-pg-a-v1",
+          "namespace": "personal",
+          "owners": [],
+          "token": "jobs.batch",
+          "uid": "852766d3-fcdd-4f1e-a82b-cb72d68ab969",
+          "version": "98168"
+        },
+        {
+          "controllers": [],
+          "inventoryOwner": "application:mp23-app-b/mp23-pg-b/backup",
+          "kind": "CronJob",
+          "name": "nagare-dbbackup-mp23-pg-b",
+          "namespace": "personal",
+          "owners": [],
+          "token": "cronjobs.batch",
+          "uid": "8a5e30c0-ae8f-4179-97da-115bb4859ab8",
+          "version": "413080"
+        },
+        {
+          "controllers": [],
+          "inventoryOwner": "application:mp23-app-b/mp23-pg-b/backup-signing-key",
+          "kind": "Secret",
+          "name": "nagare-dbbackup-mp23-pg-b-signing",
+          "namespace": "personal",
+          "owners": [],
+          "token": "secrets",
+          "uid": "8b569769-5b3e-43ba-a887-5963560189f0",
+          "version": "96509"
+        },
+        {
+          "controllers": [],
+          "inventoryOwner": "application:mp23-app-a/mp23-pg-a/backup-read-role",
+          "kind": "Role",
+          "name": "nagare-dbbackup-mp23-pg-a",
+          "namespace": "personal",
+          "owners": [],
+          "token": "roles.rbac.authorization.k8s.io",
+          "uid": "90675841-330e-4783-8a46-67dac941ff41",
+          "version": "78374"
+        },
+        {
+          "controllers": [],
+          "inventoryOwner": "application:mp23-app-c/mp23-app-c/service",
+          "kind": "Service",
+          "name": "mp23-app-c",
+          "namespace": "personal",
+          "owners": [],
+          "token": "services.serving.knative.dev",
+          "uid": "906b9e6d-c7ab-4f80-9ad5-3b0055d2d326",
+          "version": "115774"
+        },
+        {
+          "controllers": [
+            "f38c8493-9898-421e-b2d5-18001b27ca78"
+          ],
+          "inventoryOwner": "application:mp23-app-a/mp23-pg-a/statefulset",
+          "kind": "ControllerRevision",
+          "name": "mp23-pg-a-cdcfd76c5",
+          "namespace": "personal",
+          "owners": [
+            "f38c8493-9898-421e-b2d5-18001b27ca78"
+          ],
+          "token": "controllerrevisions.apps",
+          "uid": "9320fe92-5003-4b0b-8279-16d915db25eb",
+          "version": "78436"
+        },
+        {
+          "controllers": [],
+          "inventoryOwner": "application:mp23-app-a/mp23-app-a/service",
+          "kind": "Service",
+          "name": "mp23-app-a",
+          "namespace": "personal",
+          "owners": [],
+          "token": "services.serving.knative.dev",
+          "uid": "99316c5e-386c-4396-94b0-e1914c9b78ff",
+          "version": "95080"
+        },
+        {
+          "controllers": [
+            "99316c5e-386c-4396-94b0-e1914c9b78ff"
+          ],
+          "inventoryOwner": "application:mp23-app-a/mp23-app-a/service",
+          "kind": "Route",
+          "name": "mp23-app-a",
+          "namespace": "personal",
+          "owners": [
+            "99316c5e-386c-4396-94b0-e1914c9b78ff"
+          ],
+          "token": "routes.serving.knative.dev",
+          "uid": "ada229dd-7e1a-4693-a91c-563e715590df",
+          "version": "95079"
+        },
+        {
+          "controllers": [
+            "69dd4c17-5da4-406a-ae6d-721a9957097a"
+          ],
+          "inventoryOwner": "application:mp23-app-b/mp23-app-b/service",
+          "kind": "Service",
+          "name": "mp23-app-b",
+          "namespace": "personal",
+          "owners": [
+            "69dd4c17-5da4-406a-ae6d-721a9957097a"
+          ],
+          "token": "services",
+          "uid": "b0b97f37-37ad-4347-8ed8-25b8c525f73c",
+          "version": "96781"
+        },
+        {
+          "controllers": [],
+          "inventoryOwner": "application:mp23-app-a/mp23-pg-a/credential",
+          "kind": "Secret",
+          "name": "nagare-db-mp23-pg-a",
+          "namespace": "personal",
+          "owners": [],
+          "token": "secrets",
+          "uid": "b172e7ee-f62b-4e15-b0a5-a5c23020266d",
+          "version": "78425"
+        },
+        {
+          "controllers": [],
+          "inventoryOwner": "application:mp23-app-b/mp23-pg-b/backup-read-binding",
+          "kind": "RoleBinding",
+          "name": "nagare-dbbackup-mp23-pg-b",
+          "namespace": "personal",
+          "owners": [],
+          "token": "rolebindings.rbac.authorization.k8s.io",
+          "uid": "b3972efe-929b-426e-8d98-ae77b5f655fc",
+          "version": "96536"
+        },
+        {
+          "controllers": [
+            "ada229dd-7e1a-4693-a91c-563e715590df"
+          ],
+          "inventoryOwner": "application:mp23-app-a/mp23-app-a/service",
+          "kind": "Ingress",
+          "name": "mp23-app-a",
+          "namespace": "personal",
+          "owners": [
+            "ada229dd-7e1a-4693-a91c-563e715590df"
+          ],
+          "token": "ingresses.networking.internal.knative.dev",
+          "uid": "b6c7f511-e3e7-48f5-b000-722c87519206",
+          "version": "95077"
+        },
+        {
+          "controllers": [],
+          "inventoryOwner": "application:mp23-app-b/mp23-pg-b/pvc",
+          "kind": "PersistentVolumeClaim",
+          "name": "nagare-db-mp23-pg-b-data",
+          "namespace": "personal",
+          "owners": [],
+          "token": "persistentvolumeclaims",
+          "uid": "bc73ba73-ed96-496a-b753-5bcc4d3b435f",
+          "version": "96595"
+        },
+        {
+          "controllers": [
+            "2f65cbc1-490b-41d5-ab55-ea26ff3a723d"
+          ],
+          "inventoryOwner": "application:mp23-app-c/mp23-app-c/service",
+          "kind": "Ingress",
+          "name": "mp23-app-c",
+          "namespace": "personal",
+          "owners": [
+            "2f65cbc1-490b-41d5-ab55-ea26ff3a723d"
+          ],
+          "token": "ingresses.networking.internal.knative.dev",
+          "uid": "cbb1e3dd-019c-4ced-974b-49ca61664e4a",
+          "version": "115771"
+        },
+        {
+          "controllers": [],
+          "inventoryOwner": "application:mp23-app-b/mp23-app-b/release-history",
+          "kind": "ConfigMap",
+          "name": "nagare-app-deployments-mp23-app-b",
+          "namespace": "personal",
+          "owners": [],
+          "token": "configmaps",
+          "uid": "ce08fbe1-85cc-41bb-b8cb-071c4aac66fc",
+          "version": "96805"
+        },
+        {
+          "controllers": [],
+          "inventoryOwner": "application:mp23-app-a/mp23-pg-a/pvc",
+          "kind": "PersistentVolumeClaim",
+          "name": "nagare-db-mp23-pg-a-data",
+          "namespace": "personal",
+          "owners": [],
+          "token": "persistentvolumeclaims",
+          "uid": "dcc135ca-5450-4c79-8e73-00fbc9f117f0",
+          "version": "78479"
+        },
+        {
+          "controllers": [],
+          "inventoryOwner": "application:mp23-app-b/mp23-pg-b/backup-account",
+          "kind": "ServiceAccount",
+          "name": "nagare-dbbackup-mp23-pg-b",
+          "namespace": "personal",
+          "owners": [],
+          "token": "serviceaccounts",
+          "uid": "e266c6ad-e491-42d3-bd6b-21a783262bda",
+          "version": "96470"
+        },
+        {
+          "controllers": [
+            "355084e3-b120-448c-adf0-56bfcd551ed3"
+          ],
+          "inventoryOwner": "application:mp23-app-b/mp23-app-b/service",
+          "kind": "Configuration",
+          "name": "mp23-app-b",
+          "namespace": "personal",
+          "owners": [
+            "355084e3-b120-448c-adf0-56bfcd551ed3"
+          ],
+          "token": "configurations.serving.knative.dev",
+          "uid": "e994c239-7f08-4963-8e5c-257fe1df9dde",
+          "version": "96765"
+        },
+        {
+          "controllers": [],
+          "inventoryOwner": "application:mp23-app-a/mp23-pg-a/statefulset",
+          "kind": "StatefulSet",
+          "name": "mp23-pg-a",
+          "namespace": "personal",
+          "owners": [],
+          "token": "statefulsets.apps",
+          "uid": "f38c8493-9898-421e-b2d5-18001b27ca78",
+          "version": "78514"
+        },
+        {
+          "controllers": [],
+          "inventoryOwner": "standalone:database-restore-personal-mp23-pg-a-mp23pgav1/mp23pgav1/job",
+          "kind": "Job",
+          "name": "nagare-dbrestore-mp23-pg-a-mp23pgav1",
+          "namespace": "personal",
+          "owners": [],
+          "token": "jobs.batch",
+          "uid": "f763205b-0bd9-47ef-975c-e1636e45618d",
+          "version": "99633"
+        },
+        {
+          "controllers": [
+            "69dd4c17-5da4-406a-ae6d-721a9957097a"
+          ],
+          "inventoryOwner": "application:mp23-app-b/mp23-app-b/service",
+          "kind": "Ingress",
+          "name": "mp23-app-b",
+          "namespace": "personal",
+          "owners": [
+            "69dd4c17-5da4-406a-ae6d-721a9957097a"
+          ],
+          "token": "ingresses.networking.internal.knative.dev",
+          "uid": "fcfaaa13-31c8-4259-a974-429f0f7f02ac",
+          "version": "96780"
+        }
+      ]
+    }
+  },
+  "interruption": {
+    "transaction": "tx-6bc9ae1a81b7b6ccbfabfece05260ecc5ac144f31dd53d0c1823c0ee15a16686",
+    "pid": 25749,
+    "signal": "SIGINT",
+    "phase": "server accepted conditional Background DELETE, genuine response withheld before caller acknowledgement",
+    "markerObservedAtUnix": 1790963801.079732,
+    "markerMtimeUnix": 1790963800.9612517,
+    "cliProcessAbsent": true,
+    "secondsFromApplyStartUntilAcceptanceObserved": 90.458,
+    "secondsFromAcceptanceRecordedUntilInterrupt": 0.118,
+    "headGeneration": 735,
+    "headSequence": 637,
+    "executorClaimRetained": true,
+    "explicitTakeoverAfterOriginalProcessExit": true
+  },
+  "pendingRecovery": {
+    "exit": 1,
+    "noServiceTombstone": true,
+    "sameOriginalTransaction": true,
+    "all41ProtectedPresent": true,
+    "remainingReviewedDescendants": 1,
+    "remainingPod": {
+      "observedAt": "2026-10-02T17:59:10.467797+00:00",
+      "uid": "70e9c563-e531-49a7-be92-dbb50b20e991",
+      "deletionTimestamp": "2026-10-02T18:01:41Z",
+      "deletionGracePeriodSeconds": 300,
+      "specTerminationGracePeriodSeconds": 300,
+      "finalizers": [],
+      "phase": "Running",
+      "containerTermination": [
+        {
+          "name": "queue-proxy",
+          "ready": false,
+          "state": {
+            "running": {
+              "startedAt": "2026-10-02T17:30:40Z"
+            }
+          }
+        },
+        {
+          "name": "user-container",
+          "ready": true,
+          "state": {
+            "running": {
+              "startedAt": "2026-10-02T17:30:40Z"
+            }
+          }
+        }
+      ]
+    },
+    "headGeneration": 737,
+    "headSequence": 637
+  },
+  "gcTiming": {
+    "parentDeleteAcceptedSeconds": 0.173,
+    "podTerminationGraceSeconds": 300,
+    "acceptedDeleteToPodAbsenceObservedSeconds": 301.238,
+    "podWait": {
+      "exit": 0,
+      "seconds": 137.181
+    },
+    "note": "The watch observes normal Pod deletion; API acceptance and absence are distinct. Full 75-API final resume establishes all reviewed descendants absent; no forced termination or finalizer patch."
+  },
+  "kubectlCosts": {
+    "collection-plan": {
+      "allKubectlProcesses": 86,
+      "calls": {
+        "contextGuard": 8,
+        "parentGet": 2,
+        "discovery": 1,
+        "namespaceList": 75
+      },
+      "seconds": {
+        "contextGuard": 2.147,
+        "parentGet": 0.556,
+        "discovery": 0.2,
+        "namespaceList": 29.586
+      },
+      "deletes": [],
+      "failedCommands": [],
+      "command": {
+        "exit": 0,
+        "seconds": 67.497
+      },
+      "collectionCallsExcludingClusterGuard": 78,
+      "completeScans": 1,
+      "all75ApisListedOncePerScan": true
+    },
+    "collection-apply": {
+      "allKubectlProcesses": 167,
+      "calls": {
+        "contextGuard": 12,
+        "parentGet": 2,
+        "discovery": 2,
+        "namespaceList": 150,
+        "delete": 1
+      },
+      "seconds": {
+        "contextGuard": 2.316,
+        "parentGet": 0.448,
+        "discovery": 0.377,
+        "namespaceList": 64.993,
+        "delete": 0.173
+      },
+      "deletes": [
+        {
+          "args": [
+            "--context",
+            "ep150-preview",
+            "--request-timeout=10s",
+            "delete",
+            "--raw",
+            "/apis/serving.knative.dev/v1/namespaces/personal/services/mp23-gc-native",
+            "-f",
+            "-"
+          ],
+          "exit": 0,
+          "seconds": 0.173,
+          "effect": "delete",
+          "stdoutSha256": "de87db395240b8fde522bf91b8ed69ad239b5db8da911ca169275e29bc687b5f",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdoutBytes": 198,
+          "deleteOptions": {
+            "apiVersion": "meta.k8s.io/v1",
+            "kind": "DeleteOptions",
+            "preconditions": {
+              "resourceVersion": "553756",
+              "uid": "4a0a5fc6-4f5c-4b4d-9fb4-6a3eceed2294"
+            },
+            "propagationPolicy": "Background"
+          }
+        }
+      ],
+      "failedCommands": [],
+      "command": {
+        "exit": -2,
+        "seconds": 90.482
+      },
+      "collectionCallsExcludingClusterGuard": 155,
+      "completeScans": 2,
+      "all75ApisListedOncePerScan": true
+    },
+    "collection-resume": {
+      "allKubectlProcesses": 86,
+      "calls": {
+        "contextGuard": 8,
+        "parentGet": 2,
+        "discovery": 1,
+        "namespaceList": 75
+      },
+      "seconds": {
+        "contextGuard": 2.378,
+        "parentGet": 0.512,
+        "discovery": 0.203,
+        "namespaceList": 30.314
+      },
+      "deletes": [],
+      "failedCommands": [],
+      "command": {
+        "exit": 1,
+        "seconds": 52.072
+      },
+      "collectionCallsExcludingClusterGuard": 78,
+      "completeScans": 1,
+      "all75ApisListedOncePerScan": true
+    },
+    "collection-final-resume": {
+      "allKubectlProcesses": 86,
+      "calls": {
+        "contextGuard": 8,
+        "parentGet": 2,
+        "discovery": 1,
+        "namespaceList": 75
+      },
+      "seconds": {
+        "contextGuard": 2.151,
+        "parentGet": 0.505,
+        "discovery": 0.175,
+        "namespaceList": 30.235
+      },
+      "deletes": [],
+      "failedCommands": [],
+      "command": {
+        "exit": 0,
+        "seconds": 56.136
+      },
+      "collectionCallsExcludingClusterGuard": 78,
+      "completeScans": 1,
+      "all75ApisListedOncePerScan": true
+    },
+    "collection-terminal": {
+      "allKubectlProcesses": 0,
+      "calls": {},
+      "seconds": {},
+      "deletes": [],
+      "failedCommands": [],
+      "command": {
+        "exit": 0,
+        "seconds": 13.226
+      },
+      "collectionCallsExcludingClusterGuard": 0,
+      "completeScans": 0,
+      "all75ApisListedOncePerScan": true
+    }
+  },
+  "nativeEffects": {
+    "createRequests": 2,
+    "releaseHistoryOrphanDeletes": 1,
+    "parentBackgroundDeletes": 1,
+    "descendantDeletes": 0,
+    "finalizerPatches": 0,
+    "repeatParentDeletes": 0
+  },
+  "final": {
+    "apiCount": 75,
+    "scanAndValidationSeconds": 30.719,
+    "listSeconds": 27.459,
+    "originalObjectIdentitiesUnchanged": 125,
+    "originalInventoriedObjectIdentitiesUnchanged": 41,
+    "reviewedDescendantsAbsent": 17,
+    "parentAbsent": true,
+    "unexpectedReachableDescendants": 0,
+    "protectedReviewedIdentities": 41,
+    "baselineAcceptedAndConvergedRevisionsUnchanged": 27,
+    "originalRetentionsAndTombstonesUnchanged": true,
+    "newTombstones": [
+      {
+        "resource": "application:mp23-gc-native/mp23-gc-native/release-history",
+        "tombstone": {
+          "deletedAt": "2026-10-02T17:38:55Z",
+          "owner": {
+            "kind": "Application",
+            "name": "mp23-gc-native"
+          },
+          "physical": "ecc0ffaf-fcd6-43c0-a6d2-c3c89e967ff6",
+          "review": "09d87edc10d38d0124aa6cbc5a8608a3cd72b0ef5294c788e5375ef7d904012e",
+          "revision": {
+            "digest": "ba326d063c68c4fda3b7ad13368ae92d4c8dc49156beec735a6af7d155c2ff6e",
+            "generation": 1
+          }
+        }
+      },
+      {
+        "resource": "application:mp23-gc-native/mp23-gc-native/service",
+        "tombstone": {
+          "deletedAt": "2026-10-02T18:02:54Z",
+          "owner": {
+            "kind": "Application",
+            "name": "mp23-gc-native"
+          },
+          "physical": "4a0a5fc6-4f5c-4b4d-9fb4-6a3eceed2294",
+          "review": "6bc9ae1a81b7b6ccbfabfece05260ecc5ac144f31dd53d0c1823c0ee15a16686",
+          "revision": {
+            "digest": "ba326d063c68c4fda3b7ad13368ae92d4c8dc49156beec735a6af7d155c2ff6e",
+            "generation": 1
+          }
+        }
+      }
+    ],
+    "rows": {
+      "mp23-pg-a": {
+        "row": "1|mp23-after-backup",
+        "sha256": "b79fa1bf2a6af844e6d00cfef2b3ad45c4b504a5830d24e50dff16fbc9841433",
+        "unchanged": true
+      },
+      "mp23-pg-b": {
+        "row": "1|mp23-untouched-app-b",
+        "sha256": "481b55f18be34e63a19689bd7fbf4650518c3288853b87c9f66876ef4aaeeb90",
+        "unchanged": true
+      }
+    },
+    "head": {
+      "generation": 742,
+      "sequence": 639,
+      "activeTransaction": null,
+      "executorClaim": null
+    },
+    "frozenF15ByteIdentical": true
+  },
+  "terminalReplay": {
+    "zeroKubectlCalls": true,
+    "headUnchanged": true,
+    "seconds": 13.226
+  },
+  "frozenF15": {
+    "headSha256": "28b5d60e438d80d7d8e9e4cf3b1156f4ed64637d772d73513e8baff864e7dc48",
+    "generation": 752,
+    "sequence": 673,
+    "byteIdentical": true,
+    "transaction": "tx-b6886179d40d4618442997221cc02ca986f142ccdeef1661448cfca627765472",
+    "candidate": "4c4b667e",
+    "exceptionExecuted": false,
+    "exceptionAuthorized": false
+  },
+  "privateEvidenceDigests": {
+    "initial-identities.json": "742b52b46a2622deeb836b78a02fd54fbb881d90c1a94ab35550b205d7224aff",
+    "final-identities.json": "0fc0ba61c00735dd0ea88434e1213d1eeda890a53f3a6521491d48dadac32d49",
+    "collection-native.json": "f2531aa5adc9cbc6d14336bb3c2759852e950a146953813cfab5979be155ff39",
+    "collection-review/review.json": "6bc9ae1a81b7b6ccbfabfece05260ecc5ac144f31dd53d0c1823c0ee15a16686",
+    "ep150-initial-head.json": "f43a84b5b6386309dd1762190e44704aa7d36d310a980089ab84fa68cc436522",
+    "final-head.json": "afeaab3db9811f24eaff9b0ee7049510bb4c3f738d1ac5138ffad23f07baf936"
+  },
+  "limits": [
+    "Implementer-supplied native evidence; independent F20 verification remains open.",
+    "The separate fixture preserves existing accepted database neighbors and original retained web incarnations; it does not execute or resolve frozen F15 or claim native same-scope retained-database coverage.",
+    "The Background grant covers dynamic exclusive controller descendants; complete sequential observations are not an atomic exact-UID deletion boundary.",
+    "Call counts cover recorded kubectl processes; GCS inventory requests are not separately instrumented. Private full namespace responses are retained locally and not published."
+  ]
+}
