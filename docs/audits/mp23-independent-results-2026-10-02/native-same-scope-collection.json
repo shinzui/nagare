@@ -1,0 +1,172 @@
+{
+  "verifierModel": "gpt-6-astra",
+  "verifierSession": "01a0fdf4-974a-7d50-a153-f08d0fd5a721",
+  "operator": {
+    "platformVersion": "0.4.0",
+    "revision": "8a820ce89d532e441a3cde4374a38973d2639408",
+    "version": "0.4.0"
+  },
+  "context": "ep150-preview",
+  "payload": "nagare-0.4.0-6082dbd6aac0",
+  "review": "cae6f4ad9ada268e94206fd6665875f731e88b6a2b35c34c76d79c4b86206b77",
+  "parentUid": "355084e3-b120-448c-adf0-56bfcd551ed3",
+  "apiCount": 75,
+  "reviewedDescendantsAbsent": 16,
+  "protectedObjectsPreserved": 35,
+  "sameScopeRetainedDatabaseResources": [
+    "application:mp23-app-b/mp23-pg-b/backup",
+    "application:mp23-app-b/mp23-pg-b/backup-account",
+    "application:mp23-app-b/mp23-pg-b/backup-read-binding",
+    "application:mp23-app-b/mp23-pg-b/backup-read-role",
+    "application:mp23-app-b/mp23-pg-b/backup-signing-key",
+    "application:mp23-app-b/mp23-pg-b/credential",
+    "application:mp23-app-b/mp23-pg-b/pvc",
+    "application:mp23-app-b/mp23-pg-b/service",
+    "application:mp23-app-b/mp23-pg-b/statefulset"
+  ],
+  "sameScopeProtectedObjects": 10,
+  "originalNonEventIdentitiesPreserved": 106,
+  "additionalUninventoriedOwnerlessEndpointAbsent": {
+    "api": "endpoints",
+    "kind": "Endpoints",
+    "name": "mp23-app-b-00001-private",
+    "uid": "cabbf7bc-3143-4ad9-bb9d-14debcd671cb",
+    "ownerReferences": [],
+    "inventoryResource": null
+  },
+  "rows": {
+    "mp23-pg-a": "1|mp23-after-backup",
+    "mp23-pg-b": "1|mp23-untouched-app-b"
+  },
+  "unselectedAcceptedConvergedRevisionsPreserved": 26,
+  "initialHead": {
+    "generation": 742,
+    "sequence": 639
+  },
+  "finalHead": {
+    "generation": 767,
+    "sequence": 653,
+    "idle": true
+  },
+  "retirementForeignUidRefusedWithoutHeadChange": true,
+  "retirementProviderEffects": 0,
+  "parentDeleteCount": 1,
+  "childDeleteCount": 0,
+  "finalizerPatches": 0,
+  "acceptedDeleteInterruption": {
+    "transaction": "tx-cae6f4ad9ada268e94206fd6665875f731e88b6a2b35c34c76d79c4b86206b77",
+    "interruptedPid": 82458,
+    "seconds": 82.404,
+    "phase": "server accepted parent DELETE; genuine response withheld before caller acknowledgement",
+    "cliAbsent": true
+  },
+  "sameRootOriginalTransactionResume": {
+    "exit": 0,
+    "seconds": 47.01
+  },
+  "foreignRootTakeoverClaim": false,
+  "terminalReplayKubectlCalls": 0,
+  "retiredF15Accessed": false,
+  "commands": {
+    "policy-app-plan": {
+      "exit": 1,
+      "seconds": 2.033
+    },
+    "policy-plan": {
+      "exit": 1,
+      "seconds": 10.117
+    },
+    "retire-apply": {
+      "exit": 0,
+      "seconds": 17.526
+    },
+    "retire-plan": {
+      "exit": 0,
+      "seconds": 17.624
+    },
+    "status": {
+      "exit": 0,
+      "seconds": 3.338
+    },
+    "guard": {
+      "exit": 0,
+      "seconds": 3.601
+    },
+    "resume-terminal": {
+      "exit": 0,
+      "seconds": 11.888
+    },
+    "collection-apply": {
+      "exit": -2,
+      "seconds": 80.201
+    },
+    "retire-reject": {
+      "exit": 1,
+      "seconds": 7.952
+    },
+    "node": {
+      "exit": 0,
+      "seconds": 0.555
+    },
+    "compile": {
+      "exit": 0,
+      "seconds": 0.766
+    },
+    "history-plan": {
+      "exit": 0,
+      "seconds": 18.903
+    },
+    "history-apply": {
+      "exit": 0,
+      "seconds": 17.767
+    },
+    "policy-apply": {
+      "exit": 0,
+      "seconds": 18.339
+    },
+    "version": {
+      "exit": 0,
+      "seconds": 0.099
+    },
+    "policy-app-plan2": {
+      "exit": 0,
+      "seconds": 26.894
+    },
+    "collection-plan": {
+      "exit": 0,
+      "seconds": 44.177
+    },
+    "resume-foreign": {
+      "exit": 0,
+      "seconds": 47.01
+    }
+  },
+  "kubectlCalls": {
+    "collection-apply": 167,
+    "collection-plan": 86,
+    "history-apply": 13,
+    "history-plan": 8,
+    "policy-app-plan2": 18,
+    "policy-apply": 13,
+    "resume-foreign": 86,
+    "retire-apply": 15,
+    "retire-plan": 15,
+    "retire-reject": 15
+  },
+  "privateEvidenceSha256": {
+    "head-before.json": "d6bf177e672fabea1631d72d0fb7e1cbbfd1d5c5448c9c6c0736f89b2dd26c15",
+    "before-observation.json": "d9329b835034adb634796f9e09195a6c46e62aff4c92d29a7f9b563c6f815fb8",
+    "collection-native.json": "90fb60e5a2aaba055775e4f307f96d84acdefcfdf8b1f6cb86f990e1c058c633",
+    "collection-review/review.json": "cae6f4ad9ada268e94206fd6665875f731e88b6a2b35c34c76d79c4b86206b77",
+    "interruption.json": "15b376a5322b3d3ab02faef4ac0542f4ee1621837deabe8df9ab746fd3a7966a",
+    "final-head.json": "76dc9ec1aca91449dbfc818f1564e77195146834a7e391fad84abb88e0542bf5",
+    "after-observation.json": "147235c7a6556d6563dbac8afe8b43732372d3557cb38352d00b06dd7497cd77"
+  },
+  "limits": [
+    "Native proof binds this operator/payload and supported k3s/Knative fixture, not final release candidate acceptance.",
+    "An uninventoried ownerless Endpoints sharing a reviewed descendant Service name disappeared; no exact namespace UID preservation is claimed.",
+    "No pending descendant remained by first fresh-process resume; earlier independent interpreter cases and retained separate native proof cover pending GC.",
+    "Same private root resumes its own claim; this run does not claim a foreign-client takeover.",
+    "No source-cluster-loss recovery, HTTPS or other-engine acceptance follows from collection."
+  ]
+}

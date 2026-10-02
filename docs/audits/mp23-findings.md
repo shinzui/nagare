@@ -21,7 +21,7 @@ Implementation owner: existing session `01a0e893-337f-7b82-ac5d-16f41bf5ce21` (I
 - The verifier updates status and **Verification** after checking the affected path. A sent message, acknowledged finding, source edit, test count, or passing unrelated suite is not closure.
 - Before advancing an affected native rehearsal, reconcile its P1 findings. Scope reductions do not waive recovery for already-admitted operations. Deferral/dispute requires an explicit reason recorded here; do not silently omit the issue.
 - At every handoff, state IDs still Open/Partial/Verifying and the next required check.
-- Safe-use verification policy (MP-23 Decision Log, 2026-09-30): for F14–F18 and the cloud operational checks, the operator's end-to-end runbook run on the selected eligible candidate context is the independent check; the operator records the result here. Release acceptance keeps the closure rule above for every remaining finding.
+- Safe-use verification policy (operator instruction, 2026-10-02): an independent reviewer executes the technical runbook on the selected eligible candidate context and records results here, including F14–F18 and cloud operational checks. Operator-run technical verification is no longer a gate. Ask the operator only for genuinely unavailable access, product-scope decisions, actions outside existing authorization, and final production go/no-go. Release acceptance keeps the closure rule above for every remaining finding.
  Link durable evidence in the repository; temporary reproduction paths are supplemental. If sessions end, the next implementer reads this file through the MP-23 entrypoint.
 
 ## Status register
@@ -29,12 +29,12 @@ Implementation owner: existing session `01a0e893-337f-7b82-ac5d-16f41bf5ce21` (I
 | ID | Priority | Finding | Status | Child owner |
 |---|---|---|---|---|
 | [F01](#f01) | P1 | Host execution mutates after observing a different VM or old closure | Closed | EP-156 |
-| [F02](#f02) | P1 | Active transaction status still reads journal entries individually | Verifying | EP-156 |
-| [F03](#f03) | P2 | Resume loads the same complete journal twice | Verifying | EP-156 |
+| [F02](#f02) | P1 | Active transaction status still reads journal entries individually | Closed | EP-156 |
+| [F03](#f03) | P2 | Resume loads the same complete journal twice | Closed | EP-156 |
 | [F04](#f04) | P2 | Native evidence loads every historical review and can repeat the scan | Partial | EP-156 / EP-153 |
-| [F05](#f05) | P1 | New fresh-login checks can reuse an SSH multiplexed connection | Verifying | EP-156 |
+| [F05](#f05) | P1 | New fresh-login checks can reuse an SSH multiplexed connection | Closed | EP-156 |
 | [F06](#f06) | P1 | Journal appends retain excessive serial cloud-command cost | Partial | EP-156 |
-| [F07](#f07) | P1 | Installed key with failed service activation cannot recover by retry | Verifying | EP-156 |
+| [F07](#f07) | P1 | Installed key with failed service activation cannot recover by retry | Closed | EP-156 |
 | [F08](#f08) | P2 | Unchanged host bootstrap depends on transient key-file environment and source root | Partial | EP-156 |
 | [F09](#f09) | P1 | Scheduled-prune preflight prevents recovery after admission | Verifying | EP-159 / EP-153 |
 | [F10](#f10) | P2 | Explaining one resource observes the whole context | Verifying | EP-153 |
@@ -47,15 +47,15 @@ Implementation owner: existing session `01a0e893-337f-7b82-ac5d-16f41bf5ce21` (I
 | [F17](#f17) | P1 | Effect-free retirement discards required native identity observations | Verifying | EP-153 / EP-156 |
 | [F18](#f18) | P1 | Initial GCS foundation transaction cannot resume its local journal | Verifying | EP-153 / EP-156 |
 | [F19](#f19) | P1 | Rendered pinned GCS restore omits download generations | Verifying | EP-160 / EP-156 |
-| [F20](#f20) | P1 | Knative collection cannot orphan controller descendants | Verifying | EP-153 / EP-156 |
+| [F20](#f20) | P1 | Knative collection cannot orphan controller descendants | Closed | EP-153 / EP-156 |
 
-F01 and F11 are independently Closed with [retained verification and source identities](mp23-verification.md). F02 has passing local call-count evidence but still needs its retained status-caller regression. All other entries remain Open, Partial, or Verifying as shown.
+F01 and F11 retain their [earlier independent closure](mp23-verification.md). F02, F03, F05, F07 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). Other entries retain their status shown above.
 
 ## F20
 
-**Current disposition (2026-10-02):** Candidate repair has native evidence; status is Verifying pending independent product verification. Earlier Open/frozen statements below are dated observations. The old F15 exception is withdrawn from the work queue; preserve its proposal only as diagnostic history.
+**Current disposition (2026-10-02):** Independent candidate-bound verification is complete; status is Closed. Earlier Open/frozen statements below are dated observations. The old F15 exception is withdrawn from the work queue; preserve its proposal only as diagnostic history.
 
-**Knative collection cannot orphan controller descendants** — P1; **Verifying**; owners EP-153 / EP-156.
+**Knative collection cannot orphan controller descendants** — P1; **Closed**; owners EP-153 / EP-156.
 
 **Native evidence:** Installed `4c4b667e` changes only Application B's history lifecycle, retires eleven exact incarnations without mutation, proves premature Service collection refuses without changing the head, then collects history separately. Review `b6886179d40d4618442997221cc02ca986f142ccdeef1661448cfca627765472` issues its conditional Service deletion once but stops ambiguous after 45.124 seconds. UID `80560c4d-6bd8-4fe4-9c55-e67620554924` remains terminating with finalizer `orphan`. k3s logs show garbage collection cannot orphan its Route/Configuration: Knative validation refuses missing `metadata.labels.serving.knative.dev/service`. Generation 752/sequence 673 keeps the original transaction, no claim/fence and nine retained B database incarnations. Source/neighbor rows and UIDs remain exact. [Evidence](mp23-native-bootstrap-results-2026-10-02/f15-receipt-only-restore-and-web-cleanup.json) also records the earlier helper guard failure/reconciliation.
 
@@ -72,6 +72,8 @@ F01 and F11 are independently Closed with [retained verification and source iden
 **Required verification (revised 2026-10-02):** Independently verify corrected reviewed descendant collection, accepted-response interruption, original-transaction recovery without duplicate DELETE, and retained-data preservation on the candidate. Retain the existing separate native proof and finish its missing same-scope retained-database assertion. Under [the operator disposition](mp23-prerelease-fixture-disposition.md), the old F15 transaction is retired from acceptance: its cascade exception, recovery and teardown are not closure requirements. This is a scope disposition of a development attempt, not successful recovery or independent closure of the product defect.
 
 **Recovery request validation:** Live server `v1.35.8+k3s1` accepts the exact UID/resourceVersion-bound Background DELETE with server-side `dryRun=All`; parent UID/resourceVersion/orphan finalizer and the head remain unchanged. The exception review records upstream custom-resource/generic-store sources and this dry-run. The request lets the API server adjust its GC finalizer; it excludes manual finalizer patches. Dry-run acceptance does not prove actual parent/descendant finalization, and no exception mutation has run.
+
+**Independent verification (2026-10-02):** Installed `8a820ce8` independently passes the complete same-scope native scenario on eligible `ep150-preview`: exact policy review, foreign-UID retirement refusal, effect-free retirement of eleven members, separate history collection, one reviewed Background parent DELETE interrupted after server acceptance, fresh-process original-transaction recovery with no repeated DELETE, and zero-kubectl terminal replay. All 75 APIs are observed; parent and sixteen descendants are absent; 35 protected objects and all nine retained same-scope database resources survive. The source and retained-database rows remain exact, and 26 unselected revisions remain unchanged. Final generation 767/sequence 653 is idle. An additional uninventoried ownerless Endpoints sharing a reviewed descendant Service name disappeared; the proof does not claim an atomic namespace UID boundary. Same-root recovery is not a foreign-client takeover claim. Earlier pending-GC native proof plus independently rerun 47 interpreter scenarios retain that boundary. Retired F15 was never accessed. [Independent proof and limits](mp23-independent-verification-2026-10-02.md), [redacted native evidence](mp23-independent-results-2026-10-02/native-same-scope-collection.json). Final release-candidate binding remains a separate EP-157 gate.
 
 ## F19
 
@@ -183,7 +185,7 @@ F01 and F11 are independently Closed with [retained verification and source iden
 
 ## F02
 
-**Active transaction status still reads journal entries individually** — P1; **Verifying**; owner EP-156.
+**Active transaction status still reads journal entries individually** — P1; **Closed**; owner EP-156.
 
 **Locations:** cli/nagarectl/src/Nagare/Inventory/Status.hs: loadActiveTransactionStatus.
 
@@ -193,11 +195,11 @@ F01 and F11 are independently Closed with [retained verification and source iden
 
 **Required verification:** Add or name a retained regression invoking loadActiveTransactionStatus at both sizes; preserve chain/gap rejection. The wider live timing gate belongs to F06/EP-156.
 
-**Verification:** Not closed. Independent local reproduction passes after the fix; see audit evidence. Remaining closure checks above are pending.
+**Verification:** Independently Closed (2026-10-02). The retained status-caller regression passed at 50 and 500 committed events with zero single GETs and exactly one batch per prefix; a missing committed member still refuses. The independent 64-test object group passes. Live timing remains the separate F06 obligation. See [independent commands, limits and source hashes](mp23-independent-verification-2026-10-02.md).
 
 ## F03
 
-**Resume loads the same complete journal twice** — P2; **Verifying**; owner EP-156.
+**Resume loads the same complete journal twice** — P2; **Closed**; owner EP-156.
 
 **Locations:** cli/nagarectl/src/Nagare/Inventory/Execute.hs: resumeTransactionWithTakeover, executeWithJournal.
 
@@ -207,7 +209,7 @@ F01 and F11 are independently Closed with [retained verification and source iden
 
 **Required verification:** Run a same-transaction resume with batch counts and retained operation receipts; require one prefix read and no repeated completed native effect.
 
-**Verification:** Not closed. Awaiting the checks above.
+**Verification:** Independently Closed (2026-10-02). The active original-transaction regression passed with exactly one journal batch and one total provider effect across interrupted apply/resume. Completed replay uses one batch without a registry; lost acknowledgements preserve no-duplicate behavior. The independent 64-test object group passes. See [independent commands, limits and source hashes](mp23-independent-verification-2026-10-02.md).
 
 ## F04
 
@@ -229,7 +231,7 @@ F01 and F11 are independently Closed with [retained verification and source iden
 
 ## F05
 
-**New fresh-login checks can reuse an SSH multiplexed connection** — P1; **Verifying**; owner EP-156.
+**New fresh-login checks can reuse an SSH multiplexed connection** — P1; **Closed**; owner EP-156.
 
 **Locations:** scripts/inventory-host-transport.sh: tailnet_fresh_closure, activate.
 
@@ -241,7 +243,7 @@ F01 and F11 are independently Closed with [retained verification and source iden
 
 **Required verification:** Capture argv for every call that contributes fresh-login proof and assert both options. Retain a regression with multiplexing configured; verify the proof comes from a new connection.
 
-**Verification:** Not closed. Awaiting the checks above.
+**Verification:** Independently Closed (2026-10-02). The real loopback sshd/control-master regression independently passes: the surviving master cannot authorize any of the three fresh-login paths after key revocation; restored authorization succeeds, safe-switch returns 4 without commit. The argv transport regression also passes. See [independent commands, limits and source hashes](mp23-independent-verification-2026-10-02.md).
 
 ## F06
 
@@ -271,7 +273,7 @@ F01 and F11 are independently Closed with [retained verification and source iden
 
 ## F07
 
-**Installed key with failed service activation cannot recover by retry** — P1; **Verifying**; owner EP-156.
+**Installed key with failed service activation cannot recover by retry** — P1; **Closed**; owner EP-156.
 
 **Locations:** scripts/inventory-host-transport.sh: activate; nixos/modules/nagare-host.nix: install_key.
 
@@ -283,7 +285,7 @@ F01 and F11 are independently Closed with [retained verification and source iden
 
 **Required verification:** Simulate successful key persistence followed by sops/Tailscale failure, then retry the original operation. Prove activation resumes, no different key is written, fresh-login/readiness succeeds, and wrong keys still refuse.
 
-**Verification:** Not closed. Awaiting the checks above.
+**Verification:** Independently Closed (2026-10-02). Executing the actual helper/transport regression proves both injected post-persistence sops and Tailscale failures recover on the identical request: first exits 42/43, retry exits 0, one key write, unchanged inode/mtime/content, and wrong key exits 2. Fresh-login and transport argv regressions also pass. This closes the stated retry defect; final real-service/native release evidence remains separately required. See [independent verification](mp23-independent-verification-2026-10-02.md).
 
 ## F08
 

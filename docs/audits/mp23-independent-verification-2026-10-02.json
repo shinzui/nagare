@@ -1,0 +1,95 @@
+{
+  "verifierModel": "gpt-6-astra",
+  "verifierSession": "01a0fdf4-974a-7d50-a153-f08d0fd5a721",
+  "sourceHashes": {
+    "cli/nagarectl/src/Nagare/Inventory/Status.hs": "10f32965e2980146459d94c85f028a7603162572f4c24ccceabb14bd9bd9c591",
+    "cli/nagarectl/src/Nagare/Inventory/Execute.hs": "6a1259c4a550361ce8c6e2e1f1df82b48a48feebd5dff93d4b4de6a97be3f289",
+    "cli/nagarectl/src/Nagare/Inventory/Store/ObjectOps.hs": "028959447fd85a512c6ef1c28cb5f9b31aeb4193ea624fc4202a7e1334d5eef8",
+    "cli/nagarectl/test/InventoryObjectOpsSpec.hs": "2418275bfe7593fbcf32e70dc0992e98db06cd9391b8766470c977486f9f5640",
+    "scripts/inventory-host-transport.sh": "34073461c290fc8da476a54d62d2f092c1dec61980a5312c8d6d786f174dd8e5",
+    "scripts/test-host-fresh-login.py": "95abda5c30ae1dda478bdc5aa2640e301bd5d746652f524118e7913c7673e0d3",
+    "scripts/test-host-key-recovery.py": "cdc527abf9e329225deba8b5a68d858daa8ddd4eee0a17e16722cb0362ff2b39",
+    "nixos/modules/nagare-host.nix": "fd3ef740316d5dc7341e98bb43609ccd66814db87d552e33de49de443443b162",
+    "cli/nagarectl/test/InventoryObservationSpec.hs": "3f4099c5a04e80926a5f57d5bde4a0efc341d6fb21b66e004b9dfb2322ada8e5"
+  },
+  "logs": {
+    "observation-tests.log": "3e4bc54ba85ebcf28c2b10f43b1b14c9e46fb77e7ecab7efffe99bd8c132f9a5",
+    "public-collection.log": "846ccd6ab0538adc5d911bb8d2ea3c371ed90579a28b29f5cc4c693d437c813d",
+    "host-transport.log": "81b7808e94342867d5e67e131128c0956d174846e2431ca8bba68fc5d978b14a",
+    "fresh-login.log": "88ab6f96a67b37ee58a5e7d61da8798f7212a2156ca79666896e4f42d51b10a5",
+    "object-tests.log": "a1587e5f08b81e24a9475f295d6e4fe50afaa8c9550f17550afa1010fbbd8e1b",
+    "key-recovery.log": "973eb3c0fc113ed45760fecae1ee4646b57d81f096fc385f088dfc52aa6b66c1"
+  },
+  "installedVersion": {
+    "platformVersion": "0.4.0",
+    "revision": "8a820ce89d532e441a3cde4374a38973d2639408",
+    "version": "0.4.0"
+  },
+  "closedFindings": [
+    "F02",
+    "F03",
+    "F05",
+    "F07",
+    "F20"
+  ],
+  "tests": {
+    "objectGroup": {
+      "tests": 64,
+      "seconds": 7.45
+    },
+    "effectful": {
+      "tests": 47,
+      "seconds": 7.68
+    },
+    "hostFreshLogin": "passed real loopback sshd and persistent control master",
+    "hostKeyRecovery": "passed sops and tailscale failure after one persisted key write",
+    "hostTransport": "passed",
+    "observationDirect": {
+      "tests": 35,
+      "seconds": 0.99,
+      "runner": "existing compiled test binary; source build not invoked"
+    }
+  },
+  "testBinarySha256": "50d98933035d4474ab9a0077cd2a1419bc5930379688021bb761f67fd86ab557",
+  "gcsListShape": {
+    "providerCommand": "gcloud storage ls --json gs://<accepted-backup-bucket>/databases/mp23-pg-a/**",
+    "context": "ep150-preview",
+    "objects": 4,
+    "topLevelKeys": [
+      "metadata",
+      "type",
+      "url"
+    ],
+    "metadataFieldTypes": {
+      "bucket": "str",
+      "contentType": "str",
+      "crc32c": "str",
+      "etag": "str",
+      "generation": "str",
+      "id": "str",
+      "kind": "str",
+      "md5Hash": "str",
+      "mediaLink": "str",
+      "metageneration": "str",
+      "name": "str",
+      "selfLink": "str",
+      "size": "str",
+      "storageClass": "str",
+      "timeCreated": "str",
+      "timeFinalized": "str",
+      "timeStorageClassUpdated": "str",
+      "updated": "str"
+    },
+    "mutationPerformed": false
+  },
+  "nativeProof": "mp23-independent-results-2026-10-02/native-same-scope-collection.json",
+  "resultHashes": {
+    "docs/audits/mp23-independent-results-2026-10-02/native-same-scope-collection.json": "d19a254359d837387f2912260a0120a6d356f8be8eceeaa40433864851653725",
+    "docs/audits/mp23-independent-results-2026-10-02/observation-tests.log": "f2e4d08a00d2f457a83f12d09d27602744015634c1b50138f2e1c154322da11d",
+    "docs/audits/mp23-independent-results-2026-10-02/public-collection.log": "846ccd6ab0538adc5d911bb8d2ea3c371ed90579a28b29f5cc4c693d437c813d",
+    "docs/audits/mp23-independent-results-2026-10-02/host-transport.log": "81b7808e94342867d5e67e131128c0956d174846e2431ca8bba68fc5d978b14a",
+    "docs/audits/mp23-independent-results-2026-10-02/fresh-login.log": "88ab6f96a67b37ee58a5e7d61da8798f7212a2156ca79666896e4f42d51b10a5",
+    "docs/audits/mp23-independent-results-2026-10-02/object-tests.log": "a1587e5f08b81e24a9475f295d6e4fe50afaa8c9550f17550afa1010fbbd8e1b",
+    "docs/audits/mp23-independent-results-2026-10-02/key-recovery.log": "973eb3c0fc113ed45760fecae1ee4646b57d81f096fc385f088dfc52aa6b66c1"
+  }
+}
