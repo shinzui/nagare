@@ -27,7 +27,7 @@ inventoryEvidenceAssetNames version =
   , "nagare-platform-metadata-v" <> T.unpack version <> ".json"
   , "inventory-coverage.json"
   ]
-    <> ["inventory-" <> mode <> "-" <> kind <> ".json" | mode <- ["local", "cloud"], kind <- ["target", "health", "evidence"]]
+    <> ["inventory-" <> mode <> "-" <> kind <> ".json" | mode <- ["local", "cloud"], kind <- ["target", "health", "fixture", "evidence"]]
 
 validateInventoryReleaseEvidence :: Text -> Text -> Map FilePath ByteString -> Either Text ()
 validateInventoryReleaseEvidence version revision assets = do
@@ -78,10 +78,14 @@ validateInventoryReleaseEvidence version revision assets = do
     let asset kind = "inventory-" <> T.unpack mode <> "-" <> kind <> ".json"
     target <- document (asset "target")
     health <- document (asset "health")
+    fixture <- document (asset "fixture")
     evidence <- document (asset "evidence")
-    mapM_ rejectSensitive [target, health, evidence]
+    mapM_ rejectSensitive [target, health, fixture, evidence]
     boundDigest entry "targetDigest" (asset "target")
     boundDigest entry "healthDigest" (asset "health")
+    boundDigest entry "fixtureDigest" (asset "fixture")
+    boundDigest health "fixtureDigest" (asset "fixture")
+    require (field "schemaVersion" fixture == Number 1 && field "mode" fixture == String mode) "scenario fixture definition has wrong schema or mode"
     boundDigest entry "evidenceDigest" (asset "evidence")
     require (field "schemaVersion" target == Number 1 && field "mode" target == String mode && nonempty (field "context" target) && nonempty (field "kubeContext" target) && nonempty (field "expectedCluster" target)) "scenario target is incomplete"
     require (if mode == "cloud" then nonempty (field "expectedProject" target) else field "expectedProject" target == Null) "scenario project binding is invalid"

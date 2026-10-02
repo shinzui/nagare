@@ -113,6 +113,21 @@ with tempfile.TemporaryDirectory(prefix="mp23-release-public-") as temporary:
     run(False, "lacks required supported assertions")
     health_path.write_bytes(original_health)
     index_path.write_bytes(original_index)
+    # Recompute the public index and sums so the validator must compare the
+    # health's declared fixture with the separately shipped definition.
+    fixture_path = output / "inventory-cloud-fixture.json"
+    original_fixture = fixture_path.read_bytes()
+    changed = read(fixture_path)
+    changed["description"] = "another fixture with the same context"
+    write(fixture_path, changed)
+    changed_index = read(index_path)
+    cloud = next(item for item in changed_index["scenarios"] if item["mode"] == "cloud")
+    cloud["fixtureDigest"] = digest(fixture_path)
+    write(index_path, changed_index)
+    sums()
+    run(False, "release evidence digest differs: inventory-cloud-fixture.json")
+    fixture_path.write_bytes(original_fixture)
+    index_path.write_bytes(original_index)
     target_path = output / "inventory-local-target.json"
     original_target = target_path.read_bytes()
     changed = read(target_path)

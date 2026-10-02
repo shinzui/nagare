@@ -87,10 +87,12 @@ with tempfile.TemporaryDirectory(prefix="nagare-inventory-index-test.") as tempo
                   "expectedProject": "fixture-project" if mode == "cloud" else None}
         (directory / "target.json").parent.mkdir(parents=True, exist_ok=True)
         (directory / "target.json").write_text(json.dumps(target, indent=2) + "\n")
+        write(directory / "fixture.json", {"schemaVersion": 1, "mode": mode,
+                                            "description": "synthetic complete scenario"})
         write(directory / f"{mode}-health.json",
               {"schemaVersion": 1, "mode": mode, "context": target["context"],
                "cluster": target["expectedCluster"], "operatorRevision": REVISION,
-               "fixtureDigest": HEX_A, "healthy": True,
+               "fixtureDigest": sha(directory / "fixture.json"), "healthy": True,
                "checks": sorted(CONTRACT["COMMON_SCENARIO_CHECKS"] | CONTRACT["MODE_SCENARIO_CHECKS"][mode])})
         write(directory / "inventory-evidence.json",
               {"schemaVersion": 1,
@@ -156,6 +158,16 @@ with tempfile.TemporaryDirectory(prefix="nagare-inventory-index-test.") as tempo
 
     health_path = root / "cloud/cloud-health.json"
     health_original = health_path.read_bytes()
+    fixture_path = root / "cloud/fixture.json"
+    fixture_original = fixture_path.read_bytes()
+    fixture_path.unlink()
+    run(root, False, "missing or linked evidence input")
+    fixture_path.write_bytes(fixture_original)
+    changed = read(fixture_path)
+    changed["description"] = "different fixture, same target"
+    write(fixture_path, changed)
+    run(root, False, "health differs from the saved fixture definition")
+    fixture_path.write_bytes(fixture_original)
     for missing in ("redis-backup-restore", "source-unavailable-recovery", "google-cdn"):
         changed = read(health_path)
         changed["checks"].remove(missing)

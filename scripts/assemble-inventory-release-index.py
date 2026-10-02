@@ -80,12 +80,17 @@ def scenario(mode: str, directory: Path, version: str, revision: str,
              payloads: dict, coverage_digest: str) -> dict:
     target_path = directory / "target.json"
     health_path = directory / f"{mode}-health.json"
+    fixture_path = directory / "fixture.json"
     evidence_path = directory / "inventory-evidence.json"
     target = read_json(target_path)
     health = read_json(health_path)
+    fixture = read_json(fixture_path)
     evidence = read_json(evidence_path)
     reject_sensitive(target, f"{mode}.target")
     reject_sensitive(health, f"{mode}.health")
+    reject_sensitive(fixture, f"{mode}.fixture")
+    require(fixture.get("schemaVersion") == 1 and fixture.get("mode") == mode,
+            f"{mode} fixture has wrong schema or mode")
     reject_sensitive(evidence, f"{mode}.evidence")
     require(target.get("schemaVersion") == 1 and target.get("mode") == mode,
             f"{mode} target has wrong schema or mode")
@@ -103,6 +108,8 @@ def scenario(mode: str, directory: Path, version: str, revision: str,
             and is_hex(health.get("fixtureDigest"))
             and isinstance(health.get("checks"), list) and bool(health["checks"]),
             f"{mode} health evidence is missing or stale")
+    require(health["fixtureDigest"] == digest(fixture_path),
+            f"{mode} health differs from the saved fixture definition")
     require(all(isinstance(check, str) for check in health["checks"])
             and COMMON_SCENARIO_CHECKS | MODE_SCENARIO_CHECKS[mode] <= set(health["checks"]),
             f"{mode} health evidence lacks required supported assertions")
@@ -141,6 +148,7 @@ def scenario(mode: str, directory: Path, version: str, revision: str,
         "runId": run["id"],
         "targetDigest": digest(target_path),
         "healthDigest": digest(health_path),
+        "fixtureDigest": digest(fixture_path),
         "evidenceDigest": digest(evidence_path),
         "receiptCount": len(evidence["componentReceipts"]),
     }

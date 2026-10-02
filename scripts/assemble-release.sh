@@ -179,6 +179,7 @@ cp "$inventory_evidence/coverage.json" "$output_dir/inventory-coverage.json"
 for mode in local cloud; do
   cp "$inventory_evidence/$mode/target.json" "$output_dir/inventory-$mode-target.json"
   cp "$inventory_evidence/$mode/$mode-health.json" "$output_dir/inventory-$mode-health.json"
+  cp "$inventory_evidence/$mode/fixture.json" "$output_dir/inventory-$mode-fixture.json"
   cp "$inventory_evidence/$mode/inventory-evidence.json" "$output_dir/inventory-$mode-evidence.json"
 done
 

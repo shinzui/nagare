@@ -180,6 +180,7 @@ if [[ -n "$private_store_export" ]]; then
   args+=(--private-store-export "$private_store_export")
 fi
 if [[ "$phase" != plan ]]; then
+  cmp -s "$fixture" "$evidence_dir/fixture.json" || die "saved local fixture definition changed"
   jq -e --arg context "$context" --arg cluster "$cluster" \
     --arg fixtureDigest "$(jq -er .fixtureDigest "$tmp_health")" \
     '.schemaVersion == 1 and .context == $context and .cluster == $cluster
@@ -190,4 +191,5 @@ fi
 "$generic_runner" "${args[@]}"
 if [[ "$phase" == plan ]]; then
   cp "$tmp_health" "$evidence_dir/local-health.json"
+  cp "$fixture" "$evidence_dir/fixture.json"
 fi
