@@ -437,6 +437,49 @@ test-suite nagarectl-test
     InventoryStatusSpec
     InventoryTransactionSpec
     InventoryUpstreamSpec
+    Nagare.Test.Application
+    Nagare.Test.Backend
+    Nagare.Test.Backup.Paths
+    Nagare.Test.Backup.Prune
+    Nagare.Test.Backup.Rendering
+    Nagare.Test.Backup.Restore
+    Nagare.Test.Backup.Scheduled
+    Nagare.Test.Backup.Upload
+    Nagare.Test.BackupRestore
+    Nagare.Test.Broker
+    Nagare.Test.Build
+    Nagare.Test.Cdn
+    Nagare.Test.Cluster
+    Nagare.Test.Context
+    Nagare.Test.DataFixtures
+    Nagare.Test.Database
+    Nagare.Test.Domains
+    Nagare.Test.Environment
+    Nagare.Test.Gcp
+    Nagare.Test.GhcEnvironment
+    Nagare.Test.Image
+    Nagare.Test.Infrastructure
+    Nagare.Test.Init
+    Nagare.Test.Operations
+    Nagare.Test.Pulumi
+    Nagare.Test.Server
+    Nagare.Test.SiteInventory
+    Nagare.Test.SiteInventory.Preview
+    Nagare.Test.SiteInventory.Server
+    Nagare.Test.SiteInventory.Static
+    Nagare.Test.Static
+    Nagare.Test.Storage
+    Nagare.Test.Suite
+    Nagare.Test.Support.Assertions
+    Nagare.Test.Support.Build
+    Nagare.Test.Support.Environment
+    Nagare.Test.Support.Profiles
+    Nagare.Test.Support.Release
+    Nagare.Test.Support.Site
+    Nagare.Test.Support.Volumes
+    Nagare.Test.Task
+    Nagare.Test.Version
+    Nagare.Test.Webhook
     PlatformCutoverSpec
     PlatformSpec
 
