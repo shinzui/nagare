@@ -63,7 +63,7 @@ import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
 import Nagare.Resource.Policy
   ( DataPolicy (Stateless)
-  , LifecyclePolicy (Retain)
+  , LifecyclePolicy (DeleteWhenUnreferenced)
   , Sensitivity (Private)
   )
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
@@ -326,7 +326,7 @@ compileApplicationRelease app rollout owner cluster namespaceId imageId priorBun
             , clusterId = cluster
             , inputObject = value
             , objectDigest = contentDigest canonical
-            , lifecyclePolicy = Retain
+            , lifecyclePolicy = DeleteWhenUnreferenced
             , inputDataPolicy = Stateless
             , inputSensitivity = Private
             , sourceLocation = source {path = path source <> "/release-history"}

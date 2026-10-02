@@ -1020,3 +1020,26 @@ A direct En `app#viewer@user` relationship has a typed `AccessTuple` address and
 Observation uses a complete fully consistent exact-tuple query. The write carries the exact must-exist/must-not-exist precondition in the same atomic request as its insert/delete. This contract follows the registered upstream source at mori://shinzui/en/packages/en-servant. The runtime checks the service's published capability schema before admitting a write, because older request decoders can ignore unknown precondition fields. A lost acknowledgement is completed only by observing the exact desired tuple under the same reviewed owner identities; absence of that proof remains unresolved. Private bearer credentials are supplied at execution, never retained in public reviews or diagnostic bodies.
 
 Portal synchronization composes the complete accepted backend and Shomei settings contributions through the auth owner's existing grants. It requires a converged auth scope, reads its Shomei Deployment from immutable accepted native evidence, and preserves every other auth member and contributing application scope. Only the two shared maps and a Pod-template rollout annotation may be prepared. The rollout depends on both maps and uses the existing conditional Kubernetes adapter, so running Shomei processes reload their ConfigMap-backed environment after synchronization. Replaying the same review preserves its rollout identity; a new explicit synchronization requests a new rollout. Native local/cloud acceptance remains part of EP-155/156, separately from the bounded HTTP and Kubernetes command fixtures.
+
+## Amendment — 2026-10-01: collect retired application release metadata explicitly
+
+A newly compiled application release-history ConfigMap is stateless with
+`DeleteWhenUnreferenced` policy. Its ordering dependencies on the complete
+workload stay in the accepted and retained declaration. Retiring the
+application still retains the ConfigMap and every workload; it performs no
+deletion. Once retired, an operator may separately review conditional
+collection of the release-history ConfigMap, then collect eligible web
+DomainMappings and Services after their remaining consumers are removed.
+The immutable review and collection tombstone preserve the historical
+identity and native evidence; collection is not a way to rewrite the
+application's accepted release log or reuse its logical ID silently.
+
+An already accepted `Retain` release-history declaration, including the
+frozen MP-23 cloud fixture, has no retrospective deletion authority. It
+requires a new reviewed application revision that changes the declared
+policy while preserving the object identity and native bytes, followed by
+retirement and distinct collection reviews. Exact UID, resource-version,
+consumer and source checks still apply. The current source-level compiler
+and generic collection regressions establish only this candidate contract;
+installed policy transition, collection order and source preservation remain
+required native evidence before the safe-use cleanup gate can pass.

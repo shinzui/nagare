@@ -82,6 +82,11 @@ provenance:
       at: 2026-10-02T03:23:15Z
       mode: "implement"
       note: "Refactor the CLI entry point into explicit command, parsing, and runtime ownership boundaries"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-10-02T05:10:09Z
+      mode: "implement"
+      note: "Add collectable release-history source contract with focused checks"
 ---
 
 # Close managed command coverage for the inventory release
@@ -96,6 +101,8 @@ Every supported mutation command and shipped recipe is mapped to its owner, revi
 
 
 ## Progress
+
+**Release-history cleanup producer (2026-10-01).** The application compiler now declares its stateless release-history ConfigMap `DeleteWhenUnreferenced` while retaining every workload dependency. Retirement remains effect-free; conditional collection is a separate reviewed action. The composed-application fixture checks the policy and collection capability, and the existing Kubernetes collection fixture checks conditional deletion and tombstone recording; both focused selections pass locally. The compiler module builds and passes Fourmolu and structural style. This does not alter the frozen `d871d913` cloud candidate or its already accepted `Retain` declaration. A later candidate must first review the policy-only application update, then retirement and exact release-history/DomainMapping/Service collections; prove that sequence locally before installing or running it in GCP. Keep the primary backup Job/Pod and retained data. [ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md) records the durable policy boundary. Native cleanup and complete M2 remain open.
 
 - [x] Operator-requested maintainability follow-through: separate application compilation, planning/history/reviews, execution/recovery, the test entrypoint, and DSL process/decoding responsibilities; enforce library/test architecture boundaries and preserve public behavior. Each area is delivered in its own validated atomic commit.
 

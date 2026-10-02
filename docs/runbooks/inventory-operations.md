@@ -46,6 +46,32 @@ node and left generation 479/sequence 458 unchanged. Do not copy a migration
 marker or edit shared history to make discovery succeed. Use the actual NixOS/k3s
 host; this runbook never selects a GKE cluster.
 
+Before an expensive native command on the frozen `f15-preview` fixture, bind
+the CLI to the **accepted payload workspace**, not the changing source checkout
+or the CLI wrapper's newer default payload. The preflight validates the actual
+workspace assets locally, the executable revision, and the exact idle GCS head.
+It takes about five seconds on this fixture and performs no provider mutation.
+Run it again with the next review's accepted head generation and digest after
+each completed transaction; do not replace those expected values with whatever
+the current store happens to report.
+
+```bash
+export NAGARE_PLATFORM_ROOT="$XDG_STATE_HOME/nagare/$CONTEXT/platform/nagare-0.4.0-d73c1dc4d379-550cec502a657ad7"
+scripts/inventory-candidate-preflight.sh \
+  ./result-mp23-d871d913/bin/nagarectl "$NAGARE_PLATFORM_ROOT" \
+  f15-preview tan-ng-labs d871d9131566ff12d3e4114a9944cd68cb7fe7de \
+  nagare-0.4.0-d73c1dc4d379 \
+  550cec502a657ad7131343046c27ea4160b8282a4b50c0f0e8755b728f5be1bd \
+  705 18c3a831b6bbb6f71007738b0708a9d6fef6832d24b47ef0eadcd6e2317aa0fe
+```
+
+The exact command above passed on the original root at idle generation 705.
+The selected web Service then explained as Ready with its exact UID and two
+consumers: its DomainMapping and retained release-history ConfigMap. This
+confirms the web collection refusal is a real dependency decision. The
+preflight does not replace saved-review, operation-count, native UID, or
+neighbor-revision checks before an apply.
+
 ## Apply a saved review
 
 Save the command's `--save-plan` review or a platform bootstrap `plan --out` review

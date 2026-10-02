@@ -261,6 +261,11 @@ provenance:
       at: 2026-10-02T03:47:55Z
       mode: "implement"
       note: "Record the completed CLI responsibility refactor and source-level registration boundary checks"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-10-02T05:04:18Z
+      mode: "implement"
+      note: "Record accepted-workspace preflight and cleanup dependency boundary"
   reviews:
     - model: "claude-fable-5-1"
       harness: "claude-code"
@@ -440,6 +445,10 @@ These ownership, identity, review, storage, migration, and controller-delegation
 | 6 — full closure | Resolve engineering/review gaps; validate installed packages on both native systems; assemble complete immutable evidence without publishing; finalize children, ADRs and MasterPlan. | Pending; full release requirements remain in force. |
 
 **Cost checkpoint (operator correction, 2026-10-01).** Fast validation must reproduce actual accepted-history conditions, not only a minimal happy path. Group a complete affected workflow before building/installing a candidate. Before an expensive native operation, record its assertion, completed cheap preparation, exact effects, finite diagnostic bound and stop condition. A failed native boundary is first reproduced locally; do not respond with another incremental install/cloud attempt. Preserve all unrelated accepted evidence. Current cheap preparation covers retained bootstrap marker plus auth siblings, exact portal writes and neighbor revisions, genuine bootstrap verification, manual GCS receipt/readback, isolated restore UID/source/archive guards and retained-resource collection; the affected full suite is green. Fresh native backup, isolated restore and original-transaction takeover now pass; cleanup remains bounded to eligible Jobs. Preserve the exact unfulfilled web cleanup and receipt-only restore boundaries in the handoff. Do not repeat these accepted checks or start another build cycle to fill this checkpoint.
+
+The frozen candidate now has a checked-in, roughly five-second [preflight](../../scripts/inventory-candidate-preflight.sh) for the exact installed CLI, admitted payload workspace and idle shared GCS head; the [runbook](../runbooks/inventory-operations.md) records its passing invocation at generation 705. A selected native read confirms that the still-active web Service has DomainMapping and retained release-history consumers. This is evidence for the cleanup design boundary, not permission to bypass it or a completed safe-use gate. Do not launch another infrastructure run to investigate this known dependency; first establish the reviewed cleanup contract and local consumer fixture. The primary backup Job/Pod remains necessary for the current restore planner.
+
+EP-153 now supplies a source-level policy transition for future release-history declarations: explicit collection may remove a retired stateless ConfigMap before its web dependencies, with the ordering edges kept intact. The composed-application and generic conditional-collection fixtures pass locally; [ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md) records the boundary. The frozen cloud candidate still has accepted `Retain` history, so parent step 3 remains open. Prove the complete old-policy update, retirement and collection order locally, then group that change with receipt-only restore before considering one further installed candidate. No new native build or cloud effect is credited by the source tests.
 
 Every native check has a named assertion and a recorded result. Repeat accepted checks only when changed inputs or a relevant implementation change invalidate their proof. A failure gets a specific repair and only affected verification; do not restart a broad rehearsal without a concrete unmet requirement. The bounded cloud operational sequence is described in [its saved review report](../audits/mp23-native-bootstrap-results-2026-10-01/f15-operational-sequence-review.json).
 

@@ -42,6 +42,7 @@ import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Environment (compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeSecretChannel)
 import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
+import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
 import Nagare.Inventory.Plan
@@ -1307,6 +1308,10 @@ renderTests =
       releaseMember <- case releaseMembers of
         [member] -> pure member
         _ -> assertFailure "reviewed application has no unique release metadata" >> fail "missing release"
+      releaseMember ^. #lifecycle @?= DeleteWhenUnreferenced
+      releaseMember ^. #dataPolicy @?= Stateless
+      assertBool "reviewed release history lacks conditional collection support"
+        (supportsRetainedCollection releaseMember)
       (_, legacyBytes) <- maybe (assertFailure "release has no private native bytes" >> fail "missing native")
         pure (Map.lookup (releaseMember ^. #identity) releasedNative)
       (importedLog, importedRelease) <- either (fail . T.unpack) pure
