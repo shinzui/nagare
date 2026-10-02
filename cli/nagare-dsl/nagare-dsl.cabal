@@ -29,6 +29,21 @@ library
   hs-source-dirs: src
   other-modules:
     Nagare.Dsl.Batch.Render
+    Nagare.Dsl.Load.Application
+    Nagare.Dsl.Load.Broker
+    Nagare.Dsl.Load.Cdn
+    Nagare.Dsl.Load.Database
+    Nagare.Dsl.Load.Deployment
+    Nagare.Dsl.Load.Error
+    Nagare.Dsl.Load.Fields
+    Nagare.Dsl.Load.File
+    Nagare.Dsl.Load.Job
+    Nagare.Dsl.Load.Process
+    Nagare.Dsl.Load.ServerSite
+    Nagare.Dsl.Load.Site
+    Nagare.Dsl.Load.StaticSite
+    Nagare.Dsl.Load.Task
+    Nagare.Dsl.Load.Worker
 
   exposed-modules:
     Nagare.Dsl.Access
@@ -59,18 +74,18 @@ library
     Nagare.Dsl.Types
     Nagare.Dsl.Worker
     Nagare.Dsl.Worker.Render
-    Nagare.Resource.Compile
-    Nagare.Resource.Database
     Nagare.Resource.Application
     Nagare.Resource.Broker
-    Nagare.Resource.Cdn
     Nagare.Resource.Cache
-    Nagare.Resource.CacheKubernetes
     Nagare.Resource.CacheClient
+    Nagare.Resource.CacheKubernetes
     Nagare.Resource.Canonical
+    Nagare.Resource.Cdn
+    Nagare.Resource.Compile
+    Nagare.Resource.Database
+    Nagare.Resource.Helm
     Nagare.Resource.Inventory
     Nagare.Resource.Kubernetes
-    Nagare.Resource.Helm
     Nagare.Resource.Policy
     Nagare.Resource.Reference
     Nagare.Resource.Types
