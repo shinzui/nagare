@@ -213,7 +213,7 @@ F01 and F11 retain their [earlier independent closure](mp23-verification.md). F0
 
 ## F04
 
-**Native evidence loads every historical review and can repeat the scan** — P2; **Partial**; owner EP-156 / EP-153.
+**Native evidence loads every historical review and can repeat the scan** — P2; **Closed**; owner EP-156 / EP-153.
 
 **Locations:** cli/nagarectl/src/Nagare/Inventory/Status.hs: loadNativeFor; cli/nagarectl/src/Nagare/Inventory/Plan.hs: loadPublishedReview.
 
@@ -227,7 +227,7 @@ F01 and F11 retain their [earlier independent closure](mp23-verification.md). F0
 
 **Required verification:** Hold current inventory fixed while increasing unrelated review history; record remote/member decode counts and cold/warm cost. Demonstrate selection of only necessary native evidence while preserving incarnation binding.
 
-**Verification:** Not closed. Awaiting the checks above.
+**Verification:** Independently Closed (2026-10-02) for the existing supported publication contract. The independent 35-test observation run includes two selected resources costing exactly two reads despite 500 unrelated reviews and 50 sibling natives; corrupt/missing selected bytes, incarnation-preserving reconstruction, fresh-command verified cache reuse and unwritable-cache recovery also pass. Modern publications supply digest-bound raw inputs. The preserved disposable-prerelease decision removes compatibility with obsolete missing-byte histories as a release gate; a cold legacy store may still scan its original archives, and that limit remains documented. No constant-total-scope-decode or cold-legacy-cost claim is made. See [independent evidence](mp23-independent-verification-2026-10-02.md) and its retained observation output.
 
 ## F05
 

@@ -1,0 +1,65 @@
+{
+  "reviewDigest": "f83ef25b39c855afaad9371fe6bc1fc9b1a4d0684b0afb3dde5b55c901a739ea",
+  "priorScopesPreserved": 29,
+  "operations": 2,
+  "acceptedRunId": "fa9e558e-bea5-4e2c-a31c-90b28c516222",
+  "acceptedFields": {
+    "scheduled.backup.id": "fa9e558e-bea5-4e2c-a31c-90b28c516222",
+    "scheduled.backup.object": "gs://tan-ng-labs-ep150-pmkjjpp-backups/databases/mp23-pg-a/fa9e558e-bea5-4e2c-a31c-90b28c516222.sql.gz",
+    "scheduled.backup.object.length": "636",
+    "scheduled.backup.object.sha256": "71d78953516f6d94d338d56915ae8090e575e827b8afdbb534966f99e4a83f84",
+    "scheduled.backup.object.version": "1790972107623803",
+    "scheduled.backup.receipt": "gs://tan-ng-labs-ep150-pmkjjpp-backups/databases/mp23-pg-a/fa9e558e-bea5-4e2c-a31c-90b28c516222.sql.gz.receipt.json",
+    "scheduled.backup.receipt.digest": "184ec17bd511d07710520cf76cee9db3b1553a40ac953683d626578519a023c6",
+    "scheduled.backup.receipt.length": "727",
+    "scheduled.backup.receipt.version": "1790972113079629",
+    "scheduled.backup.recovery.point": "2026-10-02T20:15:01Z",
+    "scheduled.backup.schedule": "application:mp23-app-a/mp23-pg-a/backup",
+    "scheduled.backup.schedule.revision": "1d9e6c4df141a87bbf6434855f006b6c20d149b85ef1c081c339c88e5f8c12cf",
+    "scheduled.backup.schedule.uid": "1125251b-02e4-4ac4-89cc-e5d63d3000d2",
+    "scheduled.backup.signing": "application:mp23-app-a/mp23-pg-a/backup-signing-key",
+    "scheduled.backup.signing.uid": "5a3b9be4-07fd-4531-9951-ab7888fc2d12",
+    "scheduled.backup.source.generation": "4",
+    "scheduled.backup.source.pvc": "application:mp23-app-a/mp23-pg-a/pvc",
+    "scheduled.backup.source.pvc.uid": "dcc135ca-5450-4c79-8e73-00fbc9f117f0",
+    "scheduled.backup.source.revision": "e9fd98a35da6a469750780907381031b56c32ed4351c038ce4aee2ff4f70921e",
+    "scheduled.backup.source.scope": "application:mp23-app-a",
+    "scheduled.backup.source.statefulset": "application:mp23-app-a/mp23-pg-a/statefulset",
+    "scheduled.backup.source.statefulset.uid": "f38c8493-9898-421e-b2d5-18001b27ca78"
+  },
+  "candidate": "ec2e1cd434855b86b16a6ffe8b0a0da24458668e",
+  "automaticScheduledTime": "2026-10-02T20:15:00Z",
+  "automaticProducerJobUid": "fa9e558e-bea5-4e2c-a31c-90b28c516222",
+  "automaticProducerPodUid": "7a9ca9ad-66f9-46fb-8a8b-1c6e6c9eb126",
+  "receiptJobUid": "44e75076-b542-40a5-b6f4-b038eb57462c",
+  "receiptPodUid": "af722d6b-0a4e-48f0-8fbe-2e1d772b32f8",
+  "automaticIngestionClaimed": false,
+  "head": {
+    "generation": 805,
+    "sequence": 681,
+    "activeTransaction": null,
+    "executorClaim": null
+  },
+  "v5-before-freshness": {
+    "step": "v5-before-freshness",
+    "exit": 1,
+    "seconds": 45.594
+  },
+  "v5-ingest-plan": {
+    "step": "v5-ingest-plan",
+    "exit": 0,
+    "seconds": 42.794
+  },
+  "v5-ingest-apply": {
+    "step": "v5-ingest-apply",
+    "exit": 0,
+    "seconds": 49.508
+  },
+  "v5-after-freshness": {
+    "step": "v5-after-freshness",
+    "exit": 0,
+    "seconds": 43.037
+  },
+  "freshnessBefore": "unhealthy; no verified timestamped recovery point",
+  "freshnessAfter": "healthy; age=646s"
+}

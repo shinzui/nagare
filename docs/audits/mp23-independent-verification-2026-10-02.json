@@ -28,6 +28,7 @@
   "closedFindings": [
     "F02",
     "F03",
+    "F04",
     "F05",
     "F07",
     "F20"
@@ -135,5 +136,16 @@
       "scripts/fixtures/CdnDisablePublicFixture.hs": "a37fd15aa22409c4704c91c3563d9466e837b939a793955d2cc473a5fbd90521",
       "scripts/test-cdn-disable-public.py": "d00dfd8d6141b446c01437c3d67c6c74a38dd95bac11bed89974b8c31d64cc0c"
     }
+  },
+  "scheduledRecoveryContinuation": {
+    "candidate": "ec2e1cd434855b86b16a6ffe8b0a0da24458668e",
+    "files": {
+      "docs/audits/mp23-independent-results-2026-10-02/scheduled-v5-freshness-ec2e1cd4.json": "b1032b4a973a3215401979cc5efa2961d7e24abb6e414f1beab5c6bd0801dfd4",
+      "docs/audits/mp23-independent-results-2026-10-02/local-platform-candidate-ec2e1cd4.json": "e6acd7b55aa76865afa0e4a347cd8b686f9da3b8464b1f53280118cdec23784b",
+      "docs/audits/mp23-independent-results-2026-10-02/scheduled-historical-restore-ec2e1cd4.json": "5f45a1f5ac220bcbe0350929bac7d78163fb4498f49fa5875a873ceb0e9c8cd5",
+      "docs/audits/mp23-independent-results-2026-10-02/encrypted-credential-recovery-ec2e1cd4.json": "e5a3897645a7bf178724cf8b93e93f23bfbcbb9a137c514f415863f3801a34ec",
+      "docs/audits/mp23-independent-results-2026-10-02/source-unavailable-content-ec2e1cd4.json": "0151d9ba09b23c29a57bf9a45f0d73c1d360ff1586871cc64bf179ba085c96a8"
+    },
+    "sourceUnavailableBoundary": "manual isolated content recovery with absent source kubeconfig and denying kubectl; no physical source outage/public cross-cluster restore claim"
   }
 }

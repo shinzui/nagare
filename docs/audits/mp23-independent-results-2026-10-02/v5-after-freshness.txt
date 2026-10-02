@@ -1,0 +1,5 @@
+Scheduled retention: keep=7 and expiry are unenforced; backups are retained by default.
+03bc9475-5098-4d45-a9ae-15c4ba18fdee  accepted standalone:database-scheduled-receipt-personal-mp23-pg-a-03bc9475-5098-4d45-a9ae-15c4ba18fdee
+ccae825b-1b05-4c91-a4b7-24b1cccbaaeb  unresolved: scheduled receipt schedule metadata differs from accepted native evidence
+fa9e558e-bea5-4e2c-a31c-90b28c516222  accepted standalone:database-scheduled-receipt-personal-mp23-pg-a-fa9e558e-bea5-4e2c-a31c-90b28c516222
+Recovery-point freshness: healthy; age=646s

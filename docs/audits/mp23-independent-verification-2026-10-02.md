@@ -164,3 +164,86 @@ The already-built test runner independently passes 35 observation tests in
 Raw local verification logs are retained in [the result directory](mp23-independent-results-2026-10-02/).
 No final local/cloud/native-system acceptance or production go/no-go follows
 from these individual finding closures.
+
+## Installed scheduled backup and recovery continuation
+
+The preceding `a027d1f6` listing and scheduled-restore refusals are superseded by
+independent installed `76628094` execution. Its local cp3 gate reviewed 210 Verify
+and three bounded updates: the two platform database backup CronJobs and their
+bootstrap marker. Both schedules become fifteen-minute signed-v5 producers;
+five referenced Secret data hashes and UIDs, eleven data/schedule UIDs, seventeen
+other scope digests and all 37 healthy Pods remain exact. Plan/apply take
+34.598/54.058 seconds. The marker preserves the accepted `705716b7` payload.
+The [local proof](mp23-independent-results-2026-10-02/local-platform-candidate-76628094.json)
+does not claim fresh candidate-payload installation.
+
+Native scheduled GCS listing succeeds in 44.247 seconds, including the actual
+UTC-offset provider metadata. The accepted v4 receipt's producer Job and Pod
+remain absent. Its [isolated restore](mp23-independent-results-2026-10-02/scheduled-gcs-restore-76628094.json)
+plans/applies in 39.483/39.603 seconds, reads the accepted exact generations,
+completes both download and restore containers, and returns the expected
+`1|mp23-after-backup` row. Source A and retained neighbor B retain their original
+rows and existing UIDs; all 27 earlier accepted revisions remain exact.
+
+Installed `ec2e1cd434855b86b16a6ffe8b0a0da24458668e` then passes the
+[cp3 gate](mp23-independent-results-2026-10-02/local-platform-candidate-ec2e1cd4.json)
+with 213 Verify operations in 36.152/49.524 seconds. In the eligible cloud
+fixture, the public reviewed schedule-policy update contains exactly one
+CronJob Update, preserving all other source-scope fields, 27 neighboring scope
+revisions, the source StatefulSet/PVC and credential/signing Secret UIDs and
+content hashes. Only schedule, signed producer scripts/metadata and ownership
+annotations change. Its review is
+`e7c0459735dd7bc4e0fb9485f74590b77ffc0b3c038b9fab0bd452a1a85fbfe5`.
+
+The [historical accepted v4 restore](mp23-independent-results-2026-10-02/scheduled-historical-restore-ec2e1cd4.json)
+still succeeds after that policy update, with the original producer absent.
+Its new isolated target returns the expected row, both containers exit zero,
+and all 28 existing scopes and source/neighbor UIDs remain unchanged. This
+proves accepted historical authenticity is not rebound to the current producer
+schedule. Unaccepted receipts from the old schedule correctly remain unresolved.
+
+The CronJob controller creates a genuine automatic run at `2026-10-02T20:15:00Z`;
+no manual Job trigger occurs. Its signed v5 recovery point is
+`2026-10-02T20:15:01Z`. The [automatic producer/receipt/freshness proof](mp23-independent-results-2026-10-02/scheduled-v5-freshness-ec2e1cd4.json)
+shows `--check-freshness` exits 1 while this verified candidate is unaccepted,
+then exits 0 with `healthy; age=646s` after its independently guarded receipt
+review applies. The ingestion adds only its one scope and two operations,
+preserving all 29 existing revisions. Final generation 805/sequence 681 is idle
+with 30 accepted/converged scopes. This is an observed recovery-point result;
+it does not claim automatic ingestion or continuous one-hour compliance.
+
+## Source-unavailable content and encrypted credential drill
+
+The [manual content recovery proof](mp23-independent-results-2026-10-02/source-unavailable-content-ec2e1cd4.json)
+uses a never-used HOME/config/state/cache root, absent source kubeconfig and an
+explicitly failing kubectl in that root's PATH. Independent existing cloud
+credentials fetch the accepted head and digest-bound receipt scope directly
+from off-cluster GCS, then download the exact accepted object and receipt
+generations and verify both lengths and SHA-256 digests. No original operator
+root or source Kubernetes read is used during recovery. A disposable postgres18
+container on the existing cp3 Docker host restores the known row with network
+`none` and no published ports; the container is removed afterward. The remote
+inventory head remains byte-identical. This models unavailable source access;
+it does not claim a physical cluster outage or a supported public cross-cluster
+restore/cutover command.
+
+Before denying source access, the reviewer selects fourteen live Secrets from
+the exact accepted and retained inventory, including source/retained database,
+auth, backup-signing and platform credentials. Their data is encrypted with age
+to an existing independent operator key and stored outside the original root.
+The fresh recovery root decrypts the archive in memory and verifies every
+recorded UID/data hash. [The credential proof](mp23-independent-results-2026-10-02/encrypted-credential-recovery-ec2e1cd4.json)
+records only metadata and digests; plaintext credentials are never persisted
+or printed. The encrypted archive and its independently held decryption key
+remain separate. Inventory exports alone still do not contain generated live
+Secret values, and this bounded fixture drill is not a production credential
+escrow or full destination rebuild claim.
+
+F04 is independently closed against the current supported publication contract.
+The retained 35-test observation run proves two reads for two selected bindings
+with 500 unrelated reviews and 50 siblings, selected-corruption refusal and
+verified warm-cache recovery. Modern publications contain the digest-bound raw
+inputs. The disposable-prerelease decision removes obsolete missing-byte-store
+compatibility as a release gate; cold legacy fallback may still search original
+archives. That documented limit is preserved, without claiming constant scope
+decode cost or rewriting legacy history.

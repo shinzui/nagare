@@ -1,0 +1,32 @@
+{
+  "candidate": "76628094d31587b1d37139d93af9ebfd9f2d38b1",
+  "system": "aarch64-darwin",
+  "colimaProfile": "nagare-mp23-cp3",
+  "gate": "installed public bootstrap plan/apply with bounded backup-producer update",
+  "reviewDigest": "79197906826f74bca0bf6b9012e57bec8f5330a443cb89d92a7f353c066c2618",
+  "verifyOperations": 210,
+  "updateResources": [
+    "platform:auth/en-db/backup",
+    "platform:auth/shomei-db/backup",
+    "platform:bootstrap-stamp/bootstrap/version"
+  ],
+  "providerMutationOperations": 3,
+  "secretUidAndContentDigestsPreserved": 5,
+  "existingDataAndScheduleUidsPreserved": 11,
+  "acceptedScopes": 19,
+  "unselectedScopeDigestsPreserved": 17,
+  "acceptedEqualsConverged": true,
+  "head": {
+    "generation": 5616,
+    "sequence": 5583,
+    "activeTransaction": null,
+    "executorClaim": null
+  },
+  "podsReadyOrSucceeded": 37,
+  "planSeconds": 34.598,
+  "applySeconds": 54.058,
+  "acceptedPayloadPreserved": "nagare-0.4.0-705716b7bdb7",
+  "freshCandidatePayloadBootstrap": false,
+  "cloudCandidateUsePermitted": true,
+  "safeUseAccepted": false
+}

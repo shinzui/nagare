@@ -1,0 +1,37 @@
+{
+  "reviewDigest": "b42cd22a41949916443f8aed0e54802e0d4373c10c8b74cca62fb44df4168250",
+  "objectVersion": "1790911035498065",
+  "receiptVersion": "1790911051785548",
+  "existingScopesPreserved": 27,
+  "operations": 2,
+  "newScratchDatabase": "mp23-pg-a_restore_mp23schedv4",
+  "candidate": "76628094d31587b1d37139d93af9ebfd9f2d38b1",
+  "context": "ep150-preview",
+  "project": "tan-ng-labs",
+  "listingSeconds": 44.247,
+  "planSeconds": 39.483,
+  "applySeconds": 39.603,
+  "producerJobAbsent": true,
+  "restoreJobUid": "2444f07a-1e75-456b-ad70-54e059afc5de",
+  "restorePodUid": "b0146f6c-6012-46cc-bfb9-8c926f3fe4b1",
+  "downloadAndRestoreExitCodes": [
+    0,
+    0
+  ],
+  "rows": {
+    "source": "1|mp23-after-backup",
+    "neighbor": "1|mp23-untouched-app-b",
+    "restored": "1|mp23-after-backup"
+  },
+  "existingSourceAndNeighborUidsPreserved": true,
+  "head": {
+    "generation": 783,
+    "sequence": 665,
+    "activeTransaction": null,
+    "executorClaim": null
+  },
+  "acceptedScopeCount": 28,
+  "v4Freshness": "unhealthy; no verified timestamped recovery point",
+  "sourceClusterUnavailable": false,
+  "historicalScheduleChange": false
+}
