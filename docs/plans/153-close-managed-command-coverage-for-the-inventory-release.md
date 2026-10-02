@@ -97,7 +97,7 @@ Every supported mutation command and shipped recipe is mapped to its owner, revi
 
 ## Progress
 
-- [ ] Operator-requested maintainability follow-through: separate application compilation, planning/history/reviews, execution/recovery, the test entrypoint, and DSL process/decoding responsibilities; enforce library/test architecture boundaries and preserve public behavior. Deliver each area in its own validated atomic commit.
+- [x] Operator-requested maintainability follow-through: separate application compilation, planning/history/reviews, execution/recovery, the test entrypoint, and DSL process/decoding responsibilities; enforce library/test architecture boundaries and preserve public behavior. Each area is delivered in its own validated atomic commit.
 
 Application compiler checkpoint: the 2,268-line public module is now a facade over twelve private responsibility modules (largest 836 lines). All 68 declarations remain, public constructor opacity and exports are preserved, and focused application/site regression tests and structural style pass. See `cli/nagarectl/src/Nagare/Inventory/README.md` for ownership.
 
@@ -110,6 +110,12 @@ Executor checkpoint: the 1,721-line public executor is a facade over eleven priv
 DSL loader checkpoint: the 1,887-line module is now a public facade over fifteen private modules. Process execution and file loading are separate from pure resource decoding and shared fields. The largest module is 452 lines. The full DSL suite, library build, formatting and structural style pass; public functions, defaults, JSON validation, config execution and timeout behavior are unchanged.
 
 History-performance checkpoint: selected legacy reconstruction now populates the optional verified local cache; all 14 selected-observation regressions, the complete active-command recorder, lost acknowledgements, generation races and saved-prune public recovery pass. EP-156 and `docs/audits/mp23-maintainability-performance.json` own evidence and explicit remaining cold-legacy/native-verification limits.
+
+Architecture checkpoint: the managed-command CI audit now checks maintained libraries and tests as well as the CLI. It enforces private implementation modules, explicit exports and opaque public constructors, pure planning dependencies, decoder/process separation, acyclic imports, test fixture ownership, Cabal registration and exhaustive executor matches. New/refactored modules have a 1,000-line cap; eleven existing oversized modules have exact no-growth allowances. Fourteen positive/negative fixtures prove these checks. Pure reservation derivation moved out of the history IO module so planning no longer imports it. [ADR 16](../adr/0016-adopt-haskell-jitsurei-for-production-haskell.md) records the durable boundaries.
+
+Final source acceptance (2026-10-01): executable and tests build; all 1,016 CLI tests pass (56.35 seconds), and the DSL extraction passed all 460 DSL tests. The preserved baseline matches all 304 help/refusal results across 152 command paths. Public application/inventory guards, selected observation/legacy materialization and foundation/bootstrap recovery pass. The integrated managed-command audit and structural style pass; Fourmolu passes for all 95 extracted/facade files, and both changed Cabal files pass Gild. These are source/fixture results; repository-wide formatting debt, independent finding closure and native acceptance remain separate gates. No compilation-speed improvement is claimed without comparative measurement.
+
+The final saved-prune operation-driver and twelve-case complete SDK command-cost matrix also pass after the pure reservation helper move. Their first attempts refused at the build-freshness preflight because the selected-observation fixture's `cabal exec` changed the Cabal configuration; normalizing the build configuration and rerunning resolves that fixture precondition without source changes. Each completed matrix case still uses 29 subprocesses, including 24 provider observations, across 50/500 journal events and 0/50/500 unrelated reviews. These loopback measurements do not substitute for native latency evidence.
 
 The 2026-10-01 follow-up also includes the remaining F04/F06 history-performance work under EP-156. Structural changes preserve public exports, serialized review/journal bytes, opaque authority constructors and operation ordering. New implementation modules are library-private. Use existing compiler, transaction/recovery, loader and public-command fixtures; compare the candidate CLI with `/tmp/mp23-debt-baseline-nagarectl`. Keep the frozen installed cloud operator and admitted payload unchanged during source refactoring. No new dependency or provider adoption is included.
 
@@ -232,6 +238,8 @@ The reviewed volume restore Job verifies the accepted receipt and archive hashes
 M1 is complete. M2 has a reviewed hello recipe and source-level smoke consumer cutover, but the native smoke runs, platform profile/credential/cleanup protocols, VM and host recipes, and dependent feature plans remain open. A registration audit pass is evidence that the finite catalogue has no omissions; it is not a complete release-coverage result while its pending lists remain populated.
 
 The user-requested CLI maintainability refactor is complete at source level with the acceptance above. Subsequent command work belongs in its named module, with the architecture check guarding the entrypoint and dependency boundaries. This closes the monolithic entrypoint concern without claiming the unrelated M2 product or release obligations are complete.
+
+The follow-through also separates application compilation, planning, execution/recovery, CLI regression suites and DSL loading behind stable public interfaces. The five structural changes, verified legacy cache improvement and architecture enforcement are separate atomic commits. Existing oversized modules are visible in the no-growth allowance rather than silently exempted from maintenance. The cold legacy archive fallback and real provider/store latency verification remain owned by EP-156; local cache evidence does not close F04/F06 independently.
 
 
 ## Context and Orientation

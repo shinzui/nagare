@@ -85,6 +85,25 @@ every executable source module and binds their contents in its candidate digest.
 Its architecture check prevents entry-point policy, handler coupling, import
 cycles and unbounded module growth. See the [executable guide](../../cli/nagarectl/app/README.md).
 
+### Library and test responsibility boundaries (2026-10-01)
+
+Application compilation, inventory planning, execution/recovery and config
+loading retain explicit public facades over library-private implementation
+modules registered in Cabal `other-modules`. Opaque witnesses and reviewed or
+executable plans keep their public constructors hidden. Pure planning and resource
+decoding do not depend on history IO or config-program execution. Execution keeps
+one operation driver and exhaustive recovery matches. Tests have a small entrypoint,
+a suite assembler, domain modules and specifically owned shared fixtures.
+
+`scripts/check-haskell-architecture.py` checks maintained library and test exports,
+registration, implementation visibility, dependency cycles, these pure/effect
+boundaries, and module growth. New modules are limited to 1,000 lines; the test
+entrypoint is limited to 30 and its assembler to 300. Explicit existing oversized
+module allowances in `scripts/haskell-size-allowances.json` are a no-growth ratchet,
+not a recommended size. Remove an allowance after reducing its module below the
+normal limit. Do not raise allowances to accommodate new behavior. Negative
+fixtures and this check run with the existing managed-command audit in CI.
+
 The three packages share one predictable record and import style, with less repeated boilerplate
 and without forcing the generic-lens orphan instance into every module. Contributors must use the
 package Prelude and explicit label imports, and automated formatting and style checks enforce the

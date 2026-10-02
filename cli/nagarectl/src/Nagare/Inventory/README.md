@@ -51,3 +51,11 @@ uncertain prerequisite. Do not add a second apply/resume driver. Claim checks,
 intent-before-effect journaling, lost-acknowledgement settlement, exact reviewed
 identity and writer-release ordering are behavioral contracts. Every executor
 implementation module keeps `-Werror=incomplete-patterns`.
+
+## Enforced boundaries
+
+Run `python3 scripts/check-haskell-architecture.py` from the repository root. The
+managed-command audit runs this check and its negative fixtures in CI. Existing
+oversized modules are capped by a checked-in allowance; refactored and new modules
+use the normal 1,000-line limit. A size cap supplements the dependency and API
+checks; it is not permission to combine unrelated responsibilities below the cap.

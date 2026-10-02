@@ -1,6 +1,8 @@
 -- | Types responsibilities; internal implementation behind Nagare.Inventory.Plan.
 module Nagare.Inventory.Plan.Types
-  ( ChangeProposal (..)
+  ( historyReservations
+  , retainedReservations
+  , ChangeProposal (..)
   , InventoryHistory (..)
   , LifecycleDecisionKind (..)
   , LifecycleDecisions (..)
@@ -51,6 +53,7 @@ import Data.Aeson.KeyMap qualified as KM
 import Data.Aeson.Types (Parser)
 import Data.ByteString (ByteString)
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
@@ -70,19 +73,23 @@ import Nagare.Inventory.Migration.Types
 import Nagare.Inventory.Store
   ( DataFenceRecord
   , HeadManifest
-  , RetainedIncarnation
+  , RetainedIncarnation (retainedOwner, retainedPhysical)
   , ScopeRevision
   )
 import Nagare.Resource.Inventory
-  ( CompositionCandidate
-  , Declaration
+  ( ClaimHolder (..)
+  , CompositionCandidate
+  , Declaration (Managed)
   , Executor
   , ManagedResource
   , ScopeDeclaration
+  , claimsOf
   , composedDeclarations
   )
+import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Types
-  ( ContentDigest
+  ( CanonicalClaim
+  , ContentDigest
   , ContextBinding
   , InventoryError
   , PhysicalIdentity
@@ -473,3 +480,14 @@ parseRevisionEntries values = do
 
 duplicateValues :: (Ord a) => [a] -> [a]
 duplicateValues values = Map.keys (Map.filter (> (1 :: Int)) (Map.fromListWith (+) [(value, 1) | value <- values]))
+
+historyReservations :: InventoryHistory -> Map CanonicalClaim ClaimHolder
+historyReservations = retainedReservations . historyRetained
+
+retainedReservations :: Map ResourceId (RetainedIncarnation, ManagedResource) -> Map CanonicalClaim ClaimHolder
+retainedReservations entries =
+  Map.fromList
+    [ (claim, ClaimHolder (retainedOwner retained) resourceId (retainedPhysical retained) ResourceInventory.RetainedIncarnation)
+    | (resourceId, (retained, managed)) <- Map.toAscList entries
+    , (_, claim) <- NE.toList (claimsOf (Managed managed))
+    ]

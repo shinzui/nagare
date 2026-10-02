@@ -62,7 +62,6 @@ import Nagare.Inventory.Migration.Types
       , validatedSourcePhysical
       )
   )
-import Nagare.Inventory.Plan.History (historyReservations)
 import Nagare.Inventory.Plan.Lifecycle
   ( combineDecisions
   , validateLifecycleDecisions
@@ -84,6 +83,7 @@ import Nagare.Inventory.Plan.Types
   , RetentionProof (..)
   , historyComposition
   , historyDeclarations
+  , historyReservations
   , revisionEntries
   )
 import Nagare.Inventory.Store

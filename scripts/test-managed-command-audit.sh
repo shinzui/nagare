@@ -5,6 +5,8 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 python3 "$repo_root/scripts/check-cli-architecture.py"
 python3 "$repo_root/scripts/test-cli-architecture.py"
+python3 "$repo_root/scripts/check-haskell-architecture.py"
+python3 "$repo_root/scripts/test-haskell-architecture.py"
 fixture_root="$(mktemp -d "${TMPDIR:-/tmp}/nagare-command-audit.XXXXXX")"
 trap 'rm -rf "$fixture_root"' EXIT
 

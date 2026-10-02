@@ -1,7 +1,6 @@
 -- | History responsibilities; internal implementation behind Nagare.Inventory.Plan.
 module Nagare.Inventory.Plan.History
-  ( historyReservations
-  , incompleteApplicationOnlyReview
+  ( incompleteApplicationOnlyReview
   , loadInventoryHistory
   , loadInventoryPlanningHistory
   , seedInventoryHistory
@@ -12,7 +11,6 @@ import Control.Monad (forM, forM_)
 import Data.Aeson (eitherDecodeStrict')
 import Data.Generics.Labels ()
 import Data.List.NonEmpty qualified as NE
-import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Set (Set)
@@ -52,6 +50,7 @@ import Nagare.Inventory.Plan.Types
   , ReviewDocument (..)
   , ReviewOperation (..)
   , encodeReviewDocument
+  , retainedReservations
   , reviewBundleDocument
   , reviewBundleScopes
   )
@@ -92,11 +91,9 @@ import Nagare.Inventory.Store
   )
 import Nagare.Inventory.Store qualified as InventoryStore
 import Nagare.Resource.Inventory
-  ( ClaimHolder (..)
-  , CompositionCandidate
+  ( CompositionCandidate
   , Declaration (Managed)
   , Executor (KubernetesExecutor)
-  , ManagedResource
   , ResourceBundle (declarations)
   , ScopeChange (ReplaceScope)
   , candidateBase
@@ -110,11 +107,9 @@ import Nagare.Resource.Inventory
   , scopeBundles
   , scopeId
   )
-import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Policy (DataPolicy (Stateless))
 import Nagare.Resource.Types
-  ( CanonicalClaim
-  , ProviderAddress (Kubernetes)
+  ( ProviderAddress (Kubernetes)
   , ResourceId
   , ScopeId
   , ScopeKind (Application)
@@ -427,17 +422,6 @@ loadUnstartedApplicationCreates store selectedOwners headValue
                   ]
               else Set.empty
       _ -> pure (Left (StoreInvalidObject "journal" "application stop has no canonical review transaction or operation"))
-
-historyReservations :: InventoryHistory -> Map CanonicalClaim ClaimHolder
-historyReservations = retainedReservations . historyRetained
-
-retainedReservations :: Map ResourceId (RetainedIncarnation, ManagedResource) -> Map CanonicalClaim ClaimHolder
-retainedReservations entries =
-  Map.fromList
-    [ (claim, ClaimHolder (retainedOwner retained) resourceId (retainedPhysical retained) ResourceInventory.RetainedIncarnation)
-    | (resourceId, (retained, managed)) <- Map.toAscList entries
-    , (_, claim) <- NE.toList (claimsOf (Managed managed))
-    ]
 
 -- | Seed only unchanged base scopes when opening a new store. A changed or
 -- retired scope cannot be reconstructed safely from a candidate's desired view.

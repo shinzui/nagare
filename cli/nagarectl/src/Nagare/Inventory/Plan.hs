@@ -65,8 +65,7 @@ import Nagare.Inventory.Plan.Changes
   , planChanges
   )
 import Nagare.Inventory.Plan.History
-  ( historyReservations
-  , incompleteApplicationOnlyReview
+  ( incompleteApplicationOnlyReview
   , loadInventoryHistory
   , loadInventoryPlanningHistory
   , seedInventoryHistory
@@ -111,6 +110,7 @@ import Nagare.Inventory.Plan.Types
   , ReviewOperation (..)
   , ReviewedPlan (..)
   , encodeReviewDocument
+  , historyReservations
   , reviewBundleDocument
   , reviewBundleFenceRecord
   , reviewBundleNative
