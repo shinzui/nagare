@@ -19,6 +19,7 @@ import InventoryAuthSpec (inventoryAuthTests)
 import InventoryCacheSpec (inventoryCacheTests)
 import InventoryCdnSpec (inventoryCdnTests)
 import InventoryCloudSpec (inventoryCloudTests)
+import InventoryEffectfulSpec (inventoryEffectfulTests, runEffectfulResumeProbe)
 import InventoryFoundationSpec (inventoryFoundationTests)
 import InventoryGcloudAuthSpec (inventoryGcloudAuthTests)
 import InventoryGogolSpec (inventoryGogolTests)
@@ -117,6 +118,12 @@ import Test.Tasty.Runners (NumThreads (..))
 
 main :: IO ()
 main = do
+  effectRoot <- lookupEnv "NAGARE_EFFECTFUL_RESUME_ROOT"
+  effectReview <- lookupEnv "NAGARE_EFFECTFUL_REVIEW"
+  effectTransaction <- lookupEnv "NAGARE_EFFECTFUL_TRANSACTION"
+  case (effectRoot, effectReview, effectTransaction) of
+    (Just root, Just review, Just transaction) -> runEffectfulResumeProbe root review transaction >>= exitWith
+    _ -> pure ()
   lockHolder <- lookupEnv "NAGARE_INVENTORY_LOCK_HOLD"
   lockReady <- lookupEnv "NAGARE_INVENTORY_LOCK_READY"
   lockProbe <- lookupEnv "NAGARE_INVENTORY_LOCK_PROBE"
@@ -140,6 +147,7 @@ main = do
             , inventoryPublicationTests
             , inventoryCloudTests
             , inventoryHostTests
+            , inventoryEffectfulTests
             , inventoryKubernetesTests
             , inventoryApplicationTests
             , inventoryCdnTests

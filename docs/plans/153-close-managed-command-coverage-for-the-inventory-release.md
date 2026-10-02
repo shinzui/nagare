@@ -87,6 +87,11 @@ provenance:
       at: 2026-10-02T05:10:09Z
       mode: "implement"
       note: "Add collectable release-history source contract with focused checks"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-02T14:57:48Z
+      mode: "implement"
+      note: "Implement Kubernetes effect boundary and assign local F20 recovery next"
 ---
 
 # Close managed command coverage for the inventory release
@@ -101,6 +106,8 @@ Every supported mutation command and shipped recipe is mapped to its owner, revi
 
 
 ## Progress
+
+**Interpreter pilot accepted (2026-10-02).** `Nagare.Inventory.KubernetesTransport` supplies a narrow Effectful request boundary with production and injected interpreters; the old runtime constructor continues selecting real subprocess execution. Six restore scenarios exercise real production logic with a persistent external world and fresh-process recovery. See [the report](../audits/mp23-effectful-restore-pilot.md). This is a validated bridge, not a completed orchestration migration.
 
 **Release-history cleanup producer (2026-10-01).** The application compiler now declares its stateless release-history ConfigMap `DeleteWhenUnreferenced` while retaining every workload dependency. Retirement remains effect-free; conditional collection is a separate reviewed action. The composed-application fixture checks the policy and collection capability. A memory-store lifecycle fixture starts from an accepted legacy `Retain` ConfigMap, reviews exactly one policy-only release-history update, retires the scope with zero effects, and refuses premature Service collection. It then collects the history object, proves the retained DomainMapping still blocks the Service, collects that route, and finally collects the Service with three tombstones. The fixture now keeps a separate accepted database StatefulSet, durable PVC, and backup Job active through every step, checking their accepted revision and physical UIDs after each reviewed transition. The existing conditional Kubernetes collection fixture passes too. Focused `--pattern=composed`, `--pattern=stateless` and `--pattern=collected` selections pass locally; the compiler module builds and passes Fourmolu and structural style. This does not alter the frozen `d871d913` cloud candidate or its already accepted `Retain` declaration. A later candidate must prove native policy transition and conditional collections while preserving database/PVC/backup identities. Keep the primary backup Job/Pod and retained data until receipt-only restore is proven. [ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md) records the durable policy boundary. Native cleanup and complete M2 remain open.
 
@@ -223,6 +230,8 @@ The reviewed volume restore Job verifies the accepted receipt and archive hashes
 
 ## Decision Log
 
+2026-10-02: Adopt the parent’s validated incremental interpreter direction; keep domain ownership and native proof obligations unchanged. The next shared boundary is collection/F20, with production logic retained above the test interpreter.
+
 2026-10-01: Enforce the existing entrypoint boundary through executable-private modules and an architecture check in the managed-command audit. Keep handlers independent, give shared policy specific owners, and retain one library execution driver. Bind command-coverage and recovery-test source evidence to every executable module rather than the former monolithic file. ADR 16 and the executable guide record the durable boundaries.
 
 2026-09-30: Take the driver-consolidation and model-based-test checkpoints from the independent review ahead of remaining route coverage. Rationale: the registry recovery path and the legacy upgrade runner duplicate rather than lack the claim and lock guards, and duplicated guards drift; the two 2026-09-30 planner defects were invariant violations that the existing in-memory store and recording adapters can catch under generated interruption. MP-23 records this in its Decision Log and safe-use gate.
@@ -268,6 +277,12 @@ docs/architecture/managed-resource-coverage.md is the existing traceability cata
 
 
 ## Plan of Work
+
+### Next checkpoint — production logic with replaceable external effects
+
+Before another cloud repair, extend the pilot through the actual F20 collection adapter. Model deletion acceptance separately from observed absence, finalizers and descendants separately from the parent, and loss of acknowledgement separately from failure before a write. Verify original-transaction recovery, reviewed propagation policy, exact UID guards, and unchanged protected data. Unsupported commands must fail. Keep the scenario under ten seconds warm and demonstrate that an incorrect immediate-success deletion model is rejected by the assertions.
+
+Keep interpreters at external request boundaries, beneath production renderers and parsers. The present request program has no `IOE`, but the surrounding runtime still uses `IO`; do not claim whole-workflow effect isolation. Move orchestration into a small explicit effect set only as the selected workflow requires it. Do not wrap a whole adapter result in a fake success interpreter, duplicate the planner, emulate all Kubernetes, or migrate unrelated commands to meet a framework target. Existing filesystem persistence stays real in recovery tests; introduce object-store/clock/process effects only at the next demonstrated gap. Maintain real-interpreter command contracts alongside models and the native smoke obligation.
 
 ### First repair: replace the shared operation dispatch boundary
 
@@ -358,6 +373,8 @@ Completed EP-146/147/149/151 provide underlying contracts. [EP-152](152-complete
 
 
 ## Revision Notes
+
+2026-10-02: Record the successful Effectful pilot and make cheap production-path scenarios and provider agreement prerequisites of further affected native iterations.
 
 2026-09-29: Adopt the bounded orchestration replacement in the design reassessment; correct the generalization from E3, make E10 the first production consumer, and remove mandatory derived-index rollout from historical recovery.
 

@@ -1057,3 +1057,28 @@ collection rather than on a Pod that no longer exists. It must verify the
 producer incarnation against retained history or the collection tombstone and
 read exact provider versions before preparing effects. A source or in-memory
 fixture does not establish native deletion or restored-content acceptance.
+
+## Amendment — 2026-10-02: validate real workflows through external-effect interpreters
+
+Adopt Effectful incrementally at external request boundaries while retaining typed
+ownership, immutable reviews, journal/history and conditional provider writes.
+Production and test interpreters execute the same compiler, planner, adapter
+parsing, preconditions and recovery logic. Tests replace external requests, not
+successful high-level operation results. Models persist their world independently
+of the journal, distinguish write acceptance from readiness, retain unknown
+outcomes, and reject unsupported requests. Generated workload commands execute
+locally with their declared environment and strict provider fixtures.
+
+The first implementation is a Kubernetes request effect beneath the existing IO
+runtime. It validates the boundary; it does not make the entire orchestration
+effect-typed. Further effects are introduced only for a demonstrated workflow gap.
+A broad conversion or a full provider emulator is not a prerequisite for MP-23.
+The effect implementation uses mori://effectful/effectful/packages/effectful-core;
+the native executor remains the default and simulation requires explicit injection.
+
+Maintain contract fixtures for real interpreter commands/responses and bounded
+native checks when underlying components change. Models cannot prove admission,
+controllers, IAM, networking, database execution or future provider outcomes.
+Simulation is neither mutation authorization nor native release evidence. Preserve
+all current acceptance gates; move inexpensive defect discovery before cloud
+iteration. See the [validated pilot](../audits/mp23-effectful-restore-pilot.md).

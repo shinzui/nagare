@@ -87,6 +87,11 @@ provenance:
       at: 2026-10-02T12:44:23Z
       mode: "implement"
       note: "Resume exact credential/head preflight and prepare one installed receipt-only restoration and web-cleanup candidate"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-02T14:57:48Z
+      mode: "update"
+      note: "Require affected interpreter and provider contract proof before native iterations"
 ---
 
 # Prove fresh GCP convergence and shared history recovery
@@ -103,6 +108,8 @@ A production-shaped disposable GCP context proves reviewed cloud/host/cluster/ap
 
 
 ## Progress
+
+**Cheap validation gate strengthened (2026-10-02).** The [Effectful restore pilot](../audits/mp23-effectful-restore-pilot.md) passes six local scenarios in about two seconds, including the rendered-script counterfactual for F19 and fresh-process recovery. The next implementation checkpoint is local F20 deletion/finalizer recovery under EP-153, not another cloud iteration. Frozen `4c4b667e`, the pending original transaction and all accepted source/neighbor evidence remain unchanged.
 
 **Installed receipt-only content and pending Knative collection (2026-10-02).** Installed `4c4b667e` passes its retained local gate (213 verifies, zero provider mutations, 19 unchanged scope digests; 46.805-second plan/53.432-second apply) and rendered GCS fixture. Job-free `mp23f15pgav3` converges in 34.101 seconds and returns the backed-up row, preserving later source/neighbor rows and original StatefulSet/PVC/Pod UIDs. Application B's review changes only history lifecycle; all 11 resources retire without mutation and separate history collection succeeds. Service collection stops on the original transaction because Knative rejects orphaning its Route/Configuration. Shared generation 752/sequence 673 has no claim/fence and retains the Service UID and nine B database members. [Evidence](../audits/mp23-native-bootstrap-results-2026-10-02/f15-receipt-only-restore-and-web-cleanup.json) records exact boundaries and the helper's policy-check ordering mistake with subsequent full identity reconciliation. The public Knative fixture reproduces the failure and preserves the pending transaction/data. [The unexecuted exception proposal](../audits/mp23-native-bootstrap-results-2026-10-02/f15-knative-collection-exception-review.json) binds a UID/resourceVersion-conditional Background DELETE, all 16 descendants observed across every listable namespace API and nine protected database UIDs. The exact server-side Background DELETE dry-run passes with parent/head unchanged, but actual finalization remains unproved. Explicit operator approval is needed because the issued review declares parent collection without controller delegation. Do not patch finalizers, replay deletion, build another candidate or admit unrelated work while this transaction remains. F20 is Open; future supported Knative collection needs reviewed descendant authority. Steps 3/4 and all child/release gates remain open; stop before step 5.
 
@@ -249,6 +256,8 @@ Current implementation findings are recorded in Progress. The state bucket, stac
 
 ## Decision Log
 
+2026-10-02: Adopt the parent’s validated incremental interpreter direction; keep domain ownership and native proof obligations unchanged. The next shared boundary is collection/F20, with production logic retained above the test interpreter.
+
 2026-09-29: This is the priority integration path ahead of full EP-155 completion. Finish installed fresh-root/credential recovery and reviewed cloud cluster convergence, then exercise a real application/database, app-only isolation and unchanged replay, followed by GCS backup-to-isolated-restore content proof and interruption/second-root recovery. Pull required EP-153/154/158–160 work into each assertion without waiting for whole-child closure. Continue through the remaining M1/M2 cloud assertions and exact cleanup. Full local integration and both native-system gates remain final release requirements; a passing representative cloud checkpoint does not itself complete EP-156 or establish release readiness.
 
 2026-09-29 (design reassessment): Separate resource observation inputs from execution envelopes and keep derived indexing optional rather than a new recovery prerequisite. Reuse exact immutable references, preserve old-history compatibility, and carry a validated store cursor through the shared operation driver. E8/E9 validate one candidate protocol, not its necessity.
@@ -284,6 +293,10 @@ scripts/rehearse-gcp-bootstrap.sh, scripts/rehearse-managed-resources.sh, infra/
 
 
 ## Plan of Work
+
+### Interpreter agreement before native resumption
+
+Require the affected production-path interpreter scenario, a negative/counterfactual check for the defect, and the real-interpreter request contract before native admission. For component upgrades, update request/response fixtures from the actual supported tool/controller contract and run only the bounded native behavior that the model cannot establish. Record simulation assumptions explicitly: admission/defaulting, real controllers/finalizers, IAM, networking, image utilities, real database execution and provider consistency still require native evidence. Do not treat simulated convergence as cloud acceptance. Reproduce a failed native boundary locally before a second installation/attempt. This gate reorders preparation without waiving any final local/cloud/release evidence.
 
 **Cloud-first scheduling (operator request, 2026-09-29).** This is the priority integration path ahead of full EP-155 completion. Finish installed fresh-root/credential recovery and reviewed cloud cluster convergence, then exercise a real application/database, app-only isolation and unchanged replay, followed by GCS backup-to-isolated-restore content proof and interruption/second-root recovery. Pull required EP-153/154/158–160 work into each assertion without waiting for whole-child closure. Continue through the remaining M1/M2 cloud assertions and exact cleanup. Full local integration and both native-system gates remain final release requirements; a passing representative cloud checkpoint does not itself complete EP-156 or establish release readiness.
 
@@ -396,6 +409,8 @@ Work against isolated test state and exact named contexts. Preserve immutable re
 Completed EP-146/147/149/151 provide executors/store. [EP-152](152-complete-fresh-platform-bootstrap-through-reviewed-components.md) supplies working fresh bootstrap, [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md) the scenario/receipt contract, [EP-154](154-validate-installed-inventory-packages-on-every-supported-system.md) native packages, and the delivered EP-148 baseline plus [EP-158](158-complete-reviewed-access-and-cdn-operations.md), [EP-159](159-complete-scheduled-backup-receipts-and-exact-retention-pruning.md), and [EP-160](160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md) required commands. Plan/fixture preparation can start before they close; a successful live local run and working cloud prerequisites gate cloud apply. [EP-157](157-gate-the-inventory-release-on-complete-immutable-evidence.md) consumes this evidence. Initial estimate: 8–16 active hours excluding approvals, provider queues, and unfinished feature implementation, low confidence; reforecast after the first complete read-only cloud preview including state bucket and delegation.
 
 ## Revision Notes
+
+2026-10-02: Record the successful Effectful pilot and make cheap production-path scenarios and provider agreement prerequisites of further affected native iterations.
 
 2026-09-29: Record installed fresh-root authority misselection and controlled absence/foreign/unavailable counterexamples; specify bounded read-only discovery and preserve migration/ownership guards. Add an immediate two-root kubeconfig consumer check so discovery alone cannot be mistaken for usable bootstrap recovery.
 

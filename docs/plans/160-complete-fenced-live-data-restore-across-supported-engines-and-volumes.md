@@ -52,6 +52,11 @@ provenance:
       at: 2026-10-02T13:14:42Z
       mode: "implement"
       note: "Repair pinned GCS restore download environment from native failure and execute rendered script in public fixture"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-02T14:57:48Z
+      mode: "implement"
+      note: "Validate persistent interpreter restore and rendered-script counterfactuals"
 ---
 
 # Complete fenced live data restore across supported engines and volumes
@@ -68,6 +73,8 @@ The supported targets are **local k3d running k3s** and **k3s on a NixOS VM in G
 An operator can restore verified PostgreSQL, Redis, and ClickHouse backups into isolated database destinations, and application-volume backups into a new PVC. Known content and destination identity are verified while the source remains untouched. The accepted shared fence and recovery of existing operations remain intact; general live overwrite and automatic promotion/cutover are deferred.
 
 ## Progress
+
+**Interpreter restore pilot accepted (2026-10-02).** Six local tests now cover interruption before create, lost write acknowledgement, virtual readiness timeout, saved-review recovery in another OS process, changed source UID refusal, and the actual rendered GCS download script with missing-generation/corrupt-byte counterfactuals. Original source objects and accepted revisions remain unchanged and successful recovery creates one Job. The producer Job is absent. See [the report](../audits/mp23-effectful-restore-pilot.md). PostgreSQL loading, live GCS, complete CLI source selection, other engines and new-PVC restore are not proved by this pilot.
 
 **Installed receipt-only restored content (2026-10-02).** Frozen `4c4b667e` passes the retained local gate (213 verifies, zero provider mutations, 19 unchanged scope digests; 46.805-second plan/53.432-second apply) and the fixture executing the rendered GCS download script. Job-free `mp23f15pgav3` converges in 34.101 seconds with completed Job UID `13f19521-86a2-4389-9b47-5e652769ec62` and the backed-up row. Both pinned GCS generations/hashes and original source/neighbor StatefulSet/PVC/Pod UIDs remain exact; later live rows survive. Failed v2 database is absent and its failed Job stays preserved. [Installed evidence](../audits/mp23-native-bootstrap-results-2026-10-02/f15-receipt-only-restore-and-web-cleanup.json) separates this accepted restore from EP-156's pending Knative collection/F20. F19 stays Verifying pending independent closure; other engine/volume/live restore gates remain open. No fourth backup Job was submitted.
 
@@ -288,6 +295,8 @@ The reviewed fixture ran one UID-bound PVC marker write inside the acquired fenc
 
 ## Decision Log
 
+2026-10-02: Adopt the parent’s validated incremental interpreter direction; keep domain ownership and native proof obligations unchanged. The next shared boundary is collection/F20, with production logic retained above the test interpreter.
+
 2026-09-28: Retain accepted M1 and narrow M2/M3 to isolated database destinations and new-PVC recovery. General live overwrite and automatic promotion are deferred by operator decision. Preserve historical live proofs and recovery code; EP-153 blocks new deferred admissions without stranding active records.
 
 2026-09-27: The operator explicitly prohibits GKE. Remove the invented GKE acceptance/access requirement and use only local k3d/k3s plus GCP Compute Engine/NixOS/k3s. EP-156 retains actual cloud integration. Fix M1 to the six shared-contract closure criteria; production engine restore/content belongs to M2 and live-volume recovery to M3. Preserve safety checks and successful evidence without adding providers, general security projects, or repeated broad validation as new completion gates.
@@ -341,6 +350,10 @@ A data fence is durable permission state plus observed provider controls that pr
 
 
 ## Plan of Work
+
+### Interpreter validation before further native restore work
+
+Keep `just test-inventory-effects` green. Extend the same production compiler/adapter/driver path for an affected engine or volume behavior before building/installing another candidate. Execute generated commands with declared environment against strict local tools; never infer workload correctness from synthetic Job completion alone. Persist the model separately from journal/history and recover without re-rendering desired inputs. Add source/object version drift, failure and interruption cases as their boundaries are introduced. Domain tests stay here; EP-153 owns shared effects and EP-156 verifies provider agreement. Preserve all existing native content, source-preservation and recovery acceptance gates.
 
 
 ### M1 — Accepted shared fence; retained closure record
@@ -441,6 +454,8 @@ Completed [EP-146](146-reconcile-cloud-host-and-artifact-resources-through-inven
 
 
 ## Revision Notes
+
+2026-10-02: Record the successful Effectful pilot and make cheap production-path scenarios and provider agreement prerequisites of further affected native iterations.
 
 2026-09-28: Replace live-overwrite release obligations and examples with verified isolated restores; retain accepted shared fencing, native engine proof, and existing transaction recovery.
 

@@ -66,17 +66,12 @@ import Nagare.Inventory.Adapter (AdapterExecution (..), OperationAction (..))
 import Nagare.Inventory.Adapters.Kubernetes
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
+import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..), invokeKubectl)
 import Nagare.Resource.Inventory (ManagedResource (..))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
 import System.Exit (ExitCode (..))
 import System.Process (readProcessWithExitCode)
-
-data KubernetesRuntimeConfig = KubernetesRuntimeConfig
-  { runtimeContext :: !ContextId
-  , runtimeKubectlContext :: !Text
-  , runtimeGuard :: !(IO (Either Text ()))
-  }
 
 mkKubernetesRuntimeOps
   :: KubernetesRuntimeConfig
@@ -1295,9 +1290,4 @@ namespaceArgs :: Maybe Name -> [String]
 namespaceArgs = maybe [] (\namespace -> ["--namespace", T.unpack (nameText namespace)])
 
 invoke :: KubernetesRuntimeConfig -> [String] -> String -> IO (Either Text (ExitCode, String, String))
-invoke config arguments input = do
-  result <- try (readProcessWithExitCode "kubectl"
-    (["--context", T.unpack (runtimeKubectlContext config), "--request-timeout=10s"] <> arguments) input)
-  pure $ case result of
-    Left (_ :: IOException) -> Left "could not invoke kubectl"
-    Right output -> Right output
+invoke = invokeKubectl

@@ -9,6 +9,17 @@ let
       generic-lens = hfinal.callHackage "generic-lens" "2.3.0.0" { };
       generic-lens-core = hfinal.callHackage "generic-lens-core" "2.3.0.0" { };
 
+      # Match the released interpreter dependency used by the Cabal pilot.
+      # mori://effectful/effectful/packages/effectful-core
+      effectful-core = hfinal.callCabal2nix "effectful-core" (builtins.fetchTarball {
+        url = "https://hackage.haskell.org/package/effectful-core-2.7.1.2/effectful-core-2.7.1.2.tar.gz";
+        sha256 = "1kswfv5cz9rz1fs2j10w7fgy2pdwq84h257a2wb17p0q8n9ld61r";
+      }) { };
+      strict-mutable-base = hfinal.callCabal2nix "strict-mutable-base" (builtins.fetchTarball {
+        url = "https://hackage.haskell.org/package/strict-mutable-base-2.0.0.0/strict-mutable-base-2.0.0.0.tar.gz";
+        sha256 = "1sdps117s8vdirhwqfma1b37q1i5dg939cmsa3xsbrr5vwq8z3fy";
+      }) { };
+
       cradle = hl.dontHaddock (hl.dontCheck (
         hfinal.callCabal2nix "cradle" cradleSrc { }
       ));

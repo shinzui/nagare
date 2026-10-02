@@ -281,6 +281,11 @@ status:
 live-test:
     scripts/live-test.sh
 
+# MP-23: real restore/recovery logic with local request interpreters; no cloud.
+[group('test')]
+test-inventory-effects:
+    cabal test nagarectl-test --project-dir=cli/nagarectl --test-options='-p "effectful restore pilot"' --test-show-details=direct
+
 # EP-119: enforce the production Haskell source contract and pinned formatting.
 # Check Haskell structure, Fourmolu formatting, and Cabal manifest formatting.
 [group('test')]

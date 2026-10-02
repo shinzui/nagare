@@ -198,6 +198,7 @@ library
     Nagare.Inventory.Kubernetes
     Nagare.Inventory.KubernetesReview
     Nagare.Inventory.KubernetesSources
+    Nagare.Inventory.KubernetesTransport
     Nagare.Inventory.Lifecycle
     Nagare.Inventory.LiveRestore
     Nagare.Inventory.LiveRestoreAdapter
@@ -284,6 +285,7 @@ library
     cradle,
     crypton,
     directory,
+    effectful-core >=2.7.1.2 && <2.8,
     filepath,
     generic-lens ^>=2.3,
     gogol ==1.0.0.0,
@@ -339,8 +341,8 @@ executable nagarectl
     Nagare.Cli.Commands.Task
     Nagare.Cli.Commands.Worker
     Nagare.Cli.Data.Backup
-    Nagare.Cli.Data.ManualReceipt
     Nagare.Cli.Data.Lifecycle
+    Nagare.Cli.Data.ManualReceipt
     Nagare.Cli.Data.Restore
     Nagare.Cli.Data.ScheduleObservation
     Nagare.Cli.Data.ScheduledPrune
@@ -443,6 +445,7 @@ test-suite nagarectl-test
     InventoryCacheSpec
     InventoryCdnSpec
     InventoryCloudSpec
+    InventoryEffectfulSpec
     InventoryFoundationSpec
     InventoryGcloudAuthSpec
     InventoryGogolSpec
@@ -477,6 +480,8 @@ test-suite nagarectl-test
     Nagare.Test.DataFixtures
     Nagare.Test.Database
     Nagare.Test.Domains
+    Nagare.Test.Effectful.Fixture
+    Nagare.Test.Effectful.Model
     Nagare.Test.Environment
     Nagare.Test.Gcp
     Nagare.Test.GhcEnvironment
@@ -530,6 +535,7 @@ test-suite nagarectl-test
     text,
     time,
     unix,
+    vector,
     wai,
     warp,
     yaml,
