@@ -14,10 +14,13 @@
   "sourcePublicFixturePassed": true,
   "neighborRevisionsPreserved": true,
   "providerWriteBound": 3,
-  "installedRepairPending": true,
+  "installedRepairPending": false,
   "safeUseAccepted": false,
   "cliTestsPassed": 1012,
   "cliTestSeconds": 50.25,
   "structuralStylePassed": true,
-  "genuineBootstrapVerificationRegressionPassed": true
+  "genuineBootstrapVerificationRegressionPassed": true,
+  "installedLocalGate": "local-platform-candidate-d871d913.json",
+  "nativeSynchronizationPassed": true,
+  "nativeEvidence": "f15-auth-synchronization.json"
 }

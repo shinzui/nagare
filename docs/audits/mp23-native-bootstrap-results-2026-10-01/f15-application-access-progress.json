@@ -137,5 +137,83 @@
       "phase": null
     }
   ],
-  "safeUseAccepted": false
+  "safeUseAccepted": false,
+  "authSynchronization": {
+    "operatorRevision": "d871d9131566ff12d3e4114a9944cd68cb7fe7de",
+    "reviewDigest": "b3bdedb1a330ace38eb4ececa3f937b28c5cff001c99ca02252eada5dfadac3c",
+    "operations": 2,
+    "updates": [
+      "shomei",
+      "nagare-access"
+    ],
+    "headGeneration": 650,
+    "headSequence": 609,
+    "unrelatedRevisionsPreserved": 25,
+    "originalWorkloadAndMapUidsPreserved": true,
+    "acceptedImagesAndMapsUnchangedBeforeApply": true,
+    "bootstrapStampAndPayloadPreserved": true,
+    "safeUseAccepted": false,
+    "planResult": {
+      "exit": 0,
+      "seconds": 19.187
+    },
+    "applyResult": {
+      "exit": 0,
+      "seconds": 28.036
+    },
+    "functionalHttp": {
+      "document": {
+        "exit": 0,
+        "httpStatus": "302",
+        "location": "/_nagare/login?rd=%2F",
+        "bodySha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bodyBytes": 0,
+        "diagnostic": ""
+      },
+      "api": {
+        "exit": 0,
+        "httpStatus": "401",
+        "location": null,
+        "bodySha256": "89de916f9a680734805ff605a623865ebfcedb165ba7045d4a65510301487bf7",
+        "bodyBytes": 59,
+        "diagnostic": ""
+      },
+      "public-backend-bypass": {
+        "exit": 0,
+        "httpStatus": "404",
+        "location": null,
+        "bodySha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bodyBytes": 0,
+        "diagnostic": ""
+      },
+      "tls": {
+        "exit": 7,
+        "httpStatus": "000",
+        "location": null,
+        "bodySha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bodyBytes": 0,
+        "diagnostic": "curl: (7) Failed to connect to mp23-f15-app-a.personal.f15-0930.labs.topagentnetwork.net:443 after 33 ms: Could not connect to server\n"
+      },
+      "neighbor-public-app": {
+        "exit": 0,
+        "httpStatus": "200",
+        "location": null,
+        "bodySha256": "c0306dbadca329f6df665ee7b63d0849a0d85cbf0c3f41d2cdd2a162f034ae5f",
+        "bodyBytes": 24,
+        "diagnostic": ""
+      }
+    },
+    "protectedBrowserLoginAccepted": false,
+    "httpsAccepted": false,
+    "runnerMistake": {
+      "wrongBinaryAttemptSeconds": 15.723,
+      "actualWrongRevision": "f321bd30af19638ead401e66666f021419903b09",
+      "reviewSaved": false,
+      "admissionOrProviderEffects": false,
+      "repair": "stage checks actual runner version before provider commands"
+    }
+  },
+  "step2BoundedHttpIntegrationPassed": true,
+  "step3": "known-content seed complete; backup planning",
+  "step4": "open: native recovery/cleanup, HTTPS disposition and operator verification"
 }
