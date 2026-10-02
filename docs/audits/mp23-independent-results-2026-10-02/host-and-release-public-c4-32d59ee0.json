@@ -1,0 +1,42 @@
+{
+  "hostCandidate": "c4d219e4715f80de4909c7c00b679ae56bad4678",
+  "releaseSource": "32d59ee0d910c8e820bfea9cc1b47f9f5149853a",
+  "releaseSourceAndBuiltBinaryHashes": {
+    "cli/nagarectl/src/Nagare/Inventory/ReleaseEvidence.hs": "af0ec87415c5d6399a6f368113a548f39b8e5025cefa75368980dce561b803d1",
+    "scripts/assemble-inventory-release-index.py": "835ccd036058e8cf430211b9d1ceb588f82ff1012201f10a984369d169a542fe",
+    "scripts/test-release-evidence-public.py": "fca01c8f0bbab9b4c472cda2d51a851d081a1fb4f78bde1af9e8559987099f79",
+    "scripts/test-inventory-release-index.py": "5bc0ef4e6192d21021d8d1fb6f57182963761a0a63a132dd0a9b9f07a7e01a9a",
+    "cli/nagarectl/dist-newstyle/build/aarch64-osx/ghc-9.12.4/nagarectl-0.4.0/x/nagarectl/build/nagarectl/nagarectl": "96c023f247bfbe9a04093e42ac7340de64780026587b2c680989cbab63ad0b49"
+  },
+  "checks": [
+    {
+      "log": "mp23-independent-foundation-c4d219e4.txt",
+      "sha256": "d151dd7e585407123205561b2533df6611dbc007d4a33df74fdbc9dc5adf1946",
+      "result": "passed"
+    },
+    {
+      "log": "mp23-independent-host-key-recovery-current.txt",
+      "sha256": "8a388160e9f7f45b18571741629fa54070a1865070be60201da1303696c6fedb",
+      "result": "passed"
+    },
+    {
+      "log": "mp23-independent-host-transport-current.txt",
+      "sha256": "81b7808e94342867d5e67e131128c0956d174846e2431ca8bba68fc5d978b14a",
+      "result": "passed"
+    },
+    {
+      "log": "mp23-independent-release-index-32d59ee0.txt",
+      "sha256": "b666da5812ad772d2a70b321f647ebc54952acfad5feec2b52bd971e792e099a",
+      "result": "passed"
+    },
+    {
+      "log": "mp23-independent-release-public-32d59ee0.txt",
+      "sha256": "9cad668627cdacf626d6f64d38b038ec21bf4c50642ff412f812ced2e39e2f32",
+      "result": "passed"
+    }
+  ],
+  "limits": [
+    "Public fixtures use provider recorders; native credential activation on legacy payload is not claimed.",
+    "Host protocol downgrade finding F23 is separate from these successful host fixture checks."
+  ]
+}

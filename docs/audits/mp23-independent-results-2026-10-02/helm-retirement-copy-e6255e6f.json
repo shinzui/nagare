@@ -1,0 +1,162 @@
+{
+  "candidate": "e6255e6f2106eda0f98cea0a717e37f354604dd0",
+  "boundary": "Public installed CLI against disposable copy of cp3 inventory; actual native Helm/Kubernetes reads; wrapper refuses provider mutations",
+  "originalHeadSha256": "4f4d4f36dd1743fa342ee448ca1b48f044053b811f3996f3ba98a6ddbfde4b98",
+  "originalHeadUnchanged": true,
+  "providerMutationCount": 0,
+  "providerCalls": [
+    [
+      "kubectl",
+      "--context",
+      "local",
+      "--request-timeout=10s",
+      "get",
+      "configmap",
+      "nagare-platform-version",
+      "--namespace",
+      "nagare-system",
+      "-o",
+      "json",
+      "--ignore-not-found"
+    ],
+    [
+      "kubectl",
+      "--context",
+      "local",
+      "--request-timeout=10s",
+      "get",
+      "configmap",
+      "nagare-platform-version",
+      "--namespace",
+      "nagare-system",
+      "-o",
+      "json",
+      "--ignore-not-found"
+    ],
+    [
+      "helm",
+      "status",
+      "otel-collector",
+      "--kube-context",
+      "local",
+      "--namespace",
+      "tracing",
+      "-o",
+      "json"
+    ],
+    [
+      "kubectl",
+      "--context",
+      "local",
+      "-n",
+      "tracing",
+      "get",
+      "secret",
+      "sh.helm.release.v1.otel-collector.v1",
+      "-o",
+      "json"
+    ],
+    [
+      "helm",
+      "status",
+      "otel-collector",
+      "--kube-context",
+      "local",
+      "--namespace",
+      "tracing",
+      "-o",
+      "json"
+    ],
+    [
+      "kubectl",
+      "--context",
+      "local",
+      "-n",
+      "tracing",
+      "get",
+      "secret",
+      "sh.helm.release.v1.otel-collector.v1",
+      "-o",
+      "json"
+    ],
+    [
+      "helm",
+      "status",
+      "otel-collector",
+      "--kube-context",
+      "local",
+      "--namespace",
+      "tracing",
+      "-o",
+      "json"
+    ],
+    [
+      "kubectl",
+      "--context",
+      "local",
+      "-n",
+      "tracing",
+      "get",
+      "secret",
+      "sh.helm.release.v1.otel-collector.v1",
+      "-o",
+      "json"
+    ]
+  ],
+  "release": {
+    "name": "otel-collector",
+    "revision": 1,
+    "status": "deployed",
+    "description": "nagare-inventory-v1|local|platform:observability-otel-collector/observability/release|3829a1d31c362b747205bce25a6066180166a7dd1a2f67f1760be35bc92f807d",
+    "secretUid": "8c95bfe5-ea8e-4fc0-89f3-53c3e8b4a398"
+  },
+  "reviewSha256": "350f971fabb2db6436a6815f93f9a0463a2fece65e45c40afa2a833cd0353471",
+  "reviewOperations": 0,
+  "retention": {
+    "proof": {
+      "owner": {
+        "kind": "Platform",
+        "name": "observability-otel-collector"
+      },
+      "physical": "8c95bfe5-ea8e-4fc0-89f3-53c3e8b4a398",
+      "revision": {
+        "digest": "6f603e9e092cb9632f2fa7debbf182a3f973cbd8e8ddbebaab0efeb2c9224dd2",
+        "generation": 1
+      }
+    },
+    "resource": "platform:observability-otel-collector/observability/release"
+  },
+  "commands": {
+    "stamp-plan": {
+      "label": "stamp-plan",
+      "exit": 0,
+      "seconds": 1.69
+    },
+    "stamp-apply": {
+      "label": "stamp-apply",
+      "exit": 0,
+      "seconds": 1.929
+    },
+    "plan2": {
+      "label": "plan2",
+      "exit": 0,
+      "seconds": 2.085
+    },
+    "foreign": {
+      "label": "foreign",
+      "exit": 1,
+      "seconds": 1.71
+    },
+    "apply": {
+      "label": "apply",
+      "exit": 0,
+      "seconds": 4.013
+    }
+  },
+  "foreignRefusal": "[AdmissionError {admissionErrorCode = \"retention-observation\", admissionErrorMessage = \"retained physical incarnation could not be reverified\"}]\n",
+  "limits": [
+    "Only copied history records retirement; original inventory scopes and all provider objects are unchanged",
+    "Bootstrap-stamp first retired only in copied history to preserve its dependency invariant",
+    "Complements separate independent native real-store Kubernetes retirement/collection; no Helm uninstall/collection claimed"
+  ]
+}

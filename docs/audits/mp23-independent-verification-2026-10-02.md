@@ -429,3 +429,56 @@ independently pass. These strengthen their source/public boundaries; they do not
 substitute for fresh-host credential expiry/re-pull acceptance or native Google
 CDN backend acceptance. Active ep150 still has its legacy accepted host and
 disabled platform CDN backend.
+
+## Remaining retirement and bootstrap outcome verification
+
+[F17 Helm proof](mp23-independent-results-2026-10-02/helm-retirement-copy-e6255e6f.json)
+uses the installed candidate and real Helm/Kubernetes reads against a disposable
+inventory copy. Foreign UID refusal precedes exact zero-operation retention.
+The original store, release revision and provider objects remain unchanged.
+Combined with independent real-store Kubernetes retirement/collection, F17 closes.
+
+[F14 original-history verification](mp23-independent-results-2026-10-02/readiness-original-history-e6255e6f.json)
+finds all four original controller Deployment UIDs still generation one and Ready,
+verifies the original review and committed completion from GCS, and successfully
+replays the completed transaction with unchanged head. Named source regressions
+pass independently. F14 closes; its initial native interrupted resume is retained
+historical evidence rather than a second bootstrap.
+
+[F18 historical proof audit](mp23-independent-results-2026-10-02/foundation-historical-audit-e6255e6f.json)
+checks original review/journal export hashes and exact-once intent history. The
+current installed foundation regression independently executes interruption and
+recovery. Together these close F18 against the current contract while preserving
+the retired-fixture decision. No fresh native foundation or fresh-host credential
+expiry assertion is inferred from this closure.
+
+Host review identified F23: newer credential authority can be sent to an older
+accepted payload transport. Versioned-request refusal is required before native
+credential review/activation. No such mutation has been attempted.
+
+## Fresh-root engine recovery and later candidate checks
+
+The [additional source-unavailable drill](mp23-independent-results-2026-10-02/source-unavailable-engines-e6255e6f.json)
+recovers accepted Redis and ClickHouse scheduled archives and the accepted volume
+snapshot using a fresh operator root, independent existing GCS credentials and a
+denied source Kubernetes command. All three isolated cp3 containers return their
+known original contents and are removed; shared source history stays exact.
+Eighteen live Secret values were separately encrypted outside the original root,
+decrypted from the fresh root and checked by hash without persisting plaintext.
+Together with the earlier PostgreSQL drill, this covers manual content recovery
+for all supported engines and the volume. It simulates unavailable source access;
+it does not claim public cross-cluster restore, a physical outage, credential
+installation into every destination service or live application cutover. Volume
+content is bound to accepted hashes; its observed generations are not accepted
+provider-version pins.
+
+The [c4 installed cp3 gate](mp23-independent-results-2026-10-02/installed-local-gate-c4d219e4.json)
+passes 213 verification operations with zero provider mutations, 29 unchanged
+scope content digests and 57 ready or succeeded Pods. The
+[public host and release checks](mp23-independent-results-2026-10-02/host-and-release-public-c4-32d59ee0.json)
+also pass independently. The release gate now binds the exact public fixture
+definition to the health evidence and rejects a semantically foreign fixture
+even with recomputed asset hashes. The health fixture digest and canonical target
+digest remain intentionally distinct. Native receipt-required host activation
+on the old accepted cloud payload remains unclaimed; F23 requires a versioned
+transport refusal before a fresh supported-payload credential proof.

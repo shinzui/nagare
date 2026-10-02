@@ -1,0 +1,1 @@
+complete inventory release index and refusal tests passed

@@ -41,15 +41,16 @@ Implementation owner: existing session `01a0e893-337f-7b82-ac5d-16f41bf5ce21` (I
 | [F11](#f11) | Build | Conditional-upload optimization has ambiguous try exception type | Closed | EP-156 |
 | [F12](#f12) | P1 | A later operation’s preflight blocks recovery of its ambiguous prerequisite | Closed | EP-153 / EP-159 |
 | [F13](#f13) | P1 | Ordinary executor recovery has no terminal-failure branch | Closed | EP-153 / EP-159 |
-| [F14](#f14) | P1 | Initial Knative activator readiness blocks its uncreated autoscaler | Verifying | EP-156 |
+| [F14](#f14) | P1 | Initial Knative activator readiness blocks its uncreated autoscaler | Closed | EP-156 |
 | [F15](#f15) | P1 | Patched certificate controller lacks refreshed private-image credentials | Verifying | EP-156 / EP-154 |
 | [F16](#f16) | P1 | Unready application creation cannot yield to a corrected reviewed configuration | Verifying | EP-153 / EP-156 |
-| [F17](#f17) | P1 | Effect-free retirement discards required native identity observations | Verifying | EP-153 / EP-156 |
-| [F18](#f18) | P1 | Initial GCS foundation transaction cannot resume its local journal | Verifying | EP-153 / EP-156 |
+| [F17](#f17) | P1 | Effect-free retirement discards required native identity observations | Closed | EP-153 / EP-156 |
+| [F18](#f18) | P1 | Initial GCS foundation transaction cannot resume its local journal | Closed | EP-153 / EP-156 |
 | [F19](#f19) | P1 | Rendered pinned GCS restore omits download generations | Closed | EP-160 / EP-156 |
 | [F20](#f20) | P1 | Knative collection cannot orphan controller descendants | Closed | EP-153 / EP-156 |
 | [F21](#f21) | P1 | HTTP redirect automatically resubmits reviewed CDN purge | Closed | EP-158 |
 | [F22](#f22) | P1 | ClickHouse restore fails after a transient read-only verification refusal | Closed | EP-160 |
+| [F23](#f23) | P1 | Credential review can delegate to an older receipt-unaware host transport | Verifying | EP-153 / EP-154 |
 
 F01 and F11 retain their [earlier independent closure](mp23-verification.md). F02, F03, F04, F05, F06, F07, F08 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). Other entries retain their status shown above.
 
@@ -104,7 +105,7 @@ decision is preserved. This is isolated recovery, not live-target cutover.
 
 ## F18
 
-**Initial GCS foundation transaction cannot resume its local journal** — P1; **Verifying**; owners EP-153 / EP-156.
+**Initial GCS foundation transaction cannot resume its local journal** — P1; **Closed**; owners EP-153 / EP-156.
 
 **Native evidence:** Immutable `d73c1dc4d3790c980be877f42cb68ea32b7575bd` plans the disposable `f15-preview` foundation review `03deb235a67fd7576e66248c1867ba317ced759d60d3dff1394a1b747d6aa6c5`. Apply creates and verifies only its new state bucket, then stops before the Pulumi stack mutation with `KnownNoEffect "adapter preflight refused"`. The local generation 6/sequence 3 head retains the exact original transaction, without a claim or migration. Generic public resume refuses in 0.156 seconds with `local inventory history exists; migrate it before selecting the GCS store`. Store status also refuses the uninitialized remote prefix. A later exact read-only Pulumi stack listing succeeds; the original transient preflight cause remains unproved. No VM or subsequent platform resource has been created.
 
@@ -114,9 +115,23 @@ decision is preserved. This is isolated recovery, not live-target cutover.
 
 **Required verification:** Reproduce a stopped first bootstrap configured for GCS, resume its original review without repeated bucket creation, and preserve the complete original journal during migration after convergence. Refuse a legitimate unrelated local active transaction without changing its head or invoking its provider. Verify the immutable installed operator against the original native transaction and retain exact source/build/evidence identities. Independent closure remains required.
 
+
+**Independent current-contract closure (2026-10-02):** Installed `e6255e6f`
+independently passes the complete public foundation interruption/resume fixture,
+including exact original journal migration, no repeated bucket creation, and
+unrelated-active-history refusal. Independent audit of the retained native proof
+checks original review/export equality, all three original journal hashes, six
+contiguous final events, one intent per mutation and idle accepted/converged
+ownership. [Evidence and boundaries](mp23-independent-results-2026-10-02/foundation-historical-audit-e6255e6f.json).
+The original native recovery was executed by the implementing session; it is
+audited historical evidence, not a newly repeated native drill. Under the explicit
+disposable-fixture decision, retired F15 is not accessed, resumed or modified.
+Current independent executable proof and retained native outcome close F18;
+fresh-host credential acceptance remains a distinct F15 gate.
+
 ## F17
 
-**Effect-free retirement discards required native identity observations** — P1; **Verifying**; owners EP-153 / EP-156.
+**Effect-free retirement discards required native identity observations** — P1; **Closed**; owners EP-153 / EP-156.
 
 **Native evidence:** Installed `2101b834882a31a77036103b00c03b9a9cc07019` saves Application C retirement review `164d1a480405e5a2274b5f0e6fca564bf765cf428076b71e0eb963da4d624ace` in 21.180 seconds. It has zero mutation operations and exactly two retention proofs, bound to the accepted Service and release-history UIDs. Public apply refuses after 4.810 seconds with `retention-observation`; the exact generation 698/sequence 615 head remains unchanged. No transaction or deletion is admitted.
 
@@ -127,6 +142,18 @@ decision is preserved. This is isolated recovery, not live-target cutover.
 **Required verification:** Through the public apply path, prove the original saved retirement review reobserves both retained UIDs, refuses a foreign observed UID without changing the head, and admits unchanged exact identities. Preserve all other accepted/converged revisions, data, and native objects; retirement does not delete them. Prove subsequent collection separately. Record source hashes and executable-build identity, and repeat on the immutable installed candidate before independent closure.
 
 **Verification:** Independent closure remains pending.
+
+
+**Independent closure (2026-10-02):** Earlier independent real-store Kubernetes
+retirement/collection is complemented by an installed `e6255e6f` public Helm
+retirement against a disposable copy of cp3 inventory. Its zero-operation review
+reobserves the actual stamped Helm release/Secret UID. An injected foreign UID
+refuses without a copied-head change; the same saved review then retains the
+original exact UID. Every provider call is read-only; the real cp3 head, live
+release revision and all objects remain unchanged. [Helm runtime proof](mp23-independent-results-2026-10-02/helm-retirement-copy-e6255e6f.json).
+The copied bootstrap stamp is retired first to preserve its dependency invariant.
+Only copied history records Helm retirement; no live uninstall/collection is
+claimed. These complementary public runtime boundaries close F17.
 
 ## F16
 
@@ -146,7 +173,7 @@ decision is preserved. This is isolated recovery, not live-target cutover.
 
 ## F14
 
-**Initial Knative activator readiness blocks its uncreated autoscaler** — P1; **Verifying**; owner EP-156.
+**Initial Knative activator readiness blocks its uncreated autoscaler** — P1; **Closed**; owner EP-156.
 
 **Locations:** cli/nagarectl/src/Nagare/Inventory/Components/Upstream.hs; Adapters/Kubernetes.hs; Execute.hs.
 
@@ -161,6 +188,18 @@ decision is preserved. This is isolated recovery, not live-target cutover.
 **Verification:** Not closed. Installed/native readiness recovery is now retained; independent closure remains required. The subsequent installed registry recovery resumes the same original transaction to full bootstrap convergence; steady credential coverage and independent F15 closure remain open.
 
 **Implementation update (2026-09-30):** The [installed local candidate gate](mp23-native-bootstrap-results-2026-09-30/local-platform-candidate-705716b7.json) runs full native bootstrap with CLI/payload `705716b7`, rather than only the recording marker fixture. Autoscaler is Ready before activator, all 217 platform operations converge through the public driver, all 19 scopes are idle/converged, and the final marker names the candidate. A transient certificate readiness result settles through resume of the retained transaction. An unchanged replan contains 213 verification-only operations and no barriers. This proves the corrected fresh-bootstrap order locally; F14 safe-use Verification remains the operator's end-to-end runbook on `f15-preview`.
+
+
+**Independent closure (2026-10-02):** Ten current candidate readiness/registry/
+stopped-driver regressions pass. Read-only active ep150 observation independently
+confirms the original activator, autoscaler, controller and webhook Deployment
+UIDs, generation one, all Ready. The original immutable review digest and committed
+activator completion at sequence 372 are verified from GCS. Installed `e6255e6f`
+replays the original completed transaction in 13.054s and returns convergence
+with exact unchanged shared head. [Original-history/native proof](mp23-independent-results-2026-10-02/readiness-original-history-e6255e6f.json).
+This closes F14 using independently reobserved completed outcomes and current
+executable regression/replay. The initial interrupted resume remains historical
+native evidence; no review/history rewrite or second bootstrap is claimed.
 
 ## F15
 
@@ -569,3 +608,25 @@ source retains both rows. All 42 prior scope revisions, neighboring PostgreSQL
 Pod identities/rows, and the original failed Job/database are preserved.
 [Installed native before/after evidence](mp23-independent-results-2026-10-02/cloud-engine-recovery-e6255e6f.json).
 F22 is Closed; final release-candidate binding remains a separate gate.
+
+## F23
+
+**Credential review can delegate to an older receipt-unaware host transport** — P1; **Verifying**; owners EP-153 / EP-154.
+
+**Independent source evidence (2026-10-02):** Revision `c4d219e4` correctly
+binds explicit and inherited key files to v2 receipt-required plans when its
+new shell is selected. However, planning and execution select the host transport
+from the accepted payload workspace. Active ep150 preserves its `6082dbd6`
+payload, whose shell emits ordinary HostTransportPrepared and ignores credential
+receipt authority. The new runtime accepts that response as v1; its transport
+request version also remains one for saved v2 plan inspection/activation.
+An older shell can therefore miss the new receipt check. This is a source-bound
+compatibility finding; no credential mutation was attempted on the fixture.
+
+**Required repair/verification:** Use an explicit versioned transport request for
+credential-required preparation and every v2 plan inspection/activation. An older
+shell must refuse before provider work. The new shell must derive required
+credential semantics from that protocol, refuse legacy prepared responses, and
+preserve old v1 plan behavior. Independently run changed/stale payload refusal,
+service-failure/retry, inherited-key review and current-v2 success regressions.
+No in-place payload upgrade or old-payload credential authority is implied.

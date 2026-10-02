@@ -1,0 +1,20 @@
+{
+  "historicalNativeEvidence": "docs/audits/mp23-native-bootstrap-results-2026-09-30/cloud-initial-gcs-foundation-recovery.json",
+  "historicalNativeEvidenceSha256": "5868201dc41a20a2e4ad30acd77b176c407739526f6e839af9578dac6045fca9",
+  "independentStructuralAudit": {
+    "originalReviewMatchesExport": true,
+    "originalThreeJournalHashesMatchExport": true,
+    "journalContiguousZeroThroughFive": true,
+    "oneIntentPerBucketAndStack": true,
+    "originalBucketReplayReported": false,
+    "finalAcceptedConvergedIdle": true
+  },
+  "currentIndependentExecutable": "e6255e6f2106eda0f98cea0a717e37f354604dd0",
+  "currentPublicFixtureLog": "foundation-e6255e6f.txt",
+  "currentPublicFixtureLogSha256": "2056b1dafbfa6bfbd9bf67b518bac1d7e71543d003b0bbee94a516b2284ad860",
+  "limits": [
+    "Historical native recovery was performed by implementing session; reviewer audited retained evidence and independently reran current installed public regression",
+    "Retired f15-preview was not accessed, resumed or changed",
+    "No new fresh-native GCS foundation drill claimed; disposal decision preserves original history"
+  ]
+}

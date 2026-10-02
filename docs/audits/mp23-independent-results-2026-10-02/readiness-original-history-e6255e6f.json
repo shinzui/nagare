@@ -1,0 +1,80 @@
+{
+  "candidateGate": "e6255e6f2106eda0f98cea0a717e37f354604dd0",
+  "context": {
+    "identity": "ep150-preview",
+    "project": "tan-ng-labs"
+  },
+  "originalReviewDigest": "1006f60f5e9afcf3e8e73b98462187b3cef1c268bcdb7035dccb6ab65e3262f1",
+  "originalReviewDigestVerified": true,
+  "originalTransaction": "tx-1006f60f5e9afcf3e8e73b98462187b3cef1c268bcdb7035dccb6ab65e3262f1",
+  "deployments": [
+    {
+      "name": "activator",
+      "uid": "c4f97afa-c174-4535-bdb6-92f9ab7ea7f7",
+      "generation": 1,
+      "ready": 1
+    },
+    {
+      "name": "autoscaler",
+      "uid": "06edf482-c99d-44f3-8725-a4ed13a925eb",
+      "generation": 1,
+      "ready": 1
+    },
+    {
+      "name": "controller",
+      "uid": "72f949e7-1d72-4860-bae1-ad30f7c6c58d",
+      "generation": 1,
+      "ready": 1
+    },
+    {
+      "name": "webhook",
+      "uid": "5d3f6bf9-2e26-4414-a425-7dd8e4811f11",
+      "generation": 1,
+      "ready": 1
+    }
+  ],
+  "selectedCommittedEvents": [
+    {
+      "detail": "operation completion verified",
+      "operation": "op-bfa43b97769ace62dc69e141",
+      "previousDigest": "261b113e00a273d59ad9fb6a24d52476c069556fd5b005f9193045b977892e11",
+      "sequence": 371,
+      "state": {
+        "contents": "e7910db8835b6cf0b7ed64b1e62f28a35d0c625623141486739d17a9089979a3",
+        "tag": "Completed"
+      },
+      "timestamp": "2026-09-30T14:05:04Z",
+      "transaction": "tx-1006f60f5e9afcf3e8e73b98462187b3cef1c268bcdb7035dccb6ab65e3262f1",
+      "version": 1
+    },
+    {
+      "detail": "adapter recovery proved completion",
+      "operation": "op-20d6ec98f9c99327a21d7fcf",
+      "previousDigest": "9c66a89bf4e699b2b092e569894f76a061c3dc39e8881fb2e229002b4ae41cf1",
+      "sequence": 372,
+      "state": {
+        "contents": "013803e35984a35348323ab8f3773c89d8f67f893ef4ee8f6f242035c64ac6f0",
+        "tag": "Completed"
+      },
+      "timestamp": "2026-09-30T14:10:19Z",
+      "transaction": "tx-1006f60f5e9afcf3e8e73b98462187b3cef1c268bcdb7035dccb6ab65e3262f1",
+      "version": 1
+    }
+  ],
+  "headUnchanged": true,
+  "head": {
+    "generation": 990,
+    "sequence": 826,
+    "activeTransaction": null,
+    "executorClaim": null
+  },
+  "boundary": "Independent current native reobservation and original immutable review/committed completion audit; original recovery execution is retained historical evidence, not rerun",
+  "regressions": "Ten independent e625 readiness/registry/stopped-driver tests passed; original waiting/dependency/durable-refusal cases included",
+  "installedCompletedOriginalReplay": {
+    "label": "readiness-original-completed-replay-e625",
+    "exit": 0,
+    "seconds": 13.054,
+    "output": "converged tx-1006f60f5e9afcf3e8e73b98462187b3cef1c268bcdb7035dccb6ab65e3262f1\n",
+    "sharedHeadExact": true
+  }
+}

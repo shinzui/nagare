@@ -37,6 +37,9 @@
     "F10",
     "F12",
     "F13",
+    "F14",
+    "F17",
+    "F18",
     "F19",
     "F20",
     "F21",
@@ -198,5 +201,19 @@
     "docs/audits/mp23-independent-results-2026-10-02/release-public-e6255e6f.txt": "9cad668627cdacf626d6f64d38b038ec21bf4c50642ff412f812ced2e39e2f32",
     "docs/audits/mp23-independent-results-2026-10-02/readiness-registry-stop-e6255e6f.txt": "4fc68c358fd60919c631afdc4e5b635417dcbec4485dc16f54b1bd6b2a6175fe",
     "docs/audits/mp23-independent-results-2026-10-02/registry-delegation-e6255e6f.txt": "22a6be26166f7ce9d85b3c17d757b1feab895304483355ca4c099f467bad9e59"
+  },
+  "bootstrapAndRetirementOutcomeAudit": {
+    "docs/audits/mp23-independent-results-2026-10-02/helm-retirement-copy-e6255e6f.json": "abf4ff3ea7472595b6bda121b774ebe79133d9f0fd311a8af615833c1ba52707",
+    "docs/audits/mp23-independent-results-2026-10-02/readiness-original-history-e6255e6f.json": "072a28406151057e7183a2382ea422be59468601a326e33df2cfd02a669e2638",
+    "docs/audits/mp23-independent-results-2026-10-02/foundation-historical-audit-e6255e6f.json": "deca2109a54ea12c13768db89dc836d57231821f2dbf4fabbefafdd5fe9015d3"
+  },
+  "F23": "Verifying: credential transport protocol version must reject old receipt-unaware payload before provider IO",
+  "freshRootEngineRecovery": {
+    "result": "passed with explicit manual/simulated limits",
+    "evidence": "docs/audits/mp23-independent-results-2026-10-02/source-unavailable-engines-e6255e6f.json"
+  },
+  "c4LocalAndReleaseGates": {
+    "local": "docs/audits/mp23-independent-results-2026-10-02/installed-local-gate-c4d219e4.json",
+    "public": "docs/audits/mp23-independent-results-2026-10-02/host-and-release-public-c4-32d59ee0.json"
   }
 }
