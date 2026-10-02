@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: personal
+spec:
+  ports:
+    - port: 80
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: web-history
+  namespace: personal
+data:
+  current: v1
+---
+apiVersion: serving.knative.dev/v1beta1
+kind: DomainMapping
+metadata:
+  name: web.example.test
+  namespace: personal
+spec:
+  ref:
+    apiVersion: serving.knative.dev/v1
+    kind: Service
+    name: web
+    namespace: personal
