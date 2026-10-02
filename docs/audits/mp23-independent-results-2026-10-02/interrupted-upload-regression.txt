@@ -1,0 +1,6 @@
+nagarectl
+  Nagare.Database.Backup/Restore (EP-47)
+    Job / CronJob renderers
+      reviewed scheduled backup writes a UID-bound receipt after stored-byte verification: OK (1.18s)
+
+All 1 tests passed (1.19s)

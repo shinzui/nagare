@@ -157,5 +157,9 @@
     "docs/audits/mp23-independent-results-2026-10-02/native-active-timing.json": "1a45d253ad7c5f776dcf975bf3b9772c0501915fd0ce72e0ae482432abc6dc11",
     "docs/audits/mp23-independent-results-2026-10-02/fresh-root-public.txt": "2056b1dafbfa6bfbd9bf67b518bac1d7e71543d003b0bbee94a516b2284ad860",
     "docs/audits/mp23-independent-results-2026-10-02/fresh-root-host-ec2e1cd4.json": "87d418dccb1103a5111a95d159ebf07ef149e4d040bbfddab3e0109a45dd3332"
+  },
+  "localEngineRecovery": {
+    "docs/audits/mp23-independent-results-2026-10-02/local-engine-recovery-ec2e1cd4.json": "77c819edd176adfb0e1cfeb40e86979b74b0ee73a11b74a5328d7b381e8de459",
+    "docs/audits/mp23-independent-results-2026-10-02/interrupted-upload-regression.txt": "d161d8124865419f1109ed6972c54cd9eaa3928cc415e2739dcc4380f7578a70"
   }
 }

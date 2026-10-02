@@ -289,3 +289,39 @@ both passes. The public path accepts complete synthetic evidence and rejects
 missing assets, stale bindings, missing required Redis assertions and expanded
 deferrals before a forge request. This verifies EP-157's gate implementation;
 it does not supply final native candidate evidence or authorize publication.
+
+## Independent local Redis, ClickHouse and volume recovery
+
+The installed ec2 candidate creates two bounded standalone databases and one
+Knative application volume on the existing cp3 fixture. Every reviewed apply
+adds only its intended scope; all nineteen original platform revisions remain
+exact. The [native recovery evidence](mp23-independent-results-2026-10-02/local-engine-recovery-ec2e1cd4.json)
+records the accepted receipt versions/digests, producer/source/consumer UIDs,
+review digests and known-content assertions. This checkpoint uses versioned
+in-cluster MinIO S3, not off-cluster GCS.
+
+Both database CronJobs run automatically at `2026-10-02T21:00:00Z` and sign v5
+recovery points at `21:00:01Z`. After completion, the reviewer conditionally
+removes only those exact producer Jobs and their Pods with UID/resourceVersion
+preconditions. Shared history and other observed identities remain exact.
+Public receipt listing, reviewed ingestion and isolated restores then succeed
+with the original producers absent. Redis restores its original key into a
+separate server/PVC while the source retains its subsequently changed value.
+ClickHouse restores only the original row into a separate database while the
+source retains its additional post-backup row. Both accepted-only freshness
+checks report healthy at age 515s. This proves an observed accepted recovery
+point, not automatic ingestion or continuous one-hour compliance.
+
+The volume snapshot contains `independent-volume-v1`; the live file is then
+changed to `independent-volume-after`. Reviewed restore creates a distinct
+scratch PVC. A read-only content check through the exact bound local PV on the
+cp3 node verifies the original SHA-256, while the original Pod/PVC and changed
+source contents remain intact. The storage command consumes the typed Service
+Deployment projection of the application. Its current receipt contract checks
+archive SHA-256; this evidence does not claim provider-version pins for volumes.
+Final head generation 6166/sequence 6111 is idle with 29 accepted/converged scopes.
+
+The [independently executed interrupted-upload regression](mp23-independent-results-2026-10-02/interrupted-upload-regression.txt)
+also passes: failed stored-byte readback yields no signed receipt, and retrying
+an orphan object refuses. These isolated restore assertions do not establish
+live-target cutover or full source-cluster-unavailable recovery for every engine.
