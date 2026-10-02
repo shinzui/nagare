@@ -3,6 +3,7 @@ module Nagare.Test.Effectful.Fixture
   ( RestoreFixture (..)
   , restoreFixture
   , seedFixture
+  , seedAccepted
   , checked
   , must
   )
@@ -205,13 +206,16 @@ restoreFixture =
     (restored, restoredNative) = checked (compileManualRestoreScope request databaseScope databaseNative)
 
 seedFixture :: InventoryStore -> RestoreFixture -> IO ()
-seedFixture store fixture = do
-  initial <- must (initializeStore store (fixtureBinding fixture) "effectful-fixture")
-  forM_ (fixtureAccepted fixture) $ \scope -> do
+seedFixture store fixture = seedAccepted store (fixtureBinding fixture) (fixtureAccepted fixture) (fixtureNative fixture)
+
+seedAccepted :: InventoryStore -> ContextBinding -> [ScopeDeclaration] -> Map ResourceId (ManagedResource, ByteString) -> IO ()
+seedAccepted store binding scopes native = do
+  initial <- must (initializeStore store binding "effectful-fixture")
+  forM_ scopes $ \scope -> do
     let bytes = encodeCanonicalScope scope
     _ <- must (publishIfAbsent store (scopeKey (contentDigest bytes)) bytes)
     pure ()
-  forM_ (Map.elems (fixtureNative fixture)) $ \(_, bytes) -> do
+  forM_ (Map.elems native) $ \(_, bytes) -> do
     _ <- must (publishIfAbsent store (objectKeyFor "native" (contentDigest bytes)) bytes)
     pure ()
   let accepted =
@@ -221,7 +225,7 @@ seedFixture store fixture = do
                 (checked (mkScopeGeneration 1))
                 (contentDigest (encodeCanonicalScope scope))
             )
-          | scope <- fixtureAccepted fixture
+          | scope <- scopes
           ]
   _ <-
     must

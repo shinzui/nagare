@@ -107,6 +107,8 @@ Every supported mutation command and shipped recipe is mapped to its owner, revi
 
 ## Progress
 
+**F20 local collection checkpoint complete (2026-10-02).** Added eight persistent interpreter scenarios through production retirement, collection review, conditional DELETE, final observation and resume. Fresh processes reconstruct the historical parent from stored bytes, preserve the original transaction and three retained data members, and never repeat an accepted DELETE. UID/version races, lying wait success and an immediate-deletion model counterfactual are covered. All 14 interpreter scenarios pass in 2.55 seconds, and the real-subprocess public pending-Knative fixture passes. [Evidence and proof limits](../audits/mp23-effectful-collection-proof.md). F20 remains Open; no cascade authority or live completion is added.
+
 **Interpreter pilot accepted (2026-10-02).** `Nagare.Inventory.KubernetesTransport` supplies a narrow Effectful request boundary with production and injected interpreters; the old runtime constructor continues selecting real subprocess execution. Six restore scenarios exercise real production logic with a persistent external world and fresh-process recovery. See [the report](../audits/mp23-effectful-restore-pilot.md). This is a validated bridge, not a completed orchestration migration.
 
 **Release-history cleanup producer (2026-10-01).** The application compiler now declares its stateless release-history ConfigMap `DeleteWhenUnreferenced` while retaining every workload dependency. Retirement remains effect-free; conditional collection is a separate reviewed action. The composed-application fixture checks the policy and collection capability. A memory-store lifecycle fixture starts from an accepted legacy `Retain` ConfigMap, reviews exactly one policy-only release-history update, retires the scope with zero effects, and refuses premature Service collection. It then collects the history object, proves the retained DomainMapping still blocks the Service, collects that route, and finally collects the Service with three tombstones. The fixture now keeps a separate accepted database StatefulSet, durable PVC, and backup Job active through every step, checking their accepted revision and physical UIDs after each reviewed transition. The existing conditional Kubernetes collection fixture passes too. Focused `--pattern=composed`, `--pattern=stateless` and `--pattern=collected` selections pass locally; the compiler module builds and passes Fourmolu and structural style. This does not alter the frozen `d871d913` cloud candidate or its already accepted `Retain` declaration. A later candidate must prove native policy transition and conditional collections while preserving database/PVC/backup identities. Keep the primary backup Job/Pod and retained data until receipt-only restore is proven. [ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md) records the durable policy boundary. Native cleanup and complete M2 remain open.
@@ -278,11 +280,15 @@ docs/architecture/managed-resource-coverage.md is the existing traceability cata
 
 ## Plan of Work
 
-### Next checkpoint — production logic with replaceable external effects
+### Completed checkpoint — production logic with replaceable external effects
 
-Before another cloud repair, extend the pilot through the actual F20 collection adapter. Model deletion acceptance separately from observed absence, finalizers and descendants separately from the parent, and loss of acknowledgement separately from failure before a write. Verify original-transaction recovery, reviewed propagation policy, exact UID guards, and unchanged protected data. Unsupported commands must fail. Keep the scenario under ten seconds warm and demonstrate that an incorrect immediate-success deletion model is rejected by the assertions.
+The local F20 collection adapter checkpoint is accepted; its executable contract remains required before another cloud repair. The scenarios model deletion acceptance separately from observed absence, finalizers and descendants separately from the parent, and loss of acknowledgement separately from failure before a write. Verify original-transaction recovery, reviewed propagation policy, exact UID guards, and unchanged protected data. Unsupported commands must fail. The combined interpreter suite runs below ten seconds warm and rejects an incorrect immediate-success deletion model through the shared pending-state assertion. Run `just test-inventory-effects` to reproduce it.
 
 Keep interpreters at external request boundaries, beneath production renderers and parsers. The present request program has no `IOE`, but the surrounding runtime still uses `IO`; do not claim whole-workflow effect isolation. Move orchestration into a small explicit effect set only as the selected workflow requires it. Do not wrap a whole adapter result in a fake success interpreter, duplicate the planner, emulate all Kubernetes, or migrate unrelated commands to meet a framework target. Existing filesystem persistence stays real in recovery tests; introduce object-store/clock/process effects only at the next demonstrated gap. Maintain real-interpreter command contracts alongside models and the native smoke obligation.
+
+### Next checkpoint — reviewed descendant authority
+
+Use the executable F20 scenario to define the exact reviewed authority needed by future Knative collection: parent identity, permitted controller descendants, protected retained data and neighbor boundaries, propagation policy, and recovery after accepted but unfinished deletion. Keep a review without descendant authority restricted to its existing Orphan semantics. A supported cascade requires new review-bound authority and provider agreement; never reinterpret the frozen review or treat parent absence as proof that all descendants are gone. Preserve the pending native transaction and its separately proposed exception. This checkpoint continues the existing supported collection requirement; native exception execution remains outside the local test checkpoint just completed.
 
 ### First repair: replace the shared operation dispatch boundary
 
@@ -373,6 +379,8 @@ Completed EP-146/147/149/151 provide underlying contracts. [EP-152](152-complete
 
 
 ## Revision Notes
+
+2026-10-02: Accept the local F20 interpreter checkpoint, record pending/fresh-process/race/counterfactual proof, and advance the next checkpoint to explicit reviewed descendant authority. F20 and native gates remain open.
 
 2026-10-02: Record the successful Effectful pilot and make cheap production-path scenarios and provider agreement prerequisites of further affected native iterations.
 

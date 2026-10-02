@@ -445,6 +445,7 @@ test-suite nagarectl-test
     InventoryCacheSpec
     InventoryCdnSpec
     InventoryCloudSpec
+    InventoryEffectfulCollectionSpec
     InventoryEffectfulSpec
     InventoryFoundationSpec
     InventoryGcloudAuthSpec
@@ -480,6 +481,8 @@ test-suite nagarectl-test
     Nagare.Test.DataFixtures
     Nagare.Test.Database
     Nagare.Test.Domains
+    Nagare.Test.Effectful.CollectionFixture
+    Nagare.Test.Effectful.CollectionModel
     Nagare.Test.Effectful.Fixture
     Nagare.Test.Effectful.Model
     Nagare.Test.Environment
