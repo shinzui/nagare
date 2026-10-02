@@ -619,6 +619,7 @@ data DbCommand
   | DbPruneScheduledBackups DbPruneScheduledBackupsOpts
   | DbRecoverScheduledPrune DbRecoverScheduledPruneOpts
   | DbBackupReceipts DbBackupReceiptsOpts
+  | DbManualReceipt DbBackupReceiptsOpts
   | -- | nagarectl db disable-backup-prune NAME [-n NS] --save-plan DIR
     DbDisableBackupPrune DbNameOpts FilePath
   | -- | nagarectl db restore NAME BACKUP_ID [--into live] [--dry-run] (EP-47)

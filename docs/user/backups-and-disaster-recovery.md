@@ -181,6 +181,21 @@ List reviewed manual backups
 under `gs://<backup-bucket>/manual-databases/<namespace>/<name>/` in cloud
 mode.
 
+To preserve a completed manual backup for restores after Job cleanup, save
+and apply a separate receipt review:
+
+```bash
+nagarectl db backup-receipt pg-main --backup-id run-001 --save-plan ./pg-main-receipt
+nagarectl inventory apply ./pg-main-receipt --yes
+```
+
+The command verifies the accepted Job and completed Pod receipt, then checks
+the stored receipt and archive before pinning their provider versions and
+hashes. Applying the review retains the Job; collect it only through a
+separate reviewed conditional collection. An isolated restore can then use
+the accepted receipt record after Job collection. Exact manual pruning still
+requires its supported Job-backed path.
+
 For an accepted PostgreSQL database, save and apply a reviewed restore into a
 new scratch database:
 
@@ -189,9 +204,11 @@ nagarectl db restore pg-main run-001 --restore-id restore-001 --save-plan ./pg-m
 nagarectl inventory apply ./pg-main-restore --yes
 ```
 
-Planning requires the accepted backup Job and its completed Pod receipt. The
-restore Job checks the current receipt and backup bytes against the saved
-checksums, checks expiry again, and creates
+Planning requires the accepted completed Job and Pod receipt, or an accepted
+durable manual receipt record bound to that Job's retained or collected
+identity. The restore Job checks the current receipt and backup bytes against
+the saved checksums and, for a durable record, provider versions; it checks
+expiry again and creates
 `<database>_restore_<restore-id>` only if absent. A failed restore leaves that
 scratch database for explicit forward recovery. If the PostgreSQL or ClickHouse
 scratch Job fails terminally, a version 1 `inventory recover` decision with the

@@ -9,6 +9,7 @@ import Data.Aeson.KeyMap qualified as AesonMap
 import Data.Generics.Labels ()
 import Data.List.NonEmpty qualified as NE
 import Data.Map qualified as Map
+import Data.Maybe (maybeToList)
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
@@ -79,6 +80,10 @@ import Nagare.Inventory.LiveRestore
 import Nagare.Inventory.LiveRestoreSource
   ( captureLiveBackupVersions
   )
+import Nagare.Inventory.ManualReceipt
+  ( ManualReceiptEvidence (..), manualReceiptRecord )
+import Nagare.Inventory.ManualReceiptSource
+  ( inspectManualReceipt, withGcsManualObjectReader )
 import Nagare.Inventory.Plan qualified as InventoryPlan
 import Nagare.Inventory.Restore
   ( ManualRestoreRequest
@@ -107,9 +112,11 @@ import Nagare.Inventory.ScheduledReceipt
   , inspectScheduledReceipt
   )
 import Nagare.Inventory.ScheduledStore
-  ( readSecretField
+  ( ObjectReader (readObjectToFile)
+  , readSecretField
   , withLocalObjectStore
   )
+import Nagare.Inventory.Store qualified as InventoryStore
 import Nagare.Inventory.Status qualified as InventoryStatus
 import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Types qualified as Resource
@@ -211,7 +218,7 @@ runReviewedDbRestorePlan
                      && Map.lookup "scheduled.backup.source.scope" fields
                        == Just (Resource.scopeIdText (ResourceInventory.scopeId targetScope))
                  )
-          , any
+          , (manualReceiptRecord scope || any
               ( \bundle ->
                   any
                     ( \case
@@ -222,7 +229,7 @@ runReviewedDbRestorePlan
                     )
                     (ResourceInventory.declarations bundle)
               )
-              (ResourceInventory.scopeBundles scope)
+              (ResourceInventory.scopeBundles scope))
           ]
     backupScope <- case backups of
       [single] -> pure single
@@ -249,8 +256,9 @@ runReviewedDbRestorePlan
               Resource.Kubernetes _ "batch" kind _ _ -> Resource.nameText kind == "job"
               _ -> False
           ]
-    backupJob <- case backupJobs of
-      [single] -> pure single
+    backupJob <- case (manualReceiptRecord backupScope, backupJobs) of
+      (False, [single]) -> pure (Just single)
+      (True, []) -> pure Nothing
       _ -> dieT "reviewed restore backup has no unique accepted Job"
     unless scheduled $ case Map.lookup "backup.expiry" (ResourceInventory.scopeOverrides backupScope) of
       Just "retain" -> pure ()
@@ -267,6 +275,38 @@ runReviewedDbRestorePlan
       Nothing -> dieT "accepted backup has no expiry policy"
     store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
     history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
+    when (manualReceiptRecord backupScope) $ do
+      let fields = ResourceInventory.scopeOverrides backupScope
+          required key = maybe (dieT ("manual receipt lacks " <> key)) pure
+            (Map.lookup key fields)
+      recordedJob <- required "backup.job"
+        >>= either dieT pure . Resource.mkResourceId
+      recordedUid <- required "backup.job.uid"
+        >>= either dieT pure . Resource.mkPhysicalIdentity
+      generationText <- required "backup.producer.generation"
+      generation <- case reads (T.unpack generationText) of
+        [(selected, "")] | selected > (0 :: Integer) -> pure selected
+        _ -> dieT "manual receipt producer generation is invalid"
+      digestText <- required "backup.producer.revision"
+      digest <- either dieT pure (Resource.mkContentDigest digestText)
+      scopeGeneration <- either dieT pure (Resource.mkScopeGeneration generation)
+      let producerRevision = InventoryStore.ScopeRevision scopeGeneration digest
+          retained = case Map.lookup recordedJob (InventoryPlan.historyRetained history) of
+            Just (incarnation, member) ->
+              InventoryStore.retainedOwner incarnation == ResourceInventory.scopeId backupScope
+                && InventoryStore.retainedRevision incarnation == producerRevision
+                && InventoryStore.retainedPhysical incarnation == recordedUid
+                && member ^. #owner == ResourceInventory.scopeId backupScope
+            Nothing -> False
+          collected = case Map.lookup recordedJob
+              (InventoryStore.headCollected (InventoryPlan.historyHead history)) of
+            Just tombstone ->
+              InventoryStore.tombstoneOwner tombstone == ResourceInventory.scopeId backupScope
+                && InventoryStore.tombstoneRevision tombstone == producerRevision
+                && InventoryStore.tombstonePhysical tombstone == recordedUid
+            Nothing -> False
+      unless (retained || collected)
+        (dieT "manual receipt has no matching retained or collected accepted backup Job")
     let acceptedRevision scope = case Map.lookup
           (ResourceInventory.scopeId scope)
           (InventoryPlan.historyAccepted history) of
@@ -283,11 +323,13 @@ runReviewedDbRestorePlan
       InventoryStatus.loadAcceptedNative store history acceptedInventory
         >>= either dieT pure
     let sourceIds = [stateful ^. #identity, pvc ^. #identity]
-        nativeIds = Set.fromList (backupJob ^. #identity : credential ^. #identity : sourceIds)
+        nativeIds = Set.fromList
+          (map (^. #identity) (maybeToList backupJob)
+            <> (credential ^. #identity : sourceIds))
         selectedNative = Map.restrictKeys acceptedNative nativeIds
     unless
-      (Map.size selectedNative == 4)
-      (dieT "restore target or backup Job lacks accepted private native evidence")
+      (Map.size selectedNative == 3 + length (maybeToList backupJob))
+      (dieT "restore target or selected backup lacks accepted private native evidence")
     sourceAdapter <-
       inventoryKubernetesAdapter
         active
@@ -312,21 +354,66 @@ runReviewedDbRestorePlan
             context
             (contextNameText (active ^. #contextName))
             (fmap (fmap (const ())) (guardKubernetesContext active))
-        backupNative = Map.restrictKeys selectedNative (Set.singleton (backupJob ^. #identity))
+        backupNative = Map.restrictKeys selectedNative
+          (Set.fromList (map (^. #identity) (maybeToList backupJob)))
         backupOps =
           mkKubernetesRuntimeOpsWithCacheKey
             config
             (\_ -> pure (Left "backup Job observation does not use a cache key"))
             backupNative
-    backupState <- kubernetesObserve backupOps (backupJob ^. #identity)
-    backupUid <- case (backupState, Map.lookup (backupJob ^. #identity) backupNative) of
-      (KubernetesPresent uid _ (Just owner) digest, Just (_, bytes))
-        | owner == backupJob ^. #identity && digest == InventoryDigest.contentDigest bytes -> pure uid
-      _ -> dieT "accepted backup Job is absent, incomplete, foreign, or drifted"
+    backupUid <- case backupJob of
+      Nothing -> pure Nothing
+      Just selectedJob -> do
+        backupState <- kubernetesObserve backupOps (selectedJob ^. #identity)
+        case (backupState, Map.lookup (selectedJob ^. #identity) backupNative) of
+          (KubernetesPresent uid _ (Just owner) digest, Just (_, bytes))
+            | owner == selectedJob ^. #identity
+            , digest == InventoryDigest.contentDigest bytes -> pure (Just uid)
+          _ -> dieT "accepted backup Job is absent, incomplete, foreign, or drifted"
     backend <- resolveStoreBackend mctx bucketArg
     receiptBytes <-
-      if scheduled
+      if manualReceiptRecord backupScope
         then do
+          let required key = maybe
+                (dieT ("accepted manual receipt lacks " <> key)) pure
+                (Map.lookup key (ResourceInventory.scopeOverrides backupScope))
+          recordedJobUid <- required "backup.job.uid"
+            >>= either dieT pure . Resource.mkPhysicalIdentity
+          guarded <- guardKubernetesContext active
+          _ <- either dieT pure guarded
+          inspected <- case backend of
+            MinioBackend ref -> withLocalObjectStore
+              (contextNameText (active ^. #contextName)) ref $ \reader ->
+                inspectManualReceipt
+                  (\address path -> readObjectToFile reader address Nothing path)
+                  backupScope recordedJobUid
+            GcsBackend {} -> withGcsManualObjectReader backend $ \readOne ->
+              inspectManualReceipt readOne backupScope recordedJobUid
+          evidence <- either dieT pure inspected >>= either dieT pure
+          expectedObjectVersion <- required "backup.object.version"
+          expectedObjectLength <- required "backup.object.length"
+          expectedObjectSha <- required "backup.object.sha256"
+          expectedReceiptVersion <- required "backup.receipt.version"
+          expectedReceiptLength <- required "backup.receipt.length"
+          expectedReceiptDigest <- required "backup.receipt.digest"
+          unless
+            ( manualObjectVersion evidence == expectedObjectVersion
+                && T.pack (show (manualObjectLength evidence)) == expectedObjectLength
+                && manualObjectSha256 evidence == expectedObjectSha
+                && manualReceiptVersion evidence == expectedReceiptVersion
+                && T.pack (show (manualReceiptLength evidence)) == expectedReceiptLength
+                && Resource.digestText
+                  (InventoryDigest.contentDigest (manualReceiptBytes evidence))
+                  == expectedReceiptDigest
+            )
+            (dieT "manual restore stored bytes or provider versions differ from accepted receipt")
+          pure (manualReceiptBytes evidence)
+        else if scheduled
+        then do
+          selectedJob <- maybe
+            (dieT "scheduled receipt has no accepted ingestion Job") pure backupJob
+          selectedUid <- maybe
+            (dieT "scheduled receipt ingestion Job is not ready") pure backupUid
           let required key =
                 maybe
                   (dieT ("accepted scheduled backup lacks " <> key))
@@ -450,8 +537,8 @@ runReviewedDbRestorePlan
             readCompletedJobContainerMessage
               config
               backupNative
-              (backupJob ^. #identity)
-              backupUid
+              (selectedJob ^. #identity)
+              selectedUid
               "verify"
               >>= either dieT pure
           readback <-
@@ -470,12 +557,16 @@ runReviewedDbRestorePlan
             )
             (dieT "scheduled ingestion Job readback differs from accepted receipt")
           pure message
-        else
+        else do
+          selectedJob <- maybe
+            (dieT "manual backup has no accepted Job") pure backupJob
+          selectedUid <- maybe
+            (dieT "manual backup Job is not ready") pure backupUid
           readBackupReceiptFromCompletedPod
             config
             backupNative
-            (backupJob ^. #identity)
-            backupUid
+            (selectedJob ^. #identity)
+            selectedUid
             >>= either dieT pure
     case recoveryBackupId of
       Nothing -> do
@@ -690,11 +781,13 @@ runReviewedDbRestorePlan
           (podName == database <> "-0")
           (dieT "reviewed live restore target is not the accepted database Pod")
         podUid <- either dieT pure (Resource.mkPhysicalIdentity podUidText)
+        selectedBackupUid <- maybe
+          (dieT "live restore requires an accepted backup Job") pure backupUid
         let sourceInput =
               LiveBackupInput
                 backupScope
                 backupRevision
-                backupUid
+                selectedBackupUid
                 receiptBytes
                 (fst sourceVersions)
                 (snd sourceVersions)

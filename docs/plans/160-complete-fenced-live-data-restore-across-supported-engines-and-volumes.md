@@ -42,6 +42,11 @@ provenance:
       at: 2026-09-28T15:48:42Z
       mode: "implement"
       note: "Reconcile isolated restore source-preservation evidence on the retained local fixture"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-10-02T05:55:39Z
+      mode: "implement"
+      note: "Record local manual receipt and Job-free restore checkpoint"
 ---
 
 # Complete fenced live data restore across supported engines and volumes
@@ -67,6 +72,8 @@ An operator can restore verified PostgreSQL, Redis, and ClickHouse backups into 
 - [ ] M3: Reviewed restore to a new PVC verifies archive/content and destination identity, preserves the source PVC, and recovers interruption without blind replay.
 
 Inherited: manual receipts and expiry validation, PostgreSQL scratch restore, and separate-PVC scratch volume restore are implemented. Live --into-live volume behavior was removed pending a safe replacement. These delivered scratch paths remain regression baselines, not new milestones.
+
+Manual Job-free restore checkpoint (2026-10-01): isolated `db restore` now accepts an accepted `verified-v1` manual receipt scope after its producer Job is retained or collected. It checks the pinned producer revision and physical Job UID against retained history or the collection tombstone, fresh-reads both provider objects, and requires their exact versions, lengths and hashes before compiling a Job without a dependency on the removed backup Job. The GCS download uses explicit object generations and the same digest checks. Focused manual/restore tests and the executable build pass, including a memory-store replacement/collection sequence; public saved-review/apply and native restored-content evidence after original Job collection remain open. M2 stays open, and live overwrite remains deferred.
 
 Volume archive preparation (2026-09-27): the reviewed scratch restore now authenticates the receipt and archive hashes, inspects every tar member before any write, rejects escapes, links, special files, duplicate paths, file/parent collisions, and existing target symlinks or multiply linked files, then copies and fsyncs regular files and compares their extracted hashes with archive bytes. A focused host execution accepted a real tarball with known content and refused traversal, symlink, and parent-collision archives without writing the earlier valid member; the Haskell style gate passed. This is a reusable extraction procedure, not a live-target restore: M3 still needs exact source/recovery positions, reviewed PVC/writer fence binding, local native content and interruption recovery, and the public `storage restore --into-live` path.
 

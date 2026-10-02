@@ -207,6 +207,8 @@ library
     Nagare.Inventory.Maintenance
     Nagare.Inventory.MaintenanceAdapter
     Nagare.Inventory.MaintenanceFence
+    Nagare.Inventory.ManualReceipt
+    Nagare.Inventory.ManualReceiptSource
     Nagare.Inventory.Migration
     Nagare.Inventory.Migration.Types
     Nagare.Inventory.ObservationNative
@@ -337,6 +339,7 @@ executable nagarectl
     Nagare.Cli.Commands.Task
     Nagare.Cli.Commands.Worker
     Nagare.Cli.Data.Backup
+    Nagare.Cli.Data.ManualReceipt
     Nagare.Cli.Data.Lifecycle
     Nagare.Cli.Data.Restore
     Nagare.Cli.Data.ScheduleObservation

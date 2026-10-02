@@ -15,11 +15,13 @@ import Data.Aeson (Value (..), eitherDecodeStrict, object, (.=))
 import Data.Aeson.Key qualified as K
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
+import Data.Foldable (traverse_)
 import Data.Generics.Labels ()
 import Data.List (sort, sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (maybeToList)
 import Data.Text qualified as T
 import Data.Time (UTCTime)
 import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
@@ -35,6 +37,7 @@ import Nagare.Dsl.Types (mkServiceName)
 import Nagare.Inventory.Backup (BackupSourceProof (..), manualBackupJobReceiptExpectation, parseBackupReceipt, parseManualBackupReceipt)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
+import Nagare.Inventory.ManualReceipt (manualReceiptRecord)
 import Nagare.Inventory.Store (ScopeRevision (..))
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
@@ -147,17 +150,21 @@ compileManualRestoreScope request accepted native = do
     case member ^. #address of
       Kubernetes _ "batch" kind _ _ -> nameText kind == "job"
       _ -> False] of
-    [member] -> Right member
+    [member] -> Right (Just member)
+    [] | manualReceiptRecord backup -> Right Nothing
     _ -> Left (invalid "accepted backup scope lacks one Job")
   statefulValue <- acceptedValue invalid native stateful
   _ <- acceptedValue invalid native pvc
   _ <- acceptedValue invalid native credential
-  _ <- acceptedValue invalid native backupJob
+  traverse_ (acceptedValue invalid native) backupJob
   cluster <- case stateful ^. #address of
     Kubernetes clusterId _ _ _ _ -> Right clusterId
     _ -> Left (invalid "restore target StatefulSet has no Kubernetes address")
-  unless (all (sameCluster cluster) [pvc, credential, backupJob])
+  unless (all (sameCluster cluster) ([pvc, credential] <> maybeToList backupJob))
     (Left (invalid "restore resources belong to different clusters"))
+  backupJobId <- case backupJob of
+    Just member -> Right (member ^. #identity)
+    Nothing -> required "backup.job" >>= first invalid . mkResourceId
   engineName <- metadataText invalid "labels" "nagare.dev/engine" statefulValue
   engine <- maybe (Left (invalid "reviewed scratch restore has an unknown engine")) Right
     (parseEngine engineName)
@@ -222,8 +229,21 @@ compileManualRestoreScope request accepted native = do
                 && receiptEngine == engineName && receiptId == backupId)
               (Left (invalid "backup receipt targets another database, namespace, engine, or ID"))
           _ -> Left (invalid "backup receipt lacks metadata")
+        (selectedObjectVersion, selectedReceiptVersion) <- case backupJob of
+          Just _ -> Right (Nothing, Nothing)
+          Nothing -> do
+            objectVersion <- required "backup.object.version"
+            receiptVersion <- required "backup.receipt.version"
+            pinnedChecksum <- required "backup.object.sha256"
+            pinnedDigest <- required "backup.receipt.digest"
+            unless (not (T.null objectVersion) && not (T.null receiptVersion)
+                && pinnedChecksum == receiptChecksum
+                && pinnedDigest == digestText (contentDigest (restoreReceiptBytes request)))
+              (Left (invalid "stored manual receipt differs from its accepted record"))
+            pure (Just objectVersion, Just receiptVersion)
         pure (objectUrl, receiptUrl, backupId, expiryEpoch,
-          contentDigest (restoreReceiptBytes request), receiptChecksum, Nothing, Nothing)
+          contentDigest (restoreReceiptBytes request), receiptChecksum,
+          selectedObjectVersion, selectedReceiptVersion)
   scratch <- first invalid (case engine of
     Redis -> redisScratchName db (restoreId request)
     _ -> scratchDatabaseName db (restoreId request))
@@ -251,7 +271,7 @@ compileManualRestoreScope request accepted native = do
     (Yaml.decodeEither' (case engine of
       Redis -> renderRedisScratchVerifyJob inputs scratch
       _ -> renderRestoreJob inputs) :: Either Yaml.ParseException Value)
-  job <- first invalid (annotateJob request accepted backupJob stateful pvc
+  job <- first invalid (annotateJob request accepted backupJobId stateful pvc
     objectUrl receiptUrl receiptDigest scratch rendered)
   canonical <- first invalid (canonicalValue job)
   (bound, bytes) <- first (:| []) (bindKubernetesObject KubernetesInput
@@ -263,7 +283,7 @@ compileManualRestoreScope request accepted native = do
   unless (bound ^. #address == expected)
     (Left (invalid "restore Job has an unexpected native address"))
   let member = bound {dependencies = sort (map (OrderedAfter . (^. #identity))
-        [backupJob, pvc, credential, stateful])}
+        (maybeToList backupJob <> [pvc, credential, stateful]))}
       proof = DeclaredOperation proofId (jobId :| [])
         (sort [ContentInput (contentDigest bytes), ContentInput receiptDigest])
         VerifyBeforeRetry RestoreData
@@ -292,7 +312,7 @@ compileManualRestoreScope request accepted native = do
         ]
   case engine of
     Redis -> compileRedisScratchScope request invalid cluster owner key
-      stateful pvc credential backupJob inputs scratch scratchSize member bytes proof overrides
+        stateful pvc credential backupJob inputs scratch scratchSize member bytes proof overrides
     _ -> do
       base <- mkScopeDeclaration owner [ResourceBundle [Managed member] [] [] [] [proof] []]
       pure (withScopeOverrides overrides (withScopeConfigDigest (contentDigest canonical) base),
@@ -319,7 +339,7 @@ compileRedisScratchScope
   :: ManualRestoreRequest
   -> (T.Text -> NonEmpty InventoryError)
   -> ResourceId -> ScopeId -> LogicalKey
-  -> ManagedResource -> ManagedResource -> ManagedResource -> ManagedResource
+  -> ManagedResource -> ManagedResource -> ManagedResource -> Maybe ManagedResource
   -> RestoreJobInputs -> T.Text -> T.Text -> ManagedResource -> ByteString
   -> DeclaredOperation -> Map T.Text T.Text
   -> Either (NonEmpty InventoryError)
@@ -357,12 +377,13 @@ compileRedisScratchScope request invalid cluster owner key sourceStateful source
   unless (service ^. #address == expectedService && scratchPvc ^. #address == expectedPvc
       && scratchStateful ^. #address == expectedStateful)
     (Left (invalid "Redis scratch members have unexpected native addresses"))
-  let pvcMember = scratchPvc {dependencies = sort (map (OrderedAfter . (^. #identity))
-        [sourcePvc, backupJob])}
+  let backupDependencies = maybeToList backupJob
+      pvcMember = scratchPvc {dependencies = sort (map (OrderedAfter . (^. #identity))
+        (sourcePvc : backupDependencies))}
       statefulMember = scratchStateful {dependencies = sort (map (OrderedAfter . (^. #identity))
-        [service, pvcMember, credential, backupJob])}
+        ([service, pvcMember, credential] <> backupDependencies))}
       jobMember = verifyJob {dependencies = sort (map (OrderedAfter . (^. #identity))
-        [statefulMember, sourceStateful, sourcePvc, credential, backupJob])}
+        ([statefulMember, sourceStateful, sourcePvc, credential] <> backupDependencies))}
       restoreProof = proof {inputs = sort
         (ContentInput (contentDigest statefulBytes) : proof ^. #inputs)}
       native = Map.fromList
@@ -428,14 +449,14 @@ metadataText invalid section key value = case value of
   _ -> Left (invalid ("database StatefulSet metadata lacks " <> key))
 
 annotateJob
-  :: ManualRestoreRequest -> ScopeDeclaration -> ManagedResource -> ManagedResource
+  :: ManualRestoreRequest -> ScopeDeclaration -> ResourceId -> ManagedResource
   -> ManagedResource -> T.Text -> T.Text -> ContentDigest -> T.Text -> Value
   -> Either T.Text Value
 annotateJob request accepted backupJob stateful pvc objectUrl receiptUrl receiptDigest scratch = \case
   Object root | Just (Object metadata) <- KM.lookup "metadata" root ->
     let annotations = object
           [ "nagare.dev/restore-id" .= restoreId request
-          , "nagare.dev/restore-backup-job" .= resourceIdText (backupJob ^. #identity)
+          , "nagare.dev/restore-backup-job" .= resourceIdText backupJob
           , "nagare.dev/restore-backup-object" .= objectUrl
           , "nagare.dev/restore-backup-receipt" .= receiptUrl
           , "nagare.dev/restore-backup-receipt-digest" .= digestText receiptDigest

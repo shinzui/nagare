@@ -36,6 +36,8 @@ import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..)
 import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
 import Nagare.Inventory.Database (compileDatabaseForBackend)
 import Nagare.Inventory.Backup (ManualBackupRequest (..), BackupReceiptExpectation (..), BackupSourceProof (..), VolumeSnapshotRequest (..), compileManualBackupScope, compileVolumeSnapshotScope, manualBackupJobReceiptExpectation, manualBackupJobSourcePins, manualBackupSourceProof, parseBackupReceipt, parseManualBackupReceipt, volumeSnapshotJobSourcePins)
+import Nagare.Inventory.ManualReceipt (ManualReceiptEvidence (..), compileManualReceiptScope, manualReceiptRecord)
+import Nagare.Inventory.ManualReceiptSource (inspectManualReceipt, parseGcsManualMetadata)
 import Nagare.Inventory.Prune (ManualPruneRequest (..), PruneSourceProof (..), compileManualPruneScope, manualPruneJobBackupPin, manualPruneSourceProof)
 import Nagare.Inventory.VolumePrune (VolumePruneRequest (..), compileVolumePruneScope, volumePruneJobCredentialPin)
 import Nagare.Inventory.Restore (ManualRestoreRequest (..), VolumeRestoreRequest (..), compileManualRestoreScope, compileVolumeRestoreScope, manualRestoreJobTargetPins, manualRestoreTargetProof, volumeRestoreJobSourcePins)
@@ -1219,7 +1221,8 @@ inventoryKubernetesTests =
           Right jobValue -> case receiptMetadataValues jobValue of
             [metadataJson] -> case (eitherDecodeStrict (TE.encodeUtf8 metadataJson) :: Either String Value) of
               Right metadataValue -> do
-                let checksum = T.replicate 64 "a"
+                let archiveBytes = BC.pack "archive-fixture"
+                    checksum = digestText (contentDigest archiveBytes)
                     receiptBody selected = BL.toStrict (encode (object
                       ["version" .= (1 :: Int), "sha256" .= checksum, "backup" .= selected]))
                     changedMetadata = case metadataValue of
@@ -1227,6 +1230,92 @@ inventoryKubernetesTests =
                       _ -> metadataValue
                 parseManualBackupReceipt backupScope receiptAddress (receiptBody metadataValue)
                   @?= Right checksum
+                let receiptBytes = receiptBody metadataValue
+                    receiptEvidence = ManualReceiptEvidence
+                      { manualJobUid = ok (mkPhysicalIdentity "backup-job-uid")
+                      , manualObjectVersion = "11"
+                      , manualObjectLength = fromIntegral (BS.length archiveBytes)
+                      , manualObjectSha256 = checksum
+                      , manualReceiptVersion = "12"
+                      , manualReceiptLength = fromIntegral (BS.length receiptBytes)
+                      , manualReceiptBytes = receiptBytes
+                      }
+                    producerRevision = ScopeRevision (ok (mkScopeGeneration 1))
+                      (contentDigest "accepted-backup")
+                    record = ok (compileManualReceiptScope producerRevision
+                      backupScope backupNative receiptEvidence)
+                    readOne address output
+                      | address == receiptAddress = do
+                          BS.writeFile output receiptBytes
+                          pure (Right (StoredObject "12" (fromIntegral (BS.length receiptBytes))))
+                      | address == "gs://bucket/manual-databases/default/pg-main/run-001.sql.gz" = do
+                          BS.writeFile output archiveBytes
+                          pure (Right (StoredObject "11" (fromIntegral (BS.length archiveBytes))))
+                      | otherwise = pure (Left "unaccepted object address")
+                inspectManualReceipt readOne backupScope (manualJobUid receiptEvidence)
+                  >>= (@?= Right receiptEvidence)
+                parseGcsManualMetadata "bucket" "manual/test.gz"
+                  (BC.pack "{\"bucket\":\"bucket\",\"name\":\"manual/test.gz\",\"generation\":\"11\",\"size\":\"15\"}")
+                  @?= Right (StoredObject "11" 15)
+                assertBool "foreign GCS metadata authorized a manual receipt"
+                  (isLeft (parseGcsManualMetadata "bucket" "manual/test.gz"
+                    (BC.pack "{\"bucket\":\"other\",\"name\":\"manual/test.gz\",\"generation\":\"11\",\"size\":\"15\"}")))
+                manualReceiptRecord record @?= True
+                scopeId record @?= scopeId backupScope
+                Map.lookup "backup.job.uid" (scopeOverrides record)
+                  @?= Just "backup-job-uid"
+                Map.lookup "backup.object.sha256" (scopeOverrides record)
+                  @?= Just checksum
+                Map.lookup "backup.receipt.digest" (scopeOverrides record)
+                  @?= Just (digestText (contentDigest receiptBytes))
+                assertBool "manual receipt record still owns a Job"
+                  (null [member | bundle <- scopeBundles record,
+                    Managed member <- declarations bundle])
+                assertBool "wrong stored archive bytes produced a receipt record"
+                  (isLeft (compileManualReceiptScope producerRevision backupScope backupNative
+                    (receiptEvidence {manualObjectSha256 = T.replicate 64 "b"})))
+                assertBool "incomplete stored receipt produced a receipt record"
+                  (isLeft (compileManualReceiptScope producerRevision backupScope backupNative
+                    (receiptEvidence {manualReceiptLength = 1})))
+                assertBool "non-generation GCS version produced a receipt record"
+                  (isLeft (compileManualReceiptScope producerRevision backupScope backupNative
+                    (receiptEvidence {manualObjectVersion = "version-11"})))
+                let recordRestoreRequest = ManualRestoreRequest
+                      { restoreDatabaseName = "pg-main"
+                      , restoreNamespaceName = "default"
+                      , restoreId = "record-r1"
+                      , restoreBackupScope = record
+                      , restoreBackupRevision = ScopeRevision
+                          (ok (mkScopeGeneration 2)) (contentDigest "accepted-receipt-record")
+                      , restoreReceiptBytes = receiptBytes
+                      , restoreTargetRevision = sourceRevision request
+                      , restoreTargetStatefulUid = sourceStatefulUid request
+                      , restoreTargetPvcUid = sourcePvcUid request
+                      , restoreStorageBackend = backend
+                      , restoreSource = SourceLocation "db restore" "record-r1"
+                      }
+                    (recordRestoreScope, recordRestoreNative) = ok
+                      (compileManualRestoreScope recordRestoreRequest databaseScope databaseNative)
+                    (recordRestoreJob, recordRestoreBytes) = case Map.elems recordRestoreNative of
+                      [entry] -> entry
+                      _ -> error "receipt-only restore must have one Job"
+                Map.lookup "restore.backup.object.version" (scopeOverrides recordRestoreScope)
+                  @?= Just "11"
+                Map.lookup "restore.backup.receipt.version" (scopeOverrides recordRestoreScope)
+                  @?= Just "12"
+                assertBool "receipt-only restore still depends on its collected backup Job"
+                  (OrderedAfter (job ^. #identity) `notElem` dependencies recordRestoreJob)
+                assertBool "receipt-only GCS restore lacks exact-generation reads"
+                  (BC.isInfixOf "gcloud storage cp --do-not-decompress" recordRestoreBytes
+                    && BC.isInfixOf "$SRC#$OBJECT_VERSION" recordRestoreBytes)
+                assertBool "changed accepted receipt digest authorized restore"
+                  (isLeft (compileManualRestoreScope
+                    (recordRestoreRequest {restoreBackupScope = withScopeOverrides
+                      (Map.insert "backup.receipt.digest" (T.replicate 64 "b")
+                        (scopeOverrides record)) record})
+                    databaseScope databaseNative))
+                reviewedManualReceiptCleanup databaseScope databaseNative
+                  backupScope backupNative record (manualJobUid receiptEvidence)
                 case manualBackupJobReceiptExpectation bytes of
                   Right (Just expectation@(BackupReceiptExpectation _ observedAddress _)) -> do
                     observedAddress @?= receiptAddress
@@ -3792,6 +3881,109 @@ ops state calls =
             writeIORef state (KubernetesPresent physical "5" (Just resource) (mutationNativeDigest mutation))
             pure AdapterEffectCompleted
     }
+
+reviewedManualReceiptCleanup
+  :: ScopeDeclaration -> Map.Map ResourceId (ManagedResource, ByteString)
+  -> ScopeDeclaration -> Map.Map ResourceId (ManagedResource, ByteString)
+  -> ScopeDeclaration -> PhysicalIdentity -> IO ()
+reviewedManualReceiptCleanup databaseScope databaseNative backupScope backupNative
+    receiptRecord backupUid = do
+  let binding = ContextBinding (ok (mkContextId "manual-receipt-cleanup"))
+        (ok (mkName "project"))
+      backupOwner = scopeId backupScope
+      jobId = case Map.keys backupNative of
+        [single] -> single
+        _ -> error "manual receipt lifecycle fixture needs one backup Job"
+      members = Map.union backupNative databaseNative
+      assigned = Map.fromList (zip (Map.keys members) [1 :: Int ..])
+      physicalFor selectedId
+        | selectedId == jobId = backupUid
+        | otherwise = ok (mkPhysicalIdentity
+            ("neighbor-uid-" <> T.pack (show (assigned Map.! selectedId))))
+      present selectedId bytes = KubernetesPresent (physicalFor selectedId)
+        "1" (Just selectedId) (contentDigest bytes)
+      sourceScopes = Map.fromList
+        [ (scopeId databaseScope, (ok (mkScopeGeneration 3), databaseScope))
+        , (backupOwner, (ok (mkScopeGeneration 1), backupScope)) ]
+      initialSnapshot = ok (mkScopeSnapshot binding sourceScopes Map.empty)
+      dummy = ok (mkScopeDeclaration (ok (mkScopeId Standalone "receipt-seed"))
+        [ResourceBundle [] [] [] [] [] []])
+  states <- newIORef (Map.mapWithKey
+    (\selectedId (_, bytes) -> present selectedId bytes) members)
+  mutations <- newIORef (0 :: Int)
+  store <- newMemoryStore
+  let runtime = KubernetesAdapterOps
+        { kubernetesContext = ok (mkContextId "manual-receipt-cleanup")
+        , kubernetesObserve = \selectedId -> Map.findWithDefault
+            (KubernetesUnknown "missing") selectedId <$> readIORef states
+        , kubernetesMutateConditional = \mutation -> do
+            let selectedId = mutationResource mutation
+            current <- Map.findWithDefault (KubernetesUnknown "missing") selectedId
+              <$> readIORef states
+            if selectedId == jobId && mutationAction mutation == RetireResource
+                && current == mutationBefore mutation
+              then do
+                modifyIORef' mutations (+ 1)
+                modifyIORef' states (Map.insert selectedId (KubernetesAbsent absence))
+                pure AdapterEffectCompleted
+              else pure (AdapterEffectFailed (KnownNoEffect
+                "receipt lifecycle fixture refused an unexpected mutation"))
+        }
+      registry = ok (mkAdapterRegistry [mkKubernetesAdapter members runtime])
+      snapshot history = ok (mkScopeSnapshot binding
+        (Map.map (\(revision, selected) -> (revisionGeneration revision, selected))
+          (historyAccepted history)) (historyReservations history))
+      observe candidate history = observeWithRegistry registry
+        (requirementsByExecutor (observationRequirements candidate history))
+          >>= expectRight
+      reviewAndApply candidate history decisions facts = do
+        proposal <- expectRight (planChanges candidate decisions history facts)
+        before <- readStoreSnapshot store >>= expectRight
+        bundle <- prepareReview registry before proposal >>= expectRight
+        _ <- publishReview store bundle >>= expectRight
+        published <- readStoreSnapshot store >>= expectRight
+        reviewed <- expectRight (verifyReview published bundle)
+        result <- applyReviewed store registry reviewed >>= expectRight
+        case result of Converged _ -> pure (); other -> assertFailure (show other)
+        pure proposal
+  _ <- initializeStore store binding "manual-receipt-cleanup" >>= expectRight
+  let seed = ok (composeInventory initialSnapshot (ReplaceScope dummy :| []))
+  _ <- seedInventoryHistory store seed >>= expectRight
+  accepted <- loadInventoryHistory store >>= expectRight
+  let databaseRevision = Map.lookup (scopeId databaseScope) (historyAccepted accepted)
+      replacement = ok (composeInventory (snapshot accepted)
+        (ReplaceScope receiptRecord :| []))
+  replacementFacts <- observe replacement accepted
+  jobFact <- maybe (assertFailure "retired Job was not observed") pure
+    (Map.lookup jobId (observationMap replacementFacts))
+  retirement <- expectRight (validateLifecycleDecisions replacement accepted
+    replacementFacts [LifecycleProposal jobId ApproveRetirement
+      (lifecycleObservationDigest binding jobId jobFact)])
+  proposal <- reviewAndApply replacement accepted retirement replacementFacts
+  proposalOperations proposal @?= []
+  readIORef mutations >>= (@?= 0)
+  retained <- loadInventoryHistory store >>= expectRight
+  assertBool "manual receipt record was not accepted"
+    (maybe False ((== receiptRecord) . snd) (Map.lookup backupOwner (historyAccepted retained)))
+  assertBool "backup Job was not retained for separate collection"
+    (Map.member jobId (historyRetained retained))
+  Map.lookup (scopeId databaseScope) (historyAccepted retained) @?= databaseRevision
+  let collection = ok (composeInventory (snapshot retained)
+        (CollectRetained jobId :| []))
+  collectionFacts <- observe collection retained
+  collectionDecision <- expectRight (decideCollection collection retained collectionFacts)
+  _ <- reviewAndApply collection retained collectionDecision collectionFacts
+  final <- loadInventoryHistory store >>= expectRight
+  Map.lookup (scopeId databaseScope) (historyAccepted final) @?= databaseRevision
+  Map.lookup backupOwner (historyAccepted final)
+    @?= Map.lookup backupOwner (historyAccepted retained)
+  case Map.lookup jobId (headCollected (historyHead final)) of
+    Just tombstone -> tombstonePhysical tombstone @?= backupUid
+    Nothing -> assertFailure "manual backup Job collection has no tombstone"
+  readIORef mutations >>= (@?= 1)
+  current <- readIORef states
+  forM_ (Map.toList databaseNative) $ \(selectedId, (_, bytes)) ->
+    Map.lookup selectedId current @?= Just (present selectedId bytes)
 
 reviewedReleaseCleanup :: IO ()
 reviewedReleaseCleanup = do

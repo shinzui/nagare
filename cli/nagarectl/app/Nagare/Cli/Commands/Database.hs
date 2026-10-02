@@ -16,6 +16,7 @@ import Nagare.Cli.Data.Lifecycle
   ( runDataRestart
   , runStandaloneRetirePlan
   )
+import Nagare.Cli.Data.ManualReceipt (runReviewedManualReceiptPlan)
 import Nagare.Cli.Data.Restore (runReviewedDbRestorePlan)
 import Nagare.Cli.Data.ScheduledPrune
   ( runReviewedScheduledPruneRecoveryPlan
@@ -201,6 +202,11 @@ runDb mctx = \case
         (nsOf (o ^. #namespace))
         (o ^. #bucket)
     _ -> dieT "scheduled receipt ingestion requires both --backup-id and --save-plan"
+  DbManualReceipt o -> case (o ^. #backupId, o ^. #savePlan) of
+    (Just selected, Just output) -> runReviewedManualReceiptPlan
+      mctx (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
+      (T.pack selected) (o ^. #bucket) output
+    _ -> dieT "manual receipt review requires both --backup-id and --save-plan"
   DbDisableBackupPrune o output ->
     runDisableBackupPrunePlan mctx (T.pack (o ^. #name)) (nsOf (o ^. #namespace)) output
   DbRestore o -> do

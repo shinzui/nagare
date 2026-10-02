@@ -407,17 +407,34 @@ enable bucket versioning before their create-only upload; older local objects
 without version IDs cannot be pruned by this command. Scheduled backups and
 backups recorded with `retain` remain outside this pruning route.
 
-An accepted PostgreSQL backup can be
-restored into a new scratch database through a separate saved review:
+For a completed manual backup that must survive Job cleanup, first save and
+apply a receipt review:
+
+```bash
+nagarectl db backup-receipt pg-main --backup-id manual-20260926 --save-plan ./pg-main-receipt
+nagarectl inventory apply ./pg-main-receipt --yes
+```
+
+This verifies stored bytes and replaces the
+accepted backup scope with a version-pinned receipt record while retaining
+the original Job. Review its conditional collection separately. Isolated
+restore can use the accepted record after collection; exact manual pruning
+still requires the supported Job-backed path.
+
+An accepted PostgreSQL backup can be restored into a new scratch database
+through a separate saved review:
 
 ```bash
 nagarectl db restore pg-main manual-20260926 --restore-id restore-001 --save-plan ./pg-main-restore
 nagarectl inventory apply ./pg-main-restore --yes
 ```
 
-Planning requires the accepted backup Job's Pod receipt. The restore Job reads
-the current receipt and backup object, checks their pinned SHA-256 values and
-expiry, then creates `<database>_restore_<restore-id>` only if absent. If the
+Planning requires the accepted backup Job's Pod receipt or the accepted durable
+receipt record and the original Job's retained or collected identity. The
+restore Job reads the current receipt and backup object, checks their pinned
+SHA-256 values and, for a durable record, provider versions; it checks expiry,
+then creates
+`<database>_restore_<restore-id>` only if absent. If the
 restore fails after creation, keep the scratch database for explicit forward
 recovery.
 

@@ -545,6 +545,7 @@ the labels `nagare.dev/managed-by: nagarectl` + `nagare.dev/database=<name>` +
 | `nagarectl db restart NAME` | Roll the StatefulSet and wait for ready. |
 | `nagarectl db delete NAME --save-plan DIR` | Save a reviewed retirement that retains provider resources; apply separately. |
 | `nagarectl db backup NAME --backup-id ID --save-plan DIR` | Save a reviewed manual backup Job and apply separately. |
+| `nagarectl db backup-receipt NAME --backup-id ID --save-plan DIR` | Verify one accepted completed manual backup against stored bytes and save a reviewed durable receipt record; apply separately, then review Job collection separately. |
 | `nagarectl db backup-receipts NAME` | List scheduled backup receipts; an exact `--backup-id ID --save-plan DIR` ingests a verified run for review and apply. |
 | `nagarectl db prune-scheduled-backups NAME --save-plan DIR` | New scheduled pruning is deferred. Scheduled keep-N and expiry are unenforced; backups remain until supported reviewed disposal. |
 | `nagarectl db recover-scheduled-prune NAME BACKUP_ID --failed-review DIR --save-plan DIR` | Recover an already-admitted partial prune against its original failed review and exact provider evidence. |

@@ -70,7 +70,7 @@ ROUTES = {
     },
     "DbCommand": {
         "read": "DbList DbGet",
-        "reviewed": "DbCreate DbRestart DbDelete DbRetire DbBackup DbPruneBackup DbBackupReceipts DbDisableBackupPrune DbRestore",
+        "reviewed": "DbCreate DbRestart DbDelete DbRetire DbBackup DbPruneBackup DbBackupReceipts DbManualReceipt DbDisableBackupPrune DbRestore",
         "recovery": "DbRecoverScheduledPrune",
         "deferred": "DbShell DbPruneScheduledBackups",
     },
@@ -182,7 +182,7 @@ FAMILY_ROUTES = {
     "ReleasePublish ReleaseCleanupStarter": "Global release payload publication",
     "HostCommand.HostPlaceAgeKey": "Host age-key placement",
     "KubeconfigCommand.KubeconfigRecover": "Context kubeconfig fetch and accepted-history recovery",
-    "DbCommand.DbBackup DbCommand.DbPruneBackup DbCommand.DbBackupReceipts DbCommand.DbPruneScheduledBackups DbCommand.DbRecoverScheduledPrune DbCommand.DbDisableBackupPrune DbCommand.DbRestore": "Database backup and restore",
+    "DbCommand.DbBackup DbCommand.DbPruneBackup DbCommand.DbBackupReceipts DbCommand.DbManualReceipt DbCommand.DbPruneScheduledBackups DbCommand.DbRecoverScheduledPrune DbCommand.DbDisableBackupPrune DbCommand.DbRestore": "Database backup and restore",
     "DbCommand.DbShell": "Interactive database maintenance",
     "DbCommand.DbRestart BrokerCommand.BrokerRestart": "Manual task run/delete and database/broker restart",
 }

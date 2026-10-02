@@ -37,6 +37,11 @@ provenance:
       at: 2026-09-29T15:00:50Z
       mode: "update"
       note: "Revise command-boundary repair work from retained append, history, recovery, and public CLI experiments"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-10-02T05:55:39Z
+      mode: "implement"
+      note: "Record local manual receipt and Job-free restore checkpoint"
 ---
 
 # Complete scheduled backup receipts and exact retention pruning
@@ -51,6 +56,8 @@ Every scheduled backup produces a durable, verifiable receipt for one exact obje
 ## Progress
 
 **Current M2 prerequisite — production rescue checkpoint, 2026-09-29.** [The production proof](../audits/mp23-rescue-proof.md) replaces E10's temporary counterfactual with the built shared operation driver and public CLI regression. The same saved two-operation review stops cleanly on terminal failure, permits exact explicit abandonment, rejects changed source identity, and converges after completion/interruption without repeated provider mutations. The absent-Job case reaches new-effect preflight and refuses missing object-store configuration before submission. The full 935-test suite passes. These are synthetic admitted-history/provider-recorder results; physical deletion, receipt-only cleanup, and separate retained-source CLI proof remain open. F09/F12/F13 are Verifying for independent closure. Preserve this fixed consumer while EP-153/156 finish selected reads and command cost; do not launch a cloud prune to rediscover the corrected phase failures.
+
+Manual receipt compatibility checkpoint (2026-10-01): a separate same-scope `verified-v1` record now pins the completed accepted manual Job identity, producer revision, exact receipt/archive provider versions, lengths and hashes. A reviewed replacement retains the Job for separate conditional collection; the record carries no managed Job. This supplies EP-160's Job-free manual restore consumer without changing scheduled receipt format or authorizing scheduled pruning. Local source/memory-store tests pass; a public command fixture and native exact-generation readback after Job collection remain open. M1/M2 are unchanged.
 
 **2026-09-28 scope decision.** [MP-23](../masterplans/23-make-managed-resources-first-class-through-typed-scoped-inventories.md) now retains the cross-tool journal/state, verified backups, and isolated restores while deferring general live overwrite, new interactive mutating maintenance, and generalized scheduled pruning. Historical findings below describe the earlier contract and retain their evidence; their superseded completion requirements do not add work back to this plan. Supported behavior still requires full proof.
 

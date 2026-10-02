@@ -342,7 +342,15 @@ downloadShell backend eng = \case
             <> "test \"$(sha256sum /dump/backup.gz | cut -d' ' -f1)\" = \"$EXPECTED_BACKUP_SHA256\"; "
             <> "gunzip -c /dump/backup.gz > /dump/backup."
             <> backupRawExt eng
-        GcsBackend {} -> "exit 1"
+        GcsBackend {} ->
+          "set -e; test \"$BACKUP_EXPIRY_EPOCH\" -eq 0 || test \"$(date -u +%s)\" -lt \"$BACKUP_EXPIRY_EPOCH\"; "
+            <> hashTools
+            <> "gcloud storage cp --do-not-decompress \"$RECEIPT_URL#$RECEIPT_VERSION\" /dump/backup.receipt.json; "
+            <> "gcloud storage cp --do-not-decompress \"$SRC#$OBJECT_VERSION\" /dump/backup.gz; "
+            <> "test \"$(sha256sum /dump/backup.receipt.json | cut -d' ' -f1)\" = \"$EXPECTED_RECEIPT_SHA256\"; "
+            <> "test \"$(sha256sum /dump/backup.gz | cut -d' ' -f1)\" = \"$EXPECTED_BACKUP_SHA256\"; "
+            <> "gunzip -c /dump/backup.gz > /dump/backup."
+            <> backupRawExt eng
   Just source | isJust (source ^. #objectVersion) || isJust (source ^. #receiptVersion) ->
     "exit 1"
   Just _ ->

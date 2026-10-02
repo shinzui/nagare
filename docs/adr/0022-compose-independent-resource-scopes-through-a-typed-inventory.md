@@ -1044,3 +1044,16 @@ legacy-policy update, zero-effect retirement, premature Service-collection
 refusal and ordered history/DomainMapping/Service collection with tombstones.
 Installed conditional writes and source-data preservation remain
 required native evidence before the safe-use cleanup gate can pass.
+
+## Amendment — 2026-10-01: preserve manual backup evidence after Job collection
+
+A completed manual backup Job may be replaced in its owning scope by a durable
+receipt record only through a reviewed same-scope replacement. The record binds
+the accepted producer revision and Job UID, exact object and receipt versions,
+lengths and hashes, and the original backup identity. The Job is retained by
+that replacement and may be collected only through a later conditional review.
+An isolated restore can depend on the accepted record and stored bytes after
+collection rather than on a Pod that no longer exists. It must verify the
+producer incarnation against retained history or the collection tombstone and
+read exact provider versions before preparing effects. A source or in-memory
+fixture does not establish native deletion or restored-content acceptance.

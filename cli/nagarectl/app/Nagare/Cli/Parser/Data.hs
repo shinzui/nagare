@@ -210,6 +210,15 @@ dbBackupReceiptsOptsParser =
     <*> optional (strOption (long "backup-id" <> metavar "JOB_UID" <> help "Physical scheduled backup Job UID to ingest"))
     <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save an exact scheduled receipt ingestion review"))
 
+dbManualReceiptOptsParser :: Parser DbBackupReceiptsOpts
+dbManualReceiptOptsParser =
+  DbBackupReceiptsOpts
+    <$> dbNameArg
+    <*> namespaceOpt
+    <*> dbBackupBucketOpt
+    <*> (Just <$> strOption (long "backup-id" <> metavar "ID" <> help "Accepted manual backup ID"))
+    <*> (Just <$> strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed manual receipt record"))
+
 storageCmd :: ParserInfo Command
 storageCmd =
   info
@@ -522,6 +531,12 @@ dbSubparser =
           ( info
               (Db . DbBackupReceipts <$> dbBackupReceiptsOptsParser <**> helper)
               (progDesc "List accepted scheduled receipts or save one exact ingestion review")
+          )
+        <> command
+          "backup-receipt"
+          ( info
+              (Db . DbManualReceipt <$> dbManualReceiptOptsParser <**> helper)
+              (progDesc "Save a reviewed durable manual receipt after verifying the completed Job and stored bytes")
           )
         <> command
           "disable-backup-prune"
