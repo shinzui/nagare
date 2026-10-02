@@ -202,6 +202,22 @@ sixteen-descendant fixture now includes the four observed annotation propagation
 shapes. All 1,061 CLI tests pass after these repairs. Native mutation, actual GC
 and interrupted-transaction proof are the next step, not results of this scan.
 
+## Native Event aliases
+
+Creating the disposable `mp23-gc-native` application on the separate
+`ep150-preview` context exposed twenty Events through both `events` and
+`events.events.k8s.io`, with the same persisted UIDs. The new
+[metadata fixture](../../cli/nagarectl/test/fixtures/inventory/knative-event-aliases.json)
+retains one actual pair. Its production-path regression initially failed with
+`duplicate observed UID`. Complete namespace discovery now coalesces only this
+known Event API pair when name, namespace, kind and ownership agree, preferring
+the grouped API address. Resource versions may advance between reads. Both API
+lists remain mandatory and counted in the 75-API budget; conflicting metadata
+and duplicate UIDs outside this pair refuse authority. Events remain unsupported
+as collection descendants. Separate refusal regressions cover both cases. All
+1,064 CLI tests pass after the repair; fixture regeneration, CLI architecture
+and Haskell style checks also pass.
+
 ## Remaining acceptance
 
 F20 remains Open for native agreement and independent verification. Models do

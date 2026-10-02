@@ -36,6 +36,9 @@ nativeCollectionTests =
     , testCase "foreign namespace refuses authority" (refusePlan (changeChild (metaChange (setField "namespace" (String "foreign")))))
     , testCase "missing persisted UID is incomplete evidence, not a projection" (refusePlan missingIdentity)
     , testCase "successful native Endpoints warning preserves complete discovery" warningAccepted
+    , testCase "native Event aliases preserve complete discovery" eventAliases
+    , testCase "conflicting Event aliases refuse authority" (refusePlan (eventWorld True))
+    , testCase "duplicate UID outside Event aliases refuses authority" (refusePlan duplicateEventUid)
     , testCase "partial API discovery refuses authority" (refuseFault DiscoveryFailure)
     , testCase "one forbidden list among 75 APIs refuses authority" (refuseFault ListFailure)
     , testCase "continuation token refuses authority" (refuseFault IncompleteList)
@@ -299,3 +302,40 @@ warningAccepted = withSystemTempDirectory "nagare-native-warning" $ \root -> do
   length (reviewOperations (reviewBundleDocument bundle)) @?= 1
   budget root 1 2 0 0
   deleteBodies <$> readCollectionWorld root >>= (@?= [])
+
+eventWorld :: Bool -> CollectionWorld -> CollectionWorld
+eventWorld conflict world = world {resources = Map.union events (resources world)}
+  where
+    -- Same physical Event through two API groups, as returned by native k3s.
+    event api refs =
+      object
+        [ "apiVersion" .= (api :: Text)
+        , "kind" .= ("Event" :: Text)
+        , "metadata"
+            .= object
+              [ "name" .= ("native-event" :: Text)
+              , "namespace" .= ("personal" :: Text)
+              , "uid" .= ("event-uid" :: Text)
+              , "resourceVersion" .= ("event-version" :: Text)
+              , "ownerReferences" .= (refs :: [Value])
+              ]
+        ]
+    events = Map.fromList [("event-core", event "v1" []), ("event-group", event "events.k8s.io/v1" (if conflict then [object ["uid" .= ("foreign" :: Text)]] else []))]
+
+eventAliases :: IO ()
+eventAliases = withSystemTempDirectory "nagare-native-event-aliases" $ \root -> do
+  store <- nativePrepared root
+  bytes <- BS.readFile "test/fixtures/inventory/knative-event-aliases.json"
+  let evidence = checked (eitherDecodeStrict bytes)
+      objects = case fromJSON (field "objects" evidence) of Success values -> values; Error reason -> error reason
+  length (objects :: [Value]) @?= 2
+  world <- readCollectionWorld root
+  writeCollectionWorld root world {resources = Map.union (Map.fromList (zip ["event-core", "event-group"] objects)) (resources world)}
+  _ <- reviewNative root store
+  budget root 1 2 0 0
+  deleteBodies <$> readCollectionWorld root >>= (@?= [])
+
+duplicateEventUid :: CollectionWorld -> CollectionWorld
+duplicateEventUid world =
+  let populated = eventWorld False world
+   in populated {resources = Map.adjust (setField "kind" (String "ConfigMap") . setField "apiVersion" (String "v1")) "event-group" (resources populated)}

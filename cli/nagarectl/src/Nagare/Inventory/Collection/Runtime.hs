@@ -1,10 +1,11 @@
 -- | Metadata-only namespace inspection through the shared Effectful transport.
 module Nagare.Inventory.Collection.Runtime (observeCollectionNamespace) where
 
-import Control.Monad (forM)
+import Control.Monad (foldM, forM)
 import Data.Aeson
 import Data.Aeson.Types (parseEither)
 import Data.List (nub, sort)
+import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -49,7 +50,7 @@ observeCollectionNamespace config ns = do
               after <- runtimeGuard config
               pure $ do
                 after
-                nodes <- concat <$> sequence lists
+                nodes <- sequence lists >>= distinctNodes . concat
                 pure (apis, nodes)
   where
     request args = do
@@ -60,3 +61,18 @@ observeCollectionNamespace config ns = do
         -- and the parsed continuation metadata determine completeness.
         Right (ExitSuccess, output, _) -> Right (T.pack output)
         _ -> Left "complete namespace discovery/list unavailable; no collection authority"
+
+-- The core and events.k8s.io APIs expose the same persisted Events. Keep both
+-- complete lists, but coalesce their matching identities before authorization.
+-- Versions may advance between lists; ownership and address must still agree.
+distinctNodes :: [CollectionNode] -> Either Text [CollectionNode]
+distinctNodes = fmap Map.elems . foldM insert Map.empty
+  where
+    insert seen node = case Map.lookup (uid node) seen of
+      Nothing -> Right (Map.insert (uid node) node seen)
+      Just previous
+        | sort [token previous, token node] == ["events", "events.events.k8s.io"]
+        , kind node == "Event"
+        , previous {token = token node, version = version node} == node ->
+            Right (Map.insert (uid node) (if token node == "events.events.k8s.io" then node else previous) seen)
+        | otherwise -> Left "duplicate observed UID with conflicting metadata or unsupported API aliases"

@@ -1,0 +1,26 @@
+{
+  "context": "ep150-preview",
+  "serverVersion": "v1.35.8+k3s1",
+  "objects": [
+    {
+      "apiVersion": "v1",
+      "kind": "Event",
+      "metadata": {
+        "name": "mp23-gc-native-00001-deployment-6876b5544b-dd2gb.18dac6aaf286f004",
+        "namespace": "personal",
+        "resourceVersion": "553680",
+        "uid": "90d20226-6f43-4ae1-98d1-b6b2fa6a09a8"
+      }
+    },
+    {
+      "apiVersion": "events.k8s.io/v1",
+      "kind": "Event",
+      "metadata": {
+        "name": "mp23-gc-native-00001-deployment-6876b5544b-dd2gb.18dac6aaf286f004",
+        "namespace": "personal",
+        "resourceVersion": "553680",
+        "uid": "90d20226-6f43-4ae1-98d1-b6b2fa6a09a8"
+      }
+    }
+  ]
+}

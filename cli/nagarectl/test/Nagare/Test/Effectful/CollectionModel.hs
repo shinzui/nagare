@@ -281,4 +281,6 @@ modelToken value = case textField "kind" value of
   "ServerlessService" -> "serverlessservices.networking.internal.knative.dev"
   "PodMetrics" -> "pods.metrics.k8s.io"
   "ConfigMap" -> "configmaps"
+  "Event" | field "apiVersion" value == String "events.k8s.io/v1" -> "events.events.k8s.io"
+  "Event" -> "events"
   other -> error ("unmodeled kind " <> T.unpack other)
