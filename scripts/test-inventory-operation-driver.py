@@ -135,7 +135,8 @@ for result in results:
 report={'legacyObservationMissing':os.environ.get('MP23_LEGACY_OBSERVATION')=='1',
         'binarySha256':hashlib.sha256(Path(binary).read_bytes()).hexdigest(),
         'sources':{p:hashlib.sha256((repo/p).read_bytes()).hexdigest() for p in [
-            'cli/nagarectl/app/Main.hs','cli/nagarectl/src/Nagare/Inventory/Execute.hs',
+            *[str(path.relative_to(repo)) for path in sorted((repo/'cli/nagarectl/app').rglob('*.hs'))],
+            'cli/nagarectl/src/Nagare/Inventory/Execute.hs',
             'cli/nagarectl/src/Nagare/Inventory/OperationStep.hs',
             'cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs',
             'cli/nagarectl/test/InventoryTransactionSpec.hs','cli/nagarectl/nagarectl.cabal',

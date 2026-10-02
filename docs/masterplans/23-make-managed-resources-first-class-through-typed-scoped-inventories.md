@@ -256,6 +256,11 @@ provenance:
       at: 2026-10-01T13:57:32Z
       mode: "implement"
       note: "Begin reviewed access scope implementation and approved fresh F15 cloud sequence"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-02T03:47:55Z
+      mode: "implement"
+      note: "Record the completed CLI responsibility refactor and source-level registration boundary checks"
   reviews:
     - model: "claude-fable-5-1"
       harness: "claude-code"
@@ -419,6 +424,8 @@ These ownership, identity, review, storage, migration, and controller-delegation
 
 ## Progress
 
+**CLI responsibility refactor (2026-10-01, operator-requested).** EP-153 has completed the source refactor: `Main.hs` is 16 lines, with pure parsing, typed dispatch, domain handlers, bootstrap stages and inventory/runtime policy in private modules with explicit exports and acyclic dependencies. The largest CLI module is 961 lines. All 1,012 CLI tests, 152-path baseline parser/help comparison, public bootstrap/access/recovery/guard fixtures and new architecture/registration checks pass; changed Haskell/Cabal files are formatted. See [EP-153](../plans/153-close-managed-command-coverage-for-the-inventory-release.md) and the [executable guide](../../cli/nagarectl/app/README.md). This resolves the source-level entrypoint accumulation concern. It does not install a new operator, change the frozen cloud candidate, close independent audit findings, or complete any remaining feature/native/release gate.
+
 **Operator-directed finish sequence (2026-10-01).** The operator requests deliberate execution of steps 1–6 below and a review when step 4 is complete. Continue steps 1–4, then stop before step 5 and present an evidence-backed usable/deferred capability list, restrictions, remaining defects and the exact candidate/context. Step 4 is complete only after the existing safe-use criteria below, including the operator's runbook verification, pass; implementer evidence alone is not that decision. This sequence changes scheduling and communication, not product scope or release acceptance.
 
 | Step | Concrete outcome and stopping condition | Current state |
@@ -443,7 +450,7 @@ Every native check has a named assertion and a recorded result. Repeat accepted 
 | `just haskell-style-check` green at the candidate revision | Red: structural rules pass, but the repository's Nix-provided fourmolu 0.19.0.1 flags 45 tracked files, including `app/Main.hs` and `Nagare/Resource/Inventory.hs`; child "structural style passes" notes cover only `scripts/check-haskell-style.sh`. | EP-153 (shared surfaces); every child for its own modules |
 | Independent closure of tracker findings | 16 of 18 findings are Partial/Verifying; no verifier entry since 2026-09-29 (F01/F11). For safe-use, the operator's runbook run is the check (Decision Log, 2026-09-30); release acceptance keeps the tracker rule. | Operator for safe-use; tracker steward for release |
 | IR-24 seven verification cases mapped to evidence (see table) | Cases 4 and 6 have installed cloud evidence; 5 is partial; 1, 2, 3, and 7 cite none. | EP-157 assembles; EP-144/149/155/156 supply |
-| `app/Main.hs` holds registration only | 13,557 lines (6,282 at `686a39d8`), including 600–700-line policy functions and the F18 authority check; see Surprises 2026-09-30. | EP-153 |
+| `app/Main.hs` holds registration only | Resolved in source by the 2026-10-01 refactor: 16-line process entrypoint, separate routing-only dispatcher, explicit private ownership modules and enforced dependency/size checks. Installed final-candidate evidence remains separate. The review originally found 13,557 lines. | EP-153 |
 | Safe-use gate (below) met on one candidate | Open: remaining web cleanup, HTTPS/browser restriction disposition, operator runbook and F14–F18 verification. Bounded installed application/access and fresh backup/isolated-restore/interruption/eligible-Job cleanup pass. Installed `71288437` local platform gate, fresh cloud convergence, expired-credential re-pull and clean-root recovery are accepted in the current entrypoint/evidence. | EP-156, EP-158, EP-153 |
 | Digest ownership matches the recorded decision | Reversed by `84afb03e` without a Decision Log entry; operator decision pending (Surprises 2026-09-30). | EP-144 contract owner |
 

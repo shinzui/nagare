@@ -71,6 +71,20 @@ checks Cabal-level policy; the root flake additionally runs Fourmolu and Cabal G
 
 ## Consequences
 
+### CLI responsibility boundaries (2026-10-01)
+
+The operator entry point is process setup only. Executable-private `Nagare.Cli`
+modules separate typed options and pure parsing, dispatch, domain command
+workflows, inventory factory/evidence wiring, bootstrap stages and specifically
+owned runtime policy. Commands do not import other command handlers; common
+behavior belongs below that layer with explicit exports and acyclic dependencies.
+These modules do not expand the public library API. The inventory library's
+single apply/resume driver remains authoritative, and an extraction must preserve
+guard timing and admitted-history recovery. The managed-command audit discovers
+every executable source module and binds their contents in its candidate digest.
+Its architecture check prevents entry-point policy, handler coupling, import
+cycles and unbounded module growth. See the [executable guide](../../cli/nagarectl/app/README.md).
+
 The three packages share one predictable record and import style, with less repeated boilerplate
 and without forcing the generic-lens orphan instance into every module. Contributors must use the
 package Prelude and explicit label imports, and automated formatting and style checks enforce the

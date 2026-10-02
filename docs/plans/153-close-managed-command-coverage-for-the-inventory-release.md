@@ -77,6 +77,11 @@ provenance:
       at: 2026-10-01T16:25:29Z
       mode: "implement"
       note: "Write bounded operator apply/resume/recovery/takeover runbook with measured cloud timings and pending fresh-context verification"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-02T03:23:15Z
+      mode: "implement"
+      note: "Refactor the CLI entry point into explicit command, parsing, and runtime ownership boundaries"
 ---
 
 # Close managed command coverage for the inventory release
@@ -91,6 +96,10 @@ Every supported mutation command and shipped recipe is mapped to its owner, revi
 
 
 ## Progress
+
+**CLI maintainability refactor accepted (2026-10-01, explicitly requested).** `cli/nagarectl/app/Main.hs` is now 16 lines, down from 13,621. Executable-private `Nagare.Cli` modules own pure parsing, dispatch, domain workflows, bootstrap stages, inventory factories/evidence, and specifically named runtime policy. Every module has explicit exports; the import graph is acyclic and command handlers do not import one another. The largest CLI module is 961 lines. Four unreachable helpers were removed, including deferred new-maintenance/new-scheduled-prune builders; admitted-history recovery remains registered. No public library API, review/history format, command syntax or operation-driver authority changed. The [executable guide](../../cli/nagarectl/app/README.md) documents ownership and validation.
+
+Validation: the executable and test executable build; all 1,012 CLI tests pass; 152 command paths produce 304 identical help/refusal results against the preserved baseline executable. Public inventory/application entrypoint guards, reviewed access with lost acknowledgements, complete foundation/bootstrap recovery, local cluster/unresolved/marker interruption, selected observation/legacy materialization, and the saved-prune operation-driver fixture pass. The audit retains 141 routes, 34 recipes and 29 library calls, and rejects an injected command, unregistered moved consumer and missing dispatch. Nine architecture regressions prove its boundary checks. Structural style, Fourmolu for every changed Haskell file, Cabal Gild and whitespace checks pass. A source-token inspection found moved declarations unchanged except the extracted dispatch wrappers and formatter-only layout. The first marker replay was invalidated by editing hashed script inputs during its run; the isolated rerun with frozen inputs passes. No cloud deployment, installed-candidate acceptance or whole-M2 completion is claimed.
 
 **Next checkpoints from the 2026-09-30 independent review (prerequisites of the MP-23 safe-use gate).** Take these ahead of remaining route coverage; each is bounded and reuses existing harnesses.
 
@@ -179,6 +188,8 @@ The reviewed volume restore Job verifies the accepted receipt and archive hashes
 
 ## Decision Log
 
+2026-10-01: Enforce the existing entrypoint boundary through executable-private modules and an architecture check in the managed-command audit. Keep handlers independent, give shared policy specific owners, and retain one library execution driver. Bind command-coverage and recovery-test source evidence to every executable module rather than the former monolithic file. ADR 16 and the executable guide record the durable boundaries.
+
 2026-09-30: Take the driver-consolidation and model-based-test checkpoints from the independent review ahead of remaining route coverage. Rationale: the registry recovery path and the legacy upgrade runner duplicate rather than lack the claim and lock guards, and duplicated guards drift; the two 2026-09-30 planner defects were invariant violations that the existing in-memory store and recording adapters can catch under generated interruption. MP-23 records this in its Decision Log and safe-use gate.
 
 2026-09-29 (design reassessment): Replace the shared dispatch boundary as one cohesive change rather than distributing more preflight exceptions. A pure serial next-operation decision and one IO interpreter own phase order, while immutable registry construction and existing authority checks remain separate.
@@ -204,8 +215,12 @@ The reviewed volume restore Job verifies the accepted receipt and archive hashes
 
 M1 is complete. M2 has a reviewed hello recipe and source-level smoke consumer cutover, but the native smoke runs, platform profile/credential/cleanup protocols, VM and host recipes, and dependent feature plans remain open. A registration audit pass is evidence that the finite catalogue has no omissions; it is not a complete release-coverage result while its pending lists remain populated.
 
+The user-requested CLI maintainability refactor is complete at source level with the acceptance above. Subsequent command work belongs in its named module, with the architecture check guarding the entrypoint and dependency boundaries. This closes the monolithic entrypoint concern without claiming the unrelated M2 product or release obligations are complete.
+
 
 ## Context and Orientation
+
+Current CLI source ownership is documented in `cli/nagarectl/app/README.md`. Earlier references in this plan to `Main.hs` functions are historical locations: command implementations now live under `app/Nagare/Cli/Commands/`, and the inventory planning/execution factories and evidence checks under `app/Nagare/Cli/Inventory/`. The function names and the library execution protocol are preserved.
 
 
 This plan replaces part of [EP-150](150-integrate-resource-inventories-into-upgrades-and-release-verification.md); its 2026-09-25 implementation is already present. A scope is one owner's desired resource set. The inventory composes all scopes; an immutable review binds exact native inputs, and a private journal records verified operation receipts. Completion of one scope must not change another owner's revision. cli/nagarectl/src/Nagare/Inventory/Command.hs supplies the shared command service; Plan.hs, Execute.hs, and Store.hs in that directory own review, execution, and history. Public evidence must exclude reusable credentials and private native plans.

@@ -272,6 +272,84 @@ executable nagarectl
   import: common
   main-is: Main.hs
   hs-source-dirs: app
+  other-modules:
+    Nagare.Cli.Application.Cdn
+    Nagare.Cli.Application.Config
+    Nagare.Cli.Application.Inputs
+    Nagare.Cli.Bootstrap.Cloud
+    Nagare.Cli.Bootstrap.Foundation
+    Nagare.Cli.Bootstrap.Host
+    Nagare.Cli.Bootstrap.Image
+    Nagare.Cli.Bootstrap.Local
+    Nagare.Cli.Bootstrap.Platform
+    Nagare.Cli.Commands.Access
+    Nagare.Cli.Commands.Application
+    Nagare.Cli.Commands.Bootstrap
+    Nagare.Cli.Commands.Broker
+    Nagare.Cli.Commands.Cdn
+    Nagare.Cli.Commands.Context
+    Nagare.Cli.Commands.Database
+    Nagare.Cli.Commands.Deployment
+    Nagare.Cli.Commands.Domains
+    Nagare.Cli.Commands.Environment
+    Nagare.Cli.Commands.Host
+    Nagare.Cli.Commands.Image
+    Nagare.Cli.Commands.Infrastructure
+    Nagare.Cli.Commands.Init
+    Nagare.Cli.Commands.Inventory.Status
+    Nagare.Cli.Commands.Inventory.Store
+    Nagare.Cli.Commands.Platform
+    Nagare.Cli.Commands.Release
+    Nagare.Cli.Commands.Site
+    Nagare.Cli.Commands.Storage
+    Nagare.Cli.Commands.Task
+    Nagare.Cli.Commands.Worker
+    Nagare.Cli.Data.Backup
+    Nagare.Cli.Data.Lifecycle
+    Nagare.Cli.Data.Restore
+    Nagare.Cli.Data.ScheduleObservation
+    Nagare.Cli.Data.ScheduledPrune
+    Nagare.Cli.Data.ScheduledReceipts
+    Nagare.Cli.Dispatch
+    Nagare.Cli.Environment.Selection
+    Nagare.Cli.Inventory.Adapters
+    Nagare.Cli.Inventory.CloudCatalog
+    Nagare.Cli.Inventory.Execution
+    Nagare.Cli.Inventory.Foundation
+    Nagare.Cli.Inventory.Planning
+    Nagare.Cli.Inventory.PruneEvidence
+    Nagare.Cli.Inventory.PublicEvidence
+    Nagare.Cli.Inventory.SourceEvidence
+    Nagare.Cli.Inventory.Workflow
+    Nagare.Cli.Options
+    Nagare.Cli.Parser
+    Nagare.Cli.Parser.Access
+    Nagare.Cli.Parser.Application
+    Nagare.Cli.Parser.Common
+    Nagare.Cli.Parser.Context
+    Nagare.Cli.Parser.Data
+    Nagare.Cli.Parser.Environment
+    Nagare.Cli.Parser.Inventory
+    Nagare.Cli.Parser.Operations
+    Nagare.Cli.Parser.Platform
+    Nagare.Cli.Parser.Site
+    Nagare.Cli.Platform.InfrastructureReview
+    Nagare.Cli.Platform.KubernetesReview
+    Nagare.Cli.Platform.Upgrade
+    Nagare.Cli.Runtime.Cluster
+    Nagare.Cli.Runtime.Config
+    Nagare.Cli.Runtime.Context
+    Nagare.Cli.Runtime.Error
+    Nagare.Cli.Runtime.Guards
+    Nagare.Cli.Runtime.ObjectStore
+    Nagare.Cli.Runtime.Ownership
+    Nagare.Cli.Runtime.PlatformStatus
+    Nagare.Cli.Runtime.Process
+    Nagare.Cli.Runtime.ProjectGuard
+    Nagare.Cli.Runtime.Pulumi
+    Nagare.Cli.Runtime.ReviewFiles
+    Nagare.Cli.Runtime.Target
+
   build-depends:
     aeson,
     base,
@@ -317,13 +395,13 @@ test-suite nagarectl-test
   hs-source-dirs: test
   other-modules:
     AccessGrantsSpec
-    InventoryAccessSpec
     AccessResolveSpec
     AppDeploySpec
     CertificateMigrationSpec
     DataFenceSpec
     DomainBindingSpec
     HostSpec
+    InventoryAccessSpec
     InventoryApplicationSpec
     InventoryArtifactSpec
     InventoryAuthSpec

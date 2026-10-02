@@ -64,7 +64,7 @@ files:
   - 'cli/nagare-dsl/src/**/*.hs'
   - 'cli/nagare-dsl/test/*.hs'
   - 'cli/nagarectl/src/**/*.hs'
-  - 'cli/nagarectl/app/*.hs'
+  - 'cli/nagarectl/app/**/*.hs'
   - 'cli/nagarectl/nagared/*.hs'
   - 'cli/nagarectl/test/*.hs'
 ignores:

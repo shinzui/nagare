@@ -17,7 +17,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-MAIN = ROOT / "cli/nagarectl/app/Main.hs"
+CLI = ROOT / "cli/nagarectl/app"
+OPTIONS = CLI / "Nagare/Cli/Options.hs"
+DISPATCH = CLI / "Nagare/Cli/Dispatch.hs"
 CATALOGUE = ROOT / "docs/architecture/managed-resource-coverage.md"
 CATALOGUE_START = "<!-- managed-command-registry:start -->"
 CATALOGUE_END = "<!-- managed-command-registry:end -->"
@@ -226,7 +228,7 @@ RECIPE_FAMILY = {
 # Public library calls from production consumers are checked as an exact set.
 # Pure observations are included so a new write cannot hide as an unlisted call.
 LIBRARY_CALLS = {
-    "cli/nagarectl/app/Main.hs": "applyInventoryWithFactory compileInventory convergeInventoryCandidateWith executionBlockedAdapterFor exportInventory loadCandidate loadTargetSnapshot loadTargetSnapshotReadOnly manifestAdapterFor migrateTargetStore openTargetStoreReadOnly planInventory planInventoryAdoptionWith planInventoryCandidateAdoptionWith planInventoryCandidateWith planInventoryCandidateWithPayloadIdentity planInventoryCandidateWithRetirements planInventoryCollectionWith planInventoryCollectionsWith planInventoryMigrationWith planInventoryRetirementWith planInventoryWithRetirements prepareRegistryRecoveryWithFactory recoverInventoryWithFactory restoreInventory resumeInventoryWithFactoryTakeover selectFoundationStore",
+    "cli/nagarectl/app": "applyInventoryWithFactory compileInventory convergeInventoryCandidateWith executionBlockedAdapterFor exportInventory loadCandidate loadTargetSnapshot loadTargetSnapshotReadOnly manifestAdapterFor migrateTargetStore openTargetStoreReadOnly planInventory planInventoryAdoptionWith planInventoryCandidateAdoptionWith planInventoryCandidateWith planInventoryCandidateWithPayloadIdentity planInventoryCandidateWithRetirements planInventoryCollectionWith planInventoryCollectionsWith planInventoryMigrationWith planInventoryRetirementWith planInventoryWithRetirements prepareRegistryRecoveryWithFactory recoverInventoryWithFactory restoreInventory resumeInventoryWithFactoryTakeover selectFoundationStore",
     "cli/nagarectl/nagared/Main.hs": "loadTargetSnapshot openTargetStoreReadOnly",
 }
 
@@ -243,7 +245,7 @@ def constructors(source: str, type_name: str) -> set[str]:
     return set(re.findall(r"[=|]\s*([A-Z][A-Za-z0-9_]*)\b", body))
 
 
-def audit(source: str) -> tuple[list[str], dict[str, dict[str, str]]]:
+def audit(source: str, dispatch_source: str, cli_root: Path) -> tuple[list[str], dict[str, dict[str, str]]]:
     errors: list[str] = []
     registered: dict[str, dict[str, str]] = {}
     for type_name, states in ROUTES.items():
@@ -262,13 +264,13 @@ def audit(source: str) -> tuple[list[str], dict[str, dict[str, str]]]:
 
     # Top-level constructors must be visibly dispatched. Nested constructors
     # are compiled through their run* functions and are tracked above.
-    dispatch = source.split("execParser opts >>= \\(mctx, cmd0) -> case cmd0 of", 1)
+    dispatch = dispatch_source.split("dispatch (mctx, cmd0) = case cmd0 of", 1)
     if len(dispatch) != 2:
         errors.append("cannot find the typed top-level command dispatcher")
     else:
-        case_body = dispatch[1].split("\nrunReleasePublish ::", 1)[0]
+        case_body = dispatch[1]
         for name in sorted(registered["Command"]):
-            if not re.search(rf"(?m)^    {re.escape(name)}(?:\s|\()", case_body):
+            if not re.search(rf"(?m)^  {re.escape(name)}(?:\s|\()", case_body):
                 errors.append(f"top-level command has no visible dispatch: {name}")
 
     for relative, markers in ENTRYPOINTS.items():
@@ -301,8 +303,10 @@ def audit(source: str) -> tuple[list[str], dict[str, dict[str, str]]]:
         errors.append(f"stale recipe script registration {path}")
 
     for relative, names in LIBRARY_CALLS.items():
+        path = cli_root if relative == "cli/nagarectl/app" else ROOT / relative
+        paths = sorted(path.rglob("*.hs")) if path.is_dir() else [path]
         body = "\n".join(
-            line for line in (ROOT / relative).read_text().splitlines()
+            line for path in paths for line in path.read_text().splitlines()
             if not line.startswith("import ")
         )
         actual = set(re.findall(r"\bInventory\.([a-z][A-Za-z0-9_]*)", body))
@@ -390,11 +394,15 @@ def catalogue_gaps(body: str) -> list[str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--main-source", type=Path, default=MAIN)
+    parser.add_argument("--cli-source-dir", type=Path, default=CLI)
+    parser.add_argument("--options-source", type=Path)
+    parser.add_argument("--dispatch-source", type=Path)
     parser.add_argument("--coverage-result", type=Path)
     parser.add_argument("--update-catalogue", action="store_true")
     args = parser.parse_args()
-    errors, registered = audit(args.main_source.read_text())
+    options = args.options_source or args.cli_source_dir / OPTIONS.relative_to(CLI)
+    dispatch = args.dispatch_source or args.cli_source_dir / DISPATCH.relative_to(CLI)
+    errors, registered = audit(options.read_text(), dispatch.read_text(), args.cli_source_dir)
     catalogue = CATALOGUE.read_text()
     snapshot = catalogue_snapshot(registered)
     if CATALOGUE_START in catalogue and CATALOGUE_END in catalogue:
@@ -445,10 +453,18 @@ def main() -> int:
         errors.append("deferred route set differs from the operator-approved boundary")
     if recovery_only != AUTHORIZED_RECOVERY_ONLY:
         errors.append("recovery-only route set differs from the retained recovery boundary")
+    # Bind every executable module, not only the now-small process entry point.
+    # Include paths so moving or omitting a consumer changes the identity too.
+    source_members = {
+        str(path.relative_to(args.cli_source_dir)): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in sorted(args.cli_source_dir.rglob("*.hs"))
+    }
+    source_members[str(OPTIONS.relative_to(CLI))] = hashlib.sha256(options.read_bytes()).hexdigest()
+    source_members[str(DISPATCH.relative_to(CLI))] = hashlib.sha256(dispatch.read_bytes()).hexdigest()
     result = {
         "schemaVersion": 1,
         "sourceRevision": revision,
-        "candidateDigest": hashlib.sha256(args.main_source.read_bytes()).hexdigest(),
+        "candidateDigest": hashlib.sha256(json.dumps(source_members, sort_keys=True).encode()).hexdigest(),
         "dirty": dirty,
         "complete": not errors and not pending and not pending_recipes and not catalogue_gaps(catalogue) and not dirty,
         "registeredRoutes": sum(map(len, registered.values())),
