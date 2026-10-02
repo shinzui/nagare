@@ -47,6 +47,11 @@ provenance:
       at: 2026-10-02T18:53:10Z
       mode: "update"
       note: "Record critical intranet upgrade readiness and backup recovery acceptance with a one-hour recovery-point objective"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-02T19:17:04Z
+      mode: "implement"
+      note: "Enable exact-generation GCS scheduled receipt inspection and reviewed ingestion; retain native acceptance gaps"
 ---
 
 # Complete scheduled backup receipts and exact retention pruning
@@ -61,6 +66,24 @@ This ExecPlan owns unfinished work transferred from EP-148. Keep its living sect
 Every scheduled backup produces a durable, verifiable receipt for one exact object. Backup success remains provable after Kubernetes Job cleanup, and all three existing database engines have verified recovery consumers. This release retains scheduled backups by default; generalized keep-N selection and scheduled deletion are deferred. Review, status, and documentation must state the resulting storage-growth responsibility.
 
 ## Progress
+
+**GCS scheduled-receipt source checkpoint (2026-10-02).** Public receipt listing
+and review preparation now use the same backend-independent inspection contract
+for MinIO and GCS. GCS listing validates each provider object's bucket, prefix,
+exact generation and timestamp; inspection downloads immutable generations
+and verifies lengths, receipt authentication and archive hashes. The reviewed
+ingestion Job rereads both pinned GCS generations before publishing its existing
+terminal proof. The two new tests execute the rendered verifier and reject
+foreign metadata, generation mismatch, changed bytes and invalid HMAC; all 1,067
+CLI tests pass in 59.46 seconds, with the build and structural style checks green.
+Independent review caught the empty-prefix failure of `gcloud storage ls`;
+`storage objects list --raw --format=json` independently returns a successful
+empty array and complete raw metadata. Both receipt commands now load only
+their four required native sources. Native installed GCS ingestion/restore and automatic scheduling remain unproved,
+so M1 stays open. No scheduled prune authority was added. One-hour freshness,
+off-cluster recovery authority and source-unavailable recovery remain the next
+critical-intranet gaps.
+
 
 **Current M2 prerequisite — production rescue checkpoint, 2026-09-29.** [The production proof](../audits/mp23-rescue-proof.md) replaces E10's temporary counterfactual with the built shared operation driver and public CLI regression. The same saved two-operation review stops cleanly on terminal failure, permits exact explicit abandonment, rejects changed source identity, and converges after completion/interruption without repeated provider mutations. The absent-Job case reaches new-effect preflight and refuses missing object-store configuration before submission. The full 935-test suite passes. These are synthetic admitted-history/provider-recorder results; physical deletion, receipt-only cleanup, and separate retained-source CLI proof remain open. F09/F12/F13 are Verifying for independent closure. Preserve this fixed consumer while EP-153/156 finish selected reads and command cost; do not launch a cloud prune to rediscover the corrected phase failures.
 

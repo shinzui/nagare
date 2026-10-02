@@ -221,6 +221,7 @@ library
     Nagare.Inventory.Prune
     Nagare.Inventory.RegistryCredentials
     Nagare.Inventory.Restore
+    Nagare.Inventory.ScheduledGcs
     Nagare.Inventory.ScheduledIngest
     Nagare.Inventory.ScheduledPrune
     Nagare.Inventory.ScheduledReceipt

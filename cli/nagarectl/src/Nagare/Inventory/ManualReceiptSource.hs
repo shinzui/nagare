@@ -4,6 +4,7 @@
 module Nagare.Inventory.ManualReceiptSource
   ( inspectManualReceipt
   , parseGcsManualMetadata
+  , readGcsObjectAt
   , withGcsManualObjectReader
   )
 where
@@ -114,16 +115,18 @@ withGcsManualObjectReader ::
   ((Text -> FilePath -> IO (Either Text StoredObject)) -> IO a) ->
   IO (Either Text a)
 withGcsManualObjectReader (GcsBackend project bucket) action =
-  Right <$> action (readGcs project bucket)
+  Right <$> action (\address -> readGcsObjectAt project bucket address Nothing)
 withGcsManualObjectReader _ _ = pure (Left "manual GCS reader needs a cloud backend")
 
-readGcs :: Text -> Text -> Text -> FilePath -> IO (Either Text StoredObject)
-readGcs project bucket address output = do
+readGcsObjectAt :: Text -> Text -> Text -> Maybe Text -> FilePath -> IO (Either Text StoredObject)
+readGcsObjectAt project bucket address requested output = do
   let prefix = "gs://" <> bucket <> "/"
   case T.stripPrefix prefix address of
     Nothing -> pure (Left "manual backup address is outside the accepted GCS bucket")
     Just name
-      | T.null name || T.any (== '#') name ->
+      | T.null name
+          || T.any (`elem` ("#*?[]" :: String)) name
+          || maybe False (\v -> T.null v || not (T.all (\c -> c >= '0' && c <= '9') v) || T.all (== '0') v) requested ->
           pure (Left "manual backup has an invalid GCS object name")
     Just name -> do
       described <-
@@ -135,7 +138,7 @@ readGcs project bucket address output = do
               , "storage"
               , "objects"
               , "describe"
-              , T.unpack address
+              , T.unpack (address <> maybe "" ("#" <>) requested)
               , "--format=json"
               ]
               ""
@@ -144,6 +147,9 @@ readGcs project bucket address output = do
       case described of
         Right (ExitSuccess, body, _) -> case parseGcsManualMetadata bucket name (BC.pack body) of
           Left reason -> pure (Left reason)
+          Right (StoredObject generation _)
+            | maybe False (/= generation) requested ->
+                pure (Left "GCS metadata returned another requested generation")
           Right selected@(StoredObject generation expectedLength) -> do
             copied <-
               try

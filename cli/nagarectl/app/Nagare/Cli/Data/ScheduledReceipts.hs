@@ -23,7 +23,7 @@ import Nagare.Cli.Runtime.Target
   , resolvePlatformWorkspace
   )
 import Nagare.Cluster.GcsJob
-  ( StoreBackend (GcsBackend, MinioBackend)
+  ( storeObjectUrl
   )
 import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude
@@ -40,6 +40,7 @@ import Nagare.Inventory.Backup
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.DataService (acceptedFoundationNamespace)
 import Nagare.Inventory.Plan qualified as InventoryPlan
+import Nagare.Inventory.ScheduledGcs (withScheduledObjectStore)
 import Nagare.Inventory.ScheduledIngest
   ( ScheduledIngestRequest
       ( ScheduledIngestRequest
@@ -66,7 +67,6 @@ import Nagare.Inventory.ScheduledReceipt
 import Nagare.Inventory.ScheduledStore
   ( ObjectReader (listObjectKeys)
   , readSecretField
-  , withLocalObjectStore
   )
 import Nagare.Inventory.Status qualified as InventoryStatus
 import Nagare.Resource.Inventory qualified as ResourceInventory
@@ -120,11 +120,11 @@ runListScheduledReceipts mctx database namespaceName bucketArg = do
       (dieT . T.pack . show)
       pure
       (ResourceInventory.composeSnapshot snapshot)
-  (acceptedNative, _) <-
-    InventoryStatus.loadAcceptedNative store history acceptedInventory
-      >>= either dieT pure
   let sourceIds = map (^. #identity) [stateful, pvc, cron, signing]
-      sourceNative = Map.restrictKeys acceptedNative (Set.fromList sourceIds)
+  (acceptedNative, _) <-
+    InventoryStatus.loadAcceptedNativeSelected (Set.fromList sourceIds) store history acceptedInventory
+      >>= either dieT pure
+  let sourceNative = acceptedNative
   unless
     (Map.size sourceNative == 4)
     (dieT "scheduled receipt listing lacks accepted private native evidence")
@@ -160,9 +160,6 @@ runListScheduledReceipts mctx database namespaceName bucketArg = do
           pvcUid
           cronBytes
       )
-  minio <- case backend of
-    MinioBackend ref -> pure ref
-    GcsBackend {} -> dieT "cloud scheduled receipt listing requires exact-generation provider inspection"
   signingKey <-
     readSecretField
       (contextNameText (active ^. #contextName))
@@ -191,13 +188,13 @@ runListScheduledReceipts mctx database namespaceName bucketArg = do
               ]
           ]
       prefix = scheduledObjectPrefix expectation
-      bucketPrefix = "s3://" <> minio ^. #bucket <> "/"
+      bucketPrefix = storeObjectUrl backend ""
   keyPrefix <-
     maybe
       (dieT "accepted schedule has another local bucket")
       pure
       (T.stripPrefix bucketPrefix prefix)
-  listed <- withLocalObjectStore (contextNameText (active ^. #contextName)) minio $
+  listed <- withScheduledObjectStore (contextNameText (active ^. #contextName)) backend $
     \reader -> do
       keys <- listObjectKeys reader keyPrefix
       case keys of
@@ -341,11 +338,11 @@ runReviewedScheduledReceiptPlan mctx database namespaceName bucketArg backupId o
       (dieT . T.pack . show)
       pure
       (ResourceInventory.composeSnapshot snapshot)
-  (acceptedNative, _) <-
-    InventoryStatus.loadAcceptedNative store history acceptedInventory
-      >>= either dieT pure
   let sourceIds = map (^. #identity) [stateful, pvc, cron, signing]
-      sourceNative = Map.restrictKeys acceptedNative (Set.fromList sourceIds)
+  (acceptedNative, _) <-
+    InventoryStatus.loadAcceptedNativeSelected (Set.fromList sourceIds) store history acceptedInventory
+      >>= either dieT pure
+  let sourceNative = acceptedNative
   unless
     (Map.size sourceNative == 4)
     (dieT "scheduled receipt source lacks accepted private native evidence")
@@ -381,9 +378,6 @@ runReviewedScheduledReceiptPlan mctx database namespaceName bucketArg backupId o
           pvcUid
           cronBytes
       )
-  minio <- case backend of
-    MinioBackend ref -> pure ref
-    GcsBackend {} -> dieT "cloud scheduled receipt ingestion requires exact-generation provider inspection"
   let contextName = contextNameText (active ^. #contextName)
   signingResult <-
     readSecretField
@@ -392,7 +386,7 @@ runReviewedScheduledReceiptPlan mctx database namespaceName bucketArg backupId o
       ("nagare-dbbackup-" <> database <> "-signing")
       "HMAC_KEY"
   signingKey <- either dieT pure signingResult
-  candidateResult <- withLocalObjectStore contextName minio $ \reader ->
+  candidateResult <- withScheduledObjectStore contextName backend $ \reader ->
     inspectScheduledReceipt reader expectation backupId signingKey
   evidence <- either dieT pure candidateResult >>= either dieT pure
   let request =

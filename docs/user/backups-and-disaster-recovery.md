@@ -145,11 +145,30 @@ See **[Managed databases](managed-databases.md)** for the full guide (declaring 
 from the moment it is created. `db create` provisions a daily
 **CronJob** that runs an engine-appropriate logical dump — `pg_dump` (Postgres),
 an RDB dump (Redis), a ClickHouse database backup ZIP — gzips it, and uploads it to
-`databases/<name>/<timestamp>.<ext>` in the active object store. Legacy
-schedules keep the last N; newly reviewed schedules read the stored object back
-and compare SHA-256 before the Job succeeds, but do not prune or record a
-durable per-object receipt. Existing accepted schedules keep their earlier
-scripts until a review updates them. For an accepted database, save a manual
+`databases/<name>/<Job UID>.<ext>` in the active object store. Newly reviewed
+schedules read stored bytes back, compare SHA-256, and publish an authenticated
+per-object receipt bound to the source StatefulSet/PVC identities and accepted
+schedule template. They retain backups by default: keep-N and expiry are
+unenforced, and new scheduled pruning is deferred. Existing accepted schedules
+keep their earlier scripts until a review updates them.
+
+List and accept a scheduled receipt after its producer Job has gone:
+
+```bash
+nagarectl db backup-receipts pg-main
+nagarectl db backup-receipts pg-main --backup-id JOB_UID --save-plan ./scheduled-receipt
+nagarectl inventory apply ./scheduled-receipt --yes
+```
+
+Listing distinguishes verified candidates, accepted receipts and unresolved
+objects. Ingestion rereads exact MinIO versions or GCS generations and checks
+receipt authentication, source identity, lengths and archive hashes. Only the
+accepted receipt may authorize a later isolated restore. GCS scheduled ingestion
+is implemented; installed native acceptance remains pending. The current daily
+schedule does not meet a one-hour recovery-point objective, and source-cluster-
+unavailable recovery remains unaccepted.
+
+ For an accepted database, save a manual
 backup review with `nagarectl db backup NAME --backup-id ID --save-plan DIR`,
 then run `nagarectl inventory apply DIR --yes`. The ID fixes the Job and object
 key under `manual-databases/<namespace>/<name>/<id>.<ext>`, outside the

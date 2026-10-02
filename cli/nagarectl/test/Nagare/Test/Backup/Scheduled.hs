@@ -50,8 +50,10 @@ import Nagare.Inventory.Backup
     )
   , scheduledReceiptExpectationFromCronJob
   )
+import Nagare.Inventory.ScheduledGcs (parseGcsObjectListing)
 import Nagare.Inventory.ScheduledIngest
-  ( scheduledIngestEvidenceMatches
+  ( ingestScriptFor
+  , scheduledIngestEvidenceMatches
   , scheduledIngestJobSourcePins
   )
 import Nagare.Inventory.ScheduledPrune
@@ -80,6 +82,8 @@ import Nagare.Test.DataFixtures
   , tnbGcsBackend
   )
 import Nagare.Test.Support.Assertions (unsafe)
+import System.Exit (ExitCode (ExitSuccess))
+import System.Process (readProcessWithExitCode)
 import Test.Tasty (TestTree)
 import Test.Tasty.HUnit
   ( assertBool
@@ -90,7 +94,41 @@ import Test.Tasty.HUnit
 
 scheduledReceiptTests :: [TestTree]
 scheduledReceiptTests =
-  [ testCase "scheduled backup receipt expectation comes from accepted CronJob bytes" $ do
+  [ testCase "scheduled GCS listing validates complete provider identities" $ do
+      let entry :: Text -> Text -> Text -> Aeson.Value
+          entry bucket name generation =
+            Aeson.object
+              [ "bucket" Aeson..= bucket
+              , "name" Aeson..= name
+              , "generation" Aeson..= generation
+              , "size" Aeson..= ("12" :: Text)
+              , "updated" Aeson..= ("2026-10-02T12:00:00.123Z" :: Text)
+              ]
+          good = entry "backups" "databases/mydb/run.sql.gz" "123"
+          parse values =
+            parseGcsObjectListing
+              "backups"
+              "databases/mydb/"
+              (LBS.toStrict (Aeson.encode values))
+      fmap (map listedKey) (parse [good]) @?= Right ["databases/mydb/run.sql.gz"]
+      parse ([] :: [Aeson.Value]) @?= Right []
+      forM_
+        [ [good, good]
+        , [entry "foreign" "databases/mydb/run.sql.gz" "123"]
+        , [entry "backups" "databases/other/run.sql.gz" "123"]
+        , [entry "backups" "databases/mydb/run.sql.gz" "0"]
+        , [Aeson.object ["name" Aeson..= ("databases/mydb/run.sql.gz" :: Text)]]
+        ]
+        $ \bad ->
+          assertBool "incomplete or foreign GCS listing accepted" (isLeft (parse bad))
+  , testCase "scheduled GCS ingestion executes fixed-generation checks and rejects changed bytes" $ do
+      (status, _, errors) <-
+        readProcessWithExitCode
+          "python3"
+          ["test/fixtures/scheduled-gcs-ingest.py"]
+          (T.unpack (ingestScriptFor tnbGcsBackend))
+      assertBool errors (status == ExitSuccess)
+  , testCase "scheduled backup receipt expectation comes from accepted CronJob bytes" $ do
       let rendered = renderInventoryDbBackupCronJob "personal" "mydb" Postgres "18" localMinioBackend 7
           value = either (error . show) id (Yaml.decodeEither' rendered :: Either Yaml.ParseException Aeson.Value)
           native = either (error . T.unpack) id (canonicalValue value)
