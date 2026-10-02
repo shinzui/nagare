@@ -1,0 +1,80 @@
+{
+  "finding": "F22",
+  "candidate": "ec2e1cd434855b86b16a6ffe8b0a0da24458668e",
+  "context": {
+    "identity": "ep150-preview",
+    "project": "tan-ng-labs"
+  },
+  "reviewDigest": "54c5c7d69b0ab82a81c50b6620b9b8cb70a368bcda125776806fa6b8c9acfc4f",
+  "transaction": "tx-54c5c7d69b0ab82a81c50b6620b9b8cb70a368bcda125776806fa6b8c9acfc4f",
+  "createOperation": "op-33d491d160032129dfa325ed",
+  "jobUid": "178731af-2b0e-4fdb-bc13-fb04c0e9575b",
+  "jobStatus": {
+    "conditions": [
+      {
+        "lastProbeTime": "2026-10-02T21:39:39Z",
+        "lastTransitionTime": "2026-10-02T21:39:39Z",
+        "message": "Job has reached the specified backoff limit",
+        "reason": "BackoffLimitExceeded",
+        "status": "True",
+        "type": "FailureTarget"
+      },
+      {
+        "lastProbeTime": "2026-10-02T21:39:40Z",
+        "lastTransitionTime": "2026-10-02T21:39:40Z",
+        "message": "Job has reached the specified backoff limit",
+        "reason": "BackoffLimitExceeded",
+        "status": "True",
+        "type": "Failed"
+      }
+    ],
+    "failed": 1,
+    "ready": 0,
+    "startTime": "2026-10-02T21:39:29Z",
+    "terminating": 0,
+    "uncountedTerminatedPods": {}
+  },
+  "containerLog": "41f658bc-8a4b-4cc8-8bc7-10b69df7dafb\tRESTORED\nCode: 210. DB::NetException: Connection refused (mp23-independent-ch:9000). (NETWORK_ERROR)\n\n",
+  "knownContent": {
+    "source": "1\tindependent-cloud-ch-v1\n2\tindependent-cloud-ch-after",
+    "restored": "1\tindependent-cloud-ch-v1"
+  },
+  "sourcePodUid": "7ec40808-e7a7-4987-b832-f1f288d11816",
+  "sourcePodRestartCount": 0,
+  "applyResult": {
+    "label": "clickhouse-restore-apply",
+    "exit": 124,
+    "seconds": 240.009
+  },
+  "resumeResult": {
+    "label": "clickhouse-terminal-resume",
+    "exit": 1,
+    "seconds": 15.227
+  },
+  "resumeOutput": "ambiguous tx-54c5c7d69b0ab82a81c50b6620b9b8cb70a368bcda125776806fa6b8c9acfc4f at op-33d491d160032129dfa325ed\n",
+  "terminalRecoveryDecision": {
+    "action": "abandon-partial-database-restore",
+    "operation": "op-33d491d160032129dfa325ed",
+    "review": "54c5c7d69b0ab82a81c50b6620b9b8cb70a368bcda125776806fa6b8c9acfc4f",
+    "transaction": "tx-54c5c7d69b0ab82a81c50b6620b9b8cb70a368bcda125776806fa6b8c9acfc4f",
+    "version": 1
+  },
+  "terminalRecoveryResult": {
+    "label": "clickhouse-terminal-recover",
+    "exit": 0,
+    "seconds": 22.531
+  },
+  "recoveryOutcome": "Explicit named terminal recovery releases history; original failed Job, its archive and scratch database remain. No RESTORE replay.",
+  "clientFlags": {
+    "acceptedVersion": "25.8",
+    "flags": [
+      "--connect_timeout=5",
+      "--send_timeout=5",
+      "--receive_timeout=5",
+      "--max_execution_time=5"
+    ],
+    "query": "SELECT 1",
+    "exit": 0,
+    "result": "1"
+  }
+}

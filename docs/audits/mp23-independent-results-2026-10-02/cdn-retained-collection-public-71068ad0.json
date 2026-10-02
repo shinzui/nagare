@@ -1,0 +1,29 @@
+{
+  "sourceRevision": "71068ad04ece744ec70dab49f5258a42a97298c0",
+  "sourceHashes": {
+    "cli/nagare-dsl/src/Nagare/Resource/Inventory.hs": "c19b7caf612133c3ddfbe030aa302bee74ef26e255c4a7cb5ce249c081f58c3a",
+    "cli/nagarectl/app/Nagare/Cli/Inventory/CdnHistory.hs": "0423eead4b8dceac14795b1471fb542ae580511a46ff65fb4b194a87b56c7bdf",
+    "cli/nagarectl/src/Nagare/Inventory/Adapters/Cdn.hs": "a774b05c0be151978b3d01ac27615281095686d9015659e3c5193c049f72dba0",
+    "cli/nagarectl/src/Nagare/Inventory/Adapters/Cloudflare.hs": "e78743e272ee86f812b2a9bc2e3d0548adce660a938b4cd0a22f07ba2a3addb6",
+    "cli/nagarectl/src/Nagare/Inventory/Adapters/CdnRuntime.hs": "16041399bce4a3b52ad54c8212d47f08faedaec099652ced02e8c07e5cda0e1a",
+    "cli/nagarectl/src/Nagare/Inventory/Adapters/CloudflareRuntime.hs": "5eaa2100a8c4985a7bf42a6e54cd8fc584b9699734603ef9eda6b3145d0593bf",
+    "scripts/test-cdn-purge-public.py": "7e11729ee2e8cc36651c481c3dd511e5f9e7597ec77362fdebd2906d46559287"
+  },
+  "commands": [
+    "python3 scripts/test-cdn-purge-public.py --nagarectl <built CLI> --collection --last-contributor",
+    "python3 scripts/test-cdn-purge-public.py --nagarectl <built CLI> --google-dns --last-contributor"
+  ],
+  "outcomes": [
+    "Both commands passed using independent disposable TLS/provider recorder fixtures",
+    "Retained same-owner DNS/route hostname pair resolves; changed record identity/value refuses",
+    "Lost DELETE/POST acknowledgement recovers from confirmed absence without resend",
+    "Last-workload contribution withdrawal preserves exact platform-owned Retain namespace and neighbors"
+  ],
+  "sourceReview": "Namespace carry strips only declaration equality with regenerated namespace and retains source=contribution, NamespaceSpec Nothing, Retain, Platform owner. Paired claim exception requires exact same-owner DNS and DomainMapping hostname/dependency. Historical DNS selection rereads digest-bound published owner and exact resource. No new blocker.",
+  "liveProviderMutation": false,
+  "binaryBinding": "Built CLI reported ready by implementation owner at71068ad0; binary hash was not captured during these two invocations and later rebuild replaced it. Final immutable candidate rerun remains required.",
+  "logs": {
+    "cloudflare": "Artifacts: /var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/mp23-cdn-purge-public-y333kvs9\nResolving dependencies...\nPublic Cloudflare DNS collection passed: retained hostname pair, changed-record refusal, exact deletion, lost-response recovery without resend, and preserved namespace/neighbors.\n",
+    "google": "Artifacts: /var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/mp23-cdn-purge-public-udvsmq7r\nResolving dependencies...\nPublic Google DNS collection passed: retained hostname pair, changed-record refusal, exact deletion, lost-response recovery without resend, and preserved namespace/neighbors.\n"
+  }
+}

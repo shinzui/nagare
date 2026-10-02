@@ -325,3 +325,75 @@ The [independently executed interrupted-upload regression](mp23-independent-resu
 also passes: failed stored-byte readback yields no signed receipt, and retrying
 an orphan object refuses. These isolated restore assertions do not establish
 live-target cutover or full source-cluster-unavailable recovery for every engine.
+
+## Cloud volume recovery and remaining ClickHouse verification
+
+The [independent cloud volume proof](mp23-independent-results-2026-10-02/cloud-volume-recovery-ec2e1cd4.json)
+uses the installed ec2 candidate and the eligible ep150 fixture. A reviewed
+linux/amd64 image publication and application volume are followed by a manual
+GCS snapshot and isolated scratch-PVC restore. A disposable nonroot verifier
+mounts only the exact scratch claim read-only, uses the observed image digest,
+and reads the original file. Its UID/version-bound cleanup changes no shared
+history. The source Pod/PVC remain intact with their later file contents; all
+31 original scope revisions remain exact. This is a manual volume snapshot and
+isolated content restore, without provider-version pins or a scheduled-volume
+recovery-point claim. Intermittent project-number lookup refusals stopped planning
+before effects; later real ownership lookups succeeded without a guard override.
+
+A genuine automatic ClickHouse GCS run is ingested after exact producer cleanup.
+Its restore writes the correct isolated data but the immediate follow-up SELECT
+hits a transient connection refusal, making the Job terminal Failed. Independent
+queries confirm backed-up and later source rows. Original-transaction resume
+stops stably ambiguous; explicit digest-bound terminal recovery releases history
+while preserving the failed Job, archive and scratch database. [F22 evidence](mp23-independent-results-2026-10-02/cloud-clickhouse-terminal-verification-ec2e1cd4.json)
+is retained. The repaired source's [six focused tests](mp23-independent-results-2026-10-02/clickhouse-retry-regressions.txt)
+independently pass in 1.67s, and the native 25.8 client accepts the bounded timeout
+flags. The installed repaired-candidate continuation below closes the native gap.
+
+The [public Google and Cloudflare collection proof](mp23-independent-results-2026-10-02/cdn-retained-collection-public-71068ad0.json)
+independently passes changed-record refusal, exact retained hostname pairing,
+lost-response recovery without resend, and preserved namespaces/neighbors after
+last-contributor withdrawal. Source review confirms narrowly recognized namespace
+carry and digest-bound historical DNS ownership. These use isolated provider
+recorders; final installed/native candidate bindings remain separate.
+
+A local evidence-selection correction replaces the ClickHouse consumer metadata
+accidentally taken from an earlier Redis scope in the same review. The collector
+now selects the exact engine/owner scope, and the actual completed ClickHouse Job
+UID and restored row were independently checked again. The local recovery result
+records this correction and its updated hash; native product behavior was unchanged.
+
+## Installed ClickHouse repair, authenticated Redis, and operation recovery
+
+The [e625 local gate](mp23-independent-results-2026-10-02/local-platform-candidate-e6255e6f.json)
+passes 213 verification operations with zero provider mutations and unchanged
+contents for all 29 accepted scopes. Its public plan/apply take 46.315s/64.086s.
+
+The [cloud engine evidence](mp23-independent-results-2026-10-02/cloud-engine-recovery-e6255e6f.json)
+binds exact accepted GCS generations, producer cleanup, reviewed consumers and
+known-content queries. ClickHouse's repaired installed consumer experiences the
+same transient connection refusal after one successful RESTORE; its bounded
+read-only retry completes. The new isolated database contains the backed-up row,
+the source retains its later row, and the prior failed Job/database remain intact.
+All 42 previous scope revisions survive, including the original 31 fixture scopes.
+Neighboring PostgreSQL Pod UIDs and known rows remain exact. F22 is Closed.
+
+Redis's second automatic run uses an authenticated seed and restores that exact
+value into a separate server while the live source retains its later value. The
+first cloud Redis seed omitted authentication; Redis returned NOAUTH with exit
+zero. That first receipt/restore represents an empty backup and is excluded from
+known-content claims. Corrected evidence uses the second genuine automatic run.
+Its accepted-only freshness check warns at age 1806s, despite a newer verified
+upload awaiting ingestion. Automatic upload and reviewed manual acceptance are
+distinct. These results prove observable recovery-point health/warnings, not
+unattended continuous one-hour RPO or critical-workload production readiness.
+
+The [independent public operation driver](mp23-independent-results-2026-10-02/operation-driver-e6255e6f.json)
+passes 11 fresh-process commands on an isolated build. Absent, terminal, running,
+completed and changed-source states behave correctly; explicit terminal recovery
+remains reachable and completed replay performs no provider IO. The probe-only
+overlay now imports the extracted Execute.Journal helper and disambiguates the
+new BackupReceipt memory import; production source is unchanged. F12/F13 close.
+F09 retains its finite separate retained-source CLI verification requirement.
+New scheduled-prune admission independently refuses before effects. No real
+provider deletion or newly supported prune mutation is claimed.

@@ -1,0 +1,12 @@
+nagarectl
+  Nagare.Database.Backup/Restore (EP-47)
+    Job / CronJob renderers
+      ClickHouse producer stages a database ZIP from its source PVC: OK
+    restore
+      ClickHouse transient verification retries only SELECT:         OK (0.66s)
+      ClickHouse unavailable verification preserves archive:         OK (0.41s)
+      ClickHouse missing scratch database preserves archive:         OK (0.42s)
+      ClickHouse failed RESTORE never enters verification:           OK (0.17s)
+      reviewed ClickHouse scratch restores a pinned database ZIP:    OK
+
+All 6 tests passed (1.67s)

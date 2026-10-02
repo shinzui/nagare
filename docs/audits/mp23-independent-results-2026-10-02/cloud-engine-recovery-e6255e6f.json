@@ -1,0 +1,293 @@
+{
+  "context": {
+    "identity": "ep150-preview",
+    "project": "tan-ng-labs"
+  },
+  "transport": "off-cluster GCS, accepted exact object and receipt generations",
+  "engines": {
+    "redis": {
+      "producerUid": "28a82adb-9d97-45c9-b197-d2eb8c466485",
+      "producerAbsent": true,
+      "acceptedReceiptFields": {
+        "scheduled.backup.id": "28a82adb-9d97-45c9-b197-d2eb8c466485",
+        "scheduled.backup.object": "gs://tan-ng-labs-ep150-pmkjjpp-backups/databases/mp23-independent-redis/28a82adb-9d97-45c9-b197-d2eb8c466485.rdb.gz",
+        "scheduled.backup.object.length": "220",
+        "scheduled.backup.object.sha256": "ad42f244dd4d401aaa65d35ca79aa99e220e20c81430798e212afdf022a56e5d",
+        "scheduled.backup.object.version": "1790977516029842",
+        "scheduled.backup.receipt": "gs://tan-ng-labs-ep150-pmkjjpp-backups/databases/mp23-independent-redis/28a82adb-9d97-45c9-b197-d2eb8c466485.rdb.gz.receipt.json",
+        "scheduled.backup.receipt.digest": "a17f43484f43c477a9debde83af7a16e2bb2a440a6d6ff49fd6c4a1065593966",
+        "scheduled.backup.receipt.length": "763",
+        "scheduled.backup.receipt.version": "1790977529072617",
+        "scheduled.backup.recovery.point": "2026-10-02T21:45:02Z",
+        "scheduled.backup.schedule": "standalone:database-mp23-independent-redis/mp23-independent-redis/backup",
+        "scheduled.backup.schedule.revision": "1974a3a63452975d999e4144c6f6f4759033021f84ef1a5b20c9429d818a909d",
+        "scheduled.backup.schedule.uid": "be4781e8-4b27-45d0-bfb2-953e81a438e9",
+        "scheduled.backup.signing": "standalone:database-mp23-independent-redis/mp23-independent-redis/backup-signing-key",
+        "scheduled.backup.signing.uid": "7ba8a2b9-5524-4b28-8a1d-4cf757445fc8",
+        "scheduled.backup.source.generation": "1",
+        "scheduled.backup.source.pvc": "standalone:database-mp23-independent-redis/mp23-independent-redis/pvc",
+        "scheduled.backup.source.pvc.uid": "8c2bcd14-4f22-4aec-8648-f21d589504ea",
+        "scheduled.backup.source.revision": "9f2aef86af275f649e89ae8f76abdf518a4e65752f1e2dc95d2097fb781b9347",
+        "scheduled.backup.source.scope": "standalone:database-mp23-independent-redis",
+        "scheduled.backup.source.statefulset": "standalone:database-mp23-independent-redis/mp23-independent-redis/statefulset",
+        "scheduled.backup.source.statefulset.uid": "829f792d-090c-4acc-b52e-1d55572ee38d"
+      },
+      "restoreFields": {
+        "restore.backup.id": "28a82adb-9d97-45c9-b197-d2eb8c466485",
+        "restore.backup.object": "gs://tan-ng-labs-ep150-pmkjjpp-backups/databases/mp23-independent-redis/28a82adb-9d97-45c9-b197-d2eb8c466485.rdb.gz",
+        "restore.backup.object.version": "1790977516029842",
+        "restore.backup.receipt": "gs://tan-ng-labs-ep150-pmkjjpp-backups/databases/mp23-independent-redis/28a82adb-9d97-45c9-b197-d2eb8c466485.rdb.gz.receipt.json",
+        "restore.backup.receipt.digest": "a17f43484f43c477a9debde83af7a16e2bb2a440a6d6ff49fd6c4a1065593966",
+        "restore.backup.receipt.version": "1790977529072617",
+        "restore.backup.revision": "375ec6c07c47da9174eaa83dfaa97182b4222768bcfa68cbb529e1ef3a2b070c",
+        "restore.backup.scope": "standalone:database-scheduled-receipt-personal-mp23-independent-redis-28a82adb-9d97-45c9-b197-d2eb8c466485",
+        "restore.backup.sha256": "ad42f244dd4d401aaa65d35ca79aa99e220e20c81430798e212afdf022a56e5d",
+        "restore.database": "mp23-independent-redis",
+        "restore.id": "cloudredisv2",
+        "restore.namespace": "personal",
+        "restore.target.database": "mp23-independent-redis-restore-cloudredisv2",
+        "restore.target.generation": "1",
+        "restore.target.pvc": "standalone:database-mp23-independent-redis/mp23-independent-redis/pvc",
+        "restore.target.pvc.uid": "8c2bcd14-4f22-4aec-8648-f21d589504ea",
+        "restore.target.revision": "9f2aef86af275f649e89ae8f76abdf518a4e65752f1e2dc95d2097fb781b9347",
+        "restore.target.scope": "standalone:database-mp23-independent-redis",
+        "restore.target.statefulset": "standalone:database-mp23-independent-redis/mp23-independent-redis/statefulset",
+        "restore.target.statefulset.uid": "829f792d-090c-4acc-b52e-1d55572ee38d"
+      },
+      "ingestionReview": {
+        "sha256": "d3aef45d88aafd4e563622f74a2e62d2f9eaaa549118f7a4fb28b87bf6ee37f6",
+        "priorScopesPreserved": 40,
+        "operationCount": 2
+      },
+      "restoreReview": {
+        "sha256": "fcaaac6c6b26f4e4a847f754b7489bfd44b8e382ca1f9d310d6aead1f7dbda29",
+        "priorScopesPreserved": 41,
+        "operationCount": 5
+      },
+      "completedRestoreJob": {
+        "name": "nagare-dbrestore-mp23-independent-redis-cloudredisv2",
+        "uid": "b5f3efac-be3e-48c0-a588-b916a6545b25",
+        "completedAt": "2026-10-02T22:08:22Z"
+      },
+      "candidate": "ec2e1cd434855b86b16a6ffe8b0a0da24458668e",
+      "knownContent": {
+        "source": {
+          "pod": "mp23-independent-redis-0",
+          "uid": "c44ff6ef-a72a-49c2-b08c-c5aecf3b5bb5",
+          "value": "independent-cloud-redis-after-v2"
+        },
+        "restored": {
+          "pod": "mp23-independent-redis-restore-cloudredisv2-0",
+          "uid": "516110b4-c9d1-4b30-816e-a80cfbaebf9b",
+          "value": "independent-cloud-redis-v2"
+        }
+      },
+      "producerCleanup": {
+        "producers": [
+          {
+            "database": "mp23-independent-redis",
+            "producerUid": "28a82adb-9d97-45c9-b197-d2eb8c466485",
+            "podUid": "489f4ef3-24fe-4620-be6c-94b84ec9d37e",
+            "conditionalDelete": {
+              "apiVersion": "v1",
+              "kind": "DeleteOptions",
+              "propagationPolicy": "Background",
+              "preconditions": {
+                "uid": "28a82adb-9d97-45c9-b197-d2eb8c466485",
+                "resourceVersion": "596930"
+              }
+            },
+            "scheduledTime": "2026-10-02T21:45:00Z"
+          }
+        ],
+        "sharedHeadExact": true,
+        "otherNativeUidsExact": true,
+        "removedProducerAndPodCount": 2
+      },
+      "ingestionApply": {
+        "label": "redis-v2-apply",
+        "exit": 0,
+        "seconds": 48.953
+      },
+      "restoreApply": {
+        "label": "redis-v2-restore-apply",
+        "exit": 0,
+        "seconds": 59.548
+      },
+      "freshnessOutput": "Scheduled retention: keep=7 and expiry are unenforced; backups are retained by default.\n202f9772-7741-4ad8-8a07-1deeb1ee93d5  verified; ingestion pending\n28a82adb-9d97-45c9-b197-d2eb8c466485  accepted standalone:database-scheduled-receipt-personal-mp23-independent-redis-28a82adb-9d97-45c9-b197-d2eb8c466485\nb5e80f57-a389-482d-828e-ce6135957c67  accepted standalone:database-scheduled-receipt-personal-mp23-independent-redis-b5e80f57-a389-482d-828e-ce6135957c67\nRecovery-point freshness: warning; age=1806s; one-hour objective at risk\n",
+      "freshnessExit": 1,
+      "evidenceCorrection": "First Redis cloud seed commands lacked authentication; the earlier first receipt/restored server contain an empty backup and are not claimed as known-content proof. This second genuine automatic run uses authenticated seed/readback."
+    },
+    "clickhouse": {
+      "producerUid": "d8457fd9-35b5-4f78-a7b2-f44e5f9a9d3d",
+      "producerAbsent": true,
+      "acceptedReceiptFields": {
+        "scheduled.backup.id": "d8457fd9-35b5-4f78-a7b2-f44e5f9a9d3d",
+        "scheduled.backup.object": "gs://tan-ng-labs-ep150-pmkjjpp-backups/databases/mp23-independent-ch/d8457fd9-35b5-4f78-a7b2-f44e5f9a9d3d.zip.gz",
+        "scheduled.backup.object.length": "2219",
+        "scheduled.backup.object.sha256": "866fd9daa5479d301ba15bd8d31148256b2877468a241c3b585f42c6f491e41f",
+        "scheduled.backup.object.version": "1790976611291538",
+        "scheduled.backup.receipt": "gs://tan-ng-labs-ep150-pmkjjpp-backups/databases/mp23-independent-ch/d8457fd9-35b5-4f78-a7b2-f44e5f9a9d3d.zip.gz.receipt.json",
+        "scheduled.backup.receipt.digest": "dff1760d585787ec186551c2fc2785ef8a7226aef3b62dd5cd91371abdefcea7",
+        "scheduled.backup.receipt.length": "759",
+        "scheduled.backup.receipt.version": "1790976629683906",
+        "scheduled.backup.recovery.point": "2026-10-02T21:30:02Z",
+        "scheduled.backup.schedule": "standalone:database-mp23-independent-ch/mp23-independent-ch/backup",
+        "scheduled.backup.schedule.revision": "cd720045e1685ac3c7a70889fd05f015a79c5164b016393cc2eca70c6c6997fa",
+        "scheduled.backup.schedule.uid": "207f7afd-1ee6-4826-a54e-2407141418bd",
+        "scheduled.backup.signing": "standalone:database-mp23-independent-ch/mp23-independent-ch/backup-signing-key",
+        "scheduled.backup.signing.uid": "5f62b8a4-12fe-46c8-9037-f1f7dffb09fa",
+        "scheduled.backup.source.generation": "1",
+        "scheduled.backup.source.pvc": "standalone:database-mp23-independent-ch/mp23-independent-ch/pvc",
+        "scheduled.backup.source.pvc.uid": "1fe03fa9-7b76-40a8-bc97-72fae3850838",
+        "scheduled.backup.source.revision": "25cb8c55fc35397358ecc08736533ec451bbd7746005246cffb886dedd8b8350",
+        "scheduled.backup.source.scope": "standalone:database-mp23-independent-ch",
+        "scheduled.backup.source.statefulset": "standalone:database-mp23-independent-ch/mp23-independent-ch/statefulset",
+        "scheduled.backup.source.statefulset.uid": "92ecdaf5-535f-4ab9-a90a-d399728e7036"
+      },
+      "restoreFields": {
+        "restore.backup.id": "d8457fd9-35b5-4f78-a7b2-f44e5f9a9d3d",
+        "restore.backup.object": "gs://tan-ng-labs-ep150-pmkjjpp-backups/databases/mp23-independent-ch/d8457fd9-35b5-4f78-a7b2-f44e5f9a9d3d.zip.gz",
+        "restore.backup.object.version": "1790976611291538",
+        "restore.backup.receipt": "gs://tan-ng-labs-ep150-pmkjjpp-backups/databases/mp23-independent-ch/d8457fd9-35b5-4f78-a7b2-f44e5f9a9d3d.zip.gz.receipt.json",
+        "restore.backup.receipt.digest": "dff1760d585787ec186551c2fc2785ef8a7226aef3b62dd5cd91371abdefcea7",
+        "restore.backup.receipt.version": "1790976629683906",
+        "restore.backup.revision": "91748f456c98dc8510086d3d363c581a4d8ef5fa5243a031d414e48ab0869e0d",
+        "restore.backup.scope": "standalone:database-scheduled-receipt-personal-mp23-independent-ch-d8457fd9-35b5-4f78-a7b2-f44e5f9a9d3d",
+        "restore.backup.sha256": "866fd9daa5479d301ba15bd8d31148256b2877468a241c3b585f42c6f491e41f",
+        "restore.database": "mp23-independent-ch",
+        "restore.id": "cloudchfixed",
+        "restore.namespace": "personal",
+        "restore.target.database": "mp23-independent-ch_restore_cloudchfixed",
+        "restore.target.generation": "1",
+        "restore.target.pvc": "standalone:database-mp23-independent-ch/mp23-independent-ch/pvc",
+        "restore.target.pvc.uid": "1fe03fa9-7b76-40a8-bc97-72fae3850838",
+        "restore.target.revision": "25cb8c55fc35397358ecc08736533ec451bbd7746005246cffb886dedd8b8350",
+        "restore.target.scope": "standalone:database-mp23-independent-ch",
+        "restore.target.statefulset": "standalone:database-mp23-independent-ch/mp23-independent-ch/statefulset",
+        "restore.target.statefulset.uid": "92ecdaf5-535f-4ab9-a90a-d399728e7036"
+      },
+      "ingestionReview": {
+        "sha256": "cc37ca80e49a5676a00d081d1007d2f6acbfab558b0e617f15632952cf789115",
+        "priorScopesPreserved": 37,
+        "operationCount": 2
+      },
+      "restoreReview": {
+        "sha256": "eddd869a1de2e897ec465650c0c1ff034e200443de70d62dac320c189fe32c14",
+        "priorScopesPreserved": 42,
+        "operationCount": 2
+      },
+      "completedRestoreJob": {
+        "name": "nagare-dbrestore-mp23-independent-ch-cloudchfixed",
+        "uid": "46653fed-f092-4f7d-9485-9d2f0cdcb4c8",
+        "completedAt": "2026-10-02T22:16:09Z"
+      },
+      "candidate": "e6255e6f2106eda0f98cea0a717e37f354604dd0",
+      "nativeProof": {
+        "knownContent": {
+          "source": {
+            "database": "default",
+            "rows": [
+              "1\tindependent-cloud-ch-v1",
+              "2\tindependent-cloud-ch-after"
+            ]
+          },
+          "fixed": {
+            "database": "mp23-independent-ch_restore_cloudchfixed",
+            "rows": [
+              "1\tindependent-cloud-ch-v1"
+            ]
+          },
+          "originalFailed": {
+            "database": "mp23-independent-ch_restore_cloudchv1",
+            "rows": [
+              "1\tindependent-cloud-ch-v1"
+            ]
+          }
+        },
+        "sourcePodUid": "7ec40808-e7a7-4987-b832-f1f288d11816",
+        "oldFailedJobUid": "178731af-2b0e-4fdb-bc13-fb04c0e9575b",
+        "newCompletedJobUid": "46653fed-f092-4f7d-9485-9d2f0cdcb4c8",
+        "newCompletedAt": "2026-10-02T22:16:09Z",
+        "newJobLog": "94341cec-e37c-4e8e-82af-14dff07a3dcc\tRESTORED\nCode: 210. DB::NetException: Connection refused (mp23-independent-ch:9000). (NETWORK_ERROR)\n\n",
+        "priorScopesPreserved": 42,
+        "head": {
+          "generation": 963,
+          "sequence": 808,
+          "activeTransaction": null,
+          "executorClaim": null
+        },
+        "acceptedScopeCount": 43
+      },
+      "producerCleanup": {
+        "producers": [
+          {
+            "database": "mp23-independent-redis",
+            "producerUid": "b5e80f57-a389-482d-828e-ce6135957c67",
+            "podUid": "cc796dd3-2b6a-4e44-8ae6-318c6ad72cb0",
+            "conditionalDelete": {
+              "apiVersion": "v1",
+              "kind": "DeleteOptions",
+              "propagationPolicy": "Background",
+              "preconditions": {
+                "uid": "b5e80f57-a389-482d-828e-ce6135957c67",
+                "resourceVersion": "594133"
+              }
+            },
+            "scheduledTime": "2026-10-02T21:30:00Z"
+          },
+          {
+            "database": "mp23-independent-ch",
+            "producerUid": "d8457fd9-35b5-4f78-a7b2-f44e5f9a9d3d",
+            "podUid": "0c2866b4-deca-456d-9ab8-8ae23512f0bf",
+            "conditionalDelete": {
+              "apiVersion": "v1",
+              "kind": "DeleteOptions",
+              "propagationPolicy": "Background",
+              "preconditions": {
+                "uid": "d8457fd9-35b5-4f78-a7b2-f44e5f9a9d3d",
+                "resourceVersion": "594049"
+              }
+            },
+            "scheduledTime": "2026-10-02T21:30:00Z"
+          }
+        ],
+        "sharedHeadExact": true,
+        "otherNativeUidsExact": true,
+        "removedProducerAndPodCount": 4
+      },
+      "restoreApply": {
+        "label": "clickhouse-fixed-apply",
+        "exit": 0,
+        "seconds": 43.614
+      },
+      "actualTransientObserved": true,
+      "restoreStatements": 1,
+      "readOnlyRetryRecovered": true
+    }
+  },
+  "originalScopesPreserved": 31,
+  "neighbors": {
+    "mp23-pg-a": {
+      "uid": "9a89af09-8b7a-4a46-8ab9-c6eaa1563151",
+      "row": "1|mp23-after-backup"
+    },
+    "mp23-pg-b": {
+      "uid": "01fee369-b65e-4165-adcb-b6467ad3f666",
+      "row": "1|mp23-untouched-app-b"
+    }
+  },
+  "head": {
+    "generation": 963,
+    "sequence": 808,
+    "activeTransaction": null,
+    "executorClaim": null
+  },
+  "acceptedScopeCount": 43,
+  "limits": [
+    "Automatic upload; receipt acceptance remains reviewed and manual",
+    "Freshness is accepted-only and warns at age 1806s despite a newer verified upload awaiting ingestion",
+    "No unattended continuous one-hour RPO claim",
+    "Isolated restore; no public source-cluster-unavailable restore or live cutover claim"
+  ]
+}

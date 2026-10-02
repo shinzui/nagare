@@ -39,8 +39,8 @@ Implementation owner: existing session `01a0e893-337f-7b82-ac5d-16f41bf5ce21` (I
 | [F09](#f09) | P1 | Scheduled-prune preflight prevents recovery after admission | Verifying | EP-159 / EP-153 |
 | [F10](#f10) | P2 | Explaining one resource observes the whole context | Verifying | EP-153 |
 | [F11](#f11) | Build | Conditional-upload optimization has ambiguous try exception type | Closed | EP-156 |
-| [F12](#f12) | P1 | A later operation’s preflight blocks recovery of its ambiguous prerequisite | Verifying | EP-153 / EP-159 |
-| [F13](#f13) | P1 | Ordinary executor recovery has no terminal-failure branch | Verifying | EP-153 / EP-159 |
+| [F12](#f12) | P1 | A later operation’s preflight blocks recovery of its ambiguous prerequisite | Closed | EP-153 / EP-159 |
+| [F13](#f13) | P1 | Ordinary executor recovery has no terminal-failure branch | Closed | EP-153 / EP-159 |
 | [F14](#f14) | P1 | Initial Knative activator readiness blocks its uncreated autoscaler | Verifying | EP-156 |
 | [F15](#f15) | P1 | Patched certificate controller lacks refreshed private-image credentials | Verifying | EP-156 / EP-154 |
 | [F16](#f16) | P1 | Unready application creation cannot yield to a corrected reviewed configuration | Verifying | EP-153 / EP-156 |
@@ -49,6 +49,7 @@ Implementation owner: existing session `01a0e893-337f-7b82-ac5d-16f41bf5ce21` (I
 | [F19](#f19) | P1 | Rendered pinned GCS restore omits download generations | Verifying | EP-160 / EP-156 |
 | [F20](#f20) | P1 | Knative collection cannot orphan controller descendants | Closed | EP-153 / EP-156 |
 | [F21](#f21) | P1 | HTTP redirect automatically resubmits reviewed CDN purge | Closed | EP-158 |
+| [F22](#f22) | P1 | ClickHouse restore fails after a transient read-only verification refusal | Closed | EP-160 |
 
 F01 and F11 retain their [earlier independent closure](mp23-verification.md). F02, F03, F04, F05, F06, F07, F08 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). Other entries retain their status shown above.
 
@@ -322,6 +323,14 @@ F01 and F11 retain their [earlier independent closure](mp23-verification.md). F0
 
 **Production rescue update (2026-09-29):** The shared driver and unified CLI registry are implemented. [The retained production proof](mp23-rescue-proof.md) includes same-history before/after CLI results, completed/interrupted/terminal/changed-source cases, zero provider mutations, and 935 passing tests. Original history and source checks remain. Status is Verifying; this implementing session does not independently close the finding. Real deletion, receipt-only cleanup, and separate retained-source CLI cases are not claimed.
 
+
+**Independent checkpoint (2026-10-02):** The detached `e6255e6f` public driver
+and new deferred-admission regression independently pass all 11 saved-history
+commands plus the no-effects admission test. [Evidence](mp23-independent-results-2026-10-02/operation-driver-e6255e6f.json).
+The fixture models terminal partial-prune state without executing provider deletion.
+The separate exact retained-source registry path remains to be independently
+exercised before closing F09; no new scheduled-prune mutation is authorized.
+
 ## F10
 
 **Explaining one resource observes the whole context** — P2; **Verifying**; owner EP-153.
@@ -402,7 +411,7 @@ Initial ad-hoc reproduction sources are archived under [mp23-reproductions](mp23
 
 ## F12
 
-**A later operation’s preflight blocks recovery of its ambiguous prerequisite** — P1; **Verifying**; owner EP-153 / EP-159.
+**A later operation’s preflight blocks recovery of its ambiguous prerequisite** — P1; **Closed**; owner EP-153 / EP-159.
 
 **Location:** cli/nagarectl/src/Nagare/Inventory/Execute.hs, `resumeTransactionWithTakeover` and `preflightOperations`.
 
@@ -414,9 +423,21 @@ Initial ad-hoc reproduction sources are archived under [mp23-reproductions](mp23
 
 **Production rescue update (2026-09-29):** The shared driver and unified CLI registry are implemented. [The retained production proof](mp23-rescue-proof.md) includes same-history before/after CLI results, completed/interrupted/terminal/changed-source cases, zero provider mutations, and 935 passing tests. Original history and source checks remain. Status is Verifying; this implementing session does not independently close the finding. Real deletion, receipt-only cleanup, and separate retained-source CLI cases are not claimed.
 
+
+**Independent closure (2026-10-02):** A detached `e6255e6f` build independently
+passes the actual public CLI two-operation saved-review driver: absent, failed,
+running and completed prerequisites; explicit terminal recovery; changed source
+UID refusal; and fresh-process completion replay. All 11 commands preserve the
+expected active/history state and issue only recorded GETs. Failed recovery stops
+ambiguously without exception or resend; completed prerequisites permit dependent
+verification. New scheduled-prune admission independently refuses before effects.
+[Candidate-bound results and probe binding](mp23-independent-results-2026-10-02/operation-driver-e6255e6f.json).
+This closes F12 for the supported recovery contract. Synthetic admitted history
+and provider recorders do not establish live pruning or retained-source cleanup.
+
 ## F13
 
-**Ordinary executor recovery has no terminal-failure branch** — P1; **Verifying**; owner EP-153 / EP-159.
+**Ordinary executor recovery has no terminal-failure branch** — P1; **Closed**; owner EP-153 / EP-159.
 
 **Location:** cli/nagarectl/src/Nagare/Inventory/Execute.hs, `executeOperations`'s `recoverOrStop` decision match.
 
@@ -427,6 +448,18 @@ Initial ad-hoc reproduction sources are archived under [mp23-reproductions](mp23
 **Verification:** Independent closure remains pending; the production candidate and regression evidence are recorded below.
 
 **Production rescue update (2026-09-29):** The shared driver and unified CLI registry are implemented. [The retained production proof](mp23-rescue-proof.md) includes same-history before/after CLI results, completed/interrupted/terminal/changed-source cases, zero provider mutations, and 935 passing tests. Original history and source checks remain. Status is Verifying; this implementing session does not independently close the finding. Real deletion, receipt-only cleanup, and separate retained-source CLI cases are not claimed.
+
+
+**Independent closure (2026-10-02):** A detached `e6255e6f` build independently
+passes the actual public CLI two-operation saved-review driver: absent, failed,
+running and completed prerequisites; explicit terminal recovery; changed source
+UID refusal; and fresh-process completion replay. All 11 commands preserve the
+expected active/history state and issue only recorded GETs. Failed recovery stops
+ambiguously without exception or resend; completed prerequisites permit dependent
+verification. New scheduled-prune admission independently refuses before effects.
+[Candidate-bound results and probe binding](mp23-independent-results-2026-10-02/operation-driver-e6255e6f.json).
+This closes F13 for the supported recovery contract. Synthetic admitted history
+and provider recorders do not establish live pruning or retained-source cleanup.
 
 ## F21
 
@@ -458,3 +491,45 @@ receipt replays do not resend. Separate adversarial ruleset ID/version checks
 also refuse before a whole-zone request. [Corrected source/binary proof](mp23-independent-results-2026-10-02/cdn-purge-redirect-after.json).
 This closes the transport finding on the built source; final installed release
 candidate binding remains a separate acceptance gate.
+
+## F22
+
+**ClickHouse restore fails after a transient read-only verification refusal** — P1; **Closed**; owner EP-160.
+
+**Location:** `Nagare.Database.Restore.verifiedRestoreShell` ClickHouse branch.
+
+**Independent native evidence (2026-10-02):** Installed ec2e1cd4 ingests a genuine
+automatic signed-v5 GCS receipt after producer cleanup. Its isolated restore
+prints `RESTORED`, then the immediate database-existence SELECT fails with
+connection refused. The Job becomes terminal Failed. An independent authenticated
+query confirms the exact backed-up row in the scratch database and both rows
+in the later live source; the source Pod UID is unchanged with zero restarts.
+The exact cause of the transient connection gap is not established.
+The bounded caller stops at 240s; original-transaction resume stops stably ambiguous
+without replay or exception. Digest-bound `abandon-partial-database-restore`
+succeeds, preserving the failed Job, archive and scratch database.
+[Candidate, receipt-consumer review, physical identities and outputs](mp23-independent-results-2026-10-02/cloud-clickhouse-terminal-verification-ec2e1cd4.json).
+
+**Required implementation/verification:** Bound and retry only the post-RESTORE
+read-only verification, with per-query timeouts. RESTORE must execute once; exhausted
+verification must preserve archive/database and fail. Independently test transient
+and permanent query failures, then consume the same accepted exact GCS receipt
+into a new isolated destination with a repaired installed candidate and verify
+known content plus preserved source/neighbor/failed-attempt identities.
+
+**Independent source verification (2026-10-02):** Revision `e6255e6f` executes
+RESTORE once and bounds six read-only SELECT attempts with per-query timeouts
+and two-second delays. The accepted native 25.8 client independently accepts
+all four timeout flags. Six focused rendered-shell/contract tests independently
+pass in 1.67s, including transient success, persistent refusal, missing database,
+failed RESTORE and archive-preserving replay refusal.
+
+**Independent native closure (2026-10-02):** The immutable installed `e6255e6f`
+passes the cp3 gate, then restores the same accepted exact GCS receipt into a new
+isolated destination. The real Job prints RESTORED once, encounters another
+connection refusal on its first verification query, and completes through the
+bounded read-only retry. Known-content queries verify the original row; the live
+source retains both rows. All 42 prior scope revisions, neighboring PostgreSQL
+Pod identities/rows, and the original failed Job/database are preserved.
+[Installed native before/after evidence](mp23-independent-results-2026-10-02/cloud-engine-recovery-e6255e6f.json).
+F22 is Closed; final release-candidate binding remains a separate gate.

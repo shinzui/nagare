@@ -16,7 +16,9 @@ source = repo / 'cli/nagarectl/src/Nagare/Inventory/Execute.hs'
 overlay = root / 'overlay/Nagare/Inventory/Execute.hs'
 overlay.parent.mkdir(parents=True)
 body = source.read_text()
-assert body.count('  ( AdmissionError (..)') == 1
+assert body.startswith('{-#') and 'module Nagare.Inventory.Execute\n  ( AdmissionError (..)' in body
+# Execute is now a facade; appendEvent lives in the extracted journal module.
+body = body.replace('import Nagare.Dsl.Prelude', 'import Nagare.Inventory.Execute.Journal (appendEvent)\nimport Nagare.Dsl.Prelude', 1)
 overlay.write_text(body.replace('  ( AdmissionError (..)', '  ( appendEvent\n  , AdmissionError (..)', 1))
 status_source = repo / 'cli/nagarectl/src/Nagare/Inventory/Status.hs'
 status_body = status_source.read_text()
@@ -40,7 +42,7 @@ assert plan_body.count('  , ReviewBundle\n') == 1
 # Match Cabal's explicit memory dependency when the interactive environment also
 # exposes ram. Only import qualification changes in these temporary copies.
 for relative in ['Nagare/Env/Store.hs', 'Nagare/Static/Webhook.hs',
-                 'Nagare/Inventory/Backup.hs', 'Nagare/Database/Secret.hs']:
+                 'Nagare/Inventory/Backup.hs', 'Nagare/Inventory/BackupReceipt.hs', 'Nagare/Database/Secret.hs']:
     original = repo / 'cli/nagarectl/src' / relative
     target = root / 'overlay' / relative
     target.parent.mkdir(parents=True, exist_ok=True)

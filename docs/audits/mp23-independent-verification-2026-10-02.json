@@ -33,7 +33,8 @@
     "F06",
     "F07",
     "F08",
-    "F20"
+    "F20",
+    "F21"
   ],
   "tests": {
     "objectGroup": {
@@ -159,7 +160,25 @@
     "docs/audits/mp23-independent-results-2026-10-02/fresh-root-host-ec2e1cd4.json": "87d418dccb1103a5111a95d159ebf07ef149e4d040bbfddab3e0109a45dd3332"
   },
   "localEngineRecovery": {
-    "docs/audits/mp23-independent-results-2026-10-02/local-engine-recovery-ec2e1cd4.json": "77c819edd176adfb0e1cfeb40e86979b74b0ee73a11b74a5328d7b381e8de459",
+    "docs/audits/mp23-independent-results-2026-10-02/local-engine-recovery-ec2e1cd4.json": "0047b4fac034a19775d217a54d603830d8fcd2a4542eb90c91dfe2a22696fb6b",
     "docs/audits/mp23-independent-results-2026-10-02/interrupted-upload-regression.txt": "d161d8124865419f1109ed6972c54cd9eaa3928cc415e2739dcc4380f7578a70"
+  },
+  "cloudVolumeAndCdnCheckpoint": {
+    "docs/audits/mp23-independent-results-2026-10-02/cdn-retained-collection-public-71068ad0.json": "da034bb3360c9f1685cf510c5fae1a8c1aaaa4bd4e6ca417d3f2ee0778efb85f",
+    "docs/audits/mp23-independent-results-2026-10-02/cloud-clickhouse-terminal-verification-ec2e1cd4.json": "6bf71006829b959b0442bcfdcd02069b1ea0108686428eef1ec1ffaa6e02f92e",
+    "docs/audits/mp23-independent-results-2026-10-02/clickhouse-retry-regressions.txt": "5bc465e802c180ed6dceba54afbb77fddea38657d46f23a59d47a748dc784c56",
+    "docs/audits/mp23-independent-results-2026-10-02/cloud-volume-recovery-ec2e1cd4.json": "87e9566a4fa9ea23caf9caa612008b15701435ba4f4232f6a839b7a7f2000b89"
+  },
+  "remainingClickHouseFinding": "F22 Closed on installed e6255e6f; final release candidate binding remains separate",
+  "installedE625Continuation": {
+    "docs/audits/mp23-independent-results-2026-10-02/cloud-engine-recovery-e6255e6f.json": "c62fef1f608663191987c022420da3f6cafff53a9dd541baf6283e98d6a17870",
+    "docs/audits/mp23-independent-results-2026-10-02/operation-driver-e6255e6f.json": "5b56a1a8c9f89abed600de9ce2510c21cd791d90957d5f9ca0963fc988b075b8",
+    "docs/audits/mp23-independent-results-2026-10-02/local-platform-candidate-e6255e6f.json": "53292c7a01b2207a1544b3df0ac24494f9db5b39ab604a78b89a6363b89f8599"
+  },
+  "independentRecoveryFindings": {
+    "F12": "Closed",
+    "F13": "Closed",
+    "F22": "Closed",
+    "F09": "Verifying: separate exact retained-source CLI path remains"
   }
 }

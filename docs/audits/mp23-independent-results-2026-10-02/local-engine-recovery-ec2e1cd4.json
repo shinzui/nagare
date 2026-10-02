@@ -109,34 +109,34 @@
         "scheduled.backup.source.statefulset.uid": "cbbcb434-81c9-445c-a010-bb3534544a7b"
       },
       "restoreFields": {
-        "restore.backup.id": "0841cd1d-3b51-484b-9a47-d26fee8b7672",
-        "restore.backup.object": "s3://nagare-backups/databases/mp23-independent-redis/0841cd1d-3b51-484b-9a47-d26fee8b7672.rdb.gz",
-        "restore.backup.object.version": "178b9bd1-7ac3-4644-9699-7fb958a6e0ac",
-        "restore.backup.receipt": "s3://nagare-backups/databases/mp23-independent-redis/0841cd1d-3b51-484b-9a47-d26fee8b7672.rdb.gz.receipt.json",
-        "restore.backup.receipt.digest": "50474c10d0386a0b40e419e3852a761e2997ae45964459fc2a6fedd9fe363d70",
-        "restore.backup.receipt.version": "e7e6ef39-2084-4bae-9320-a8e263f33be3",
-        "restore.backup.revision": "ceba3deef3f2054d09a2135ae254bfb51eb4dff305cb95bf75a804df087dd5db",
-        "restore.backup.scope": "standalone:database-scheduled-receipt-personal-mp23-independent-redis-0841cd1d-3b51-484b-9a47-d26fee8b7672",
-        "restore.backup.sha256": "4f5c8bbfd0d84ab9ff245123717a391cf92befc4756899e29191ff48dbefb13a",
-        "restore.database": "mp23-independent-redis",
-        "restore.id": "indredisv1",
+        "restore.backup.id": "00304a61-7d70-428b-bf0f-5651adb2d878",
+        "restore.backup.object": "s3://nagare-backups/databases/mp23-independent-ch/00304a61-7d70-428b-bf0f-5651adb2d878.zip.gz",
+        "restore.backup.object.version": "3ceb39c0-0681-4bfe-854a-1dcf5f8f9821",
+        "restore.backup.receipt": "s3://nagare-backups/databases/mp23-independent-ch/00304a61-7d70-428b-bf0f-5651adb2d878.zip.gz.receipt.json",
+        "restore.backup.receipt.digest": "c3496b058bfd33da911d425edffd844f877ab27f4a4dac707574f349019f7bcc",
+        "restore.backup.receipt.version": "56053ca3-b69d-4cac-bfc3-06801467931c",
+        "restore.backup.revision": "db31562418c18570e7ed0bcfe8767057506bca366bc7e982b4c703804886a763",
+        "restore.backup.scope": "standalone:database-scheduled-receipt-personal-mp23-independent-ch-00304a61-7d70-428b-bf0f-5651adb2d878",
+        "restore.backup.sha256": "01453f373f4a6ff7961477b9732866ce926fcbcbe1169ef8fd56c5d2b94ea32b",
+        "restore.database": "mp23-independent-ch",
+        "restore.id": "indchv1",
         "restore.namespace": "personal",
-        "restore.target.database": "mp23-independent-redis-restore-indredisv1",
+        "restore.target.database": "mp23-independent-ch_restore_indchv1",
         "restore.target.generation": "1",
-        "restore.target.pvc": "standalone:database-mp23-independent-redis/mp23-independent-redis/pvc",
-        "restore.target.pvc.uid": "fbdec3c6-f419-408f-82fb-d034053d637c",
-        "restore.target.revision": "ca57a56b88425a4a141c271aa36cb99303e51003c2cc4eff897dcb3054591c59",
-        "restore.target.scope": "standalone:database-mp23-independent-redis",
-        "restore.target.statefulset": "standalone:database-mp23-independent-redis/mp23-independent-redis/statefulset",
-        "restore.target.statefulset.uid": "9a64b9b5-47a7-4770-9701-10bdf0b186a7"
+        "restore.target.pvc": "standalone:database-mp23-independent-ch/mp23-independent-ch/pvc",
+        "restore.target.pvc.uid": "74479318-96de-4e8f-b326-686cb8f988e0",
+        "restore.target.revision": "ebe9b51f44d6bb5c6fd9a02c8783d07176e5f39a21db313796241b69f9143e73",
+        "restore.target.scope": "standalone:database-mp23-independent-ch",
+        "restore.target.statefulset": "standalone:database-mp23-independent-ch/mp23-independent-ch/statefulset",
+        "restore.target.statefulset.uid": "cbbcb434-81c9-445c-a010-bb3534544a7b"
       },
       "ingestionReviewSha256": "03442548094e46d8955d493fd98a43845cd018b9854b5104c11cd55adae3ce53",
       "restoreReviewSha256": "c7e9081e59078e523bb8701b38151f53f89b8bde33964897a2b5198173619043",
       "ingestionPriorScopesPreserved": 24,
       "restorePriorScopesPreserved": 26,
-      "restoreJobUid": "cde42176-98a8-4226-9342-bdcc1486538c",
-      "restorePodUid": "c7f8b285-a518-4125-bc46-73f055e724dd",
-      "restoreCompletedAt": "2026-10-02T21:06:40Z",
+      "restoreJobUid": "eecefe8d-5d68-4fb1-bbc4-497fd4564e36",
+      "restorePodUid": "1f3423f4-0196-47dc-a429-52b55f87c978",
+      "restoreCompletedAt": "2026-10-02T21:07:46Z",
       "knownContent": {
         "source": "1\tindependent-ch-v1\n2\tindependent-ch-after",
         "restored": "1\tindependent-ch-v1"
@@ -271,5 +271,6 @@
     "No automatic receipt ingestion or continuous one-hour RPO claim",
     "Volume receipt verifies archive SHA-256, not provider-version pins",
     "Isolated recovery; no live target cutover or full source-cluster-unavailable engine recovery claim"
-  ]
+  ],
+  "evidenceCorrection": "ClickHouse consumer metadata reselected by exact owner scope; original collector selected a prior Redis restore from the same review. Actual ClickHouse restore completion and known rows rechecked."
 }
