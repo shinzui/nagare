@@ -45,8 +45,21 @@ Implementation owner: existing session `01a0e893-337f-7b82-ac5d-16f41bf5ce21` (I
 | [F17](#f17) | P1 | Effect-free retirement discards required native identity observations | Verifying | EP-153 / EP-156 |
 | [F18](#f18) | P1 | Initial GCS foundation transaction cannot resume its local journal | Verifying | EP-153 / EP-156 |
 | [F19](#f19) | P1 | Rendered pinned GCS restore omits download generations | Verifying | EP-160 / EP-156 |
+| [F20](#f20) | P1 | Knative collection cannot orphan controller descendants | Open | EP-153 / EP-156 |
 
 F01 and F11 are independently Closed with [retained verification and source identities](mp23-verification.md). F02 has passing local call-count evidence but still needs its retained status-caller regression. All other entries remain Open, Partial, or Verifying as shown.
+
+## F20
+
+**Knative collection cannot orphan controller descendants** — P1; **Open**; owners EP-153 / EP-156.
+
+**Native evidence:** Installed `4c4b667e` changes only Application B's history lifecycle, retires eleven exact incarnations without mutation, proves premature Service collection refuses without changing the head, then collects history separately. Review `b6886179d40d4618442997221cc02ca986f142ccdeef1661448cfca627765472` issues its conditional Service deletion once but stops ambiguous after 45.124 seconds. UID `80560c4d-6bd8-4fe4-9c55-e67620554924` remains terminating with finalizer `orphan`. k3s logs show garbage collection cannot orphan its Route/Configuration: Knative validation refuses missing `metadata.labels.serving.knative.dev/service`. Generation 752/sequence 673 keeps the original transaction, no claim/fence and nine retained B database incarnations. Source/neighbor rows and UIDs remain exact. [Evidence](mp23-native-bootstrap-results-2026-10-02/f15-receipt-only-restore-and-web-cleanup.json) also records the earlier helper guard failure/reconciliation.
+
+**Implementation update:** The public `--knative --retain-data` fixture fails on the installed candidate at Service collection. Adding `--expect-orphan-block` models accepted deletion with a pending finalizer and passes, preserving the original transaction and retained Service/data UIDs plus an independent neighbor. No production cascade fix is claimed. The Service declares no controller delegation; changing Orphan to Background would broaden deletion authority. [The unexecuted exception proposal](mp23-native-bootstrap-results-2026-10-02/f15-knative-collection-exception-review.json) binds exact head/review/operation, parent UID/resourceVersion, sixteen descendants across all listable namespace APIs and nine protected database UIDs. No finalizer patch, blind resume, new build/admission or history reset followed the failure.
+
+**Required verification:** Obtain explicit exception approval, recheck complete graph/head/data guards, finish the pending parent deletion and resume the original transaction without a second orphan delete. Future supported Knative collection needs reviewed descendant authority and native preservation; a one-off exception does not close the feature. Independent closure remains required.
+
+**Recovery request validation:** Live server `v1.35.8+k3s1` accepts the exact UID/resourceVersion-bound Background DELETE with server-side `dryRun=All`; parent UID/resourceVersion/orphan finalizer and the head remain unchanged. The exception review records upstream custom-resource/generic-store sources and this dry-run. The request lets the API server adjust its GC finalizer; it excludes manual finalizer patches. Dry-run acceptance does not prove actual parent/descendant finalization, and no exception mutation has run.
 
 ## F19
 
@@ -55,6 +68,8 @@ F01 and F11 are independently Closed with [retained verification and source iden
 **Native evidence:** Installed `8b6cb730` accepts the primary manual receipt and separately collects its Job. The Job-free `mp23f15pgav2` review creates Job UID `6406eaef-6d37-482c-aea6-504d4ab21102`, but `download` fails because the receipt address ends in `#`: the rendered environment omits both pinned generations. PostgreSQL never starts. Exact terminal recovery preserves the failed Job and returns history to idle generation 722/sequence 654. [Evidence](mp23-native-bootstrap-results-2026-10-02/f15-receipt-collection-and-download-failure.json) includes exact review/source identities.
 
 **Implementation update:** Add both version variables for GCS verified sources. Strengthen the public GCS fixture to execute the rendered init-container script with only its declared environment, strict generation-qualified GCloud copies, actual receipt/archive hashes and a valid gzip SQL archive. Installed `8b6cb730` fails the new public regression; the source fix passes and verifies decompressed SQL. Both receipt fixtures, web cleanup fixture, all 1,017 CLI tests (54.00 seconds), compilation and Haskell style pass. Installed repair, native restored rows and independent closure remain pending. The fixture still does not execute PostgreSQL. Terminal abandonment preserves the failed native Job without making it an accepted/retained member; cleanup remains separately reviewed work.
+
+**Installed follow-up:** Installed `4c4b667e` passes its local 213-verification gate and rendered GCS fixture. Job-free native restore converges in 34.101 seconds with completed UID `13f19521-86a2-4389-9b47-5e652769ec62` and the backed-up row. Source/neighbor rows and original physical identities remain exact; v2 database is absent and failed Job preserved. [Proof](mp23-native-bootstrap-results-2026-10-02/f15-receipt-only-restore-and-web-cleanup.json) separates this accepted restore from F20. Independent F19 closure stays open.
 
 **Required verification:** Verify the new immutable installed candidate and local gate, then restore from the same accepted GCS versions after producer Job removal into a fresh isolated destination. Check known backed-up rows, later live source/neighbor rows and unchanged physical UIDs. Preserve the prior failed Job and original history. Independent verification is required for closure.
 

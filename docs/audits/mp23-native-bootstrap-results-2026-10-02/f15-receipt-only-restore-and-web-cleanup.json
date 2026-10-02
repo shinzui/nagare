@@ -1,0 +1,205 @@
+{
+  "version": 1,
+  "operatorRevision": "4c4b667e867b0ed1a732fe9a0839f4a09bfa0f5c",
+  "payloadIdentity": "nagare-0.4.0-d73c1dc4d379",
+  "context": "f15-preview",
+  "localGate": {
+    "operatorRevision": "4c4b667e867b0ed1a732fe9a0839f4a09bfa0f5c",
+    "system": "aarch64-darwin",
+    "colimaProfile": "nagare-mp23-cp3",
+    "acceptedPayloadPreserved": "nagare-0.4.0-705716b7bdb7",
+    "gate": "installed public local platform bootstrap plan/apply on retained accepted cluster",
+    "reviewDigest": "e8baaeea99ac0ed61c88342e1c1e3e9e8f6f3523d7b6742248e0c569298b130f",
+    "operations": 213,
+    "actions": [
+      "VerifyResource"
+    ],
+    "providerMutations": 0,
+    "planSeconds": 46.805,
+    "applySeconds": 53.432,
+    "acceptedScopeContentDigestsUnchanged": true,
+    "head": {
+      "generation": 3896,
+      "sequence": 3871,
+      "activeTransaction": null,
+      "executorClaim": null
+    },
+    "acceptedScopeCount": 19,
+    "convergedScopeCount": 19,
+    "podsReadyOrSucceeded": 37,
+    "installedAccessPublicFixturePassed": true,
+    "freshCandidatePayloadBootstrap": false,
+    "cloudCandidateUsePermitted": true,
+    "safeUseAccepted": false
+  },
+  "restoredContent": {
+    "restoreId": "mp23f15pgav3",
+    "jobUid": "13f19521-86a2-4389-9b47-5e652769ec62",
+    "jobComplete": true,
+    "objectVersion": "1790907824578833",
+    "receiptVersion": "1790907829287067",
+    "newScratchDatabase": "mp23-f15-pg-a_restore_mp23f15pgav3",
+    "newScratchRow": "mp23-f15-source-before-backup",
+    "knownRowReadbackPassed": true,
+    "failedPriorJobUidPreserved": "6406eaef-6d37-482c-aea6-504d4ab21102",
+    "failedPriorScratchDatabaseAbsent": true,
+    "sourceAndNeighborPreserved": true
+  },
+  "prematureCollectionRefusal": {
+    "generation": 740,
+    "sequence": 666,
+    "headDigest": "516da3b83d613557e4b517d1fe348743aec1712584518d0f8e0efbd684089716",
+    "prematureServiceCollectionRefused": true,
+    "historyConsumerPreserved": true,
+    "headUnchanged": true,
+    "providerMutations": 0
+  },
+  "guardExceptionAndReconciliation": {
+    "originalHistoryUidPreserved": true,
+    "originalWebServiceUidPreserved": true,
+    "originalDatabaseAndPvcUidsPreserved": true,
+    "helperGuardFailure": "resource-id-only matching included controller-created child Services; apply helper did not short-circuit",
+    "savedCliPreconditionsEnforced": true,
+    "reconciliationCompletedBeforeFurtherMutations": true,
+    "futureGuardAndApplyStagesSeparated": true
+  },
+  "finalHead": {
+    "generation": 752,
+    "sequence": 673,
+    "digest": "28b5d60e438d80d7d8e9e4cf3b1156f4ed64637d772d73513e8baff864e7dc48",
+    "activeTransaction": "tx-b6886179d40d4618442997221cc02ca986f142ccdeef1661448cfca627765472",
+    "executorClaim": null,
+    "dataFence": null
+  },
+  "safeUseAccepted": false,
+  "step3Complete": false,
+  "webServiceCollectionAccepted": false,
+  "sourceAndNeighborPreservedAfterPendingDeletion": true,
+  "fourthBackupJobSubmitted": false,
+  "stages": {
+    "restore-v3-plan": {
+      "exit": 0,
+      "seconds": 28.684,
+      "reviewDigest": "a5d64d02d727237b2dd201493885fdb8691792796222697626f015f4db396e88",
+      "actions": [
+        "RunDeclaredOperation",
+        "CreateResource"
+      ],
+      "retentions": 0,
+      "collections": 0
+    },
+    "restore-v3-apply": {
+      "exit": 0,
+      "seconds": 34.101
+    },
+    "web-policy-plan": {
+      "exit": 0,
+      "seconds": 19.609,
+      "reviewDigest": "02d106182901514538b2644bb6009952bf322cc3b4ab9d5f04b1db47bcf441f4",
+      "actions": [
+        "UpdateResource"
+      ],
+      "retentions": 0,
+      "collections": 0
+    },
+    "web-policy-apply": {
+      "exit": 0,
+      "seconds": 14.26
+    },
+    "web-retire-plan": {
+      "exit": 0,
+      "seconds": 22.487,
+      "reviewDigest": "c744301308f8b5cff0dd01ac4874a2a0bcabbfc1d1fd72f8e07546b2b75b88ce",
+      "actions": [],
+      "retentions": 11,
+      "collections": 0
+    },
+    "web-retire-apply": {
+      "exit": 0,
+      "seconds": 14.124
+    },
+    "web-premature-collect": {
+      "exit": 1,
+      "seconds": 14.29
+    },
+    "web-history-plan": {
+      "exit": 0,
+      "seconds": 23.095,
+      "reviewDigest": "e1e46433d7cea4d2cc845ae33a7d2f79cdef70d0f523e3f4f5fdfde1fec62226",
+      "actions": [
+        "RetireResource"
+      ],
+      "retentions": 0,
+      "collections": 1
+    },
+    "web-history-apply": {
+      "exit": 0,
+      "seconds": 18.703
+    },
+    "web-service-plan": {
+      "exit": 0,
+      "seconds": 16.436,
+      "reviewDigest": "b6886179d40d4618442997221cc02ca986f142ccdeef1661448cfca627765472",
+      "actions": [
+        "RetireResource"
+      ],
+      "retentions": 0,
+      "collections": 1
+    },
+    "web-service-apply": {
+      "exit": 1,
+      "seconds": 45.124
+    }
+  },
+  "nativeKnativeFailure": {
+    "finding": "F20",
+    "resource": "application:mp23-f15-app-b/mp23-f15-app-b/service",
+    "uid": "80560c4d-6bd8-4fe4-9c55-e67620554924",
+    "deletionTimestamp": "2026-10-02T13:43:26Z",
+    "finalizers": [
+      "orphan"
+    ],
+    "originalOperation": "op-396d4879c0759fe3f69b9852",
+    "cause": "Garbage collector cannot orphan Route/Configuration: Knative validation refuses missing metadata.labels.serving.knative.dev/service.",
+    "serviceControllerDelegationsDeclared": false,
+    "pendingOriginalTransactionPreserved": true,
+    "controllerLogsSha256": "06a0eb059b5149ff4c4c7da7f434b305595f5735a4ef366e24dae69df7eaece2",
+    "approvedCascadePerformed": false,
+    "futureCollectionContractStillOpen": true,
+    "exceptionReview": "f15-knative-collection-exception-review.json",
+    "guardedServerDryRunAcceptedWithoutMutation": true
+  },
+  "publicWebFixtureModes": {
+    "whole": {
+      "exit": 0,
+      "seconds": 6.209,
+      "dataDeclarationsAndIdentitiesPreserved": true,
+      "neighborRevisionPreserved": true
+    },
+    "partial": {
+      "exit": 0,
+      "seconds": 5.506,
+      "dataDeclarationsAndIdentitiesPreserved": true,
+      "neighborRevisionPreserved": true
+    },
+    "retain-data": {
+      "exit": 0,
+      "seconds": 5.355,
+      "dataDeclarationsAndIdentitiesPreserved": true,
+      "neighborRevisionPreserved": true
+    }
+  },
+  "localKnativeCounterfactual": {
+    "installedRevision": "4c4b667e867b0ed1a732fe9a0839f4a09bfa0f5c",
+    "ordinaryCleanupFailsAt": "Service collection apply",
+    "expectedBlockedFixturePasses": true,
+    "pendingOriginalTransactionAndRetainedDataPreserved": true,
+    "sourceHashes": {
+      "scripts/test-web-cleanup-public.py": "3ac3452420f0fb5760969a795a1d7d4d230ca623269e2e45b6842c4ef9327a1d",
+      "scripts/fixtures/WebCleanupPublicFixture.hs": "c3aac700938100d05cd658af9a74c658c193ae6a1a73bcddae9414e85a98555a",
+      "scripts/fixtures/knative-web-cleanup-native.yaml": "198d36157379517517ca12d34759c67cc49e3803065bb520f636ce7d804fe7d6",
+      "cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesRuntime.hs": "81cb2dd244854ecafc24dbce06253cf92e94c10d12f6d2eab29ab5b06c53bc73"
+    },
+    "expectedBlockedFixtureSeconds": 5.306
+  }
+}

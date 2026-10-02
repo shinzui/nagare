@@ -127,3 +127,13 @@ remains preserved. The strengthened rendered-script fixture fails on that
 installed candidate and passes the source repair. Install and locally verify
 the grouped repair before a fresh isolated restore ID. Do not replay the failed
 Job, submit another backup, or bypass separate reviewed cleanup.
+
+Installed `4c4b667e` now passes the strengthened rendered-script fixture and
+its local 213-operation verification gate. Its fresh native `mp23f15pgav3`
+restore converges in 34.101 seconds with Job UID
+`13f19521-86a2-4389-9b47-5e652769ec62`. The new logical scratch database returns
+`mp23-f15-source-before-backup`, while live A and neighbor B retain their later
+rows and original StatefulSet/PVC/Pod UIDs. The failed v2 database is absent and
+its failed Job remains preserved. This accepts the installed GCS receipt-only
+content path after producer Job collection; independent F19 closure remains
+open. See the final native proof linked from MP-23.

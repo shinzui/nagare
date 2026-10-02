@@ -1,0 +1,424 @@
+{
+  "version": 1,
+  "status": "awaiting-operator-approval",
+  "context": "f15-preview",
+  "project": "tan-ng-labs",
+  "operatorRevision": "4c4b667e867b0ed1a732fe9a0839f4a09bfa0f5c",
+  "payloadIdentity": "nagare-0.4.0-d73c1dc4d379",
+  "head": {
+    "generation": 752,
+    "sequence": 673,
+    "digest": "28b5d60e438d80d7d8e9e4cf3b1156f4ed64637d772d73513e8baff864e7dc48",
+    "activeTransaction": "tx-b6886179d40d4618442997221cc02ca986f142ccdeef1661448cfca627765472",
+    "executorClaim": null,
+    "dataFence": null
+  },
+  "originalReviewDigest": "b6886179d40d4618442997221cc02ca986f142ccdeef1661448cfca627765472",
+  "originalOperation": "op-396d4879c0759fe3f69b9852",
+  "resource": "application:mp23-f15-app-b/mp23-f15-app-b/service",
+  "path": "/apis/serving.knative.dev/v1/namespaces/personal/services/mp23-f15-app-b",
+  "deleteOptions": {
+    "apiVersion": "meta.k8s.io/v1",
+    "kind": "DeleteOptions",
+    "preconditions": {
+      "uid": "80560c4d-6bd8-4fe4-9c55-e67620554924",
+      "resourceVersion": "207024"
+    },
+    "propagationPolicy": "Background"
+  },
+  "observedDescendants": [
+    {
+      "apiVersion": "serving.knative.dev/v1",
+      "kind": "Configuration",
+      "namespace": "personal",
+      "name": "mp23-f15-app-b",
+      "uid": "aa2ab3af-ffd7-44dd-bd60-6397b29bf270",
+      "ownerReferences": [
+        {
+          "apiVersion": "serving.knative.dev/v1",
+          "blockOwnerDeletion": true,
+          "controller": true,
+          "kind": "Service",
+          "name": "mp23-f15-app-b",
+          "uid": "80560c4d-6bd8-4fe4-9c55-e67620554924"
+        }
+      ]
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "namespace": "personal",
+      "name": "mp23-f15-app-b-00001-deployment",
+      "uid": "36ccdf93-1f38-4d1f-8460-3aea84fe1403",
+      "ownerReferences": [
+        {
+          "apiVersion": "serving.knative.dev/v1",
+          "blockOwnerDeletion": true,
+          "controller": true,
+          "kind": "Revision",
+          "name": "mp23-f15-app-b-00001",
+          "uid": "c0eaab4d-9f8b-42cb-b016-a27dbd5c28e8"
+        }
+      ]
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Endpoints",
+      "namespace": "personal",
+      "name": "mp23-f15-app-b-00001",
+      "uid": "d64c7d74-058f-4fdd-aa02-5057a14a520a",
+      "ownerReferences": [
+        {
+          "apiVersion": "networking.internal.knative.dev/v1alpha1",
+          "blockOwnerDeletion": true,
+          "controller": true,
+          "kind": "ServerlessService",
+          "name": "mp23-f15-app-b-00001",
+          "uid": "adfb01a5-2574-4906-9e39-3125baf90a59"
+        }
+      ]
+    },
+    {
+      "apiVersion": "discovery.k8s.io/v1",
+      "kind": "EndpointSlice",
+      "namespace": "personal",
+      "name": "mp23-f15-app-b-00001-hsfvn",
+      "uid": "2351b2e4-c65f-44e2-b135-889aa6f9ea8c",
+      "ownerReferences": [
+        {
+          "apiVersion": "v1",
+          "blockOwnerDeletion": true,
+          "controller": true,
+          "kind": "Endpoints",
+          "name": "mp23-f15-app-b-00001",
+          "uid": "d64c7d74-058f-4fdd-aa02-5057a14a520a"
+        }
+      ]
+    },
+    {
+      "apiVersion": "discovery.k8s.io/v1",
+      "kind": "EndpointSlice",
+      "namespace": "personal",
+      "name": "mp23-f15-app-b-00001-private-wcqn2",
+      "uid": "d5baaa94-25d3-482a-bc61-05682a1b80a2",
+      "ownerReferences": [
+        {
+          "apiVersion": "v1",
+          "blockOwnerDeletion": true,
+          "controller": true,
+          "kind": "Service",
+          "name": "mp23-f15-app-b-00001-private",
+          "uid": "0f873aa4-22d3-415f-9ae2-a87dd79730d0"
+        }
+      ]
+    },
+    {
+      "apiVersion": "caching.internal.knative.dev/v1alpha1",
+      "kind": "Image",
+      "namespace": "personal",
+      "name": "mp23-f15-app-b-00001-cache-user-container",
+      "uid": "021e889c-99a2-49ca-aad7-4ced714adce0",
+      "ownerReferences": [
+        {
+          "apiVersion": "serving.knative.dev/v1",
+          "blockOwnerDeletion": true,
+          "controller": true,
+          "kind": "Revision",
+          "name": "mp23-f15-app-b-00001",
+          "uid": "c0eaab4d-9f8b-42cb-b016-a27dbd5c28e8"
+        }
+      ]
+    },
+    {
+      "apiVersion": "networking.internal.knative.dev/v1alpha1",
+      "kind": "Ingress",
+      "namespace": "personal",
+      "name": "mp23-f15-app-b",
+      "uid": "0455280e-20c7-441c-bfa0-f1077e402eba",
+      "ownerReferences": [
+        {
+          "apiVersion": "serving.knative.dev/v1",
+          "blockOwnerDeletion": true,
+          "controller": true,
+          "kind": "Route",
+          "name": "mp23-f15-app-b",
+          "uid": "17a526b7-a75d-469f-9d49-5079dfad9741"
+        }
+      ]
+    },
+    {
+      "apiVersion": "autoscaling.internal.knative.dev/v1alpha1",
+      "kind": "Metric",
+      "namespace": "personal",
+      "name": "mp23-f15-app-b-00001",
+      "uid": "fe897f9a-69a9-4db5-86af-e59c269ef224",
+      "ownerReferences": [
+        {
+          "apiVersion": "autoscaling.internal.knative.dev/v1alpha1",
+          "blockOwnerDeletion": true,
+          "controller": true,
+          "kind": "PodAutoscaler",
+          "name": "mp23-f15-app-b-00001",
+          "uid": "5e096443-b743-4d36-a7f6-483ca7da4e2c"
+        }
+      ]
+    },
+    {
+      "apiVersion": "autoscaling.internal.knative.dev/v1alpha1",
+      "kind": "PodAutoscaler",
+      "namespace": "personal",
+      "name": "mp23-f15-app-b-00001",
+      "uid": "5e096443-b743-4d36-a7f6-483ca7da4e2c",
+      "ownerReferences": [
+        {
+          "apiVersion": "serving.knative.dev/v1",
+          "blockOwnerDeletion": true,
+          "controller": true,
+          "kind": "Revision",
+          "name": "mp23-f15-app-b-00001",
+          "uid": "c0eaab4d-9f8b-42cb-b016-a27dbd5c28e8"
+        }
+      ]
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "namespace": "personal",
+      "name": "mp23-f15-app-b-00001-deployment-75fc49c6cd",
+      "uid": "d8405887-f616-4c1f-ae06-bb06e08b429a",
+      "ownerReferences": [
+        {
+          "apiVersion": "apps/v1",
+          "blockOwnerDeletion": true,
+          "controller": true,
+          "kind": "Deployment",
+          "name": "mp23-f15-app-b-00001-deployment",
+          "uid": "36ccdf93-1f38-4d1f-8460-3aea84fe1403"
+        }
+      ]
+    },
+    {
+      "apiVersion": "serving.knative.dev/v1",
+      "kind": "Revision",
+      "namespace": "personal",
+      "name": "mp23-f15-app-b-00001",
+      "uid": "c0eaab4d-9f8b-42cb-b016-a27dbd5c28e8",
+      "ownerReferences": [
+        {
+          "apiVersion": "serving.knative.dev/v1",
+          "blockOwnerDeletion": true,
+          "controller": true,
+          "kind": "Configuration",
+          "name": "mp23-f15-app-b",
+          "uid": "aa2ab3af-ffd7-44dd-bd60-6397b29bf270"
+        }
+      ]
+    },
+    {
+      "apiVersion": "serving.knative.dev/v1",
+      "kind": "Route",
+      "namespace": "personal",
+      "name": "mp23-f15-app-b",
+      "uid": "17a526b7-a75d-469f-9d49-5079dfad9741",
+      "ownerReferences": [
+        {
+          "apiVersion": "serving.knative.dev/v1",
+          "blockOwnerDeletion": true,
+          "controller": true,
+          "kind": "Service",
+          "name": "mp23-f15-app-b",
+          "uid": "80560c4d-6bd8-4fe4-9c55-e67620554924"
+        }
+      ]
+    },
+    {
+      "apiVersion": "networking.internal.knative.dev/v1alpha1",
+      "kind": "ServerlessService",
+      "namespace": "personal",
+      "name": "mp23-f15-app-b-00001",
+      "uid": "adfb01a5-2574-4906-9e39-3125baf90a59",
+      "ownerReferences": [
+        {
+          "apiVersion": "autoscaling.internal.knative.dev/v1alpha1",
+          "blockOwnerDeletion": true,
+          "controller": true,
+          "kind": "PodAutoscaler",
+          "name": "mp23-f15-app-b-00001",
+          "uid": "5e096443-b743-4d36-a7f6-483ca7da4e2c"
+        }
+      ]
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "namespace": "personal",
+      "name": "mp23-f15-app-b",
+      "uid": "3f301ac6-6937-4b3a-ac45-e9c56c6de7aa",
+      "ownerReferences": [
+        {
+          "apiVersion": "serving.knative.dev/v1",
+          "blockOwnerDeletion": true,
+          "controller": true,
+          "kind": "Route",
+          "name": "mp23-f15-app-b",
+          "uid": "17a526b7-a75d-469f-9d49-5079dfad9741"
+        }
+      ]
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "namespace": "personal",
+      "name": "mp23-f15-app-b-00001",
+      "uid": "88df35a3-fb17-49d5-b46e-c4fcc4ea7bea",
+      "ownerReferences": [
+        {
+          "apiVersion": "networking.internal.knative.dev/v1alpha1",
+          "blockOwnerDeletion": true,
+          "controller": true,
+          "kind": "ServerlessService",
+          "name": "mp23-f15-app-b-00001",
+          "uid": "adfb01a5-2574-4906-9e39-3125baf90a59"
+        }
+      ]
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "namespace": "personal",
+      "name": "mp23-f15-app-b-00001-private",
+      "uid": "0f873aa4-22d3-415f-9ae2-a87dd79730d0",
+      "ownerReferences": [
+        {
+          "apiVersion": "networking.internal.knative.dev/v1alpha1",
+          "blockOwnerDeletion": true,
+          "controller": true,
+          "kind": "ServerlessService",
+          "name": "mp23-f15-app-b-00001",
+          "uid": "adfb01a5-2574-4906-9e39-3125baf90a59"
+        }
+      ]
+    }
+  ],
+  "protectedDataIncarnations": {
+    "application:mp23-f15-app-b/mp23-f15-pg-b/backup": "ccc3bf2e-6a45-46e5-9045-224047e5fc56",
+    "application:mp23-f15-app-b/mp23-f15-pg-b/backup-account": "f36b4559-68f0-46c0-bc0f-ac1288107ec8",
+    "application:mp23-f15-app-b/mp23-f15-pg-b/backup-read-binding": "a46663c1-e007-4190-9b1a-28ea79259c72",
+    "application:mp23-f15-app-b/mp23-f15-pg-b/backup-read-role": "cc987de6-3221-4468-a7d0-ec5c66eb0385",
+    "application:mp23-f15-app-b/mp23-f15-pg-b/backup-signing-key": "5661e62b-ae49-4dc7-8f33-f6e46d5c8c16",
+    "application:mp23-f15-app-b/mp23-f15-pg-b/credential": "e5b59c32-d343-4fcb-9b8f-c0c752ebec6b",
+    "application:mp23-f15-app-b/mp23-f15-pg-b/pvc": "ddf32efa-0e36-4a88-bc2a-7d64f0284aed",
+    "application:mp23-f15-app-b/mp23-f15-pg-b/service": "477dcdc9-cecd-496a-a603-6a61fc61b315",
+    "application:mp23-f15-app-b/mp23-f15-pg-b/statefulset": "edf0fccf-232e-4b2a-b71c-675f6d889a66"
+  },
+  "requiresNewScopeApproval": "The issued parent collection uses Orphan and declares no controller delegation. Background deletion can collect controller descendants, so this is an explicit exception to the issued effect boundary.",
+  "guardsBeforeEffect": [
+    "Recheck exact head digest and original transaction with no claim/fence/migration",
+    "Recheck exact parent UID, resourceVersion and terminating orphan finalizer",
+    "Recompute the complete inspected descendant closure; refuse added/changed descendants or other owners",
+    "Recheck nine retained database incarnation UIDs and original source/neighbor data",
+    "Do not patch finalizers; issue only the UID/resourceVersion-conditional Background DELETE, allowing the API server to adjust its GC finalizer",
+    "Once parent is observed absent, resume the original transaction and prove one original tombstone and no duplicate delete",
+    "Observe every approved descendant absent and all nine database members/source-neighbor rows unchanged; stop on any unexpected controller or admission failure"
+  ],
+  "providerMutationPerformed": false,
+  "descendantInspectionApiResources": [
+    "addons.k3s.cattle.io",
+    "certificaterequests.cert-manager.io",
+    "certificates.cert-manager.io",
+    "certificates.networking.internal.knative.dev",
+    "challenges.acme.cert-manager.io",
+    "configmaps",
+    "configurations.serving.knative.dev",
+    "controllerrevisions.apps",
+    "cronjobs.batch",
+    "csistoragecapacities.storage.k8s.io",
+    "daemonsets.apps",
+    "deployments.apps",
+    "domainmappings.serving.knative.dev",
+    "endpoints",
+    "endpointslices.discovery.k8s.io",
+    "events",
+    "events.events.k8s.io",
+    "helmchartconfigs.helm.cattle.io",
+    "helmcharts.helm.cattle.io",
+    "horizontalpodautoscalers.autoscaling",
+    "images.caching.internal.knative.dev",
+    "ingresses.networking.internal.knative.dev",
+    "ingresses.networking.k8s.io",
+    "issuers.cert-manager.io",
+    "jobs.batch",
+    "leases.coordination.k8s.io",
+    "limitranges",
+    "metrics.autoscaling.internal.knative.dev",
+    "networkpolicies.networking.k8s.io",
+    "orders.acme.cert-manager.io",
+    "persistentvolumeclaims",
+    "podautoscalers.autoscaling.internal.knative.dev",
+    "poddisruptionbudgets.policy",
+    "pods",
+    "pods.metrics.k8s.io",
+    "podtemplates",
+    "replicasets.apps",
+    "replicationcontrollers",
+    "resourceclaims.resource.k8s.io",
+    "resourceclaimtemplates.resource.k8s.io",
+    "resourcequotas",
+    "revisions.serving.knative.dev",
+    "rolebindings.rbac.authorization.k8s.io",
+    "roles.rbac.authorization.k8s.io",
+    "routes.serving.knative.dev",
+    "secrets",
+    "serverlessservices.networking.internal.knative.dev",
+    "serviceaccounts",
+    "services",
+    "services.serving.knative.dev",
+    "statefulsets.apps",
+    "vlagents.operator.victoriametrics.com",
+    "vlclusters.operator.victoriametrics.com",
+    "vlogs.operator.victoriametrics.com",
+    "vlsingles.operator.victoriametrics.com",
+    "vmagents.operator.victoriametrics.com",
+    "vmalertmanagerconfigs.operator.victoriametrics.com",
+    "vmalertmanagers.operator.victoriametrics.com",
+    "vmalerts.operator.victoriametrics.com",
+    "vmanomalies.operator.victoriametrics.com",
+    "vmanomalyconfigs.operator.victoriametrics.com",
+    "vmauths.operator.victoriametrics.com",
+    "vmclusters.operator.victoriametrics.com",
+    "vmdistributed.operator.victoriametrics.com",
+    "vmnodescrapes.operator.victoriametrics.com",
+    "vmpodscrapes.operator.victoriametrics.com",
+    "vmprobes.operator.victoriametrics.com",
+    "vmrules.operator.victoriametrics.com",
+    "vmscrapeconfigs.operator.victoriametrics.com",
+    "vmservicescrapes.operator.victoriametrics.com",
+    "vmsingles.operator.victoriametrics.com",
+    "vmstaticscrapes.operator.victoriametrics.com",
+    "vmusers.operator.victoriametrics.com",
+    "vtclusters.operator.victoriametrics.com",
+    "vtsingles.operator.victoriametrics.com"
+  ],
+  "serverVersion": "v1.35.8+k3s1",
+  "serverDryRun": {
+    "accepted": true,
+    "dryRun": [
+      "All"
+    ],
+    "query": "dryRun=All",
+    "uidAndResourceVersionPreconditionsPreserved": true,
+    "headUnchanged": true,
+    "parentUidResourceVersionAndOrphanFinalizerUnchanged": true,
+    "responseSha256": "e3f09a2356ff4bc56d90e28eaf40371a44595b11f0e1bad1f809992cb2017bab",
+    "actualFinalizationProved": false
+  },
+  "apiBehavior": {
+    "sourceVersion": "v1.35.8",
+    "interpretation": "Custom resources use the generic registry without a graceful-delete strategy. The existing zero-grace orphan GC finalizer can be changed through Background DeleteOptions. The API server handles that GC finalizer change; no manual finalizer patch is authorized. The live dry-run confirms request acceptance only.",
+    "sources": [
+      "https://github.com/kubernetes/kubernetes/blob/v1.35.8/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/strategy.go",
+      "https://github.com/kubernetes/kubernetes/blob/v1.35.8/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/etcd.go",
+      "https://github.com/kubernetes/kubernetes/blob/v1.35.8/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go"
+    ]
+  }
+}
