@@ -6,6 +6,7 @@ module Nagare.Inventory.ScheduledGcs
   )
 where
 
+import Control.Applicative ((<|>))
 import Control.Exception (IOException, try)
 import Data.Aeson (Value (..), eitherDecodeStrict)
 import Data.Aeson qualified as Aeson
@@ -83,7 +84,9 @@ parseGcsObjectListing bucket prefix bytes = do
         maybe
           (Left "scheduled GCS object has an invalid timestamp")
           Right
-          (parseTimeM True defaultTimeLocale "%Y-%m-%dT%H:%M:%S%QZ" (T.unpack rawTime))
+          ( parseTimeM True defaultTimeLocale "%Y-%m-%dT%H:%M:%S%QZ" (T.unpack rawTime)
+              <|> parseTimeM True defaultTimeLocale "%Y-%m-%dT%H:%M:%S%Q%Ez" (T.unpack rawTime)
+          )
       pure (ListedObject name modified)
     parseEntry _ = Left "scheduled GCS listing contains a non-object"
     field key fields = case KM.lookup key fields of

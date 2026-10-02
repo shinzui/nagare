@@ -5,19 +5,27 @@ module Nagare.Inventory.ScheduledReceipt
   ( ScheduledReceiptEvidence (..)
   , inspectScheduledReceipt
   , verifyAcceptedScheduledReceipt
+  , verifyAcceptedScheduledReceiptPoint
   , classifyScheduledListingKeys
-  ) where
+  )
+where
 
 import Crypto.Hash (Digest, SHA256, hashlazy)
+import Data.Aeson (Value (..), eitherDecodeStrict)
+import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Time (UTCTime)
+import Data.Time.Format (defaultTimeLocale, parseTimeM)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Backup
-  ( ScheduledBackupReceipt (..), ScheduledReceiptExpectation (..)
-  , parseScheduledBackupReceipt )
+  ( ScheduledBackupReceipt (..)
+  , ScheduledReceiptExpectation (..)
+  , parseScheduledBackupReceipt
+  )
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.ScheduledStore (ObjectReader (..), StoredObject (..))
 import Nagare.Resource.Inventory (ScopeDeclaration, scopeOverrides)
@@ -29,21 +37,32 @@ import System.IO.Temp (withSystemTempDirectory)
 -- change the format suffix. New runs must still match the current schedule.
 -- A second key for an accepted run is left unresolved rather than silently
 -- borrowing the accepted pair's status.
-classifyScheduledListingKeys
-  :: Text -> Text -> Text -> Map.Map Text ScopeDeclaration -> [Text]
-  -> ([(Text, Bool)], [Text])
+classifyScheduledListingKeys ::
+  Text ->
+  Text ->
+  Text ->
+  Map.Map Text ScopeDeclaration ->
+  [Text] ->
+  ([(Text, Bool)], [Text])
 classifyScheduledListingKeys bucketPrefix keyPrefix currentFormat accepted keys =
-  ([(selected, isObject) | key <- keys,
-    Just (selected, isObject) <- [classify key]],
-   [key | key <- keys, classify key == Nothing])
+  ( [ (selected, isObject)
+    | key <- keys
+    , Just (selected, isObject) <- [classify key]
+    ]
+  , [key | key <- keys, classify key == Nothing]
+  )
   where
-    pinned = [(key, (selected, isObject))
+    pinned =
+      [ (key, (selected, isObject))
       | (selected, scope) <- Map.toList accepted
-      , (field, isObject) <- [ ("scheduled.backup.object", True)
-          , ("scheduled.backup.receipt", False) ]
+      , (field, isObject) <-
+          [ ("scheduled.backup.object", True)
+          , ("scheduled.backup.receipt", False)
+          ]
       , Just address <- [Map.lookup field (scopeOverrides scope)]
       , Just key <- [T.stripPrefix bucketPrefix address]
-      , keyPrefix `T.isPrefixOf` key]
+      , keyPrefix `T.isPrefixOf` key
+      ]
     classify key = case [part | (address, part) <- pinned, address == key] of
       [part] -> Just part
       [] -> do
@@ -52,8 +71,10 @@ classifyScheduledListingKeys bucketPrefix keyPrefix currentFormat accepted keys 
             receiptSuffix = objectSuffix <> ".receipt.json"
             parsed = case T.stripSuffix receiptSuffix suffix of
               Just selected -> Just (selected, False)
-              Nothing -> fmap (\selected -> (selected, True))
-                (T.stripSuffix objectSuffix suffix)
+              Nothing ->
+                fmap
+                  (\selected -> (selected, True))
+                  (T.stripSuffix objectSuffix suffix)
         part@(selected, _) <- parsed
         if Map.member selected accepted then Nothing else Just part
       _ -> Nothing
@@ -68,13 +89,19 @@ data ScheduledReceiptEvidence = ScheduledReceiptEvidence
   }
   deriving stock (Eq, Show)
 
-inspectScheduledReceipt
-  :: ObjectReader -> ScheduledReceiptExpectation -> Text -> Text
-  -> IO (Either Text ScheduledReceiptEvidence)
+inspectScheduledReceipt ::
+  ObjectReader ->
+  ScheduledReceiptExpectation ->
+  Text ->
+  Text ->
+  IO (Either Text ScheduledReceiptEvidence)
 inspectScheduledReceipt reader expectation backupId signingKey =
   withSystemTempDirectory "nagare-scheduled-receipt" $ \scratch -> do
-    let objectAddress = scheduledObjectPrefix expectation <> backupId
-          <> "." <> scheduledFormat expectation
+    let objectAddress =
+          scheduledObjectPrefix expectation
+            <> backupId
+            <> "."
+            <> scheduledFormat expectation
         receiptAddress = objectAddress <> ".receipt.json"
         receiptFile = scratch <> "/receipt"
         exactReceiptFile = scratch <> "/receipt-exact"
@@ -85,29 +112,40 @@ inspectScheduledReceipt reader expectation backupId signingKey =
     case currentReceipt of
       Left reason -> pure (Left reason)
       Right receiptInfo -> do
-        exactReceipt <- readOne receiptAddress
-          (Just (storedVersion receiptInfo)) exactReceiptFile
+        exactReceipt <-
+          readOne
+            receiptAddress
+            (Just (storedVersion receiptInfo))
+            exactReceiptFile
         case exactReceipt of
           Left reason -> pure (Left reason)
           Right exactReceiptInfo -> do
             receiptBytes <- BS.readFile receiptFile
             exactBytes <- BS.readFile exactReceiptFile
             receiptLength <- getFileSize receiptFile
-            if receiptInfo /= exactReceiptInfo || receiptBytes /= exactBytes
-                || receiptLength /= storedLength receiptInfo
+            if receiptInfo /= exactReceiptInfo
+              || receiptBytes /= exactBytes
+              || receiptLength /= storedLength receiptInfo
               then pure (Left "scheduled receipt version or bytes changed during inspection")
-              else case parseScheduledBackupReceipt expectation receiptAddress
-                  signingKey receiptBytes of
+              else case parseScheduledBackupReceipt
+                expectation
+                receiptAddress
+                signingKey
+                receiptBytes of
                 Left reason -> pure (Left reason)
-                Right checked | scheduledObjectAddress checked /= objectAddress ->
-                  pure (Left "scheduled receipt addresses another backup object")
+                Right checked
+                  | scheduledObjectAddress checked /= objectAddress ->
+                      pure (Left "scheduled receipt addresses another backup object")
                 Right checked -> do
                   currentObject <- readOne objectAddress Nothing objectFile
                   case currentObject of
                     Left reason -> pure (Left reason)
                     Right objectInfo -> do
-                      exactObject <- readOne objectAddress
-                        (Just (storedVersion objectInfo)) exactObjectFile
+                      exactObject <-
+                        readOne
+                          objectAddress
+                          (Just (storedVersion objectInfo))
+                          exactObjectFile
                       case exactObject of
                         Left reason -> pure (Left reason)
                         Right exactObjectInfo -> do
@@ -115,53 +153,100 @@ inspectScheduledReceipt reader expectation backupId signingKey =
                           exactLength <- getFileSize exactObjectFile
                           objectHash <- sha256File objectFile
                           exactHash <- sha256File exactObjectFile
-                          pure $ if objectInfo /= exactObjectInfo
+                          pure $
+                            if objectInfo /= exactObjectInfo
                               || objectLength /= storedLength objectInfo
                               || exactLength /= objectLength
                               || objectHash /= exactHash
                               || objectHash /= scheduledSha256 checked
-                            then Left "scheduled backup version, length, or checksum changed"
-                            else Right ScheduledReceiptEvidence
-                              { scheduledReceipt = checked
-                              , scheduledObjectVersion = storedVersion objectInfo
-                              , scheduledReceiptVersion = storedVersion receiptInfo
-                              , scheduledObjectLength = objectLength
-                              , scheduledReceiptLength = receiptLength
-                              , scheduledReceiptDigest = contentDigest receiptBytes
-                              }
+                              then Left "scheduled backup version, length, or checksum changed"
+                              else
+                                Right
+                                  ScheduledReceiptEvidence
+                                    { scheduledReceipt = checked
+                                    , scheduledObjectVersion = storedVersion objectInfo
+                                    , scheduledReceiptVersion = storedVersion receiptInfo
+                                    , scheduledObjectLength = objectLength
+                                    , scheduledReceiptLength = receiptLength
+                                    , scheduledReceiptDigest = contentDigest receiptBytes
+                                    }
 
 -- | Accepted history already bound the signing and source proof at ingestion.
 -- Recheck its exact current provider versions and bytes without requiring an
 -- older receipt to match the latest CronJob metadata or source incarnation.
-verifyAcceptedScheduledReceipt
-  :: ObjectReader -> Text -> ScopeDeclaration -> IO (Either Text ())
+verifyAcceptedScheduledReceipt ::
+  ObjectReader -> Text -> ScopeDeclaration -> IO (Either Text ())
 verifyAcceptedScheduledReceipt reader expectedAddress scope =
+  fmap (fmap (const ())) (verifyAcceptedScheduledReceiptPoint reader expectedAddress scope)
+
+-- | Read the timestamp from the exact previously accepted bytes, never from
+-- an editable scope override or the provider's upload/modification timestamp.
+verifyAcceptedScheduledReceiptPoint ::
+  ObjectReader -> Text -> ScopeDeclaration -> IO (Either Text (Maybe UTCTime))
+verifyAcceptedScheduledReceiptPoint reader expectedAddress scope =
   withSystemTempDirectory "nagare-accepted-scheduled-receipt" $ \scratch ->
     case pins of
       Left reason -> pure (Left reason)
-      Right (objectAddress, objectVersion, objectLength, objectHash,
-          receiptAddress, receiptVersion, receiptLength, receiptHash) -> do
-        checkedObject <- verifyOne "backup object" objectAddress objectVersion
-          objectLength (scratch <> "/object")
-        case checkedObject of
-          Left reason -> pure (Left reason)
-          Right (_, actualHash) -> do
-            if actualHash /= objectHash
-              then pure (Left "accepted scheduled backup object checksum changed")
-              else do
-                checkedReceipt <- verifyOne "receipt" receiptAddress receiptVersion
-                  receiptLength (scratch <> "/receipt")
-                case checkedReceipt of
-                  Left reason -> pure (Left reason)
-                  Right (receiptFile, _) -> do
-                    actualDigest <- contentDigest <$> BS.readFile receiptFile
-                    pure $ if actualDigest == receiptHash
-                      then Right ()
-                      else Left "accepted scheduled receipt digest changed"
+      Right
+        ( objectAddress
+          , objectVersion
+          , objectLength
+          , objectHash
+          , receiptAddress
+          , receiptVersion
+          , receiptLength
+          , receiptHash
+          ) -> do
+          checkedObject <-
+            verifyOne
+              "backup object"
+              objectAddress
+              objectVersion
+              objectLength
+              (scratch <> "/object")
+          case checkedObject of
+            Left reason -> pure (Left reason)
+            Right (_, actualHash) -> do
+              if actualHash /= objectHash
+                then pure (Left "accepted scheduled backup object checksum changed")
+                else do
+                  checkedReceipt <-
+                    verifyOne
+                      "receipt"
+                      receiptAddress
+                      receiptVersion
+                      receiptLength
+                      (scratch <> "/receipt")
+                  case checkedReceipt of
+                    Left reason -> pure (Left reason)
+                    Right (receiptFile, _) -> do
+                      bytes <- BS.readFile receiptFile
+                      let actualDigest = contentDigest bytes
+                      pure $
+                        if actualDigest == receiptHash
+                          then recoveryPoint bytes
+                          else Left "accepted scheduled receipt digest changed"
   where
+    recoveryPoint bytes = do
+      value <- first (const "accepted scheduled receipt is malformed") (eitherDecodeStrict bytes)
+      case value of
+        Object root | KM.lookup "version" root == Just (Number 4) -> Right Nothing
+        Object root
+          | KM.lookup "version" root == Just (Number 5)
+          , Just (Object payload) <- KM.lookup "payload" root
+          , Just (String stamp) <- KM.lookup "recoveryPoint" payload ->
+              Just
+                <$> maybe
+                  (Left "accepted scheduled receipt recovery point is invalid")
+                  Right
+                  (parseTimeM True defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ" (T.unpack stamp))
+        _ -> Left "accepted scheduled receipt has no supported recovery point format"
     fields = scopeOverrides scope
-    required key = maybe (Left ("accepted scheduled receipt lacks " <> key)) Right
-      (Map.lookup key fields)
+    required key =
+      maybe
+        (Left ("accepted scheduled receipt lacks " <> key))
+        Right
+        (Map.lookup key fields)
     positive key = do
       value <- required key
       case reads (T.unpack value) of
@@ -179,10 +264,19 @@ verifyAcceptedScheduledReceipt reader expectedAddress scope =
       receiptDigest <- required "scheduled.backup.receipt.digest"
       receiptHash <- mkContentDigest receiptDigest
       if objectAddress == expectedAddress
-          && receiptAddress == objectAddress <> ".receipt.json"
-          && all (not . T.null) [objectVersion, receiptVersion]
-        then pure (objectAddress, objectVersion, objectLength, objectHash,
-          receiptAddress, receiptVersion, receiptLength, receiptHash)
+        && receiptAddress == objectAddress <> ".receipt.json"
+        && all (not . T.null) [objectVersion, receiptVersion]
+        then
+          pure
+            ( objectAddress
+            , objectVersion
+            , objectLength
+            , objectHash
+            , receiptAddress
+            , receiptVersion
+            , receiptLength
+            , receiptHash
+            )
         else Left "accepted scheduled receipt has invalid exact pins"
     verifyOne label address version expectedLength path = do
       current <- readObjectToFile reader address Nothing path
@@ -197,14 +291,15 @@ verifyAcceptedScheduledReceipt reader expectedAddress scope =
               exactLength <- getFileSize (path <> "-exact")
               currentHash <- sha256File path
               exactHash <- sha256File (path <> "-exact")
-              pure $ if currentInfo == exactInfo
+              pure $
+                if currentInfo == exactInfo
                   && storedVersion currentInfo == version
                   && storedLength currentInfo == expectedLength
                   && currentLength == expectedLength
                   && exactLength == expectedLength
                   && currentHash == exactHash
-                then Right (path, currentHash)
-                else Left ("accepted scheduled " <> label <> " version or bytes changed")
+                  then Right (path, currentHash)
+                  else Left ("accepted scheduled " <> label <> " version or bytes changed")
 
 sha256File :: FilePath -> IO Text
 sha256File path = do

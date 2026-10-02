@@ -7,7 +7,8 @@
 -- The dump runs in a short-lived in-cluster Job with two containers sharing an
 -- @emptyDir@: an initContainer running the engine's own client image writes the
 -- dump to @\/dump@, and the main container (@google/cloud-sdk:slim@) gzips and
--- @gsutil cp@s it to GCS. The CronJob wraps the same Job body on a daily schedule
+-- @gsutil cp@s it to GCS. Legacy CronJobs run daily; reviewed schedules run
+-- every fifteen minutes with a signed pre-dump recovery-point timestamp.
 -- and, in legacy contexts, self-prunes inline. The pure renderers and
 -- path/extension helpers also support read-only legacy Job previews; reviewed
 -- manual backup execution is owned by the inventory compiler and adapter.
@@ -76,8 +77,7 @@ import Nagare.Database.Discover (DbRow (..), getDatabase)
 import Nagare.Dsl.Database (Engine (..), dbSecretName, engineImage, parseEngine)
 import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude hiding ((.=))
-import Nagare.Resource.Canonical (contentDigest)
-import Nagare.Resource.Canonical (canonicalValue)
+import Nagare.Resource.Canonical (canonicalValue, contentDigest)
 import Nagare.Resource.Types (digestText)
 import Nagare.Storage.Snapshot (snapshotTimestamp)
 import System.Exit (exitFailure)
@@ -126,8 +126,11 @@ manualDatabaseJobName prefix databaseName timestamp =
       else prefix <> T.take available databaseName <> suffix
   where
     full = prefix <> databaseName <> "-" <> timestamp
-    suffix = "-" <> T.take 20 (digestText (contentDigest (TE.encodeUtf8 databaseName)))
-      <> "-" <> timestamp
+    suffix =
+      "-"
+        <> T.take 20 (digestText (contentDigest (TE.encodeUtf8 databaseName)))
+        <> "-"
+        <> timestamp
     available = 63 - T.length prefix - T.length suffix
 
 -- | The final (gzipped) object extension per engine.
@@ -218,30 +221,48 @@ backupJobSpecValue i =
       , serviceAccountName = if sourceAttested i then Just (i ^. #jobName) else Nothing
       , backoffLimit = 2
       , hostAliases = storeHostAliases (i ^. #backend)
-      , affinity = if i ^. #engine == ClickHouse then
-          Just (clickHouseSourceAffinity (i ^. #namespace) (i ^. #name)) else Nothing
+      , affinity =
+          if i ^. #engine == ClickHouse
+            then
+              Just (clickHouseSourceAffinity (i ^. #namespace) (i ^. #name))
+            else Nothing
       , initContainers = [sourceProbeContainer i | sourceAttested i] <> [dumpContainer i]
       , containers = [uploadContainer i]
-      , volumes = [object ["name" .= ("dump" :: Text), "emptyDir" .= object []]]
-          <> [object ["name" .= ("source-data" :: Text),
-              "persistentVolumeClaim" .= object ["claimName" .= dbPvcName (i ^. #name)]]
-              | i ^. #engine == ClickHouse]
+      , volumes =
+          [object ["name" .= ("dump" :: Text), "emptyDir" .= object []]]
+            <> [ object
+                   [ "name" .= ("source-data" :: Text)
+                   , "persistentVolumeClaim" .= object ["claimName" .= dbPvcName (i ^. #name)]
+                   ]
+               | i ^. #engine == ClickHouse
+               ]
       }
 
 -- | ClickHouse writes its consistent database archive on the server's data
 -- volume. Read that exact PVC from a Job placed on the server's node; the
 -- accepted source PVC/StatefulSet are independently pinned by the review.
 clickHouseSourceAffinity :: Text -> Text -> Value
-clickHouseSourceAffinity namespaceName databaseName = object
-  [ "podAffinity" .= object
-      [ "requiredDuringSchedulingIgnoredDuringExecution" .= toJSON [object
-          [ "labelSelector" .= object ["matchLabels" .= object
-              [ "nagare.dev/database" .= databaseName
-              , "nagare.dev/engine" .= ("clickhouse" :: Text) ]]
-          , "namespaces" .= toJSON [namespaceName]
-          , "topologyKey" .= ("kubernetes.io/hostname" :: Text) ]]
-      ]
-  ]
+clickHouseSourceAffinity namespaceName databaseName =
+  object
+    [ "podAffinity"
+        .= object
+          [ "requiredDuringSchedulingIgnoredDuringExecution"
+              .= toJSON
+                [ object
+                    [ "labelSelector"
+                        .= object
+                          [ "matchLabels"
+                              .= object
+                                [ "nagare.dev/database" .= databaseName
+                                , "nagare.dev/engine" .= ("clickhouse" :: Text)
+                                ]
+                          ]
+                    , "namespaces" .= toJSON [namespaceName]
+                    , "topologyKey" .= ("kubernetes.io/hostname" :: Text)
+                    ]
+                ]
+          ]
+    ]
 
 -- | Only reviewed schedules use a dedicated account to observe their source.
 -- A manual backup already pins the source through its accepted review.
@@ -260,7 +281,7 @@ sourceProbeContainer i =
     [ "name" .= ("source" :: Text)
     , "image" .= storeImage (i ^. #backend)
     , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
-    , "args" .= toJSON [sourceProbeShell <> " > /dump/source.json"]
+    , "args" .= toJSON ["set -eu; python3 -c 'import datetime; print(datetime.datetime.now(datetime.timezone.utc).strftime(\"%Y-%m-%dT%H:%M:%SZ\"))' > /dump/recovery-point; " <> sourceProbeShell <> " > /dump/source.json"]
     , "env" .= toJSON [plainEnv "BACKUP_SOURCE_NAME" (i ^. #name)]
     , "volumeMounts" .= toJSON [dumpMount]
     ]
@@ -303,21 +324,36 @@ dumpContainer i =
     , "image" .= (i ^. #clientImage)
     , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
     , "args" .= toJSON ["set -e; " <> waitForServer (i ^. #engine) (i ^. #serviceHost) <> dumpShell (i ^. #engine) (i ^. #serviceHost)]
-    , "env" .= toJSON (dumpEnv (i ^. #engine) (i ^. #secretName)
-        <> [backupRunEnv i | i ^. #engine == ClickHouse])
-    , "volumeMounts" .= toJSON (dumpMount :
-        [object ["name" .= ("source-data" :: Text),
-          "mountPath" .= ("/source-data" :: Text)] | i ^. #engine == ClickHouse])
+    , "env"
+        .= toJSON
+          ( dumpEnv (i ^. #engine) (i ^. #secretName)
+              <> [backupRunEnv i | i ^. #engine == ClickHouse]
+          )
+    , "volumeMounts"
+        .= toJSON
+          ( dumpMount
+              : [ object
+                    [ "name" .= ("source-data" :: Text)
+                    , "mountPath" .= ("/source-data" :: Text)
+                    ]
+                | i ^. #engine == ClickHouse
+                ]
+          )
     ]
 
 backupRunEnv :: BackupJobInputs -> Value
 backupRunEnv i = case i ^. #destination of
   BackupDestUrl _ -> plainEnv "BACKUP_RUN_ID" (i ^. #jobName)
-  BackupDestStamped -> object
-    [ "name" .= ("BACKUP_RUN_ID" :: Text)
-    , "valueFrom" .= object ["fieldRef" .= object
-        ["fieldPath" .= ("metadata.labels['batch.kubernetes.io/controller-uid']" :: Text)]]
-    ]
+  BackupDestStamped ->
+    object
+      [ "name" .= ("BACKUP_RUN_ID" :: Text)
+      , "valueFrom"
+          .= object
+            [ "fieldRef"
+                .= object
+                  ["fieldPath" .= ("metadata.labels['batch.kubernetes.io/controller-uid']" :: Text)]
+            ]
+      ]
 
 -- | The upload main container: the backend's data-movement image gzips the
 -- dump and uploads it to @$DEST@. Reviewed fixed-key Jobs create only; reviewed
@@ -337,17 +373,28 @@ uploadContainer i =
                  , plainEnv "KEEP" (T.pack (show (i ^. #keep)))
                  ]
               ++ [ object
-                   [ "name" .= ("BACKUP_RUN_ID" :: Text)
-                   , "valueFrom" .= object ["fieldRef" .= object
-                       ["fieldPath" .= ("metadata.labels['batch.kubernetes.io/controller-uid']" :: Text)]]
-                   ] | BackupDestStamped <- [i ^. #destination], not (i ^. #selfPrune)]
+                     [ "name" .= ("BACKUP_RUN_ID" :: Text)
+                     , "valueFrom"
+                         .= object
+                           [ "fieldRef"
+                               .= object
+                                 ["fieldPath" .= ("metadata.labels['batch.kubernetes.io/controller-uid']" :: Text)]
+                           ]
+                     ]
+                 | BackupDestStamped <- [i ^. #destination]
+                 , not (i ^. #selfPrune)
+                 ]
               ++ [plainEnv "BACKUP_SOURCE_NAME" (i ^. #name) | sourceAttested i]
               ++ [secretEnv "BACKUP_SIGNING_KEY" (i ^. #jobName <> "-signing") "HMAC_KEY" | sourceAttested i]
-              ++ maybe [] (\r ->
-                   [plainEnv "BACKUP_RECEIPT_METADATA" (r ^. #metadataJson)]
-                     ++ case r ^. #destination of
-                       FixedReceiptTarget address -> [plainEnv "BACKUP_RECEIPT_DEST" address]
-                       BackupObjectReceiptTarget -> []) (i ^. #receipt)
+              ++ maybe
+                []
+                ( \r ->
+                    [plainEnv "BACKUP_RECEIPT_METADATA" (r ^. #metadataJson)]
+                      ++ case r ^. #destination of
+                        FixedReceiptTarget address -> [plainEnv "BACKUP_RECEIPT_DEST" address]
+                        BackupObjectReceiptTarget -> []
+                )
+                (i ^. #receipt)
               ++ storeEnv (i ^. #backend)
           )
     , "volumeMounts" .= toJSON [dumpMount]
@@ -413,7 +460,8 @@ dumpShell ClickHouse svc =
   "case \"$BACKUP_RUN_ID\" in ''|*[!a-zA-Z0-9-]*) exit 1;; esac; "
     <> "ARCHIVE=\"/source-data/backups/${BACKUP_RUN_ID}.zip\"; "
     <> "test ! -e \"$ARCHIVE\"; "
-    <> "clickhouse-client -h " <> svc
+    <> "clickhouse-client -h "
+    <> svc
     <> " --user \"$CLICKHOUSE_USER\" --password \"$CLICKHOUSE_PASSWORD\" "
     <> "--query \"BACKUP DATABASE default TO File('${BACKUP_RUN_ID}.zip')\"; "
     <> "test -s \"$ARCHIVE\"; cp \"$ARCHIVE\" /dump/backup.zip; "
@@ -436,11 +484,19 @@ uploadShell i =
         | otherwise ->
             "test -n \"$BACKUP_RUN_ID\"; "
               <> "case \"$BACKUP_RUN_ID\" in *[!a-f0-9-]* ) exit 1;; esac; "
-              <> "DEST=\"${PREFIX}${BACKUP_RUN_ID}." <> backupExt (i ^. #engine) <> "\"; "
-    base = "set -e; " <> stamp <> storeShellPreamble backend <>
-      if i ^. #verifyStored then verifiedUpload else streamedUpload
-    streamedUpload = "gzip -9 -c /dump/backup." <> raw <> " | "
-      <> storeCpFromStdin backend "\"$DEST\""
+              <> "DEST=\"${PREFIX}${BACKUP_RUN_ID}."
+              <> backupExt (i ^. #engine)
+              <> "\"; "
+    base =
+      "set -e; "
+        <> stamp
+        <> storeShellPreamble backend
+        <> if i ^. #verifyStored then verifiedUpload else streamedUpload
+    streamedUpload =
+      "gzip -9 -c /dump/backup."
+        <> raw
+        <> " | "
+        <> storeCpFromStdin backend "\"$DEST\""
     verifyTools = case backend of
       GcsBackend {} -> "command -v sha256sum >/dev/null 2>&1; "
       MinioBackend {} ->
@@ -458,33 +514,47 @@ uploadShell i =
     versionedLocalBucket = case backend of
       GcsBackend {} -> ""
       MinioBackend ref ->
-        "aws s3api put-bucket-versioning --bucket " <> ref ^. #bucket
+        "aws s3api put-bucket-versioning --bucket "
+          <> ref ^. #bucket
           <> " --versioning-configuration Status=Enabled --endpoint-url "
-          <> ref ^. #endpoint <> "; "
+          <> ref ^. #endpoint
+          <> "; "
     verifiedUpload =
-      verifyTools <> "gzip -n -9 -c /dump/backup." <> raw <> " > /dump/backup.gz; "
-      <> "EXPECTED=$(sha256sum /dump/backup.gz | cut -d' ' -f1); test ${#EXPECTED} -eq 64; "
-      <> uploadVerified <> "; "
-      <> "ACTUAL=$(" <> storeCpToStdout backend "\"$DEST\""
-      <> " | sha256sum | cut -d' ' -f1); test ${#ACTUAL} -eq 64; "
-      <> "test \"$EXPECTED\" = \"$ACTUAL\""
-      <> (if sourceAttested i then
-            "; " <> sourceProbeShell <> " > /dump/source-after.json; "
-              <> "test \"$(sha256sum < /dump/source.json)\" = \"$(sha256sum < /dump/source-after.json)\"; "
-              <> "rm -f /dump/source-after.json"
-          else "")
-      <> receiptUpload
-      <> "; rm -f /dump/backup.gz"
+      verifyTools
+        <> "gzip -n -9 -c /dump/backup."
+        <> raw
+        <> " > /dump/backup.gz; "
+        <> "EXPECTED=$(sha256sum /dump/backup.gz | cut -d' ' -f1); test ${#EXPECTED} -eq 64; "
+        <> uploadVerified
+        <> "; "
+        <> "ACTUAL=$("
+        <> storeCpToStdout backend "\"$DEST\""
+        <> " | sha256sum | cut -d' ' -f1); test ${#ACTUAL} -eq 64; "
+        <> "test \"$EXPECTED\" = \"$ACTUAL\""
+        <> ( if sourceAttested i
+               then
+                 "; "
+                   <> sourceProbeShell
+                   <> " > /dump/source-after.json; "
+                   <> "test \"$(sha256sum < /dump/source.json)\" = \"$(sha256sum < /dump/source-after.json)\"; "
+                   <> "rm -f /dump/source-after.json"
+               else ""
+           )
+        <> receiptUpload
+        <> "; rm -f /dump/backup.gz"
     receiptUpload = case i ^. #receipt of
       Nothing -> ""
       Just receiptInput ->
         receiptPreamble (receiptInput ^. #destination)
-          <> "; " <> receiptBody (receiptInput ^. #destination)
+          <> "; "
+          <> receiptBody (receiptInput ^. #destination)
           <> " > /dump/backup.receipt.json"
           <> "; RECEIPT_EXPECTED=$(sha256sum /dump/backup.receipt.json | cut -d' ' -f1)"
           <> "; test ${#RECEIPT_EXPECTED} -eq 64"
-          <> "; " <> storeCpCreateOnlyFromFile backend "/dump/backup.receipt.json" "\"$BACKUP_RECEIPT_DEST\""
-          <> "; " <> storeCpToStdout backend "\"$BACKUP_RECEIPT_DEST\""
+          <> "; "
+          <> storeCpCreateOnlyFromFile backend "/dump/backup.receipt.json" "\"$BACKUP_RECEIPT_DEST\""
+          <> "; "
+          <> storeCpToStdout backend "\"$BACKUP_RECEIPT_DEST\""
           <> " > /dump/backup.receipt.readback.json"
           <> "; RECEIPT_ACTUAL=$(sha256sum /dump/backup.receipt.readback.json | cut -d' ' -f1)"
           <> "; test ${#RECEIPT_ACTUAL} -eq 64"
@@ -495,8 +565,8 @@ uploadShell i =
     receiptPreamble (FixedReceiptTarget _) = ""
     receiptPreamble BackupObjectReceiptTarget =
       "; BACKUP_RECEIPT_DEST=\"${DEST}.receipt.json\""
-        <> "; printf '{\"sha256\":\"%s\",\"jobUid\":\"%s\",\"object\":\"%s\",\"source\":%s,\"backup\":%s}\\n'"
-        <> " \"$EXPECTED\" \"$BACKUP_RUN_ID\" \"$DEST\" \"$(cat /dump/source.json)\" \"$BACKUP_RECEIPT_METADATA\""
+        <> "; printf '{\"sha256\":\"%s\",\"jobUid\":\"%s\",\"object\":\"%s\",\"source\":%s,\"backup\":%s,\"recoveryPoint\":\"%s\"}\\n'"
+        <> " \"$EXPECTED\" \"$BACKUP_RUN_ID\" \"$DEST\" \"$(cat /dump/source.json)\" \"$BACKUP_RECEIPT_METADATA\" \"$(cat /dump/recovery-point)\""
         <> " > /dump/backup.payload.json"
         <> "; RECEIPT_SIGNATURE=$(python3 -c 'import hashlib,hmac,json,os; "
         <> "payload=json.load(open(\"/dump/backup.payload.json\")); "
@@ -507,7 +577,7 @@ uploadShell i =
       "printf '{\"version\":1,\"sha256\":\"%s\",\"backup\":%s}\\n'"
         <> " \"$EXPECTED\" \"$BACKUP_RECEIPT_METADATA\""
     receiptBody BackupObjectReceiptTarget =
-      "printf '{\"version\":4,\"payload\":%s,\"hmacSha256\":\"%s\"}\\n'"
+      "printf '{\"version\":5,\"payload\":%s,\"hmacSha256\":\"%s\"}\\n'"
         <> " \"$(cat /dump/backup.payload.json)\" \"$RECEIPT_SIGNATURE\""
     -- keep the last $KEEP objects under $PREFIX (newest sort last with reverse sort)
     prune =
@@ -535,18 +605,18 @@ renderBackupCronJob = Y.encode . backupCronJobValue
 backupCronJobValue :: BackupCronInputs -> Value
 backupCronJobValue i =
   object
-      [ "apiVersion" .= ("batch/v1" :: Text)
-      , "kind" .= ("CronJob" :: Text)
-      , "metadata" .= jobMetadata (i ^. #base)
-      , "spec"
-          .= object
-            [ "schedule" .= (i ^. #schedule)
-            , "concurrencyPolicy" .= ("Forbid" :: Text)
-            , "successfulJobsHistoryLimit" .= (3 :: Int)
-            , "failedJobsHistoryLimit" .= (1 :: Int)
-            , "jobTemplate" .= object ["spec" .= backupJobSpecValue (i ^. #base)]
-            ]
-      ]
+    [ "apiVersion" .= ("batch/v1" :: Text)
+    , "kind" .= ("CronJob" :: Text)
+    , "metadata" .= jobMetadata (i ^. #base)
+    , "spec"
+        .= object
+          [ "schedule" .= (i ^. #schedule)
+          , "concurrencyPolicy" .= ("Forbid" :: Text)
+          , "successfulJobsHistoryLimit" .= (3 :: Int)
+          , "failedJobsHistoryLimit" .= (1 :: Int)
+          , "jobTemplate" .= object ["spec" .= backupJobSpecValue (i ^. #base)]
+          ]
+    ]
 
 -- | Legacy scheduled backup. Inline keep-last-N deletion is confined to
 -- unadmitted contexts while reviewed pruning remains a separate lifecycle action.
@@ -566,42 +636,56 @@ renderPreviousInventoryDbBackupCronJob = renderDbBackupCronJobWithOptions False 
 
 renderDbBackupCronJobWithOptions :: Bool -> Bool -> Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
 renderDbBackupCronJobWithOptions shouldPrune shouldVerify ns name eng version backend keep =
-  renderBackupCronJob $ if shouldVerify then
-    let provisional = withReceipt (T.replicate 64 "0")
-        revision = digestText (contentDigest (either (error . T.unpack) id
-          (canonicalValue (backupCronJobValue provisional))))
-     in withReceipt revision
-    else BackupCronInputs defaultBackupSchedule baseInputs
+  renderBackupCronJob $
+    if shouldVerify
+      then
+        let provisional = withReceipt (T.replicate 64 "0")
+            revision =
+              digestText
+                ( contentDigest
+                    ( either
+                        (error . T.unpack)
+                        id
+                        (canonicalValue (backupCronJobValue provisional))
+                    )
+                )
+         in withReceipt revision
+      else BackupCronInputs defaultBackupSchedule baseInputs
   where
-    baseInputs = BackupJobInputs
-      { namespace = ns
-      , jobName = "nagare-dbbackup-" <> name
-      , engine = eng
-      , clientImage = engineImage eng <> ":" <> version
-      , serviceHost = name
-      , secretName = dbSecretName name
-      , name = name
-      , destination = BackupDestStamped
-      , prefix = storePrefixUrl backend (dbBackupKeyPrefix name)
-      , keep = keep
-      , selfPrune = shouldPrune
-      , verifyStored = shouldVerify
-      , receipt = Nothing
-      , backend = backend
-      }
+    baseInputs =
+      BackupJobInputs
+        { namespace = ns
+        , jobName = "nagare-dbbackup-" <> name
+        , engine = eng
+        , clientImage = engineImage eng <> ":" <> version
+        , serviceHost = name
+        , secretName = dbSecretName name
+        , name = name
+        , destination = BackupDestStamped
+        , prefix = storePrefixUrl backend (dbBackupKeyPrefix name)
+        , keep = keep
+        , selfPrune = shouldPrune
+        , verifyStored = shouldVerify
+        , receipt = Nothing
+        , backend = backend
+        }
     withReceipt revision =
-      let metadata = object
-            [ "database" .= name
-            , "namespace" .= ns
-            , "engine" .= T.toLower (T.pack (show eng))
-            , "format" .= backupExt eng
-            , "schedule" .= ("nagare-dbbackup-" <> name)
-            , "scheduleRevision" .= revision
-            , "keep" .= keep
-            ]
-          scheduledReceipt = BackupReceipt BackupObjectReceiptTarget
-            (TE.decodeUtf8 (LBS.toStrict (Aeson.encode metadata)))
-       in BackupCronInputs defaultBackupSchedule
+      let metadata =
+            object
+              [ "database" .= name
+              , "namespace" .= ns
+              , "engine" .= T.toLower (T.pack (show eng))
+              , "format" .= backupExt eng
+              , "schedule" .= ("nagare-dbbackup-" <> name)
+              , "scheduleRevision" .= revision
+              , "keep" .= keep
+              ]
+          scheduledReceipt =
+            BackupReceipt
+              BackupObjectReceiptTarget
+              (TE.decodeUtf8 (LBS.toStrict (Aeson.encode metadata)))
+       in BackupCronInputs
+            "*/15 * * * *"
             (baseInputs {receipt = Just scheduledReceipt})
 
 -- ---------------------------------------------------------------------------
@@ -643,9 +727,13 @@ previewDbBackup ns databaseName backend keep = do
                 { schedule = defaultBackupSchedule
                 , base =
                     jobInputs
-                    & #jobName .~ "nagare-dbbackup-" <> databaseName
-                    & #destination .~ BackupDestStamped
-                    & #selfPrune .~ True
+                      & #jobName
+                      .~ "nagare-dbbackup-"
+                      <> databaseName
+                        & #destination
+                        .~ BackupDestStamped
+                        & #selfPrune
+                        .~ True
                 }
         TIO.putStrLn "--- Backup Job manifest ---"
         BS.putStr (renderBackupJob jobInputs)

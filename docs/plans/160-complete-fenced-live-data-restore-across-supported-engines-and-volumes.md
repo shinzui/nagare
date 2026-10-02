@@ -62,6 +62,11 @@ provenance:
       at: 2026-10-02T18:53:10Z
       mode: "update"
       note: "Record critical intranet upgrade readiness and backup recovery acceptance with a one-hour recovery-point objective"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-02T19:46:21Z
+      mode: "implement"
+      note: "Consume exact-generation scheduled GCS receipts and preserve historical accepted restore authority"
 ---
 
 # Complete fenced live data restore across supported engines and volumes
@@ -80,6 +85,20 @@ The supported targets are **local k3d running k3s** and **k3s on a NixOS VM in G
 An operator can restore verified PostgreSQL, Redis, and ClickHouse backups into isolated database destinations, and application-volume backups into a new PVC. Known content and destination identity are verified while the source remains untouched. The accepted shared fence and recovery of existing operations remain intact; general live overwrite and automatic promotion/cutover are deferred.
 
 ## Progress
+
+**Scheduled GCS restore source checkpoint (2026-10-02).** The public restore
+planner now uses the shared exact-generation object reader for accepted scheduled
+GCS receipts. It verifies both pinned objects, lengths and hashes plus the completed
+ingestion Job's identity/readback and original source StatefulSet/PVC identities.
+A later schedule or signing-key policy does not invalidate already accepted receipt
+bytes: restore uses their immutable accepted digest instead of the current CronJob
+metadata. Normal isolated restore loads only the required source/credential/Job
+native members; existing legacy recovery retains its prior input path. Independent
+source review accepts these boundaries. The executable builds and all 1,068 CLI
+tests pass; installed GCS scheduled restore and its recovered rows remain the next
+native assertion. This does not add source-cluster-unavailable targets or live
+promotion, and no milestone is newly complete.
+
 
 **Interpreter restore pilot accepted (2026-10-02).** Six local tests now cover interruption before create, lost write acknowledgement, virtual readiness timeout, saved-review recovery in another OS process, changed source UID refusal, and the actual rendered GCS download script with missing-generation/corrupt-byte counterfactuals. Original source objects and accepted revisions remain unchanged and successful recovery creates one Job. The producer Job is absent. See [the report](../audits/mp23-effectful-restore-pilot.md). PostgreSQL loading, live GCS, complete CLI source selection, other engines and new-PVC restore are not proved by this pilot.
 

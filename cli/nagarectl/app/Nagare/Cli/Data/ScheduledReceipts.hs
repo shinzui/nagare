@@ -9,9 +9,11 @@ import Control.Monad (forM)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty qualified as NE
 import Data.Map qualified as Map
+import Data.Maybe (catMaybes)
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
+import Data.Time (getCurrentTime)
 import Nagare.Cli.Inventory.Adapters (inventoryKubernetesAdapter)
 import Nagare.Cli.Inventory.Planning
   ( inventoryPlanRegistryWithNative
@@ -29,14 +31,16 @@ import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter qualified as InventoryAdapter
 import Nagare.Inventory.Backup
-  ( ScheduledReceiptExpectation
-      ( scheduledFormat
-      , scheduledKeep
-      , scheduledObjectPrefix
-      , scheduledPolicyRevision
-      )
+  ( ScheduledBackupReceipt (scheduledRecoveryPoint)
+  , ScheduledReceiptExpectation
+    ( scheduledFormat
+    , scheduledKeep
+    , scheduledObjectPrefix
+    , scheduledPolicyRevision
+    )
   , scheduledReceiptExpectationFromCronJob
   )
+import Nagare.Inventory.BackupFreshness (BackupFreshness (Fresh), backupFreshness, renderBackupFreshness)
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.DataService (acceptedFoundationNamespace)
 import Nagare.Inventory.Plan qualified as InventoryPlan
@@ -60,9 +64,10 @@ import Nagare.Inventory.ScheduledIngest
   , scheduledIngestEvidenceMatches
   )
 import Nagare.Inventory.ScheduledReceipt
-  ( classifyScheduledListingKeys
+  ( ScheduledReceiptEvidence (scheduledReceipt)
+  , classifyScheduledListingKeys
   , inspectScheduledReceipt
-  , verifyAcceptedScheduledReceipt
+  , verifyAcceptedScheduledReceiptPoint
   )
 import Nagare.Inventory.ScheduledStore
   ( ObjectReader (listObjectKeys)
@@ -72,9 +77,10 @@ import Nagare.Inventory.Status qualified as InventoryStatus
 import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Target (contextNameText)
+import System.Exit (exitFailure)
 
-runListScheduledReceipts :: Maybe String -> Text -> Text -> Maybe String -> IO ()
-runListScheduledReceipts mctx database namespaceName bucketArg = do
+runListScheduledReceipts :: Maybe String -> Text -> Text -> Maybe String -> Bool -> IO ()
+runListScheduledReceipts mctx database namespaceName bucketArg checkFreshness = do
   active <- activeTarget mctx
   snapshot <- Inventory.loadTargetSnapshot active
   (cluster, _) <- either dieT pure (acceptedFoundationNamespace snapshot namespaceName)
@@ -222,13 +228,15 @@ runListScheduledReceipts mctx database namespaceName bucketArg = do
                     False
                     ((`Set.member` pruned) . Resource.scopeIdText . ResourceInventory.scopeId)
                     acceptedScope
-            status <- case (objectPresent, receiptPresent, acceptedPrune) of
-              (False, False, True) -> pure "pruned"
-              (True, _, True) -> pure "unresolved: pruned backup object reappeared"
-              (_, True, True) -> pure "unresolved: pruned receipt reappeared"
-              (False, False, False) -> pure "unresolved: accepted provider objects are missing"
-              (True, False, False) -> pure "unresolved: backup object has no receipt"
-              (False, True, False) -> pure "unresolved: receipt has no backup object"
+                unresolved message = pure (message, Nothing)
+                point = scheduledRecoveryPoint . scheduledReceipt
+            (status, recoveryPoint) <- case (objectPresent, receiptPresent, acceptedPrune) of
+              (False, False, True) -> unresolved "pruned"
+              (True, _, True) -> unresolved "unresolved: pruned backup object reappeared"
+              (_, True, True) -> unresolved "unresolved: pruned receipt reappeared"
+              (False, False, False) -> unresolved "unresolved: accepted provider objects are missing"
+              (True, False, False) -> unresolved "unresolved: backup object has no receipt"
+              (False, True, False) -> unresolved "unresolved: receipt has no backup object"
               (True, True, False) -> case acceptedScope of
                 Just scope -> do
                   let sameSchedule =
@@ -236,45 +244,41 @@ runListScheduledReceipts mctx database namespaceName bucketArg = do
                           "scheduled.backup.schedule.revision"
                           (ResourceInventory.scopeOverrides scope)
                           == Just (Resource.digestText (scheduledPolicyRevision expectation))
+                      acceptedStatus = "accepted " <> Resource.scopeIdText (ResourceInventory.scopeId scope)
                   inspected <-
                     if sameSchedule
                       then inspectScheduledReceipt reader expectation selected signingKey
                       else pure (Left "accepted historical schedule revision")
-                  if either (const False) (scheduledIngestEvidenceMatches scope) inspected
-                    then
-                      pure
-                        ( "accepted "
-                            <> Resource.scopeIdText (ResourceInventory.scopeId scope)
-                        )
-                    else do
-                      let acceptedAddress =
-                            Map.lookup
-                              "scheduled.backup.object"
-                              (ResourceInventory.scopeOverrides scope)
-                          expectedPrefix =
-                            scheduledObjectPrefix expectation
-                              <> selected
-                              <> "."
+                  case inspected of
+                    Right evidence
+                      | scheduledIngestEvidenceMatches scope evidence ->
+                          pure (acceptedStatus, point evidence)
+                    _ -> do
+                      let acceptedAddress = Map.lookup "scheduled.backup.object" (ResourceInventory.scopeOverrides scope)
+                          expectedPrefix = scheduledObjectPrefix expectation <> selected <> "."
                       checked <- case acceptedAddress of
                         Just address
                           | expectedPrefix `T.isPrefixOf` address ->
-                              verifyAcceptedScheduledReceipt reader address scope
+                              verifyAcceptedScheduledReceiptPoint reader address scope
                         _ -> pure (Left "accepted scheduled receipt has another object address")
-                      pure $ case checked of
-                        Right () ->
-                          "accepted "
-                            <> Resource.scopeIdText (ResourceInventory.scopeId scope)
-                        Left reason -> "unresolved: " <> reason
+                      pure $
+                        either
+                          (\reason -> ("unresolved: " <> reason, Nothing))
+                          (\stamp -> (acceptedStatus, stamp))
+                          checked
                 Nothing -> do
                   inspected <- inspectScheduledReceipt reader expectation selected signingKey
                   pure $
                     either
-                      ("unresolved: " <>)
-                      (const "verified; ingestion pending")
+                      (\reason -> ("unresolved: " <> reason, Nothing))
+                      (const ("verified; ingestion pending", Nothing))
                       inspected
-            pure (selected <> "  " <> status)
-          pure (Right (rows <> map ("unresolved provider key: " <>) unknown))
-  rows <- either dieT pure listed >>= either dieT pure
+            pure (selected <> "  " <> status, recoveryPoint)
+          pure (Right (rows <> [("unresolved provider key: " <> key, Nothing) | key <- unknown]))
+  verifiedRows <- either dieT pure listed >>= either dieT pure
+  now <- getCurrentTime
+  let rows = map fst verifiedRows
+      freshness = backupFreshness now (catMaybes (map snd verifiedRows))
   TIO.putStrLn
     ( "Scheduled retention: keep="
         <> T.pack (show (scheduledKeep expectation))
@@ -283,6 +287,10 @@ runListScheduledReceipts mctx database namespaceName bucketArg = do
   if null rows
     then TIO.putStrLn "No scheduled backup objects or accepted receipts."
     else mapM_ TIO.putStrLn rows
+  TIO.putStrLn (renderBackupFreshness freshness)
+  when checkFreshness $ case freshness of
+    Fresh _ -> pure ()
+    _ -> exitFailure
 
 runReviewedScheduledReceiptPlan ::
   Maybe String -> Text -> Text -> Maybe String -> Text -> FilePath -> IO ()

@@ -30,7 +30,7 @@ command group.
 
 ```bash
 # Provision a Postgres database (generates a password, a Secret, a PVC, a
-# StatefulSet, a ClusterIP Service, and a daily backup CronJob):
+# StatefulSet, a ClusterIP Service, and a reviewed backup CronJob):
 nagarectl db create postgres pg-main --size 10Gi \
   --recovery-backup postgres-backup --recovery-key-version v1
 
@@ -334,14 +334,16 @@ rendered `deploy` shows, for a Postgres reference:
 
 ## Backups and restore
 
-For a retained database, `nagarectl db create` includes a **daily backup
-CronJob** that writes to the active object store — GCS in cloud mode, MinIO in
+For a retained database, a newly reviewed `nagarectl db create` includes a
+**backup CronJob every 15 minutes** that writes to the active object store — GCS in cloud mode, MinIO in
 local mode. A newly compiled inventory-reviewed CronJob does not prune older
 backups. It compresses the dump to a temporary file, uploads it, reads the exact
 object back, and compares SHA-256 digests before the Job reports success. This
 requires temporary space for the compressed dump as well as the raw dump. The
-Job result is still not a durable per-object backup receipt. To remove inline
-pruning from an already accepted schedule and add readback verification, save and
+signed receipt binds the stored bytes, source identities, schedule revision and
+pre-dump recovery time. Accept that receipt through `db backup-receipts` before
+using it for restore or freshness monitoring; see [Backups and disaster recovery](backups-and-disaster-recovery.md).
+Existing schedules change only through review. To remove inline pruning from an already accepted schedule and add readback verification, save and
 apply a focused review:
 
 ```bash
@@ -354,8 +356,11 @@ preserves the database's other accepted members. An unfamiliar schedule needs a
 normal database review. Until the saved review is applied, the old CronJob can
 still prune. Jobs already started from the old template can finish and prune
 after the review is applied; inspect active backup Jobs before relying on the
-new policy. Scheduled backups still have no per-object receipt or reviewed
-pruning route; monitor their object-store usage. A database with
+new policy. Scheduled backups retain their objects by default; generalized
+scheduled pruning is deferred, and keep-N/expiry are unenforced. Monitor storage
+usage and accepted recovery-point freshness with `db backup-receipts NAME
+--check-freshness`. This warns at 30 minutes and reports a one-hour breach as
+unhealthy; a successful schedule alone does not prove source-loss recovery. A database with
 `retention = Delete` is throwaway and has no scheduled
 backup. For an accepted database, save and apply a manual backup review:
 

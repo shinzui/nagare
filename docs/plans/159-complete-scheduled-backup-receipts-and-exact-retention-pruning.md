@@ -67,6 +67,30 @@ Every scheduled backup produces a durable, verifiable receipt for one exact obje
 
 ## Progress
 
+**Independent cloud ingestion and freshness source checkpoint (2026-10-02).**
+Installed `a027d1f6` passes the independent cp3 gate and exact GCS ingestion after
+the producer Job/Pod have been conditionally removed. The two-operation review
+is byte-identical before/after cleanup; apply takes 47.717 seconds, verifies four
+exact-generation downloads and preserves all 26 prior revisions and source/neighbor
+rows. [Independent native evidence](../audits/mp23-independent-results-2026-10-02/scheduled-gcs-ingestion-a027d1f6.json)
+binds the idle final head and completed ingestion Job. Native listing exposed
+GCloud's numeric UTC-offset timestamp; the parser now accepts that form and the
+literal-Z form, with an equality regression.
+
+Newly reviewed schedules now run every 15 minutes and emit version-5 receipts
+with an authenticated UTC timestamp captured before dumping. Version-4 receipts
+remain accepted without inventing a recovery time. Ingestion pins the new time;
+listing derives historical times from exact accepted receipt bytes. The new
+`--check-freshness` listing mode fails for warnings at 30 minutes, breaches at one
+hour, missing timestamps and future times. Only freshly verified accepted receipts
+count; unaccepted candidates cannot make the check healthy. The 15-minute cadence
+leaves retry margin but is not a source-loss recovery guarantee. All 1,068 CLI
+tests pass in 54.55 seconds, including executed version-4/version-5 ingestion,
+changed-time refusal, signed producer parsing and freshness boundaries. Installed
+version-5 production/monitoring, off-cluster recovery authority and source-unavailable
+content recovery remain open. M1 is not complete.
+
+
 **GCS scheduled-receipt source checkpoint (2026-10-02).** Public receipt listing
 and review preparation now use the same backend-independent inspection contract
 for MinIO and GCS. GCS listing validates each provider object's bucket, prefix,

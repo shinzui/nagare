@@ -148,6 +148,7 @@ library
     Nagare.Inventory.Artifact
     Nagare.Inventory.BackendMap
     Nagare.Inventory.Backup
+    Nagare.Inventory.BackupFreshness
     Nagare.Inventory.Bootstrap
     Nagare.Inventory.BootstrapRegistryRecovery
     Nagare.Inventory.BootstrapRegistryTransport

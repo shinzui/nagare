@@ -779,6 +779,7 @@ data DbBackupReceiptsOpts = DbBackupReceiptsOpts
   , bucket :: !(Maybe String)
   , backupId :: !(Maybe String)
   , savePlan :: !(Maybe FilePath)
+  , checkFreshness :: !Bool
   }
   deriving stock (Generic, Show)
 

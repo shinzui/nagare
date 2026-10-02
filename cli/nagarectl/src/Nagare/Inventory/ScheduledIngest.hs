@@ -25,6 +25,7 @@ import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import Data.Time.Format (defaultTimeLocale, formatTime)
 import Nagare.Cluster.GcsJob (MinioRef (..), StoreBackend (..), storeEnv, storeHostAliases, storeImage, storeObjectUrl)
 import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude hiding ((.=))
@@ -101,19 +102,21 @@ scheduledIngestSourceProof scope
 -- before a read-only listing may call that backup accepted.
 scheduledIngestEvidenceMatches :: ScopeDeclaration -> ScheduledReceiptEvidence -> Bool
 scheduledIngestEvidenceMatches scope evidence =
-  all
-    (\(key, value) -> Map.lookup key (scopeOverrides scope) == Just value)
-    [ ("scheduled.backup.id", physicalIdentityText (scheduledJobUid receipt))
-    , ("scheduled.backup.object", scheduledObjectAddress receipt)
-    , ("scheduled.backup.object.version", scheduledObjectVersion evidence)
-    , ("scheduled.backup.object.length", T.pack (show (scheduledObjectLength evidence)))
-    , ("scheduled.backup.object.sha256", scheduledSha256 receipt)
-    , ("scheduled.backup.receipt", scheduledObjectAddress receipt <> ".receipt.json")
-    , ("scheduled.backup.receipt.version", scheduledReceiptVersion evidence)
-    , ("scheduled.backup.receipt.length", T.pack (show (scheduledReceiptLength evidence)))
-    , ("scheduled.backup.receipt.digest", digestText (scheduledReceiptDigest evidence))
-    , ("scheduled.backup.schedule.revision", digestText (scheduledScheduleRevision receipt))
-    ]
+  Map.lookup "scheduled.backup.recovery.point" (scopeOverrides scope)
+    == (T.pack . formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ" <$> scheduledRecoveryPoint receipt)
+    && all
+      (\(key, value) -> Map.lookup key (scopeOverrides scope) == Just value)
+      [ ("scheduled.backup.id", physicalIdentityText (scheduledJobUid receipt))
+      , ("scheduled.backup.object", scheduledObjectAddress receipt)
+      , ("scheduled.backup.object.version", scheduledObjectVersion evidence)
+      , ("scheduled.backup.object.length", T.pack (show (scheduledObjectLength evidence)))
+      , ("scheduled.backup.object.sha256", scheduledSha256 receipt)
+      , ("scheduled.backup.receipt", scheduledObjectAddress receipt <> ".receipt.json")
+      , ("scheduled.backup.receipt.version", scheduledReceiptVersion evidence)
+      , ("scheduled.backup.receipt.length", T.pack (show (scheduledReceiptLength evidence)))
+      , ("scheduled.backup.receipt.digest", digestText (scheduledReceiptDigest evidence))
+      , ("scheduled.backup.schedule.revision", digestText (scheduledScheduleRevision receipt))
+      ]
   where
     receipt = scheduledReceipt evidence
 
@@ -317,7 +320,12 @@ compileScheduledIngestScope request accepted native = do
           , ("scheduled.backup.source.pvc.uid", physicalIdentityText (ingestPvcUid request))
           ]
   base <- mkScopeDeclaration owner [ResourceBundle [Managed member] [] [] [] [proof] []]
-  let scope = withScopeOverrides overrides (withScopeConfigDigest (contentDigest canonical) base)
+  let recoveryOverrides =
+        maybe
+          Map.empty
+          (Map.singleton "scheduled.backup.recovery.point" . T.pack . formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ")
+          (scheduledRecoveryPoint receipt)
+      scope = withScopeOverrides (Map.union recoveryOverrides overrides) (withScopeConfigDigest (contentDigest canonical) base)
   pure (scope, Map.singleton jobId (member, bytes))
 
 sameCluster :: ResourceId -> ManagedResource -> Bool
@@ -403,6 +411,7 @@ renderIngestJob
                , plain "PVC_UID" (physicalIdentityText (ingestPvcUid request))
                , plain "METADATA_SHA256" (digestText (scheduledMetadataDigest expectation))
                , plain "SCHEDULE_REVISION" (digestText (scheduledScheduleRevision receipt))
+               , plain "RECOVERY_POINT" (maybe "" (T.pack . formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ") (scheduledRecoveryPoint receipt))
                , signingEnv
                ]
         annotation =
@@ -514,8 +523,9 @@ ingestScriptFor backend = T.intercalate "\n" (["set -eu"] <> downloads <> verifi
       , "assert json.load(open(\"/work/receipt-response.json\")).get(\"VersionId\")==e[\"RECEIPT_VERSION\"]"
       , "assert json.load(open(\"/work/object-response.json\")).get(\"VersionId\")==e[\"OBJECT_VERSION\"]"
       , "envelope=json.loads(r)"
-      , "assert envelope.get(\"version\")==4"
+      , "assert envelope.get(\"version\") in [4,5]"
       , "payload=envelope[\"payload\"]"
+      , "assert (envelope[\"version\"]==4 and not e.get(\"RECOVERY_POINT\",\"\")) or (envelope[\"version\"]==5 and payload[\"recoveryPoint\"]==e[\"RECOVERY_POINT\"])"
       , "canonical=json.dumps(payload,sort_keys=True,separators=(\",\",\":\"),ensure_ascii=False).encode(\"utf-8\")"
       , "signature=hmac.new(bytes.fromhex(e[\"BACKUP_SIGNING_KEY\"]),canonical,hashlib.sha256).hexdigest()"
       , "assert hmac.compare_digest(signature,envelope[\"hmacSha256\"])"

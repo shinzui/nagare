@@ -17,7 +17,7 @@ import Data.Map qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
-import Data.Time (UTCTime (..), fromGregorian, secondsToDiffTime)
+import Data.Time (UTCTime (..), addUTCTime, fromGregorian, secondsToDiffTime)
 import Data.Yaml qualified as Yaml
 import Nagare.Database.Backup (renderInventoryDbBackupCronJob)
 import Nagare.Database.Restore
@@ -50,6 +50,7 @@ import Nagare.Inventory.Backup
     )
   , scheduledReceiptExpectationFromCronJob
   )
+import Nagare.Inventory.BackupFreshness (BackupFreshness (..), backupFreshness)
 import Nagare.Inventory.ScheduledGcs (parseGcsObjectListing)
 import Nagare.Inventory.ScheduledIngest
   ( ingestScriptFor
@@ -94,7 +95,16 @@ import Test.Tasty.HUnit
 
 scheduledReceiptTests :: [TestTree]
 scheduledReceiptTests =
-  [ testCase "scheduled GCS listing validates complete provider identities" $ do
+  [ testCase "backup freshness uses the recovery point and warns before the one-hour breach" $ do
+      let now = UTCTime (fromGregorian 2026 10 2) 43200
+          ago seconds = addUTCTime (negate seconds) now
+      backupFreshness now [] @?= NoRecoveryPoint
+      backupFreshness now [ago 7200, ago 900] @?= Fresh 900
+      backupFreshness now [ago 1800] @?= Deteriorating 1800
+      backupFreshness now [ago 3599] @?= Deteriorating 3599
+      backupFreshness now [ago 3600] @?= Breached 3600
+      backupFreshness now [addUTCTime 1 now] @?= FutureRecoveryPoint
+  , testCase "scheduled GCS listing validates complete provider identities" $ do
       let entry :: Text -> Text -> Text -> Aeson.Value
           entry bucket name generation =
             Aeson.object
@@ -111,6 +121,10 @@ scheduledReceiptTests =
               "databases/mydb/"
               (LBS.toStrict (Aeson.encode values))
       fmap (map listedKey) (parse [good]) @?= Right ["databases/mydb/run.sql.gz"]
+      let withOffset = case good of
+            Aeson.Object fields -> Aeson.Object (KeyMap.insert "updated" (Aeson.String "2026-10-02T12:00:00.123000+00:00") fields)
+            other -> other
+      parse [withOffset] @?= parse [good]
       parse ([] :: [Aeson.Value]) @?= Right []
       forM_
         [ [good, good]
@@ -481,6 +495,7 @@ scheduledReceiptTests =
               object
               (T.replicate 64 "a")
               (contentDigest "schedule revision")
+              Nothing
           evidence =
             ScheduledReceiptEvidence
               receipt

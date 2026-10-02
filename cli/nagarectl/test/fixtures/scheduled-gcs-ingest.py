@@ -72,3 +72,15 @@ else:
         if not fault:
             assert json.loads(proof.read_text()) == {
                 "objectVersion": "123", "receiptVersion": "456", "sha256": payload["sha256"]}
+
+    payload["recoveryPoint"] = "2026-10-02T12:00:00Z"
+    receipt = canonical({"version": 5, "payload": payload, "hmacSha256":
+        hmac.new(bytes.fromhex(key), canonical(payload), hashlib.sha256).hexdigest()})
+    (root / "RECEIPT").write_bytes(receipt)
+    env.update(RECEIPT_LENGTH=str(len(receipt)), RECEIPT_SHA256=hashlib.sha256(receipt).hexdigest())
+    for point in [payload["recoveryPoint"], "2026-10-02T12:30:00Z"]:
+        proof.unlink(missing_ok=True)
+        result = subprocess.run(["/bin/sh", "-c", script],
+            env=dict(env, FAULT="", RECOVERY_POINT=point), capture_output=True)
+        assert (result.returncode == 0) == (point == payload["recoveryPoint"]), result.stderr.decode()
+        assert proof.exists() == (point == payload["recoveryPoint"])

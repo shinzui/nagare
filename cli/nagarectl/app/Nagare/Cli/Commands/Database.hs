@@ -187,7 +187,8 @@ runDb mctx = \case
       (o ^. #failedReview)
       (o ^. #savePlan)
   DbBackupReceipts o -> case (o ^. #backupId, o ^. #savePlan) of
-    (Just selected, Just output) ->
+    (Just selected, Just output) -> do
+      when (o ^. #checkFreshness) (dieT "--check-freshness is a read-only listing check; omit ingestion options")
       runReviewedScheduledReceiptPlan
         mctx
         (T.pack (o ^. #name))
@@ -201,11 +202,17 @@ runDb mctx = \case
         (T.pack (o ^. #name))
         (nsOf (o ^. #namespace))
         (o ^. #bucket)
+        (o ^. #checkFreshness)
     _ -> dieT "scheduled receipt ingestion requires both --backup-id and --save-plan"
   DbManualReceipt o -> case (o ^. #backupId, o ^. #savePlan) of
-    (Just selected, Just output) -> runReviewedManualReceiptPlan
-      mctx (T.pack (o ^. #name)) (nsOf (o ^. #namespace))
-      (T.pack selected) (o ^. #bucket) output
+    (Just selected, Just output) ->
+      runReviewedManualReceiptPlan
+        mctx
+        (T.pack (o ^. #name))
+        (nsOf (o ^. #namespace))
+        (T.pack selected)
+        (o ^. #bucket)
+        output
     _ -> dieT "manual receipt review requires both --backup-id and --save-plan"
   DbDisableBackupPrune o output ->
     runDisableBackupPrunePlan mctx (T.pack (o ^. #name)) (nsOf (o ^. #namespace)) output

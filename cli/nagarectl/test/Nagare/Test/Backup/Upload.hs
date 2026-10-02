@@ -29,7 +29,7 @@ import Nagare.Database.Backup
 import Nagare.Dsl.Database (Engine (Postgres))
 import Nagare.Dsl.Prelude hiding ((<.>))
 import Nagare.Inventory.Backup
-  ( ScheduledBackupReceipt (scheduledJobUid)
+  ( ScheduledBackupReceipt (scheduledJobUid, scheduledRecoveryPoint)
   , ScheduledReceiptExpectation
     ( ScheduledReceiptExpectation
     , scheduledPvcUid
@@ -602,6 +602,7 @@ backupUploadTests =
         BS.writeFile (dump </> "backup.sql") "scheduled receipt source\n"
         BS.writeFile source sourceBytes
         BS.writeFile (dump </> "source.json") sourceBytes
+        BS.writeFile (dump </> "recovery-point") "2026-10-02T12:00:00Z\n"
         (interrupted, _, _) <- run "1"
         assertBool "readback failure completed a scheduled receipt" (interrupted /= ExitSuccess)
         doesFileExist dataObject >>= (@?= True)
@@ -621,7 +622,7 @@ backupUploadTests =
         hashExit @?= ExitSuccess
         case eitherDecodeStrict receiptBytes of
           Right (Aeson.Object root) -> do
-            KeyMap.lookup "version" root @?= Just (Aeson.Number 4)
+            KeyMap.lookup "version" root @?= Just (Aeson.Number 5)
             case KeyMap.lookup "payload" root of
               Just payload@(Aeson.Object fields) -> do
                 KeyMap.lookup "sha256" fields
@@ -664,7 +665,9 @@ backupUploadTests =
                 receiptBytes
         case accepted of
           Left reason -> assertFailure ("signed scheduled receipt was rejected: " <> T.unpack reason)
-          Right checked -> Resource.physicalIdentityText (scheduledJobUid checked) @?= T.pack runId
+          Right checked -> do
+            Resource.physicalIdentityText (scheduledJobUid checked) @?= T.pack runId
+            fmap show (scheduledRecoveryPoint checked) @?= Just "2026-10-02 12:00:00 UTC"
         assertBool
           "foreign receipt address was accepted"
           ( isLeft

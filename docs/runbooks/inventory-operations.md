@@ -2,7 +2,9 @@
 
 This runbook covers an inventory-admitted context. Complete its operational
 checks against the selected release candidate and an eligible disposable context;
-record F14–F18 verification before safe-use acceptance. Bootstrap alone does not
+have an independent reviewer execute the technical procedures and record F14–F18
+verification before safe-use acceptance. The operator retains the final production
+go/no-go decision. Bootstrap alone does not
 establish that gate. Other supported implementation and release work continues
 while that review is pending.
 
@@ -241,8 +243,7 @@ New custom interactive mutating maintenance and generalized scheduled pruning re
 admitted historical operations retain their evidence-bound recovery paths.
 
 Real low-risk workloads remain gated on fresh-context operational evidence,
-installed reviewed access, exact rehearsal cleanup and the operator's F14–F18
-run. Full release acceptance additionally requires the remaining native-system,
+installed reviewed access, exact rehearsal cleanup and independent F14–F18 runbook execution. Full release acceptance additionally requires the remaining native-system,
 feature and immutable-evidence gates in [MasterPlan 23](../masterplans/23-make-managed-resources-first-class-through-typed-scoped-inventories.md).
 
 ## Reviewed controller collection
@@ -289,7 +290,7 @@ native controller collection and interruption/recovery proof. Reuse evidence
 only where its candidate and input bindings remain applicable.
 
 Finish candidate-bound retained-data collection coverage, protected HTTPS/browser
-support disposition, and the operator's F14–F18 check. Remaining
+support disposition, and independent F14–F18 runbook execution. Remaining
 engine/volume/CDN/command/native-system/release requirements remain. General live
 overwrite/promotion, custom interactive mutating maintenance, generalized
 scheduled pruning and admitted-context platform upgrades stay deferred.

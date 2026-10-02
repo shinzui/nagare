@@ -52,8 +52,8 @@ Most of Nagare is reproduced from Git; only a few things need real backup jobs.
 | Host Postgres | Restore from disk if data disk survives; use managed DBs for Nagare-owned backup tooling | 🟡 |
 | Whole data disk | Daily GCE snapshot at 08:00 UTC, retained seven days and kept if the source disk is deleted | 🟡 (declared; live apply/verification pending) |
 | App volumes (PVCs) | Reviewed fixed-key snapshot and separate scratch restore Jobs → GCS or MinIO (`manual-volumes/<namespace>/<app>/<volume>/`) | 🟡 (live provider proof, exact pruning, and live-target recovery pending) |
-| Managed databases | Daily CronJob → GCS or MinIO (`databases/<name>/`); reviewed schedules verify stored bytes without pruning; accepted databases can save reviewed manual backup, expired manual pruning, PostgreSQL and ClickHouse scratch restore Jobs, and Redis scratch instances | 🟡 (scheduled pruning, live-target restore, and complete cloud provider proof pending) |
-| Attic signing identity and metadata | Managed PostgreSQL `nix-cache` / daily `nagare-dbbackup-nix-cache` CronJob | 🟡 (provider implemented; live restore acceptance pending) |
+| Managed databases | Reviewed CronJob every 15 minutes → GCS or MinIO (`databases/<name>/`); reviewed schedules verify stored bytes without pruning; accepted databases can save reviewed manual backup, expired manual pruning, PostgreSQL and ClickHouse scratch restore Jobs, and Redis scratch instances | 🟡 (scheduled pruning, live-target restore, and complete cloud provider proof pending) |
+| Attic signing identity and metadata | Managed PostgreSQL `nix-cache` / reviewed `nagare-dbbackup-nix-cache` CronJob | 🟡 (provider implemented; live restore acceptance pending) |
 | Attic cache chunks | Reproducible producer inputs; optionally export the dedicated GCS bucket before retirement | Rebuildable |
 | Grafana dashboards | **Git** (dashboard JSON under `cluster/observability`) | ✅ |
 | Victoria metrics/logs/traces data | Optional — usually not worth backing up | — |
@@ -142,13 +142,13 @@ into the partial PVC.
 See **[Managed databases](managed-databases.md)** for the full guide (declaring a
 `Database`, connecting an app, the per-engine connection env). A managed database
 (`nagarectl db create postgres|redis|clickhouse NAME`, EP-47) is backup-included
-from the moment it is created. `db create` provisions a daily
-**CronJob** that runs an engine-appropriate logical dump — `pg_dump` (Postgres),
+from the moment it is created. Newly reviewed `db create` scopes provision a
+**CronJob** every 15 minutes that runs an engine-appropriate logical dump — `pg_dump` (Postgres),
 an RDB dump (Redis), a ClickHouse database backup ZIP — gzips it, and uploads it to
 `databases/<name>/<Job UID>.<ext>` in the active object store. Newly reviewed
 schedules read stored bytes back, compare SHA-256, and publish an authenticated
-per-object receipt bound to the source StatefulSet/PVC identities and accepted
-schedule template. They retain backups by default: keep-N and expiry are
+per-object receipt bound to the source StatefulSet/PVC identities, accepted
+schedule template and the UTC time captured before the dump starts. They retain backups by default: keep-N and expiry are
 unenforced, and new scheduled pruning is deferred. Existing accepted schedules
 keep their earlier scripts until a review updates them.
 
@@ -164,9 +164,20 @@ Listing distinguishes verified candidates, accepted receipts and unresolved
 objects. Ingestion rereads exact MinIO versions or GCS generations and checks
 receipt authentication, source identity, lengths and archive hashes. Only the
 accepted receipt may authorize a later isolated restore. GCS scheduled ingestion
-is implemented; installed native acceptance remains pending. The current daily
-schedule does not meet a one-hour recovery-point objective, and source-cluster-
-unavailable recovery remains unaccepted.
+is implemented; installed native acceptance remains pending. Existing schedules change only through a reviewed update. Version-4 receipts
+remain restorable but cannot establish freshness because they lack a signed
+recovery-point timestamp.
+
+Use `db backup-receipts pg-main --check-freshness` in operational monitoring.
+It freshly verifies accepted receipt/archive versions and reports a warning once
+the latest accepted recovery point is 30 minutes old, and unhealthy at one hour.
+Warnings, breaches, missing timestamps and future timestamps exit nonzero.
+Unaccepted candidates cannot make this check healthy. The age starts before the
+dump, so upload and verification delays count against the objective. A 15-minute
+schedule leaves time for retries; it does not by itself establish the one-hour
+recovery guarantee. Monitoring must run frequently enough to act on the warning.
+Source-cluster-unavailable recovery and off-cluster credential survival remain
+unaccepted.
 
  For an accepted database, save a manual
 backup review with `nagarectl db backup NAME --backup-id ID --save-plan DIR`,

@@ -209,6 +209,7 @@ dbBackupReceiptsOptsParser =
     <*> dbBackupBucketOpt
     <*> optional (strOption (long "backup-id" <> metavar "JOB_UID" <> help "Physical scheduled backup Job UID to ingest"))
     <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save an exact scheduled receipt ingestion review"))
+    <*> switch (long "check-freshness" <> help "Fail unless a verified recovery point is less than 30 minutes old (one-hour objective)")
 
 dbManualReceiptOptsParser :: Parser DbBackupReceiptsOpts
 dbManualReceiptOptsParser =
@@ -218,6 +219,7 @@ dbManualReceiptOptsParser =
     <*> dbBackupBucketOpt
     <*> (Just <$> strOption (long "backup-id" <> metavar "ID" <> help "Accepted manual backup ID"))
     <*> (Just <$> strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed manual receipt record"))
+    <*> pure False
 
 storageCmd :: ParserInfo Command
 storageCmd =
