@@ -42,6 +42,11 @@ provenance:
       at: 2026-10-02T05:55:39Z
       mode: "implement"
       note: "Record local manual receipt and Job-free restore checkpoint"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-02T18:53:10Z
+      mode: "update"
+      note: "Record critical intranet upgrade readiness and backup recovery acceptance with a one-hour recovery-point objective"
 ---
 
 # Complete scheduled backup receipts and exact retention pruning
@@ -50,6 +55,8 @@ This ExecPlan owns unfinished work transferred from EP-148. Keep its living sect
 
 
 ## Purpose / Big Picture
+
+**Production data-protection requirement (2026-10-02).** Backups are required before the company intranet admits real data. The agreed recovery-point objective is at most one hour of data loss after total cluster failure. Measure it from the latest usable off-cluster recovery point, including upload/verification lag; choose a schedule with retry margin and surface impending breaches before the limit. Retention and recovery-time targets remain to be agreed. Periodic backup success does not guarantee preservation of writes after the recoverable point. Use off-cluster storage and exact durable receipts, prove interrupted/failed uploads cannot appear recoverable, expose overdue or failed backups through existing operational monitoring, and retain recovery material independently of workload/cluster cleanup. EP-160 and EP-155/156 must consume the receipts in real content-restoration and source-cluster-unavailable drills. Preserve applicable existing three-engine evidence. Retain-by-default remains valid; generalized scheduled pruning is still deferred. Any target requiring continuous recovery must be explicitly scoped rather than claimed from this schedule implementation.
 
 Every scheduled backup produces a durable, verifiable receipt for one exact object. Backup success remains provable after Kubernetes Job cleanup, and all three existing database engines have verified recovery consumers. This release retains scheduled backups by default; generalized keep-N selection and scheduled deletion are deferred. Review, status, and documentation must state the resulting storage-growth responsibility.
 
@@ -136,6 +143,8 @@ Read-only provider discovery (2026-09-27): `db backup-receipts mp23-pg-b -n pers
 
 
 ## Decision Log
+
+2026-10-02 (critical intranet): Apply the parent production data-protection requirement before real company data is admitted. Preserve candidate-bound backup/restored-content evidence, make recovery-point/time assumptions explicit, and distinguish foundation acceptance from the separate supported-upgrade gate. Do not extend the disposable prerelease exception to production state.
 
 2026-09-29 (E10): Credit the synthetic public explicit-abandonment/UID-refusal result, while requiring EP-153 to repair ordinary resume ordering and its unhandled terminal outcome. Abandonment is an inactive unresolved-provider outcome, never convergence or permission to replay.
 
@@ -241,6 +250,8 @@ Completed [EP-146](146-reconcile-cloud-host-and-artifact-resources-through-inven
 
 
 ## Revision Notes
+
+2026-10-02: Align acceptance and handoff with critical intranet backups, verified recovery and explicit production readiness limits.
 
 2026-09-29: Turn F09 into an explicit two-state public-command experiment and repair task, distinguish the validated generic cause from unproven prune behavior, and correct the guard script's required executable argument.
 

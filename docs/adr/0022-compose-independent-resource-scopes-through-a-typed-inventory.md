@@ -1140,3 +1140,35 @@ or a generalized abandonment mechanism solely to rehabilitate development
 fixtures. Candidate-bound native/local/cloud evidence and supported feature
 acceptance remain mandatory. This exception for unused prerelease environments
 is not a policy for discarding production transactions or user data.
+
+
+## Amendment — 2026-10-02: critical intranet adoption requires recoverability and an upgrade path
+
+The operator's outcome is a company intranet hosting critical developer tooling,
+with maintainable releases and protected production data. The first inventory
+release's fresh-context boundary is an implementation scope, not a claim that a
+cluster lacking a supported upgrade path is ready for critical adoption. MP-21
+owns the existing replacement-upgrade integration; keep the old coarse upgrade
+runner blocked until a reviewed inventory-compatible transition is verified.
+
+Before real company data is admitted, establish explicit recovery-point,
+recovery-time and retention targets, off-cluster recoverable backups and durable
+receipts, visible backup failures/staleness, and content-verified recovery when
+the original cluster/operator root is unavailable. Recovery configuration and
+credentials must survive independently through a documented secure procedure.
+Periodic snapshots cannot guarantee zero loss of subsequently committed writes;
+requirements for continuous recovery must be designed and proved explicitly.
+The operator selected a recovery-point objective of at most one hour of data loss
+after total cluster failure. The timestamp of the latest usable off-cluster backup,
+including upload/verification delay, must meet that bound; schedule with retry
+margin and expose freshness deterioration before breach. Recovery-time and
+retention targets remain unagreed and may not be invented by an agent.
+Existing scheduled-retention deferral does not waive protection of backup data.
+
+Before critical adoption, prove the supported release transition and interruption
+recovery on representative workloads, with restored-content checks and an explicit
+rollback/forward-recovery boundary. Retain the last recoverable state before
+irreversible migrations and prevent cleanup from deleting required recovery
+material. Report tested compatibility and measured maintenance/recovery limits;
+no blanket guarantee covers arbitrary future releases. Production data and
+transactions are not disposable under the prerelease fixture policy above.

@@ -42,6 +42,11 @@ provenance:
       at: 2026-10-02T18:36:25Z
       mode: "update"
       note: "Remove retired prerelease fixture recovery and frozen candidate from acceptance; retain supported candidate proof"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-02T18:53:10Z
+      mode: "update"
+      note: "Record critical intranet upgrade readiness and backup recovery acceptance with a one-hour recovery-point objective"
 ---
 
 # Gate the inventory release on complete immutable evidence
@@ -50,6 +55,8 @@ This ExecPlan is a living document for remaining work transferred from EP-150.
 
 
 ## Purpose / Big Picture
+
+**Production handoff (2026-10-02).** The operator needs safely maintainable critical intranet tooling. MP-23 evidence establishes its supported foundation, not safe critical adoption while inventory-backed upgrades are unavailable or backup/recovery targets are unmet. The handoff must identify [MP-21's supported transition/recovery gate](../masterplans/21-rehearsed-replacement-upgrades-with-bounded-downtime-for-nagare.md), the maximum one-hour data-loss objective, the still-unagreed recovery-time and retention targets, and EP-159/160/155/156 backup/restoration/source-unavailable proof. Do not call a backup Job success sufficient recovery evidence or imply periodic backups guarantee zero data loss. No plan checkbox substitutes for these acceptance results; this child does not implement all replacement-upgrade features.
 
 
 The inventory release is accepted only when the complete candidate has working commands, installed native packages, local and GCP recovery evidence, and immutable public release attachments. A missing prerequisite fails the release gate. This plan integrates the existing publisher instead of implementing it again.
@@ -81,6 +88,8 @@ The previous one-run projector cannot stand in for both scenario modes. The earl
 
 
 ## Decision Log
+
+2026-10-02 (critical intranet): Apply the parent production data-protection requirement before real company data is admitted. Preserve candidate-bound backup/restored-content evidence, make recovery-point/time assumptions explicit, and distinguish foundation acceptance from the separate supported-upgrade gate. Do not extend the disposable prerelease exception to production state.
 
 2026-10-02 (operator correction): Apply the prerelease fixture disposition: old F15 recovery and its frozen candidate are not acceptance dependencies; retain supported candidate recovery proof and continue ready work through the former step-4 scheduling stop.
 
@@ -164,6 +173,8 @@ Completed EP-146/147/149/151 are implementation prerequisites. [EP-153](153-clos
 
 
 ## Revision Notes
+
+2026-10-02: Align acceptance and handoff with critical intranet backups, verified recovery and explicit production readiness limits.
 
 2026-10-02: Remove retired prerelease fixture recovery from the critical path; preserve truthful diagnostics and supported candidate acceptance.
 

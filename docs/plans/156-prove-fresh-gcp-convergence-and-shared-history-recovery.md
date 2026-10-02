@@ -102,6 +102,11 @@ provenance:
       at: 2026-10-02T18:36:25Z
       mode: "update"
       note: "Remove retired prerelease fixture recovery and frozen candidate from acceptance; retain supported candidate proof"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-02T18:53:10Z
+      mode: "update"
+      note: "Record critical intranet upgrade readiness and backup recovery acceptance with a one-hour recovery-point objective"
 ---
 
 # Prove fresh GCP convergence and shared history recovery
@@ -110,6 +115,8 @@ This ExecPlan is a living document for remaining work transferred from EP-150.
 
 
 ## Purpose / Big Picture
+
+**Production recovery acceptance (2026-10-02).** The operator's company intranet requires backups before real data is admitted, with a maximum one-hour data-loss window after total cluster failure. Coordinate EP-159/160's actual scheduled backup and content-verified restore through this plan's native target. Prove required backups, receipts and recovery configuration/credentials remain retrievable with the source cluster and original operator root unavailable, then restore known rows/files to an isolated target and record the recoverable point and elapsed recovery time. Include upload/verification lag and retry margin when assessing freshness; a nominal hourly schedule is insufficient evidence. The recovery-time and retention targets remain to be agreed. Reuse applicable native evidence, do not destroy the source merely to simulate unavailability, and do not claim this proof from source-available scratch restore alone. Critical adoption also needs MP-21's supported inventory-backed upgrade/recovery path; the retired prerelease F15 transaction remains outside acceptance.
 
 **NO GKE.** This plan uses a Nagare NixOS VM in GCP Compute Engine running k3s, as declared in infra/pulumi and nixos/hosts/nagare-01/k3s.nix. Do not create, start, use, authenticate to, select, or request access to a GKE cluster. No existing GKE context is this plan’s fixture. Cloud fence/controller identity and GCS-history evidence belong here on the actual Nagare stack and do not gate EP-160 M1.
 
@@ -282,6 +289,8 @@ Current implementation findings are recorded in Progress. The state bucket, stac
 
 ## Decision Log
 
+2026-10-02 (critical intranet): Supply native source-unavailable backup/restoration proof for EP-159/160 and the agreed one-hour recovery-point objective before real company data is admitted. Measure recovery time without inventing an unagreed target; preserve the retired-prerelease-fixture boundary.
+
 2026-10-02 (operator correction): Apply the prerelease fixture disposition: old F15 recovery and its frozen candidate are not acceptance dependencies; retain supported candidate recovery proof and continue ready work through the former step-4 scheduling stop.
 
 2026-10-02: Adopt the parent’s validated incremental interpreter direction; keep domain ownership and native proof obligations unchanged. The next shared boundary is collection/F20, with production logic retained above the test interpreter.
@@ -439,6 +448,8 @@ Work against isolated test state and exact named contexts. Preserve immutable re
 Completed EP-146/147/149/151 provide executors/store. [EP-152](152-complete-fresh-platform-bootstrap-through-reviewed-components.md) supplies working fresh bootstrap, [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md) the scenario/receipt contract, [EP-154](154-validate-installed-inventory-packages-on-every-supported-system.md) native packages, and the delivered EP-148 baseline plus [EP-158](158-complete-reviewed-access-and-cdn-operations.md), [EP-159](159-complete-scheduled-backup-receipts-and-exact-retention-pruning.md), and [EP-160](160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md) required commands. Plan/fixture preparation can start before they close; a successful live local run and working cloud prerequisites gate cloud apply. [EP-157](157-gate-the-inventory-release-on-complete-immutable-evidence.md) consumes this evidence. Initial estimate: 8–16 active hours excluding approvals, provider queues, and unfinished feature implementation, low confidence; reforecast after the first complete read-only cloud preview including state bucket and delegation.
 
 ## Revision Notes
+
+2026-10-02: Bind native recovery acceptance to critical intranet data protection, source-unavailable recovery and the one-hour recovery-point objective.
 
 2026-10-02: Remove retired prerelease fixture recovery from the critical path; preserve truthful diagnostics and supported candidate acceptance.
 

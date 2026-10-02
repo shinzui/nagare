@@ -57,6 +57,11 @@ provenance:
       at: 2026-10-02T14:57:48Z
       mode: "implement"
       note: "Validate persistent interpreter restore and rendered-script counterfactuals"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-02T18:53:10Z
+      mode: "update"
+      note: "Record critical intranet upgrade readiness and backup recovery acceptance with a one-hour recovery-point objective"
 ---
 
 # Complete fenced live data restore across supported engines and volumes
@@ -69,6 +74,8 @@ The supported targets are **local k3d running k3s** and **k3s on a NixOS VM in G
 
 
 ## Purpose / Big Picture
+
+**Production data-protection requirement (2026-10-02).** The company intranet must have a proved recovery path before real data is admitted. Consume exact EP-159 backup versions into isolated destinations and verify known rows/files, access to required recovery configuration/keys, source preservation and interrupted-resume behavior. Coordinate EP-155/156's source-cluster-unavailable drill: backup, receipts and required credentials must be recoverable without the original cluster or operator root. Verify the restored data meets the agreed maximum one-hour data-loss window after total cluster failure. Record the actual recovery point and measured recovery time; the recovery-time and retention targets remain to be agreed. Existing native evidence remains credited where its inputs apply. This does not reinstate general live overwrite or automatic promotion; a documented, verified route back to usable service must identify any separate operator cutover steps.
 
 An operator can restore verified PostgreSQL, Redis, and ClickHouse backups into isolated database destinations, and application-volume backups into a new PVC. Known content and destination identity are verified while the source remains untouched. The accepted shared fence and recovery of existing operations remain intact; general live overwrite and automatic promotion/cutover are deferred.
 
@@ -295,6 +302,8 @@ The reviewed fixture ran one UID-bound PVC marker write inside the acquired fenc
 
 ## Decision Log
 
+2026-10-02 (critical intranet): Apply the parent production data-protection requirement before real company data is admitted. Preserve candidate-bound backup/restored-content evidence, make recovery-point/time assumptions explicit, and distinguish foundation acceptance from the separate supported-upgrade gate. Do not extend the disposable prerelease exception to production state.
+
 2026-10-02: Adopt the parent’s validated incremental interpreter direction; keep domain ownership and native proof obligations unchanged. The next shared boundary is collection/F20, with production logic retained above the test interpreter.
 
 2026-09-28: Retain accepted M1 and narrow M2/M3 to isolated database destinations and new-PVC recovery. General live overwrite and automatic promotion are deferred by operator decision. Preserve historical live proofs and recovery code; EP-153 blocks new deferred admissions without stranding active records.
@@ -454,6 +463,8 @@ Completed [EP-146](146-reconcile-cloud-host-and-artifact-resources-through-inven
 
 
 ## Revision Notes
+
+2026-10-02: Align acceptance and handoff with critical intranet backups, verified recovery and explicit production readiness limits.
 
 2026-10-02: Record the successful Effectful pilot and make cheap production-path scenarios and provider agreement prerequisites of further affected native iterations.
 

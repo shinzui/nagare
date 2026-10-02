@@ -286,6 +286,16 @@ provenance:
       at: 2026-10-02T18:36:10Z
       mode: "update"
       note: "Remove disposable prerelease transaction and candidate freezes from acceptance; continue release work through the former step-four stop"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-02T18:53:10Z
+      mode: "update"
+      note: "Record critical intranet upgrade readiness and backup recovery acceptance with a one-hour recovery-point objective"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-02T18:53:17Z
+      mode: "implement"
+      note: "Execute supported completion with independent technical runbook verification and non-publishing release acceptance"
   reviews:
     - model: "claude-fable-5-1"
       harness: "claude-code"
@@ -300,6 +310,16 @@ This MasterPlan is a living document. Keep Progress, Surprises & Discoveries, De
 
 
 ## Vision & Scope
+
+**Production outcome — operator clarification (2026-10-02).** The objective is a company intranet hosting critical developer tooling that can be maintained and upgraded while preserving its workloads and data. MP-23's fresh-provisioning and day-two acceptance are necessary foundations; its completion and the low-risk safe-use gate alone do not establish that outcome while platform upgrades after inventory admission remain unsupported. Before critical adoption, demonstrate a supported release transition on an inventory-backed context with representative intranet workloads, data and access configuration, interruption recovery, and a verified rollback or data-preserving forward-recovery procedure. Pin tested releases and state schemas, verify restored content and public behavior, and record compatibility limits, measured maintenance/recovery times and the point after which rollback is unsafe. Unsupported transitions must refuse before mutation.
+
+[MP-21](21-rehearsed-replacement-upgrades-with-bounded-downtime-for-nagare.md) owns the existing replacement-upgrade work and its integration with these inventory guarantees. Finish MP-23's current supported foundation, then the required upgrade/recovery acceptance before critical production use; do not silently absorb all of MP-21 or promise arbitrary future transitions here. EP-157 must state this boundary in the handoff. The prerelease fixture-disposal exception below ends at production adoption and never permits disposal of company data.
+
+**Data protection before first real use.** The operator explicitly requires critical backups and avoidance of data loss once the intranet is used. Before admitting real company data, cover every authoritative persistent store used by the intranet, including database and volume content and the configuration/secret material needed to recover it. The operator selected a recovery-point objective of at most one hour of data loss after total cluster failure. Bind this to the timestamp of the latest usable off-cluster recovery point, including backup consistency, upload and verification delays. Schedule with margin for those delays and retries; a once-hourly job alone does not establish the bound. Expose freshness deterioration early enough for action before breach and report a breached target as unhealthy. Recovery-time and retention targets remain to be agreed; do not invent them from an existing schedule. Scheduled snapshots alone cannot promise zero loss of writes since the last recoverable backup. If the chosen target requires continuous logs or replication, assess and assign that capability explicitly rather than relabeling periodic backup support.
+
+EP-159 owns successful scheduled uploads to off-cluster storage, exact durable receipts, freshness/failure visibility through the existing operational surfaces, and retention/deletion protections independent of application or cluster cleanup. Backups, receipts and required recovery credentials must remain retrievable when the original cluster/operator root is unavailable. EP-160 owns verified restored rows/files in isolated destinations; EP-155/156 own candidate-bound local/cloud recovery drills including the source-cluster-unavailable case. Prove backup corruption/incomplete-upload refusal and interrupted restore recovery. Reuse valid existing producer/consumer evidence; a Job success label or a byte hash alone is not content recovery. Document the secure operator recovery procedure and measured results. Retain-by-default remains the release policy; no generalized pruning framework is added. EP-157 reports any unmet production data-protection target explicitly.
+
+After the current bounded F20 retained-data assertion, prioritize EP-159/160 backup and restore closure, with EP-155/156 supplying missing native proof, ahead of unrelated polish or refactoring. Critical deployment requires both this data-protection gate and the supported upgrade/recovery gate; neither is waived by completing a plan or retiring a development fixture.
 
 **Operator correction — disposable prerelease contexts (2026-10-02).** Nagare has no users; MP-23 must finish so a production cluster can be provisioned. Failed development transactions are not a backward-compatibility obligation. [The fixture disposition](../audits/mp23-prerelease-fixture-disposition.md) retires `f15-preview` from acceptance, preserves its diagnostic record and assigns non-blocking scoped teardown to EP-156. Remove its old-transaction recovery, cascade exception and frozen `4c4b667e` candidate from every implementation, safe-use and release prerequisite. Never rewrite that unresolved history as success. Recovery, interruption and retained-data safety must pass on the supported candidate; existing regression coverage remains. This supersedes earlier blanket live-fixture preservation and old-review compatibility requirements for disposable prerelease experiments.
 
@@ -356,7 +376,7 @@ Rejected alternatives were isolated platform/application inventories without sha
 **Open implementation findings.** Read [the MP-23 audit tracker](../audits/mp23-findings.md) before selecting affected work. It owns stable finding IDs, fix evidence, independent verification, and unresolved handoffs. Record repairs there; an acknowledged message or source edit does not close a finding. Reconcile affected P1 findings before another native rehearsal and include unresolved IDs in every implementation handoff.
 
 
-**Current entrypoint (2026-10-02, operator correction).** Retire frozen F15 from acceptance under [the fixture disposition](../audits/mp23-prerelease-fixture-disposition.md); do not resume its old deletion or wait for its exception. EP-153/156 next reconcile F20 against the completed [native controller/recovery proof](../audits/mp23-reviewed-controller-collection-proof.md#native-controller-and-recovery-agreement--2026-10-02) and cover the remaining native same-scope retained-data assertion using a newly reviewed disposable target. Reuse eligible `ep150-preview` and installed `8a820ce8` evidence after checking recorded inputs; neither is automatically the final release candidate. Complete the safe-use runbook/capability review on an eligible context and continue EP-153/158–160 supported gaps, EP-155 local integration and EP-154/157 final-candidate work without the former step-4 scheduling stop. F20 is Verifying, not independently Closed. Preserve applicable earlier evidence; do not repeat accepted rehearsals solely to recover retired development history.
+**Current entrypoint (2026-10-02, operator correction).** Retire frozen F15 from acceptance under [the fixture disposition](../audits/mp23-prerelease-fixture-disposition.md); do not resume its old deletion or wait for its exception. EP-153/156 next reconcile F20 against the completed [native controller/recovery proof](../audits/mp23-reviewed-controller-collection-proof.md#native-controller-and-recovery-agreement--2026-10-02) and cover the remaining native same-scope retained-data assertion using a newly reviewed disposable target. Reuse eligible `ep150-preview` and installed `8a820ce8` evidence after checking recorded inputs; neither is automatically the final release candidate. After this bounded F20 check, prioritize EP-159/160 backup/restore closure and EP-155/156 source-unavailable recovery proof against the one-hour recovery-point objective. Complete the safe-use runbook/capability review on an eligible context and continue remaining supported gaps and final-candidate work without the former step-4 scheduling stop. F20 is Verifying, not independently Closed. Preserve applicable earlier evidence; do not repeat accepted rehearsals solely to recover retired development history.
 
 **Execution control for every remaining checkpoint.** The implementing agent owns detection and diagnosis of stalled work; the operator must not have to ask why progress stopped.
 
@@ -475,10 +495,10 @@ Every native check has a named assertion and a recorded result. Repeat accepted 
 | Gate | State at review | Owner |
 |---|---|---|
 | `just haskell-style-check` green at the candidate revision | Red: structural rules pass, but the repository's Nix-provided fourmolu 0.19.0.1 flags 45 tracked files, including `app/Main.hs` and `Nagare/Resource/Inventory.hs`; child "structural style passes" notes cover only `scripts/check-haskell-style.sh`. | EP-153 (shared surfaces); every child for its own modules |
-| Independent closure of tracker findings | 16 of 18 findings are Partial/Verifying; no verifier entry since 2026-09-29 (F01/F11). For safe-use, the operator's runbook run is the check (Decision Log, 2026-09-30); release acceptance keeps the tracker rule. | Operator for safe-use; tracker steward for release |
+| Independent closure of tracker findings | 16 of 18 findings are Partial/Verifying; no verifier entry since 2026-09-29 (F01/F11). For safe-use, independent agent execution of the runbook is the technical check (operator instruction, 2026-10-02); release acceptance keeps the tracker rule. | Independent reviewer for technical safe-use and tracker verification; operator for final production go/no-go |
 | IR-24 seven verification cases mapped to evidence (see table) | Cases 4 and 6 have installed cloud evidence; 5 is partial; 1, 2, 3, and 7 cite none. | EP-157 assembles; EP-144/149/155/156 supply |
 | `app/Main.hs` holds registration only | Resolved in source by the 2026-10-01 refactor: 16-line process entrypoint, separate routing-only dispatcher, explicit private ownership modules and enforced dependency/size checks. Installed final-candidate evidence remains separate. The review originally found 13,557 lines. | EP-153 |
-| Safe-use gate (below) met on one candidate | Open: remaining web cleanup, HTTPS/browser restriction disposition, operator runbook and F14–F18 verification. Bounded installed application/access and fresh backup/isolated-restore/interruption/eligible-Job cleanup pass. Installed `71288437` local platform gate, fresh cloud convergence, expired-credential re-pull and clean-root recovery are accepted in the current entrypoint/evidence. | EP-156, EP-158, EP-153 |
+| Safe-use gate (below) met on one candidate | Open: remaining web cleanup, HTTPS/browser restriction disposition, independent runbook execution and F14–F18 verification. Bounded installed application/access and fresh backup/isolated-restore/interruption/eligible-Job cleanup pass. Installed `71288437` local platform gate, fresh cloud convergence, expired-credential re-pull and clean-root recovery are accepted in the current entrypoint/evidence. | EP-156, EP-158, EP-153 |
 | Digest ownership matches the recorded decision | Reversed by `84afb03e` without a Decision Log entry; operator decision pending (Surprises 2026-09-30). | EP-144 contract owner |
 
 IR-24 verification-case evidence map (update when a case gains proof; do not infer closure from neighboring cases):
@@ -497,14 +517,14 @@ IR-24 verification-case evidence map (update when a case gains proof; do not inf
 
 Platform-version upgrades remain excluded for admitted contexts in MP-23; isolated restore also does not establish automatic application promotion/cutover. On 2026-09-30 the operator confirmed that upgrade work follows completion of the initial supported feature set and its safe-use acceptance. Finish the existing cloud/local operational and release gates before starting that next phase. This sequencing does not waive any current maintenance or recovery proof and does not authorize an in-place payload-version change now.
 
-**Operator procedure (2026-10-01).** [The inventory operations runbook](../runbooks/inventory-operations.md) is written with retained-cloud command timings and explicit recovery/takeover and support constraints. Its fresh-context operator execution and F14–F18 verification remain pending; this is documentation preparation, not safe-use acceptance.
+**Operator procedure (2026-10-01).** [The inventory operations runbook](../runbooks/inventory-operations.md) is written with retained-cloud command timings and explicit recovery/takeover and support constraints. Its independent execution on an eligible context and F14–F18 verification remain pending; this is documentation preparation, not safe-use acceptance.
 
 **Safe-use gate (2026-09-30).** This is a cross-plan acceptance gate separate from EP-157 release acceptance: it is what must be true before real low-risk intranet workloads run on an inventory-backed cloud context. Release acceptance (order 6) continues behind it and is not waived. The gate is met when every item below has installed evidence on one candidate and the independent-verification question is settled by decision.
 
 - The six cloud operational checks above on a fresh context bootstrapped with the typed-host credential delegation, including steady credential expiry and re-pull (F15) and exact cleanup of the rehearsal's disposable resources.
 - EP-158 M1: reviewed access grant and revoke with lost-acknowledgement recovery, so an operator can admit people to an application.
 - An operator runbook for `inventory apply`, `resume`, `recover`, `store status`, and takeover, with the retention-unenforced and no-in-place-upgrade constraints stated in operator terms, the measured command latencies on the cloud fixture as known values, and the statement that a crashed operator machine holds its executor claim until another operator takes over explicitly; keep unproved procedures visibly unavailable.
-- Findings F14 through F18 checked by the operator's end-to-end runbook run on the fresh context (Decision Log, 2026-09-30 verification policy), recorded in the tracker; any that fail reopen.
+- Findings F14 through F18 checked by an independent reviewer's end-to-end technical runbook execution on the eligible candidate context (operator instruction, 2026-10-02), recorded in the tracker; any that fail reopen.
 - The candidate passed the installed local k3d platform bootstrap before its cloud rehearsal.
 - EP-153's driver consolidation and model-based driver tests (Decision Log, 2026-09-30 robustness) are in the candidate.
 
@@ -567,6 +587,10 @@ Earlier architecture discoveries remain relevant: derived controller claims must
 
 
 ## Decision Log
+
+2026-10-02: The operator authorizes implementation through the supported contract and non-publishing release acceptance. Independent reviewer execution replaces operator-run technical verification, including the runbook and findings closure; only genuinely unavailable access, product-scope changes, actions beyond authorization and final production go/no-go require operator input. Preserve the disposable-fixture disposition and continue across checkpoints.
+
+2026-10-02 (production and data-protection objective): The operator requires a maintainable company intranet for critical developer tooling, safe future upgrades and critical backups before real data is admitted. MP-23 foundation completion is insufficient while inventory-backed upgrades are unsupported. MP-21 owns transition/recovery integration; EP-159/160 and EP-155/156 own off-cluster backup, restored-content and source-unavailable recovery proof. EP-157 must distinguish technical release evidence from unmet production readiness. The operator selected a maximum one-hour recovery-point objective after total cluster failure; recovery-time and retention targets remain to be agreed. Include upload/verification lag and retry margin, not just the nominal schedule. Prioritize existing backup/restore closure after the bounded F20 check; add no generic framework or implicit all-version upgrade promise.
 
 2026-10-02 (operator correction): Retire disposable failed prerelease fixtures from acceptance instead of preserving live transactions indefinitely. F15 recovery and its frozen candidate/exception are no longer gates. Preserve honest diagnostic history and prove supported recovery on the candidate. Remove the stop before step 5 while retaining the safe-use review and full release criteria. EP-156 owns non-blocking scoped teardown; EP-157 excludes retired attempts from successful evidence. See [the disposition](../audits/mp23-prerelease-fixture-disposition.md).
 
@@ -671,6 +695,8 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 
 
 ## Revision Notes
+
+2026-10-02: Record the critical-intranet outcome, production upgrade/recovery dependency, data-protection-before-use gate and backup/restore priority. Separate disposable prerelease fixtures from non-disposable production state.
 
 2026-10-02: Remove obsolete F15 recovery and candidate-freeze prerequisites; retire the fixture with honest history, continue supported work through the former step-4 stop, and retain candidate-bound production safety/release proof.
 

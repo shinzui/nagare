@@ -16,6 +16,11 @@ provenance:
       at: 2026-09-16T04:38:36Z
       mode: "update"
       note: "Refresh registry, shared boundaries, current repository state, and validation evidence"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-02T18:53:10Z
+      mode: "update"
+      note: "Record critical intranet upgrade readiness and backup recovery acceptance with a one-hour recovery-point objective"
 ---
 
 # Rehearsed replacement upgrades with bounded downtime for Nagare
@@ -26,6 +31,12 @@ If durable project context changes, update or create ADRs in docs/adr/ in the sa
 
 
 ## Vision & Scope
+
+**Current integration requirement (2026-10-02).** The operator needs a maintainable company intranet for critical developer tooling, with safe future upgrades and no casual loss of production data. [MP-23](23-make-managed-resources-first-class-through-typed-scoped-inventories.md) supplies inventory provisioning, backups and day-two operations but blocks the legacy coarse upgrade runner after inventory admission. Older references below to a supported in-place path apply only to eligible legacy contexts; they do not supply an upgrade path for MP-23 contexts.
+
+Before critical adoption of an inventory-backed cluster, this initiative must demonstrate a supported release transition using typed scope ownership, reviewed effects, conditional history and recovery. Reconcile the existing child interfaces with that contract before provider implementation; never bypass the inventory guard to reuse the legacy runner. Acceptance binds source/target releases and schemas, representative application data and access configuration, interrupted-transition recovery, public-path verification, rollback before write admission and data-preserving forward recovery afterward. Required backups must be independently retrievable and restore-tested before a risky transition. Record measured maintenance/recovery limits and refuse unsupported transitions. This does not promise arbitrary future upgrades or silently add every engine's major-version migration to the first supported path.
+
+MP-23 keeps its implementation priority and finite foundation acceptance. Completing it does not alone establish critical-production readiness. Prerelease test contexts may be retired with honest diagnostics; production state is not disposable. Child statuses remain unchanged and this clarification supplies no new implementation or native proof.
 
 Nagare currently makes ordinary host activation self-reverting, but it still applies a platform
 release to the one machine serving production. A NixOS, k3s, Knative, cert-manager, or database
@@ -313,6 +324,8 @@ interactions between child plans. Provide concise evidence.
 
 
 ## Decision Log
+
+2026-10-02: Own the supported upgrade/recovery path required before critical company intranet adoption of MP-23 inventory-backed contexts. Integrate replacement contracts with inventory ownership/history; keep the coarse legacy runner blocked after admission. Consume verified, independently recoverable backups and prove transition/recovery on representative workloads before making the production claim. MP-23 foundation work remains first.
 
 Record every decomposition or coordination decision made while working on the master
 plan.

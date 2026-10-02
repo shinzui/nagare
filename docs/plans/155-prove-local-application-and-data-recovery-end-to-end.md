@@ -42,6 +42,11 @@ provenance:
       at: 2026-10-01T05:44:42Z
       mode: "implement"
       note: "Accept installed full native local platform-bootstrap candidate gate and repair stale recording-fixture membership"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-02T18:53:10Z
+      mode: "update"
+      note: "Record critical intranet upgrade readiness and backup recovery acceptance with a one-hour recovery-point objective"
 ---
 
 # Prove local application and data recovery end to end
@@ -50,6 +55,8 @@ This ExecPlan is a living document for remaining work transferred from EP-150.
 
 
 ## Purpose / Big Picture
+
+**Production recovery acceptance (2026-10-02).** The operator's company intranet requires backups before real data is admitted, with a maximum one-hour data-loss window after total cluster failure. Coordinate EP-159/160's actual scheduled backup and content-verified restore through this plan's native target. Prove required backups, receipts and recovery configuration/credentials remain retrievable with the source cluster and original operator root unavailable, then restore known rows/files to an isolated target and record the recoverable point and elapsed recovery time. Include upload/verification lag and retry margin when assessing freshness; a nominal hourly schedule is insufficient evidence. The recovery-time and retention targets remain to be agreed. Reuse applicable native evidence, do not destroy the source merely to simulate unavailability, and do not claim this proof from source-available scratch restore alone. Critical adoption also needs MP-21's supported inventory-backed upgrade/recovery path; the retired prerelease F15 transaction remains outside acceptance.
 
 
 One reproducible disposable local run proves that the installed Nagare candidate bootstraps its components, deploys independent applications, preserves data, and recovers interrupted work using the public commands. This owns the outstanding combined native application membership proof transferred from EP-148 and consumes EP-158–160 under the revised supported contract, while cloud and final release checks remain mandatory.
@@ -106,6 +113,8 @@ Installed revision `e97d65e1` read-only replanned both accepted apps in the six-
 
 
 ## Decision Log
+
+2026-10-02 (critical intranet): Supply native source-unavailable backup/restoration proof for EP-159/160 and the agreed one-hour recovery-point objective before real company data is admitted. Measure recovery time without inventing an unagreed target; preserve the retired-prerelease-fixture boundary.
 
 2026-09-29: Full local integration follows EP-156 cloud convergence and recovery. Preserve the existing platform/two-application/no-op and recovery evidence. Run focused local regressions or repair a shared binding when a concrete cloud assertion needs them; do not expand the complete k3d/MinIO scenario as a prerequisite of cloud progress. EP-155 retains ownership of its local scenario, bounded PostgreSQL rename and collection obligations, and both milestones remain required before EP-157 release acceptance.
 
@@ -187,6 +196,8 @@ Completed EP-146/147/149/151 are hard prerequisites. [EP-152](152-complete-fresh
 
 
 ## Revision Notes
+
+2026-10-02: Bind native recovery acceptance to critical intranet data protection, source-unavailable recovery and the one-hour recovery-point objective.
 
 2026-09-28: Align current implementation and acceptance with the reduced MP-23 contract while preserving native evidence requirements and existing transaction recovery.
 
