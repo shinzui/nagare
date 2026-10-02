@@ -5,6 +5,7 @@ The fixture uses a disposable accepted filesystem history and recording provider
 shims. No cluster, object store, or cloud project is contacted.
 """
 
+import argparse
 import hashlib
 import json
 import os
@@ -17,11 +18,14 @@ import time
 
 REPO = Path(__file__).resolve().parents[1]
 PROJECT = REPO / "cli/nagarectl"
-MODE = "gcs" if sys.argv[1:] == ["--gcs"] else "local"
-assert not sys.argv[1:] or sys.argv[1:] == ["--gcs"], "usage: test-manual-receipt-public.py [--gcs]"
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--gcs", action="store_true")
+parser.add_argument("--nagarectl", type=Path, help="installed executable to verify")
+options = parser.parse_args()
+MODE = "gcs" if options.gcs else "local"
 root = Path(tempfile.mkdtemp(prefix="mp23-manual-receipt-public-"))
 store = root / "state/nagare/manual-receipt-fixture/inventory"
-binary = subprocess.check_output(
+binary = str(options.nagarectl.absolute()) if options.nagarectl else subprocess.check_output(
     ["cabal", "list-bin", "exe:nagarectl", "--enable-tests"],
     cwd=PROJECT,
     text=True,
@@ -68,7 +72,7 @@ bins = root / "bin"
 bins.mkdir()
 kubectl = bins / "kubectl"
 kubectl.write_text('''#!/usr/bin/env python3
-import base64,json,os,signal,sys,time
+import base64,json,os,signal,subprocess,sys,time
 from pathlib import Path
 root=Path(os.environ['MP23_MANUAL_ROOT'])
 args=sys.argv[1:]
@@ -101,6 +105,17 @@ if 'create' in args and '-f' in args:
     state['restoreJobPresent']=True
     (root/'provider-state.json').write_text(json.dumps(state)+'\\n')
     (root/'restore-job.json').write_text(json.dumps(obj)+'\\n')
+    if os.environ['MP23_MANUAL_MODE']=='gcs':
+        download=next(c for c in obj['spec']['template']['spec']['initContainers'] if c['name']=='download')
+        selected={e['name']:e['value'] for e in download['env'] if 'value' in e}
+        assert selected.get('OBJECT_VERSION')==state['archiveVersion'],selected
+        assert selected.get('RECEIPT_VERSION')==state['receiptVersion'],selected
+        dump=root/'executed-download'; dump.mkdir()
+        command=download['args'][0].replace('/dump/',str(dump)+'/')
+        subprocess.run([*download['command'],command],env={**os.environ,**selected},check=True,timeout=10)
+        assert (dump/'backup.sql').read_bytes()==b'CREATE TABLE restored (id integer);\\n'
+        (root/'download-executed.json').write_text(json.dumps({'objectVersion':selected['OBJECT_VERSION'],
+          'receiptVersion':selected['RECEIPT_VERSION'],'sqlVerified':True})+'\\n')
     print(json.dumps(obj))
     sys.exit(0)
 if 'wait' in args and '--for=delete' in args:
@@ -236,6 +251,7 @@ env.update(
     NAGARE_PLATFORM_ROOT=str(REPO),
     PATH=str(bins) + os.pathsep + env["PATH"],
     MP23_MANUAL_ROOT=str(root),
+    MP23_MANUAL_MODE=MODE,
 )
 
 
@@ -345,6 +361,7 @@ assert not any("pg-main" in " ".join(call) and "nagare-dbrestore" not in " ".joi
                and "nagare-dbbackup-pg-main-run-001" not in " ".join(call)
                for call in mutations)
 if MODE == "gcs":
+    assert json.loads((root / "download-executed.json").read_text())["sqlVerified"]
     assert not any(call[0] == "curl" for result in results
                    for call in result["providerCalls"])
     copies = [call for result in results for call in result["providerCalls"]
@@ -354,8 +371,14 @@ if MODE == "gcs":
 else:
     assert not any(call[0] == "gcloud" for result in results
                    for call in result["providerCalls"])
+binary_identity = (
+    {"installedVersion": json.loads(subprocess.check_output(
+        [binary, "version", "--json"], env=env, text=True, timeout=15))}
+    if options.nagarectl else
+    {"binarySha256": hashlib.sha256(Path(binary).read_bytes()).hexdigest()}
+)
 (root / "result.json").write_text(json.dumps({"mode": MODE, "fixture": fixture,
-    "binarySha256": hashlib.sha256(Path(binary).read_bytes()).hexdigest(),
+    **binary_identity,
     "results": results,
     "finalHead": head()}, indent=2) + "\n")
 print("PASS:", MODE, "public receipt review/apply, exact Job collection, and Job-free restore apply")

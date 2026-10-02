@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise legacy web cleanup through public CLI with disposable history."""
 
+import argparse
 import json
 import os
 from pathlib import Path
@@ -10,9 +11,12 @@ import tempfile
 
 REPO = Path(__file__).resolve().parents[1]
 PROJECT = REPO / "cli/nagarectl"
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--nagarectl", type=Path, help="installed executable to verify")
+options = parser.parse_args()
 root = Path(tempfile.mkdtemp(prefix="mp23-web-cleanup-public-"))
 store = root / "state/nagare/web-cleanup-fixture/inventory"
-binary = subprocess.check_output(
+binary = str(options.nagarectl.absolute()) if options.nagarectl else subprocess.check_output(
     ["cabal", "list-bin", "exe:nagarectl", "--enable-tests"], cwd=PROJECT, text=True
 ).strip()
 subprocess.run([

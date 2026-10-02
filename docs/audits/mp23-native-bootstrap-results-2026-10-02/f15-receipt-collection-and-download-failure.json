@@ -1,0 +1,108 @@
+{
+  "version": 1,
+  "context": "f15-preview",
+  "operatorRevision": "8b6cb730cffed76c6466ebad124b29fca5eb2974",
+  "payloadIdentity": "nagare-0.4.0-d73c1dc4d379",
+  "payloadDigest": "550cec502a657ad7131343046c27ea4160b8282a4b50c0f0e8755b728f5be1bd",
+  "localInstalledGate": {
+    "operations": 213,
+    "providerMutations": 0,
+    "unchangedScopeDigests": 19,
+    "healthyOrCompletedPods": 37
+  },
+  "stages": {
+    "receipt-plan": {
+      "exit": 0,
+      "seconds": 28.279,
+      "reviewDigest": "a21864ba560873175e29d4ba863a6dc5db9defbf74895f0cc8bef123901985da",
+      "operationActions": []
+    },
+    "receipt-apply": {
+      "exit": 0,
+      "seconds": 13.869
+    },
+    "backup-collect-plan": {
+      "exit": 0,
+      "seconds": 14.944,
+      "reviewDigest": "fb548455bf44307d6bef2ba8db6a7e8b3cdc23267b7840023e17ffade1f759ae",
+      "operationActions": [
+        "RetireResource"
+      ]
+    },
+    "backup-collect-apply": {
+      "exit": 0,
+      "seconds": 18.057
+    },
+    "restore-plan": {
+      "exit": 0,
+      "seconds": 25.06,
+      "reviewDigest": "10485f395f7cd68f8eadcc11929808c263e4119ce18aa0c6402026f219e1035a",
+      "operationActions": [
+        "RunDeclaredOperation",
+        "CreateResource"
+      ]
+    },
+    "restore-apply": {
+      "exit": -2,
+      "seconds": 198.587
+    },
+    "abandon-restore-proved": {
+      "exit": 0,
+      "seconds": 11.882
+    }
+  },
+  "currentHead": {
+    "generation": 722,
+    "sequence": 654,
+    "digest": "6ad148e41d8946716fe9289f5f22a6c503c30a37f651e26a3b6cb39344597158",
+    "acceptedAndConvergedScopes": 27,
+    "activeTransaction": null,
+    "executorClaim": null,
+    "dataFence": null
+  },
+  "safeUseAccepted": false,
+  "webCleanupAccepted": false,
+  "receiptOnlyRestoredContentAccepted": false,
+  "acceptedReceipt": {
+    "producerJobUid": "1d3dfffd-7285-45ad-aaa8-44648af18990",
+    "archiveVersion": "1790907824578833",
+    "receiptVersion": "1790907829287067",
+    "archiveSha256": "777431711c0dc0b386c4f85a65e445a9bb3a5b0db9ca4097b3ac646ad7b6f261",
+    "receiptSha256": "bfa68ee104c1ceac16ce02444074178eb24aef6050f735ac489235d5ccd1d29d",
+    "producerJobCollectedSeparately": true,
+    "fourthBackupJobCreated": false
+  },
+  "failedRestore": {
+    "restoreId": "mp23f15pgav2",
+    "jobUid": "6406eaef-6d37-482c-aea6-504d4ab21102",
+    "terminalReason": "BackoffLimitExceeded",
+    "initContainer": "download",
+    "cause": "Rendered GCS download environment omits OBJECT_VERSION and RECEIPT_VERSION; generation-qualified receipt URL ends with #.",
+    "postgresRestoreContainerStarted": false,
+    "recoveryAction": "abandon-partial-database-restore",
+    "failedJobPreserved": true,
+    "remainingLimitation": "Terminal abandonment clears unaccepted scope ownership; failed Job and any scratch destination require separate reviewed recovery."
+  },
+  "localRegression": {
+    "counterfactualInstalledRevision": "8b6cb730cffed76c6466ebad124b29fca5eb2974",
+    "counterfactualFailsAt": "public restore apply: rendered Job lacks pinned generation environment",
+    "sourceFiles": {
+      "cli/nagarectl/src/Nagare/Database/Restore.hs": "665dc5671bac50f6e2d3401dc4ede6e3bf96df042d97a56fd63b96a8ad237fe6",
+      "scripts/test-manual-receipt-public.py": "0fc02367534c4f9b79c9b9fdb72cda88278805bae500e25aeafa781d5139911d",
+      "scripts/fixtures/ManualReceiptPublicFixture.hs": "71adccc638ad954c3672bc73435dcdada8c6d39662938da6bcbf3fe34996d280"
+    },
+    "sourceGcsFixturePasses": true,
+    "renderedDownloadExecuted": true,
+    "decompressedSqlVerified": true,
+    "databaseServerExecuted": false,
+    "validation": {
+      "cliTests": 1017,
+      "cliSuiteSeconds": 54.0,
+      "haskellStyle": "pass",
+      "manualLocalPublicFixture": "pass",
+      "manualGcsRenderedDownloadFixture": "pass",
+      "webCleanupPublicFixture": "pass",
+      "managedCommandAuditErrors": []
+    }
+  }
+}

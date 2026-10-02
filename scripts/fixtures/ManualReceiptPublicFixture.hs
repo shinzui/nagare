@@ -10,7 +10,6 @@ import Control.Monad (forM_)
 import Data.Aeson (Value (..), eitherDecodeStrict, encode, object, (.=))
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString qualified as BS
-import Data.ByteString.Char8 qualified as BC
 import Data.ByteString.Lazy qualified as BL
 import Data.Foldable (toList)
 import Data.Generics.Labels ()
@@ -198,7 +197,8 @@ main = do
         metadataJson = case metadataValues (ok (eitherDecodeStrict jobBytes)) of
             [one] -> one
             _ -> error "fixture Job lacks one receipt metadata value"
-        archive = BC.pack "accepted-manual-archive-fixture"
+        -- Deterministic gzip of CREATE TABLE restored (id integer);\n.
+        archive = BS.pack [31, 139, 8, 0, 0, 0, 0, 0, 2, 255, 115, 14, 114, 117, 12, 113, 85, 8, 113, 116, 242, 113, 85, 40, 74, 45, 46, 201, 47, 74, 77, 81, 208, 200, 76, 81, 200, 204, 43, 73, 77, 79, 45, 210, 180, 230, 2, 0, 73, 76, 183, 9, 36, 0, 0, 0]
         checksum = digestText (contentDigest archive)
         receipt =
             BL.toStrict

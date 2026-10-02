@@ -82,6 +82,11 @@ provenance:
       at: 2026-10-02T05:04:18Z
       mode: "implement"
       note: "Add frozen-candidate preflight and exact cleanup handoff"
+    - model: "gpt-6.1-sol"
+      harness: "codex-cli"
+      at: 2026-10-02T12:44:23Z
+      mode: "implement"
+      note: "Resume exact credential/head preflight and prepare one installed receipt-only restoration and web-cleanup candidate"
 ---
 
 # Prove fresh GCP convergence and shared history recovery
@@ -98,6 +103,9 @@ A production-shaped disposable GCP context proves reviewed cloud/host/cluster/ap
 
 
 ## Progress
+
+**Receipt collection and native download repair (2026-10-02).** Exact frozen-candidate credential/head preflight passes. Installed `8b6cb730` passes the retained local gate (213 verification-only operations, zero provider mutations, 19 unchanged scope digests) and both receipt/public web-cleanup fixtures. Native receipt review converges with exact GCS versions/hashes and zero mutation operations; a separate UID-conditional review collects only the original primary backup Job. A new Job-free restore `mp23f15pgav2` fails in its download init container because the renderer omits `OBJECT_VERSION`/`RECEIPT_VERSION`. PostgreSQL never starts. Exact `abandon-partial-database-restore` recovery returns shared history to idle generation 722/sequence 654, preserving all 27 accepted/converged scopes and the failed Job. [Native evidence](../audits/mp23-native-bootstrap-results-2026-10-02/f15-receipt-collection-and-download-failure.json) records the reviews and limits. The strengthened public GCS fixture executes the actual rendered download environment/script and verifies decompressed SQL; installed `8b6cb730` fails it, while the source fix, both receipt fixtures, web fixture, all 1,017 CLI tests (54.00 seconds) and Haskell style pass. A new installed candidate/local gate and fresh isolated native restore remain pending; web cleanup and safe-use acceptance stay open. Preserve the failed Job for separate reviewed recovery, not raw deletion. No fourth backup Job is submitted.
+
 
 **Receipt-only native entry (2026-10-01).** The local and cloud-shaped recording [public receipt fixture](../audits/mp23-manual-receipt-public-fixture.md) passes the real CLI through receipt review/apply, UID-conditional backup Job collection, and Job-free restore review/apply; the full 1,017-test CLI suite passes. The frozen installed `d871d913` preflight on the accepted payload and recorded generation 705 stopped at non-interactive GCloud token reauthentication, before a shared-head comparison. No candidate build, review or provider mutation followed. Reauthenticate the selected `labs` account, then rerun the exact read-only preflight with the recorded digest before staging one candidate. The earlier restore Job was collected in the retained evidence; verify the current accepted vector and primary backup UID again after login. Real GCS exact generations, restored rows, web cleanup, and step 4 operator review remain open.
 

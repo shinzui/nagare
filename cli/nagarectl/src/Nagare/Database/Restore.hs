@@ -266,6 +266,11 @@ downloadContainer i =
                  , plainEnv "BACKUP_EXPIRY_EPOCH" (T.pack (show (source ^. #expiryEpoch)))
                  ]) (i ^. #verifiedSource)
             <> case (i ^. #backend, i ^. #verifiedSource) of
+              (GcsBackend {}, Just source)
+                | Just selectedObject <- source ^. #objectVersion
+                , Just selectedReceipt <- source ^. #receiptVersion ->
+                    [ plainEnv "OBJECT_VERSION" selectedObject
+                    , plainEnv "RECEIPT_VERSION" selectedReceipt ]
               (MinioBackend ref, Just source)
                 | Just selectedObject <- source ^. #objectVersion
                 , Just selectedReceipt <- source ^. #receiptVersion ->

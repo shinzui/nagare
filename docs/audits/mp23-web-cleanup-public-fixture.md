@@ -2,6 +2,10 @@
 
 Run `python3 scripts/test-web-cleanup-public.py` from the repository root. The fixture uses a disposable filesystem inventory history and a recording `kubectl` shim. It makes no cluster or cloud call.
 
+Add `--nagarectl /absolute/path/to/nagarectl` to exercise an installed candidate.
+The checkout's compiled Haskell library still seeds the disposable history;
+the selected executable performs every public compile, review, and apply.
+
 The seeded accepted Application scope has a Service, a legacy `Retain` release-history ConfigMap, and a DomainMapping. Both consumers retain their ordering edge to the Service. An independent accepted scope has a StatefulSet, PVC, and backup Job. The public commands complete these steps:
 
 1. `inventory compile` and `inventory plan` produce exactly one ConfigMap `UpdateResource` operation for the policy transition to `DeleteWhenUnreferenced`; `inventory apply` converges it.

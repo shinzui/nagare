@@ -47,6 +47,11 @@ provenance:
       at: 2026-10-02T05:55:39Z
       mode: "implement"
       note: "Record local manual receipt and Job-free restore checkpoint"
+    - model: "gpt-6.1-sol"
+      harness: "codex-cli"
+      at: 2026-10-02T13:14:42Z
+      mode: "implement"
+      note: "Repair pinned GCS restore download environment from native failure and execute rendered script in public fixture"
 ---
 
 # Complete fenced live data restore across supported engines and volumes
@@ -63,6 +68,9 @@ The supported targets are **local k3d running k3s** and **k3s on a NixOS VM in G
 An operator can restore verified PostgreSQL, Redis, and ClickHouse backups into isolated database destinations, and application-volume backups into a new PVC. Known content and destination identity are verified while the source remains untouched. The accepted shared fence and recovery of existing operations remain intact; general live overwrite and automatic promotion/cutover are deferred.
 
 ## Progress
+
+**Receipt collection and native download repair (2026-10-02).** Exact frozen-candidate credential/head preflight passes. Installed `8b6cb730` passes the retained local gate (213 verification-only operations, zero provider mutations, 19 unchanged scope digests) and both receipt/public web-cleanup fixtures. Native receipt review converges with exact GCS versions/hashes and zero mutation operations; a separate UID-conditional review collects only the original primary backup Job. A new Job-free restore `mp23f15pgav2` fails in its download init container because the renderer omits `OBJECT_VERSION`/`RECEIPT_VERSION`. PostgreSQL never starts. Exact `abandon-partial-database-restore` recovery returns shared history to idle generation 722/sequence 654, preserving all 27 accepted/converged scopes and the failed Job. [Native evidence](../audits/mp23-native-bootstrap-results-2026-10-02/f15-receipt-collection-and-download-failure.json) records the reviews and limits. The strengthened public GCS fixture executes the actual rendered download environment/script and verifies decompressed SQL; installed `8b6cb730` fails it, while the source fix, both receipt fixtures, web fixture, all 1,017 CLI tests (54.00 seconds) and Haskell style pass. A new installed candidate/local gate and fresh isolated native restore remain pending; web cleanup and safe-use acceptance stay open. Preserve the failed Job for separate reviewed recovery, not raw deletion. No fourth backup Job is submitted.
+
 
 **2026-09-28 scope decision.** [MP-23](../masterplans/23-make-managed-resources-first-class-through-typed-scoped-inventories.md) now retains the cross-tool journal/state, verified backups, and isolated restores while deferring general live overwrite, new interactive mutating maintenance, and generalized scheduled pruning. Historical findings below describe the earlier contract and retain their evidence; their superseded completion requirements do not add work back to this plan. Supported behavior still requires full proof.
 

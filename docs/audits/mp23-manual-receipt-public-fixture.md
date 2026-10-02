@@ -12,6 +12,12 @@ python3 scripts/test-manual-receipt-public.py
 python3 scripts/test-manual-receipt-public.py --gcs
 ```
 
+To check an installed candidate, add `--nagarectl /absolute/path/to/nagarectl`
+to each invocation. The result records that executable's `version --json`
+identity; fixture seeding still uses the checkout's compiled Haskell library.
+The transports remain recording shims, so this checks the installed public
+command boundary without claiming native provider or restored-content proof.
+
 The first mode uses recording MinIO `curl` reads. The second selects a cloud
 profile with a local fixture history, records the Kubernetes cluster guard,
 and replaces `gcloud` with a strict shim. That shim requires `objects describe`
@@ -39,8 +45,10 @@ the final head in a temporary `result.json` printed at completion.
    The only create effect is the scratch restore Job, and accepted/converged
    history is idle with the source and neighbor revisions unchanged.
 
-The recording transport marks the restore Job complete; it does not run a
-database or verify recovered rows. This proof covers public routing, accepted
+The GCS transport now executes the rendered download init-container script
+using its declared environment, exact-generation copies, real digest checks,
+and a valid gzip fixture; it verifies the decompressed SQL. It then marks the
+restore Job complete without running a database or verifying recovered rows. This proof covers public routing, accepted
 history, retirement/collection, stored-byte and version checks, registry
 construction, and restore transaction selection. Native restored-content,
 GCS exact-generation, and installed candidate evidence remain open.
@@ -107,3 +115,15 @@ and journal state remain authoritative after an interruption; diagnose and
 resume the same transaction when its evidence permits. Use the parent plan's
 15-minute maximum diagnostic checkpoint for an unmeasured stage, and do not
 repeat accepted backup, takeover, or broad bootstrap work to fill this proof.
+
+## 2026-10-02 native checkpoint
+
+The earlier credential blocker and producer-Job dependency are superseded by
+[the native receipt/collection proof](mp23-native-bootstrap-results-2026-10-02/f15-receipt-collection-and-download-failure.json). The installed candidate accepts the
+receipt and separately collects the exact Job, but its new restore fails before
+PostgreSQL starts because the rendered init container omits both GCS versions.
+Exact terminal recovery leaves idle generation 722/sequence 654; the failed Job
+remains preserved. The strengthened rendered-script fixture fails on that
+installed candidate and passes the source repair. Install and locally verify
+the grouped repair before a fresh isolated restore ID. Do not replay the failed
+Job, submit another backup, or bypass separate reviewed cleanup.
