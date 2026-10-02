@@ -95,10 +95,13 @@ cdnPurgeOptsParser =
     <$> cdnHostArg
     <*> many
       ( strOption
-          (long "path" <> metavar "PATH" <> help "Purge only this path (repeatable; default: purge everything)")
+          (long "path" <> metavar "PATH" <> help "Purge only this path (repeatable; default: selected hostname only)")
       )
     <*> namespaceOpt
     <*> dryRunOpt
+    <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed host-bounded purge"))
+    <*> optional (strOption (long "purge-id" <> metavar "ID" <> help "Immutable purge request ID, required with --save-plan"))
+    <*> switch (long "whole-zone" <> help "Review ALL cached content in the platform-owned zone; requires --save-plan and no --path")
 
 cdnDisableOptsParser :: Parser CdnDisableOpts
 cdnDisableOptsParser =

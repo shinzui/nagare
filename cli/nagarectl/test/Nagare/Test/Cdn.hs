@@ -127,9 +127,9 @@ cloudflareTests =
       sslModeToken Flexible @?= "flexible"
       sslModeToken Full @?= "full"
       sslModeToken FullStrict @?= "strict"
-  , testCase "buildPurgePayload: purge-all when no paths" $
+  , testCase "buildPurgePayload: only selected host when no paths" $
       buildPurgePayload "blog.example.com" []
-        @?= Aeson.object ["purge_everything" Aeson..= True]
+        @?= Aeson.object ["hosts" Aeson..= (["blog.example.com"] :: [Text])]
   , testCase "buildPurgePayload: purge specific URLs" $
       buildPurgePayload "blog.example.com" ["/assets/app.css", "/"]
         @?= Aeson.object

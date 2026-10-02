@@ -100,6 +100,7 @@ import Nagare.Resource.Inventory
   , candidateChanges
   , candidateGenerations
   , candidateInventory
+  , pairedDnsRouteClaim
   , claimsOf
   , composedDeclarations
   , declarationId
@@ -142,9 +143,11 @@ loadInventoryHistory store = do
         _ <- sequence collected
         migrationProofs <- Map.fromList <$> sequence migrations
         let reservations = retainedReservations historical
-            count = sum [length (NE.toList (claimsOf (Managed resource))) | (_, resource) <- Map.elems historical]
+            claimHolders = Map.fromListWith (<>)
+              [(claim, [Managed resource]) | (_, resource) <- Map.elems historical,
+                (_, claim) <- NE.toList (claimsOf (Managed resource))]
         unless
-          (Map.size reservations == count)
+          (all (\(claim, holders) -> length holders == 1 || pairedDnsRouteClaim claim holders) (Map.toList claimHolders))
           (Left (StoreInvalidObject "head.json" "retained address claims overlap"))
         acceptedDeclarations <-
           first

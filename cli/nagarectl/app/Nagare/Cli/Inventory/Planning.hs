@@ -14,6 +14,8 @@ import Data.Map qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Nagare.Access.Reviewed qualified as ReviewedAccess
+import Nagare.Cli.Inventory.CdnHistory
+import Nagare.Cli.Inventory.CdnPurge (cdnPurgeRuntime)
 import Nagare.Cli.Inventory.Adapters
   ( acceptedDnsResources
   , acceptedTopicResources
@@ -131,7 +133,7 @@ inventoryPlanRegistryWithMode controllerCollection active workspace suppliedNati
   historicalDnsSpecs <- either dieT pure (dnsSpecsFromDeclarations historical)
   let dnsSpecs =
         Map.restrictKeys
-          (Map.union desiredDnsSpecs historicalDnsSpecs)
+          (Map.unions [desiredDnsSpecs, historicalDnsSpecs, historicalDnsBindings (retainedCdnResources history)])
           (selected ResourceInventory.CdnExecutor)
   desiredCloudflareSpecs <- either dieT pure (cloudflareBindingsFromDeclarations declarations)
   historicalComposed <-
@@ -144,7 +146,7 @@ inventoryPlanRegistryWithMode controllerCollection active workspace suppliedNati
   historicalCloudflareSpecs <- either dieT pure (cloudflareBindingsFromDeclarations historicalComposed)
   let cloudflareSpecs =
         Map.restrictKeys
-          (Map.union desiredCloudflareSpecs historicalCloudflareSpecs)
+          (Map.unions [desiredCloudflareSpecs, historicalCloudflareSpecs, historicalCloudflareBindings (retainedCdnResources history)])
           (selected ResourceInventory.CdnExecutor)
   hostInputs <-
     if Set.null (selected ResourceInventory.HostExecutor)
@@ -190,15 +192,15 @@ inventoryPlanRegistryWithMode controllerCollection active workspace suppliedNati
       retiringIds executor =
         Set.fromList
           [ resource ^. #identity
-          | (_, (_, acceptedScope)) <- Map.toAscList (InventoryPlan.historyAccepted history)
-          , bundle <- ResourceInventory.scopeBundles acceptedScope
-          , ResourceInventory.Managed resource <- ResourceInventory.declarations bundle
+          | ResourceInventory.Managed resource <- historicalComposed
           , resource ^. #executor == executor
           , Set.notMember (resource ^. #identity) desiredIds
           ]
       collectingIds =
         Set.fromList
-          [resource | ResourceInventory.CollectRetained resource <- NE.toList (ResourceInventory.candidateChanges candidate)]
+          [resource | ResourceInventory.CollectRetained resource <- NE.toList (ResourceInventory.candidateChanges candidate),
+           Just (_, retained) <- [Map.lookup resource (InventoryPlan.historyRetained history)],
+           retained ^. #executor == ResourceInventory.KubernetesExecutor]
       historicalKubernetesIds = Set.union (retiringIds ResourceInventory.KubernetesExecutor) collectingIds
       historicalHelmIds = retiringIds ResourceInventory.HelmExecutor
       historicalIds = Set.union historicalKubernetesIds historicalHelmIds
@@ -225,7 +227,7 @@ inventoryPlanRegistryWithMode controllerCollection active workspace suppliedNati
             pure
             (ResourceInventory.composeSnapshot acceptedSnapshot)
         (native, helmNative) <-
-          InventoryStatus.loadAcceptedNative store history acceptedInventory
+          InventoryStatus.loadAcceptedNativeSelected historicalIds store history acceptedInventory
             >>= either dieT pure
         let selectedRetiringKubernetes =
               Map.filterWithKey
@@ -315,8 +317,8 @@ inventoryPlanRegistryWithMode controllerCollection active workspace suppliedNati
       (ResourceInventory.inventoryBinding inventory)
       topicSpecs
       (acceptedTopicResources history)
-  acceptedCdn <- either dieT pure (acceptedDnsResources history)
-  dns <-
+  acceptedCdn <- Map.union (retainedCdnResources history) <$> either dieT pure (acceptedDnsResources history)
+  dnsBase <-
     inventoryCdnAdapter
       active
       workspace
@@ -324,6 +326,13 @@ inventoryPlanRegistryWithMode controllerCollection active workspace suppliedNati
       dnsSpecs
       cloudflareSpecs
       acceptedCdn
+  dns <- if null [op | scope <- scopes, bundle <- ResourceInventory.scopeBundles scope,
+                     op <- ResourceInventory.operations bundle,
+                     ResourceInventory.operationKind op `elem` [ResourceInventory.PurgeCdnCache, ResourceInventory.PurgeCdnZone]]
+    then pure dnsBase
+    else do
+      purgeStore <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+      cdnPurgeRuntime purgeStore scopes acceptedCdn dnsBase
   kubernetesBase <-
     if Map.null kubernetesSpecs
       then pure (Inventory.manifestAdapterFor history ResourceInventory.KubernetesExecutor)

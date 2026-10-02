@@ -30,7 +30,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.Prelude hiding ((.=))
-import Nagare.Inventory.Adapter (AdapterExecution (..))
+import Nagare.Inventory.Adapter (AdapterExecution (..), OperationAction (RetireResource))
 import Nagare.Inventory.Adapters.Cdn
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
 import Nagare.Resource.Inventory (ManagedResource (..))
@@ -74,11 +74,12 @@ dnsRuntimeOps config = DnsAdapterOps
             _ -> pure (DnsUnavailable "DNS binding has an unexpected provider address")
   , dnsCreate = submit config
   , dnsReplace = submit config
+  , dnsDelete = submit config
   }
 
 dnsChangeBody :: DnsMutationPlan -> Value
 dnsChangeBody plan = object
-  [ "additions" .= [record (dnsPlanTarget plan) (dnsPlanTtl plan)]
+  [ "additions" .= [record (dnsPlanTarget plan) (dnsPlanTtl plan) | dnsPlanAction plan /= RetireResource]
   , "deletions" .= maybe ([] :: [Value]) (\(target, ttl) -> [record target ttl]) (dnsPlanPrevious plan)
   ]
   where
@@ -157,6 +158,7 @@ submit config plan
               manager <- newTlsManager
               let change = request
                     { method = "POST"
+                    , redirectCount = 0
                     , requestHeaders = [("Authorization", "Bearer " <> token), ("Content-Type", "application/json")]
                     , requestBody = RequestBodyLBS (encode (dnsChangeBody plan))
                     }
@@ -199,8 +201,9 @@ awaitDnsRecord plan attempts = do
     ,"--type=A", "--zone=" <> nameText (dnsPlanZone plan), "--format=json"
     ,"--project=" <> nameText (dnsPlanProject plan)]
   case listed >>= parseExactDnsListing (dnsPlanHost plan) of
+    Right Nothing | dnsPlanAction plan == RetireResource -> pure AdapterEffectCompleted
     Right (Just (target, ttl))
-      | (target, ttl) == (dnsPlanTarget plan, dnsPlanTtl plan) ->
+      | dnsPlanAction plan /= RetireResource && (target, ttl) == (dnsPlanTarget plan, dnsPlanTtl plan) ->
           pure AdapterEffectCompleted
     _ | attempts <= 1 -> pure (AdapterEffectAmbiguous
           "Cloud DNS change settled but its exact target record is not yet observable")

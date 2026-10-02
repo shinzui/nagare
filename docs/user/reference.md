@@ -566,8 +566,8 @@ env at deploy time. Backups land at
 | --- | --- |
 | `nagarectl cdn list [-n NS] [--all-namespaces]` | List CDN-fronted hostnames, providers, and edge state. |
 | `nagarectl cdn status HOST` | Show provider, DNS target, cache config, readiness, and Certificate Manager state. In `prepare`, print the exact map-activation command only after the certificate is `ACTIVE`. |
-| `nagarectl cdn purge HOST [--path PATH ...] [--dry-run]` | Purge everything or selected paths from the edge cache. |
-| `nagarectl cdn disable HOST [--dry-run]` | Delete a supported first-level exact record so wildcard DNS restores the VM/origin. Refuses the Pulumi-owned apex and unsupported Google hostname shapes. |
+| `nagarectl cdn purge HOST [--path PATH ...] [--whole-zone] --purge-id ID --save-plan DIR` | Review a Cloudflare hostname or exact URLs; explicit `--whole-zone` uses the platform zone owner and displays its full blast radius. Apply with `inventory apply DIR --yes`. Provider acceptance is durable; uncertain requests never replay automatically. |
+| `nagarectl cdn disable HOST --save-plan DIR` | Review the accepted hostname routing back to the origin. Google preserves its exact record; Cloudflare preserves its identity as DNS-only and withdraws only its cache contribution. Apply with `inventory apply DIR --yes`. Legacy direct forms support `--dry-run`. |
 
 See [CDN (edge caching)](cdn.md).
 

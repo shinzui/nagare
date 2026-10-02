@@ -1,5 +1,7 @@
 module InventoryCdnSpec (inventoryCdnTests) where
 
+import InventoryCdnCollectionSpec (inventoryCdnCollectionTests)
+import InventoryCdnPurgeSpec (inventoryCdnPurgeTests)
 import InventoryCloudflareSpec (inventoryCloudflareTests)
 import Control.Exception (finally)
 import Data.Aeson (Value (..), object, (.=))
@@ -184,6 +186,7 @@ inventoryCdnTests =
                 , dnsCreate = \_ ->
                     writeIORef state (DnsPresent physical "203.0.113.4" 300)
                       >> pure AdapterEffectCompleted
+                , dnsDelete = \_ -> fail "unexpected DNS deletion"
                 , dnsReplace = \_ ->
                     writeIORef state (DnsPresent physical "203.0.113.5" 300)
                       >> pure AdapterEffectCompleted
@@ -336,6 +339,8 @@ inventoryCdnTests =
         assertBool "a mixed provider operation was accepted" . isLeft
           =<< adapterPrepare combined (operation (google :| [cloudflare]))
     , testCase "disposable provider context reviews app, preview, CDN, broker, and Secret together" combinedApplicationProof
+    , inventoryCdnCollectionTests
+    , inventoryCdnPurgeTests
     , inventoryCloudflareTests
     ]
 
@@ -572,6 +577,7 @@ combinedApplicationProof = do
               writeIORef dnsState (DnsPresent (physical dnsId) (dnsPlanTarget plan) (dnsPlanTtl plan))
               modifyIORef' effects (<> [dnsId])
               pure AdapterEffectCompleted
+          , dnsDelete = \_ -> fail "unexpected DNS deletion"
           , dnsReplace = \_ -> pure (AdapterEffectFailed (KnownNoEffect "unexpected DNS update"))
           }
       dnsAdapter = mkDnsAdapter Map.empty dnsSpecs dnsOps

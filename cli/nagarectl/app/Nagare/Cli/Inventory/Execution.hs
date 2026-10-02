@@ -12,6 +12,8 @@ import Data.Map qualified as Map
 import Data.Maybe (catMaybes)
 import Data.Set qualified as Set
 import Data.Text qualified as T
+import Nagare.Cli.Inventory.CdnHistory
+import Nagare.Cli.Inventory.CdnPurge (cdnPurgeRuntime)
 import Nagare.Cli.Inventory.Adapters
   ( acceptedTopicResources
   , inventoryArtifactAdapter
@@ -216,8 +218,9 @@ inventoryExecutionRegistry mctx store bundle = do
   cacheSpecs <- either dieT pure (cacheSpecsFromDeclarations declarations)
   allTopicSpecs <- either dieT pure (topicSpecsFromDeclarations declarations)
   let topicSpecs = Map.restrictKeys allTopicSpecs (selected ResourceInventory.BrokerExecutor)
+  historicalCdn <- reviewedHistoricalCdn store bundle
   allDnsSpecs <- either dieT pure (dnsSpecsFromDeclarations declarations)
-  let dnsSpecs = Map.restrictKeys allDnsSpecs (selected ResourceInventory.CdnExecutor)
+  let dnsSpecs = Map.restrictKeys (Map.union allDnsSpecs (historicalDnsBindings historicalCdn)) (Set.union (selected ResourceInventory.CdnExecutor) (Map.keysSet historicalCdn))
   cdnDeclarations <-
     either
       (dieT . T.pack . show)
@@ -226,7 +229,7 @@ inventoryExecutionRegistry mctx store bundle = do
           (Map.fromList [(ResourceInventory.scopeId scope, scope) | scope <- scopes])
       )
   allCloudflareSpecs <- either dieT pure (cloudflareBindingsFromDeclarations cdnDeclarations)
-  let cloudflareSpecs = Map.restrictKeys allCloudflareSpecs (selected ResourceInventory.CdnExecutor)
+  let cloudflareSpecs = Map.restrictKeys (Map.union allCloudflareSpecs (historicalCloudflareBindings historicalCdn)) (Set.union (selected ResourceInventory.CdnExecutor) (Map.keysSet historicalCdn))
   hostInputs <-
     if Set.null (selected ResourceInventory.HostExecutor)
       then pure Nothing
@@ -338,8 +341,9 @@ inventoryExecutionRegistry mctx store bundle = do
     )
     (dieT "manual data source native evidence differs from the saved review")
   let retiredIds =
-        Map.keysSet (InventoryPlan.reviewRetentions document)
-          `Set.union` Map.keysSet (InventoryPlan.reviewCollections document)
+        (Map.keysSet (InventoryPlan.reviewRetentions document)
+          `Set.union` Map.keysSet (InventoryPlan.reviewCollections document))
+          `Set.difference` Map.keysSet historicalCdn
       binding = InventoryPlan.reviewContextBinding document
       activeExecutors =
         Set.fromList
@@ -374,7 +378,7 @@ inventoryExecutionRegistry mctx store bundle = do
             pure
             (ResourceInventory.composeSnapshot acceptedSnapshot)
         (native, helmNative) <-
-          InventoryStatus.loadAcceptedNative store history acceptedInventory
+          InventoryStatus.loadAcceptedNativeSelected retiredIds store history acceptedInventory
             >>= either dieT pure
         let selectedKubernetes = Map.filterWithKey (\resource _ -> Set.member resource retiredIds) native
             selectedHelm = Map.filterWithKey (\resource _ -> Set.member resource retiredIds) helmNative
@@ -477,11 +481,14 @@ inventoryExecutionRegistry mctx store bundle = do
         if Map.null dnsSpecs && Map.null cloudflareSpecs
           then pure Map.empty
           else do
-            reviewBaseDnsResources store bundle
-      dns <-
+            Map.union historicalCdn <$> reviewBaseDnsResources store bundle
+      dnsBase <-
         if Map.null dnsSpecs && Map.null cloudflareSpecs
           then pure (Inventory.executionBlockedAdapterFor ResourceInventory.CdnExecutor)
           else withWorkspace (\root -> inventoryCdnAdapter active root binding dnsSpecs cloudflareSpecs acceptedDns)
+      dns <- if Map.null dnsSpecs && Map.null cloudflareSpecs
+        then pure dnsBase
+        else cdnPurgeRuntime store scopes acceptedDns dnsBase
       let kubernetesOperations =
             [ op
             | op <- InventoryPlan.reviewOperations (InventoryPlan.reviewBundleDocument bundle)

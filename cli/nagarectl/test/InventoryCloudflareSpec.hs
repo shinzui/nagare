@@ -28,7 +28,7 @@ import Nagare.Inventory.Execute (applyReviewed)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), mkOperationId)
 import Nagare.Inventory.Plan (LifecycleDecisionKind (ApproveRetirement), LifecycleProposal (..), historyAccepted, lifecycleObservationDigest, loadInventoryHistory, noLifecycleDecisions, observationRequirements, planChanges, prepareReview, proposalOperations, publishReview, requiredResources, validateLifecycleDecisions, verifyReview)
 import Nagare.Inventory.Store (ScopeRevision (..), headAccepted, headConverged, headGeneration, initializeStore, newMemoryStore, publishIfAbsent, readStoreSnapshot, replaceHeadIfGenerationMatches, scopeKey)
-import Nagare.Resource.Cdn (compileCdnDisable, compileCloudflareDnsRecord, compileGoogleDnsRecord)
+import Nagare.Resource.Cdn (compileCdnPurge, compileCdnDisable, compileCloudflareDnsRecord, compileGoogleDnsRecord)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
@@ -380,6 +380,20 @@ inventoryCloudflareTests =
                 []
                 VerifyBeforeRetry
             physical resource = ok (mkPhysicalIdentity ("cloudflare:" <> resourceIdText resource))
+        let purged = ok (compileCdnPurge acceptedSnapshot "a.example.test" "release-1" ["/b", "/a", "/b"])
+            purgeCandidate = ok (composeInventory acceptedSnapshot (ReplaceScope purged :| []))
+            purgeInventory = candidateInventory purgeCandidate
+            purgeSnapshot = ok (mkScopeSnapshot binding
+              (Map.insert appA (generation, purged) (snapshotScopes acceptedSnapshot)) Map.empty)
+        scopeConfigDigest purged @?= scopeConfigDigest firstScope
+        scopeOverrides purged @?= scopeOverrides firstScope
+        Map.lookup appB (inventoryScopes purgeInventory) @?= Just secondScope
+        Map.lookup platformOwner (inventoryScopes purgeInventory) @?= Just platformScope
+        inventoryDeclarations purgeInventory @?= inventoryDeclarations oldInventory
+        compileCdnPurge purgeSnapshot "a.example.test" "release-1" ["/a", "/b"] @?= Right purged
+        assertBool "changed purge ID intent must refuse" (isLeft (compileCdnPurge purgeSnapshot "a.example.test" "release-1" []))
+        assertBool "foreign host must refuse purge" (isLeft (compileCdnPurge acceptedSnapshot "foreign.example.test" "release-1" []))
+        assertBool "URL must not escape host through path input" (isLeft (compileCdnPurge acceptedSnapshot "a.example.test" "release-1" ["https://foreign.test/"]))
         let disabled = ok (compileCdnDisable acceptedSnapshot "a.example.test" "203.0.113.4")
             disabledCandidate = ok (composeInventory acceptedSnapshot (ReplaceScope disabled :| []))
             disabledInventory = candidateInventory disabledCandidate
@@ -452,7 +466,7 @@ inventoryCloudflareTests =
                 )
               modifyIORef' writes (<> [resource])
               pure AdapterEffectCompleted
-            ops = CloudflareAdapterOps inspect write write
+            ops = CloudflareAdapterOps inspect write write (\_ -> fail "unexpected deletion")
             initial = mkCloudflareAdapter Map.empty oldBindings ops
         forM_ (zip [0 :: Int ..] (Map.keys oldBindings)) $ \(position, resource) -> do
           let create = operation ("op-create-" <> T.pack (show position)) CreateResource resource
@@ -502,6 +516,7 @@ inventoryCloudflareTests =
                 (\resource -> Map.findWithDefault CloudflareMissing resource <$> readIORef disabledState)
                 disableWrite
                 disableWrite
+                (\_ -> fail "unexpected deletion")
             disableAdapter = mkCloudflareAdapter oldResources disabledBindings disableOps
         forM_ [rulesId, firstDns] $ \resource -> do
           let change = operation "op-disable-host" UpdateResource resource

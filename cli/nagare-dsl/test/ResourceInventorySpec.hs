@@ -367,6 +367,30 @@ resourceInventoryTests =
         let reserved = ok (mkScopeDeclaration a [bundle [] & #contributions .~
               [RegisterNamespace p cluster (n "kube-system") (ok (mkLogicalKey "system"))]])
         rejects "reserved-namespace-contribution" (compileScopes [owner, reserved])
+    , testCase "last namespace contributor leaves exact Retain ownership and returning contribution reuses it" $ do
+        let contribution = RegisterNamespace p cluster (n "same") (ok (mkLogicalKey "namespace"))
+            owner = withScopeConfigDigest digest (withScopeOverrides (Map.singleton "fixture" "same")
+              (ok (mkScopeDeclaration p [bundle [] & #grants .~ [NamespaceGrant a cluster]])))
+            consumer = ok (mkScopeDeclaration a [bundle [] & #contributions .~ [contribution]])
+            neighbor = scope (s Application "neighbor") []
+            generation = ok (mkScopeGeneration 1)
+            snapshot scopes = ok (mkScopeSnapshot binding (Map.map (\value -> (generation, value)) scopes) Map.empty)
+            accepted = Map.fromList [(scopeId value, value) | value <- [owner, consumer, neighbor]]
+            initial = inventoryDeclarations (ok (composeSnapshot (snapshot accepted)))
+            retired = candidateInventory (ok (composeInventory (snapshot accepted) (RetireScope a RetainResources :| [])))
+            carried = inventoryScopes retired Map.! p
+        inventoryDeclarations retired @?= initial
+        scopeConfigDigest carried @?= scopeConfigDigest owner
+        scopeOverrides carried @?= scopeOverrides owner
+        inventoryScopes retired Map.! scopeId neighbor @?= neighbor
+        concatMap (^. #declarations) (scopeBundles carried) @?= initial
+        let returning = candidateInventory (ok (composeInventory (snapshot (inventoryScopes retired)) (ReplaceScope consumer :| [])))
+        inventoryDeclarations returning @?= initial
+        inventoryScopes returning Map.! p @?= owner
+        let alter (Managed resource) = Managed (resource & #sensitivity .~ Private)
+            alter declaration = declaration
+            changed = ok (mkScopeDeclaration p [item & #declarations %~ map alter | item <- scopeBundles carried])
+        rejects "duplicate-id" (composeInventory (snapshot (Map.insert p changed (inventoryScopes retired))) (ReplaceScope consumer :| []))
     , testCase "backend contributions compose one authorized owner map" $ do
         let authOwner = s Platform "auth"
             other = s Application "other"

@@ -53,6 +53,7 @@ module Nagare.Resource.Inventory
   , inventoryDeclarations
   , inventoryBinding
   , contributionDependents
+  , pairedDnsRouteClaim
   , composedDeclarations
   )
 where
@@ -196,10 +197,10 @@ known = either (error . show) id . mkName
 packInteger :: Integer -> Text
 packInteger = Data.Text.pack . show
 
-data OperationInput = CapabilityInput !SomeRef | SecretInput !SecretRef | ContentInput !ContentDigest
+data OperationInput = CapabilityInput !SomeRef | SecretInput !SecretRef | ContentInput !ContentDigest | CdnPathsInput ![Text]
   deriving stock (Eq, Ord, Show, Generic)
 
-data OperationKind = SchemaMigration | PreDeployHook | CreateLogicalCache | SnapshotData | RestoreData | RestoreLiveData | PruneData | MaintainData | PublishRelease | ActivateHost
+data OperationKind = SchemaMigration | PreDeployHook | CreateLogicalCache | SnapshotData | RestoreData | RestoreLiveData | PruneData | MaintainData | PublishRelease | ActivateHost | PurgeCdnCache | PurgeCdnZone
   deriving stock (Eq, Ord, Show, Generic)
 
 data DeclaredOperation = DeclaredOperation
@@ -452,7 +453,11 @@ contributionDependents inventory =
 composeInventory :: ScopeSnapshot -> NonEmpty ScopeChange -> Either (NonEmpty InventoryError) CompositionCandidate
 composeInventory snapshot changes = do
   checked changeErrors ()
+  ss <- preserveNamespaceOwners (fmap snd original) changedScopes
   ds <- composedDeclarations ss
+  let generations = Map.mapWithKey (\owner scope ->
+        if owner `elem` selectedScopes || Just scope /= fmap snd (Map.lookup owner original)
+          then nextGeneration (Map.lookup owner base) else base Map.! owner) ss
   checked
     (validateGraph ss ds (snapshotReservations snapshot))
     (CompositionCandidate (ValidatedInventory (snapshotBinding snapshot) ss ds) base (NE.sort changes) generations (snapshotReservations snapshot))
@@ -477,11 +482,39 @@ composeInventory snapshot changes = do
                    (Map.elems (snapshotReservations snapshot))
                )
            ]
-    ss = foldl change (fmap snd original) selected
+    changedScopes = foldl change (fmap snd original) selected
     change m (ReplaceScope s) = Map.insert (scopeId s) s m
     change m (RetireScope s _) = Map.delete s m
     change m (CollectRetained _) = m
-    generations = Map.mapWithKey (\s _ -> if s `elem` selectedScopes then nextGeneration (Map.lookup s base) else base Map.! s) ss
+
+-- | Withdrawing a workload contribution cannot drop a Retain namespace owned
+-- by the surviving platform. Persist its exact composed declaration there.
+-- A returning contribution can replace only an identical carried declaration.
+preserveNamespaceOwners :: Map ScopeId ScopeDeclaration -> Map ScopeId ScopeDeclaration -> Either (NonEmpty InventoryError) (Map ScopeId ScopeDeclaration)
+preserveNamespaceOwners original desired = do
+  previous <- filter isNamespace <$> composeContributions original
+  generated <- filter isNamespace <$> composeContributions desired
+  let stripBundle bundle =
+        let updated = bundle & #declarations %~ filter (\declaration -> declaration `notElem` generated)
+         in [updated | updated /= ResourceBundle [] [] [] [] [] [] || null (bundle ^. #declarations)]
+      strip scope = rebuild scope (concatMap stripBundle (scopeBundles scope))
+  stripped <- traverse strip desired
+  declarations <- composedDeclarations stripped
+  let carry = [resource | Managed resource <- previous,
+        all ((/= resource ^. #identity) . declarationId) declarations,
+        Map.member (resource ^. #owner) stripped]
+      append scope = rebuild scope (scopeBundles scope <>
+        [ResourceBundle [Managed resource] [] [] [] [] [] | resource <- carry, resource ^. #owner == scopeId scope])
+  traverse append stripped
+  where
+    isNamespace (Managed resource) = resource ^. #source . #file == "contribution"
+      && resource ^. #spec == NamespaceSpec Nothing && resource ^. #lifecycle == Retain
+      && scopeKind (resource ^. #owner) == Platform
+    isNamespace _ = False
+    rebuild scope bundles = do
+      updated <- mkScopeDeclaration (scopeId scope) bundles
+      pure (maybe id withScopeConfigDigest (scopeConfigDigest scope)
+        (withScopeOverrides (scopeOverrides scope) updated))
 
 -- | Reconstruct accepted effective resources for read-only status. This runs
 -- the same closed contribution and claim validation as a changed candidate.
@@ -906,24 +939,6 @@ validateGraph ss ds reservations =
     dependencyRefProducer (SomeRef ref) = refProducer ref
     isCondition ref = let (_, _, c, _, _) = refSignature ref in c `elem` [ReadinessCondition, TlsReady]
     claims = Map.fromListWith (<>) [(c, [d]) | d <- ds, participates d, (_, c) <- NE.toList (claimsOf d)]
-    pairedDnsRouteClaim claim holders = case (claimParts claim, holders) of
-      (["hostname", host], [Managed firstResource, Managed secondResource]) ->
-        dnsAndRoute host firstResource secondResource || dnsAndRoute host secondResource firstResource
-      _ -> False
-    dnsAndRoute host dns route = case (dns ^. #address, route ^. #address) of
-      (DnsRecord _ _ dnsHost, Kubernetes _ "serving.knative.dev" kind _ routeHost) ->
-        nameText dnsHost == host
-          && nameText routeHost == host
-          && nameText kind == "domainmapping"
-          && dns ^. #owner == route ^. #owner
-          && OrderedAfter (route ^. #identity) `elem` dns ^. #dependencies
-      (CloudflareDnsRecord _ dnsHost, Kubernetes _ "serving.knative.dev" kind _ routeHost) ->
-        nameText dnsHost == host
-          && nameText routeHost == host
-          && nameText kind == "domainmapping"
-          && dns ^. #owner == route ^. #owner
-          && OrderedAfter (route ^. #identity) `elem` dns ^. #dependencies
-      _ -> False
     -- An External declaration reserves its address just like a managed one:
     -- another scope cannot acquire that provider object by compiling a native
     -- member. Observed children intentionally share a parent's derived claim.
@@ -960,3 +975,21 @@ duplicates xs = [x | x : _ : _ <- group (sort xs)]
 checked :: [InventoryError] -> a -> Either (NonEmpty InventoryError) a
 checked [] a = Right a
 checked (e : es) _ = Left (e :| es)
+
+-- | The exact same-owner DNS/route hostname pair may share one reservation.
+pairedDnsRouteClaim :: CanonicalClaim -> [Declaration] -> Bool
+pairedDnsRouteClaim claim holders = case (claimParts claim, holders) of
+  (["hostname", host], [Managed firstResource, Managed secondResource]) ->
+    dnsAndRoute host firstResource secondResource || dnsAndRoute host secondResource firstResource
+  _ -> False
+  where
+    dnsAndRoute host dns route = case route ^. #address of
+      Kubernetes _ "serving.knative.dev" kind _ routeHost
+        | nameText kind == "domainmapping", nameText routeHost == host,
+          dns ^. #owner == route ^. #owner,
+          OrderedAfter (route ^. #identity) `elem` dns ^. #dependencies ->
+            case dns ^. #address of
+              DnsRecord _ _ dnsHost -> nameText dnsHost == host
+              CloudflareDnsRecord _ dnsHost -> nameText dnsHost == host
+              _ -> False
+      _ -> False

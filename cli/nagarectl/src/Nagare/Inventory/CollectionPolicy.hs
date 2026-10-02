@@ -13,14 +13,15 @@ import Nagare.Resource.Types
 
 supportsRetainedCollection :: ManagedResource -> Bool
 supportsRetainedCollection declaration =
-  declaration ^. #executor == KubernetesExecutor
-    && declaration ^. #lifecycle == DeleteWhenUnreferenced
+  declaration ^. #lifecycle == DeleteWhenUnreferenced
     && declaration ^. #dataPolicy == Stateless
-    && case declaration ^. #address of
-      Kubernetes _ "" kind (Just _) _ ->
+    && case (declaration ^. #executor, declaration ^. #address) of
+      (CdnExecutor, DnsRecord {}) -> scopeKind (declaration ^. #owner) `elem` [Application, Standalone]
+      (CdnExecutor, CloudflareDnsRecord {}) -> scopeKind (declaration ^. #owner) `elem` [Application, Standalone]
+      (KubernetesExecutor, Kubernetes _ "" kind (Just _) _) ->
         nameText kind `elem` ["configmap", "service", "persistentvolumeclaim"]
-      Kubernetes _ "batch" kind (Just _) _ ->
+      (KubernetesExecutor, Kubernetes _ "batch" kind (Just _) _) ->
         nameText kind `elem` ["cronjob", "job"]
-      Kubernetes _ "serving.knative.dev" kind (Just _) _ ->
+      (KubernetesExecutor, Kubernetes _ "serving.knative.dev" kind (Just _) _) ->
         nameText kind `elem` ["domainmapping", "service"]
       _ -> False

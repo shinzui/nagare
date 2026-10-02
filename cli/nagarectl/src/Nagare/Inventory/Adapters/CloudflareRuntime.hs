@@ -47,6 +47,7 @@ cloudflareRuntimeOps config =
     { cloudflareInspect = inspect config
     , cloudflareCreate = submit config
     , cloudflareReplace = submit config
+    , cloudflareDelete = submit config
     }
 
 inspect :: CloudflareRuntimeConfig -> ResourceId -> IO CloudflareObservation
@@ -188,7 +189,7 @@ submit config plan = do
     else case mutationRequest plan of
       Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
       Right (method, path, body) -> do
-        response <- cloudflareRuntimeRequest config method path (Just body)
+        response <- cloudflareRuntimeRequest config method path (if method == "DELETE" then Nothing else Just body)
         case response of
           Left _ -> pure (AdapterEffectAmbiguous "Cloudflare mutation has no verifiable response")
           Right received -> case successfulResult received of
@@ -205,7 +206,7 @@ matchesBase plan fact = case (cloudflarePlanAction plan, fact) of
   (CreateResource, CloudflareMissing) ->
     isNothing (cloudflarePlanPrevious plan)
       && isNothing (cloudflarePlanPhysical plan)
-  (UpdateResource, CloudflarePresent physical version target) ->
+  (action, CloudflarePresent physical version target) | action `elem` [UpdateResource, RetireResource] ->
     Just target == cloudflarePlanPrevious plan
       && Just physical == cloudflarePlanPhysical plan
       && version == cloudflarePlanVersion plan
@@ -213,8 +214,9 @@ matchesBase plan fact = case (cloudflarePlanAction plan, fact) of
   _ -> False
 
 matchesTarget :: CloudflareMutationPlan -> CloudflareObservation -> Bool
+matchesTarget plan CloudflareMissing = cloudflarePlanAction plan == RetireResource
 matchesTarget plan (CloudflarePresent physical _ target) =
-  target == cloudflarePlanTarget plan
+  cloudflarePlanAction plan /= RetireResource && target == cloudflarePlanTarget plan
     && maybe True (== physical) (cloudflarePlanPhysical plan)
 matchesTarget _ _ = False
 
@@ -232,14 +234,14 @@ mutationRequest plan = case cloudflarePlanTarget plan of
         base = zonePath (cloudflarePlanZone plan) <> "/dns_records"
      in case cloudflarePlanAction plan of
           CreateResource -> Right ("POST", base, body)
-          UpdateResource -> do
+          action | action `elem` [UpdateResource, RetireResource] -> do
             physical <- maybe (Left "reviewed DNS update has no provider ID") Right (cloudflarePlanPhysical plan)
             recordId <- case T.stripPrefix
               ("cloudflare:zone/" <> nameText (cloudflarePlanZone plan) <> "/dns/")
               (physicalIdentityText physical) of
               Just value | validProviderId value -> Right value
               _ -> Left "reviewed DNS record ID differs from the bound zone"
-            Right ("PUT", base <> "/" <> recordId, body)
+            Right (if action == RetireResource then "DELETE" else "PUT", base <> "/" <> recordId, body)
           _ -> Left "Cloudflare DNS action is not mutable"
   CloudflareRulesTarget body ->
     Right

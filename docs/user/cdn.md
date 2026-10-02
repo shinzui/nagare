@@ -196,7 +196,7 @@ identical to before.
 ```bash
 nagarectl cdn list                       # every CDN-fronted hostname, provider, DNS target, readiness
 nagarectl cdn status blog.example.com    # one hostname's provider, DNS target, cache config, readiness
-nagarectl cdn purge  blog.example.com    # purge the whole edge cache after a deploy
+nagarectl cdn purge  blog.example.com    # purge this hostname only on a legacy context
 nagarectl cdn purge  blog.example.com --path /assets/app.css   # purge specific paths (repeatable)
 nagarectl cdn disable blog.example.com   # tear the CDN down and route DNS back to the VM
 ```
@@ -207,10 +207,39 @@ forms refuse even for a new hostname. Save a reviewed routing change with
 `cdn disable HOST --save-plan DIR`, then apply it with `inventory apply DIR --yes`.
 Google DNS retains the exact owned record and points it at the platform origin.
 Cloudflare changes that record to DNS-only and withdraws only the selected host's
-cache rules, preserving neighboring contributions. The public command fixture verifies this path; native Google disable acceptance,
-reviewed purge and exact DNS retirement remain pending. Read-only `list`, `status`, and `--dry-run` remain
+cache rules, preserving neighboring contributions. The public command fixture verifies this path; native Google disable acceptance
+remains pending. Read-only `list`, `status`, and `--dry-run` remain
 available. (Live `cdn list`/`status` discovery reads the cluster and the cloud
 provider, so it is part of the deferred live legs while the VM is off.)
+
+For an inventory-backed Cloudflare hostname, save a purge with a unique request ID:
+
+```bash
+nagarectl cdn purge blog.example.com --purge-id deploy-42 --save-plan /tmp/purge-42
+nagarectl inventory apply /tmp/purge-42 --yes
+```
+
+Omit `--path` to purge only that hostname, or repeat `--path /assets/app.css`
+for exact HTTPS URLs. `--whole-zone` explicitly requests **all cached content in
+the platform-owned zone**, records the request in its platform scope, and shows
+that blast radius in the review. It requires `--save-plan` and cannot combine
+with `--path`. Google CDN has no purge command in this contract.
+
+The request ID is immutable within its owner scope. Replanning the same ID and
+intent does not send another purge; use a new ID for a new request. A successful
+transaction records Cloudflare's request acceptance, which does not prove
+worldwide cache eviction. If the provider response is lost before its acceptance
+receipt is durable, resume remains unresolved and never resends automatically.
+
+Retire a workload with `inventory retire --scope application:NAME --out DIR`,
+then apply that review. Its DNS and route remain retained. A separate
+`inventory collect --resource RESOURCE_ID --out DIR` review can delete an exact
+retained workload DNS record with `DeleteWhenUnreferenced` policy after its
+consumers are gone. The collector preserves other retained resources and
+platform rules/TLS. Older `Retain` records require a reviewed policy update
+before retirement. Deletion with a lost response resumes only after confirmed
+absence; it never resends automatically. The platform namespace survives the
+withdrawal of its last workload contribution.
 
 ## DNS + origin-TLS runbook
 

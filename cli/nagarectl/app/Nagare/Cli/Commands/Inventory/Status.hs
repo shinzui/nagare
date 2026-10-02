@@ -27,6 +27,7 @@ import Nagare.Cli.Inventory.Adapters
   , inventoryKubernetesAdapter
   , inventoryPulumiAdapter
   )
+import Nagare.Cli.Inventory.CdnHistory
 import Nagare.Cli.Inventory.PublicEvidence (publicDataFence)
 import Nagare.Cli.Runtime.Cluster (guardKubernetesContext)
 import Nagare.Cli.Runtime.Error (dieT)
@@ -137,7 +138,7 @@ runInventoryStatus mctx requested json gcOutput = do
                        , ResourceInventory.CdnExecutor
                        ]
           )
-          managed
+          (managed <> map snd (Map.elems retainedMembers))
   workspace <-
     if not needsWorkspace
       then pure Nothing
@@ -188,8 +189,11 @@ runInventoryStatus mctx requested json gcOutput = do
               <> [ResourceInventory.Managed resource | (_, resource) <- Map.elems retainedMembers]
           )
       )
-  dnsSpecs <- either dieT pure (dnsSpecsFromDeclarations declarations)
-  cloudflareSpecs <- either dieT pure (cloudflareBindingsFromDeclarations declarations)
+  allDns <- either dieT pure (dnsSpecsFromDeclarations (ResourceInventory.inventoryDeclarations inventory))
+  allCloudflare <- either dieT pure (cloudflareBindingsFromDeclarations (ResourceInventory.inventoryDeclarations inventory))
+  let retainedCdn = Map.filterWithKey (\resource _ -> wanted resource) (retainedCdnResources history)
+      dnsSpecs = Map.union (Map.filterWithKey (\resource _ -> wanted resource) allDns) (historicalDnsBindings retainedCdn)
+      cloudflareSpecs = Map.union (Map.filterWithKey (\resource _ -> wanted resource) allCloudflare) (historicalCloudflareBindings retainedCdn)
   hostInputs <-
     if null (ids ResourceInventory.HostExecutor)
       then pure Nothing
@@ -231,9 +235,9 @@ runInventoryStatus mctx requested json gcOutput = do
           )
       )
   acceptedCdn <-
-    if null (ids ResourceInventory.CdnExecutor)
+    if null (ids ResourceInventory.CdnExecutor) && Map.null retainedCdn
       then pure Map.empty
-      else either dieT pure (acceptedDnsResources history)
+      else Map.union retainedCdn <$> either dieT pure (acceptedDnsResources history)
   cdn <-
     if Map.null dnsSpecs && Map.null cloudflareSpecs
       then pure (Inventory.executionBlockedAdapterFor ResourceInventory.CdnExecutor)
@@ -316,6 +320,7 @@ runInventoryStatus mctx requested json gcOutput = do
   retainedKubeFacts <- inspectRetained retainedKubernetes ResourceInventory.KubernetesExecutor
   retainedHelmFacts <- inspectRetained retainedHelm ResourceInventory.HelmExecutor
   retainedBrokerFacts <- inspectRetained broker ResourceInventory.BrokerExecutor
+  retainedCdnFacts <- inspectRetained cdn ResourceInventory.CdnExecutor
   let helmObserved = Map.fromList helmFacts
       helmObservedPhysical = \case
         InventoryAdapter.ObservedPresent _ -> True
@@ -389,7 +394,7 @@ runInventoryStatus mctx requested json gcOutput = do
         either
           (error . T.unpack)
           (\value -> value)
-          (InventoryAdapter.observationSet (retainedKubeFacts <> retainedHelmFacts <> retainedBrokerFacts))
+          (InventoryAdapter.observationSet (retainedKubeFacts <> retainedHelmFacts <> retainedBrokerFacts <> retainedCdnFacts))
       healthById = Map.fromList (healthPairs <> helmHealthPairs)
       findings =
         [ finding

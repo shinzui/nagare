@@ -1,6 +1,7 @@
 -- | Reviewed, hostname-specific DNS effects. An existing foreign record is
 -- never adopted by matching its value. A lost write stays unresolved because
--- Cloud DNS does not give an RRset an incarnation ID.
+-- Cloud DNS does not give an RRset an incarnation ID. Exact-value deletion
+-- alone can recover from confirmed absence without resubmitting.
 module Nagare.Inventory.Adapters.Cdn
   ( DnsBinding (..)
   , DnsMutationPlan (..)
@@ -25,6 +26,7 @@ import Nagare.Inventory.Adapter
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), OperationId)
 import Nagare.Resource.Inventory
+import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
@@ -55,6 +57,7 @@ data DnsAdapterOps = DnsAdapterOps
   { dnsInspect :: !(ResourceId -> IO DnsObservation)
   , dnsCreate :: !(DnsMutationPlan -> IO AdapterExecution)
   , dnsReplace :: !(DnsMutationPlan -> IO AdapterExecution)
+  , dnsDelete :: !(DnsMutationPlan -> IO AdapterExecution)
   }
 
 dnsSpecsFromDeclarations :: [Declaration] -> Either Text (Map ResourceId DnsBinding)
@@ -107,7 +110,9 @@ mkDnsAdapter accepted specs ops = Adapter
           Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
           Right () -> case dnsPlanAction plan of
             CreateResource -> dnsCreate ops plan
+            UpdateResource | dnsPlanPrevious plan == Just (dnsPlanTarget plan, dnsPlanTtl plan) -> pure AdapterEffectCompleted
             UpdateResource -> dnsReplace ops plan
+            RetireResource -> dnsDelete ops plan
             VerifyResource -> pure AdapterEffectCompleted
             _ -> pure (AdapterEffectFailed (KnownNoEffect "DNS action is unsupported"))
   , adapterVerify = \operation prepared -> case decodePlan accepted specs operation (preparedNativeBytes prepared) of
@@ -115,7 +120,8 @@ mkDnsAdapter accepted specs ops = Adapter
       Right plan -> do
         fact <- dnsInspect ops (dnsPlanResource plan)
         pure (case fact of
-          DnsPresent physical target ttl | target == dnsPlanTarget plan && ttl == dnsPlanTtl plan ->
+          DnsMissing | dnsPlanAction plan == RetireResource -> Right (absentProof plan)
+          DnsPresent physical target ttl | dnsPlanAction plan /= RetireResource && target == dnsPlanTarget plan && ttl == dnsPlanTtl plan ->
             Right (proof plan physical)
           DnsUnavailable reason -> Left reason
           _ -> Left "DNS record does not match the reviewed target after execution")
@@ -124,8 +130,10 @@ mkDnsAdapter accepted specs ops = Adapter
       Right plan -> do
         fact <- dnsInspect ops (dnsPlanResource plan)
         pure (case (dnsPlanAction plan, fact) of
-          (VerifyResource, DnsPresent physical target ttl)
-            | target == dnsPlanTarget plan && ttl == dnsPlanTtl plan ->
+          (RetireResource, DnsMissing) -> RecoveryProvedComplete (absentProof plan)
+          (action, DnsPresent physical target ttl)
+            | action == VerifyResource || (action == UpdateResource && dnsPlanPrevious plan == Just (dnsPlanTarget plan, dnsPlanTtl plan))
+            , target == dnsPlanTarget plan && ttl == dnsPlanTtl plan ->
                 RecoveryProvedComplete (proof plan physical)
           (_, DnsUnavailable reason) -> RecoveryUnresolved reason
           _ -> RecoveryUnresolved "DNS mutation may have taken effect; inspect the exact record and journal before recovery")
@@ -144,6 +152,7 @@ mkDnsAdapter accepted specs ops = Adapter
             | otherwise -> Right (resource, ObservedDrifted physical (contentDigest (TE.encodeUtf8 (target <> ":" <> T.pack (show ttl)))))
           DnsUnavailable reason -> Right (resource, ObservationUnavailable reason)
     summary plan = case dnsPlanAction plan of
+      RetireResource -> "delete only retained Cloud DNS A record " <> nameText (dnsPlanHost plan) <> " if its reviewed value and TTL still match"
       UpdateResource -> "change Cloud DNS A record " <> nameText (dnsPlanHost plan) <> " to " <> dnsPlanTarget plan
       _ -> "review Cloud DNS A record " <> nameText (dnsPlanHost plan) <> " -> " <> dnsPlanTarget plan
 
@@ -159,14 +168,17 @@ planFor accepted specs operation = do
   previous <- case plannedAction operation of
     CreateResource -> Right Nothing
     VerifyResource -> Right Nothing
+    RetireResource -> case Map.lookup resource accepted of
+      Just old | old == dnsDeclaration binding && supportsRetainedCollection old -> Right (Just (target, ttl))
+      _ -> Left "DNS collection requires the exact accepted stateless deletion declaration"
     UpdateResource -> case Map.lookup resource accepted of
       Just old -> case (old ^. #address, old ^. #spec) of
         (DnsRecord oldProject oldZone oldHost, DnsARecord oldTarget oldTtl)
           | (project, zone, host) == (oldProject, oldZone, oldHost)
-          , (target, ttl) /= (oldTarget, oldTtl) -> Right (Just (oldTarget, oldTtl))
+          -> Right (Just (oldTarget, oldTtl))
         _ -> Left "reviewed DNS update requires the same accepted project, zone, and hostname"
       Nothing -> Left "DNS update lacks an accepted previous declaration"
-    _ -> Left "DNS adoption, retirement, and replacement require separate reviewed capabilities"
+    _ -> Left "DNS action is unsupported by this reviewed record contract"
   pure (DnsMutationPlan (plannedOperationId operation) (plannedAction operation)
     (plannedInputDigest operation) resource project zone host target ttl previous)
 
@@ -182,11 +194,17 @@ checkBefore plan fact = case (dnsPlanAction plan, fact) of
   (CreateResource, DnsMissing) -> Right ()
   (VerifyResource, DnsPresent _ target ttl)
     | (target, ttl) == (dnsPlanTarget plan, dnsPlanTtl plan) -> Right ()
+  (RetireResource, DnsPresent _ target ttl)
+    | Just (target, ttl) == dnsPlanPrevious plan -> Right ()
   (UpdateResource, DnsPresent _ target ttl)
     | Just (target, ttl) == dnsPlanPrevious plan -> Right ()
   (_, DnsUnavailable reason) -> Left reason
   (CreateResource, DnsPresent {}) -> Left "DNS record already exists without reviewed ownership"
   _ -> Left "DNS observation differs from the reviewed action"
+
+absentProof :: DnsMutationPlan -> ContentDigest
+absentProof plan = contentDigest (either (error . T.unpack) id
+  (canonicalValue (object ["plan" .= plan, "confirmedAbsent" .= True])))
 
 proof :: DnsMutationPlan -> PhysicalIdentity -> ContentDigest
 proof plan physical = contentDigest (either (error . T.unpack) id

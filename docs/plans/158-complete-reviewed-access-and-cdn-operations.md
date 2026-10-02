@@ -47,6 +47,28 @@ Operators can grant and revoke access, synchronize the protected-app portal, and
 
 ## Progress
 
+**M2 public lifecycle checkpoint (2026-10-02).** Reviewed Cloudflare hostname,
+exact-path and explicit platform-owner whole-zone purges now bind immutable IDs,
+provider preconditions and durable acceptance receipts. An ambiguous response
+never resends; independent review found and closed F21's HTTP redirect replay.
+`scripts/test-cdn-purge-public.py --ambiguous-response redirect` proves the actual
+CLI sends one request and leaves apply/resume unresolved. Both
+`--collection --last-contributor` and `--google-dns --last-contributor` pass exact
+retained DNS deletion, changed-record refusal and lost-response recovery without
+another DELETE/change. These private TLS recorders exercise the real HTTP client,
+planner, store, admission and journal; they are not live provider evidence.
+
+The command tests exposed and fixed missing CDN retirement observations, missing
+historical collection bindings, and rejection of the valid same-owner retained
+DNS/route hostname pair. Last-contributor retirement now carries the unchanged
+Retain namespace into its surviving platform owner; returning contributions can
+replace only an identical carried declaration. Full CLI tests (1,076 in 62.44s),
+DSL tests (461 in 14.44s), architecture/style checks and strict user-documentation
+validation pass. The repository has no `check-adr` recipe; ADR22 follows its
+existing unprofiled format. Native Google create/disable/retire/collect and final
+independent lifecycle verification remain open, so M2 remains unchecked.
+
+
 **M2 disable source checkpoint (2026-10-02).** `cdn disable HOST --save-plan DIR`
 now derives a replacement from the accepted workload scope. Google DNS keeps
 its exact owned record and points it at the platform origin; Cloudflare keeps

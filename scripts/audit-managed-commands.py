@@ -92,7 +92,7 @@ ROUTES = {
     "DomainsCommand": {"read": "DomainsList DomainsCheck"},
     "CdnCommand": {
         "read": "CdnList CdnStatus",
-        "pending": "CdnPurge CdnDisable",
+        "reviewed": "CdnPurge CdnDisable",
     },
 }
 

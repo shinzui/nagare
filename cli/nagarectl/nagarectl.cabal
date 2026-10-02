@@ -147,6 +147,7 @@ library
     Nagare.Inventory.Application
     Nagare.Inventory.Artifact
     Nagare.Inventory.ReleaseEvidence
+    Nagare.Inventory.CdnPurge
     Nagare.Inventory.BackendMap
     Nagare.Inventory.Backup
     Nagare.Inventory.BackupReceipt
@@ -361,6 +362,8 @@ executable nagarectl
     Nagare.Cli.Inventory.Execution
     Nagare.Cli.Inventory.Foundation
     Nagare.Cli.Inventory.Planning
+    Nagare.Cli.Inventory.CdnHistory
+    Nagare.Cli.Inventory.CdnPurge
     Nagare.Cli.Inventory.PruneEvidence
     Nagare.Cli.Inventory.PublicEvidence
     Nagare.Cli.Inventory.SourceEvidence
@@ -453,6 +456,8 @@ test-suite nagarectl-test
     InventoryCacheSpec
     InventoryCdnSpec
     InventoryCloudflareSpec
+    InventoryCdnCollectionSpec
+    InventoryCdnPurgeSpec
     InventoryCloudSpec
     InventoryControllerCollectionSpec
     InventoryEffectfulCollectionSpec

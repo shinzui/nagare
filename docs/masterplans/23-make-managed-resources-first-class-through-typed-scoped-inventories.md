@@ -473,7 +473,16 @@ These ownership, identity, review, storage, migration, and controller-delegation
 
 ## Progress
 
-**Current independent checkpoint (2026-10-02).** Scheduled GCS ingestion,
+**Current implementation checkpoint (2026-10-02).** EP-158 public command proofs
+now cover exact Cloudflare host/path and explicit zone-owner purge, plus retained
+Google/Cloudflare DNS collection and no-resend recovery. Independent review closed
+the redirect replay finding F21. Native Google lifecycle and final independent
+CDN verification remain open. The reviewer has independently verified local
+automatic Redis/ClickHouse backups with producer-free isolated content restores,
+and the local volume snapshot/isolated content restore; cloud engine/volume
+verification is in progress. No publishing or production adoption is implied.
+
+**Earlier independent checkpoint (2026-10-02).** Scheduled GCS ingestion,
 producer-free historical restore across the signed-v4→v5 schedule transition,
 automatic v5 firing and accepted-receipt freshness now pass independently.
 A fresh-root manual restore with source access denied and encrypted recovery

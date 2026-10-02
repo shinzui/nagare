@@ -25,6 +25,7 @@ import Data.Text.Encoding qualified as TE
 import Nagare.Cdn.Cloudflare (buildComposedCacheRulesPayload)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
+import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), OperationId)
 import Nagare.Resource.Inventory
@@ -64,6 +65,7 @@ data CloudflareAdapterOps = CloudflareAdapterOps
   { cloudflareInspect :: !(ResourceId -> IO CloudflareObservation)
   , cloudflareCreate :: !(CloudflareMutationPlan -> IO AdapterExecution)
   , cloudflareReplace :: !(CloudflareMutationPlan -> IO AdapterExecution)
+  , cloudflareDelete :: !(CloudflareMutationPlan -> IO AdapterExecution)
   }
 
 -- | Only composed platform rulesets and host records with an exact route and
@@ -167,7 +169,9 @@ mkCloudflareAdapter accepted specs ops =
             Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
             Right () -> case cloudflarePlanAction plan of
               CreateResource -> cloudflareCreate ops plan
+              UpdateResource | cloudflarePlanPrevious plan == Just (cloudflarePlanTarget plan) -> pure AdapterEffectCompleted
               UpdateResource -> cloudflareReplace ops plan
+              RetireResource -> cloudflareDelete ops plan
               VerifyResource -> pure AdapterEffectCompleted
               AdoptResource -> pure AdapterEffectCompleted
               _ -> pure (AdapterEffectFailed (KnownNoEffect "Cloudflare action is unsupported"))
@@ -177,8 +181,10 @@ mkCloudflareAdapter accepted specs ops =
           fact <- cloudflareInspect ops (cloudflarePlanResource plan)
           pure
             ( case fact of
+                CloudflareMissing | cloudflarePlanAction plan == RetireResource -> Right (absentProof plan)
                 CloudflarePresent physical version target
-                  | target == cloudflarePlanTarget plan
+                  | cloudflarePlanAction plan /= RetireResource
+                  , target == cloudflarePlanTarget plan
                   , maybe True (== physical) (cloudflarePlanPhysical plan)
                   , plannedAction operation `elem` [CreateResource, UpdateResource]
                       || version == cloudflarePlanVersion plan ->
@@ -189,7 +195,13 @@ mkCloudflareAdapter accepted specs ops =
     , adapterRecover = \operation prepared -> case decodePlan accepted specs operation (preparedNativeBytes prepared) of
         Left reason -> pure (RecoveryUnresolved reason)
         Right plan -> case cloudflarePlanAction plan of
-          action | action `elem` [VerifyResource, AdoptResource] -> do
+          RetireResource -> do
+            fact <- cloudflareInspect ops (cloudflarePlanResource plan)
+            pure (case fact of
+              CloudflareMissing -> RecoveryProvedComplete (absentProof plan)
+              _ -> RecoveryUnresolved "retained DNS absence is unconfirmed; never resend deletion automatically")
+          action | action `elem` [VerifyResource, AdoptResource]
+            || (action == UpdateResource && cloudflarePlanPrevious plan == Just (cloudflarePlanTarget plan)) -> do
             fact <- cloudflareInspect ops (cloudflarePlanResource plan)
             pure
               ( case fact of
@@ -252,13 +264,15 @@ planFor accepted specs operation = do
     VerifyResource -> Left "Cloudflare verification lacks an accepted owner"
     AdoptResource | Map.notMember resource accepted -> Right Nothing
     AdoptResource -> Left "Cloudflare adoption already has an accepted owner"
+    RetireResource -> case Map.lookup resource accepted of
+      Just old | old == desiredResource && supportsRetainedCollection old -> Right (Just target)
+      _ -> Left "Cloudflare collection requires its exact retained stateless DNS declaration"
     UpdateResource -> case Map.lookup resource accepted of
       Just old | old ^. #address == desiredResource ^. #address -> do
         (_, oldTarget) <- targetFor old
-        unless (oldTarget /= target) (Left "Cloudflare update has no target change")
         Right (Just oldTarget)
       _ -> Left "reviewed Cloudflare update lacks an accepted previous declaration at the same address"
-    _ -> Left "Cloudflare retirement and replacement require separate reviewed capabilities"
+    _ -> Left "Cloudflare action is unsupported by this reviewed resource contract"
   pure
     ( CloudflareMutationPlan
         (plannedOperationId operation)
@@ -290,6 +304,8 @@ preparePhysical ::
   Either Text (Maybe PhysicalIdentity, Maybe Text)
 preparePhysical plan fact = case (cloudflarePlanAction plan, fact) of
   (CreateResource, CloudflareMissing) -> Right (Nothing, Nothing)
+  (RetireResource, CloudflarePresent physical version target)
+    | Just target == cloudflarePlanPrevious plan, isJust version -> Right (Just physical, version)
   (UpdateResource, CloudflarePresent physical version target)
     | Just target == cloudflarePlanPrevious plan -> Right (Just physical, version)
   (VerifyResource, CloudflarePresent physical version target)
@@ -322,6 +338,7 @@ decodePlan accepted specs operation bytes = do
   pure plan
 
 summary :: CloudflareMutationPlan -> Text
+summary plan | cloudflarePlanAction plan == RetireResource = "delete only retained Cloudflare DNS record " <> maybe "(missing identity)" physicalIdentityText (cloudflarePlanPhysical plan)
 summary plan = case cloudflarePlanTarget plan of
   CloudflareDnsTarget host address proxied _ -> "review Cloudflare " <> (if proxied then "proxied" else "DNS-only") <> " A record " <> nameText host <> " -> " <> address
   CloudflareRulesTarget _ -> "review complete Cloudflare cache rules for zone " <> nameText (cloudflarePlanZone plan)
@@ -330,6 +347,10 @@ summary plan = case cloudflarePlanTarget plan of
       <> T.pack (show mode)
       <> " for zone "
       <> nameText (cloudflarePlanZone plan)
+
+absentProof :: CloudflareMutationPlan -> ContentDigest
+absentProof plan = contentDigest (either (error . T.unpack) id
+  (canonicalValue (object ["plan" .= plan, "confirmedAbsent" .= True])))
 
 proof :: CloudflareMutationPlan -> PhysicalIdentity -> ContentDigest
 proof plan physical =

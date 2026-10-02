@@ -1172,3 +1172,37 @@ irreversible migrations and prevent cleanup from deleting required recovery
 material. Report tested compatibility and measured maintenance/recovery limits;
 no blanket guarantee covers arbitrary future releases. Production data and
 transactions are not disposable under the prerelease fixture policy above.
+
+## Amendment — 2026-10-02: reviewed CDN requests and retained hostname ownership
+
+Cloudflare purge is an immutable typed operation with a caller-selected request
+ID. Empty paths select one accepted workload hostname; exact paths become HTTPS
+URLs on that hostname. Whole-zone purge requires an explicit `--whole-zone`
+review owned by the platform's zone grant, with the full blast radius displayed.
+The saved native evidence binds the current provider identity/version and account.
+A durable receipt binds provider request acceptance to both intent and native
+review digests. Acceptance does not prove worldwide cache eviction. A lost
+response without that receipt remains unresolved; redirects cannot automatically
+resubmit mutations. This follows the [Cloudflare purge contract](https://developers.cloudflare.com/api/resources/cache/methods/purge/).
+
+Retirement preserves workload DNS records. A separate collection may remove only
+an exact retained stateless record whose accepted policy is
+`DeleteWhenUnreferenced`, with no remaining consumers. Platform rules, origin
+TLS, apex and neighboring hostnames are outside that deletion authority.
+Google deletion uses the exact old value/TTL in an [atomic DNS change](https://docs.cloud.google.com/dns/docs/reference/rest/v1/changes/create).
+Cloudflare checks the observed ID/version and deletes the [exact record ID](https://developers.cloudflare.com/api/resources/dns/subresources/records/methods/delete/);
+its API does not supply a conditional version token. These are provider-specific
+preconditions, not a promise of atomic protection from every external writer.
+Unknown deletion responses recover only from confirmed absence, never by
+resending. Policy-only convergence with an unchanged provider target performs no
+provider write. Old `Retain` declarations require a reviewed policy change before
+retirement; the collector does not reinterpret their policy.
+
+The legitimate same-owner DNS/DomainMapping hostname pair uses the same exact
+pair-validation rule in desired composition and retained history. Either retained
+member continues reserving that hostname until separately collected. Withdrawing
+the last namespace contribution preserves its exact `Retain` declaration in the
+surviving platform owner. A returning contribution replaces only an identical
+carried declaration; a changed or independently authored claim still conflicts.
+This preserves ownership without fabricating historical scope revisions or
+making workload retirement delete platform namespaces.

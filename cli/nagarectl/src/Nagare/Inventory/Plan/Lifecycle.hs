@@ -324,7 +324,6 @@ validateLifecycleDecisions candidate history observations proposals =
               (Nothing, Just (incarnation, old), Just (ObservedPresent physical))
                 | CollectRetained resource `elem` NE.toList (candidateChanges candidate)
                 , physical == retainedPhysical incarnation
-                , old ^. #executor == KubernetesExecutor
                 , old ^. #lifecycle == DeleteWhenUnreferenced
                 , old ^. #dataPolicy == Stateless
                 , supportsRetainedCollection old
@@ -334,7 +333,7 @@ validateLifecycleDecisions candidate history observations proposals =
                     , any ((== resource) . dependencyTarget) (declarationDependencies consumer)
                     ] ->
                     []
-              _ -> issue "invalid-collection" "collection needs a selected retained Kubernetes incarnation of a supported kind, exact present UID, stateless deletion policy, and no known consumers"
+              _ -> issue "invalid-collection" "collection needs a selected retained incarnation of a supported kind, exact present provider identity, stateless deletion policy, and no known consumers"
             ApproveMigration -> issue "unsupported-migration" "migration needs a reviewed data and cutover contract"
        in evidence <> shape
     selectedScopes =

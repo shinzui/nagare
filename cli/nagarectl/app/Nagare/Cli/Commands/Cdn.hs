@@ -53,9 +53,10 @@ import Nagare.Ops.ContextGuard (projectGuardVerdict)
 import Nagare.Ops.Domains (listNamespaces)
 import Nagare.Ops.Probe (captureTool)
 import Nagare.Ops.Pulumi (stackOutput)
-import Nagare.Resource.Cdn (compileCdnDisable)
-import Nagare.Resource.Inventory (Executor (KubernetesExecutor), ScopeChange (ReplaceScope), composeInventory, composeSnapshot)
-import Nagare.Target (contextNameText)
+import Nagare.Platform.Workspace (PlatformWorkspace)
+import Nagare.Resource.Cdn (compileCdnDisable, compileCdnPurge, compileCdnZonePurge)
+import Nagare.Resource.Inventory (Executor (KubernetesExecutor), ScopeChange (ReplaceScope), ScopeDeclaration, ScopeSnapshot, composeInventory, composeSnapshot)
+import Nagare.Target (ActiveTarget, contextNameText)
 
 -- | MasterPlan 11 / EP-58: the @nagarectl cdn@ command group dispatcher.
 runCdn :: Maybe String -> CdnCommand -> IO ()
@@ -127,14 +128,28 @@ runCdnStatus mctx o = do
 -- | @cdn purge HOST [--path P]...@: purge the Cloudflare edge cache. @--dry-run@
 -- prints the planned purge; live needs @CF_API_TOKEN@.
 runCdnPurge :: Maybe String -> CdnPurgeOpts -> IO ()
+runCdnPurge mctx o | Just output <- o ^. #savePlan = do
+  when (o ^. #dryRun) (dieT "--save-plan already plans without effects; omit --dry-run")
+  requestId <- maybe (dieT "reviewed purge requires --purge-id ID") (pure . T.pack) (o ^. #purgeId)
+  active <- activeTarget mctx
+  snapshot <- Inventory.loadTargetSnapshotReadOnly active
+  when (o ^. #wholeZone && not (null (o ^. #paths))) (dieT "--whole-zone cannot be combined with --path")
+  scope <- either dieT pure $
+    if o ^. #wholeZone
+      then compileCdnZonePurge snapshot (T.pack (o ^. #host)) requestId
+      else compileCdnPurge snapshot (T.pack (o ^. #host)) requestId (map T.pack (o ^. #paths))
+  workspace <- selectReviewedPulumiForContext (active ^. #contextName) (active ^. #profile)
+  planCdnScope active workspace snapshot scope output
 runCdnPurge mctx o = do
+  when (o ^. #wholeZone) (dieT "--whole-zone requires --save-plan")
+  when (isJust (o ^. #purgeId)) (dieT "--purge-id requires --save-plan")
   let host = T.pack (o ^. #host)
       paths = map T.pack (o ^. #paths)
-      pathsDesc = if null paths then "everything" else T.intercalate ", " paths
+      pathsDesc = if null paths then "this hostname only" else T.intercalate ", " paths
   if o ^. #dryRun
     then TIO.putStrLn ("Would purge Cloudflare edge cache for " <> host <> " (paths: " <> pathsDesc <> ")")
     else do
-      refuseDirectLegacyOperationWhenManaged mctx "cdn purge" "a reviewed purge operation is not yet available"
+      refuseDirectLegacyOperationWhenManaged mctx "cdn purge" "save the purge with --save-plan DIR --purge-id ID, then inventory apply DIR --yes"
       refuseDirectCdnHostMutationIfOwned mctx "cdn purge" host
       refuseDirectCloudflareZoneMutationIfOwned mctx "cdn purge"
       ecreds <- loadCloudflareCreds
@@ -162,28 +177,7 @@ runCdnDisable mctx o | Just output <- o ^. #savePlan = do
     stackOutput (workspace ^. #pulumiDir) "publicIp"
       >>= maybe (dieT "reviewed CDN disable requires the accepted platform publicIp") pure
   scope <- either dieT pure (compileCdnDisable snapshot (T.pack (o ^. #host)) origin)
-  candidate <- either (dieT . T.pack . show) pure (composeInventory snapshot (ReplaceScope scope :| []))
-  Inventory.planInventoryCandidateWith
-    ( \reviewCandidate history -> do
-        inventory <- either (dieT . T.pack . show) pure (composeSnapshot snapshot)
-        let required =
-              InventoryPlan.requirementsByExecutor
-                (InventoryPlan.observationRequirements reviewCandidate history)
-            selected = Set.fromList (Map.findWithDefault [] KubernetesExecutor required)
-        store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
-        (native, _) <-
-          loadAcceptedNativeSelected selected store history inventory
-            >>= either dieT pure
-        inventoryPlanRegistryWithNative
-          active
-          workspace
-          (Map.filter ((/= "contribution") . (^. #source . #file) . fst) native)
-          reviewCandidate
-          history
-    )
-    active
-    candidate
-    output
+  planCdnScope active workspace snapshot scope output
 runCdnDisable mctx o = do
   let host = T.pack (o ^. #host)
   unless (o ^. #dryRun) $
@@ -226,3 +220,29 @@ runCdnDisable mctx o = do
                 <> tp ^. #project
                 <> "?)"
             )
+
+-- | Load only required native members while preserving owner-generated contributions.
+planCdnScope :: ActiveTarget -> PlatformWorkspace -> ScopeSnapshot -> ScopeDeclaration -> FilePath -> IO ()
+planCdnScope active workspace snapshot scope output = do
+  candidate <- either (dieT . T.pack . show) pure (composeInventory snapshot (ReplaceScope scope :| []))
+  Inventory.planInventoryCandidateWith
+    ( \reviewCandidate history -> do
+        inventory <- either (dieT . T.pack . show) pure (composeSnapshot snapshot)
+        let required =
+              InventoryPlan.requirementsByExecutor
+                (InventoryPlan.observationRequirements reviewCandidate history)
+            selected = Set.fromList (Map.findWithDefault [] KubernetesExecutor required)
+        store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+        (native, _) <-
+          loadAcceptedNativeSelected selected store history inventory
+            >>= either dieT pure
+        inventoryPlanRegistryWithNative
+          active
+          workspace
+          (Map.filter ((/= "contribution") . (^. #source . #file) . fst) native)
+          reviewCandidate
+          history
+    )
+    active
+    candidate
+    output

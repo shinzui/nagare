@@ -888,6 +888,9 @@ data CdnPurgeOpts = CdnPurgeOpts
   , paths :: ![String]
   , namespace :: !(Maybe String)
   , dryRun :: !Bool
+  , savePlan :: !(Maybe FilePath)
+  , purgeId :: !(Maybe String)
+  , wholeZone :: !Bool
   }
   deriving stock (Generic, Show)
 

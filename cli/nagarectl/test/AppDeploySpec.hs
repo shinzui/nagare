@@ -1539,6 +1539,7 @@ renderTests =
                   (unsafe (Resource.mkPhysicalIdentity "recorded:dns")) "203.0.113.4" 300)
                 modifyIORef' executedIds (dnsMember ^. #identity :)
                 pure AdapterEffectCompleted
+            , dnsDelete = \_ -> fail "unexpected DNS deletion"
             , dnsReplace = \_ -> pure (AdapterEffectFailed
                 (KnownNoEffect "unexpected DNS replacement"))
             }

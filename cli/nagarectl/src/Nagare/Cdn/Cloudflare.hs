@@ -209,11 +209,11 @@ quoteExpr t = "\"" <> T.concatMap escape t <> "\""
     escape '\\' = "\\\\"
     escape character = T.singleton character
 
--- | The purge request body. @[]@ purges the whole zone
+-- | The purge request body. @[]@ purges only the selected hostname
 -- (@{ "purge_everything": true }@); a non-empty path list purges those exact
 -- URLs under @hostname@ over HTTPS.
 buildPurgePayload :: Text -> [Text] -> Value
-buildPurgePayload _ [] = object ["purge_everything" .= True]
+buildPurgePayload hostname [] = object ["hosts" .= [hostname]]
 buildPurgePayload hostname paths =
   object ["files" .= map (\p -> "https://" <> hostname <> p) paths]
 
@@ -350,6 +350,7 @@ cfRequestWithStatus token method path mbody =
                   , ("Content-Type", "application/json")
                   ]
               , requestBody = maybe (RequestBodyLBS "") (RequestBodyLBS . encode) mbody
+              , redirectCount = 0
               }
       resp <- httpLbs req manager
       pure (Right (statusCode (responseStatus resp), LBS.toStrict (responseBody resp)))

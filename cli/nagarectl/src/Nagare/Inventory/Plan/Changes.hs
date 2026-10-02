@@ -116,6 +116,8 @@ import Nagare.Resource.Inventory
   , ManagedResource (dependencies, source)
   , OperationKind
     ( ActivateHost
+    , PurgeCdnCache
+    , PurgeCdnZone
     , CreateLogicalCache
     , MaintainData
     , PreDeployHook
@@ -414,7 +416,7 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
         && Map.lookup (operation ^. #identity) provenOperations == Just operation
     forwardOnly operation =
       operation ^. #operationKind
-        `elem` [SchemaMigration, PreDeployHook, ActivateHost, MaintainData, RestoreLiveData]
+        `elem` [SchemaMigration, PreDeployHook, ActivateHost, MaintainData, RestoreLiveData, PurgeCdnCache, PurgeCdnZone]
         || ( operation ^. #operationKind == PublishRelease
                && all isArtifact (NE.toList (operation ^. #affects))
            )

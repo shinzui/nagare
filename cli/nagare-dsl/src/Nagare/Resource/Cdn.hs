@@ -1,10 +1,11 @@
 -- | A hostname-specific DNS declaration. The platform's load balancer is an
 -- accepted dependency, never a member of the application scope.
-module Nagare.Resource.Cdn (compileGoogleDnsRecord, compileCloudflareDnsRecord, compileCloudflareCacheContribution, compileCdnDisable) where
+module Nagare.Resource.Cdn (compileGoogleDnsRecord, compileCloudflareDnsRecord, compileCloudflareCacheContribution, compileCdnDisable, compileCdnPurge, compileCdnZonePurge, validateCdnPurgePaths) where
 
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Nagare.Dsl.Cdn.Types (Cdn (..), CdnCacheRule (..), CdnProvider (CloudflareCdn))
@@ -38,7 +39,7 @@ compileGoogleDnsRecord owner key project zone host target domain backend source 
           , address = DnsRecord project zone host
           , aliases = [Hostname host]
           , spec = DnsARecord target 300
-          , lifecycle = Retain
+          , lifecycle = DeleteWhenUnreferenced
           , dataPolicy = Stateless
           , sensitivity = Private
           , dependencies = [OrderedAfter domain, OrderedAfter backend]
@@ -83,7 +84,7 @@ compileCloudflareDnsRecord owner key zone host target domain ruleset source = do
           , address = CloudflareDnsRecord zone host
           , aliases = [Hostname host]
           , spec = CloudflareProxiedARecord target
-          , lifecycle = Retain
+          , lifecycle = DeleteWhenUnreferenced
           , dataPolicy = Stateless
           , sensitivity = Private
           , dependencies = [OrderedAfter domain, OrderedAfter ruleset]
@@ -196,3 +197,86 @@ compileCdnDisable snapshot rawHost origin = do
         (scopeConfigDigest scope)
         (withScopeOverrides (scopeOverrides scope) revised)
     )
+
+-- | Append one immutable, host-bounded request to its accepted workload scope.
+-- Reusing an identifier requires identical intent; another purge needs a new ID.
+compileCdnPurge :: ScopeSnapshot -> Text -> Text -> [Text] -> Either Text ScopeDeclaration
+compileCdnPurge snapshot rawHost requestId rawPaths = do
+  host <- mkName (T.toLower (T.dropWhileEnd (== '.') (T.strip rawHost)))
+  paths <- validateCdnPurgePaths rawPaths
+  inventory <- first (T.pack . show) (composeSnapshot snapshot)
+  selected <- case [ resource
+                   | Managed resource <- inventoryDeclarations inventory
+                   , CloudflareDnsRecord _ name <- [resource ^. #address]
+                   , name == host
+                   , scopeKind (resource ^. #owner) `elem` [Application, Standalone]
+                   ] of
+    [resource] -> Right resource
+    _ -> Left "reviewed purge requires exactly one accepted Cloudflare workload hostname"
+  appendPurge snapshot selected requestId PurgeCdnCache paths
+
+-- | A whole-zone request belongs to the explicit platform zone owner.
+compileCdnZonePurge :: ScopeSnapshot -> Text -> Text -> Either Text ScopeDeclaration
+compileCdnZonePurge snapshot rawHost requestId = do
+  host <- mkName (T.toLower (T.dropWhileEnd (== '.') (T.strip rawHost)))
+  inventory <- first (T.pack . show) (composeSnapshot snapshot)
+  zone <- case [z | Managed resource <- inventoryDeclarations inventory,
+                   CloudflareDnsRecord z h <- [resource ^. #address], h == host,
+                   scopeKind (resource ^. #owner) `elem` [Application, Standalone]] of
+    [z] -> Right z
+    _ -> Left "whole-zone purge requires one accepted Cloudflare workload hostname"
+  selected <- case [resource | Managed resource <- inventoryDeclarations inventory,
+                       resource ^. #address == CloudflareRuleset zone,
+                       scopeKind (resource ^. #owner) == Platform] of
+    [resource] -> Right resource
+    _ -> Left "whole-zone purge requires exactly one accepted platform zone owner"
+  appendPurge snapshot selected requestId PurgeCdnZone []
+
+appendPurge :: ScopeSnapshot -> ManagedResource -> Text -> OperationKind -> [Text] -> Either Text ScopeDeclaration
+appendPurge snapshot selected requestId kind paths = do
+  _ <- mkName requestId
+  key <- mkLogicalKey ("cdn-purge-" <> requestId)
+  role <- mkName "cache-purge"
+  (_, scope) <- maybe (Left "CDN owner scope is absent") Right
+    (Map.lookup (selected ^. #owner) (snapshotScopes snapshot))
+  let operation =
+        DeclaredOperation
+          (mintResourceId (scopeId scope) key role)
+          (selected ^. #identity :| [])
+          [CdnPathsInput paths]
+          OperatorRecovery
+          kind
+      previous =
+        [ old
+        | bundle <- scopeBundles scope
+        , old <- bundle ^. #operations
+        , old ^. #identity == operation ^. #identity
+        ]
+  case previous of
+    [old] | old == operation -> Right scope
+    [] -> do
+      revised <-
+        first
+          (T.pack . show)
+          ( mkScopeDeclaration
+              (scopeId scope)
+              (scopeBundles scope <> [ResourceBundle [] [] [] [] [operation] []])
+          )
+      pure
+        ( maybe
+            id
+            withScopeConfigDigest
+            (scopeConfigDigest scope)
+            (withScopeOverrides (scopeOverrides scope) revised)
+        )
+    _ -> Left "purge ID already names different intent; select a new purge ID"
+
+validateCdnPurgePaths :: [Text] -> Either Text [Text]
+validateCdnPurgePaths paths = do
+  unless (all valid paths) (Left "purge paths must be absolute paths on the selected host, without fragments or whitespace")
+  pure (Set.toAscList (Set.fromList paths))
+  where
+    valid path =
+      "/" `T.isPrefixOf` path
+        && not ("//" `T.isPrefixOf` path)
+        && not (T.any (\c -> c <= ' ' || c `elem` ("#\\" :: String)) path)
