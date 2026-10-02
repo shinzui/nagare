@@ -84,12 +84,12 @@
   },
   "nativeProof": "mp23-independent-results-2026-10-02/native-same-scope-collection.json",
   "resultHashes": {
+    "docs/audits/mp23-independent-results-2026-10-02/public-collection.txt": "846ccd6ab0538adc5d911bb8d2ea3c371ed90579a28b29f5cc4c693d437c813d",
+    "docs/audits/mp23-independent-results-2026-10-02/host-transport.txt": "81b7808e94342867d5e67e131128c0956d174846e2431ca8bba68fc5d978b14a",
     "docs/audits/mp23-independent-results-2026-10-02/native-same-scope-collection.json": "d19a254359d837387f2912260a0120a6d356f8be8eceeaa40433864851653725",
-    "docs/audits/mp23-independent-results-2026-10-02/observation-tests.log": "f2e4d08a00d2f457a83f12d09d27602744015634c1b50138f2e1c154322da11d",
-    "docs/audits/mp23-independent-results-2026-10-02/public-collection.log": "846ccd6ab0538adc5d911bb8d2ea3c371ed90579a28b29f5cc4c693d437c813d",
-    "docs/audits/mp23-independent-results-2026-10-02/host-transport.log": "81b7808e94342867d5e67e131128c0956d174846e2431ca8bba68fc5d978b14a",
-    "docs/audits/mp23-independent-results-2026-10-02/fresh-login.log": "88ab6f96a67b37ee58a5e7d61da8798f7212a2156ca79666896e4f42d51b10a5",
-    "docs/audits/mp23-independent-results-2026-10-02/object-tests.log": "a1587e5f08b81e24a9475f295d6e4fe50afaa8c9550f17550afa1010fbbd8e1b",
-    "docs/audits/mp23-independent-results-2026-10-02/key-recovery.log": "973eb3c0fc113ed45760fecae1ee4646b57d81f096fc385f088dfc52aa6b66c1"
+    "docs/audits/mp23-independent-results-2026-10-02/fresh-login.txt": "88ab6f96a67b37ee58a5e7d61da8798f7212a2156ca79666896e4f42d51b10a5",
+    "docs/audits/mp23-independent-results-2026-10-02/key-recovery.txt": "973eb3c0fc113ed45760fecae1ee4646b57d81f096fc385f088dfc52aa6b66c1",
+    "docs/audits/mp23-independent-results-2026-10-02/object-tests.txt": "a1587e5f08b81e24a9475f295d6e4fe50afaa8c9550f17550afa1010fbbd8e1b",
+    "docs/audits/mp23-independent-results-2026-10-02/observation-tests.txt": "f2e4d08a00d2f457a83f12d09d27602744015634c1b50138f2e1c154322da11d"
   }
 }

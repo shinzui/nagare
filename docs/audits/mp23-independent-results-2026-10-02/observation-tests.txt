@@ -1,0 +1,56 @@
+nagarectl
+  reviewed access
+    atomic wire uses exact direct-subject filter and fully consistent observation:                  OK
+  artifact inventory adapter
+    projection observation uses current bytes without reading or mutating the old envelope:         OK
+  cache inventory adapter
+    cache subprocess transport binds observation and generated key:                                 OK (0.54s)
+  cluster foundation inventory
+    cloud bucket observation distinguishes absence, foreign ownership, and failure:                 OK
+  Helm release compiler
+    Helm observation reports release drift and foreign ownership:                                   OK
+  Kubernetes inventory adapter
+    read-only batch guards 201 Kubernetes observations at both boundaries:                          OK
+    batch observation retains individual reads throughout effect paths:                             OK
+    unready Job retains configuration observation without completing execution:                     OK
+    unknown observations and changed native bytes refuse:                                           OK
+    conflicting protected DomainMapping remains unready in observation and health:                  OK
+  reviewed CDN DNS
+    Cloudflare ruleset observation preserves full behavior and rejects unknown rules:               OK
+  inventory lifecycle
+    migration observations retain both incarnations of one logical resource:                        OK
+  inventory migration
+    versioned proposal binds old and new declarations and exact observations:                       OK
+  selected native observation
+    execution source selection ignores missing siblings and corrupt unrelated reviews:              OK
+    legacy execution source still reconstructs its original private envelope:                       OK
+    legacy reconstruction populates a verified cache shared by later commands:                      OK (0.03s)
+    corrupt reconstructed cache is discarded and original evidence is reread:                       OK (0.01s)
+    missing reconstructed cache retains original-evidence recovery:                                 OK (0.01s)
+    unwritable optional cache does not strand legacy recovery:                                      OK
+    corrupt execution source refuses without legacy fallback:                                       OK
+    missing execution source cannot mask corruption in another selected source:                     OK
+    two real resources cost two reads despite 500 unrelated reviews and 50 sibling natives:         OK (0.08s)
+    empty selection performs no object reads or listing:                                            OK
+    selected missing or corrupt native evidence refuses without review scan:                        OK
+    source-only revision reuses exact bytes but changed address or spec refuses:                    OK
+    generated namespace backend map and Shomei settings reconstruct exactly without stored members: OK
+    historical materialization is idempotent and never changes head:                                OK
+  inventory object operations
+    unresolved resume uses three head observations and two conditional claim writes:                OK
+  Nagare.Platform (EP-106)
+    status and legacy adoption distinguish exact, patch, major, and absent observations:            OK
+  Nagare.Ops.Domains
+    formatDomainList keeps a readable observation table:                                            OK
+  Nagare.Cluster.CertificateMigration
+    parses legacy, target, and disabled config-network observations:                                OK
+  Nagare.Database (EP-45)
+    Nagare.Database.Create.buildDatabase
+      unknown Secret observation never generates a credential:                                      OK
+  Nagare.Ops.ContextGuard (EP-113)
+    JSON observations preserve compatibility and report every probe status:                         OK
+  Nagare.Ops.ClusterGuard (EP-134)
+    wrong, empty, and ambiguous server-node observations refuse:                                    OK
+    fake kubectl integration records both read-only observations and reports outages:               OK (0.28s)
+
+All 35 tests passed (0.99s)

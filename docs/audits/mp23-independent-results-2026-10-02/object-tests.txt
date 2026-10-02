@@ -1,0 +1,97 @@
+Configuration is affected by cabal.project at
+'/Users/shinzui/Keikaku/bokuno/nagare/cli/nagarectl'.
+Build profile: -w ghc-9.12.4 -O1
+In order, the following will be built (use -v for more details):
+ - nagarectl-0.4.0 (test:nagarectl-test) (first run)
+Preprocessing test suite 'nagarectl-test' for nagarectl-0.4.0...
+Building test suite 'nagarectl-test' for nagarectl-0.4.0...
+Running 1 test suites...
+Test suite nagarectl-test: RUNNING...
+nagarectl
+  cloud inventory adapter
+    registration parity refuses an undeclared native object:                                          OK
+  Kubernetes inventory adapter
+    reviewed create uses the retained native object and proves completion:                            OK
+    foreign present object refuses review without mutation:                                           OK
+    unchanged accepted object plans repair for observed drift and refuses foreign ownership:          OK
+    source object cannot preclaim inventory annotations:                                              OK
+    manual database backup binds object and source incarnation into its own Job scope:                OK (0.04s)
+    disposable cluster creates and conditionally updates a reviewed object:                           OK
+  selected native observation
+    empty selection performs no object reads or listing:                                              OK
+  inventory object operations
+    discovery distinguishes empty, incomplete, foreign and unavailable authority without writes:      OK
+    conditional upload accepts only an exact version-specific created URL:                            OK
+    future canonical inventory head remains discoverable without decoding ownership:                  OK
+    object-backed inventory obeys the existing conditional store contract:                            OK
+    journal replay reads 50 and 500 committed members in one batch and rejects gaps:                  OK
+    observed head carries provider generation without rediscovery and refuses ABA replacement:        OK
+    local observed head refuses intervening updates and migrated authority:                           OK
+    selected review snapshot ignores unrelated archive keys without listing:                          OK
+    selected review snapshot refuses missing corrupt or unreadable publication despite a valid cache: OK
+    known-head journal append uses one conditional write without rediscovery:                         OK
+    active status verifies 50 and 500 chained events with one batch each:                             OK (0.03s)
+    converged replay needs no provider registry or repeated journal pass:                             OK
+    active resume reads one journal batch and does not repeat proved effect:                          OK
+    unresolved resume uses three head observations and two conditional claim writes:                  OK
+    resume rejects an identical-head provider rewrite before claim acquisition:                       OK
+    claim release cannot hide an intervening identical-head provider rewrite:                         OK
+    lost claim acknowledgements resolve from read-back without repeating the effect:                  OK
+    admission retains the original provider generation through its checks:                            OK
+    two object clients sharing a workstation process lock cannot overlap:                             OK
+    two clients cannot replace one observed head generation:                                          OK
+    second client cannot admit a review while the first holds its claim:                              OK
+    second object client sees a durable fence and refuses a saved review:                             OK
+    a second client sees the completed reviewed transaction:                                          OK
+    lost journal acknowledgement cannot duplicate an effect:                                          OK
+    foreign claim requires explicit takeover and advances its epoch:                                  OK
+    superseded executor stops before its next effect:                                                 OK
+    a listing failure cannot look like an empty review catalogue:                                     OK
+    one object prefix refuses another context binding:                                                OK
+    read-only open refuses an uninitialized prefix without creating it:                               OK
+    migration verifies the copy, tombstones the source, and resumes safely:                           OK
+    migration resumes after a failed destination-head write:                                          OK
+    migration never opens destination while source remains writable:                                  OK
+    migration resumes after source tombstone but before destination activation:                       OK
+    migration refuses an unresolved source transaction:                                               OK
+    poisoned immutable cache is refetched and repaired:                                               OK
+    gcloud writes carry the exact generation precondition:                                            OK
+    read-back separates landed, conflicting, retryable, and unknown writes:                           OK
+    a write that lands before its acknowledgement is accepted by read-back:                           OK
+    gated real bucket passes the conditional store contract:                                          OK
+  inventory compiler
+    Kubernetes declaration binds the exact canonical native object:                                   OK
+  Nagare.Static.Webhook
+    a PR payload without a base object is rejected 400:                                               OK
+  Nagare.Ops
+    parseDeploymentReady: available single object:                                                    OK
+  Nagare.App
+    extractAppSummary
+      pulls name/url/ready/revision/image from a ksvc object:                                         OK
+  Nagare.Database.Backup/Restore (EP-47)
+    Job / CronJob renderers
+      renderDbBackupCronJob stamps the object key when the pod runs:                                  OK
+      scheduled backup inspection binds exact receipt and object versions:                            OK
+      scheduled recovery proves exact object-version absence from a complete list:                    OK
+      reviewed manual backup never overwrites an existing object:                                     OK (1.31s)
+      reviewed local prune refuses unversioned MinIO objects:                                         OK (0.37s)
+  Nagare.Cdn (EP-57)
+    parseDnsRecordId: result.id from a single-object response (create):                               OK
+  Nagare.Infra.Plan
+    EP-121: a bucket replacement is refused and explains the object loss:                             OK
+  Nagare.Access.Resolve
+    portal deploy writes object entry, routes, and configures Shomei:                                 OK
+  Nagare.App.Deploy (EP-2)
+    render + shared label (M1)
+      typed service member binds the rendered Knative object:                                         OK (1.15s)
+      standalone Service binds the same rendered object under its own scope:                          OK (1.13s)
+      every rendered workload object carries the shared nagare.dev/app label:                         OK (1.10s)
+    machine-readable plan (M3)
+      renderPlan lists every object in rollout order with the app identity:                           OK (1.13s)
+      every plan object's labels carry nagare.dev/app = the app:                                      OK (1.13s)
+
+All 64 tests passed (7.45s)
+Test suite nagarectl-test: PASS
+Test suite logged to:
+/Users/shinzui/Keikaku/bokuno/nagare/cli/nagarectl/./dist-newstyle/build/aarch64-osx/ghc-9.12.4/nagarectl-0.4.0/t/nagarectl-test/test/nagarectl-0.4.0-nagarectl-test.log
+1 of 1 test suites (1 of 1 test cases) passed.

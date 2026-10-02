@@ -1,0 +1,4 @@
+Artifacts: /var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/mp23-key-recovery-gg4q6j99
+{"failure": "sops", "firstExit": 42, "retryExit": 0, "persistedKeyUnchanged": true, "keyWrites": 1, "wrongKeyExit": 2}
+{"failure": "tailscale", "firstExit": 43, "retryExit": 0, "persistedKeyUnchanged": true, "keyWrites": 1, "wrongKeyExit": 2}
+PASS: original activation retries after either service failure without replacing the persisted key

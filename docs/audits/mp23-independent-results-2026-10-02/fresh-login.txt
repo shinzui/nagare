@@ -1,0 +1,7 @@
+Artifacts: /var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/mp23-fresh-login-aafuzofv
+{"safeSwitchExit": 4, "committed": false}
+{"path": "tailnet_fresh_closure", "authorized": false, "exit": 255}
+{"path": "tailnet_fresh_closure", "authorized": true, "exit": 0}
+{"path": "activate", "authorized": false, "exit": 255}
+{"path": "activate", "authorized": true, "exit": 0}
+PASS: all three production fresh-login paths reject a revoked key while the master survives
