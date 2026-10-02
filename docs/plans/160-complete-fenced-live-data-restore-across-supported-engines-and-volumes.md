@@ -86,6 +86,24 @@ An operator can restore verified PostgreSQL, Redis, and ClickHouse backups into 
 
 ## Progress
 
+**Independent backup/recovery checkpoint (2026-10-02).** Installed `76628094`
+restores the accepted scheduled GCS v4 receipt after producer cleanup. Installed
+`ec2e1cd4` passes the local platform gate, changes exactly the selected signed-v4
+CronJob to timestamped v5 at 15-minute intervals, and restores the older accepted
+receipt again after that policy change. A genuine automatic v5 run fired at
+20:15 UTC. Freshness refused before receipt acceptance and passed afterward at
+646 seconds. The reviewer independently restored the exact v5 GCS generations
+into an isolated PostgreSQL container with source Kubernetes access denied and
+a fresh operator root, then verified an independently encrypted archive of all
+14 inventoried live Secrets by hash. This is manual content recovery under
+simulated source unavailability, not automatic receipt ingestion or automated
+cross-cluster cutover. Source/neighbor data and physical identities remained
+unchanged. [Independent evidence and limits](../audits/mp23-independent-verification-2026-10-02.md)
+retain each candidate, review, provider generation and result. Remaining engine,
+volume, interruption and final-candidate scenario assertions still gate child
+and release completion; no milestone is closed by this representative proof.
+
+
 **Scheduled GCS restore source checkpoint (2026-10-02).** The public restore
 planner now uses the shared exact-generation object reader for accepted scheduled
 GCS receipts. It verifies both pinned objects, lengths and hashes plus the completed

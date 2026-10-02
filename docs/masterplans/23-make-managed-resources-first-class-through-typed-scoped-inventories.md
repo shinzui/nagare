@@ -473,6 +473,19 @@ These ownership, identity, review, storage, migration, and controller-delegation
 
 ## Progress
 
+**Current independent checkpoint (2026-10-02).** Scheduled GCS ingestion,
+producer-free historical restore across the signed-v4→v5 schedule transition,
+automatic v5 firing and accepted-receipt freshness now pass independently.
+A fresh-root manual restore with source access denied and encrypted recovery
+of the 14 inventoried live Secrets also pass; preserve their explicit manual
+and simulated-outage boundaries. EP-159/160 retain remaining engine/volume and
+interruption assertions. EP-157 now enforces complete candidate-bound evidence
+in assembly and public publication review, with a separately pinned evidence
+commit; its independent refusal fixtures pass, while real complete matching
+scenario/native inputs remain mandatory. [Independent outcomes](../audits/mp23-independent-verification-2026-10-02.md)
+are checkpoint evidence, not final release acceptance. Continue the existing
+supported contract and non-publishing gate without reviving the retired fixture.
+
 The controller collection and recovery repair has bounded native proof on `8a820ce8`; the source refactors and receipt-only restore retain their recorded evidence. Historical checkpoint details and former freeze instructions are in [the evidence ledger](../audits/mp23-evidence-ledger.md). They do not override [the current fixture disposition](../audits/mp23-prerelease-fixture-disposition.md).
 
 **Finish sequence (revised 2026-10-02).** Finish the supported contract and its release evidence. Safe-use review is an acceptance boundary, not a stop on remaining implementation. Failed prerelease fixtures do not have to be revived first.
