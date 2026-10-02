@@ -35,6 +35,7 @@ module Nagare.Inventory.Store
   , readReviewSnapshot
   , publishIfAbsent
   , readObject
+  , cacheObservationBytes
   , readJournalPrefix
   , appendAtSequence
   , appendAtObservedHead
@@ -1054,6 +1055,15 @@ withBackendGuard :: InventoryStore -> IO (Either StoreError a) -> IO (Either Sto
 withBackendGuard (InventoryStore (FilesystemBackend _ guardVar)) action = withMVar guardVar (const action)
 withBackendGuard (InventoryStore (MemoryBackend _ guardVar _)) action = withMVar guardVar (const action)
 withBackendGuard (InventoryStore (ObjectBackend _ _ _ _ guardVar _)) action = withMVar guardVar (const action)
+
+-- | Remember reconstructed observation data in the optional private local cache.
+-- The content hash names the entry; accepted declarations must still bind it.
+-- This never publishes a remote object or supplies review-publication authority.
+-- Cache failure is harmless: callers retain the original compatibility reader.
+cacheObservationBytes :: InventoryStore -> ByteString -> IO ()
+cacheObservationBytes (InventoryStore (ObjectBackend _ _ (Just root) _ _ _)) bytes =
+  void (ioResult (atomicWrite (root </> T.unpack (digestText (contentDigest bytes))) bytes))
+cacheObservationBytes _ _ = pure ()
 
 readObjectUnlocked :: InventoryStore -> FilePath -> IO (Either StoreError (Maybe ByteString))
 readObjectUnlocked (InventoryStore (MemoryBackend stateVar _ _)) key =

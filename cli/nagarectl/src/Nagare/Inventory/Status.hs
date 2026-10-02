@@ -20,7 +20,8 @@ module Nagare.Inventory.Status
   , loadRetainedNative
   , loadActiveTransactionStatus
   , summarizeActiveTransaction
-  ) where
+  )
+where
 
 import Data.Aeson (ToJSON (..), object, (.=))
 import Data.ByteString (ByteString)
@@ -37,8 +38,8 @@ import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
 import Nagare.Inventory.Journal
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
-import Nagare.Inventory.Plan
 import Nagare.Inventory.ObservationNative
+import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
 import Nagare.Inventory.Store qualified as Store
 import Nagare.Resource.Inventory
@@ -65,21 +66,29 @@ traceRetainedDependencies :: InventoryHistory -> ValidatedInventory -> ResourceI
 traceRetainedDependencies history inventory =
   traceKnownDependencies inventory (historyRetained history)
 
-traceKnownDependencies
-  :: ValidatedInventory -> Map ResourceId (Store.RetainedIncarnation, ManagedResource)
-  -> ResourceId -> [DependencyTrace]
+traceKnownDependencies ::
+  ValidatedInventory ->
+  Map ResourceId (Store.RetainedIncarnation, ManagedResource) ->
+  ResourceId ->
+  [DependencyTrace]
 traceKnownDependencies inventory retainedEntries start = go Set.empty [(start, 1)]
   where
-    declarations = Map.fromList
-      ([(declarationId declaration, declaration) | declaration <- inventoryDeclarations inventory]
-        <> [(resourceId, Managed resource) | (resourceId, (_, resource)) <- Map.toAscList retainedEntries])
-    declaredScopes = Map.fromList
-      ([ (declarationId declaration, scope)
-      | (scope, scopeDeclaration) <- Map.toAscList (inventoryScopes inventory)
-      , bundle <- scopeBundles scopeDeclaration
-      , declaration <- declarationsIn bundle
-      ] <> [(resourceId, retainedOwner incarnation)
-           | (resourceId, (incarnation, _)) <- Map.toAscList retainedEntries])
+    declarations =
+      Map.fromList
+        ( [(declarationId declaration, declaration) | declaration <- inventoryDeclarations inventory]
+            <> [(resourceId, Managed resource) | (resourceId, (_, resource)) <- Map.toAscList retainedEntries]
+        )
+    declaredScopes =
+      Map.fromList
+        ( [ (declarationId declaration, scope)
+          | (scope, scopeDeclaration) <- Map.toAscList (inventoryScopes inventory)
+          , bundle <- scopeBundles scopeDeclaration
+          , declaration <- declarationsIn bundle
+          ]
+            <> [ (resourceId, retainedOwner incarnation)
+               | (resourceId, (incarnation, _)) <- Map.toAscList retainedEntries
+               ]
+        )
     declarationsIn bundle = bundle ^. #declarations
     target dependency = case dependency of
       Consumes reference -> Just (let (producer, _, _, _, _) = refSignature reference in producer)
@@ -91,24 +100,37 @@ traceKnownDependencies inventory retainedEntries start = go Set.empty [(start, 1
       | otherwise =
           let targets = case Map.lookup consumer declarations of
                 Nothing -> []
-                Just declaration -> Set.toAscList (Set.fromList
-                  [resource | dependency <- declarationDependencies declaration,
-                    Just resource <- [target dependency]])
-              row resource = DependencyTrace consumer resource
-                (case Map.lookup resource declarations of
-                  Just (Managed managed) -> Just (managed ^. #owner)
-                  _ -> Map.lookup resource declaredScopes)
-                (declarationSource <$> Map.lookup resource declarations) depth
-           in map row targets <> go (Set.insert consumer visited)
-                (pending <> [(resource, depth + 1) | resource <- targets])
+                Just declaration ->
+                  Set.toAscList
+                    ( Set.fromList
+                        [ resource
+                        | dependency <- declarationDependencies declaration
+                        , Just resource <- [target dependency]
+                        ]
+                    )
+              row resource =
+                DependencyTrace
+                  consumer
+                  resource
+                  ( case Map.lookup resource declarations of
+                      Just (Managed managed) -> Just (managed ^. #owner)
+                      _ -> Map.lookup resource declaredScopes
+                  )
+                  (declarationSource <$> Map.lookup resource declarations)
+                  depth
+           in map row targets
+                <> go
+                  (Set.insert consumer visited)
+                  (pending <> [(resource, depth + 1) | resource <- targets])
 
 -- | Include retained declarations: a retired resource can still depend on
 -- another retained or active incarnation after its original scope disappears.
 consumersOf :: InventoryHistory -> ValidatedInventory -> ResourceId -> [ResourceId]
 consumersOf history inventory target =
-  [resource ^. #identity
+  [ resource ^. #identity
   | resource <- active <> retained
-  , any ((== Just target) . dependencyTarget) (resource ^. #dependencies)]
+  , any ((== Just target) . dependencyTarget) (resource ^. #dependencies)
+  ]
   where
     active = [resource | Managed resource <- inventoryDeclarations inventory]
     retained = [resource | (_, resource) <- Map.elems (historyRetained history)]
@@ -118,13 +140,14 @@ consumersOf history inventory target =
       OrderedAfter resource -> Just resource
 
 instance ToJSON DependencyTrace where
-  toJSON entry = object
-    [ "from" .= traceFrom entry
-    , "resource" .= traceResource entry
-    , "owner" .= traceOwner entry
-    , "source" .= traceSource entry
-    , "depth" .= traceDepth entry
-    ]
+  toJSON entry =
+    object
+      [ "from" .= traceFrom entry
+      , "resource" .= traceResource entry
+      , "owner" .= traceOwner entry
+      , "source" .= traceSource entry
+      , "depth" .= traceDepth entry
+      ]
 
 data RetainedFinding = RetainedFinding
   { retainedResource :: !ResourceId
@@ -143,16 +166,23 @@ data RetainedFinding = RetainedFinding
 
 retainedFindings :: InventoryHistory -> ObservationSet -> [RetainedFinding]
 retainedFindings history observations =
-  [ RetainedFinding resourceId (retainedOwner incarnation)
-      (managed ^. #executor) (managed ^. #address)
-      (retainedPhysical incarnation) (retainedAt incarnation)
-      (managed ^. #lifecycle) (managed ^. #dataPolicy)
+  [ RetainedFinding
+      resourceId
+      (retainedOwner incarnation)
+      (managed ^. #executor)
+      (managed ^. #address)
+      (retainedPhysical incarnation)
+      (retainedAt incarnation)
+      (managed ^. #lifecycle)
+      (managed ^. #dataPolicy)
       (observationCategory incarnation (Map.lookup resourceId (observationMap observations)))
       (observedIdentity =<< Map.lookup resourceId (observationMap observations))
-      (case Map.lookup resourceId (observationMap observations) of
-        Just (ConfirmedAbsent _) -> HealthUnavailable
-        _ -> HealthUnknown)
-  | (resourceId, (incarnation, managed)) <- Map.toAscList (historyRetained history)]
+      ( case Map.lookup resourceId (observationMap observations) of
+          Just (ConfirmedAbsent _) -> HealthUnavailable
+          _ -> HealthUnknown
+      )
+  | (resourceId, (incarnation, managed)) <- Map.toAscList (historyRetained history)
+  ]
   where
     observationCategory incarnation fact = case fact of
       Just (ObservedPresent physical) | physical == retainedPhysical incarnation -> "present"
@@ -179,32 +209,36 @@ retainedFindings history observations =
 -- the retained entry.
 retainedHealthTargets :: InventoryHistory -> ObservationSet -> [(ResourceId, ProviderAddress, PhysicalIdentity)]
 retainedHealthTargets history observations =
-  [(resourceId, managed ^. #address, physical)
+  [ (resourceId, managed ^. #address, physical)
   | (resourceId, (incarnation, managed)) <- Map.toAscList (historyRetained history)
   , managed ^. #executor == KubernetesExecutor
   , Just fact <- [Map.lookup resourceId (observationMap observations)]
-  , Just physical <- [case fact of
-      ObservedPresent uid -> Just uid
-      ObservedDrifted uid _ -> Just uid
-      ObservedReplacementRequired uid _ -> Just uid
-      _ -> Nothing]
-  , physical == retainedPhysical incarnation]
+  , Just physical <-
+      [ case fact of
+          ObservedPresent uid -> Just uid
+          ObservedDrifted uid _ -> Just uid
+          ObservedReplacementRequired uid _ -> Just uid
+          _ -> Nothing
+      ]
+  , physical == retainedPhysical incarnation
+  ]
 
 instance ToJSON RetainedFinding where
-  toJSON finding = object
-    [ "resource" .= retainedResource finding
-    , "owner" .= retainedScope finding
-    , "executor" .= retainedExecutor finding
-    , "address" .= retainedAddress finding
-    , "physical" .= retainedIdentity finding
-    , "retainedAt" .= retainedSince finding
-    , "lifecycle" .= retainedLifecycle finding
-    , "dataPolicy" .= retainedDataPolicy finding
-    , "category" .= ("retained-orphan" :: Text)
-    , "observation" .= retainedObservation finding
-    , "observedPhysical" .= retainedObservedIdentity finding
-    , "health" .= retainedHealth finding
-    ]
+  toJSON finding =
+    object
+      [ "resource" .= retainedResource finding
+      , "owner" .= retainedScope finding
+      , "executor" .= retainedExecutor finding
+      , "address" .= retainedAddress finding
+      , "physical" .= retainedIdentity finding
+      , "retainedAt" .= retainedSince finding
+      , "lifecycle" .= retainedLifecycle finding
+      , "dataPolicy" .= retainedDataPolicy finding
+      , "category" .= ("retained-orphan" :: Text)
+      , "observation" .= retainedObservation finding
+      , "observedPhysical" .= retainedObservedIdentity finding
+      , "health" .= retainedHealth finding
+      ]
 
 -- | Read-only screening for a later collection review. A candidate has no
 -- deletion authority; the collection executor and tombstone protocol remain
@@ -220,35 +254,43 @@ data CollectionAssessment = CollectionAssessment
 
 assessCollections :: InventoryHistory -> ValidatedInventory -> ObservationSet -> [CollectionAssessment]
 assessCollections history inventory observations =
-  [ assessment finding | finding <- retainedFindings history observations ]
+  [assessment finding | finding <- retainedFindings history observations]
   where
     assessment finding =
       let resource = retainedResource finding
           consumers = consumersOf history inventory resource
           reasons =
             ["retention-policy" | retainedLifecycle finding /= DeleteWhenUnreferenced]
-              <> ["active-incarnation" | resource `elem`
-                [declarationId declaration | declaration <- inventoryDeclarations inventory]]
+              <> [ "active-incarnation"
+                 | resource
+                     `elem` [declarationId declaration | declaration <- inventoryDeclarations inventory]
+                 ]
               <> ["durable-recovery-evidence" | retainedDataPolicy finding /= Stateless]
-              <> ["unsupported-collection-transport"
+              <> [ "unsupported-collection-transport"
                  | Just (_, managed) <- [Map.lookup resource (historyRetained history)]
-                 , not (supportsRetainedCollection managed)]
+                 , not (supportsRetainedCollection managed)
+                 ]
               <> ["dependent-consumers" | not (null consumers)]
               <> ["exact-incarnation-not-present" | retainedObservation finding /= "present"]
               <> ["active-transaction" | isJust (headActiveTransaction (historyHead history))]
               <> ["active-data-fence" | isJust (headDataFence (historyHead history))]
-       in CollectionAssessment resource (null reasons) reasons consumers
+       in CollectionAssessment
+            resource
+            (null reasons)
+            reasons
+            consumers
             (retainedObservation finding)
 
 instance ToJSON CollectionAssessment where
-  toJSON assessment = object
-    [ "resource" .= collectionResource assessment
-    , "candidate" .= collectionCandidate assessment
-    , "reasons" .= collectionReasons assessment
-    , "consumers" .= collectionConsumers assessment
-    , "observation" .= collectionObservation assessment
-    , "deletionAuthorized" .= False
-    ]
+  toJSON assessment =
+    object
+      [ "resource" .= collectionResource assessment
+      , "candidate" .= collectionCandidate assessment
+      , "reasons" .= collectionReasons assessment
+      , "consumers" .= collectionConsumers assessment
+      , "observation" .= collectionObservation assessment
+      , "deletionAuthorized" .= False
+      ]
 
 -- | Read the committed journal without taking the writer lock. The caller
 -- must compare the head again after its other observations, as status does.
@@ -285,14 +327,23 @@ summarizeActiveTransaction headValue events = case headActiveTransaction headVal
   Just token -> do
     transaction <- mkTransactionId token
     let relevant = filter ((== transaction) . eventTransaction) events
-    unless (any (\event -> eventOperation event == Nothing) relevant)
+    unless
+      (any (\event -> eventOperation event == Nothing) relevant)
       (Left "active transaction has no admission event")
-    let latest = Map.fromList
-          [(operation, eventState event) | event <- relevant, Just operation <- [eventOperation event]]
+    let latest =
+          Map.fromList
+            [(operation, eventState event) | event <- relevant, Just operation <- [eventOperation event]]
         uncertain = any requiresRecovery (Map.elems latest)
         reason = if uncertain then "operation-recovery-required" else "resume-required"
-    pure (Just (ActiveTransactionStatus token uncertain reason
-      [OperationStatus operation (stateName state) | (operation, state) <- Map.toAscList latest]))
+    pure
+      ( Just
+          ( ActiveTransactionStatus
+              token
+              uncertain
+              reason
+              [OperationStatus operation (stateName state) | (operation, state) <- Map.toAscList latest]
+          )
+      )
   where
     requiresRecovery state = case state of
       IntentRecorded -> True
@@ -309,103 +360,155 @@ summarizeActiveTransaction headValue events = case headActiveTransaction headVal
       OperatorResolved _ -> "operator-resolved"
 
 instance ToJSON OperationStatus where
-  toJSON status = object
-    [ "operation" .= operationStatusId status
-    , "state" .= operationStatusState status
-    ]
+  toJSON status =
+    object
+      [ "operation" .= operationStatusId status
+      , "state" .= operationStatusState status
+      ]
 
 instance ToJSON ActiveTransactionStatus where
-  toJSON status = object
-    [ "transaction" .= activeStatusId status
-    , "recoveryRequired" .= activeStatusRecoveryRequired status
-    , "reason" .= activeStatusReason status
-    , "operations" .= activeStatusOperations status
-    ]
+  toJSON status =
+    object
+      [ "transaction" .= activeStatusId status
+      , "recoveryRequired" .= activeStatusRecoveryRequired status
+      , "reason" .= activeStatusReason status
+      , "operations" .= activeStatusOperations status
+      ]
 
 -- | Recover exact accepted native members from immutable private reviews.
 -- Reviews for newer, unaccepted revisions never become status evidence.
-loadAcceptedNative
-  :: InventoryStore -> InventoryHistory -> ValidatedInventory
-  -> IO (Either Text (Map ResourceId (ManagedResource, ByteString),
-                      Map ResourceId (ManagedResource, ByteString)))
+loadAcceptedNative ::
+  InventoryStore ->
+  InventoryHistory ->
+  ValidatedInventory ->
+  IO
+    ( Either
+        Text
+        ( Map ResourceId (ManagedResource, ByteString)
+        , Map ResourceId (ManagedResource, ByteString)
+        )
+    )
 loadAcceptedNative = loadNativeFor False Nothing
 
 -- | Source proofs name their own inputs; unrelated native siblings need not
 -- be present for an already reviewed operation to recover.
-loadAcceptedNativeSelected
-  :: Set.Set ResourceId -> InventoryStore -> InventoryHistory -> ValidatedInventory
-  -> IO (Either Text (Map ResourceId (ManagedResource, ByteString),
-                      Map ResourceId (ManagedResource, ByteString)))
+loadAcceptedNativeSelected ::
+  Set.Set ResourceId ->
+  InventoryStore ->
+  InventoryHistory ->
+  ValidatedInventory ->
+  IO
+    ( Either
+        Text
+        ( Map ResourceId (ManagedResource, ByteString)
+        , Map ResourceId (ManagedResource, ByteString)
+        )
+    )
 loadAcceptedNativeSelected wanted = loadNativeFor False (Just wanted)
 
 -- | The historical source is a separate incarnation after a reviewed rename.
 -- Callers observing it must use an adapter built from these old native bytes.
-loadRetainedNative
-  :: InventoryStore -> InventoryHistory -> ValidatedInventory
-  -> IO (Either Text (Map ResourceId (ManagedResource, ByteString),
-                      Map ResourceId (ManagedResource, ByteString)))
+loadRetainedNative ::
+  InventoryStore ->
+  InventoryHistory ->
+  ValidatedInventory ->
+  IO
+    ( Either
+        Text
+        ( Map ResourceId (ManagedResource, ByteString)
+        , Map ResourceId (ManagedResource, ByteString)
+        )
+    )
 loadRetainedNative store history inventory
   | Map.null (historyRetained history) = pure (Right (Map.empty, Map.empty))
   | otherwise = loadNativeFor True Nothing store history inventory
 
-loadNativeFor
-  :: Bool -> Maybe (Set.Set ResourceId) -> InventoryStore -> InventoryHistory -> ValidatedInventory
-  -> IO (Either Text (Map ResourceId (ManagedResource, ByteString),
-                      Map ResourceId (ManagedResource, ByteString)))
+loadNativeFor ::
+  Bool ->
+  Maybe (Set.Set ResourceId) ->
+  InventoryStore ->
+  InventoryHistory ->
+  ValidatedInventory ->
+  IO
+    ( Either
+        Text
+        ( Map ResourceId (ManagedResource, ByteString)
+        , Map ResourceId (ManagedResource, ByteString)
+        )
+    )
 loadNativeFor retainedOnly selection store history inventory
   | not (any needsNative relevantMembers) = pure (Right (Map.empty, Map.empty))
   | otherwise = do
-    direct <- loadObservationNativeChecked store currentMembers
-    case direct of
-      Right native -> pure (Right (observationKubernetes native, observationHelm native))
-      Left (ObservationNativeInvalid reason) -> pure (Left reason)
-      Left (ObservationNativeMissing _) -> legacy
+      direct <- loadObservationNativeChecked store currentMembers
+      case direct of
+        Right native -> pure (Right (observationKubernetes native, observationHelm native))
+        Left (ObservationNativeInvalid reason) -> pure (Left reason)
+        Left (ObservationNativeMissing _) -> legacy
   where
     -- Accepted/retained declarations bind these bytes. They do not authorize
     -- an effect: apply/recovery still validates its original mutation envelope.
     selected resource = maybe True (Set.member resource) selection
     currentMembers =
-      [wanted | not retainedOnly, (resource, wanted) <- Map.toAscList desired,
-        Map.lookup resource acceptedMembers == Just wanted, selected resource]
-      <> [old | (resource, (_, old)) <- Map.toAscList (historyRetained history),
-        (retainedOnly || Map.notMember resource desired), selected resource]
+      [ wanted
+      | not retainedOnly
+      , (resource, wanted) <- Map.toAscList desired
+      , Map.lookup resource acceptedMembers == Just wanted
+      , selected resource
+      ]
+        <> [ old
+           | (resource, (_, old)) <- Map.toAscList (historyRetained history)
+           , (retainedOnly || Map.notMember resource desired)
+           , selected resource
+           ]
     legacy = do
       snapshot <- readStoreSnapshot store
       case snapshot of
         Left failure -> pure (Left (T.pack (show failure)))
         Right state -> do
           loaded <- traverse (loadPublishedReview store) (Set.toAscList (storeSnapshotReviewDigests state))
-          pure $ do
-            retained <- first (T.pack . show) (sequence loaded)
-            entries <- traverse collect retained
-            kubernetes <- agree (concatMap fst entries)
-            helm <- agree (concatMap snd entries)
-            pure (kubernetes, helm)
-    relevantMembers = (if retainedOnly then [] else Map.elems desired)
-      <> map snd (Map.elems (historyRetained history))
+          let result = do
+                retained <- first (T.pack . show) (sequence loaded)
+                entries <- traverse collect retained
+                kubernetes <- agree (concatMap fst entries)
+                helm <- agree (concatMap snd entries)
+                pure (kubernetes, helm)
+          case result of
+            Left _ -> pure ()
+            Right (kubernetes, helm) ->
+              mapM_
+                (cacheObservationBytes store . snd)
+                (Map.elems kubernetes <> Map.elems helm)
+          pure result
+    relevantMembers =
+      (if retainedOnly then [] else Map.elems desired)
+        <> map snd (Map.elems (historyRetained history))
     needsNative member = member ^. #executor `elem` [KubernetesExecutor, HelmExecutor]
     -- A scope replacement need not republish native bytes for unchanged
     -- members. Digest-bound native bytes can still be recovered from an older
     -- immutable review and rebound to the current accepted declaration.
-    acceptedMembers = Map.fromList
-      [ (member ^. #identity, member)
-      | (_, (_, scope)) <- Map.toList (historyAccepted history)
-      , bundle <- scopeBundles scope
-      , Managed member <- declarations bundle
-      ]
-    desired = Map.fromList
-      [ (resource ^. #identity, resource)
-      | Managed resource <- inventoryDeclarations inventory
-      ]
+    acceptedMembers =
+      Map.fromList
+        [ (member ^. #identity, member)
+        | (_, (_, scope)) <- Map.toList (historyAccepted history)
+        , bundle <- scopeBundles scope
+        , Managed member <- declarations bundle
+        ]
+    desired =
+      Map.fromList
+        [ (resource ^. #identity, resource)
+        | Managed resource <- inventoryDeclarations inventory
+        ]
     collect bundle = do
-      let current member = if retainedOnly then retainedCurrent member else
-            case activeCurrent member of
-              Just acceptedMember -> Just acceptedMember
-              Nothing | Map.notMember (member ^. #identity) desired -> retainedCurrent member
-              Nothing -> Nothing
-          activeCurrent member = case
-            (Map.lookup (member ^. #identity) acceptedMembers,
-             Map.lookup (member ^. #identity) desired) of
+      let current member =
+            if retainedOnly
+              then retainedCurrent member
+              else case activeCurrent member of
+                Just acceptedMember -> Just acceptedMember
+                Nothing | Map.notMember (member ^. #identity) desired -> retainedCurrent member
+                Nothing -> Nothing
+          activeCurrent member = case ( Map.lookup (member ^. #identity) acceptedMembers
+                                      , Map.lookup (member ^. #identity) desired
+                                      ) of
             (Just acceptedMember, Just wanted)
               | acceptedMember == wanted && sameNativeBinding member acceptedMember ->
                   Just acceptedMember
@@ -416,12 +519,24 @@ loadNativeFor retainedOnly selection store history inventory
       kubernetes <- kubernetesSpecsFromReview bundle
       helm <- helmSpecsFromReview bundle
       pure
-        ([(resource, (acceptedMember, bytes)) | (resource, (member, bytes)) <- Map.toList kubernetes,
-           Just acceptedMember <- [current member], selected resource]
-        ,[(resource, (acceptedMember, bytes)) | (resource, (member, bytes)) <- Map.toList helm,
-           Just acceptedMember <- [current member], selected resource])
-    agree entries = traverse one (Map.fromListWith (<>)
-      [(resource, [native]) | (resource, native) <- entries])
+        ( [ (resource, (acceptedMember, bytes))
+          | (resource, (member, bytes)) <- Map.toList kubernetes
+          , Just acceptedMember <- [current member]
+          , selected resource
+          ]
+        , [ (resource, (acceptedMember, bytes))
+          | (resource, (member, bytes)) <- Map.toList helm
+          , Just acceptedMember <- [current member]
+          , selected resource
+          ]
+        )
+    agree entries =
+      traverse
+        one
+        ( Map.fromListWith
+            (<>)
+            [(resource, [native]) | (resource, native) <- entries]
+        )
     one [] = Left "accepted resource has an empty native evidence group"
     one values@(firstValue : _)
       | all (== firstValue) values = Right firstValue
@@ -432,13 +547,14 @@ loadNativeFor retainedOnly selection store history inventory
 -- provider operation. A generated object without such a digest needs exact
 -- declaration equality; otherwise its bytes could have changed invisibly.
 sameNativeBinding :: ManagedResource -> ManagedResource -> Bool
-sameNativeBinding earlier current = earlier == current ||
-  nativeHasDigest (current ^. #spec)
-    && earlier ^. #identity == current ^. #identity
-    && earlier ^. #owner == current ^. #owner
-    && earlier ^. #executor == current ^. #executor
-    && earlier ^. #address == current ^. #address
-    && earlier ^. #spec == current ^. #spec
+sameNativeBinding earlier current =
+  earlier == current
+    || nativeHasDigest (current ^. #spec)
+      && earlier ^. #identity == current ^. #identity
+      && earlier ^. #owner == current ^. #owner
+      && earlier ^. #executor == current ^. #executor
+      && earlier ^. #address == current ^. #address
+      && earlier ^. #spec == current ^. #spec
   where
     nativeHasDigest = \case
       NativeObject _ -> True
@@ -490,8 +606,12 @@ classifyDrift inventory observations =
             Just (ObservedDrifted uid changed) ->
               (ConfigurationDrift, HealthUnknown, Just uid, Just changed, Nothing)
             Just (ObservedReplacementRequired uid changed) ->
-              (ImmutableReplacementRequired, HealthUnknown, Just uid, Just changed,
-               Just "provider requires a reviewed replacement or migration")
+              ( ImmutableReplacementRequired
+              , HealthUnknown
+              , Just uid
+              , Just changed
+              , Just "provider requires a reviewed replacement or migration"
+              )
             Just (ObservedForeign uid) ->
               (ForeignOwner, HealthUnknown, Just uid, Nothing, Just "observed object has a different owner")
             Just (ObservedUnowned uid) ->
@@ -507,7 +627,11 @@ classifyDrift inventory observations =
             (resource ^. #owner)
             (resource ^. #executor)
             (resource ^. #address)
-            category health physical digest reason
+            category
+            health
+            physical
+            digest
+            reason
 
 instance ToJSON DriftCategory where
   toJSON category = toJSON $ case category of
@@ -527,14 +651,15 @@ instance ToJSON HealthCategory where
     HealthUnavailable -> "unavailable"
 
 instance ToJSON DriftFinding where
-  toJSON finding = object
-    [ "resource" .= findingResource finding
-    , "owner" .= findingOwner finding
-    , "executor" .= findingExecutor finding
-    , "address" .= findingAddress finding
-    , "category" .= findingCategory finding
-    , "health" .= findingHealth finding
-    , "physical" .= findingPhysical finding
-    , "observedDigest" .= findingObservedDigest finding
-    , "reason" .= findingReason finding
-    ]
+  toJSON finding =
+    object
+      [ "resource" .= findingResource finding
+      , "owner" .= findingOwner finding
+      , "executor" .= findingExecutor finding
+      , "address" .= findingAddress finding
+      , "category" .= findingCategory finding
+      , "health" .= findingHealth finding
+      , "physical" .= findingPhysical finding
+      , "observedDigest" .= findingObservedDigest finding
+      , "reason" .= findingReason finding
+      ]

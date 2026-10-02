@@ -208,7 +208,9 @@ for events in ([50] if baseline or race else [50, 500]):
 report = {'complete': complete, 'claimRace': race, 'lostAcknowledgement': lost_ack,
           'binarySha256': hashlib.sha256(Path(binary).read_bytes()).hexdigest(),
           'sources': {p: hashlib.sha256((repo/p).read_bytes()).hexdigest() for p in [
-              *[str(path.relative_to(repo)) for path in sorted((repo/'cli/nagarectl/app').rglob('*.hs'))],
+              *[str(path.relative_to(repo))
+                for source_dir in ['cli/nagarectl/app', 'cli/nagarectl/src', 'cli/nagare-dsl/src']
+                for path in sorted((repo/source_dir).rglob('*.hs'))],
               'cli/nagarectl/src/Nagare/Inventory/Command.hs',
               'cli/nagarectl/src/Nagare/Inventory/ObservationNative.hs',
               'cli/nagarectl/src/Nagare/Inventory/Status.hs',

@@ -72,6 +72,11 @@ provenance:
       at: 2026-10-01T14:37:41Z
       mode: "implement"
       note: "Run operator-approved F15 perimeter, original NixOS image build, publication and exact image binding while preserving accepted history"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-02T04:36:46Z
+      mode: "implement"
+      note: "Bound repeated legacy observation cost with a verified local cache and refresh complete-command source evidence"
 ---
 
 # Prove fresh GCP convergence and shared history recovery
@@ -88,6 +93,8 @@ A production-shaped disposable GCP context proves reviewed cloud/host/cluster/ap
 
 
 ## Progress
+
+**Legacy observation cache and complete-command regression (2026-10-01).** Reconstructed selected observation bytes enter only the optional verified private cache, preserving the original immutable evidence and remote head. Four new regressions prove cross-command reuse with 500 unrelated reviews, corrupt/missing cache recovery and unwritable-cache tolerance; all 14 selected-observation tests pass. The complete public active-command recorder passes its 12 cold/warm event/review-scaling cases, four lost-ack cases and two stale-generation refusals; the retained public prune-recovery fixture passes. [Exact source identities and bounded results](../audits/mp23-maintainability-performance.json) record the refactored CLI/library/DSL inputs. This does not close F04/F06: cold legacy lookup still requires original history or explicit materialization, and native provider/store timing decomposition plus independent verification remain open. No installed candidate or cloud resources were changed.
 
 
 **Bounded recovery checkpoint (2026-10-01).** Frozen installed `d871d913` preserves the admitted `d73c1dc4` payload. Exact manual GCS backup applies in 79.941 seconds; isolated PostgreSQL restore applies in 36.096 seconds. The source now holds `mp23-f15-source-after-backup`, the isolated logical database holds the backed-up `mp23-f15-source-before-backup`, and the neighboring database still holds `mp23-f15-neighbor-preserved`; original StatefulSet/PVC/Pod UIDs remain exact. The third and final approved Job is interrupted only through its owned local CLI group. The clean second root refuses its foreign claim in 14.090 seconds; after original-executor exit, explicit takeover resumes the original transaction in 24.243 seconds and keeps Job UID `6e3241e8-281e-4a79-810a-336f51a9712e`. Generation 683/sequence 633 is idle with all 29 scopes converged. Both disposable Jobs then retire through zero-write, exact-UID reviews and collect through separate conditional reviews. Final generation 705/sequence 645 is idle with all 27 remaining scope revisions unchanged and converged, the primary backup Job UID exact, and all three data rows/original database identities preserved. [The redacted recovery/cleanup proof](../audits/mp23-native-bootstrap-results-2026-10-01/f15-data-recovery-cleanup.json) records each review and measured apply. No further Job, build, bootstrap or broad rehearsal runs at this handoff.

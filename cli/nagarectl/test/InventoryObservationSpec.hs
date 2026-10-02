@@ -3,6 +3,7 @@ module InventoryObservationSpec (inventoryObservationTests, prepare, binding) wh
 import Control.Monad (forM_)
 import Data.Aeson (eitherDecodeStrict', object, (.=))
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
 import Data.Generics.Labels ()
 import Data.IORef
@@ -26,11 +27,14 @@ import Nagare.Inventory.Status (loadAcceptedNativeSelected)
 import Nagare.Inventory.Store
 import Nagare.Inventory.Store.ObjectOps
 import Nagare.Resource.Inventory
-import Nagare.Resource.Policy (Delegation (..), DelegatedOperation (RefreshCredential))
 import Nagare.Resource.Kubernetes
 import Nagare.Resource.Policy
+import Nagare.Resource.Policy (DelegatedOperation (RefreshCredential), Delegation (..))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
+import System.Directory (removeFile)
+import System.FilePath ((</>))
+import System.IO.Temp (withSystemTempDirectory)
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -40,6 +44,10 @@ inventoryObservationTests =
     "selected native observation"
     [ testCase "execution source selection ignores missing siblings and corrupt unrelated reviews" (executionSourceRead "present")
     , testCase "legacy execution source still reconstructs its original private envelope" (executionSourceRead "missing")
+    , testCase "legacy reconstruction populates a verified cache shared by later commands" (executionSourceRead "cached-missing")
+    , testCase "corrupt reconstructed cache is discarded and original evidence is reread" (executionSourceRead "corrupt-cache")
+    , testCase "missing reconstructed cache retains original-evidence recovery" (executionSourceRead "lost-cache")
+    , testCase "unwritable optional cache does not strand legacy recovery" (executionSourceRead "unwritable-cache")
     , testCase "corrupt execution source refuses without legacy fallback" (executionSourceRead "corrupt")
     , testCase "missing execution source cannot mask corruption in another selected source" (executionSourceRead "mixed")
     , testCase "two real resources cost two reads despite 500 unrelated reviews and 50 sibling natives" $
@@ -109,11 +117,16 @@ inventoryObservationTests =
         _ <- must (initializeStore store binding "fixture")
         _ <- prepare store 0
         let member = fst selected
-            revised = member
-              { source = SourceLocation "new.yaml" "document[7]"
-              , delegations = [Delegation (member ^. #identity)
-                  (name "registry-pull-reference" :| []) (RefreshCredential :| [])]
-              }
+            revised =
+              member
+                { source = SourceLocation "new.yaml" "document[7]"
+                , delegations =
+                    [ Delegation
+                        (member ^. #identity)
+                        (name "registry-pull-reference" :| [])
+                        (RefreshCredential :| [])
+                    ]
+                }
         result <- must (loadObservationNative store [revised])
         Map.elems (observationKubernetes result) @?= [(revised, snd selected)]
         let moved = member {address = Kubernetes fixtureCluster "" (name "configmap") (Just (name "personal")) (name "other")}
@@ -183,7 +196,10 @@ inventoryObservationTests =
 
 -- The admitted review remains untouched. Only private source lookup changes.
 executionSourceRead :: Text -> IO ()
-executionSourceRead mode = do
+executionSourceRead mode = withSystemTempDirectory "nagare-observation-cache" $ \root -> do
+  let legacyMode = mode `elem` ["missing", "cached-missing", "corrupt-cache", "lost-cache", "unwritable-cache"]
+      cache = if legacyMode && mode /= "missing" then Just (root </> "cache") else Nothing
+  when (mode == "unwritable-cache") (BS.writeFile (root </> "cache") "not a directory")
   base <- fakeObjectOps
   store <- must (newObjectStore base binding "fixture" Nothing)
   initial <- must (initializeStore store binding "fixture")
@@ -212,7 +228,7 @@ executionSourceRead mode = do
       inventory = ok (composeSnapshot snapshot)
       sourceKey = ObjectName (T.pack (objectKeyFor "native" (contentDigest (snd selected))))
       siblingKey = ObjectName (T.pack (objectKeyFor "native" (contentDigest (snd (kube "sibling-1")))))
-  when (mode /= "missing") $ do
+  when (not legacyMode) $ do
     _ <- must (publishIfAbsent store (reviewKey (contentDigest "unrelated invalid review")) "unrelated invalid review")
     pure ()
   lists <- newIORef (0 :: Int)
@@ -224,7 +240,7 @@ executionSourceRead mode = do
               if key == siblingKey
                 then assertFailure "unselected sibling was read" >> pure ObjectAbsent
                 else
-                  if key == sourceKey && mode `elem` ["missing", "mixed"]
+                  if key == sourceKey && (legacyMode || mode == "mixed")
                     then pure ObjectAbsent
                     else
                       if key == sourceKey && mode == "corrupt"
@@ -235,7 +251,8 @@ executionSourceRead mode = do
                             else getObject base key
           , listObjects = \prefix -> modifyIORef' lists (+ 1) >> listObjects base prefix
           }
-  fresh <- must (openObjectStoreReadOnly ops binding "reader" Nothing)
+  let readOnlyOps = ops {putObject = \_ _ _ -> assertFailure "observation wrote remote history" >> error "unreachable"}
+  fresh <- must (openObjectStoreReadOnly readOnlyOps binding "reader" cache)
   writeIORef gets []
   result <- loadAcceptedNativeSelected (Set.fromList (rid "selected" : [rid "helm" | mode == "mixed"])) fresh history inventory
   if mode `elem` ["corrupt", "mixed"]
@@ -246,8 +263,30 @@ executionSourceRead mode = do
       (native, helms) <- must (pure result)
       Map.elems native @?= [selected]
       helms @?= Map.empty
-  readIORef lists >>= (@?= if mode == "missing" then 1 else 0)
-  when (mode `notElem` ["missing", "mixed"]) $ readIORef gets >>= (@?= [sourceKey])
+  readIORef lists >>= (@?= if legacyMode then 1 else 0)
+  when (not legacyMode && mode /= "mixed") $ readIORef gets >>= (@?= [sourceKey])
+  when (isJust cache) $ do
+    let cached = root </> "cache" </> T.unpack (digestText (contentDigest (snd selected)))
+    when (mode == "corrupt-cache") (BS.writeFile cached "corrupt")
+    when (mode == "lost-cache") (removeFile cached)
+    when (mode == "cached-missing") $ do
+      forM_ [1 .. 500 :: Int] $ \i -> do
+        let unrelated = "later unrelated corrupt review " <> encodeNumber i
+        _ <- must (publishIfAbsent store (reviewKey (contentDigest unrelated)) unrelated)
+        pure ()
+    again <- must (openObjectStoreReadOnly readOnlyOps binding "another-reader" cache)
+    writeIORef gets []
+    writeIORef lists 0
+    (native, helms) <- must (loadAcceptedNativeSelected (Set.singleton (rid "selected")) again history inventory)
+    Map.elems native @?= [selected]
+    helms @?= Map.empty
+    if mode == "cached-missing"
+      then do
+        readIORef lists >>= (@?= 0)
+        readIORef gets >>= (@?= [])
+      else readIORef lists >>= (@?= 1)
+    after <- must (readHead store)
+    after @?= Just (historyHead history)
 
 ok :: (Show e) => Either e a -> a
 ok = either (error . show) id
