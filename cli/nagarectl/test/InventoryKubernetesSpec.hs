@@ -2379,7 +2379,7 @@ inventoryKubernetesTests =
           Right _ -> assertFailure "deletion tombstone did not guard logical identity"
         readIORef state >>= (@?= KubernetesAbsent absence)
         readIORef calls >>= (@?= 2)
-    , testCase "retired release history must be collected before its web Service" reviewedReleaseCleanup
+    , testCase "retired release history and route must be collected before its web Service" reviewedReleaseCleanup
     , testCase "central access DomainMapping collection carries exact UID and revision" $ do
         let value = object
               [ "apiVersion" .= ("serving.knative.dev/v1beta1" :: Text)
@@ -3799,6 +3799,7 @@ reviewedReleaseCleanup = do
       key = ok (mkLogicalKey "web")
       serviceId = mintResourceId owner key (ok (mkName "service"))
       releaseId = mintResourceId owner key (ok (mkName "release-history"))
+      routeId = mintResourceId owner key (ok (mkName "domain-mapping"))
       serviceValue = object
         ["apiVersion" .= ("v1" :: Text), "kind" .= ("Service" :: Text),
          "metadata" .= object ["name" .= ("web" :: Text), "namespace" .= ("personal" :: Text)]]
@@ -3806,6 +3807,15 @@ reviewedReleaseCleanup = do
         ["apiVersion" .= ("v1" :: Text), "kind" .= ("ConfigMap" :: Text),
          "metadata" .= object ["name" .= ("web-history" :: Text), "namespace" .= ("personal" :: Text)],
          "data" .= object ["current" .= ("v1" :: Text)]]
+      routeValue = object
+        ["apiVersion" .= ("serving.knative.dev/v1beta1" :: Text),
+         "kind" .= ("DomainMapping" :: Text),
+         "metadata" .= object ["name" .= ("web.example.test" :: Text),
+           "namespace" .= ("personal" :: Text)],
+         "spec" .= object ["ref" .= object
+           ["apiVersion" .= ("serving.knative.dev/v1" :: Text),
+            "kind" .= ("Service" :: Text), "name" .= ("web" :: Text),
+            "namespace" .= ("personal" :: Text)]]]
       bind selectedId value policy =
         let bytes = ok (canonicalValue value)
          in ok (bindKubernetesObject (input
@@ -3813,22 +3823,29 @@ reviewedReleaseCleanup = do
                 objectDigest = contentDigest bytes, lifecyclePolicy = policy }))
       (service, serviceBytes) = bind serviceId serviceValue DeleteWhenUnreferenced
       (oldRelease, releaseBytes) = bind releaseId releaseValue Retain
+      (unboundRoute, routeBytes) = bind routeId routeValue DeleteWhenUnreferenced
+      route = unboundRoute {dependencies = [OrderedAfter serviceId]}
       release = oldRelease
         { lifecycle = DeleteWhenUnreferenced, dependencies = [OrderedAfter serviceId] }
       legacyRelease = oldRelease {dependencies = [OrderedAfter serviceId]}
       oldSpecs = Map.fromList [(serviceId, (service, serviceBytes)),
-        (releaseId, (legacyRelease, releaseBytes))]
+        (releaseId, (legacyRelease, releaseBytes)),
+        (routeId, (route, routeBytes))]
       currentSpecs = Map.fromList [(serviceId, (service, serviceBytes)),
-        (releaseId, (release, releaseBytes))]
+        (releaseId, (release, releaseBytes)),
+        (routeId, (route, routeBytes))]
       scopeFor historyMember = ok (mkScopeDeclaration owner
-        [ResourceBundle [Managed service, Managed historyMember] [] [] [] [] []])
+        [ResourceBundle [Managed service, Managed historyMember, Managed route] [] [] [] [] []])
       oldScope = scopeFor legacyRelease
       newScope = scopeFor release
       binding = ContextBinding (ok (mkContextId "release-cleanup")) (ok (mkName "project"))
-      physicalFor selectedId = if selectedId == serviceId then ok (mkPhysicalIdentity "web-uid")
-        else ok (mkPhysicalIdentity "history-uid")
+      physicalFor selectedId
+        | selectedId == serviceId = ok (mkPhysicalIdentity "web-uid")
+        | selectedId == releaseId = ok (mkPhysicalIdentity "history-uid")
+        | otherwise = ok (mkPhysicalIdentity "route-uid")
   states <- newIORef (Map.fromList [(serviceId, KubernetesAbsent absence),
-    (releaseId, KubernetesAbsent absence)])
+    (releaseId, KubernetesAbsent absence),
+    (routeId, KubernetesAbsent absence)])
   store <- newMemoryStore
   let runtime = KubernetesAdapterOps
         { kubernetesContext = ok (mkContextId "release-cleanup")
@@ -3896,12 +3913,18 @@ reviewedReleaseCleanup = do
   _ <- reviewAndApply newRegistry historyCollection retained
     (ok historyDecision) historyFacts
   afterHistory <- loadInventoryHistory store >>= expectRight
-  (serviceCollection, serviceFacts, serviceDecision) <- attempt serviceId afterHistory
-  _ <- reviewAndApply newRegistry serviceCollection afterHistory
+  (_, _, stillBlocked) <- attempt serviceId afterHistory
+  assertBool "route dependency allowed premature Service collection" (isLeft stillBlocked)
+  (routeCollection, routeFacts, routeDecision) <- attempt routeId afterHistory
+  _ <- reviewAndApply newRegistry routeCollection afterHistory
+    (ok routeDecision) routeFacts
+  afterRoute <- loadInventoryHistory store >>= expectRight
+  (serviceCollection, serviceFacts, serviceDecision) <- attempt serviceId afterRoute
+  _ <- reviewAndApply newRegistry serviceCollection afterRoute
     (ok serviceDecision) serviceFacts
   final <- loadInventoryHistory store >>= expectRight
   Map.null (historyRetained final) @?= True
-  Map.keys (headCollected (historyHead final)) @?= sort [serviceId, releaseId]
+  Map.keys (headCollected (historyHead final)) @?= sort [serviceId, releaseId, routeId]
 
 createOperation, updateOperation :: PlannedOperation
 createOperation = operation CreateResource
