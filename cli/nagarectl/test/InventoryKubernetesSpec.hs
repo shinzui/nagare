@@ -2379,6 +2379,7 @@ inventoryKubernetesTests =
           Right _ -> assertFailure "deletion tombstone did not guard logical identity"
         readIORef state >>= (@?= KubernetesAbsent absence)
         readIORef calls >>= (@?= 2)
+    , testCase "retired release history must be collected before its web Service" reviewedReleaseCleanup
     , testCase "central access DomainMapping collection carries exact UID and revision" $ do
         let value = object
               [ "apiVersion" .= ("serving.knative.dev/v1beta1" :: Text)
@@ -3791,6 +3792,116 @@ ops state calls =
             writeIORef state (KubernetesPresent physical "5" (Just resource) (mutationNativeDigest mutation))
             pure AdapterEffectCompleted
     }
+
+reviewedReleaseCleanup :: IO ()
+reviewedReleaseCleanup = do
+  let owner = ok (mkScopeId Application "release-cleanup")
+      key = ok (mkLogicalKey "web")
+      serviceId = mintResourceId owner key (ok (mkName "service"))
+      releaseId = mintResourceId owner key (ok (mkName "release-history"))
+      serviceValue = object
+        ["apiVersion" .= ("v1" :: Text), "kind" .= ("Service" :: Text),
+         "metadata" .= object ["name" .= ("web" :: Text), "namespace" .= ("personal" :: Text)]]
+      releaseValue = object
+        ["apiVersion" .= ("v1" :: Text), "kind" .= ("ConfigMap" :: Text),
+         "metadata" .= object ["name" .= ("web-history" :: Text), "namespace" .= ("personal" :: Text)],
+         "data" .= object ["current" .= ("v1" :: Text)]]
+      bind selectedId value policy =
+        let bytes = ok (canonicalValue value)
+         in ok (bindKubernetesObject (input
+              { resourceId = selectedId, ownerScope = owner, inputObject = value,
+                objectDigest = contentDigest bytes, lifecyclePolicy = policy }))
+      (service, serviceBytes) = bind serviceId serviceValue DeleteWhenUnreferenced
+      (oldRelease, releaseBytes) = bind releaseId releaseValue Retain
+      release = oldRelease
+        { lifecycle = DeleteWhenUnreferenced, dependencies = [OrderedAfter serviceId] }
+      legacyRelease = oldRelease {dependencies = [OrderedAfter serviceId]}
+      oldSpecs = Map.fromList [(serviceId, (service, serviceBytes)),
+        (releaseId, (legacyRelease, releaseBytes))]
+      currentSpecs = Map.fromList [(serviceId, (service, serviceBytes)),
+        (releaseId, (release, releaseBytes))]
+      scopeFor historyMember = ok (mkScopeDeclaration owner
+        [ResourceBundle [Managed service, Managed historyMember] [] [] [] [] []])
+      oldScope = scopeFor legacyRelease
+      newScope = scopeFor release
+      binding = ContextBinding (ok (mkContextId "release-cleanup")) (ok (mkName "project"))
+      physicalFor selectedId = if selectedId == serviceId then ok (mkPhysicalIdentity "web-uid")
+        else ok (mkPhysicalIdentity "history-uid")
+  states <- newIORef (Map.fromList [(serviceId, KubernetesAbsent absence),
+    (releaseId, KubernetesAbsent absence)])
+  store <- newMemoryStore
+  let runtime = KubernetesAdapterOps
+        { kubernetesContext = ok (mkContextId "release-cleanup")
+        , kubernetesObserve = \selectedId -> Map.findWithDefault (KubernetesUnknown "missing") selectedId <$> readIORef states
+        , kubernetesMutateConditional = \mutation -> do
+            let selectedId = mutationResource mutation
+            current <- Map.findWithDefault (KubernetesUnknown "missing") selectedId <$> readIORef states
+            if current /= mutationBefore mutation
+              then pure (AdapterEffectFailed (KnownNoEffect "changed before conditional write"))
+              else do
+                let next = if mutationAction mutation == RetireResource
+                      then KubernetesAbsent absence
+                      else KubernetesPresent (physicalFor selectedId) "5" (Just selectedId) (mutationNativeDigest mutation)
+                modifyIORef' states (Map.insert selectedId next)
+                pure AdapterEffectCompleted
+        }
+      registry members = ok (mkAdapterRegistry [mkKubernetesAdapter members runtime])
+      snapshot history = ok (mkScopeSnapshot binding
+        (Map.map (\(revision, value) -> (revisionGeneration revision, value))
+          (historyAccepted history)) (historyReservations history))
+      observations selected candidate history = observeWithRegistry selected
+        (requirementsByExecutor (observationRequirements candidate history)) >>= expectRight
+      reviewAndApply selected candidate history decisions facts = do
+        let proposal = ok (planChanges candidate decisions history facts)
+        before <- readStoreSnapshot store >>= expectRight
+        bundle <- prepareReview selected before proposal >>= expectRight
+        _ <- publishReview store bundle >>= expectRight
+        published <- readStoreSnapshot store >>= expectRight
+        reviewed <- expectRight (verifyReview published bundle)
+        result <- applyReviewed store selected reviewed >>= expectRight
+        case result of Converged _ -> pure (); other -> assertFailure (show other)
+        pure proposal
+  _ <- initializeStore store binding "release-cleanup" >>= expectRight
+  emptyHistory <- loadInventoryHistory store >>= expectRight
+  let initial = ok (composeInventory (snapshot emptyHistory)
+        (ReplaceScope oldScope :| []))
+      oldRegistry = registry oldSpecs
+  initialFacts <- observations oldRegistry initial emptyHistory
+  _ <- reviewAndApply oldRegistry initial emptyHistory noLifecycleDecisions initialFacts
+  accepted <- loadInventoryHistory store >>= expectRight
+  let update = ok (composeInventory (snapshot accepted)
+        (ReplaceScope newScope :| []))
+      newRegistry = registry currentSpecs
+  updateFacts <- observations newRegistry update accepted
+  updated <- reviewAndApply newRegistry update accepted noLifecycleDecisions updateFacts
+  map plannedAction (proposalOperations updated) @?= [UpdateResource]
+  map (NE.toList . plannedResources) (proposalOperations updated) @?= [[releaseId]]
+  updatedHistory <- loadInventoryHistory store >>= expectRight
+  let retirement = ok (composeInventory (snapshot updatedHistory)
+        (RetireScope owner RetainResources :| []))
+  retirementFacts <- observations newRegistry retirement updatedHistory
+  retirementDecisions <- expectRight (decideRetirement retirement updatedHistory retirementFacts)
+  retired <- reviewAndApply newRegistry retirement updatedHistory retirementDecisions retirementFacts
+  proposalOperations retired @?= []
+  retained <- loadInventoryHistory store >>= expectRight
+  let collection selectedId history = ok (composeInventory (snapshot history)
+        (CollectRetained selectedId :| []))
+      attempt selectedId history = do
+        let candidate = collection selectedId history
+        facts <- observations newRegistry candidate history
+        pure (candidate, facts, decideCollection candidate history facts)
+  (_, _, premature) <- attempt serviceId retained
+  assertBool "release-history dependency allowed premature Service collection" (isLeft premature)
+  (historyCollection, historyFacts, historyDecision) <- attempt releaseId retained
+  _ <- reviewAndApply newRegistry historyCollection retained
+    (ok historyDecision) historyFacts
+  afterHistory <- loadInventoryHistory store >>= expectRight
+  (serviceCollection, serviceFacts, serviceDecision) <- attempt serviceId afterHistory
+  _ <- reviewAndApply newRegistry serviceCollection afterHistory
+    (ok serviceDecision) serviceFacts
+  final <- loadInventoryHistory store >>= expectRight
+  Map.null (historyRetained final) @?= True
+  Map.keys (headCollected (historyHead final)) @?= sort [serviceId, releaseId]
 
 createOperation, updateOperation :: PlannedOperation
 createOperation = operation CreateResource

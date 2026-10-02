@@ -1039,7 +1039,8 @@ frozen MP-23 cloud fixture, has no retrospective deletion authority. It
 requires a new reviewed application revision that changes the declared
 policy while preserving the object identity and native bytes, followed by
 retirement and distinct collection reviews. Exact UID, resource-version,
-consumer and source checks still apply. The current source-level compiler
-and generic collection regressions establish only this candidate contract;
-installed policy transition, collection order and source preservation remain
+consumer and source checks still apply. A memory-store regression proves the
+legacy-policy update, zero-effect retirement, premature Service-collection
+refusal and ordered history/Service collection with tombstones. DomainMapping
+order, installed conditional writes and source-data preservation remain
 required native evidence before the safe-use cleanup gate can pass.
