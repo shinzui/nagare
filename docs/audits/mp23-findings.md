@@ -31,11 +31,11 @@ Implementation owner: existing session `01a0e893-337f-7b82-ac5d-16f41bf5ce21` (I
 | [F01](#f01) | P1 | Host execution mutates after observing a different VM or old closure | Closed | EP-156 |
 | [F02](#f02) | P1 | Active transaction status still reads journal entries individually | Closed | EP-156 |
 | [F03](#f03) | P2 | Resume loads the same complete journal twice | Closed | EP-156 |
-| [F04](#f04) | P2 | Native evidence loads every historical review and can repeat the scan | Partial | EP-156 / EP-153 |
+| [F04](#f04) | P2 | Native evidence loads every historical review and can repeat the scan | Closed | EP-156 / EP-153 |
 | [F05](#f05) | P1 | New fresh-login checks can reuse an SSH multiplexed connection | Closed | EP-156 |
-| [F06](#f06) | P1 | Journal appends retain excessive serial cloud-command cost | Partial | EP-156 |
+| [F06](#f06) | P1 | Journal appends retain excessive serial cloud-command cost | Closed | EP-156 |
 | [F07](#f07) | P1 | Installed key with failed service activation cannot recover by retry | Closed | EP-156 |
-| [F08](#f08) | P2 | Unchanged host bootstrap depends on transient key-file environment and source root | Partial | EP-156 |
+| [F08](#f08) | P2 | Unchanged host bootstrap depends on transient key-file environment and source root | Closed | EP-156 |
 | [F09](#f09) | P1 | Scheduled-prune preflight prevents recovery after admission | Verifying | EP-159 / EP-153 |
 | [F10](#f10) | P2 | Explaining one resource observes the whole context | Verifying | EP-153 |
 | [F11](#f11) | Build | Conditional-upload optimization has ambiguous try exception type | Closed | EP-156 |
@@ -48,8 +48,9 @@ Implementation owner: existing session `01a0e893-337f-7b82-ac5d-16f41bf5ce21` (I
 | [F18](#f18) | P1 | Initial GCS foundation transaction cannot resume its local journal | Verifying | EP-153 / EP-156 |
 | [F19](#f19) | P1 | Rendered pinned GCS restore omits download generations | Verifying | EP-160 / EP-156 |
 | [F20](#f20) | P1 | Knative collection cannot orphan controller descendants | Closed | EP-153 / EP-156 |
+| [F21](#f21) | P1 | HTTP redirect automatically resubmits reviewed CDN purge | Closed | EP-158 |
 
-F01 and F11 retain their [earlier independent closure](mp23-verification.md). F02, F03, F05, F07 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). Other entries retain their status shown above.
+F01 and F11 retain their [earlier independent closure](mp23-verification.md). F02, F03, F04, F05, F06, F07, F08 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). Other entries retain their status shown above.
 
 ## F20
 
@@ -426,3 +427,34 @@ Initial ad-hoc reproduction sources are archived under [mp23-reproductions](mp23
 **Verification:** Independent closure remains pending; the production candidate and regression evidence are recorded below.
 
 **Production rescue update (2026-09-29):** The shared driver and unified CLI registry are implemented. [The retained production proof](mp23-rescue-proof.md) includes same-history before/after CLI results, completed/interrupted/terminal/changed-source cases, zero provider mutations, and 935 passing tests. Original history and source checks remain. Status is Verifying; this implementing session does not independently close the finding. Real deletion, receipt-only cleanup, and separate retained-source CLI cases are not claimed.
+
+## F21
+
+**HTTP redirect automatically resubmits reviewed CDN purge** — P1; **Closed**; owner EP-158.
+
+**Location:** `Nagare.Cdn.Cloudflare.cfRequestWithStatus`.
+
+**Independent evidence (2026-10-02):** The actual built public CLI is run through
+an isolated TLS recording proxy. A 307 response from the exact purge endpoint
+with a same-endpoint Location causes two identical POST requests for one reviewed
+intent; `inventory apply` exits zero. The request retains http-client's default
+redirect allowance, so this resend bypasses the journal's unresolved-response
+recovery. [Source-bound reproduction](mp23-independent-results-2026-10-02/cdn-purge-redirect-before.json).
+The normal public purge fixture and a separate extension checking changed whole-zone
+ruleset ID/version both pass. This finding concerns transport-level resend.
+
+**Required implementation/verification:** Disable automatic redirects for reviewed
+mutations. Independently rerun the actual public CLI with 307 at the purge endpoint:
+only one POST may occur, acceptance remains unresolved, and fresh-process resume
+must refuse without another POST. Retain successful host/path/whole-zone acceptance,
+identity-change refusals and durable-receipt replay proofs.
+
+**Independent verification (2026-10-02):** The corrected transport sets
+`redirectCount = 0`. The public regression with `--ambiguous-response redirect`
+independently passes: exactly one POST for the redirected intent, apply stops
+unresolved, and a fresh CLI resume stops without another POST. Ordinary path,
+host and explicit whole-zone requests each receive one acceptance; their durable
+receipt replays do not resend. Separate adversarial ruleset ID/version checks
+also refuse before a whole-zone request. [Corrected source/binary proof](mp23-independent-results-2026-10-02/cdn-purge-redirect-after.json).
+This closes the transport finding on the built source; final installed release
+candidate binding remains a separate acceptance gate.

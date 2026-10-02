@@ -1,0 +1,50 @@
+{
+  "finding": "F21",
+  "status": "Closed",
+  "fixture": "private TLS recording proxy, no real provider calls",
+  "command": "python3 scripts/test-cdn-purge-public.py --nagarectl <built CLI> --ambiguous-response redirect",
+  "sourceHashes": {
+    "cli/nagarectl/src/Nagare/Cdn/Cloudflare.hs": "78d4b830f50bebb7d1b30843b65629334e53c617589a3775006e8eab6f40b697",
+    "cli/nagarectl/src/Nagare/Inventory/CdnPurge.hs": "7ea5432e5b57773a84ff3dacf9a5a82b1c41b5565362a74a74f087a2ab54724f",
+    "scripts/test-cdn-purge-public.py": "bd11d0962f4300bd23558e118d231a5cc465a9428ce15f0708a3d098b7179534"
+  },
+  "binarySha256": "fa91e605fedd52b8bec63059712b119647c77ae65529b24d07bbb0d083fdd58a",
+  "posts": [
+    [
+      "POST",
+      "/client/v4/zones/0123456789abcdef0123456789abcdef/purge_cache",
+      {
+        "files": [
+          "https://www.example.test/selected"
+        ]
+      }
+    ],
+    [
+      "POST",
+      "/client/v4/zones/0123456789abcdef0123456789abcdef/purge_cache",
+      {
+        "hosts": [
+          "www.example.test"
+        ]
+      }
+    ],
+    [
+      "POST",
+      "/client/v4/zones/0123456789abcdef0123456789abcdef/purge_cache",
+      {
+        "purge_everything": true
+      }
+    ],
+    [
+      "POST",
+      "/client/v4/zones/0123456789abcdef0123456789abcdef/purge_cache",
+      {
+        "hosts": [
+          "www.example.test"
+        ]
+      }
+    ]
+  ],
+  "outcome": "Three prior independent intents each accepted once (path, host, whole zone). Fourth intent receives 307: exactly one submission, failed apply, failed fresh-process resume and no resend. Exact hostname/ruleset preflights, same-intent replay, foreign-host refusal and whole-zone explicit review assertions pass.",
+  "extraIndependentWholeZoneMismatchRun": "Prior built source passed private extension changing ruleset version then ID after review; both refused before POST; restoring original identity resumed successfully."
+}

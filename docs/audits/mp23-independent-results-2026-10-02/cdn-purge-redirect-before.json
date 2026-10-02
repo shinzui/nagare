@@ -1,0 +1,35 @@
+{
+  "finding": "F21",
+  "verifier": "gpt-6-astra",
+  "fixture": "private TLS proxy, child-only CA trust, no real Cloudflare calls",
+  "response": "307 with Location equal to original /purge_cache endpoint",
+  "postCalls": [
+    [
+      "POST",
+      "/client/v4/zones/0123456789abcdef0123456789abcdef/purge_cache",
+      {
+        "files": [
+          "https://www.example.test/selected"
+        ]
+      }
+    ],
+    [
+      "POST",
+      "/client/v4/zones/0123456789abcdef0123456789abcdef/purge_cache",
+      {
+        "files": [
+          "https://www.example.test/selected"
+        ]
+      }
+    ]
+  ],
+  "applyExit": 0,
+  "binarySha256": "5f94731be1bba97be9f9cef67476239f024cc3696733414e40e9da4fcaca49b1",
+  "sourceHashes": {
+    "cli/nagarectl/src/Nagare/Cdn/Cloudflare.hs": "78d4b830f50bebb7d1b30843b65629334e53c617589a3775006e8eab6f40b697",
+    "cli/nagarectl/src/Nagare/Inventory/CdnPurge.hs": "7ea5432e5b57773a84ff3dacf9a5a82b1c41b5565362a74a74f087a2ab54724f",
+    "scripts/test-cdn-purge-public.py": "46e6bcc3f6089623bcd98b7410ae44b77f673656dd2f35d053c13b8e3d46de94"
+  },
+  "reproducerSha256": "81165bb853921397208d40389a03f7407d3cd79e15817cfca2b2761eda70b1ee",
+  "counterfactual": "Modify public fixture POST handler to issue 307 + same-path Location + Content-Length: 0 for the first submission; second submission returns ordinary accepted response. First exact-one-POST assertion fails."
+}
