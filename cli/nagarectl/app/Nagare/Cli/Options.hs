@@ -406,6 +406,8 @@ data HostCommand
   | HostName (Maybe String) Bool
   | HostPlaceAgeKey HostPlaceAgeKeyOpts
   | HostPlan FilePath (Maybe FilePath) Bool
+  | HostStart String FilePath
+  | HostStop String FilePath
   | HostApply FilePath Bool
   deriving stock (Generic, Show)
 

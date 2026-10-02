@@ -251,6 +251,19 @@ PY
     fi ;;
   "--project=fixture-project compute instances describe nagare-01 --zone="*" --format=value(id)")
     printf '98765\n' ;;
+  "compute instances describe nagare-01 --project=fixture-project --zone=us-west1-a --format=json")
+    power=RUNNING; identity=98765
+    if test -f "$XDG_STATE_HOME/vm-power"; then power="$(cat "$XDG_STATE_HOME/vm-power")"; fi
+    if test -f "$XDG_STATE_HOME/vm-foreign"; then identity=11111; fi
+    printf '{"id":"%s","status":"%s"}\n' "$identity" "$power" ;;
+  "compute instances stop nagare-01 --project=fixture-project --zone=us-west1-a --quiet")
+    printf 'TERMINATED\n' > "$XDG_STATE_HOME/vm-power"
+    if test -f "$XDG_STATE_HOME/fail-power-once"; then
+      mv "$XDG_STATE_HOME/fail-power-once" "$XDG_STATE_HOME/power-failed-once"
+      echo 'lost stop acknowledgement' >&2; exit 42
+    fi ;;
+  "compute instances start nagare-01 --project=fixture-project --zone=us-west1-a --quiet")
+    printf 'RUNNING\n' > "$XDG_STATE_HOME/vm-power" ;;
   "--project=fixture-project compute start-iap-tunnel nagare-01 22 "*)
     port=''
     for argument in "$@"; do
@@ -874,6 +887,70 @@ PY
 }
 test "$(wc -l < "$XDG_STATE_HOME/applied-urns")" -eq 26
 printf 'reviewed image config enabled and converged both VM registrations\n'
+# Plan while no host/SSH or Kubernetes scope has been admitted. The power
+# command must only observe the accepted cloud registration and Compute API.
+mkdir "$fixture_root/power-deny"
+for guest_tool in ssh kubectl; do
+  cat > "$fixture_root/power-deny/$guest_tool" <<'DENYGUEST'
+#!/usr/bin/env bash
+printf '%s\n' "$0 $*" >> "$XDG_STATE_HOME/power-guest-access"
+exit 97
+DENYGUEST
+  chmod +x "$fixture_root/power-deny/$guest_tool"
+done
+power_previous_path="$PATH"
+export PATH="$fixture_root/power-deny:$PATH"
+"$nagarectl_bin" --context freshlocal host stop --operation-id stop-fixture --save-plan "$fixture_root/power-stop" \
+  > "$fixture_root/power-stop-plan.out" 2>&1 || { cat "$fixture_root/power-stop-plan.out" >&2; exit 1; }
+python3 - "$fixture_root/power-stop/review.json" <<'PYPOWER'
+import json,sys
+review=json.load(open(sys.argv[1])); operations=review['operations']
+assert len([o for o in operations if o['operation']['action']['tag']=='RunDeclaredOperation']) == 1
+assert all(o['operation']['executor']=='PulumiExecutor' and
+           o['operation']['action']['tag'] in ['VerifyResource','RunDeclaredOperation'] for o in operations)
+PYPOWER
+cp "$XDG_STATE_HOME/nagare/freshlocal/inventory/head.json" "$fixture_root/power-head-before.json"
+touch "$XDG_STATE_HOME/vm-foreign"
+if "$nagarectl_bin" --context freshlocal inventory apply "$fixture_root/power-stop" --yes > "$fixture_root/power-foreign.out" 2>&1; then
+  echo 'foreign VM unexpectedly accepted' >&2; exit 1
+fi
+# Admission may have recorded the original intent before operation-time refusal;
+# recover only the original reviewed instance, never the foreign incarnation.
+rm "$XDG_STATE_HOME/vm-foreign"
+touch "$XDG_STATE_HOME/fail-power-once"
+power_transaction="$(jq -er .activeTransaction "$XDG_STATE_HOME/nagare/freshlocal/inventory/head.json")"
+if "$nagarectl_bin" --context freshlocal inventory resume "$power_transaction" --yes > "$fixture_root/power-stop.out" 2>&1; then
+  echo 'lost power acknowledgement unexpectedly succeeded' >&2; exit 1
+fi
+power_transaction="$(jq -er .activeTransaction "$XDG_STATE_HOME/nagare/freshlocal/inventory/head.json")"
+"$nagarectl_bin" --context freshlocal inventory resume "$power_transaction" --yes > "$fixture_root/power-resume.out" 2>&1 \
+  || { cat "$fixture_root/power-resume.out" >&2; exit 1; }
+test "$(cat "$XDG_STATE_HOME/vm-power")" = TERMINATED
+test "$(grep -Fc 'compute instances stop nagare-01' "$XDG_STATE_HOME/gcloud-apply.log")" -eq 1
+"$nagarectl_bin" --context freshlocal host start --operation-id start-fixture --save-plan "$fixture_root/power-start" \
+  > "$fixture_root/power-start-plan.out" 2>&1 || { cat "$fixture_root/power-start-plan.out" >&2; exit 1; }
+"$nagarectl_bin" --context freshlocal inventory apply "$fixture_root/power-start" --yes > "$fixture_root/power-start.out" 2>&1 \
+  || { cat "$fixture_root/power-start.out" >&2; exit 1; }
+test "$(cat "$XDG_STATE_HOME/vm-power")" = RUNNING
+test "$(grep -Fc 'compute instances start nagare-01' "$XDG_STATE_HOME/gcloud-apply.log")" -eq 1
+"$nagarectl_bin" --context freshlocal host start --operation-id start-fixture --save-plan "$fixture_root/power-start-repeat" \
+  > "$fixture_root/power-start-repeat-plan.out" 2>&1 || { cat "$fixture_root/power-start-repeat-plan.out" >&2; exit 1; }
+"$nagarectl_bin" --context freshlocal inventory apply "$fixture_root/power-start-repeat" --yes > "$fixture_root/power-start-replay.out" 2>&1 \
+  || { cat "$fixture_root/power-start-replay.out" >&2; exit 1; }
+test "$(grep -Fc 'compute instances start nagare-01' "$XDG_STATE_HOME/gcloud-apply.log")" -eq 1
+test ! -e "$XDG_STATE_HOME/power-guest-access"
+test "$(wc -l < "$XDG_STATE_HOME/applied-urns")" -eq 26
+python3 - "$fixture_root/power-head-before.json" "$XDG_STATE_HOME/nagare/freshlocal/inventory/head.json" <<'PYPOWERHEAD'
+import json,sys
+before,after=[json.load(open(path)) for path in sys.argv[1:]]
+for field in ['accepted','converged']:
+    cloud={'kind':'Platform','name':'cloud'}
+    assert [entry for entry in before[field] if entry['scope']!=cloud] == [
+        entry for entry in after[field] if entry['scope']!=cloud], field
+assert after['activeTransaction'] is None
+PYPOWERHEAD
+export PATH="$power_previous_path"
+printf 'reviewed VM stop/start recovered a lost acknowledgement without host access or repeated power requests\n'
 cat > "$XDG_CONFIG_HOME/nagare/hosts/freshlocal/host.nix" <<'EOF'
 hostName = "freshlocal-nagare";
     registryCredentialOwner = "platform:host/nixos-system/system";

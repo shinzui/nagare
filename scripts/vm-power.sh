@@ -17,6 +17,10 @@ if [ "$#" -ne 1 ] || { [ "$1" != "start" ] && [ "$1" != "stop" ]; }; then
   exit 2
 fi
 
+if [ "${NAGARE_INVENTORY_ADAPTER_CHILD:-}" != host ]; then
+  nagarectl inventory guard-legacy "vm power"
+fi
+
 # shellcheck source=scripts/lib/target.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/target.sh"
 _require_target_project

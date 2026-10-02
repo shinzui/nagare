@@ -86,8 +86,8 @@ infra-destroy *args:
 # use `nagare infra-destroy --yes` (see docs/user/provisioning-with-pulumi.md).
 # Stop the VM (reversible; restart with `just vm-start`).
 [group('infra')]
-vm-stop:
-    scripts/vm-power.sh stop
+vm-stop *args:
+    nagarectl host stop {{args}}
 
 # Caveat: a plain start boots the EXISTING boot disk (the current system
 # generation), NOT the latest registered image, and some runtime-only fixes do
@@ -95,8 +95,8 @@ vm-stop:
 # docs/runbooks/disaster-recovery.md.
 # Start the VM again after `just vm-stop`.
 [group('infra')]
-vm-start:
-    scripts/vm-power.sh start
+vm-start *args:
+    nagarectl host start {{args}}
 
 # EP-3 (docs/plans/3-nixos-host-nagare-01-with-k3s.md): build the NixOS
 # GCE image on the remote x86_64-linux Nix builder, upload the tarball to

@@ -14,6 +14,7 @@ import Data.Set qualified as Set
 import Data.Text qualified as T
 import Nagare.Cli.Inventory.CdnHistory
 import Nagare.Cli.Inventory.CdnPurge (cdnPurgeRuntime)
+import Nagare.Cli.Inventory.VmPower (vmPowerRuntime)
 import Nagare.Cli.Inventory.Adapters
   ( acceptedTopicResources
   , inventoryArtifactAdapter
@@ -44,6 +45,7 @@ import Nagare.Cli.Inventory.SourceEvidence
   )
 import Nagare.Cli.Platform.InfrastructureReview
   ( prepareInfraMutationWithPulumi
+  , prepareVmPowerMutation
   )
 import Nagare.Cli.Runtime.Cluster (guardKubernetesContext)
 import Nagare.Cli.Runtime.Error (dieT)
@@ -128,6 +130,7 @@ import Nagare.Inventory.MaintenanceFence
   , selectedMaintenanceProofs
   )
 import Nagare.Inventory.Plan qualified as InventoryPlan
+import Nagare.Inventory.VmPower (vmPowerOnly)
 import Nagare.Inventory.Prune (manualPruneSourceProof)
 import Nagare.Inventory.Restore (manualRestoreTargetProof)
 import Nagare.Inventory.ScheduledIngest
@@ -421,7 +424,11 @@ inventoryExecutionRegistry mctx store bundle = do
                 (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
                 pure (active, Just workspace)
               else do
-                (prepared, workspace) <- prepareInfraMutationWithPulumi (not (null registrations)) mctx
+                (prepared, workspace) <-
+                  if vmPowerOnly scopes operations && Map.null (InventoryPlan.reviewRetentions document)
+                    && Map.null (InventoryPlan.reviewCollections document) && Map.null (InventoryPlan.reviewMigrations document)
+                  then prepareVmPowerMutation mctx
+                  else prepareInfraMutationWithPulumi (not (null registrations)) mctx
                 pure (prepared, Just workspace)
       let withWorkspace :: (PlatformWorkspace -> IO a) -> IO a
           withWorkspace action = maybe (dieT "selected executor requires a platform workspace") action workspace
@@ -436,10 +443,11 @@ inventoryExecutionRegistry mctx store bundle = do
           exists <- doesFileExist selectedKubeconfig
           unless exists (dieT "reviewed local context kubeconfig is missing")
           setEnv "KUBECONFIG" selectedKubeconfig
-      pulumi <-
+      pulumiBase <-
         if null registrations
           then pure (Inventory.executionBlockedAdapterFor ResourceInventory.PulumiExecutor)
           else withWorkspace (\root -> inventoryPulumiAdapter active root binding scopes allRegistrations)
+      pulumi <- vmPowerRuntime (pure store) active scopes pulumiBase
       foundation <-
         if Set.null (selected ResourceInventory.CloudFoundationExecutor)
           then pure (Inventory.executionBlockedAdapterFor ResourceInventory.CloudFoundationExecutor)

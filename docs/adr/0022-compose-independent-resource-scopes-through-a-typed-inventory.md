@@ -1238,3 +1238,29 @@ recovery. The receipt is an internal host-executor artifact; it grants no new
 scope or independent credential owner.
 
 Credential receipt authority is also a transport capability: a credential-required preparation and every v2 native inspection or activation use host transport request protocol v2. A retained payload supporting only protocol v1 refuses before effects; the operator cannot delegate a stronger saved plan to a shell that silently ignores its authority fields. Historical v1 requests remain unchanged.
+
+
+### Reviewed Compute Engine power transitions
+
+Power is a one-shot operation on the existing platform-owned Pulumi instance,
+not a replacement host or a boot-image change. Its immutable operation ID and
+content-bound context address survive ordinary cloud drift repair. The native
+review pins the observed numeric instance ID and stable before/after states.
+Preparation uses the accepted cloud inventory and Compute API; execution keeps
+static release, ADC and project checks without requiring the guest or Kubernetes
+to be reachable. Only power operations and cloud verification may use this path.
+
+The name-based provider API has no atomic incarnation precondition: identity is
+rechecked before the request and when proving completion, without claiming CAS.
+Already-desired state is effect-free. An uncertain request is never automatically
+resent; original-transaction resume either proves the desired state on the same
+instance or retains an unresolved outcome. This proof does not assert guest or
+application health, which the operational runbook verifies separately.
+
+A successful outcome publishes an immutable shared receipt binding the original
+native plan and observed incarnation/state. A later plan for the same operation
+ID retains that exact plan, and execution verifies the receipt before considering
+provider work. This prevents an old stop from running again after a later start
+and an unrelated unconverged revision. The receipt proves historical one-shot
+completion, never current power readiness; malformed or conflicting receipts
+refuse. Receipt-write acknowledgement loss recovers from the retained bytes.

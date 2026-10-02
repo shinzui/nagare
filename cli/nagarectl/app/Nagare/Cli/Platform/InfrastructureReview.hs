@@ -5,6 +5,7 @@ module Nagare.Cli.Platform.InfrastructureReview
   , instanceReplacementGuard
   , prepareInfraMutation
   , prepareInfraMutationWithPulumi
+  , prepareVmPowerMutation
   , saveReviewedPlan
   , verifyLocalReviewedPlanBundle
   , verifyReviewedPlanBundle
@@ -36,6 +37,7 @@ import Nagare.Cli.Runtime.Pulumi
   , selectReviewedPulumiForContext
   )
 import Nagare.Cli.Runtime.ReviewFiles (cleanupPlanStaging)
+import Nagare.Cli.Runtime.Target (activeTarget, resolvePlatformWorkspace)
 import Nagare.Dsl.Prelude
 import Nagare.Gcp.Adc (validateAdc)
 import Nagare.Infra.Plan
@@ -71,7 +73,7 @@ import Nagare.Target
   , validateVmShape
   , vmShapeOf
   )
-import Nagare.Version (compatibilityToken)
+import Nagare.Version (BuildVersion (BuildVersion), compatibilityToken, currentBuildVersion)
 import System.Directory
   ( createDirectoryIfMissing
   , doesFileExist
@@ -103,6 +105,25 @@ prepareInfraMutationWithPulumi needsPulumi mctx = do
   (active, status) <- gatherPlatformStatus mctx
   either dieT pure (guardPlatformMutation status)
   TIO.putStrLn ("platform mutation allowed (" <> compatibilityToken (status ^. #compatibility) <> ")")
+  prepareInfraTargetWithPulumi needsPulumi active
+
+-- Power control must work while the guest and Kubernetes API are unavailable.
+-- Preserve static release, ADC and project guards without probing either guest.
+prepareVmPowerMutation :: Maybe String -> IO (ActiveTarget, PlatformWorkspace)
+prepareVmPowerMutation mctx = do
+  active <- activeTarget mctx
+  (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+  let BuildVersion version _ = currentBuildVersion
+  unless
+    ( active ^. #profile . #mode == Cloud
+        && active ^. #profile . #platformVersion == Just (workspace ^. #platformVersion)
+        && version == workspace ^. #platformVersion
+    )
+    (dieT "VM power requires the accepted context, payload and operator platform version")
+  prepareInfraTargetWithPulumi True active
+
+prepareInfraTargetWithPulumi :: Bool -> ActiveTarget -> IO (ActiveTarget, PlatformWorkspace)
+prepareInfraTargetWithPulumi needsPulumi active = do
   let contextName = active ^. #contextName
       profile = active ^. #profile
   case profile ^. #mode of

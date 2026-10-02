@@ -312,14 +312,10 @@ Nagare is designed to be disposable, so there are three "off" levels:
 **Stop the VM (cheapest reversible — halts compute only).**
 
 ```bash
-just vm-stop
-just vm-start
-
-# Spelled-out equivalents; the active context supplies these values.
-gcloud compute instances stop "$NAGARE_INSTANCE_NAME" \
-  --project="$CLOUDSDK_CORE_PROJECT" --zone="$CLOUDSDK_COMPUTE_ZONE"
-gcloud compute instances start "$NAGARE_INSTANCE_NAME" \
-  --project="$CLOUDSDK_CORE_PROJECT" --zone="$CLOUDSDK_COMPUTE_ZONE"
+just vm-stop --operation-id stop-20261002 --save-plan ./stop-review
+nagarectl inventory apply ./stop-review --yes
+just vm-start --operation-id start-20261002 --save-plan ./start-review
+nagarectl inventory apply ./start-review --yes
 ```
 
 Stopping halts compute charges; the boot + data disks and the reserved static IP

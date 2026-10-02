@@ -11,6 +11,7 @@ import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified
 import Data.Text.Encoding qualified as TE
+import InventoryVmPowerSpec (inventoryVmPowerTests)
 import Nagare.Dsl.Prelude hiding (contains, (.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Host
@@ -32,7 +33,8 @@ inventoryHostTests :: TestTree
 inventoryHostTests =
   testGroup
     "host inventory adapter"
-    [ testCase "legacy host plan bytes omit replacement authority" $ do
+    [ inventoryVmPowerTests
+    , testCase "legacy host plan bytes omit replacement authority" $ do
         case Aeson.toJSON activationPlan of
           Aeson.Object fields -> KeyMap.lookup "previousAgeKeyDigest" fields @?= Nothing
           _ -> assertFailure "host plan is not an object"

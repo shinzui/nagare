@@ -207,6 +207,8 @@ hostSubparser :: Parser HostCommand
 hostSubparser =
   subparser
     ( command "init" (info (HostInit <$> hostInitOptsParser <**> helper) (progDesc "Generate and validate a context-owned host flake"))
+        <> command "start" (info (HostStart <$> powerId <*> powerReview <**> helper) (progDesc "Review starting the accepted VM without changing its disks"))
+        <> command "stop" (info (HostStop <$> powerId <*> powerReview <**> helper) (progDesc "Review stopping the accepted VM while retaining its disks"))
         <> command "show" (info (HostShow <$> optional hostContextOption <**> helper) (progDesc "Print the generated operator module"))
         <> command "path" (info (HostPath <$> optional hostContextOption <**> helper) (progDesc "Print the generated host-flake path"))
         <> command
@@ -242,6 +244,9 @@ hostSubparser =
               (progDesc "Review host configuration and credential reconciliation")
           )
     )
+  where
+    powerId = strOption (long "operation-id" <> metavar "ID" <> help "Unique immutable ID for this power transition")
+    powerReview = strOption (long "save-plan" <> metavar "DIR" <> help "Save the power review; apply it with inventory apply")
 
 hostContextOption :: Parser String
 hostContextOption = strOption (long "context" <> metavar "NAME" <> help "Host context (defaults to the global or active context)")

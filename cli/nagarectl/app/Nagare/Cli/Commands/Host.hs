@@ -11,6 +11,7 @@ import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy.Char8 qualified as LBC
 import Data.Foldable (for_)
 import Data.Generics.Labels ()
+import Data.List.NonEmpty qualified as NE
 import Data.Map qualified as Map
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
@@ -67,6 +68,7 @@ import Nagare.Host.Config
 import Nagare.Inventory.Adapter qualified as Adapter
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Plan qualified as Plan
+import Nagare.Inventory.VmPower (compileVmPower)
 import Nagare.Ops.ClusterGuard
   ( clusterGuardObservationsValue
   , clusterGuardVerdict
@@ -97,6 +99,8 @@ import System.Process
 
 runHost :: Maybe String -> HostCommand -> IO ()
 runHost globalContext = \case
+  HostStart requestId output -> runPowerReview globalContext requestId output True
+  HostStop requestId output -> runPowerReview globalContext requestId output False
   HostApply directory yes -> do
     bundle <- Plan.loadReviewBundle directory >>= either dieT pure
     owner <- either dieT pure (Resource.mkScopeId Resource.Platform "host")
@@ -304,3 +308,22 @@ runHostReview selected output keyFile replace = do
         >>= maybe (dieT "selected context has no NixOS host transition") pure
     Inventory.planInventoryCandidateWith (inventoryPlanRegistry active workspace) active candidate output
   TIO.putStrLn "Host review saved; use inventory apply with this directory. Credential reviews require the same NAGARE_HOST_AGE_KEY_FILE at apply/resume."
+
+runPowerReview :: Maybe String -> String -> FilePath -> Bool -> IO ()
+runPowerReview selected requestId output start = do
+  active <- activeTarget selected
+  when (active ^. #profile . #mode == Local) (dieT "VM power requires a cloud context")
+  let profile = active ^. #profile
+  project <- either dieT pure (Resource.mkName (profile ^. #project))
+  zone <- either dieT pure (Resource.mkName (profile ^. #zone))
+  instanceName <- either dieT pure (Resource.mkName (profile ^. #instanceName))
+  snapshot <- Inventory.loadTargetSnapshotReadOnly active
+  scope <- either dieT pure (compileVmPower snapshot (Resource.CloudInstance project zone instanceName) (T.pack requestId) start)
+  candidate <-
+    either
+      (dieT . T.pack . show)
+      pure
+      (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
+  (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+  Inventory.planInventoryCandidateWith (inventoryPlanRegistry active workspace) active candidate output
+  TIO.putStrLn "VM power review saved; apply it with inventory apply. Power-state verification does not establish guest or application readiness."

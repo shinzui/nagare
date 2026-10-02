@@ -2093,6 +2093,8 @@ inventoryTransactionTests =
           source <- openFilesystemStore (root </> "source") >>= expectRight
           _ <- initializeStore source fixtureBinding "client-test" >>= expectRight
           _ <- publishIfAbsent source (objectKeyFor "objects" (contentDigest "retained")) "retained" >>= expectRight
+          let receipts = [("vm-power/completed.json", "original-power-proof"), ("cdn-purge/completed.json", "original-purge-proof")]
+          forM_ receipts $ \(key, bytes) -> void (publishIfAbsent source key bytes >>= expectRight)
           let backup = root </> "backup"
           exported <- withProcessLock source (\locked -> exportStore locked backup) >>= expectRight
           _ <- expectRight exported
@@ -2104,6 +2106,7 @@ inventoryTransactionTests =
           readHead restored >>= (@?= Right Nothing)
           _ <- restoreStoreFor restored backup fixtureBinding >>= expectRight
           readHead restored >>= expectRight >>= (@?= Just (HeadManifest 1 0 0 fixtureBinding "client-test" Map.empty Map.empty Map.empty Map.empty Nothing Nothing Nothing Nothing))
+          forM_ receipts $ \(key, bytes) -> readObject restored key >>= (@?= Right (Just bytes))
           removeFile (backup </> "head.json")
           incomplete <- newMemoryStore
           refused <- restoreStore incomplete backup

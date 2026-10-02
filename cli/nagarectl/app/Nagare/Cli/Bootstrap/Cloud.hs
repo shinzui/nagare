@@ -22,6 +22,7 @@ import Nagare.Inventory.Adapters.PulumiRuntime
   )
 import Nagare.Inventory.Cloud qualified as InventoryCloud
 import Nagare.Inventory.Digest qualified as InventoryDigest
+import Nagare.Inventory.VmPower (retainVmPowerIntents)
 import Nagare.Platform.Workspace (PlatformWorkspace)
 import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Policy qualified as ResourcePolicy
@@ -212,13 +213,16 @@ buildCloudStageCandidate active workspace snapshot
                   urn
                   InventoryCloud.ManagedRegistration
               )
-          scope <-
+          compiled <-
             either
               (dieT . T.pack . show)
               pure
               ( InventoryCloud.compileCloudScope
                   (InventoryCloud.CloudDeclarationBundle 1 context project stack owner resources)
               )
+          scope <- case Map.lookup owner (ResourceInventory.snapshotScopes snapshot) of
+            Nothing -> pure compiled
+            Just (_, prior) -> either dieT pure (retainVmPowerIntents prior compiled)
           Just
             <$> either
               (dieT . T.pack . show)

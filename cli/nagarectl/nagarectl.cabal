@@ -148,6 +148,7 @@ library
     Nagare.Inventory.Artifact
     Nagare.Inventory.ReleaseEvidence
     Nagare.Inventory.CdnPurge
+    Nagare.Inventory.VmPower
     Nagare.Inventory.BackendMap
     Nagare.Inventory.Backup
     Nagare.Inventory.BackupReceipt
@@ -364,6 +365,7 @@ executable nagarectl
     Nagare.Cli.Inventory.Planning
     Nagare.Cli.Inventory.CdnHistory
     Nagare.Cli.Inventory.CdnPurge
+    Nagare.Cli.Inventory.VmPower
     Nagare.Cli.Inventory.PruneEvidence
     Nagare.Cli.Inventory.PublicEvidence
     Nagare.Cli.Inventory.SourceEvidence
@@ -466,6 +468,7 @@ test-suite nagarectl-test
     InventoryGcloudAuthSpec
     InventoryGogolSpec
     InventoryHostSpec
+    InventoryVmPowerSpec
     InventoryIntegrationSpec
     InventoryKubernetesSpec
     InventoryKubernetesLifecycleSpec

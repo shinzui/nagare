@@ -66,7 +66,8 @@ INSTANCE="${NAGARE_INSTANCE_NAME:-nagare-01}"
 state="$(gcloud --project="${TARGET_PROJECT}" compute instances describe "${INSTANCE}" --zone="${ZONE}" --format='value(status)' 2>/dev/null || echo UNKNOWN)"
 if [ "${state}" != "RUNNING" ]; then
   echo "  VM is ${state}; starting it…"
-  gcloud --project="${TARGET_PROJECT}" compute instances start "${INSTANCE}" --zone="${ZONE}"
+  nagarectl host start --operation-id "${SMOKE_RUN_ID}-start" --save-plan "${REVIEW_ROOT}/vm-start"
+  review_apply "${REVIEW_ROOT}/vm-start"
   sleep 30
 fi
 

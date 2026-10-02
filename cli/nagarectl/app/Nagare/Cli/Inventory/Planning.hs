@@ -16,6 +16,7 @@ import Data.Text qualified as T
 import Nagare.Access.Reviewed qualified as ReviewedAccess
 import Nagare.Cli.Inventory.CdnHistory
 import Nagare.Cli.Inventory.CdnPurge (cdnPurgeRuntime)
+import Nagare.Cli.Inventory.VmPower (vmPowerRuntime)
 import Nagare.Cli.Inventory.Adapters
   ( acceptedDnsResources
   , acceptedTopicResources
@@ -251,10 +252,11 @@ inventoryPlanRegistryWithMode controllerCollection active workspace suppliedNati
         Map.restrictKeys
           (Map.union helmSuppliedNative retiringHelmNative)
           selectedHelm
-  pulumi <-
+  pulumiBase <-
     if null registrations
       then pure (Inventory.manifestAdapterFor history ResourceInventory.PulumiExecutor)
       else inventoryPulumiAdapter active workspace (ResourceInventory.inventoryBinding inventory) scopes allRegistrations
+  pulumi <- vmPowerRuntime (Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure) active scopes pulumiBase
   foundation <-
     inventoryFoundationAdapter
       active

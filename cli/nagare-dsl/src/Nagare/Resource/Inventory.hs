@@ -200,7 +200,7 @@ packInteger = Data.Text.pack . show
 data OperationInput = CapabilityInput !SomeRef | SecretInput !SecretRef | ContentInput !ContentDigest | CdnPathsInput ![Text]
   deriving stock (Eq, Ord, Show, Generic)
 
-data OperationKind = SchemaMigration | PreDeployHook | CreateLogicalCache | SnapshotData | RestoreData | RestoreLiveData | PruneData | MaintainData | PublishRelease | ActivateHost | PurgeCdnCache | PurgeCdnZone
+data OperationKind = SchemaMigration | PreDeployHook | CreateLogicalCache | SnapshotData | RestoreData | RestoreLiveData | PruneData | MaintainData | PublishRelease | ActivateHost | PurgeCdnCache | PurgeCdnZone | StartVm | StopVm
   deriving stock (Eq, Ord, Show, Generic)
 
 data DeclaredOperation = DeclaredOperation

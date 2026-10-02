@@ -239,3 +239,25 @@ kubectl get nodes        # still Ready after the switch
 
 With a healthy host, bootstrap the cluster platform:
 **[Cluster bootstrap →](cluster-bootstrap.md)**
+
+
+## Reviewed VM power
+
+For an accepted cloud VM, save a power review and apply it separately:
+
+```bash
+nagarectl host stop --operation-id stop-20261002 --save-plan ./stop-review
+nagarectl inventory apply ./stop-review --yes
+nagarectl host start --operation-id start-20261002 --save-plan ./start-review
+nagarectl inventory apply ./start-review --yes
+```
+
+Use a new operation ID for each intended transition. Reusing an unchanged ID
+preserves its completed outcome; it does not request another stop or start.
+Planning and recovery use the Compute API and accepted cloud inventory, so they
+work while the host is off. The review pins its numeric instance ID and checks
+it again before sending the name-based provider request. This is a precondition
+check, not an atomic provider compare-and-swap. A lost acknowledgement remains
+in the original transaction: resume proves the desired state on the same
+instance or leaves it unresolved, without resending an uncertain power request.
+Power-state completion does not establish guest or application readiness.

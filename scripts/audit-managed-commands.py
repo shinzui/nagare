@@ -45,7 +45,7 @@ ROUTES = {
     "HostCommand": {
         "read": "HostShow HostPath HostName",
         "bounded": "HostInit",
-        "reviewed": "HostPlan HostApply HostPlaceAgeKey",
+        "reviewed": "HostPlan HostApply HostPlaceAgeKey HostStart HostStop",
     },
     "KubeconfigCommand": {
         "local": "KubeconfigFetch",
@@ -125,7 +125,7 @@ ENTRYPOINTS = {
     "scripts/inventory-host-transport.sh": ("NAGARE_INVENTORY",),
     "scripts/inventory-artifact-transport.sh": ("NAGARE_INVENTORY",),
     "scripts/inventory-cache-transport.sh": ("NAGARE_INVENTORY",),
-    "justfile": ("vm-stop:", "vm-start:", 'host-switch review="":', "cluster-bootstrap:", "local-bootstrap:", "smoke:", "local-smoke:"),
+    "justfile": ("vm-stop *args:", "vm-start *args:", 'host-switch review="":', "cluster-bootstrap:", "local-bootstrap:", "smoke:", "local-smoke:"),
 }
 
 SMOKE_BYPASS_PATTERNS = (
@@ -144,7 +144,6 @@ RECIPE_SCRIPTS = {
     "scripts/local-smoke.sh",
     "scripts/run-reviewed-bootstrap.sh",
     "scripts/upload-images.sh",
-    "scripts/vm-power.sh",
 }
 
 # Each effectful command resolves to a detailed row in the existing catalogue.
@@ -181,6 +180,7 @@ FAMILY_ROUTES = {
     "Cleanup": "Image, stale-preview, and release-history cleanup",
     "ReleasePublish ReleaseCleanupStarter": "Global release payload publication",
     "HostCommand.HostPlaceAgeKey": "Host age-key placement",
+    "HostCommand.HostStart HostCommand.HostStop": "VM start/stop",
     "KubeconfigCommand.KubeconfigRecover": "Context kubeconfig fetch and accepted-history recovery",
     "DbCommand.DbBackup DbCommand.DbPruneBackup DbCommand.DbBackupReceipts DbCommand.DbManualReceipt DbCommand.DbPruneScheduledBackups DbCommand.DbRecoverScheduledPrune DbCommand.DbDisableBackupPrune DbCommand.DbRestore": "Database backup and restore",
     "DbCommand.DbShell": "Interactive database maintenance",
@@ -197,10 +197,10 @@ def family_assignments() -> dict[str, str]:
 
 RECIPES = {
     "read": "default docs-validate terminology-validate reviews-validate user-documentation-validate nixos-registry-host nix-cache-status job-runs-status context-show status live-test test-inventory-effects haskell-style-check",
-    "reviewed": "infra-up infra-preview cluster-bootstrap nix-cache-publish nix-cache-bootstrap job-runs-bootstrap cluster-enable-tls local-bootstrap local-minio observability deploy-hello host-switch",
+    "reviewed": "infra-up infra-preview cluster-bootstrap nix-cache-publish nix-cache-bootstrap job-runs-bootstrap cluster-enable-tls local-bootstrap local-minio observability deploy-hello host-switch vm-start vm-stop",
     "bounded": "iap-ssh",
     "local": "local-up local-down nix-cache-secret-init",
-    "pending": "infra-destroy vm-stop vm-start host-image smoke local-smoke",
+    "pending": "infra-destroy host-image smoke local-smoke",
 }
 
 RECIPE_FAMILY = {

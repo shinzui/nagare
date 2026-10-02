@@ -237,7 +237,7 @@ Shell recipes use `NAGARE_CONTEXT=NAME just <recipe>`.
 | `just infra-preview --save-plan DIR` | Save and classify one guarded cloud-perimeter plan | MP-22 EP-136 |
 | `just infra-up --plan DIR --yes` | Verify and non-interactively apply the exact reviewed plan | MP-22 EP-136 |
 | `just infra-destroy --yes` | Guard and deliberately destroy the selected Pulumi stack | MP-22 EP-136 |
-| `just vm-stop` / `just vm-start` | Stop or start the context-selected VM without changing disks or the static IP | MP-8 |
+| `just vm-stop --operation-id ID --save-plan DIR` / `just vm-start --operation-id ID --save-plan DIR` | Review power changes for the accepted VM; apply the saved directory with `nagarectl inventory apply DIR --yes` | MP-23 |
 | `just host-image [--dry-run] [--allow-shared-builder PROJECT]` | Build + upload + register the NixOS GCE image with an explicit context-owned builder (`scripts/upload-images.sh`) | MP-22 EP-136 |
 | `just nixos-registry-host` | Compatibility alias that shows the generated host module; it no longer writes source | MP-20 EP-107 |
 | `just host-switch REVIEW_DIR` | Apply the exact saved host review; no-argument legacy switching refuses after inventory admission | MP-20 EP-107 |
