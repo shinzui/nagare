@@ -10,12 +10,15 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import time
 
 
 REPO = Path(__file__).resolve().parents[1]
 PROJECT = REPO / "cli/nagarectl"
+MODE = "gcs" if sys.argv[1:] == ["--gcs"] else "local"
+assert not sys.argv[1:] or sys.argv[1:] == ["--gcs"], "usage: test-manual-receipt-public.py [--gcs]"
 root = Path(tempfile.mkdtemp(prefix="mp23-manual-receipt-public-"))
 store = root / "state/nagare/manual-receipt-fixture/inventory"
 binary = subprocess.check_output(
@@ -29,7 +32,7 @@ subprocess.run(
         "-package=nagare-dsl", "-XGHC2024", "-XDeriveAnyClass",
         "-XDuplicateRecordFields", "-XOverloadedLabels", "-XOverloadedStrings",
         str(REPO / "scripts/fixtures/ManualReceiptPublicFixture.hs"),
-        str(store), str(root),
+        str(store), str(root), MODE,
     ],
     cwd=PROJECT,
     check=True,
@@ -39,8 +42,8 @@ fixture = json.loads((root / "fixture.json").read_text())
 (root / "provider-state.json").write_text(json.dumps({
     "jobPresent": True,
     "jobUid": "backup-job-uid",
-    "receiptVersion": "receipt-v1",
-    "archiveVersion": "archive-v1",
+    "receiptVersion": "12" if MODE == "gcs" else "receipt-v1",
+    "archiveVersion": "11" if MODE == "gcs" else "archive-v1",
     "restoreJobPresent": False,
 }) + "\n")
 (root / "provider-calls.jsonl").write_text("")
@@ -50,11 +53,14 @@ config = root / "config/nagare"
 (config / "kubeconfigs").mkdir()
 (config / "contexts/manual-receipt-fixture.env").write_text(
     "CLOUDSDK_CORE_PROJECT=project\n"
-    "NAGARE_MODE=local\n"
+    f"NAGARE_MODE={'cloud' if MODE == 'gcs' else 'local'}\n"
     "NAGARE_INVENTORY_STORE=local\n"
     "NAGARE_PLATFORM_VERSION=0.4.0\n"
+    "NAGARE_BACKUP_BUCKET=bucket\n"
     "NAGARE_LOCAL_OBJECT_STORE=http://minio.nagare-system.svc.cluster.local:9000/bucket\n"
 )
+(config / "hosts/manual-receipt-fixture").mkdir(parents=True)
+(config / "hosts/manual-receipt-fixture/host.nix").write_text('hostName = "fixture-node";\n')
 (config / "kubeconfigs/manual-receipt-fixture.yaml").write_text(
     "apiVersion: v1\nkind: Config\n"
 )
@@ -71,6 +77,13 @@ with (root/'provider-calls.jsonl').open('a') as out:
 if 'port-forward' in args:
     print('Forwarding from 127.0.0.1:19000 -> 9000',flush=True)
     while True: time.sleep(1)
+if args[:2]==['config','current-context']:
+    print('manual-receipt-fixture')
+    sys.exit(0)
+if 'get' in args and args[args.index('get')+1]=='nodes':
+    print(json.dumps({'items':[{'metadata':{'name':'fixture-node','labels':
+      {'node-role.kubernetes.io/control-plane':''}}}]}))
+    sys.exit(0)
 if 'delete' in args and '--raw' in args:
     body=json.load(sys.stdin)
     assert body['preconditions']['uid']=='backup-job-uid',body
@@ -176,6 +189,42 @@ headers.write_text('HTTP/1.1 200 OK\\r\\nx-amz-version-id: '+version+
   '\\r\\ncontent-length: '+str(source.stat().st_size)+'\\r\\n\\r\\n')
 ''')
 curl.chmod(0o700)
+gcloud = bins / "gcloud"
+gcloud.write_text('''#!/usr/bin/env python3
+import json,os,shutil,sys
+from pathlib import Path
+root=Path(os.environ['MP23_MANUAL_ROOT'])
+args=sys.argv[1:]
+with (root/'provider-calls.jsonl').open('a') as out:
+    out.write(json.dumps(['gcloud',*args])+'\\n')
+fixture=json.loads((root/'fixture.json').read_text())
+state=json.loads((root/'provider-state.json').read_text())
+if 'describe' in args:
+    url=args[args.index('describe')+1]
+    if url==fixture['backupReceipt']:
+        source=root/'receipt.json'; version=state['receiptVersion']
+    elif url==fixture['backupObject']:
+        source=root/'archive'; version=state['archiveVersion']
+    else:
+        print('unexpected GCS describe',url,file=sys.stderr); sys.exit(95)
+    print(json.dumps({'bucket':'bucket','name':url.removeprefix('gs://bucket/'),
+      'generation':version,'size':str(source.stat().st_size)}))
+    sys.exit(0)
+if 'cp' in args:
+    url=args[args.index('--do-not-decompress')+1]
+    output=Path(args[-1])
+    if url==fixture['backupReceipt']+'#'+state['receiptVersion']:
+        source=root/'receipt.json'
+    elif url==fixture['backupObject']+'#'+state['archiveVersion']:
+        source=root/'archive'
+    else:
+        print('unexpected GCS generation',url,file=sys.stderr); sys.exit(95)
+    shutil.copyfile(source,output)
+    sys.exit(0)
+print('unexpected gcloud command',args,file=sys.stderr)
+sys.exit(95)
+''')
+gcloud.chmod(0o700)
 
 env = {key: value for key, value in os.environ.items()
        if not key.startswith(("NAGARE_", "CLOUDSDK_", "PULUMI_", "DIRENV_", "GOOGLE_"))
@@ -237,7 +286,7 @@ initial_head = (store / "head.json").read_bytes()
 set_provider(jobUid="foreign-job-uid")
 _, foreign_calls = run("db", "backup-receipt", "pg-main", "-n", "default",
     "--backup-id", "run-001", "--save-plan", str(root / "foreign-review"), expect=1)
-assert not any(call[0] == "curl" for call in foreign_calls)
+assert not any(call[0] in ("curl", "gcloud") for call in foreign_calls)
 assert (store / "head.json").read_bytes() == initial_head
 assert not (root / "foreign-review").exists()
 set_provider(jobUid="backup-job-uid")
@@ -260,14 +309,14 @@ collected = head()["collected"]
 assert len(collected) == 1 and collected[0]["resource"] == fixture["backupJob"]
 assert collected[0]["tombstone"]["physical"] == "backup-job-uid"
 after_collection = (store / "head.json").read_bytes()
-set_provider(archiveVersion="archive-v2")
+set_provider(archiveVersion="13" if MODE == "gcs" else "archive-v2")
 _, changed_calls = run("db", "restore", "pg-main", "run-001", "-n", "default",
     "--restore-id", "wrong-version", "--save-plan", str(root / "wrong-version-review"),
     expect=1)
 assert not any(call[0] == "kubectl" and "delete" in call for call in changed_calls)
 assert (store / "head.json").read_bytes() == after_collection
 assert not (root / "wrong-version-review").exists()
-set_provider(archiveVersion="archive-v1")
+set_provider(archiveVersion="11" if MODE == "gcs" else "archive-v1")
 restore_review = root / "restore-review"
 _, restore_calls = run("db", "restore", "pg-main", "run-001", "-n", "default", "--restore-id",
     "receipt-r1", "--save-plan", str(restore_review))
@@ -295,9 +344,19 @@ assert len(mutations) == 2 and "delete" in mutations[0] and "create" in mutation
 assert not any("pg-main" in " ".join(call) and "nagare-dbrestore" not in " ".join(call)
                and "nagare-dbbackup-pg-main-run-001" not in " ".join(call)
                for call in mutations)
-(root / "result.json").write_text(json.dumps({"fixture": fixture,
+if MODE == "gcs":
+    assert not any(call[0] == "curl" for result in results
+                   for call in result["providerCalls"])
+    copies = [call for result in results for call in result["providerCalls"]
+              if call[0] == "gcloud" and "cp" in call]
+    assert copies and all("--do-not-decompress" in call for call in copies)
+    assert all(any("#" in argument for argument in call) for call in copies)
+else:
+    assert not any(call[0] == "gcloud" for result in results
+                   for call in result["providerCalls"])
+(root / "result.json").write_text(json.dumps({"mode": MODE, "fixture": fixture,
     "binarySha256": hashlib.sha256(Path(binary).read_bytes()).hexdigest(),
     "results": results,
     "finalHead": head()}, indent=2) + "\n")
-print("PASS: public receipt review/apply, exact Job collection, and Job-free restore apply")
+print("PASS:", MODE, "public receipt review/apply, exact Job collection, and Job-free restore apply")
 print("Artifacts:", root)

@@ -5,11 +5,19 @@ a disposable filesystem inventory with accepted foundation, database, manual
 backup, and independent neighbor scopes, and recording `kubectl`/`curl`
 transports. It contacts no cluster or object store.
 
-Run it from the repository root:
+Run both transport modes from the repository root, serially:
 
 ```bash
 python3 scripts/test-manual-receipt-public.py
+python3 scripts/test-manual-receipt-public.py --gcs
 ```
+
+The first mode uses recording MinIO `curl` reads. The second selects a cloud
+profile with a local fixture history, records the Kubernetes cluster guard,
+and replaces `gcloud` with a strict shim. That shim requires `objects describe`
+to return the accepted bucket, object name, decimal generation and length,
+then permits `storage cp --do-not-decompress` only for that exact generation.
+Both modes keep all effects inside the disposable fixture.
 
 The fixture executes the following public sequence with the same accepted
 history. It checks every command's exit status and records provider calls and
@@ -37,10 +45,10 @@ history, retirement/collection, stored-byte and version checks, registry
 construction, and restore transaction selection. Native restored-content,
 GCS exact-generation, and installed candidate evidence remain open.
 
-The 2026-10-01 run passed all eight public commands and checked exactly two
-provider mutations: UID-conditional deletion of the old backup Job and
-creation of the new scratch restore Job. Individual command times were
-0.08–0.85 seconds on the local recording fixture. The final head had no active
-transaction and identical accepted/converged vectors. The result file also
-records the executable SHA-256, every provider call, and the final head for
-repeatable inspection.
+The 2026-10-01 final runs passed all eight public commands in each mode and
+checked exactly two provider mutations per run: UID-conditional deletion of
+the old backup Job and creation of the new scratch restore Job. Individual
+commands took 0.08–0.83 seconds in local mode and 0.24–2.19 seconds in
+recording GCS mode. Both final heads had no active transaction and identical
+accepted/converged vectors. Each result file records the executable SHA-256,
+every provider call, and the final head for repeatable inspection.

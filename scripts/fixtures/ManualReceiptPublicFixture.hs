@@ -19,7 +19,7 @@ import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
-import Nagare.Cluster.GcsJob (MinioRef (..), StoreBackend (MinioBackend))
+import Nagare.Cluster.GcsJob (MinioRef (..), StoreBackend (GcsBackend, MinioBackend))
 import Nagare.Dsl.Database (Database (Database), Engine (Postgres), defaultEngineVersion, mkDatabaseName)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types qualified as Dsl
@@ -55,7 +55,7 @@ metadataValues _ = []
 
 main :: IO ()
 main = do
-    [storePath, output] <- getArgs
+    [storePath, output, mode] <- getArgs
     let context = ok (mkContextId "manual-receipt-fixture")
         binding = ContextBinding context (ok (mkName "project"))
         dbOwner = ok (mkScopeId Standalone "database-pg-main")
@@ -157,12 +157,15 @@ main = do
                 recovery
                 (SourceLocation "database" "fixture")
         backend =
-            MinioBackend
-                ( MinioRef
-                    "http://minio.nagare-system.svc.cluster.local:9000"
-                    "bucket"
-                    "minio-credentials"
-                )
+            if mode == "gcs"
+                then GcsBackend "project" "bucket"
+                else
+                    MinioBackend
+                        ( MinioRef
+                            "http://minio.nagare-system.svc.cluster.local:9000"
+                            "bucket"
+                            "minio-credentials"
+                        )
         (databaseScope, databaseNative) = ok (compileStandaloneDatabase direct backend)
         foundationNative = Map.singleton namespaceId namespaceMember
         neighborNative = Map.singleton neighborId neighborMember
