@@ -214,6 +214,38 @@
     }
   },
   "step2BoundedHttpIntegrationPassed": true,
-  "step3": "known-content seed complete; backup planning",
+  "step3": {
+    "state": "backup, isolated restore, original-transaction takeover and two disposable Job collections accepted; web cleanup blocked",
+    "operatorRevision": "d871d9131566ff12d3e4114a9944cd68cb7fe7de",
+    "backupApplySeconds": 79.941,
+    "isolatedRestoreApplySeconds": 36.096,
+    "foreignClaimRefusalSeconds": 14.09,
+    "originalTransactionTakeoverResumeSeconds": 24.243,
+    "thirdJobUidPreserved": "6e3241e8-281e-4a79-810a-336f51a9712e",
+    "sourceNeighborAndRestoredContentVerified": true,
+    "jobRunsUsed": 3,
+    "jobRunsMaximum": 3,
+    "webCleanupBlockedByRetainedHistory": true,
+    "primaryBackupJobAndPodRequiredForCurrentRestore": true,
+    "safeUseAccepted": false,
+    "finalHead": {
+      "mode": "final",
+      "headGeneration": 705,
+      "headSequence": 645,
+      "acceptedScopes": 27,
+      "idle": true,
+      "jobs": [
+        {
+          "name": "nagare-dbbackup-mp23-f15-pg-a-mp23-f15-pg-a-v1",
+          "uid": "1d3dfffd-7285-45ad-aaa8-44648af18990",
+          "succeeded": 1
+        }
+      ],
+      "retained": [],
+      "safeUseAccepted": false
+    },
+    "evidence": "f15-data-recovery-cleanup.json",
+    "complete": false
+  },
   "step4": "open: native recovery/cleanup, HTTPS disposition and operator verification"
 }

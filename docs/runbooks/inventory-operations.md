@@ -6,6 +6,14 @@ fresh `f15-preview` context is still pending. That run must verify findings
 [F14–F18](../audits/mp23-findings.md) before safe-use acceptance. Bootstrap success
 alone does not establish that gate.
 
+The current frozen operator is `d871d9131566ff12d3e4114a9944cd68cb7fe7de`.
+Use `result-mp23-d871d913/bin/nagarectl` from the repository and check
+`version --json` before a provider command. Preserve admitted payload
+`nagare-0.4.0-d73c1dc4d379`; the operator revision is separate from that payload.
+The original private root is `/tmp/nagare-mp23-fresh-credentials-20260930`;
+the recovered second root is `/tmp/nagare-mp23-f15-second-root-71288437`.
+Neither root is a substitute for shared GCS history.
+
 ## Select the private context
 
 Use the installed candidate and the context's private configuration, state and
@@ -161,6 +169,13 @@ uses candidate `2101b834` on `ep150-preview`, preserving payload `6082dbd6`.
 | Explicit takeover and original backup resume | 23.858 s |
 | Save the two-operation backup review | 24.804 s |
 
+The current frozen operator on fresh `f15-preview` also measures manual backup
+planning at 20.019 seconds and apply at 79.941 seconds, isolated restore planning
+at 20.992 seconds and apply at 36.096 seconds, foreign executor refusal at
+14.090 seconds, and second-root explicit takeover/resume at 24.243 seconds.
+The latter resumed the original third Job with its exact UID; no replacement Job
+was created. These checks do not establish another engine or volume procedure.
+
 The [fresh F15 stage report](../audits/mp23-native-bootstrap-results-2026-09-30/f15-cloud-sequence-rehearsal.json)
 separately records original-payload image publication (249.546 s), image binding
 (37.798 s), VM creation (51.569 s), guarded host operations (86.780 s), and private
@@ -188,6 +203,18 @@ automatic application cutover or live overwrite. The PostgreSQL procedure create
 new logical database within the accepted PostgreSQL instance/PVC; it does not
 provision a separate instance or storage volume. The bounded fixture restore name
 is `mp23-f15-pg-a_restore_mp23f15pgav1`, and the original database remains intact.
+For the current manual PostgreSQL restore path, preserve the accepted completed
+backup Job and its Pod as well as the GCS archive/receipt. Planning requires that
+Job's owned completed incarnation and reads its receipt from the completed Pod;
+archive survival alone does not establish receipt-only restore after Job deletion.
+
+Scope retirement retains resources; collection is a separate reviewed command.
+Retained application release-history ConfigMaps still depend on their web
+Services, so those Services cannot be collected through this procedure. Do not
+delete the history or bypass the dependency refusal. Eligible disposable restore
+and interruption Jobs can be retired and collected with exact UID guards while
+the source instance, PVC, credentials and isolated database remain. The web
+cleanup restriction remains an open safe-use requirement.
 New custom interactive mutating maintenance and generalized scheduled pruning remain unavailable. Existing
 admitted historical operations retain their evidence-bound recovery paths.
 

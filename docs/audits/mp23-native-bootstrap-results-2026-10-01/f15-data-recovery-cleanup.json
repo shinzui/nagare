@@ -1,0 +1,289 @@
+{
+  "operatorRevision": "d871d9131566ff12d3e4114a9944cd68cb7fe7de",
+  "acceptedPayloadPreserved": "nagare-0.4.0-d73c1dc4d379",
+  "context": "f15-preview",
+  "project": "tan-ng-labs",
+  "evidenceRoot": "/tmp/nagare-mp23-fresh-credentials-20260930/evidence",
+  "backup": {
+    "guard": {
+      "mode": "backup",
+      "reviewDigest": "bbe68572ffc0f382d55ba416f817b4c6e9b82b14ef987eabd1004e63d2e589fe",
+      "headGeneration": 658,
+      "headSequence": 615,
+      "operations": 2,
+      "providerJobCreates": 1,
+      "unrelatedRevisionsPreserved": 26,
+      "sourceAndPvcUidPinsMatch": true,
+      "exactFixtureBucketAndReceipt": true,
+      "safeUseAccepted": false
+    },
+    "plan": {
+      "exit": 0,
+      "seconds": 20.019
+    },
+    "apply": {
+      "exit": 0,
+      "seconds": 79.941
+    }
+  },
+  "isolatedRestore": {
+    "guard": {
+      "mode": "restore",
+      "reviewDigest": "c787e19724853d1fb7cafd33954ea01060b4f4b06f6fdff70f2758c7bae75374",
+      "headGeneration": 666,
+      "headSequence": 621,
+      "operations": 2,
+      "providerJobCreates": 1,
+      "unrelatedRevisionsPreserved": 27,
+      "sourceAndPvcUidPinsMatch": true,
+      "exactFixtureBucketAndReceipt": true,
+      "isolatedLogicalDatabase": "mp23-f15-pg-a_restore_mp23f15pgav1",
+      "receiptDigest": "bfa68ee104c1ceac16ce02444074178eb24aef6050f735ac489235d5ccd1d29d",
+      "archiveSha256": "777431711c0dc0b386c4f85a65e445a9bb3a5b0db9ca4097b3ac646ad7b6f261",
+      "safeUseAccepted": false
+    },
+    "plan": {
+      "exit": 0,
+      "seconds": 20.992
+    },
+    "apply": {
+      "exit": 0,
+      "seconds": 36.096
+    },
+    "content": {
+      "mode": "verify-restore",
+      "values": {
+        "a": "mp23-f15-source-after-backup",
+        "b": "mp23-f15-neighbor-preserved",
+        "isolatedRestore": "mp23-f15-source-before-backup"
+      },
+      "originalSourceAndNeighborIdentitiesPreserved": true,
+      "credentialsStayedInsidePods": true,
+      "logicalRestoreWithinSameAcceptedInstance": true
+    }
+  },
+  "interruption": {
+    "guard": {
+      "mode": "interrupted-backup",
+      "reviewDigest": "04e4d258ac1837c6825d152e6f7f08d3fb1873ace9f72772c7570afe6afdd6d0",
+      "headGeneration": 674,
+      "headSequence": 627,
+      "operations": 2,
+      "providerJobCreates": 1,
+      "unrelatedRevisionsPreserved": 28,
+      "sourceAndPvcUidPinsMatch": true,
+      "exactFixtureBucketAndReceipt": true,
+      "safeUseAccepted": false
+    },
+    "validPlan": {
+      "exit": 0,
+      "seconds": 22.27
+    },
+    "inputRefusalBeforeReviewOrEffects": {
+      "exit": 1,
+      "seconds": 8.51
+    },
+    "inputCorrection": "backup ID shortened to the documented maximum of 20 characters",
+    "pause": {
+      "pid": 92198,
+      "pgid": 92198,
+      "signal": "SIGSTOP",
+      "transaction": "tx-04e4d258ac1837c6825d152e6f7f08d3fb1873ace9f72772c7570afe6afdd6d0",
+      "jobUid": "6e3241e8-281e-4a79-810a-336f51a9712e",
+      "generation": 677,
+      "sequence": 629,
+      "seconds": 11.822,
+      "remoteSignal": false
+    },
+    "signals": {
+      "pid": 92198,
+      "pgid": 92198,
+      "signals": [
+        "SIGINT",
+        "SIGCONT"
+      ],
+      "transaction": "tx-04e4d258ac1837c6825d152e6f7f08d3fb1873ace9f72772c7570afe6afdd6d0",
+      "jobUid": "6e3241e8-281e-4a79-810a-336f51a9712e",
+      "remoteSignal": false,
+      "at": 1790909620.31674
+    },
+    "foreignClaimRefusal": {
+      "exit": 1,
+      "seconds": 14.09
+    },
+    "secondRootTakeoverResume": {
+      "exit": 0,
+      "seconds": 24.243
+    },
+    "postResume": {
+      "mode": "takeover",
+      "headGeneration": 683,
+      "headSequence": 633,
+      "acceptedScopes": 29,
+      "idle": true,
+      "jobs": [
+        {
+          "name": "nagare-dbbackup-mp23-f15-pg-a-mp23-f15-pg-a-i1",
+          "uid": "6e3241e8-281e-4a79-810a-336f51a9712e",
+          "succeeded": 1
+        },
+        {
+          "name": "nagare-dbbackup-mp23-f15-pg-a-mp23-f15-pg-a-v1",
+          "uid": "1d3dfffd-7285-45ad-aaa8-44648af18990",
+          "succeeded": 1
+        },
+        {
+          "name": "nagare-dbrestore-mp23-f15-pg-a-mp23f15pgav1",
+          "uid": "0b881be7-f0de-4be7-9dd8-3a418ab46997",
+          "succeeded": 1
+        }
+      ],
+      "retained": [],
+      "safeUseAccepted": false
+    },
+    "originalJobUidPreserved": true
+  },
+  "cleanup": {
+    "retire-restore": {
+      "review": {
+        "digest": "2402d55a224d273e9bbb1201b7701f398047de2af463b406824063b7fa9654ff",
+        "headGeneration": 683,
+        "headSequence": 633,
+        "operations": 0,
+        "retentions": [
+          {
+            "proof": {
+              "owner": {
+                "kind": "Standalone",
+                "name": "database-restore-personal-mp23-f15-pg-a-mp23f15pgav1"
+              },
+              "physical": "0b881be7-f0de-4be7-9dd8-3a418ab46997",
+              "revision": {
+                "digest": "0b79f21800ed5a04a30bcb830481273474ded930869ab8489ec86b387cc367fc",
+                "generation": 1
+              }
+            },
+            "resource": "standalone:database-restore-personal-mp23-f15-pg-a-mp23f15pgav1/mp23f15pgav1/job"
+          }
+        ]
+      },
+      "plan": {
+        "exit": 0,
+        "seconds": 26.628
+      },
+      "apply": {
+        "exit": 0,
+        "seconds": 15.482
+      }
+    },
+    "collect-restore": {
+      "review": {
+        "digest": "285591de6691fd84f8a3a27bf1e892841f61ae7847dfb20e29f84b5d82007452",
+        "headGeneration": 687,
+        "headSequence": 635,
+        "operations": 1,
+        "retentions": []
+      },
+      "plan": {
+        "exit": 0,
+        "seconds": 17.194
+      },
+      "apply": {
+        "exit": 0,
+        "seconds": 19.276
+      }
+    },
+    "retire-interruption": {
+      "review": {
+        "digest": "6cf9280b046a7534a5d5216899146c96a1a78aa2a4ce8b295e2a2307afe6b46b",
+        "headGeneration": 694,
+        "headSequence": 639,
+        "operations": 0,
+        "retentions": [
+          {
+            "proof": {
+              "owner": {
+                "kind": "Standalone",
+                "name": "database-backup-personal-mp23-f15-pg-a-mp23-f15-pg-a-i1"
+              },
+              "physical": "6e3241e8-281e-4a79-810a-336f51a9712e",
+              "revision": {
+                "digest": "4bffdff3c0f00da4b61f05a001107611b0b29f8b40df5ff7fd17a098be698891",
+                "generation": 1
+              }
+            },
+            "resource": "standalone:database-backup-personal-mp23-f15-pg-a-mp23-f15-pg-a-i1/mp23-f15-pg-a-i1/job"
+          }
+        ]
+      },
+      "plan": {
+        "exit": 0,
+        "seconds": 19.605
+      },
+      "apply": {
+        "exit": 0,
+        "seconds": 18.266
+      }
+    },
+    "collect-interruption": {
+      "review": {
+        "digest": "5ac3af8ea1d7d81836a77813c90c12597aa2d0182d13bc2b68392981582786f1",
+        "headGeneration": 698,
+        "headSequence": 641,
+        "operations": 1,
+        "retentions": []
+      },
+      "plan": {
+        "exit": 0,
+        "seconds": 20.745
+      },
+      "apply": {
+        "exit": 0,
+        "seconds": 17.672
+      }
+    }
+  },
+  "final": {
+    "mode": "final",
+    "headGeneration": 705,
+    "headSequence": 645,
+    "acceptedScopes": 27,
+    "idle": true,
+    "jobs": [
+      {
+        "name": "nagare-dbbackup-mp23-f15-pg-a-mp23-f15-pg-a-v1",
+        "uid": "1d3dfffd-7285-45ad-aaa8-44648af18990",
+        "succeeded": 1
+      }
+    ],
+    "retained": [],
+    "safeUseAccepted": false
+  },
+  "finalContent": {
+    "mode": "read",
+    "values": {
+      "a": "mp23-f15-source-after-backup",
+      "b": "mp23-f15-neighbor-preserved",
+      "isolatedRestore": "mp23-f15-source-before-backup"
+    },
+    "originalSourceAndNeighborIdentitiesPreserved": true,
+    "credentialsStayedInsidePods": true,
+    "logicalRestoreWithinSameAcceptedInstance": true
+  },
+  "finalHeadSha256": "18c3a831b6bbb6f71007738b0708a9d6fef6832d24b47ef0eadcd6e2317aa0fe",
+  "jobRunsUsed": 3,
+  "jobRunsMaximum": 3,
+  "newBuildsThisCheckpoint": 0,
+  "safeUseAccepted": false,
+  "step3Complete": false,
+  "step4Complete": false,
+  "stopBeforeStep5": true,
+  "restrictions": [
+    "Retained application release-history dependencies block web Service collection; both application scopes and web resources remain.",
+    "The current manual PostgreSQL restore planner requires the accepted completed backup Job and Pod; receipt-only restore after their removal is unaccepted.",
+    "Both PostgreSQL instances, PVCs, credentials, backup signing keys and the isolated logical database remain.",
+    "Primary and interruption backup archives/receipts remain; this checkpoint performs no object pruning.",
+    "HTTPS/browser sign-in remains unaccepted.",
+    "Operator runbook verification and independent F14-F18 disposition remain open."
+  ]
+}
