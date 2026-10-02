@@ -387,17 +387,27 @@ verifiedRestoreShell Postgres svc _ =
     <> " -U \"$POSTGRES_USER\" -d \"$SCRATCH_DATABASE\" -c '\\dt'"
 verifiedRestoreShell ClickHouse svc source =
   "set -e; ARCHIVE=\"/source-data/backups/nagare-restore-"
-    <> source ^. #scratchDatabase <> ".zip\"; "
+    <> source ^. #scratchDatabase
+    <> ".zip\"; "
     <> "test ! -e \"$ARCHIVE\"; cp /dump/backup.zip \"$ARCHIVE\"; "
-    <> "clickhouse-client -h " <> svc
+    <> "clickhouse-client -h "
+    <> svc
     <> " --user \"$CLICKHOUSE_USER\" --password \"$CLICKHOUSE_PASSWORD\" "
-    <> "--query \"RESTORE DATABASE default AS \\`" <> source ^. #scratchDatabase
-    <> "\\` FROM File('nagare-restore-" <> source ^. #scratchDatabase <> ".zip')\"; "
-    <> "test \"$(clickhouse-client -h " <> svc
+    <> "--query \"RESTORE DATABASE default AS \\`"
+    <> source ^. #scratchDatabase
+    <> "\\` FROM File('nagare-restore-"
+    <> source ^. #scratchDatabase
+    <> ".zip')\"; "
+    <> "attempt=1; while :; do "
+    <> "if result=$(clickhouse-client -h "
+    <> svc
     <> " --user \"$CLICKHOUSE_USER\" --password \"$CLICKHOUSE_PASSWORD\" "
+    <> "--connect_timeout=5 --send_timeout=5 --receive_timeout=5 --max_execution_time=5 "
     <> "--query \"SELECT count() FROM system.databases WHERE name = '"
-    <> source ^. #scratchDatabase <> "'\")\" = 1; "
-    <> "rm -- \"$ARCHIVE\""
+    <> source ^. #scratchDatabase
+    <> "'\") && test \"$result\" = 1; then "
+    <> "rm -- \"$ARCHIVE\"; break; fi; "
+    <> "test \"$attempt\" -lt 6 || exit 1; attempt=$((attempt + 1)); sleep 2; done"
 verifiedRestoreShell _ _ _ = "exit 1"
 
 -- | Legacy read-only Job preview. Reviewed execution uses accepted inventory

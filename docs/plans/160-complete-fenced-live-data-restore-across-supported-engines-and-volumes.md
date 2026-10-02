@@ -86,6 +86,8 @@ An operator can restore verified PostgreSQL, Redis, and ClickHouse backups into 
 
 ## Progress
 
+**Independent ClickHouse verification repair (2026-10-02).** F22 found a successful native `RESTORE` followed by a transient connection refusal during the immediate scratch-database existence query. Keep the original terminal Job and staged archive, and use the existing digest-bound abandonment decision; never replay that restore. The rendered Job now makes at most six read-only verification attempts, with two-second pauses and five-second client connection/send/receive/query limits. `RESTORE` remains outside that loop; exhausted or invalid verification leaves the archive intact for explicit recovery. The independent reviewer confirmed the four timeout options against the accepted ClickHouse 25.8 client. Four executable rendered-shell regressions prove transient success, exhausted connection failure, missing database, and RESTORE failure, including archive preservation and replay refusal. All six focused ClickHouse tests and all 1,080 CLI tests (62.87 seconds) pass, as do architecture and structural style checks. Native acceptance on the corrected immutable candidate remains required before F22 can close.
+
 **Independent backup/recovery checkpoint (2026-10-02).** Installed `76628094`
 restores the accepted scheduled GCS v4 receipt after producer cleanup. Installed
 `ec2e1cd4` passes the local platform gate, changes exactly the selected signed-v4

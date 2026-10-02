@@ -4,11 +4,15 @@ module Nagare.Test.Backup.Restore
   )
 where
 
+import Data.Aeson (Value (Array, Object, String))
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
 import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import Data.Vector qualified as Vector
+import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.Database.Restore
   ( VerifiedRestoreSource
@@ -36,7 +40,7 @@ import Nagare.Test.DataFixtures
   , restoreJobInputsPg
   , tnbGcsBackend
   )
-import System.Directory (createDirectoryIfMissing)
+import System.Directory (createDirectoryIfMissing, doesFileExist)
 import System.Environment (getEnvironment)
 import System.Exit (ExitCode (ExitSuccess))
 import System.FilePath ((</>))
@@ -56,6 +60,10 @@ restoreDownloadTests =
       isObjectUrl "gs://b/x" @?= True
       isObjectUrl "s3://b/x" @?= True
       isObjectUrl "20260610T141503Z" @?= False
+  , clickHouseProbeTest "transient verification retries only SELECT" "transient" 3 True
+  , clickHouseProbeTest "unavailable verification preserves archive" "unavailable" 6 False
+  , clickHouseProbeTest "missing scratch database preserves archive" "missing" 6 False
+  , clickHouseProbeTest "failed RESTORE never enters verification" "restore-failure" 0 False
   , testCase "resolveBackupObject composes a bare timestamp (cloud)" $
       resolveBackupObject (GcsBackend "p" "b") "mydb" "sql.gz" "20260610T141503Z" @?= "gs://b/databases/mydb/20260610T141503Z.sql.gz"
   , testCase "resolveBackupObject passes a full URL through" $
@@ -284,3 +292,84 @@ restoreDownloadTests =
         (expired, _, _) <- run (checked {expiryEpoch = 1})
         assertBool "expired backup completed reviewed restore" (expired /= ExitSuccess)
   ]
+
+-- Run the actual rendered container command, including its shell failure paths.
+-- The fake client distinguishes the data effect from read-only verification.
+clickHouseProbeTest :: String -> String -> Int -> Bool -> TestTree
+clickHouseProbeTest label mode expectedProbes successful =
+  testCase ("ClickHouse " <> label) $
+    withSystemTempDirectory "nagare-clickhouse-probe" $ \directory -> do
+      let dump = directory </> "dump"
+          source = directory </> "source-data"
+          archive = source </> "backups/nagare-restore-scratch.zip"
+          calls = directory </> "calls"
+          client = directory </> "clickhouse-client"
+          sleeper = directory </> "sleep"
+          selected = VerifiedRestoreSource "gs://bucket/receipt" "receipt" "backup" "scratch" 0 Nothing Nothing
+          rendered = renderRestoreJob (restoreJobInputsPg & #engine .~ ClickHouse & #verifiedSource .~ Just selected)
+          field key (Object fields) = KeyMap.lookup key fields
+          field _ _ = Nothing
+          firstValue (Array values) = values Vector.!? 0
+          firstValue _ = Nothing
+          shell = do
+            root <- either (const Nothing) Just (Yaml.decodeEither' rendered)
+            spec <- field "spec" root >>= field "template" >>= field "spec"
+            container <- field "containers" spec >>= firstValue
+            value <- field "args" container >>= firstValue
+            case value of
+              String command -> Just command
+              _ -> Nothing
+      command <- maybe (fail "rendered restore container has no shell command") pure shell
+      createDirectoryIfMissing True dump
+      createDirectoryIfMissing True (source </> "backups")
+      BS.writeFile (dump </> "backup.zip") "exact reviewed archive"
+      BS.writeFile calls ""
+      writeFile client $
+        unlines
+          [ "#!/bin/sh"
+          , "set -eu"
+          , "printf '%s\\n' \"$*\" >> \"$NAGARE_TEST_CALLS\""
+          , "case \"$*\" in"
+          , "  *'RESTORE DATABASE'*) test \"$NAGARE_TEST_MODE\" != restore-failure; exit $?;;"
+          , "  *'SELECT count() FROM system.databases'*)"
+          , "    for flag in connect_timeout send_timeout receive_timeout max_execution_time; do"
+          , "      case \" $* \" in *\" --${flag}=5 \"*) :;; *) exit 7;; esac"
+          , "    done"
+          , "    count=$(wc -l < \"$NAGARE_TEST_CALLS\")"
+          , "    case \"$NAGARE_TEST_MODE\" in"
+          , "      transient) test \"$count\" -gt 3 || exit 1; echo 1;;"
+          , "      missing) echo 0;;"
+          , "      *) exit 1;;"
+          , "    esac;;"
+          , "  *) exit 8;;"
+          , "esac"
+          ]
+      writeFile sleeper "#!/bin/sh\ntest \"$1\" = 2\n"
+      setFileMode client 0o755
+      setFileMode sleeper 0o755
+      parentEnv <- getEnvironment
+      let fixtureEnv =
+            [ ("PATH", directory <> ":" <> maybe "" id (lookup "PATH" parentEnv))
+            , ("NAGARE_TEST_CALLS", calls)
+            , ("NAGARE_TEST_MODE", mode)
+            , ("CLICKHOUSE_USER", "fixture")
+            , ("CLICKHOUSE_PASSWORD", "fixture")
+            ]
+          run =
+            readCreateProcessWithExitCode
+              ( (proc "/bin/sh" ["-c", T.unpack (T.replace "/source-data" (T.pack source) (T.replace "/dump" (T.pack dump) command))])
+                  { env = Just (fixtureEnv <> filter (\(key, _) -> key `notElem` map fst fixtureEnv) parentEnv)
+                  }
+              )
+              ""
+      (code, _, diagnostic) <- run
+      assertBool ("unexpected restore result: " <> diagnostic) ((code == ExitSuccess) == successful)
+      recorded <- lines <$> readFile calls
+      length recorded @?= 1 + expectedProbes
+      length (filter (T.isInfixOf "RESTORE DATABASE" . T.pack) recorded) @?= 1
+      doesFileExist archive >>= (@?= not successful)
+      unless successful $ do
+        BS.readFile archive >>= (@?= "exact reviewed archive")
+        (retryCode, _, _) <- run
+        assertBool "existing archive permitted replay" (retryCode /= ExitSuccess)
+        (lines <$> readFile calls) >>= (@?= recorded)
