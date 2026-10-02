@@ -33,6 +33,18 @@ library
     Paths_nagarectl
 
   other-modules:
+    Nagare.Inventory.Application.Bindings
+    Nagare.Inventory.Application.Compile
+    Nagare.Inventory.Application.Database
+    Nagare.Inventory.Application.Environment
+    Nagare.Inventory.Application.Ownership
+    Nagare.Inventory.Application.Policy
+    Nagare.Inventory.Application.Recovery
+    Nagare.Inventory.Application.Release
+    Nagare.Inventory.Application.Service
+    Nagare.Inventory.Application.Tasks
+    Nagare.Inventory.Application.Types
+    Nagare.Inventory.Application.Worker
     Paths_nagarectl
 
   exposed-modules:
