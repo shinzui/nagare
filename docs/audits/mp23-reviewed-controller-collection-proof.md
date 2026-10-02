@@ -184,6 +184,24 @@ agreement and bounded local behavior;
 it does not prove live admission, controller reconciliation, garbage collection,
 protected database contents, or complete raw native response compatibility.
 
+## Native response preparation (2026-10-02)
+
+The authorized next native proof uses the separate idle `ep150-preview` context,
+leaving frozen `f15-preview` untouched. A read-only scan with checksum-verified
+kubectl `v1.35.8` against `v1.35.8+k3s1` observed 75 APIs in 26.1 seconds.
+[Redacted response evidence](mp23-native-bootstrap-results-2026-10-02/knative-controller-collection-preflight.json)
+exposed two omissions in the earlier metadata summary/model: successful Endpoints
+lists emit a deprecation warning on stderr, and Knative propagates the parent's
+inventory annotations to Configuration, Route, Ingress and the Route's core
+Service. Both failed the new/strengthened production-path regressions before
+repair. Successful exit status plus parsed list/continuation metadata now governs
+list completeness; failed discovery and malformed/incomplete lists still refuse.
+An exclusive supported descendant may carry its parent's exact inventory resource
+ID; a different ID, shared edge or non-controller edge still refuses. The
+sixteen-descendant fixture now includes the four observed annotation propagation
+shapes. All 1,061 CLI tests pass after these repairs. Native mutation, actual GC
+and interrupted-transaction proof are the next step, not results of this scan.
+
 ## Remaining acceptance
 
 F20 remains Open for native agreement and independent verification. Models do

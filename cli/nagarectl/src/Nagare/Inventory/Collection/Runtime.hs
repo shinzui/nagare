@@ -55,5 +55,8 @@ observeCollectionNamespace config ns = do
     request args = do
       result <- invokeKubectl config args ""
       pure $ case result of
-        Right (ExitSuccess, output, "") -> Right (T.pack output)
+        -- Kubernetes warning headers (for example Endpoints deprecation) are
+        -- printed on stderr even when the complete list succeeds. Exit status
+        -- and the parsed continuation metadata determine completeness.
+        Right (ExitSuccess, output, _) -> Right (T.pack output)
         _ -> Left "complete namespace discovery/list unavailable; no collection authority"

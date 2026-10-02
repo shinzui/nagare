@@ -35,6 +35,7 @@ nativeCollectionTests =
     , testCase "unsupported descendant refuses authority" (refusePlan (changeChild (setField "kind" (String "ConfigMap") . setField "apiVersion" (String "v1"))))
     , testCase "foreign namespace refuses authority" (refusePlan (changeChild (metaChange (setField "namespace" (String "foreign")))))
     , testCase "missing persisted UID is incomplete evidence, not a projection" (refusePlan missingIdentity)
+    , testCase "successful native Endpoints warning preserves complete discovery" warningAccepted
     , testCase "partial API discovery refuses authority" (refuseFault DiscoveryFailure)
     , testCase "one forbidden list among 75 APIs refuses authority" (refuseFault ListFailure)
     , testCase "continuation token refuses authority" (refuseFault IncompleteList)
@@ -54,6 +55,7 @@ nativeCollectionTests =
 seedRecorded :: FilePath -> IO ()
 seedRecorded root = do
   bytes <- BS.readFile "test/fixtures/inventory/knative-collection-native.json"
+  world <- readCollectionWorld root
   let evidence = checked (eitherDecodeStrict bytes)
       decodeValue value = case fromJSON value of Success result -> result; Error reason -> error reason
       apis = decodeValue (field "apis" evidence) :: [Text]
@@ -70,6 +72,13 @@ seedRecorded root = do
                 , "namespace" .= field "namespace" value
                 , "uid" .= field "uid" value
                 , "resourceVersion" .= ("recorded-fixture-version" :: Text)
+                , -- Native Knative copies the parent's annotations onto these
+                  -- four objects; the older sixteen-node summary omitted them.
+                  "annotations"
+                    .= if field "kind" value `elem` map String ["Configuration", "Route", "Ingress"]
+                      || (field "kind" value == String "Service" && field "name" value == String "mp23-f15-app-b")
+                      then field "annotations" (field "metadata" (resources world Map.! parentKey))
+                      else object []
                 , "ownerReferences" .= map rebase (decodeValue (field "ownerReferences" value) :: [Value])
                 ]
           ]
@@ -84,7 +93,6 @@ seedRecorded root = do
           ]
   length apis @?= 75
   length recorded @?= 16
-  world <- readCollectionWorld root
   writeCollectionWorld
     root
     world
@@ -141,6 +149,7 @@ nativeRecovery = withSystemTempDirectory "nagare-native-collection" $ \root -> d
   C.apiResources authority @?= sort (discoveredApis worldBefore)
   sort (map C.uid (C.descendants authority)) @?= sort (Map.keys (descendants worldBefore))
   length (C.protected authority) @?= 4
+  length [n | n <- C.descendants authority, C.inventoryOwner n == C.inventoryOwner (C.parent authority)] @?= 4
   assertBool "projection leaked into immutable authority" (not ("metrics-only" `BS.isInfixOf` BL.toStrict (encode authority)))
   budget root 1 2 0 0
   clearCalls root
@@ -282,3 +291,11 @@ protectedRecovery = recoveryChange $ \w ->
     { descendants = Map.empty
     , resources = Map.adjust (metaChange (setField "ownerReferences" (toJSON [object ["uid" .= ("foreign" :: Text), "controller" .= True]]))) "persistentvolumeclaim/pg-main-data" (resources w)
     }
+
+warningAccepted :: IO ()
+warningAccepted = withSystemTempDirectory "nagare-native-warning" $ \root -> do
+  store <- nativePrepared root
+  (bundle, _) <- prepareChange store (selected root ListWarning) (CollectRetained parentId)
+  length (reviewOperations (reviewBundleDocument bundle)) @?= 1
+  budget root 1 2 0 0
+  deleteBodies <$> readCollectionWorld root >>= (@?= [])

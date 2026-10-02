@@ -34,7 +34,7 @@ import Nagare.Test.Effectful.Model (field, textField)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 
-data CollectionFault = Normal | BeforeDelete | LostDeleteAck | LyingWait | ImmediateDeletion | RaceUid | RaceVersion | Cascade | CascadeLostAck | IncompleteList | DiscoveryFailure | ListFailure | MalformedList
+data CollectionFault = Normal | BeforeDelete | LostDeleteAck | LyingWait | ImmediateDeletion | RaceUid | RaceVersion | Cascade | CascadeLostAck | IncompleteList | DiscoveryFailure | ListFailure | MalformedList | ListWarning
   deriving stock (Eq, Show)
 
 data CollectionWorld = CollectionWorld
@@ -126,6 +126,11 @@ collectionRequest root fault request = do
   let args = request ^. #arguments
       world = initial {requests = requests initial <> [args]}
       success value = Right (ExitSuccess, T.unpack (TE.decodeUtf8 (BL.toStrict (encode value))), "")
+      listSuccess resource value = case success value of
+        Right (code, output, _)
+          | fault == ListWarning && resource == "endpoints" ->
+              Right (code, output, "Warning: v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice\n")
+        result -> result
       failure message = Right (ExitFailure 1, "", message)
   writeCollectionWorld root world
   case args of
@@ -140,7 +145,8 @@ collectionRequest root fault request = do
                   if fault == MalformedList && resource == "services"
                     then success (object ["items" .= ([] :: [Value])])
                     else
-                      success
+                      listSuccess
+                        resource
                         ( object
                             [ "apiVersion" .= ("v1" :: Text)
                             , "kind" .= ("List" :: Text)

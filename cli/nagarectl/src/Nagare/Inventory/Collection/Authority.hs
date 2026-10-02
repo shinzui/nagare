@@ -162,7 +162,11 @@ authorizeCollection root apis nodes = do
         ( \n ->
             namespace n == namespace root
               && allowed n
-              && inventoryOwner n == Nothing
+              -- Knative propagates the parent's inventory annotation to
+              -- controller children. The same logical ID is inherited
+              -- metadata, not a second independently inventoried resource;
+              -- a different ID still refuses, even on an exclusive edge.
+              && (inventoryOwner n == Nothing || inventoryOwner n == inventoryOwner root)
               && case (owners n, controllers n) of ([owner], [controller]) -> owner == controller && Set.member owner members; _ -> False
         )
         children

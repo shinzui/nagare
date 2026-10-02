@@ -1,0 +1,133 @@
+{
+  "stage": "read-only provider contract preparation",
+  "context": "ep150-preview",
+  "serverVersion": "v1.35.8+k3s1",
+  "kubectlVersion": "v1.35.8",
+  "discoveryApiCount": 75,
+  "discoverySeconds": 26.1,
+  "endpointsResponse": {
+    "exit": 0,
+    "seconds": 0.189,
+    "stderr": "Warning: v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice\n",
+    "stdoutSha256": "8b55d5c89abf2b71f12913b3771de3237a34e532118cffecc342a82c9779ff51"
+  },
+  "copiedParentAnnotationObjects": [
+    {
+      "api": "configurations.serving.knative.dev",
+      "apiVersion": "serving.knative.dev/v1",
+      "kind": "Configuration",
+      "metadata": {
+        "name": "mp23-app-b",
+        "namespace": "personal",
+        "uid": "e994c239-7f08-4963-8e5c-257fe1df9dde",
+        "resourceVersion": "96765",
+        "ownerReferences": [
+          {
+            "apiVersion": "serving.knative.dev/v1",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Service",
+            "name": "mp23-app-b",
+            "uid": "355084e3-b120-448c-adf0-56bfcd551ed3"
+          }
+        ]
+      },
+      "inheritedInventoryAnnotations": {
+        "nagare.dev/context-id": "ep150-preview",
+        "nagare.dev/resource-id": "application:mp23-app-b/mp23-app-b/service",
+        "nagare.dev/spec-digest": "4403cbf8768026b5b540fa52d366c8efb8a6c64eb32f1a9ee0cd5258b61611ff"
+      }
+    },
+    {
+      "api": "routes.serving.knative.dev",
+      "apiVersion": "serving.knative.dev/v1",
+      "kind": "Route",
+      "metadata": {
+        "name": "mp23-app-b",
+        "namespace": "personal",
+        "uid": "69dd4c17-5da4-406a-ae6d-721a9957097a",
+        "resourceVersion": "96782",
+        "ownerReferences": [
+          {
+            "apiVersion": "serving.knative.dev/v1",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Service",
+            "name": "mp23-app-b",
+            "uid": "355084e3-b120-448c-adf0-56bfcd551ed3"
+          }
+        ]
+      },
+      "inheritedInventoryAnnotations": {
+        "nagare.dev/context-id": "ep150-preview",
+        "nagare.dev/resource-id": "application:mp23-app-b/mp23-app-b/service",
+        "nagare.dev/spec-digest": "4403cbf8768026b5b540fa52d366c8efb8a6c64eb32f1a9ee0cd5258b61611ff"
+      }
+    },
+    {
+      "api": "services",
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "mp23-app-b",
+        "namespace": "personal",
+        "uid": "b0b97f37-37ad-4347-8ed8-25b8c525f73c",
+        "resourceVersion": "96781",
+        "ownerReferences": [
+          {
+            "apiVersion": "serving.knative.dev/v1",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Route",
+            "name": "mp23-app-b",
+            "uid": "69dd4c17-5da4-406a-ae6d-721a9957097a"
+          }
+        ]
+      },
+      "inheritedInventoryAnnotations": {
+        "nagare.dev/context-id": "ep150-preview",
+        "nagare.dev/resource-id": "application:mp23-app-b/mp23-app-b/service",
+        "nagare.dev/spec-digest": "4403cbf8768026b5b540fa52d366c8efb8a6c64eb32f1a9ee0cd5258b61611ff"
+      }
+    },
+    {
+      "api": "ingresses.networking.internal.knative.dev",
+      "apiVersion": "networking.internal.knative.dev/v1alpha1",
+      "kind": "Ingress",
+      "metadata": {
+        "name": "mp23-app-b",
+        "namespace": "personal",
+        "uid": "fcfaaa13-31c8-4259-a974-429f0f7f02ac",
+        "resourceVersion": "96780",
+        "ownerReferences": [
+          {
+            "apiVersion": "serving.knative.dev/v1",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Route",
+            "name": "mp23-app-b",
+            "uid": "69dd4c17-5da4-406a-ae6d-721a9957097a"
+          }
+        ]
+      },
+      "inheritedInventoryAnnotations": {
+        "nagare.dev/context-id": "ep150-preview",
+        "nagare.dev/resource-id": "application:mp23-app-b/mp23-app-b/service",
+        "nagare.dev/spec-digest": "4403cbf8768026b5b540fa52d366c8efb8a6c64eb32f1a9ee0cd5258b61611ff"
+      }
+    }
+  ],
+  "sourceHead": {
+    "generation": 713,
+    "sequence": 623,
+    "activeTransaction": null
+  },
+  "frozenContext": "f15-preview",
+  "frozenHead": {
+    "generation": 752,
+    "sequence": 673,
+    "activeTransaction": "tx-b6886179d40d4618442997221cc02ca986f142ccdeef1661448cfca627765472"
+  },
+  "providerMutations": 0,
+  "actualGcProved": false
+}
