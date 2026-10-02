@@ -170,7 +170,7 @@ dispatch (mctx, cmd0) = case cmd0 of
   InventoryMigrate input output -> runInventoryMigrate mctx input output
   InventoryRetire owner output -> runInventoryRetire mctx owner output
   InventoryGc output -> runInventoryStatus mctx Nothing True (Just output)
-  InventoryCollect resource output -> runInventoryCollect mctx resource output
+  InventoryCollect resource output descendants -> runInventoryCollect mctx resource output descendants
   InventoryApply directory yes -> runInventoryApply mctx directory yes
   InventoryResume transaction yes takeOver -> runInventoryResume mctx (T.pack transaction) yes takeOver
   InventoryRecover transaction operation decisionFile takeOver ->

@@ -256,6 +256,33 @@ installed reviewed access, exact rehearsal cleanup and the operator's F14–F18
 run. Full release acceptance additionally requires the remaining native-system,
 feature and immutable-evidence gates in [MasterPlan 23](../masterplans/23-make-managed-resources-first-class-through-typed-scoped-inventories.md).
 
+## New controller collection reviews — source candidate
+
+The source candidate adds explicit descendant authority for future Knative Service
+collection. It has passed local interpreter and public CLI fixtures; native
+controller agreement is still pending. This option is unavailable on the frozen
+operator above and cannot amend its already-issued review.
+
+After normal dependency checks and retirement, prepare a separate review for one
+eligible Service:
+
+```bash
+nagarectl --context "$CONTEXT" inventory collect --resource "$RESOURCE_ID" \
+  --controller-descendants --out "$REVIEW"
+```
+
+Inspect its summary before applying through the normal saved-review procedure.
+It authorizes Background GC of exclusive controller descendants, including later
+children. A graph snapshot does not restrict Kubernetes GC to an atomic fixed UID
+list; this assumes trusted controllers and namespace writers. Preparation requires
+complete API discovery/list access and refuses unsupported or independently owned
+children. Missing access or incomplete lists are errors, not evidence of absence.
+
+Apply can remain unresolved after the parent disappears. Resume the original
+transaction: completion also checks recorded descendants, observed new reachable
+children and protected inventory identities. Do not issue a replacement review or
+repeat DELETE to accelerate finalization. See the [proof and limitations](../audits/mp23-reviewed-controller-collection-proof.md).
+
 ## Current recovery checkpoint — 2026-10-02
 
 Shared generation 752/sequence 673, digest

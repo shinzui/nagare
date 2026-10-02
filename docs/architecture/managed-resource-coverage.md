@@ -25,7 +25,7 @@ authority.
 | `PortalCommand` | 2 | none |
 | `DomainsCommand` | 2 | none |
 | `CdnCommand` | 4 | `CdnDisable`, `CdnPurge` |
-| `justfile` | 34 | `host-image`, `host-switch`, `infra-destroy`, `local-smoke`, `smoke`, `vm-start`, `vm-stop` |
+| `justfile` | 35 | `host-image`, `host-switch`, `infra-destroy`, `local-smoke`, `smoke`, `vm-start`, `vm-stop` |
 | `Inventory.Command` production calls | 29 | none |
 <!-- managed-command-registry:end -->
 

@@ -10,6 +10,7 @@ module Nagare.Cli.Inventory.Adapters
   , inventoryHelmAdapter
   , inventoryHostAdapter
   , inventoryKubernetesAdapter
+  , inventoryControllerCollectionAdapter
   , inventoryPulumiAdapter
   , reviewBaseDnsResources
   )
@@ -114,6 +115,7 @@ import Nagare.Inventory.Adapters.PulumiRuntime
   )
 import Nagare.Inventory.Artifact qualified as InventoryArtifact
 import Nagare.Inventory.Cloud qualified as InventoryCloud
+import Nagare.Inventory.Collection.Adapter (controllerCollectionAdapter)
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Digest qualified as InventoryDigest
 import Nagare.Inventory.Plan qualified as InventoryPlan
@@ -149,6 +151,17 @@ inventoryKubernetesAdapter active binding cacheKey specs
             observeBatch
             (readBackupReceiptFromCompletedPod config specs)
         )
+
+inventoryControllerCollectionAdapter :: ActiveTarget -> Resource.ContextBinding -> Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString) -> IO InventoryAdapter.Adapter
+inventoryControllerCollectionAdapter active binding specs = do
+  context <- either dieT pure (Resource.mkContextId (contextNameText (active ^. #contextName)))
+  unless (context == binding ^. #identity) (dieT "controller collection review belongs to a different context")
+  let config =
+        KubernetesRuntimeConfig
+          context
+          (contextNameText (active ^. #contextName))
+          (fmap (fmap (const ())) (guardKubernetesContext active))
+  pure (controllerCollectionAdapter config specs)
 
 inventoryHelmAdapter :: ActiveTarget -> PlatformWorkspace -> Resource.ContextBinding -> Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString) -> IO InventoryAdapter.Adapter
 inventoryHelmAdapter active workspace binding specs

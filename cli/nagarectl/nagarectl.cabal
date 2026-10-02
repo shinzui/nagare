@@ -153,6 +153,9 @@ library
     Nagare.Inventory.BootstrapRegistryTransport
     Nagare.Inventory.Cache
     Nagare.Inventory.Cloud
+    Nagare.Inventory.Collection.Adapter
+    Nagare.Inventory.Collection.Authority
+    Nagare.Inventory.Collection.Runtime
     Nagare.Inventory.CollectionPolicy
     Nagare.Inventory.Command
     Nagare.Inventory.Components.Auth
@@ -445,6 +448,7 @@ test-suite nagarectl-test
     InventoryCacheSpec
     InventoryCdnSpec
     InventoryCloudSpec
+    InventoryControllerCollectionSpec
     InventoryEffectfulCollectionSpec
     InventoryEffectfulSpec
     InventoryFoundationSpec

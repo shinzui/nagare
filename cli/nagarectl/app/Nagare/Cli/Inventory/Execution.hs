@@ -18,6 +18,7 @@ import Nagare.Cli.Inventory.Adapters
   , inventoryBrokerAdapter
   , inventoryCacheAdapter
   , inventoryCdnAdapter
+  , inventoryControllerCollectionAdapter
   , inventoryHelmAdapter
   , inventoryHostAdapter
   , inventoryKubernetesAdapter
@@ -107,6 +108,7 @@ import Nagare.Inventory.BootstrapRegistryTransport
   ( runRegistryUnitTransport
   )
 import Nagare.Inventory.Cloud qualified as InventoryCloud
+import Nagare.Inventory.Collection.Adapter (controllerCollectionIdentity)
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
 import Nagare.Inventory.Host qualified as InventoryHost
@@ -480,7 +482,19 @@ inventoryExecutionRegistry mctx store bundle = do
         if Map.null dnsSpecs && Map.null cloudflareSpecs
           then pure (Inventory.executionBlockedAdapterFor ResourceInventory.CdnExecutor)
           else withWorkspace (\root -> inventoryCdnAdapter active root binding dnsSpecs cloudflareSpecs acceptedDns)
-      kubernetesNative <- inventoryKubernetesAdapter active binding cacheKey kubernetesSpecs
+      let kubernetesOperations =
+            [ op
+            | op <- InventoryPlan.reviewOperations (InventoryPlan.reviewBundleDocument bundle)
+            , InventoryAdapter.plannedExecutor (InventoryPlan.reviewPlannedOperation op) == ResourceInventory.KubernetesExecutor
+            ]
+          controllerCollection = any ((== controllerCollectionIdentity) . InventoryPlan.reviewAdapterIdentity) kubernetesOperations
+      when
+        (controllerCollection && any ((/= controllerCollectionIdentity) . InventoryPlan.reviewAdapterIdentity) kubernetesOperations)
+        (dieT "controller collection cannot mix ordinary Kubernetes effects")
+      kubernetesNative <-
+        if controllerCollection
+          then inventoryControllerCollectionAdapter active binding kubernetesSpecs
+          else inventoryKubernetesAdapter active binding cacheKey kubernetesSpecs
       let kubernetesBase =
             kubernetesNative
               { InventoryAdapter.adapterPreflight = \operation prepared -> do

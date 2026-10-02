@@ -1082,3 +1082,34 @@ controllers, IAM, networking, database execution or future provider outcomes.
 Simulation is neither mutation authorization nor native release evidence. Preserve
 all current acceptance gates; move inexpensive defect discovery before cloud
 iteration. See the [validated pilot](../audits/mp23-effectful-restore-pilot.md).
+
+## Amendment — 2026-10-02: review controller collection as a distinct authority
+
+An explicit `inventory collect --controller-descendants` review may authorize
+Background collection of one retained Knative Service and its exclusive controller
+descendants, including later-created descendants. It uses a distinct versioned
+adapter identity and saves metadata-only graph evidence in the immutable native
+member. The ordinary Kubernetes adapter and previously issued Orphan reviews keep
+their original behavior. Field-reconciliation `Delegation` is not deletion authority.
+
+Complete namespaced API discovery/listing must succeed before review and execution.
+The observed descendant graph must contain only supported exclusive controller
+children without independent inventory ownership. Parent UID/resourceVersion,
+descendant identities/ownership and independently inventoried neighbors are checked
+before the conditional parent DELETE. Descendant/neighbor status version churn is
+permitted. Recovery uses the original review and history; parent absence alone
+does not prove collection. Recorded descendants and observed new descendants
+reachable from saved UIDs must be absent, with protected identities preserved,
+before the transaction can record its tombstone. No direct child deletion or
+finalizer patch is part of this adapter.
+
+This grant delegates asynchronous GC; it does not promise an atomic exact set of
+descendant UIDs. Kubernetes conditions only the parent mutation, namespace lists
+are not a cross-resource snapshot, and new ownership edges can arise between
+observation and deletion. Completion observation cannot find every unobserved new
+chain after its intermediate owner disappears. The contract therefore relies on
+trusted supported controllers and namespace writers. Exact-set deletion or hostile
+concurrent ownership protection would require a different protocol. The public
+summary must disclose the dynamic descendant scope. See the [contract and local
+proof](../audits/mp23-reviewed-controller-collection-proof.md) for native acceptance
+obligations and compatibility boundaries; local simulation does not close them.

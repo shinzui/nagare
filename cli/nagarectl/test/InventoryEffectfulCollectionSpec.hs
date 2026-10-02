@@ -1,5 +1,5 @@
 -- | Real retirement, collection, immutable review and recovery under F20 faults.
-module InventoryEffectfulCollectionSpec (inventoryEffectfulCollectionTests, runCollectionResumeProbe) where
+module InventoryEffectfulCollectionSpec (inventoryEffectfulCollectionTests, runCollectionResumeProbe, preparedCollection, prepareChange, freshProcess, requireHead, assertUnresolved, transactionOf, registry) where
 
 import Control.Exception (SomeException, try)
 import Data.Aeson (Value (..), toJSON)
@@ -12,6 +12,7 @@ import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes (mkKubernetesAdapter)
 import Nagare.Inventory.Adapters.KubernetesRuntime (mkKubernetesRuntimeOps)
+import Nagare.Inventory.Collection.Adapter (controllerCollectionAdapter, controllerCollectionIdentity)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
 import Nagare.Inventory.Journal (TransactionId, mkTransactionId, transactionIdText)
@@ -228,7 +229,13 @@ loadRegistry root store bundle = do
   nativeDigest <- case member ^. #spec of KnativeService value -> pure value; _ -> fail "not Knative"
   bytes <- must (readObject store (objectKeyFor "native" nativeDigest)) >>= maybe (fail "missing retained native") pure
   contentDigest bytes @?= nativeDigest
-  pure (registry root Normal (Map.singleton parentId (member, bytes)))
+  let native = Map.singleton parentId (member, bytes)
+      config =
+        withKubectlInterpreter
+          (runKubectlWith (collectionRequest root Cascade))
+          (KubernetesRuntimeConfig (collectionBinding ^. #identity) "effectful-local" (pure (Right ())))
+      cascade = any ((== controllerCollectionIdentity) . reviewAdapterIdentity) (reviewOperations (reviewBundleDocument bundle))
+  pure (if cascade then checked (mkAdapterRegistry [controllerCollectionAdapter config native]) else registry root Normal native)
 
 freshProcess :: FilePath -> ReviewBundle -> TransactionId -> String -> IO ()
 freshProcess root bundle transaction expected = do

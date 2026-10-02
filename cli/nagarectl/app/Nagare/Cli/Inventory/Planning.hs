@@ -2,6 +2,7 @@
 module Nagare.Cli.Inventory.Planning
   ( inventoryPlanRegistry
   , inventoryPlanRegistryWithNative
+  , inventoryControllerCollectionRegistry
   )
 where
 
@@ -21,6 +22,7 @@ import Nagare.Cli.Inventory.Adapters
   , inventoryBrokerAdapter
   , inventoryCacheAdapter
   , inventoryCdnAdapter
+  , inventoryControllerCollectionAdapter
   , inventoryHelmAdapter
   , inventoryHostAdapter
   , inventoryKubernetesAdapter
@@ -85,7 +87,13 @@ inventoryPlanRegistry :: ActiveTarget -> PlatformWorkspace -> ResourceInventory.
 inventoryPlanRegistry active workspace = inventoryPlanRegistryWithNative active workspace Map.empty
 
 inventoryPlanRegistryWithNative :: ActiveTarget -> PlatformWorkspace -> Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString) -> ResourceInventory.CompositionCandidate -> InventoryPlan.InventoryHistory -> IO InventoryAdapter.AdapterRegistry
-inventoryPlanRegistryWithNative active workspace suppliedNative candidate history = do
+inventoryPlanRegistryWithNative = inventoryPlanRegistryWithMode False
+
+inventoryControllerCollectionRegistry :: ActiveTarget -> PlatformWorkspace -> ResourceInventory.CompositionCandidate -> InventoryPlan.InventoryHistory -> IO InventoryAdapter.AdapterRegistry
+inventoryControllerCollectionRegistry active workspace = inventoryPlanRegistryWithMode True active workspace Map.empty
+
+inventoryPlanRegistryWithMode :: Bool -> ActiveTarget -> PlatformWorkspace -> Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString) -> ResourceInventory.CompositionCandidate -> InventoryPlan.InventoryHistory -> IO InventoryAdapter.AdapterRegistry
+inventoryPlanRegistryWithMode controllerCollection active workspace suppliedNative candidate history = do
   let inventory = ResourceInventory.candidateInventory candidate
       declarations = ResourceInventory.inventoryDeclarations inventory
       scopes = Map.elems (ResourceInventory.inventoryScopes inventory)
@@ -319,7 +327,10 @@ inventoryPlanRegistryWithNative active workspace suppliedNative candidate histor
   kubernetesBase <-
     if Map.null kubernetesSpecs
       then pure (Inventory.manifestAdapterFor history ResourceInventory.KubernetesExecutor)
-      else inventoryKubernetesAdapter active (ResourceInventory.inventoryBinding inventory) cacheKey kubernetesSpecs
+      else
+        if controllerCollection
+          then inventoryControllerCollectionAdapter active (ResourceInventory.inventoryBinding inventory) kubernetesSpecs
+          else inventoryKubernetesAdapter active (ResourceInventory.inventoryBinding inventory) cacheKey kubernetesSpecs
   helm <-
     if Map.null helmSpecs
       then pure (Inventory.manifestAdapterFor history ResourceInventory.HelmExecutor)

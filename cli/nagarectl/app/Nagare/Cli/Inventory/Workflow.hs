@@ -28,7 +28,7 @@ import Nagare.Cli.Inventory.Adapters
 import Nagare.Cli.Inventory.Execution
   ( inventoryExecutionRegistry
   )
-import Nagare.Cli.Inventory.Planning (inventoryPlanRegistry)
+import Nagare.Cli.Inventory.Planning (inventoryControllerCollectionRegistry, inventoryPlanRegistry)
 import Nagare.Cli.Platform.InfrastructureReview
   ( prepareInfraMutation
   )
@@ -231,12 +231,13 @@ runInventoryRetire mctx rawScope output = do
         Resource.mkScopeId scopeKind name
       _ -> Left "scope must be KIND:NAME"
 
-runInventoryCollect :: Maybe String -> NE.NonEmpty String -> FilePath -> IO ()
-runInventoryCollect mctx rawResources output = do
+runInventoryCollect :: Maybe String -> NE.NonEmpty String -> FilePath -> Bool -> IO ()
+runInventoryCollect mctx rawResources output descendants = do
+  when (descendants && length rawResources /= 1) (dieT "controller collection reviews exactly one Knative Service")
   active <- activeTarget mctx
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   resources <- traverse (either dieT pure . Resource.mkResourceId . T.pack) rawResources
-  Inventory.planInventoryCollectionsWith (inventoryPlanRegistry active workspace) active resources output
+  Inventory.planInventoryCollectionsWith ((if descendants then inventoryControllerCollectionRegistry else inventoryPlanRegistry) active workspace) active resources output
 
 runInventoryApply :: Maybe String -> FilePath -> Bool -> IO ()
 runInventoryApply mctx reviewDirectory yes = do

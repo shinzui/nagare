@@ -34,7 +34,7 @@ import Nagare.Test.Effectful.Model (field, textField)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 
-data CollectionFault = Normal | BeforeDelete | LostDeleteAck | LyingWait | ImmediateDeletion | RaceUid | RaceVersion
+data CollectionFault = Normal | BeforeDelete | LostDeleteAck | LyingWait | ImmediateDeletion | RaceUid | RaceVersion | Cascade | CascadeLostAck | IncompleteList
   deriving stock (Eq, Show)
 
 data CollectionWorld = CollectionWorld
@@ -96,10 +96,13 @@ seedCollectionWorld root = writeCollectionWorld root (CollectionWorld (Map.fromL
     child name kind owner =
       ( name
       , object
-          [ "kind" .= (kind :: Text)
+          [ "apiVersion" .= (if kind `elem` ["Route", "Configuration", "Revision"] then "serving.knative.dev/v1" else if kind == "Deployment" then "apps/v1" else "v1" :: Text)
+          , "kind" .= (kind :: Text)
           , "metadata"
               .= object
                 [ "name" .= (name :: Text)
+                , "namespace" .= ("personal" :: Text)
+                , "resourceVersion" .= ("10" :: Text)
                 , "uid" .= (name <> "-uid")
                 , "labels" .= object ["serving.knative.dev/service" .= ("web" :: Text)]
                 , "ownerReferences" .= [object ["uid" .= (owner :: Text), "controller" .= True]]
@@ -125,6 +128,18 @@ collectionRequest root fault request = do
       failure message = Right (ExitFailure 1, "", message)
   writeCollectionWorld root world
   case args of
+    ["api-resources", "--namespaced=true", "--verbs=list", "-o", "name"] ->
+      pure (Right (ExitSuccess, T.unpack (T.unlines modelApis), ""))
+    ["get", resource, "--namespace", "personal", "-o", "json"]
+      | T.pack resource `elem` modelApis ->
+          pure
+            ( success
+                ( object
+                    [ "metadata" .= object ["continue" .= (if fault == IncompleteList then "next-page" else "" :: Text)]
+                    , "items" .= [value | value <- Map.elems (resources world) <> Map.elems (descendants world), modelToken value == T.pack resource]
+                    ]
+                )
+            )
     ["get", kind, name, "--namespace", "personal", "-o", "json", "--ignore-not-found"] -> do
       unless (null (request ^. #input)) (fail "get with stdin")
       let key = T.pack (kind <> "/" <> name)
@@ -139,7 +154,7 @@ collectionRequest root fault request = do
               [ "apiVersion" .= ("meta.k8s.io/v1" :: Text)
               , "kind" .= ("DeleteOptions" :: Text)
               , "preconditions" .= object ["uid" .= ("web-uid" :: Text), "resourceVersion" .= ("10" :: Text)]
-              , "propagationPolicy" .= ("Orphan" :: Text)
+              , "propagationPolicy" .= (if fault `elem` [Cascade, CascadeLostAck] then "Background" else "Orphan" :: Text)
               ]
       unless (body == expected) (fail "delete exceeded exact reviewed parent authority or changed preconditions")
       when (fault `elem` [RaceUid, RaceVersion]) $
@@ -164,11 +179,11 @@ collectionRequest root fault request = do
                       )
                       value
                   next =
-                    if fault == ImmediateDeletion
+                    if fault `elem` [ImmediateDeletion, Cascade, CascadeLostAck]
                       then Map.delete parentKey (resources raced)
                       else Map.insert parentKey pending (resources raced)
               writeCollectionWorld root raced {resources = next, deleteBodies = deleteBodies raced <> [body]}
-              pure (if fault == LostDeleteAck then Left "accepted delete; reply lost" else success (object []))
+              pure (if fault `elem` [LostDeleteAck, CascadeLostAck] then Left "accepted delete; reply lost" else success (object []))
             else pure (failure "Conflict: UID or resourceVersion precondition failed")
     ["wait", "--for=delete", "service.serving.knative.dev/web", "--timeout=30s", "--namespace", "personal"] -> do
       unless (null (request ^. #input)) (fail "wait with stdin")
@@ -214,3 +229,31 @@ finishOrphan root = do
       { resources = Map.delete parentKey (resources world)
       , descendants = Map.mapWithKey orphan (descendants world)
       }
+
+modelApis :: [Text]
+modelApis =
+  [ "services.serving.knative.dev"
+  , "statefulsets.apps"
+  , "persistentvolumeclaims"
+  , "jobs.batch"
+  , "services"
+  , "routes.serving.knative.dev"
+  , "configurations.serving.knative.dev"
+  , "revisions.serving.knative.dev"
+  , "deployments.apps"
+  , "pods"
+  ]
+
+modelToken :: Value -> Text
+modelToken value = case textField "kind" value of
+  "Service" | field "apiVersion" value == String "serving.knative.dev/v1" -> "services.serving.knative.dev"
+  "Service" -> "services"
+  "StatefulSet" -> "statefulsets.apps"
+  "PersistentVolumeClaim" -> "persistentvolumeclaims"
+  "Job" -> "jobs.batch"
+  "Route" -> "routes.serving.knative.dev"
+  "Configuration" -> "configurations.serving.knative.dev"
+  "Revision" -> "revisions.serving.knative.dev"
+  "Deployment" -> "deployments.apps"
+  "Pod" -> "pods"
+  other -> error ("unmodeled kind " <> T.unpack other)

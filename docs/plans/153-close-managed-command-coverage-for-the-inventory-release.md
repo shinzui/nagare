@@ -107,6 +107,8 @@ Every supported mutation command and shipped recipe is mapped to its owner, revi
 
 ## Progress
 
+- [x] (2026-10-02) Implement locally validated opt-in Knative descendant collection: distinct immutable review authority, complete metadata discovery, conditional Background DELETE and descendant-aware original-transaction recovery. Eleven new scenarios bring the focused suite to 25 tests in 3.79 seconds; all 1,042 CLI tests and both public Knative fixtures pass. [Proof and limits](../audits/mp23-reviewed-controller-collection-proof.md). Native agreement under EP-156 and F20 closure remain open.
+
 **F20 local collection checkpoint complete (2026-10-02).** Added eight persistent interpreter scenarios through production retirement, collection review, conditional DELETE, final observation and resume. Fresh processes reconstruct the historical parent from stored bytes, preserve the original transaction and three retained data members, and never repeat an accepted DELETE. UID/version races, lying wait success and an immediate-deletion model counterfactual are covered. All 14 interpreter scenarios pass in 2.55 seconds, and the real-subprocess public pending-Knative fixture passes. [Evidence and proof limits](../audits/mp23-effectful-collection-proof.md). F20 remains Open; no cascade authority or live completion is added.
 
 **Interpreter pilot accepted (2026-10-02).** `Nagare.Inventory.KubernetesTransport` supplies a narrow Effectful request boundary with production and injected interpreters; the old runtime constructor continues selecting real subprocess execution. Six restore scenarios exercise real production logic with a persistent external world and fresh-process recovery. See [the report](../audits/mp23-effectful-restore-pilot.md). This is a validated bridge, not a completed orchestration migration.
@@ -232,6 +234,8 @@ The reviewed volume restore Job verifies the accepted receipt and archive hashes
 
 ## Decision Log
 
+2026-10-02: Separate reviewed controller deletion from field reconciliation and ordinary Orphan collection. Use explicit dynamic GC authority, narrow pure policy and the existing effect interpreter; retain native agreement and the non-atomic graph limitation. See ADR 22 and the reviewed collection proof.
+
 2026-10-02: Adopt the parent’s validated incremental interpreter direction; keep domain ownership and native proof obligations unchanged. The next shared boundary is collection/F20, with production logic retained above the test interpreter.
 
 2026-10-01: Enforce the existing entrypoint boundary through executable-private modules and an architecture check in the managed-command audit. Keep handlers independent, give shared policy specific owners, and retain one library execution driver. Bind command-coverage and recovery-test source evidence to every executable module rather than the former monolithic file. ADR 16 and the executable guide record the durable boundaries.
@@ -286,9 +290,11 @@ The local F20 collection adapter checkpoint is accepted; its executable contract
 
 Keep interpreters at external request boundaries, beneath production renderers and parsers. The present request program has no `IOE`, but the surrounding runtime still uses `IO`; do not claim whole-workflow effect isolation. Move orchestration into a small explicit effect set only as the selected workflow requires it. Do not wrap a whole adapter result in a fake success interpreter, duplicate the planner, emulate all Kubernetes, or migrate unrelated commands to meet a framework target. Existing filesystem persistence stays real in recovery tests; introduce object-store/clock/process effects only at the next demonstrated gap. Maintain real-interpreter command contracts alongside models and the native smoke obligation.
 
-### Next checkpoint — reviewed descendant authority
+### Local checkpoint complete — reviewed descendant authority
 
-Use the executable F20 scenario to define the exact reviewed authority needed by future Knative collection: parent identity, permitted controller descendants, protected retained data and neighbor boundaries, propagation policy, and recovery after accepted but unfinished deletion. Keep a review without descendant authority restricted to its existing Orphan semantics. A supported cascade requires new review-bound authority and provider agreement; never reinterpret the frozen review or treat parent absence as proof that all descendants are gone. Preserve the pending native transaction and its separately proposed exception. This checkpoint continues the existing supported collection requirement; native exception execution remains outside the local test checkpoint just completed.
+The source now exposes `inventory collect --controller-descendants` for one retained Knative Service. `Collection/Authority.hs` owns pure graph policy, `Collection/Runtime.hs` owns complete guarded metadata discovery, and `Collection/Adapter.hs` reuses the ordinary adapter while adding explicit Background authority and descendant-aware verification/recovery. A distinct adapter identity prevents accidental old-adapter execution. The saved snapshot binds preflight evidence; the public grant explicitly includes later-created descendants and cannot promise an atomic exact UID set. Existing Orphan reviews are unchanged. See [the proof](../audits/mp23-reviewed-controller-collection-proof.md) for commands, coverage and observation limits.
+
+Next, consume EP-156’s bounded native agreement on the supported controller versions before accepting F20. Check complete discovery, real graph shape, actual GC, original-transaction resume and retained-data preservation; reproduce mismatches locally before another installed attempt. Preserve the frozen pending transaction and its separate exception approval. Do not expand this into general controller deletion or a Kubernetes emulator.
 
 ### First repair: replace the shared operation dispatch boundary
 
@@ -379,6 +385,8 @@ Completed EP-146/147/149/151 provide underlying contracts. [EP-152](152-complete
 
 
 ## Revision Notes
+
+2026-10-02: Complete the local reviewed-authority checkpoint and hand native agreement to EP-156 without amending the frozen transaction.
 
 2026-10-02: Accept the local F20 interpreter checkpoint, record pending/fresh-process/race/counterfactual proof, and advance the next checkpoint to explicit reviewed descendant authority. F20 and native gates remain open.
 

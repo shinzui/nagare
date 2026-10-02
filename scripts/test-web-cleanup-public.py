@@ -37,6 +37,14 @@ subprocess.run([
 fixture = json.loads((root / "fixture.json").read_text())
 native = {item["native"]["metadata"]["name"]: item
           for item in json.loads((root / "native.json").read_text())}
+# Simulated controller children are provider objects, not inventory members.
+if options.knative and not options.expect_orphan_block:
+    for child_name, child_kind in [("controller-route", "Route"), ("controller-configuration", "Configuration")]:
+        native[child_name] = {"controllerChild": True, "digest": "controller", "native": {
+            "apiVersion": "serving.knative.dev/v1", "kind": child_kind,
+            "metadata": {"name": child_name, "namespace": "personal",
+                         "ownerReferences": [{"uid": "web-uid", "controller": True}]}}}
+    (root / "native.json").write_text(json.dumps(list(native.values())) + "\n")
 state = {name: {"present": True, "uid": name + "-uid", "version": "10",
                 "digest": item["digest"]} for name, item in native.items()}
 (root / "provider-state.json").write_text(json.dumps(state) + "\n")
@@ -62,24 +70,40 @@ with (root/'provider-calls.jsonl').open('a') as out:
 state=json.loads((root/'provider-state.json').read_text())
 native={item['native']['metadata']['name']:item for item in
         json.loads((root/'native.json').read_text())}
+def observed(name):
+    entry=state[name]
+    item=native[name]; obj=json.loads(json.dumps(item['native']))
+    obj['metadata'].update({'uid':entry['uid'],'resourceVersion':entry['version']})
+    if not item.get('controllerChild'):
+        obj['metadata'].update({'annotations':{'nagare.dev/context-id':'web-cleanup-fixture',
+          'nagare.dev/resource-id':item['resource'], 'nagare.dev/spec-digest':entry['digest']},
+          'managedFields':[{'manager':'nagare-inventory','fieldsV1':{'f:data':{}}}]})
+    if entry.get('terminating'):
+        obj['metadata'].update({'deletionTimestamp':'2026-10-02T13:43:26Z','finalizers':['orphan']})
+    if obj['kind']=='Service' and obj['apiVersion'].startswith('serving.knative.dev/'):
+        obj['metadata']['generation']=1
+        obj['status']={'observedGeneration':1,'conditions':[{'type':'Ready','status':'True'}]}
+    if obj['kind']=='DomainMapping':
+        obj['status']={'conditions':[{'type':'Ready','status':'True'}]}
+    return obj
+
+def token(obj):
+    group=obj['apiVersion'].split('/')[0] if '/' in obj['apiVersion'] else ''
+    return obj['kind'].lower()+'s'+('.'+group if group else '')
+
+api_resources=sorted({token(item['native']) for item in native.values()})
+if 'api-resources' in args:
+    assert args[-5:]==['api-resources','--namespaced=true','--verbs=list','-o','name'],args
+    print('\\n'.join(api_resources)); sys.exit(0)
 if 'get' in args:
     i=args.index('get'); name=args[i+2]
-    entry=state.get(name)
-    if entry and entry['present']:
-        item=native[name]; obj=item['native']
-        obj['metadata'].update({'uid':entry['uid'],'resourceVersion':entry['version'],
-          'annotations':{'nagare.dev/context-id':'web-cleanup-fixture',
-            'nagare.dev/resource-id':item['resource'],
-            'nagare.dev/spec-digest':entry['digest']},
-          'managedFields':[{'manager':'nagare-inventory','fieldsV1':{'f:data':{}}}]})
-        if entry.get('terminating'):
-            obj['metadata'].update({'deletionTimestamp':'2026-10-02T13:43:26Z','finalizers':['orphan']})
-        if obj['kind']=='Service' and obj['apiVersion'].startswith('serving.knative.dev/'):
-            obj['metadata']['generation']=1
-            obj['status']={'observedGeneration':1,'conditions':[{'type':'Ready','status':'True'}]}
-        if obj['kind']=='DomainMapping':
-            obj['status']={'conditions':[{'type':'Ready','status':'True'}]}
-        print(json.dumps(obj))
+    if name=='--namespace':
+        assert args[i:]==['get',args[i+1],'--namespace','personal','-o','json'],args
+        assert args[i+1] in api_resources,args
+        print(json.dumps({'metadata':{},'items':[observed(n) for n in native
+          if state[n]['present'] and token(native[n]['native'])==args[i+1]]}))
+    elif name in state and state[name]['present']:
+        print(json.dumps(observed(name)))
     sys.exit(0)
 if 'apply' in args:
     obj=json.load(sys.stdin); name=obj['metadata']['name']
@@ -228,7 +252,9 @@ for resource, name in [(fixture["history"], "web-history"),
                        (fixture["route"], "web.example.test"),
                        (fixture["service"], "web")]:
     review = root / (name + "-review")
-    run("inventory", "collect", "--resource", resource, "--out", str(review))
+    cascade = options.knative and not options.expect_orphan_block and name == "web"
+    run("inventory", "collect", "--resource", resource, "--out", str(review),
+        *(["--controller-descendants"] if cascade else []))
     if options.expect_orphan_block and name == "web":
         calls = run("inventory", "apply", str(review), "--yes", expect=1)
         assert head()["activeTransaction"] == "tx-" + (review / "review.sha256").read_text().strip()
@@ -239,7 +265,24 @@ for resource, name in [(fixture["history"], "web-history"),
         assert retained["incarnation"]["physical"] == "web-uid"
         assert data_revision() == original_data
         break
-    calls = run("inventory", "apply", str(review), "--yes")
+    if cascade:
+        document=json.loads((review / "review.json").read_text())
+        assert 'Background' in json.dumps(document),document
+        calls = run("inventory", "apply", str(review), "--yes", expect=1)
+        transaction=head()["activeTransaction"]
+        assert transaction is not None
+        assert not json.loads((root / "provider-state.json").read_text())["web"]["present"]
+        pending_calls=run("inventory", "resume", transaction, "--yes", expect=1)
+        assert not any("delete" in c for c in pending_calls)
+        provider=json.loads((root / "provider-state.json").read_text())
+        for child in ("controller-route", "controller-configuration"):
+            assert provider[child]["present"]
+            provider[child]["present"]=False
+        (root / "provider-state.json").write_text(json.dumps(provider)+"\n")
+        resumed=run("inventory", "resume", transaction, "--yes")
+        assert not any("delete" in c for c in resumed)
+    else:
+        calls = run("inventory", "apply", str(review), "--yes")
     assert len([c for c in calls if "delete" in c]) == 1
     assert not json.loads((root / "provider-state.json").read_text())[name]["present"]
     assert data_revision() == original_data
