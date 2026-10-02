@@ -21,7 +21,7 @@ destination="$(jq -er '.destination' <<<"${request}")"
 configuration_digest="$(jq -er '.configurationDigest' <<<"${request}")"
 lock_digest="$(jq -er '.lockDigest' <<<"${request}")"
 age_key_digest="$(jq -r '.ageKeyDigest // empty' <<<"${request}")"
-[ "${version}" = 1 ] || { echo "unsupported host transport version" >&2; exit 2; }
+[ "${version}" = 1 ] || [ "${version}" = 2 ] || { echo "unsupported host transport version" >&2; exit 2; }
 for value in "${context}" "${attribute}" "${project}" "${zone}" "${instance}" "${destination}"; do
   case "${value}" in ""|*[!A-Za-z0-9._@:-]*) echo "invalid host transport identity: ${value}" >&2; exit 2 ;; esac
 done
@@ -151,7 +151,7 @@ prepare() {
       fi
     fi
   fi
-  if [ -n "${previous}" ] || [ "${NAGARE_HOST_REVIEW_CREDENTIAL:-0}" = 1 ]; then
+  if [ -n "${previous}" ] || [ "${NAGARE_HOST_REVIEW_CREDENTIAL:-0}" = 1 ] || [ "${version}" = 2 ]; then
     jq -nc --arg physical "${physical}" --arg old "${old}" --arg new "${new}" --arg previous "${previous}" \
       '{tag:"HostTransportPreparedCredential",contents:[$physical,$old,$new,(if $previous == "" then null else $previous end)]}'
   else

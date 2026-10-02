@@ -1236,3 +1236,5 @@ An interrupted activation can retry with the already written desired key without
 rewriting it. Changed keys or failed writes remain unresolved for explicit
 recovery. The receipt is an internal host-executor artifact; it grants no new
 scope or independent credential owner.
+
+Credential receipt authority is also a transport capability: a credential-required preparation and every v2 native inspection or activation use host transport request protocol v2. A retained payload supporting only protocol v1 refuses before effects; the operator cannot delegate a stronger saved plan to a shell that silently ignores its authority fields. Historical v1 requests remain unchanged.

@@ -160,20 +160,31 @@ runActivation config plan = do
     Right _ -> AdapterEffectFailed (KnownNoEffect "host activation did not return committed fresh-login evidence")
 
 runTransport :: HostRuntimeConfig -> String -> Maybe HostActivationPlan -> IO (Either Text HostTransportResponse)
-runTransport config action plan = case canonicalValue (toJSON (request config plan)) of
-  Left err -> pure (Left err)
-  Right bytes -> do
-    environment <- getEnvironment
-    let marker = ("NAGARE_INVENTORY_ADAPTER_CHILD", "host")
-        additions = filter ((/= fst marker) . fst) (runtimeHostEnvironment config)
-        names = map fst (marker : additions)
-        childEnvironment = marker : additions <> filter ((`notElem` names) . fst) environment
-        command = (proc (runtimeHostExecutable config) [action]) {env = Just childEnvironment}
-    result <- try (readCreateProcessWithExitCode command (T.unpack (TE.decodeUtf8 bytes)))
-    pure $ case result of
-      Left (err :: IOException) -> Left ("could not run host transport: " <> T.pack (show err))
-      Right (ExitFailure code, output, errors) -> Left ("host transport exited " <> T.pack (show code) <> ": " <> T.strip (T.pack (errors <> "\n" <> output)))
-      Right (ExitSuccess, output, _) -> first (("invalid host transport response: " <>) . T.pack) (eitherDecodeStrict (TE.encodeUtf8 (T.strip (T.pack output))))
+runTransport config action plan = do
+  environment <- getEnvironment
+  let marker = ("NAGARE_INVENTORY_ADAPTER_CHILD", "host")
+      additions = filter ((/= fst marker) . fst) (runtimeHostEnvironment config)
+      names = map fst (marker : additions)
+      childEnvironment = marker : additions <> filter ((`notElem` names) . fst) environment
+      credentialProtocol =
+        maybe False ((== 2) . hostPlanVersion) plan
+          || (action == "prepare" && lookup "NAGARE_HOST_REVIEW_CREDENTIAL" childEnvironment == Just "1")
+      transportRequest = (request config plan) {requestVersion = if credentialProtocol then 2 else 1}
+      command = (proc (runtimeHostExecutable config) [action]) {env = Just childEnvironment}
+  case canonicalValue (toJSON transportRequest) of
+    Left err -> pure (Left err)
+    Right bytes -> do
+      result <- try (readCreateProcessWithExitCode command (T.unpack (TE.decodeUtf8 bytes)))
+      pure $ do
+        response <- case result of
+          Left (err :: IOException) -> Left ("could not run host transport: " <> T.pack (show err))
+          Right (ExitFailure code, output, errors) -> Left ("host transport exited " <> T.pack (show code) <> ": " <> T.strip (T.pack (errors <> "\n" <> output)))
+          Right (ExitSuccess, output, _) -> first (("invalid host transport response: " <>) . T.pack) (eitherDecodeStrict (TE.encodeUtf8 (T.strip (T.pack output))))
+        case response of
+          HostTransportPrepared {}
+            | credentialProtocol && action == "prepare" ->
+                Left "selected payload host transport lacks reviewed credential activation receipts"
+          _ -> Right response
 
 request :: HostRuntimeConfig -> Maybe HostActivationPlan -> HostTransportRequest
 request config plan =

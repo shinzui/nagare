@@ -71,6 +71,26 @@ inventoryHostTests =
             supportedHostPlanVersion (prepared {hostPlanVersion = 1}) @?= False
             hostPlanAgeKeyDigest prepared @?= Just newKey
             Aeson.eitherDecode (Aeson.encode prepared) @?= Right prepared
+          let requiredRuntime = runtime {runtimeHostEnvironment = [("NAGARE_HOST_REVIEW_CREDENTIAL", "1")]}
+          prepared <- hostPreparePlan (mkHostRuntimeOps requiredRuntime) operation >>= expectRight
+          -- A legacy payload cannot silently downgrade an explicit credential
+          -- review even if its transport ignores the request version.
+          writeFile executable "#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '{\"tag\":\"HostTransportPrepared\",\"contents\":[\"gce://legacy\",\"/old\",\"/new\"]}'\n"
+          hostPreparePlan (mkHostRuntimeOps requiredRuntime) operation >>= \case
+            Left reason -> assertBool "credential capability refusal" ("lacks reviewed credential" `Data.Text.isInfixOf` reason)
+            Right _ -> assertFailure "legacy transport downgraded credential authority"
+          -- Actual old payloads reject protocol version two before providers.
+          -- Both inspection and execution must use that newer protocol.
+          writeFile executable "#!/bin/sh\nrequest=$(cat)\nif printf '%s' \"$request\" | jq -e '.version == 2' >/dev/null; then echo unsupported-host-transport-version >&2; exit 2; fi\necho legacy-protocol-was-used >&2\nexit 3\n"
+          hostPreparePlan (mkHostRuntimeOps requiredRuntime) operation >>= \case
+            Left reason -> assertBool "prepare protocol two" ("unsupported-host-transport-version" `Data.Text.isInfixOf` reason)
+            Right _ -> assertFailure "legacy transport prepared credential plan"
+          hostInspectActivation (mkHostRuntimeOps runtime) prepared >>= \case
+            HostUnreachable reason -> assertBool "inspect protocol two" ("unsupported-host-transport-version" `Data.Text.isInfixOf` reason)
+            _ -> assertFailure "legacy transport inspected credential plan"
+          hostRunActivation (mkHostRuntimeOps runtime) prepared >>= \case
+            AdapterEffectAmbiguous reason -> assertBool "activate protocol two" ("unsupported-host-transport-version" `Data.Text.isInfixOf` reason)
+            _ -> assertFailure "legacy transport activated credential plan"
     , testCase "host declaration includes system, durable mount, and explicit activation" $ do
         declaration <- expectRight (compileHostScope hostBundle)
         case scopeBundles declaration of
