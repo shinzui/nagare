@@ -35,3 +35,19 @@ immutable bundles.
 Pure planning modules must not import history loading, preparation or publication.
 Persistence must not duplicate planning decisions. Public facades retain explicit
 exports so moving an internal definition never exposes its constructor.
+
+## Execution and recovery
+
+`Execute` is the stable public facade. `Admission` validates the reviewed work
+under the lock; `Transaction` coordinates apply/resume; `Driver` is the single
+operation interpreter. `Claims`, `Journal`, `Inputs` and `AdapterEnv` own their
+specific protocol mechanics. `Recovery` selects and records operator recovery,
+`RecoveryPolicy` contains pure eligibility checks, and `FencedRecovery` handles
+the already-admitted fenced data path. The shared `Types` module defines results,
+recovery inputs and protocol helpers.
+
+Do not move a live preflight into factory construction or ahead of recovering an
+uncertain prerequisite. Do not add a second apply/resume driver. Claim checks,
+intent-before-effect journaling, lost-acknowledgement settlement, exact reviewed
+identity and writer-release ordering are behavioral contracts. Every executor
+implementation module keeps `-Werror=incomplete-patterns`.
