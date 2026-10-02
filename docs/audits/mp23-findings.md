@@ -13,13 +13,15 @@ Implementation owner: existing session `01a0e893-337f-7b82-ac5d-16f41bf5ce21` (I
 
 ## Update and closure rules
 
+[The 2026-10-02 prerelease fixture disposition](mp23-prerelease-fixture-disposition.md) removes recovery of retired development attempts from acceptance. Findings still require verification of the supported candidate behavior; retiring a fixture does not close a product defect. Historical exact-fixture verification instructions may be fulfilled by equivalent candidate-bound scenarios without reviving retired state.
+
 - IDs never change or disappear. Include IDs in implementation handoffs and fix descriptions. New findings get the next ID.
 - `Open`: fix not established. `Partial`: some cause remains. `Verifying`: a candidate fix exists but closure evidence is incomplete. `Closed`: an independent check proves the stated failure corrected and the required regression evidence is retained. Reopen on failed verification.
 - The implementation session updates each **Implementation update** with revision (or exact working-tree source hashes), change, named test/command, result, and remaining limitations. It must not overwrite the auditor's evidence or close its own finding.
 - The verifier updates status and **Verification** after checking the affected path. A sent message, acknowledged finding, source edit, test count, or passing unrelated suite is not closure.
 - Before advancing an affected native rehearsal, reconcile its P1 findings. Scope reductions do not waive recovery for already-admitted operations. Deferral/dispute requires an explicit reason recorded here; do not silently omit the issue.
 - At every handoff, state IDs still Open/Partial/Verifying and the next required check.
-- Safe-use verification policy (MP-23 Decision Log, 2026-09-30): for F14–F18 and the cloud operational checks, the operator's end-to-end runbook run on the fresh `f15-preview` context is the independent check; the operator records the result here. Release acceptance keeps the closure rule above for every remaining finding.
+- Safe-use verification policy (MP-23 Decision Log, 2026-09-30): for F14–F18 and the cloud operational checks, the operator's end-to-end runbook run on the selected eligible candidate context is the independent check; the operator records the result here. Release acceptance keeps the closure rule above for every remaining finding.
  Link durable evidence in the repository; temporary reproduction paths are supplemental. If sessions end, the next implementer reads this file through the MP-23 entrypoint.
 
 ## Status register
@@ -45,13 +47,15 @@ Implementation owner: existing session `01a0e893-337f-7b82-ac5d-16f41bf5ce21` (I
 | [F17](#f17) | P1 | Effect-free retirement discards required native identity observations | Verifying | EP-153 / EP-156 |
 | [F18](#f18) | P1 | Initial GCS foundation transaction cannot resume its local journal | Verifying | EP-153 / EP-156 |
 | [F19](#f19) | P1 | Rendered pinned GCS restore omits download generations | Verifying | EP-160 / EP-156 |
-| [F20](#f20) | P1 | Knative collection cannot orphan controller descendants | Open | EP-153 / EP-156 |
+| [F20](#f20) | P1 | Knative collection cannot orphan controller descendants | Verifying | EP-153 / EP-156 |
 
 F01 and F11 are independently Closed with [retained verification and source identities](mp23-verification.md). F02 has passing local call-count evidence but still needs its retained status-caller regression. All other entries remain Open, Partial, or Verifying as shown.
 
 ## F20
 
-**Knative collection cannot orphan controller descendants** — P1; **Open**; owners EP-153 / EP-156.
+**Current disposition (2026-10-02):** Candidate repair has native evidence; status is Verifying pending independent product verification. Earlier Open/frozen statements below are dated observations. The old F15 exception is withdrawn from the work queue; preserve its proposal only as diagnostic history.
+
+**Knative collection cannot orphan controller descendants** — P1; **Verifying**; owners EP-153 / EP-156.
 
 **Native evidence:** Installed `4c4b667e` changes only Application B's history lifecycle, retires eleven exact incarnations without mutation, proves premature Service collection refuses without changing the head, then collects history separately. Review `b6886179d40d4618442997221cc02ca986f142ccdeef1661448cfca627765472` issues its conditional Service deletion once but stops ambiguous after 45.124 seconds. UID `80560c4d-6bd8-4fe4-9c55-e67620554924` remains terminating with finalizer `orphan`. k3s logs show garbage collection cannot orphan its Route/Configuration: Knative validation refuses missing `metadata.labels.serving.knative.dev/service`. Generation 752/sequence 673 keeps the original transaction, no claim/fence and nine retained B database incarnations. Source/neighbor rows and UIDs remain exact. [Evidence](mp23-native-bootstrap-results-2026-10-02/f15-receipt-only-restore-and-web-cleanup.json) also records the earlier helper guard failure/reconciliation.
 
@@ -65,7 +69,7 @@ F01 and F11 are independently Closed with [retained verification and source iden
 
 **New-review native agreement (2026-10-02):** [Installed `8a820ce8` now passes the bounded native proof](mp23-reviewed-controller-collection-proof.md#native-controller-and-recovery-agreement--2026-10-02) on a separate disposable ep150 Service. Three real-response mismatches were reproduced/fixed locally; all 1,064 CLI tests pass. All 75 APIs bind 17 descendants and 41 protected objects. Interruption after the accepted Background DELETE preserves the original transaction; pending resume correctly refuses while the Pod completes its normal 300-second grace, final resume converges without a duplicate DELETE, and terminal replay uses zero kubectl calls. All 125 original identities, both database rows and 27 original revisions remain exact. Frozen F15 head remains byte-identical; its cascade exception is neither authorized nor executed. This supplies native agreement for new reviews, not independent closure or native same-scope retained-database coverage.
 
-**Required verification:** Obtain explicit exception approval, recheck complete graph/head/data guards, finish the pending parent deletion and resume the original transaction without a second orphan delete. New supported Knative collection now has reviewed descendant authority and separate native preservation evidence; independently verify that evidence and its stated limits. A one-off old-transaction exception alone does not close the feature. Independent closure remains required.
+**Required verification (revised 2026-10-02):** Independently verify corrected reviewed descendant collection, accepted-response interruption, original-transaction recovery without duplicate DELETE, and retained-data preservation on the candidate. Retain the existing separate native proof and finish its missing same-scope retained-database assertion. Under [the operator disposition](mp23-prerelease-fixture-disposition.md), the old F15 transaction is retired from acceptance: its cascade exception, recovery and teardown are not closure requirements. This is a scope disposition of a development attempt, not successful recovery or independent closure of the product defect.
 
 **Recovery request validation:** Live server `v1.35.8+k3s1` accepts the exact UID/resourceVersion-bound Background DELETE with server-side `dryRun=All`; parent UID/resourceVersion/orphan finalizer and the head remain unchanged. The exception review records upstream custom-resource/generic-store sources and this dry-run. The request lets the API server adjust its GC finalizer; it excludes manual finalizer patches. Dry-run acceptance does not prove actual parent/descendant finalization, and no exception mutation has run.
 

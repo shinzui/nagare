@@ -277,9 +277,9 @@ replay made zero kubectl calls and left that head unchanged.
 
 ## Remaining acceptance
 
-The bounded new-review native assertion is complete. F20 remains Open for
-independent verification and disposition of its separately frozen old
-transaction. This is implementer-supplied proof on the declared controller
+The bounded new-review native assertion is complete. F20 is Verifying pending independent verification and the remaining native
+same-scope retained-data assertion. [The operator disposition](mp23-prerelease-fixture-disposition.md)
+retires the old F15 transaction from acceptance; its recovery is no longer required. This is implementer-supplied proof on the declared controller
 versions, with existing database neighbors preserved; it does not claim native
 same-scope retained-database coverage or an atomic graph deletion boundary.
 

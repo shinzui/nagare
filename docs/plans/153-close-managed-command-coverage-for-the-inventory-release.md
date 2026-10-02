@@ -92,6 +92,11 @@ provenance:
       at: 2026-10-02T14:57:48Z
       mode: "implement"
       note: "Implement Kubernetes effect boundary and assign local F20 recovery next"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-02T18:36:25Z
+      mode: "update"
+      note: "Remove retired prerelease fixture recovery and frozen candidate from acceptance; retain supported candidate proof"
 ---
 
 # Close managed command coverage for the inventory release
@@ -106,6 +111,8 @@ Every supported mutation command and shipped recipe is mapped to its owner, revi
 
 
 ## Progress
+
+**Current acceptance boundary (2026-10-02).** [The operator's prerelease fixture disposition](../audits/mp23-prerelease-fixture-disposition.md) supersedes historical freeze and old-transaction handoffs below. `f15-preview` is retired from acceptance; its recovery, cascade exception, failed-Job recovery and frozen operator do not gate this child or MP-23. Keep diagnostic evidence and existing regression coverage, but do not extend compatibility solely for obsolete development transactions. Verify supported recovery on the selected candidate. The safe-use review does not stop other supported implementation or release verification.
 
 - [x] (2026-10-02) Implement locally validated opt-in Knative descendant collection: distinct immutable review authority, complete metadata discovery, conditional Background DELETE and descendant-aware original-transaction recovery. Eleven new scenarios bring the focused suite to 25 tests in 3.79 seconds; all 1,042 CLI tests and both public Knative fixtures pass. [Proof and limits](../audits/mp23-reviewed-controller-collection-proof.md). Native agreement under EP-156 and F20 closure remain open.
 
@@ -234,6 +241,8 @@ The reviewed volume restore Job verifies the accepted receipt and archive hashes
 
 ## Decision Log
 
+2026-10-02 (operator correction): Apply the prerelease fixture disposition: old F15 recovery and its frozen candidate are not acceptance dependencies; retain supported candidate recovery proof and continue ready work through the former step-4 scheduling stop.
+
 2026-10-02: Separate reviewed controller deletion from field reconciliation and ordinary Orphan collection. Use explicit dynamic GC authority, narrow pure policy and the existing effect interpreter; retain native agreement and the non-atomic graph limitation. See ADR 22 and the reviewed collection proof.
 
 2026-10-02: Adopt the parent’s validated incremental interpreter direction; keep domain ownership and native proof obligations unchanged. The next shared boundary is collection/F20, with production logic retained above the test interpreter.
@@ -294,7 +303,7 @@ Keep interpreters at external request boundaries, beneath production renderers a
 
 The source now exposes `inventory collect --controller-descendants` for one retained Knative Service. `Collection/Authority.hs` owns pure graph policy, `Collection/Runtime.hs` owns complete guarded metadata discovery, and `Collection/Adapter.hs` reuses the ordinary adapter while adding explicit Background authority and descendant-aware verification/recovery. A distinct adapter identity prevents accidental old-adapter execution. The saved snapshot binds preflight evidence; the public grant explicitly includes later-created descendants and cannot promise an atomic exact UID set. Existing Orphan reviews are unchanged. See [the proof](../audits/mp23-reviewed-controller-collection-proof.md) for commands, coverage and observation limits.
 
-Next, consume EP-156’s bounded native agreement on the supported controller versions before accepting F20. Check complete discovery, real graph shape, actual GC, original-transaction resume and retained-data preservation; reproduce mismatches locally before another installed attempt. Preserve the frozen pending transaction and its separate exception approval. Do not expand this into general controller deletion or a Kubernetes emulator.
+Next, consume EP-156’s bounded native agreement on the supported controller versions before accepting F20. Check complete discovery, real graph shape, actual GC, original-transaction resume and retained-data preservation; reproduce mismatches locally before another installed attempt. The old F15 transaction is retired under the current disposition and is not an acceptance prerequisite. Do not expand this into general controller deletion or a Kubernetes emulator.
 
 ### First repair: replace the shared operation dispatch boundary
 
@@ -385,6 +394,8 @@ Completed EP-146/147/149/151 provide underlying contracts. [EP-152](152-complete
 
 
 ## Revision Notes
+
+2026-10-02: Remove retired prerelease fixture recovery from the critical path; preserve truthful diagnostics and supported candidate acceptance.
 
 2026-10-02: Complete the local reviewed-authority checkpoint and hand native agreement to EP-156 without amending the frozen transaction.
 

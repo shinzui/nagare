@@ -37,6 +37,11 @@ provenance:
       at: 2026-09-28T15:26:04Z
       mode: "implement"
       note: "Bind immutable coverage evidence to the authorized deferred route set"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-02T18:36:25Z
+      mode: "update"
+      note: "Remove retired prerelease fixture recovery and frozen candidate from acceptance; retain supported candidate proof"
 ---
 
 # Gate the inventory release on complete immutable evidence
@@ -51,6 +56,10 @@ The inventory release is accepted only when the complete candidate has working c
 
 
 ## Progress
+
+**Current acceptance boundary (2026-10-02).** [The operator's prerelease fixture disposition](../audits/mp23-prerelease-fixture-disposition.md) supersedes historical freeze and old-transaction handoffs below. `f15-preview` is retired from acceptance; its recovery, cascade exception, failed-Job recovery and frozen operator do not gate this child or MP-23. Keep diagnostic evidence and existing regression coverage, but do not extend compatibility solely for obsolete development transactions. Verify supported recovery on the selected candidate. The safe-use review does not stop other supported implementation or release verification.
+
+Final evidence must contain successful candidate-bound local/cloud scenarios. A retired attempt remains a diagnostic failure, never a successful receipt or substitute for missing recovery proof. Do not require every historical prerelease transaction to converge before assembly.
 
 2026-09-28 scope update: no milestone is newly accepted by this edit. Use the revised MP-23 support boundary; historical findings retain their observations but do not reinstate deferred live overwrite, maintenance, or scheduled-pruning requirements.
 
@@ -72,6 +81,8 @@ The previous one-run projector cannot stand in for both scenario modes. The earl
 
 
 ## Decision Log
+
+2026-10-02 (operator correction): Apply the prerelease fixture disposition: old F15 recovery and its frozen candidate are not acceptance dependencies; retain supported candidate recovery proof and continue ready work through the former step-4 scheduling stop.
 
 2026-09-28: Align with the operator-approved MP-23 reduction and ADR 22 amendment. Keep complete evidence for supported behavior and explicit guards/recovery compatibility for deferred routes. EP-161 is Cancelled and no longer a completion dependency; earlier full-feature decomposition instructions are superseded.
 
@@ -153,6 +164,8 @@ Completed EP-146/147/149/151 are implementation prerequisites. [EP-153](153-clos
 
 
 ## Revision Notes
+
+2026-10-02: Remove retired prerelease fixture recovery from the critical path; preserve truthful diagnostics and supported candidate acceptance.
 
 2026-09-28: Align current implementation and acceptance with the reduced MP-23 contract while preserving native evidence requirements and existing transaction recovery.
 

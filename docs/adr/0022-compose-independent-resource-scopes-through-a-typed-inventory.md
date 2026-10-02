@@ -15,7 +15,7 @@ related:
 
 ## Status
 
-Accepted as the architecture for MasterPlan 23 on 2026-09-16 following the operator's design discussion. Implementation is not yet complete; the existing command behavior remains as described in the earlier ADRs until its migration is verified. The 2026-09-28 amendment below is the current MP-23 release boundary and supersedes earlier blanket full-feature acceptance statements where explicitly narrowed.
+Accepted as the architecture for MasterPlan 23 on 2026-09-16 following the operator's design discussion. Implementation is not yet complete; the existing command behavior remains as described in the earlier ADRs until its migration is verified. The 2026-09-28 amendment defines the supported feature boundary; the 2026-10-02 prerelease-fixture amendment removes obsolete development-transaction compatibility obligations. Both supersede earlier requirements within their stated scope.
 
 ## Context
 
@@ -1113,3 +1113,30 @@ concurrent ownership protection would require a different protocol. The public
 summary must disclose the dynamic descendant scope. See the [contract and local
 proof](../audits/mp23-reviewed-controller-collection-proof.md) for native acceptance
 obligations and compatibility boundaries; local simulation does not close them.
+
+
+## Amendment — 2026-10-02: disposable prerelease fixtures are not compatibility commitments
+
+Nagare has no deployed users at this boundary. Its first inventory release starts
+with fresh contexts, and completing it is required for production provisioning.
+Recovery guarantees apply to supported operations on the accepted candidate;
+they do not imply indefinite preservation or cross-version migration of every
+failed development transaction.
+
+A failed prerelease fixture may be retired from acceptance with its failure,
+review, journal and observed identities retained as diagnostic evidence. This
+administrative disposition must not rewrite an unresolved transaction as
+converged, clear history beneath live partial effects, or count disposal as a
+successful managed operation. Retired resources require scoped teardown based
+on actual ownership, but their repair and continued live preservation are not
+release prerequisites. In particular, MP-23 retires the old F15 Orphan deletion
+instead of extending the product to rescue that review; [the disposition](../audits/mp23-prerelease-fixture-disposition.md)
+records the exact boundary and cleanup owner.
+
+Keep existing recovery regression coverage and demonstrate interruption,
+fresh-process recovery, no duplicate completed effects, exact reviewed authority
+and retained-data preservation on the candidate. Do not add compatibility code
+or a generalized abandonment mechanism solely to rehabilitate development
+fixtures. Candidate-bound native/local/cloud evidence and supported feature
+acceptance remain mandatory. This exception for unused prerelease environments
+is not a policy for discarding production transactions or user data.

@@ -1,25 +1,28 @@
 # Operate and recover a reviewed inventory
 
-This runbook covers an inventory-admitted context. Its command interfaces and
-retained-cloud measurements are established; the operator's complete run on the
-fresh `f15-preview` context is still pending. That run must verify findings
-[F14–F18](../audits/mp23-findings.md) before safe-use acceptance. Bootstrap success
-alone does not establish that gate.
+This runbook covers an inventory-admitted context. Complete its operational
+checks against the selected release candidate and an eligible disposable context;
+record F14–F18 verification before safe-use acceptance. Bootstrap alone does not
+establish that gate. Other supported implementation and release work continues
+while that review is pending.
 
-The current frozen operator is `4c4b667e867b0ed1a732fe9a0839f4a09bfa0f5c`.
-Use `result-mp23-4c4b667e/bin/nagarectl` from the repository and check
-`version --json` before a provider command. Preserve admitted payload
-`nagare-0.4.0-d73c1dc4d379`; the operator revision is separate from that payload.
-The original private root is `/tmp/nagare-mp23-fresh-credentials-20260930`;
-the recovered second root is `/tmp/nagare-mp23-f15-second-root-71288437`.
-Neither root is a substitute for shared GCS history.
+**Prerelease fixture disposition — 2026-10-02.** `f15-preview` and operator
+`4c4b667e` are retired from acceptance under [the operator decision](../audits/mp23-prerelease-fixture-disposition.md).
+Do not use that context for production, resume its old transaction, wait for its
+cascade exception, or keep its binary installed as a completion prerequisite.
+The recorded private roots and failed review remain diagnostic evidence.
+Installed `8a820ce8` has the latest bounded native controller proof in
+`ep150-preview`; this does not establish full release acceptance. Select the
+actual candidate and verify its version, context, payload and history bindings
+before native work.
 
 ## Select the private context
 
 Use the installed candidate and the context's private configuration, state and
 cache roots. Set `CONTEXT`, `PROJECT`, `GCLOUD_CONFIGURATION` and `OPERATOR_ROOT`
-to the intended fixture. For the current fresh rehearsal these are `f15-preview`,
-`tan-ng-labs`, `labs`, and the retained private rehearsal root.
+to the selected eligible fixture and its actual private root. Prefer the existing
+`ep150-preview` fixture where its accepted inputs fit the assertion; confirm its
+current state rather than reusing a historical head value.
 
 ```bash
 export XDG_CONFIG_HOME="$OPERATOR_ROOT/config"
@@ -46,31 +49,18 @@ node and left generation 479/sequence 458 unchanged. Do not copy a migration
 marker or edit shared history to make discovery succeed. Use the actual NixOS/k3s
 host; this runbook never selects a GKE cluster.
 
-Before an expensive native command on the frozen `f15-preview` fixture, bind
-the CLI to the **accepted payload workspace**, not the changing source checkout
-or the CLI wrapper's newer default payload. The preflight validates the actual
-workspace assets locally, the executable revision, and the exact idle GCS head.
-It takes about five seconds on this fixture and performs no provider mutation.
-Run it again with the next review's accepted head generation and digest after
-each completed transaction; do not replace those expected values with whatever
-the current store happens to report.
+Before an expensive native command, bind the CLI to the context's accepted
+payload workspace and the selected candidate's exact revision. Use
+`scripts/inventory-candidate-preflight.sh` with the reviewed workspace digest,
+payload identity and expected idle head generation/digest. Derive these from the
+selected context's accepted evidence, not from the retired F15 example or a
+changing source checkout. An unresolved active transaction requires that
+context's supported recovery; do not overwrite expected values merely to pass
+preflight. The retired F15 context is excluded from this workflow.
 
-```bash
-export NAGARE_PLATFORM_ROOT="$XDG_STATE_HOME/nagare/$CONTEXT/platform/nagare-0.4.0-d73c1dc4d379-550cec502a657ad7"
-scripts/inventory-candidate-preflight.sh \
-  ./result-mp23-4c4b667e/bin/nagarectl "$NAGARE_PLATFORM_ROOT" \
-  f15-preview tan-ng-labs 4c4b667e867b0ed1a732fe9a0839f4a09bfa0f5c \
-  nagare-0.4.0-d73c1dc4d379 \
-  550cec502a657ad7131343046c27ea4160b8282a4b50c0f0e8755b728f5be1bd \
-  722 6ad148e41d8946716fe9289f5f22a6c503c30a37f651e26a3b6cb39344597158
-```
-
-The exact command above passed at idle generation 722 before the receipt-only
-restore. It is a historical checkpoint and must refuse against the current
-active generation 752. Do not replace its expected head with an observed value
-to bypass that refusal. The current recovery checkpoint below is authoritative. The
-preflight does not replace saved-review, operation-count, native UID, or
-neighbor-revision checks before an apply.
+The preflight does not replace saved-review, operation-count, native-identity or
+neighbor-revision checks before apply. It is a read-only check, not authority to
+reuse another fixture's review.
 
 ## Apply a saved review
 
@@ -195,7 +185,7 @@ uses candidate `2101b834` on `ep150-preview`, preserving payload `6082dbd6`.
 | Explicit takeover and original backup resume | 23.858 s |
 | Save the two-operation backup review | 24.804 s |
 
-The current frozen operator on fresh `f15-preview` also measures manual backup
+The historical `4c4b667e` run on now-retired `f15-preview` measured manual backup
 planning at 20.019 seconds and apply at 79.941 seconds, isolated restore planning
 at 20.992 seconds and apply at 36.096 seconds, foreign executor refusal at
 14.090 seconds, and second-root explicit takeover/resume at 24.243 seconds.
@@ -243,10 +233,9 @@ Release-history ConfigMaps keep their web dependency edges. A saved policy
 review can change a legacy stateless history member to `DeleteWhenUnreferenced`;
 retirement retains objects, and a separate history collection must precede
 Service collection. Application B's exact history collection is accepted, and
-its nine database members remain retained. Knative Service collection is still
-unaccepted: `Orphan` propagation leaves a terminating Service because the
-Knative webhook rejects orphaned Route/Configuration objects. Never treat that
-pending parent deletion as a collection tombstone. Eligible completed Job
+its nine database members remain retained. The retired F15 Orphan review left a terminating Service because the Knative
+webhook rejected orphaned Route/Configuration objects. Its record remains a
+failure; current collection uses explicitly reviewed descendant authority below. Eligible completed Job
 collection remains accepted and preserves source data.
 New custom interactive mutating maintenance and generalized scheduled pruning remain unavailable. Existing
 admitted historical operations retain their evidence-bound recovery paths.
@@ -256,12 +245,12 @@ installed reviewed access, exact rehearsal cleanup and the operator's F14–F18
 run. Full release acceptance additionally requires the remaining native-system,
 feature and immutable-evidence gates in [MasterPlan 23](../masterplans/23-make-managed-resources-first-class-through-typed-scoped-inventories.md).
 
-## New controller collection reviews — source candidate
+## Reviewed controller collection
 
-The source candidate adds explicit descendant authority for future Knative Service
-collection. It has passed local interpreter and public CLI fixtures; native
-controller agreement is still pending. This option is unavailable on the frozen
-operator above and cannot amend its already-issued review.
+Explicit descendant authority for Knative Service collection has local interpreter,
+public CLI and bounded native proof on installed `8a820ce8`. Independent F20
+verification and native same-scope retained-data coverage remain. The option
+cannot amend an already-issued Orphan review.
 
 After normal dependency checks and retirement, prepare a separate review for one
 eligible Service:
@@ -283,50 +272,26 @@ transaction: completion also checks recorded descendants, observed new reachable
 children and protected inventory identities. Do not issue a replacement review or
 repeat DELETE to accelerate finalization. See the [proof and limitations](../audits/mp23-reviewed-controller-collection-proof.md).
 
-## Current recovery checkpoint — 2026-10-02
+## Retired prerelease checkpoint — not a recovery task
 
-Shared generation 752/sequence 673, digest
-`28b5d60e438d80d7d8e9e4cf3b1156f4ed64637d772d73513e8baff864e7dc48`, keeps
-transaction `tx-b6886179d40d4618442997221cc02ca986f142ccdeef1661448cfca627765472`
-active at operation `op-396d4879c0759fe3f69b9852`, without claim, fence or migration.
-The original Knative Service UID `80560c4d-6bd8-4fe4-9c55-e67620554924` remains
-terminating with `orphan`; its retained entry is authoritative. Stop new
-reviews, admission and blind resume. [F20](../audits/mp23-findings.md#f20) owns
-the missing collection contract.
+The [fixture disposition](../audits/mp23-prerelease-fixture-disposition.md) records
+F15 generation 752/sequence 673 and its unresolved transaction. Its exception
+proposal is withdrawn from execution. No successful recovery, finalizer change,
+history reset or physical teardown is claimed. EP-156 owns non-blocking scoped
+teardown after checking actual ownership and preserving private diagnostics.
+These resources do not have to be recovered to complete this runbook elsewhere.
 
-[The exception proposal](../audits/mp23-native-bootstrap-results-2026-10-02/f15-knative-collection-exception-review.json)
-records the parent UID/resourceVersion, sixteen controller descendants observed
-across all listable namespace APIs and nine protected database incarnation UIDs.
-It requests Background propagation instead of the original Orphan boundary;
-that change can collect descendants, and the accepted Service declares no
-controller delegation. Obtain explicit operator approval before broadening the
-issued effect. Recheck every recorded guard immediately before any approved
-forward recovery, then resume the original transaction only after exact parent
-absence. No exception effect or finalizer patch has run. A one-off exception
-does not establish future supported Knative collection. Kubernetes documents
-[background cascading deletion](https://kubernetes.io/docs/concepts/architecture/garbage-collection/)
-and [finalizer handling](https://kubernetes.io/docs/concepts/overview/working-with-objects/finalizers/).
-
-The live server is `v1.35.8+k3s1`. Its UID/resourceVersion-bound Background DELETE
-passed server-side dry-run with `dryRun=All` in both the body and URL; the parent
-resourceVersion/finalizer and inventory head remained unchanged. This validates
-request acceptance, not actual finalization. The upstream
-[custom-resource storage strategy](https://github.com/kubernetes/kubernetes/blob/v1.35.8/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/etcd.go)
-uses the generic store without a graceful-delete strategy; its
-[GC deletion path](https://github.com/kubernetes/kubernetes/blob/v1.35.8/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go)
-can replace the GC policy through DeleteOptions here. An approved request would
-let the API server adjust its GC finalizer as part of normal deletion; manual
-finalizer edits remain excluded. Recheck observations after the request and stop
-on any new controller/admission failure without inventing another effect.
-
-Installed proof establishes reviewed application/configuration isolation and
+Installed historical proof establishes application/configuration isolation,
 HTTP access/grant/revoke recovery, shared-history resume/takeover and credential
 recovery, verified GCS manual receipts and Job-free isolated PostgreSQL restore,
-and exact completed-Job/history collection. Web cleanup, protected HTTPS/browser
-login, separate failed-Job recovery and the operator's end-to-end F14–F18 check
-remain open. General live overwrite/promotion, custom interactive mutating
-maintenance, generalized scheduled pruning and admitted-context platform upgrades
-remain deferred. Remaining engine/volume/CDN/command/native-system/release gates
-retain their existing requirements. MP-23 steps 3/4 are incomplete and step 5
-has not started. Independent tracker closure remains open for F02–F10 and
-F12–F20.
+and completed-Job/history collection. The corrected candidate also has bounded
+native controller collection and interruption/recovery proof. Reuse evidence
+only where its candidate and input bindings remain applicable.
+
+Finish candidate-bound retained-data collection coverage, protected HTTPS/browser
+support disposition, and the operator's F14–F18 check. Remaining
+engine/volume/CDN/command/native-system/release requirements remain. General live
+overwrite/promotion, custom interactive mutating maintenance, generalized
+scheduled pruning and admitted-context platform upgrades stay deferred.
+Safe-use acceptance is pending; remaining implementation continues through
+steps 5–6 without waiting for recovery of the retired fixture.
