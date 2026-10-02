@@ -45,6 +45,15 @@ library
     Nagare.Inventory.Application.Tasks
     Nagare.Inventory.Application.Types
     Nagare.Inventory.Application.Worker
+    Nagare.Inventory.Plan.Changes
+    Nagare.Inventory.Plan.History
+    Nagare.Inventory.Plan.Lifecycle
+    Nagare.Inventory.Plan.MigrationObservation
+    Nagare.Inventory.Plan.Observation
+    Nagare.Inventory.Plan.Prepare
+    Nagare.Inventory.Plan.Publication
+    Nagare.Inventory.Plan.Types
+    Nagare.Inventory.Plan.Validation
     Paths_nagarectl
 
   exposed-modules:

@@ -19,3 +19,19 @@ These modules compile pure declarations and private native bytes. They do not
 perform provider effects. Constructors such as `DatabaseBinding` remain opaque
 at the public API. Workload modules share lower-level helpers rather than
 calling back into the complete application composer.
+
+## Planning and reviews
+
+`Plan` preserves the public opaque `InventoryHistory`, `LifecycleDecisions`,
+`ChangeProposal`, `ReviewBundle` and `ReviewedPlan` interfaces. `Plan.Types` is
+private and owns their representations and stable wire encodings. `History`
+loads accepted/retained state and exceptional stopped-application evidence.
+`Observation`, `Lifecycle` and `Changes` compute pure requirements, validate
+operator decisions and select operations. `MigrationObservation` performs the
+explicit paired provider observation. `Prepare` captures private adapter
+evidence; `Validation` checks review authority; `Publication` reads and writes
+immutable bundles.
+
+Pure planning modules must not import history loading, preparation or publication.
+Persistence must not duplicate planning decisions. Public facades retain explicit
+exports so moving an internal definition never exposes its constructor.
