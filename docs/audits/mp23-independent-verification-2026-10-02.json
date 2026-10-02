@@ -90,6 +90,50 @@
     "docs/audits/mp23-independent-results-2026-10-02/fresh-login.txt": "88ab6f96a67b37ee58a5e7d61da8798f7212a2156ca79666896e4f42d51b10a5",
     "docs/audits/mp23-independent-results-2026-10-02/key-recovery.txt": "973eb3c0fc113ed45760fecae1ee4646b57d81f096fc385f088dfc52aa6b66c1",
     "docs/audits/mp23-independent-results-2026-10-02/object-tests.txt": "a1587e5f08b81e24a9475f295d6e4fe50afaa8c9550f17550afa1010fbbd8e1b",
-    "docs/audits/mp23-independent-results-2026-10-02/observation-tests.txt": "f2e4d08a00d2f457a83f12d09d27602744015634c1b50138f2e1c154322da11d"
+    "docs/audits/mp23-independent-results-2026-10-02/observation-tests.txt": "f2e4d08a00d2f457a83f12d09d27602744015634c1b50138f2e1c154322da11d",
+    "docs/audits/mp23-independent-results-2026-10-02/local-platform-candidate-a027d1f6.json": "89e0c61e788045f86c4705fd3590dae02f2faeb0e72258f5610b031fcb1867d1",
+    "docs/audits/mp23-independent-results-2026-10-02/scheduled-gcs-tests.txt": "dc403d005d98cdb2d6c8964a28b8aa4a482d2b2b0075f70e040891e558a3aa9d",
+    "docs/audits/mp23-independent-results-2026-10-02/scheduled-gcs-ingestion-a027d1f6.json": "1f60c7fb6e2f0489cc7010fcc324cefda6988e3be2f62f5147eee9f6f8ef5610",
+    "docs/audits/mp23-independent-results-2026-10-02/public-cdn-disable.txt": "46c8dadd22a87a3b6635a03a90894e9a5a95560782a01d08fb90591bbd36be28"
+  },
+  "scheduledGcsReview": {
+    "candidate": "a027d1f632d50ee4cf853127e7932ab94c09aaf1",
+    "tests": 2,
+    "seconds": 1.18,
+    "testBinarySha256": "86665ca90b33909e210a503d8604e2f0b074ce7308e49978fa0b4125ce693ffd",
+    "nativeObjectsList": {
+      "command": "gcloud --project <fixture-project> storage objects list gs://<accepted-backup-bucket>/databases/<database>/** --format=json --raw",
+      "existingObjects": 4,
+      "existingExit": 0,
+      "emptyObjects": 0,
+      "emptyExit": 0,
+      "shape": "array of flat GCS metadata; updated timestamp and decimal string generation",
+      "mutations": 0
+    },
+    "findingsClosed": [
+      "replace full native history load with selected four-ID load",
+      "replace storage ls empty-prefix failure with objects list empty array"
+    ],
+    "nativeTimestampFinding": {
+      "observedUpdated": "2026-10-02T03:17:15.502000+00:00",
+      "candidateRefusal": "scheduled GCS object has an invalid timestamp",
+      "listingSeconds": 7.741,
+      "correctedSourceAwaitingInstalledGate": true
+    },
+    "nativeIngestionProof": "mp23-independent-results-2026-10-02/scheduled-gcs-ingestion-a027d1f6.json"
+  },
+  "installedLocalGate": "mp23-independent-results-2026-10-02/local-platform-candidate-a027d1f6.json",
+  "publicCdnDisable": {
+    "binarySha256": "b26b5885b5a0e94c46191f725ee08b16ddf37bebbaf32ad1edd12242a882d6d7",
+    "reviewSha256": "4cd5fe0cd6a5733777041a00fa56d8b4ad712925f20c4cbdbc445892751ada89",
+    "providerBoundary": "strict read-only recording executables",
+    "outcome": "one reviewed DNS origin update; contribution observed; exact accepted history preserved; unowned host refused",
+    "liveProviderMutation": false,
+    "sourceHashes": {
+      "cli/nagarectl/app/Nagare/Cli/Commands/Cdn.hs": "fbb2b36fea7fbe808f590b5d0a899262742a8732d068f44e514c8e2db195a8f2",
+      "cli/nagarectl/app/Nagare/Cli/Inventory/Adapters.hs": "76ec39b8fd17a9ee55ceb745bdd44378a7e279abc713f5c90bbaa9dc29a24a3d",
+      "scripts/fixtures/CdnDisablePublicFixture.hs": "a37fd15aa22409c4704c91c3563d9466e837b939a793955d2cc473a5fbd90521",
+      "scripts/test-cdn-disable-public.py": "d00dfd8d6141b446c01437c3d67c6c74a38dd95bac11bed89974b8c31d64cc0c"
+    }
   }
 }

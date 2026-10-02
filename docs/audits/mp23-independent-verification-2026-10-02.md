@@ -95,6 +95,64 @@ remaining Helm-native verification visible.
 This bounded installed proof does not assert final release-candidate acceptance,
 source-cluster-loss recovery, HTTPS or the other engine/volume gates.
 
+## Scheduled GCS and installed candidate gate
+
+Independent review found two integration defects in the first scheduled GCS
+increment: the command loaded all accepted native objects before selecting four
+source IDs, and `gcloud storage ls --json` returned exit 1 for an unused prefix.
+Both were corrected before candidate `a027d1f6`. Read-only native execution of
+`gcloud storage objects list --format=json --raw` proves four existing entries
+as flat GCS metadata and an empty array with exit 0 for an unused literal prefix.
+The timestamp field is `updated`; generation remains a decimal string.
+
+The independent existing test runner passes both scheduled GCS regressions in
+1.18 seconds, including exact-generation reads and refusals for changed bytes,
+foreign identity and invalid signatures. Subsequent installed native execution
+found a missing provider timestamp case: raw metadata uses
+`2026-10-02T03:17:15.502000+00:00`, while the parser only accepted a trailing `Z`.
+The list command refused in 7.741 seconds without mutation. The existing exact-ID
+ingestion preflight passes independently in 32.934 seconds, with one new scope
+and exactly its CreateResource and RunDeclaredOperation. The scheduled GCS
+restore command also still explicitly refuses that backend at this checkpoint.
+Both provider boundaries are under correction; cloud ingestion, freshness and
+source-cluster-loss recovery remain separate acceptance assertions.
+
+The installed [scheduled ingestion proof](mp23-independent-results-2026-10-02/scheduled-gcs-ingestion-a027d1f6.json)
+now passes with the original scheduled producer Job and Pod absent. After the
+signed preflight, an exact UID/resourceVersion conditional deletion removes only
+that completed CronJob child and its one Succeeded Pod, simulating normal Job
+history cleanup. Inventory history and stored objects remain unchanged. The
+public ingestion plan then returns the identical review digest in 37.309 seconds,
+with zero reads of the removed producer; apply completes in 47.717 seconds.
+The new ingestion Job succeeds after exact-generation downloads and signature
+checks. Generation 775/sequence 659 is idle, all 26 earlier scope revisions are
+exact, and both database rows and existing source/neighbor UIDs remain unchanged.
+This proves signed receipt ingestion after producer cleanup; the listing and
+isolated scheduled restore assertions await the corrected installed candidate.
+
+Installed revision `a027d1f632d50ee4cf853127e7932ab94c09aaf1` independently passes
+the [local candidate gate](mp23-independent-results-2026-10-02/local-platform-candidate-a027d1f6.json)
+on the sole running Colima profile `nagare-mp23-cp3`. The real public bootstrap
+plan takes 37.686 seconds and its apply takes 48.162 seconds. The review contains
+213 VerifyResource operations, zero provider mutations and no lifecycle or
+migration barriers. All nineteen accepted scope content digests remain exact;
+generation 5186/sequence 5155 is idle with accepted equal to converged and all
+37 Pods Ready or Succeeded. The preserved payload is `705716b7`, so this is an
+installed CLI gate on an accepted platform, not fresh candidate-payload bootstrap.
+
+The independent contribution-bearing public CDN-disable regression uncovered a
+second integration boundary after native contribution overlap was fixed: the
+runtime DNS guard required the desired target to equal the CDN IP even when
+reviewed disable selected the origin IP. Both corrections now pass the actual
+public CLI path in `scripts/test-cdn-disable-public.py`. A typed accepted
+application grants and contributes its namespace, the planner observes that
+generated object, and the saved review contains exactly one DNS update from
+the CDN IP to the origin IP. All other application declaration fields and the
+platform revision remain exact. The accepted head and original scope bytes are
+unchanged; an unowned hostname refuses. Providers are strict read-only recording
+processes, so this closes the command-integration defects without asserting live
+CDN mutation or provider acceptance.
+
 ## Work in progress and limits
 
 The source observer-test attempt overlapped another contributor's build and

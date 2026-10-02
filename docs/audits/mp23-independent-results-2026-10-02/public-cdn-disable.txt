@@ -1,0 +1,5 @@
+Artifacts: /var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/mp23-cdn-disable-public-za1y9srt
+Resolving dependencies...
+{"host": "www.example.test", "exit": 0, "stdout": "4cd5fe0cd6a5733777041a00fa56d8b4ad712925f20c4cbdbc445892751ada89\n", "stderr": ""}
+{"host": "unowned.example.test", "exit": 1, "stdout": "", "stderr": "nagarectl: CDN disable requires exactly one accepted workload DNS owner; platform/apex and foreign hosts refuse\n"}
+Public CDN-disable contribution regression passed: one DNS update, generated namespace observed, accepted history unchanged, unowned host refused.

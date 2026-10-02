@@ -1,0 +1,32 @@
+{
+  "candidate": "a027d1f632d50ee4cf853127e7932ab94c09aaf1",
+  "context": "ep150-preview",
+  "project": "tan-ng-labs",
+  "producerUid": "03bc9475-5098-4d45-a9ae-15c4ba18fdee",
+  "receiptJobUid": "bace389d-c945-46e5-af7a-da5b71497265",
+  "receiptJobName": "nagare-receipt-d04a282ad83b15219478175ee3fa649505f828d8",
+  "receiptPodUid": "adc058d0-7837-4dc5-8555-95100fbce27b",
+  "receiptJobComplete": true,
+  "producerAndPodAbsentBeforePlan": true,
+  "originalProducerJobReads": 0,
+  "reviewSha256": "18683992d6cae07e7eb908b9b2c2475530f45f79944589372279e94ff9ff3a5d",
+  "planSeconds": 37.309,
+  "applySeconds": 47.717,
+  "unchangedNeighborScopeCount": 26,
+  "acceptedScopeCount": 27,
+  "head": {
+    "generation": 775,
+    "sequence": 659,
+    "activeTransaction": null,
+    "executorClaim": null
+  },
+  "rows": {
+    "mp23-pg-a": "1|mp23-after-backup",
+    "mp23-pg-b": "1|mp23-untouched-app-b"
+  },
+  "existingSourceAndNeighborObjectUidsPreserved": true,
+  "generationBoundGcsDownloads": 4,
+  "scheduledListingAccepted": false,
+  "scheduledRestoreAccepted": false,
+  "rpoAccepted": false
+}

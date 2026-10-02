@@ -1,0 +1,34 @@
+{
+  "operatorRevision": "a027d1f632d50ee4cf853127e7932ab94c09aaf1",
+  "system": "aarch64-darwin",
+  "colimaProfile": "nagare-mp23-cp3",
+  "acceptedPayloadPreserved": "nagare-0.4.0-705716b7bdb7",
+  "gate": "installed public local platform bootstrap plan/apply on retained accepted cluster",
+  "reviewDigest": "b26beed1496a0304f2010277b5314969718f4beee5bca2f62e7d1142f62fcba0",
+  "operations": 213,
+  "actions": [
+    "VerifyResource"
+  ],
+  "providerMutations": 0,
+  "planSeconds": 37.686,
+  "applySeconds": 48.162,
+  "acceptedScopeContentDigestsUnchanged": true,
+  "head": {
+    "generation": 5186,
+    "sequence": 5155,
+    "activeTransaction": null,
+    "executorClaim": null
+  },
+  "acceptedScopeCount": 19,
+  "convergedScopeCount": 19,
+  "podsReadyOrSucceeded": 37,
+  "reviewer": "independent gpt-6-astra agent",
+  "freshCandidatePayloadBootstrap": false,
+  "cloudCandidateUsePermitted": true,
+  "safeUseAccepted": false,
+  "beforeHead": {
+    "generation": 4756,
+    "sequence": 4727
+  },
+  "verifierSession": "01a0fdf4-974a-7d50-a153-f08d0fd5a721"
+}

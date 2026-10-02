@@ -1,0 +1,7 @@
+nagarectl
+  Nagare.Database.Backup/Restore (EP-47)
+    Job / CronJob renderers
+      scheduled GCS listing validates complete provider identities:                       OK
+      scheduled GCS ingestion executes fixed-generation checks and rejects changed bytes: OK (1.17s)
+
+All 2 tests passed (1.18s)
