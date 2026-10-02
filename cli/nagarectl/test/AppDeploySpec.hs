@@ -7,6 +7,7 @@
 -- the nagare-dsl loader tests do).
 module AppDeploySpec (appDeployTests) where
 
+import AppDeployPhaseSpec (phaseTests)
 import Control.Monad (forM_)
 import Control.Exception (finally)
 import Data.Aeson qualified as Aeson
@@ -86,7 +87,7 @@ appDeployTests =
     , testCase "disposable database StatefulSet restart uses the reviewed native adapter" nativeDataRestartReview
     , testCase "disposable application review resumes from saved native members" nativeApplicationReview
     , testCase "reviewed command publishes and applies its immutable review" commandReview
-    , testGroup "rollout phases (M2)" phaseTests
+    , testGroup "rollout phases (M2)" (phaseTests fixturePath)
     , testGroup "machine-readable plan (M3)" planTests
     , testGroup "remediation guardrails (EP-6)" remediationTests
     ]
@@ -2368,44 +2369,6 @@ renderTests =
           forM_ svcBytes $ \bs -> do
             assertBool "is a Knative Service" (BS.isInfixOf "kind: Service" bs)
             assertBool "named kizashi-serve" (BS.isInfixOf "name: kizashi-serve" bs)
-  ]
-
-phaseTests :: [TestTree]
-phaseTests =
-  [ testCase "planPhases is hooks, databases, service, workers" $ do
-      result <- loadApplication fixturePath
-      case result of
-        Left err -> assertFailure ("loadApplication returned Left: " <> show err)
-        Right app ->
-          map phaseTag (planPhases app) @?= ["hook", "database", "service", "worker"]
-  , testCase "a failed hook aborts before any later phase runs" $ do
-      ran <- newIORef ([] :: [Text])
-      let phases =
-            [ PhaseHooks []
-            , PhaseDatabases []
-            , PhaseWorkers []
-            ]
-          exec p = do
-            modifyIORef' ran (<> [phaseTag p])
-            pure $ case p of
-              PhaseHooks _ -> PhaseFailed "migration failed"
-              _ -> PhaseOk
-      result <- runPhases exec phases
-      order <- readIORef ran
-      result @?= PhaseFailed "migration failed"
-      -- only the hook phase ran; databases/workers were never invoked.
-      order @?= ["hook"]
-  , testCase "all phases run in order when each succeeds" $ do
-      result <- loadApplication fixturePath
-      case result of
-        Left err -> assertFailure ("loadApplication returned Left: " <> show err)
-        Right app -> do
-          ran <- newIORef ([] :: [Text])
-          let exec p = modifyIORef' ran (<> [phaseTag p]) >> pure PhaseOk
-          r <- runPhases exec (planPhases app)
-          order <- readIORef ran
-          r @?= PhaseOk
-          order @?= ["hook", "database", "service", "worker"]
   ]
 
 planTests :: [TestTree]

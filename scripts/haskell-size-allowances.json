@@ -6,7 +6,6 @@
   "cli/nagarectl/src/Nagare/Target.hs": 1038,
   "cli/nagarectl/test/AppDeploySpec.hs": 2491,
   "cli/nagarectl/test/DataFenceSpec.hs": 3266,
-  "cli/nagarectl/test/InventoryCdnSpec.hs": 1091,
   "cli/nagarectl/test/InventoryKubernetesSpec.hs": 3851,
   "cli/nagarectl/test/InventoryTransactionSpec.hs": 2763,
   "cli/nagare-access/test/Spec.hs": 1852

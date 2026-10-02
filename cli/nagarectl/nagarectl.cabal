@@ -149,6 +149,7 @@ library
     Nagare.Inventory.ReleaseEvidence
     Nagare.Inventory.BackendMap
     Nagare.Inventory.Backup
+    Nagare.Inventory.BackupReceipt
     Nagare.Inventory.BackupFreshness
     Nagare.Inventory.Bootstrap
     Nagare.Inventory.BootstrapRegistryRecovery
@@ -440,6 +441,7 @@ test-suite nagarectl-test
     AccessGrantsSpec
     AccessResolveSpec
     AppDeploySpec
+    AppDeployPhaseSpec
     CertificateMigrationSpec
     DataFenceSpec
     DomainBindingSpec
@@ -450,6 +452,7 @@ test-suite nagarectl-test
     InventoryAuthSpec
     InventoryCacheSpec
     InventoryCdnSpec
+    InventoryCloudflareSpec
     InventoryCloudSpec
     InventoryControllerCollectionSpec
     InventoryEffectfulCollectionSpec
@@ -460,6 +463,8 @@ test-suite nagarectl-test
     InventoryHostSpec
     InventoryIntegrationSpec
     InventoryKubernetesSpec
+    InventoryKubernetesLifecycleSpec
+    Nagare.Test.Support.Kubernetes
     InventoryLifecycleSpec
     InventoryMaintenanceSpec
     InventoryMigrationSpec
