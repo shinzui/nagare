@@ -13,14 +13,15 @@ generated:
 
 > **Status:** 🟡 In progress (EP-3)
 >
-> Every host switch goes through `just host-switch`, which reverts itself unless a
+> Every inventory-managed host switch starts with `nagarectl host plan` and applies
+> through `just host-switch REVIEW_DIR`, which reverts itself unless a
 > fresh SSH login proves you still have access (ExecPlan 115,
 > [ADR 11](../adr/0011-host-activation-is-guarded-and-self-reverting.md)).
 
 Once a host is booted, you do **not** rebuild the image and recreate the VM
 for ordinary config changes. Operator inputs live in the context-owned generated flake; reusable
 platform behavior remains in Nagare's packaged NixOS modules. Push the selected configuration
-to the running host with `just host-switch`. The image build pipeline is
+to the running host with a saved host review. The image build pipeline is
 only for the *initial* boot (or a deliberate from-scratch rebuild).
 
 Keep the three host identities distinct. `NAGARE_INSTANCE_NAME` names the GCE VM for Google Cloud
@@ -44,17 +45,49 @@ source SHA-256 and token expiry on the Secret, and updates only those two
 namespaces. It patches only `default` ServiceAccount's registry pull reference;
 other pull references or a conflicting owner annotation cause refusal.
 
-Regenerate operator inputs with `nagarectl host init --force`, or edit the relevant reusable module
-under `nixos/` when contributing platform behavior, then:
+Edit the operator inputs in the context-owned `host.nix`, preserving the accepted
+`flake.nix` and `flake.lock`, then:
 
 ```bash
-just host-switch
-scripts/host-switch.sh --dry-run        # inspect the flake, attribute, target, key file, window
-scripts/host-switch.sh --build-on-host  # build on the host instead of the workstation
+nagarectl host plan --save-plan /private/reviews/host-change
+nagarectl host apply /private/reviews/host-change --yes
+# Equivalent application:
+just host-switch /private/reviews/host-change
+scripts/host-switch.sh --dry-run
 ```
 
+Keep the accepted `flake.lock` unchanged: this command reconciles operator inputs
+within the selected payload. It refuses dependency re-pinning; admitted-context
+platform upgrades remain unavailable. If accepted host intent binds an age key and
+you change the configuration, supply `--age-key-file /secure/host.agekey` when
+planning. Set `NAGARE_HOST_AGE_KEY_FILE` to that same file for apply or resume.
+Reviews contain its digest, never its private bytes. Unchanged reviews can verify
+an already healthy host without reopening the private key file.
+
+For credential placement or replacement, retain both keys privately until the
+new encrypted secrets work, then save a separate explicit review:
+
+```bash
+nagarectl host place-age-key --key-file /secure/host.agekey --save-plan /private/reviews/host-key
+# To replace a different installed key, add --force to the planning command.
+NAGARE_HOST_AGE_KEY_FILE=/secure/host.agekey nagarectl host apply /private/reviews/host-key --yes
+```
+
+Replacement binds the exact observed old key digest. The transport checks it again
+before streaming, activates the secret services, and records a private receipt
+bound to the saved plan. An explicit credential review still requires this receipt
+when the desired key already exists after a failed prior operation. An old healthy Tailnet connection cannot certify a failed
+secret activation. Resume can retry activation with the already written new key
+without rewriting it; a different installed key refuses. The value check is not
+an atomic compare-and-swap against unrelated root writers. Avoid concurrent manual
+key changes during the reviewed operation. A failed key write remains unresolved;
+keep both private source files for explicit recovery.
+
+The no-argument recipe and direct `host-switch.sh` mutation are compatibility paths
+only before inventory admission. The script's `--dry-run` remains read-only.
+
 Never activate a configuration on a Nagare host any other way (no direct `nixos-rebuild`
-activation, no `switch-to-configuration`). `just host-switch` does the following, in order:
+activation, no `switch-to-configuration`). The reviewed host transport does the following, in order:
 
 1. **Refuses the evaluation fixture.** If the attribute is the in-repo `nixos#nagare-01`
    fixture (`nagare.host.evaluationFixture = true`), it exits 3.
@@ -148,7 +181,8 @@ The generated `host.nix` supplies `nagare.host.*`; the reusable module declares 
 ### Add or change an operator SSH key
 
 Re-run `nagarectl host init --force` with the complete set of repeated
-`--ssh-public-key-file` flags, then `just host-switch`. `mutableUsers =
+`--ssh-public-key-file` flags while retaining the same payload, then save and apply
+a host review. `mutableUsers =
 false`, so the declarative key list is authoritative — keys not listed there are
 removed on activation.
 

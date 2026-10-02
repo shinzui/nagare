@@ -5,6 +5,7 @@ module Nagare.Inventory.Adapters.Host
   , HostAdapterOps (..)
   , mkHostAdapter
   , hostCompletionProof
+  , supportedHostPlanVersion
   , parseHostCommitReceipt
   )
 where
@@ -33,6 +34,8 @@ data HostActivationPlan = HostActivationPlan
   , hostPlanConfigurationDigest :: !ContentDigest
   , hostPlanLockDigest :: !ContentDigest
   , hostPlanAgeKeyDigest :: !(Maybe ContentDigest)
+  , hostPlanPreviousAgeKeyDigest :: !(Maybe ContentDigest)
+  , hostPlanCredentialReceiptRequired :: !Bool
   , hostPlanExpectedOldClosure :: !Text
   , hostPlanNewClosure :: !Text
   , hostPlanActivationId :: !Text
@@ -104,9 +107,10 @@ mkHostAdapter ops =
 validatePlan :: PlannedOperation -> HostActivationPlan -> Either PrepareError ()
 validatePlan operation plan
   | MigrateResource _ <- plannedAction operation = refusal "host adapter has no migration stage contract"
-  | hostPlanVersion plan /= 1 = refusal "unsupported host activation plan version"
+  | not (supportedHostPlanVersion plan) = refusal "unsupported host activation plan version or credential authority"
   | hostPlanOperation plan /= plannedOperationId operation = refusal "host activation operation identity changed"
   | hostPlanInputDigest plan /= plannedInputDigest operation = refusal "host activation input digest changed"
+  | (isJust (hostPlanPreviousAgeKeyDigest plan) || hostPlanCredentialReceiptRequired plan) && isNothing (hostPlanAgeKeyDigest plan) = refusal "credential replacement has no desired key digest"
   | T.null (T.strip (hostPlanDestination plan)) = refusal "host activation destination is empty"
   | T.null (T.strip (hostPlanExpectedOldClosure plan)) = refusal "host activation expected closure is empty"
   | T.null (T.strip (hostPlanNewClosure plan)) = refusal "host activation new closure is empty"
@@ -114,6 +118,14 @@ validatePlan operation plan
   | otherwise = Right ()
   where
     refusal = Left . PrepareRefused (plannedOperationId operation)
+
+-- Version two prevents an older operator from ignoring credential activation
+-- receipts. Unchanged version-one plans retain their original wire bytes.
+supportedHostPlanVersion :: HostActivationPlan -> Bool
+supportedHostPlanVersion plan = case hostPlanVersion plan of
+  1 -> isNothing (hostPlanPreviousAgeKeyDigest plan) && not (hostPlanCredentialReceiptRequired plan)
+  2 -> hostPlanCredentialReceiptRequired plan && isJust (hostPlanAgeKeyDigest plan)
+  _ -> False
 
 decodePlan :: PlannedOperation -> ByteString -> Either Text HostActivationPlan
 decodePlan operation bytes = do
@@ -157,8 +169,7 @@ recoveryState plan state = case state of
 hostCompletionProof :: HostActivationPlan -> ContentDigest -> ContentDigest
 hostCompletionProof plan acknowledgement =
   contentDigest
-    ( either (error . T.unpack) id (canonicalValue (object ["plan" .= plan, "acknowledgement" .= acknowledgement]))
-    )
+    (either (error . T.unpack) id (canonicalValue (object ["plan" .= plan, "acknowledgement" .= acknowledgement])))
 
 -- | Parse the one public receipt line emitted only after the client opened a
 -- fresh SSH connection and the on-host helper committed the new closure.
@@ -183,7 +194,7 @@ summary plan =
 
 instance ToJSON HostActivationPlan where
   toJSON plan =
-    object
+    object $
       [ "version" .= hostPlanVersion plan
       , "operation" .= hostPlanOperation plan
       , "inputDigest" .= hostPlanInputDigest plan
@@ -198,6 +209,8 @@ instance ToJSON HostActivationPlan where
       , "newClosure" .= hostPlanNewClosure plan
       , "activationId" .= hostPlanActivationId plan
       ]
+        <> maybe [] (\digest -> ["previousAgeKeyDigest" .= digest]) (hostPlanPreviousAgeKeyDigest plan)
+        <> ["credentialReceiptRequired" .= True | hostPlanCredentialReceiptRequired plan]
 
 instance FromJSON HostActivationPlan where
   parseJSON = withObject "host activation plan" $ \o ->
@@ -212,6 +225,8 @@ instance FromJSON HostActivationPlan where
       <*> o .: "configurationDigest"
       <*> o .: "lockDigest"
       <*> o .:? "ageKeyDigest"
+      <*> o .:? "previousAgeKeyDigest"
+      <*> o .:? "credentialReceiptRequired" .!= False
       <*> o .: "expectedOldClosure"
       <*> o .: "newClosure"
       <*> o .: "activationId"

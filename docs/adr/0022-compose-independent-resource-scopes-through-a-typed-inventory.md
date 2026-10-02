@@ -1206,3 +1206,33 @@ surviving platform owner. A returning contribution replaces only an identical
 carried declaration; a changed or independently authored claim still conflicts.
 This preserves ownership without fabricating historical scope revisions or
 making workload retirement delete platform namespaces.
+
+
+## Amendment — 2026-10-02: reviewed host inputs and credential replacement
+
+Host configuration and credential commands use the existing host scope and
+activation executor. Explicit `host plan` may replace operator inputs, while
+bootstrap still requires an identical accepted host. A transition preserves the
+accepted dependency lock and Nix preparation refuses lock updates; it is not an
+admitted-context payload upgrade. `host apply` accepts only a host-only review.
+Compatibility shell switching must pass the same substantive-history refusal as
+legacy CLI mutations before it can reach a provider.
+
+A replacement review carries the exact observed previous age-key digest alongside
+the desired digest. The optional field is absent from old plan serialization, so
+existing saved version-one plan bytes and completion proofs retain their meaning.
+Credential receipt authority uses native plan version two so older operators refuse
+it rather than silently ignoring the required activation proof. Preparation
+requires explicit replacement intent; apply rechecks the prior value in the same
+remote invocation that streams the key. This is not atomic CAS against unrelated
+root writers. Private key bytes remain operator inputs, never review contents.
+
+Explicit credential reviews, including an already matching new key after an
+abandoned failed transaction, require a private remote receipt bound to the
+entire native plan, written only after both secret-service activations return successfully.
+Inspection requires this receipt as well as the new key and fresh SSH evidence:
+an old healthy Tailnet session cannot certify a failed new secret activation.
+An interrupted activation can retry with the already written desired key without
+rewriting it. Changed keys or failed writes remain unresolved for explicit
+recovery. The receipt is an internal host-executor artifact; it grants no new
+scope or independent credential owner.

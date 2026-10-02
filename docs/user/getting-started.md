@@ -158,7 +158,8 @@ nagare --list          # list release-owned recipes
 nagare infra-preview   # preview cloud changes
 nagare infra-up        # apply cloud changes
 nagare host-image      # build + register the NixOS GCE image
-nagare host-switch     # apply day-2 host config over Tailscale
+nagarectl host plan --save-plan /private/reviews/host-change
+nagare host-switch /private/reviews/host-change  # apply the reviewed host configuration
 nagare local-up        # create local k3d cluster + registry
 nagare local-bootstrap # install Knative/Kourier locally
 nagare local-minio     # install local MinIO backup store

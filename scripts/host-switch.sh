@@ -59,6 +59,10 @@ if [ "${DRY_RUN}" -eq 1 ]; then
   exit 0
 fi
 
+if [ "${NAGARE_INVENTORY_ADAPTER_CHILD:-}" != host ]; then
+  nagarectl inventory guard-legacy host-switch
+fi
+
 # 1. Refuse the in-repo evaluation fixture (`or false` keeps older Nagare inputs evaluable).
 fixture="$(nix eval --json "${CONFIG_REF}" --apply 'c: c.nagare.host.evaluationFixture or false')"
 if [ "${fixture}" != "false" ]; then

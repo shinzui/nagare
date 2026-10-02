@@ -97,6 +97,11 @@ provenance:
       at: 2026-10-02T18:36:25Z
       mode: "update"
       note: "Remove retired prerelease fixture recovery and frozen candidate from acceptance; retain supported candidate proof"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-02T22:18:28Z
+      mode: "implement"
+      note: "Implement reviewed same-payload host and credential transitions with exact-key recovery and public command proof"
 ---
 
 # Close managed command coverage for the inventory release
@@ -111,6 +116,8 @@ Every supported mutation command and shipped recipe is mapped to its owner, revi
 
 
 ## Progress
+
+**Reviewed host transition checkpoint (2026-10-02).** `host plan`, `host apply`, and `host place-age-key --save-plan` now prepare and execute the existing typed host scope, with unchanged accepted dependency locks and no implicit bootstrap replacement. `just host-switch REVIEW_DIR` applies that review; direct compatibility switching calls the shared admission guard. Explicit key replacement pins the observed previous digest and requires a plan-bound remote receipt after secret-service activation. Existing native plans omit the new optional field when absent. The actual helper/transport regressions cover first-placement and replacement failures in both sops and Tailscale activation, preserve the new key inode on retry, reject a key race before streaming, and distinguish an old healthy Tailnet session from successful new secret activation. The public foundation fixture proves host-only review checks, a same-output configuration update, changed-file refusal before admission, and unchanged replay without another activation. All 1,082 CLI tests pass (61.65 seconds), as do command registration, architecture/style, strict user documentation, and legacy entrypoint guards. Independent review additionally found the inherited key-file path must require the same v2 receipt authority as an explicit flag; the public command fixture covers that invocation and key-byte exclusion. Final candidate/native and independent review evidence remains required; M2 stays open.
 
 **Current acceptance boundary (2026-10-02).** [The operator's prerelease fixture disposition](../audits/mp23-prerelease-fixture-disposition.md) supersedes historical freeze and old-transaction handoffs below. `f15-preview` is retired from acceptance; its recovery, cascade exception, failed-Job recovery and frozen operator do not gate this child or MP-23. Keep diagnostic evidence and existing regression coverage, but do not extend compatibility solely for obsolete development transactions. Verify supported recovery on the selected candidate. The safe-use review does not stop other supported implementation or release verification.
 

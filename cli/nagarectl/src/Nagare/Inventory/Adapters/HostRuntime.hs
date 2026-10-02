@@ -60,6 +60,7 @@ data HostTransportRequest = HostTransportRequest
 data HostTransportResponse
   = HostTransportMissing !ContentDigest
   | HostTransportPrepared !PhysicalIdentity !Text !Text
+  | HostTransportPreparedCredential !PhysicalIdentity !Text !Text !(Maybe ContentDigest)
   | HostTransportBefore !PhysicalIdentity !Text
   | HostTransportArmed !PhysicalIdentity !Text
   | HostTransportCommitted !PhysicalIdentity !Text !ContentDigest
@@ -82,17 +83,25 @@ observeResources config resources = do
     observation <- response
     value <- case observation of
       HostTransportMissing proof -> Right (ConfirmedAbsent proof)
-      HostTransportPrepared physical _ _ -> Right
-        (if runtimeHostAccepted config then ObservedPresent physical
-         else ConfirmedAbsent (contentDigest (TE.encodeUtf8
-           ("host-activation-absent:" <> physicalIdentityText physical))))
+      HostTransportPrepared physical _ _ ->
+        Right
+          ( if runtimeHostAccepted config
+              then ObservedPresent physical
+              else
+                ConfirmedAbsent
+                  ( contentDigest
+                      ( TE.encodeUtf8
+                          ("host-activation-absent:" <> physicalIdentityText physical)
+                      )
+                  )
+          )
       _ -> Left "host observe transport returned an activation state"
     observationSet [(resource, value) | resource <- resources]
 
 preparePlan :: HostRuntimeConfig -> PlannedOperation -> IO (Either Text HostActivationPlan)
 preparePlan config operation
-  | plannedAction operation `notElem` [CreateResource, RunDeclaredOperation] =
-      pure (Left "host runtime only executes reviewed creation or activation operations")
+  | plannedAction operation `notElem` [CreateResource, UpdateResource, VerifyResource, RunDeclaredOperation] =
+      pure (Left "host runtime only executes reviewed creation, update, verification or activation operations")
   | null (NE.toList (plannedResources operation)) = pure (Left "host activation names no resources")
   | otherwise = do
       response <- runTransport config "prepare" Nothing
@@ -100,24 +109,30 @@ preparePlan config operation
         prepared <- response
         case prepared of
           HostTransportPrepared physical oldClosure newClosure ->
-            Right
-              HostActivationPlan
-                { hostPlanVersion = 1
-                , hostPlanOperation = plannedOperationId operation
-                , hostPlanInputDigest = plannedInputDigest operation
-                , hostPlanContext = runtimeHostContext config
-                , hostPlanAttribute = runtimeHostAttribute config
-                , hostPlanInstance = physical
-                , hostPlanDestination = runtimeHostDestination config
-                , hostPlanConfigurationDigest = runtimeHostConfigurationDigest config
-                , hostPlanLockDigest = runtimeHostLockDigest config
-                , hostPlanAgeKeyDigest = runtimeHostAgeKeyDigest config
-                , hostPlanExpectedOldClosure = oldClosure
-                , hostPlanNewClosure = newClosure
-                , hostPlanActivationId = operationIdText (plannedOperationId operation)
-                }
+            Right (preparedPlan physical oldClosure newClosure Nothing False)
+          HostTransportPreparedCredential physical oldClosure newClosure previous ->
+            Right (preparedPlan physical oldClosure newClosure previous True)
           HostTransportMissing {} -> Left "host physical instance is absent; reconcile its cloud dependency before activation"
           _ -> Left "host prepare transport returned an activation state"
+  where
+    preparedPlan physical oldClosure newClosure previous required =
+      HostActivationPlan
+        { hostPlanVersion = if required then 2 else 1
+        , hostPlanOperation = plannedOperationId operation
+        , hostPlanInputDigest = plannedInputDigest operation
+        , hostPlanContext = runtimeHostContext config
+        , hostPlanAttribute = runtimeHostAttribute config
+        , hostPlanInstance = physical
+        , hostPlanDestination = runtimeHostDestination config
+        , hostPlanConfigurationDigest = runtimeHostConfigurationDigest config
+        , hostPlanLockDigest = runtimeHostLockDigest config
+        , hostPlanAgeKeyDigest = runtimeHostAgeKeyDigest config
+        , hostPlanPreviousAgeKeyDigest = previous
+        , hostPlanCredentialReceiptRequired = required
+        , hostPlanExpectedOldClosure = oldClosure
+        , hostPlanNewClosure = newClosure
+        , hostPlanActivationId = operationIdText (plannedOperationId operation)
+        }
 
 inspectActivation :: HostRuntimeConfig -> HostActivationPlan -> IO HostActivationState
 inspectActivation config plan = do
@@ -130,6 +145,7 @@ inspectActivation config plan = do
     Right (HostTransportReverted physical closure) -> HostReverted physical closure
     Right HostTransportMissing {} -> HostUnreachable "host physical instance is absent"
     Right HostTransportPrepared {} -> HostUnreachable "host inspect transport returned preparation evidence"
+    Right HostTransportPreparedCredential {} -> HostUnreachable "host inspect transport returned credential preparation evidence"
 
 runActivation :: HostRuntimeConfig -> HostActivationPlan -> IO AdapterExecution
 runActivation config plan = do

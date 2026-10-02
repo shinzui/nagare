@@ -156,7 +156,8 @@ Secret's resource version for each later update and refuses concurrent changes.
 
 ```bash
 just context-show
-just host-switch
+nagarectl host plan --save-plan /private/reviews/forge-credentials
+just host-switch /private/reviews/forge-credentials
 ssh nagare-01 'systemctl status nagare-forge-read-refresh.timer nagare-forge-write-refresh.timer --no-pager'
 ```
 

@@ -221,6 +221,26 @@ hostSubparser =
               (HostPlaceAgeKey <$> hostPlaceAgeKeyOptsParser <**> helper)
               (progDesc "Stream an age private key to the selected host over project-confined IAP")
           )
+        <> command
+          "apply"
+          ( info
+              ( HostApply
+                  <$> strArgument (metavar "DIR")
+                  <*> switch (long "yes" <> help "Apply the exact saved host review") <**> helper
+              )
+              (progDesc "Apply a saved host transition through the inventory executor")
+          )
+        <> command
+          "plan"
+          ( info
+              ( HostPlan
+                  <$> strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed same-payload host transition")
+                  <*> optional (strOption (long "age-key-file" <> metavar "PATH" <> help "Bind an operator-held age key to this review"))
+                  <*> switch (long "replace-age-key" <> help "Review replacement of the exact observed installed key")
+                    <**> helper
+              )
+              (progDesc "Review host configuration and credential reconciliation")
+          )
     )
 
 hostContextOption :: Parser String
@@ -246,6 +266,7 @@ hostPlaceAgeKeyOptsParser =
     <$> optional hostContextOption
     <*> strOption (long "key-file" <> metavar "PATH" <> help "Operator-held age private-key file to stream over SSH stdin")
     <*> switch (long "force" <> help "Replace a different installed key (interruption-sensitive; preserve both keys first)")
+    <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed host credential transition; required after inventory admission"))
 
 kubeconfigCmd :: ParserInfo Command
 kubeconfigCmd =

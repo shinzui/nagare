@@ -32,7 +32,7 @@ CATALOGUE_END = "<!-- managed-command-registry:end -->"
 # Each entry is an exact constructor name; there are no wildcard exemptions.
 ROUTES = {
     "Command": {
-        "read": "Version InventoryStatus InventoryExplain InventoryStoreStatus PlatformRoot PlatformStatusCmd PlatformGuard PlatformUpgradeStatus SiteReleases SitePreviewList AppList AppGet AppLogs DeploymentsList DeploymentsLogs ServerStatus Doctor InventoryGc",
+        "read": "Version InventoryStatus InventoryLegacyGuard InventoryExplain InventoryStoreStatus PlatformRoot PlatformStatusCmd PlatformGuard PlatformUpgradeStatus SiteReleases SitePreviewList AppList AppGet AppLogs DeploymentsList DeploymentsLogs ServerStatus Doctor InventoryGc",
         "group": "Host Kubeconfig Cluster Env Secret Storage Broker Db Task Worker Access ContextCmdGroup Infra Domains CdnCmd",
         "reviewed": "InventoryPlan InventoryAdopt InventoryMigrate InventoryRetire InventoryCollect InventoryApply InventoryResume InventoryRecover InventoryRegistryRecoveryPlan InventoryStoreMigrate PlatformBootstrapPlan PlatformBootstrapApply Deploy SiteDeploy SiteRollback SitePreviewDeploy SitePreviewDelete AppRestart AppStop AppDelete AppDeploy AppImagePlan",
         "local": "InventoryCompile",
@@ -45,7 +45,7 @@ ROUTES = {
     "HostCommand": {
         "read": "HostShow HostPath HostName",
         "bounded": "HostInit",
-        "pending": "HostPlaceAgeKey",
+        "reviewed": "HostPlan HostApply HostPlaceAgeKey",
     },
     "KubeconfigCommand": {
         "local": "KubeconfigFetch",
@@ -125,7 +125,7 @@ ENTRYPOINTS = {
     "scripts/inventory-host-transport.sh": ("NAGARE_INVENTORY",),
     "scripts/inventory-artifact-transport.sh": ("NAGARE_INVENTORY",),
     "scripts/inventory-cache-transport.sh": ("NAGARE_INVENTORY",),
-    "justfile": ("vm-stop:", "vm-start:", "host-switch:", "cluster-bootstrap:", "local-bootstrap:", "smoke:", "local-smoke:"),
+    "justfile": ("vm-stop:", "vm-start:", 'host-switch review="":', "cluster-bootstrap:", "local-bootstrap:", "smoke:", "local-smoke:"),
 }
 
 SMOKE_BYPASS_PATTERNS = (
@@ -136,8 +136,8 @@ SMOKE_BYPASS_PATTERNS = (
 )
 
 RECIPE_SCRIPTS = {
-    "scripts/check-haskell-style.sh",
     "scripts/host-switch.sh",
+    "scripts/check-haskell-style.sh",
     "scripts/iap-ssh.sh",
     "scripts/live-smoke.sh",
     "scripts/live-test.sh",
@@ -197,10 +197,10 @@ def family_assignments() -> dict[str, str]:
 
 RECIPES = {
     "read": "default docs-validate terminology-validate reviews-validate user-documentation-validate nixos-registry-host nix-cache-status job-runs-status context-show status live-test test-inventory-effects haskell-style-check",
-    "reviewed": "infra-up infra-preview cluster-bootstrap nix-cache-publish nix-cache-bootstrap job-runs-bootstrap cluster-enable-tls local-bootstrap local-minio observability deploy-hello",
+    "reviewed": "infra-up infra-preview cluster-bootstrap nix-cache-publish nix-cache-bootstrap job-runs-bootstrap cluster-enable-tls local-bootstrap local-minio observability deploy-hello host-switch",
     "bounded": "iap-ssh",
     "local": "local-up local-down nix-cache-secret-init",
-    "pending": "infra-destroy vm-stop vm-start host-image host-switch smoke local-smoke",
+    "pending": "infra-destroy vm-stop vm-start host-image smoke local-smoke",
 }
 
 RECIPE_FAMILY = {

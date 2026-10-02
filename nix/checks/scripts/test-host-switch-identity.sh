@@ -40,6 +40,7 @@ write_executable "$fixture/bin/nagarectl" \
   'set -euo pipefail' \
   'printf "nagarectl %s\n" "$*" >> "${NAGARE_IDENTITY_LOG:?}"' \
   'case "$*" in' \
+  '  "inventory guard-legacy host-switch") : ;;' \
   '  "host name") printf "%s\n" "labs-nagare" ;;' \
   '  *) printf "unexpected nagarectl call: %s\n" "$*" >&2; exit 64 ;;' \
   'esac'

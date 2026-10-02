@@ -119,9 +119,8 @@ nixos-registry-host:
 # over Tailscale. The non-root deploy user needs --sudo.
 # Apply day-2 host config to running nagare-01.
 [group('host')]
-host-switch:
-    @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform guard; fi
-    scripts/host-switch.sh
+host-switch review="":
+    @if [ -n "{{review}}" ]; then nagarectl host apply "{{review}}" --yes; else scripts/host-switch.sh; fi
 
 # Run the project-confined IAP SSH helper from the installed platform payload.
 [group('host')]

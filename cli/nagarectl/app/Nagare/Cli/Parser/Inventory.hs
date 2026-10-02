@@ -119,6 +119,12 @@ inventoryCmd =
               "status"
               (info (InventoryStatus <$> switch (long "json") <**> helper) (progDesc "Report accepted resource ownership and observed drift without mutation"))
             <> command
+              "guard-legacy"
+              ( info
+                  (InventoryLegacyGuard <$> strArgument (metavar "OPERATION") <**> helper)
+                  (progDesc "Refuse an unreviewed compatibility transport after inventory admission")
+              )
+            <> command
               "explain"
               (info (InventoryExplain <$> strArgument (metavar "RESOURCE_ID") <*> switch (long "json") <**> helper) (progDesc "Explain one accepted resource and its current observation"))
             <> command

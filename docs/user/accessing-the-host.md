@@ -145,7 +145,7 @@ the platform down for a few minutes, so only do this when you have no other way 
    newest generation that is *older* than the bad one, and press Enter.
 6. Once it has booted, confirm `ssh deploy@prod-nagare true` over Tailscale or
    `nagare iap-ssh ssh nagare-01 -- true` over IAP. Then fix the configuration and run
-   `just host-switch`, which makes a verified generation the boot default again. The generation
+   a saved `host plan` and `just host-switch REVIEW_DIR`, which makes a verified generation the boot default again. The generation
    you picked in the menu is only booted once.
 7. Disable the serial port again:
 

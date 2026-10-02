@@ -338,6 +338,7 @@ data Command
   | InventoryExport FilePath
   | InventoryRestore FilePath Bool
   | InventoryStatus Bool
+  | InventoryLegacyGuard String
   | InventoryExplain String Bool
   | InventoryStoreMaterializeNative (Maybe String) Int
   | InventoryStoreStatus Bool
@@ -404,6 +405,8 @@ data HostCommand
   | HostPath (Maybe String)
   | HostName (Maybe String) Bool
   | HostPlaceAgeKey HostPlaceAgeKeyOpts
+  | HostPlan FilePath (Maybe FilePath) Bool
+  | HostApply FilePath Bool
   deriving stock (Generic, Show)
 
 data KubeconfigCommand
@@ -457,6 +460,7 @@ data HostPlaceAgeKeyOpts = HostPlaceAgeKeyOpts
   { context :: !(Maybe String)
   , keyFile :: !FilePath
   , force :: !Bool
+  , savePlan :: !(Maybe FilePath)
   }
   deriving stock (Generic, Show)
 

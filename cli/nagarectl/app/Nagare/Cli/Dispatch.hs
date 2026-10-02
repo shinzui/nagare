@@ -79,6 +79,7 @@ import Nagare.Cli.Inventory.Workflow
   , runInventoryApply
   , runInventoryCollect
   , runInventoryExport
+  , runInventoryLegacyGuard
   , runInventoryMigrate
   , runInventoryPlan
   , runInventoryRecover
@@ -179,6 +180,7 @@ dispatch (mctx, cmd0) = case cmd0 of
     runInventoryRegistryRecoveryPlan mctx transaction operation output
   InventoryExport output -> runInventoryExport mctx output
   InventoryRestore backup yes -> runInventoryRestore mctx backup yes
+  InventoryLegacyGuard operation -> runInventoryLegacyGuard mctx operation
   InventoryStatus json -> runInventoryStatus mctx Nothing json Nothing
   InventoryExplain resource json -> runInventoryStatus mctx (Just resource) json Nothing
   InventoryStoreMaterializeNative after limit -> runInventoryMaterializeNative mctx after limit

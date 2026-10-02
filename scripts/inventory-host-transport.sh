@@ -128,17 +128,59 @@ observe() {
 }
 
 prepare() {
-  local physical rc=0 old new config_ref
+  local physical rc=0 old new config_ref key_status remote_digest previous=""
   check_host_inputs
   check_age_key_input
   physical="$(physical_identity)" || rc=$?
   if [ "${rc}" -eq 3 ]; then emit_missing; return; fi
   [ "${rc}" -eq 0 ] || return "${rc}"
   config_ref="${NAGARE_HOST_FLAKE}#nixosConfigurations.${attribute}.config.system.build.toplevel"
-  new="$(nix build --no-link --print-out-paths "${config_ref}" | tail -n 1)"
+  new="$(nix build --no-link --no-update-lock-file --print-out-paths "${config_ref}" | tail -n 1)"
   old="$(host_ssh 'readlink -f /run/current-system' | tail -n 1)"
   [ -n "${new}" ] && [ -n "${old}" ] || { echo "host preparation returned an empty closure" >&2; return 1; }
-  emit_prepared "${physical}" "${old}" "${new}"
+  if [ -n "${age_key_digest}" ]; then
+    key_status="$(host_ssh 'sudo /run/current-system/sw/bin/nagare-host-age-key status')"
+    remote_digest="$(awk -F '\t' '$1 == "age-key" && $2 == "ready" {print $4}' <<<"${key_status}")"
+    if [ "${remote_digest}" != "${age_key_digest}" ]; then
+      if [ -n "${remote_digest}" ] && [ "${NAGARE_HOST_REPLACE_AGE_KEY:-0}" = 1 ]; then
+        previous="${remote_digest}"
+      elif [ -z "${remote_digest}" ] && grep -q $'^age-key\tmissing\t' <<<"${key_status}"; then
+        :
+      else
+        echo "host has a different or invalid age key; review explicit replacement" >&2; return 2
+      fi
+    fi
+  fi
+  if [ -n "${previous}" ] || [ "${NAGARE_HOST_REVIEW_CREDENTIAL:-0}" = 1 ]; then
+    jq -nc --arg physical "${physical}" --arg old "${old}" --arg new "${new}" --arg previous "${previous}" \
+      '{tag:"HostTransportPreparedCredential",contents:[$physical,$old,$new,(if $previous == "" then null else $previous end)]}'
+  else
+    emit_prepared "${physical}" "${old}" "${new}"
+  fi
+}
+
+credential_receipt_path() {
+  local digest
+  digest="$(jq -cS '.plan' <<<"${request}" | shasum -a 256 | awk '{print $1}')"
+  printf '/var/lib/nagare/host-credential-receipts/%s' "${digest}"
+}
+
+credential_activation_ready() {
+  local previous receipt
+  previous="$(jq -r '.plan.previousAgeKeyDigest // empty' <<<"${request}")"
+  [ -n "${previous}" ] || [ "$(jq -r '.plan.credentialReceiptRequired // false' <<<"${request}")" = true ] || return 0
+  receipt="$(host_ssh "sudo /run/current-system/sw/bin/cat $(credential_receipt_path)" 2>/dev/null)" || return 1
+  [ "${receipt}" = "${age_key_digest}" ]
+}
+
+previous_key_matches() {
+  local previous
+  previous="$(jq -r '.plan.previousAgeKeyDigest // empty' <<<"${request}")"
+  if [ -n "${previous}" ]; then
+    [ "${remote_digest}" = "${previous}" ]
+  else
+    [ -z "${remote_digest}" ] && grep -q $'^age-key\tmissing\t' <<<"${key_status}"
+  fi
 }
 
 inspect() {
@@ -163,11 +205,12 @@ inspect() {
     key_status="$(host_ssh 'sudo /run/current-system/sw/bin/nagare-host-age-key status')"
     remote_digest="$(awk -F '\t' '$1 == "age-key" && $2 == "ready" {print $4}' <<<"${key_status}")"
     if [ "${remote_digest}" != "${age_key_digest}" ]; then
-      [ -z "${remote_digest}" ] && grep -q $'^age-key\tmissing\t' <<<"${key_status}" || {
+      previous_key_matches || {
         echo "host has a different or invalid age key" >&2; return 2;
       }
       age_ready=false
     fi
+    if [ "${age_ready}" = true ] && ! credential_activation_ready; then age_ready=false; fi
     if [ "${age_ready}" = true ]; then
       fresh_closure="$(tailnet_fresh_closure 2>/dev/null)" || fresh_closure=""
       [ "${fresh_closure}" = "${current}" ] || age_ready=false
@@ -187,7 +230,7 @@ inspect() {
 }
 
 activate() {
-  local physical new old output receipt closure proof key_status remote_digest tailnet_ip known_hosts host_key ssh_options
+  local physical new old output receipt closure proof key_status remote_digest tailnet_ip known_hosts host_key ssh_options previous
   check_host_inputs
   check_age_key_input
   physical="$(physical_identity)"
@@ -203,16 +246,47 @@ activate() {
     key_status="$(host_ssh 'sudo /run/current-system/sw/bin/nagare-host-age-key status')"
     remote_digest="$(awk -F '\t' '$1 == "age-key" && $2 == "ready" {print $4}' <<<"${key_status}")"
     if [ "${remote_digest}" != "${age_key_digest}" ]; then
-      [ -z "${remote_digest}" ] && grep -q $'^age-key\tmissing\t' <<<"${key_status}" || {
+      previous_key_matches || {
         echo "host has a different or invalid age key; refusing replacement" >&2; return 2;
       }
     fi
-    if [ "${remote_digest}" != "${age_key_digest}" ] ||
+    if [ "${remote_digest}" != "${age_key_digest}" ] || ! credential_activation_ready ||
       ! host_ssh 'tailscale ip -4 >/dev/null' >/dev/null 2>&1; then
       # The helper accepts an identical installed key and reruns sops/Tailscale
       # activation. This closes an interrupted install-after-write window.
-      bash "${script_dir}/iap-ssh.sh" send-file "${instance}" "${NAGARE_HOST_AGE_KEY_FILE}" -- \
-        sudo -- /run/current-system/sw/bin/nagare-host-age-key install --sha256 "${age_key_digest}" >&2
+      previous="$(jq -r '.plan.previousAgeKeyDigest // empty' <<<"${request}")"
+      if [ -n "${previous}" ] || [ "$(jq -r '.plan.credentialReceiptRequired // false' <<<"${request}")" = true ]; then
+        # Recheck inside the same remote invocation that streams the replacement.
+        # This is a value precondition, not a CAS against arbitrary root writers.
+        bash "${script_dir}/iap-ssh.sh" send-file "${instance}" "${NAGARE_HOST_AGE_KEY_FILE}" -- \
+          sudo -- /run/current-system/sw/bin/bash -c '
+            set -eu
+            helper=/run/current-system/sw/bin/nagare-host-age-key
+            current=$($helper status)
+            IFS="$(printf "\t")" read -r kind state key_path actual <<< "$current"
+            test "$kind" = age-key
+            if [ "$state" = missing ] && [ -z "$1" ]; then
+              "$helper" install --sha256 "$2"
+            elif [ "$state" != ready ]; then
+              echo "reviewed age key is not a valid installed key" >&2; exit 2
+            elif [ -n "$1" ] && [ "$actual" = "$1" ]; then
+              "$helper" install --sha256 "$2" --force
+            elif [ "$actual" = "$2" ]; then
+              "$helper" install --sha256 "$2"
+            else
+              echo "reviewed previous age key changed" >&2; exit 2
+            fi
+            install -d -m 0700 /var/lib/nagare/host-credential-receipts
+            temporary=$(mktemp "$3.XXXXXX")
+            trap "rm -f \"$temporary\"" EXIT
+            printf "%s\n" "$2" > "$temporary"
+            chmod 0600 "$temporary"
+            mv -f "$temporary" "$3"
+          ' nagare-reviewed-key "${previous}" "${age_key_digest}" "$(credential_receipt_path)" >&2
+      else
+        bash "${script_dir}/iap-ssh.sh" send-file "${instance}" "${NAGARE_HOST_AGE_KEY_FILE}" -- \
+          sudo -- /run/current-system/sw/bin/nagare-host-age-key install --sha256 "${age_key_digest}" >&2
+      fi
     fi
     key_status="$(host_ssh 'sudo /run/current-system/sw/bin/nagare-host-age-key status')"
     grep -Fq $'age-key\tready\t/var/lib/sops-nix/age-key.txt\t'"${age_key_digest}" <<<"${key_status}" || {

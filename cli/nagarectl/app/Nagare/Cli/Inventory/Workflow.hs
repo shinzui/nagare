@@ -2,6 +2,7 @@
 module Nagare.Cli.Inventory.Workflow
   ( runInventoryAdopt
   , runInventoryApply
+  , runInventoryLegacyGuard
   , runInventoryCollect
   , runInventoryExport
   , runInventoryMigrate
@@ -33,6 +34,7 @@ import Nagare.Cli.Platform.InfrastructureReview
   ( prepareInfraMutation
   )
 import Nagare.Cli.Runtime.Error (dieT)
+import Nagare.Cli.Runtime.Guards (guardLegacyMutationInventory)
 import Nagare.Cli.Runtime.Target
   ( activeTarget
   , resolvePlatformWorkspace
@@ -322,3 +324,8 @@ runInventoryRestore :: Maybe String -> FilePath -> Bool -> IO ()
 runInventoryRestore mctx backup yes = do
   target <- activeTarget mctx
   Inventory.restoreInventory target backup yes
+
+runInventoryLegacyGuard :: Maybe String -> String -> IO ()
+runInventoryLegacyGuard selected operation = do
+  active <- activeTarget selected
+  guardLegacyMutationInventory (T.pack operation) active

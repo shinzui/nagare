@@ -217,7 +217,9 @@ transaction's staged host flake, so inherited values from another context cannot
 | `nagarectl infra apply --plan DIR --yes [--allow-replacement]` | Apply an inventory review through the shared executor, or re-run guards and apply an older Pulumi plan only while the context has no substantive inventory history. |
 | `nagarectl infra destroy --yes` | Re-run the platform, ADC, and project guards before deliberate selected-stack teardown; refuse once the context has substantive inventory history. |
 | `nagarectl host init [--context NAME] --ssh-public-key-file PATH... --sops-file PATH` | Atomically generate and Nix-evaluate a context-owned host flake. `--dry-run` needs no secrets file; `--force` preserves an existing encrypted file when `--sops-file` is omitted. |
-| `nagarectl host place-age-key [--context NAME] --key-file PATH [--force]` | Before resource inventory admission, validate and SHA-256 hash an operator-held age identity, stream it over context-confined IAP SSH stdin, activate sops-nix, and start Tailscale. Replaying the same key is idempotent; replacing a different key requires interruption-sensitive `--force`. An admitted context refuses this direct remote credential write. |
+| `nagarectl host place-age-key [--context NAME] --key-file PATH [--force] [--save-plan DIR]` | Save a reviewed credential transition with `--save-plan`; replacement pins the observed prior key and requires `--force`. Apply with `host apply` and the same `NAGARE_HOST_AGE_KEY_FILE`. Private key bytes stay outside reviews. Direct placement remains available only before inventory admission. |
+| `nagarectl host plan --save-plan DIR [--age-key-file PATH] [--replace-age-key]` | Review operator host configuration under the unchanged accepted dependency lock; binds the exact host, closures and optional credential digest. |
+| `nagarectl host apply DIR --yes` | Apply only a saved host review through the shared executor; use `inventory resume` for an interrupted transaction. |
 | `nagarectl host show [--context NAME]` | Print the generated public operator module. |
 | `nagarectl host path [--context NAME]` | Print the generated host-flake path. |
 | `nagarectl host name [--context NAME] [--json]` | Print the generated NixOS/flake/Tailscale host name after validating that `host.nix` declares it exactly once. |
@@ -238,7 +240,7 @@ Shell recipes use `NAGARE_CONTEXT=NAME just <recipe>`.
 | `just vm-stop` / `just vm-start` | Stop or start the context-selected VM without changing disks or the static IP | MP-8 |
 | `just host-image [--dry-run] [--allow-shared-builder PROJECT]` | Build + upload + register the NixOS GCE image with an explicit context-owned builder (`scripts/upload-images.sh`) | MP-22 EP-136 |
 | `just nixos-registry-host` | Compatibility alias that shows the generated host module; it no longer writes source | MP-20 EP-107 |
-| `just host-switch` | Apply the active context's generated NixOS configuration | MP-20 EP-107 |
+| `just host-switch REVIEW_DIR` | Apply the exact saved host review; no-argument legacy switching refuses after inventory admission | MP-20 EP-107 |
 | `just cluster-bootstrap` | Guard the selected cluster; apply cert-manager, Knative, Kourier, and config-domain; import the payload's patched latest net-certmanager controller; verify certificate policy | EP-4 ✅ / MP-22 EP-134, EP-138 |
 | `just cluster-enable-tls` | Guard the selected cluster, then enable Knative external-domain TLS after DNS delegation | EP-4 / MP-22 EP-134 |
 | `just job-runs-bootstrap` | Guard the selected cluster, then apply the two-slot ResourceQuota for deadline-bounded one-shot Jobs in `personal` | MP-18 EP-95 ✅ / MP-22 EP-134 |
@@ -359,7 +361,7 @@ it. Only Traefik is disabled.
 | `enable-apis.sh` | Enable the six GCP service APIs against the target project (run by `nagarectl init`). |
 | `upload-images.sh` | Render an explicit per-context builder, build the NixOS image, upload to GCS, register it, and write `nagareImageSelfLink`. |
 | `nix-builder-proxy.sh` | Packaged as `nagare-nix-builder-proxy`; start one positional project/zone/instance and proxy SSH through an IAP local tunnel. |
-| `host-switch.sh` | Apply the active generated host flake over its logical Tailscale/SSH name; `--dry-run` prints the GCE instance, Nix attribute, and SSH target separately. |
+| `host-switch.sh` | Internal reviewed host transport, or guarded compatibility switching before inventory admission; apply the active generated host flake over its logical Tailscale/SSH name; `--dry-run` prints the GCE instance, Nix attribute, and SSH target separately. |
 | `setup-nix-builder.sh` | Provision the on-demand x86_64-linux Nix builder. |
 | `nix-builder-startup.sh.tpl` | Startup-script template for the builder VM (no project literal). |
 | `iap-ssh.sh` | IAP-tunneled `ssh`/`scp`/`recv-file`/`tunnel` wrapper (macOS-safe), exposed from installed releases as `nagare iap-ssh`. |

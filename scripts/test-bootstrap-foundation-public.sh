@@ -732,6 +732,7 @@ case "$*" in
       exit 42
     fi
     printf 'COMMITTED new=%s\n' "$new" ;;
+  *"nagare-host-age-key status"*) printf 'age-key\tmissing\t/var/lib/sops-nix/age-key.txt\tmissing\n' ;;
   *"sudo -n true && readlink -f /run/current-system"*) printf '%s\n' "$current" ;;
   *"sudo cat /etc/rancher/k3s/k3s.yaml"*) cat "$XDG_STATE_HOME/remote-kubeconfig.yaml" ;;
   *"readlink -f /run/current-system"*) printf '%s\n' "$current" ;;
@@ -947,6 +948,48 @@ PY
 }
 test "$(grep -Fc 'host activate' "$XDG_STATE_HOME/ssh.log")" -eq 1
 printf 'public inventory resume proved guarded host activation after lost commit acknowledgement\n'
+
+# Same-payload host updates use an explicit public review, never bootstrap's
+# strict unchanged-host prerequisite shortcut or the legacy shell recipe.
+if "$nagarectl_bin" --context freshlocal host apply "$fixture_root/vm-component-review" --yes \
+  > "$fixture_root/host-foreign-review-out" 2>&1; then
+  printf 'host apply accepted a cloud review\n' >&2; exit 1
+fi
+grep -q 'host-only review' "$fixture_root/host-foreign-review-out"
+cp "$XDG_STATE_HOME/nagare/freshlocal/inventory/head.json" "$fixture_root/host-update-before.json"
+cp "$XDG_CONFIG_HOME/nagare/hosts/freshlocal/flake.lock" "$fixture_root/host-lock-before"
+printf '\n' >> "$XDG_CONFIG_HOME/nagare/hosts/freshlocal/flake.lock"
+if "$nagarectl_bin" --context freshlocal host plan --save-plan "$fixture_root/host-repin-refused" \
+  > "$fixture_root/host-repin-out" 2>&1; then
+  printf 'host plan accepted a changed dependency lock\n' >&2; exit 1
+fi
+grep -q 'cannot change the accepted flake.lock' "$fixture_root/host-repin-out"
+cp "$fixture_root/host-lock-before" "$XDG_CONFIG_HOME/nagare/hosts/freshlocal/flake.lock"
+printf '\n# reviewed host input revision\n' >> "$XDG_CONFIG_HOME/nagare/hosts/freshlocal/host.nix"
+"$nagarectl_bin" --context freshlocal host plan --save-plan "$fixture_root/host-update-review" \
+  > "$fixture_root/host-update-plan-out" 2>&1 || { cat "$fixture_root/host-update-plan-out" >&2; exit 1; }
+python3 - "$fixture_root/host-update-review/review.json" <<'PYHOST'
+import json,sys
+review=json.load(open(sys.argv[1]))
+assert {o['operation']['executor'] for o in review['operations']} == {'HostExecutor'}, review
+assert any(o['operation']['action']['tag']=='UpdateResource' for o in review['operations']), review
+PYHOST
+cp "$XDG_CONFIG_HOME/nagare/hosts/freshlocal/host.nix" "$fixture_root/reviewed-host-input"
+printf '\n# unreviewed input\n' >> "$XDG_CONFIG_HOME/nagare/hosts/freshlocal/host.nix"
+if "$nagarectl_bin" --context freshlocal host apply "$fixture_root/host-update-review" --yes \
+  > "$fixture_root/host-update-stale-out" 2>&1; then
+  printf 'host apply accepted changed source input\n' >&2; exit 1
+fi
+cmp "$XDG_STATE_HOME/nagare/freshlocal/inventory/head.json" "$fixture_root/host-update-before.json"
+cp "$fixture_root/reviewed-host-input" "$XDG_CONFIG_HOME/nagare/hosts/freshlocal/host.nix"
+"$nagarectl_bin" --context freshlocal host apply "$fixture_root/host-update-review" --yes \
+  > "$fixture_root/host-update-apply-out" 2>&1 || { cat "$fixture_root/host-update-apply-out" >&2; exit 1; }
+"$nagarectl_bin" --context freshlocal host plan --save-plan "$fixture_root/host-update-replay" \
+  > "$fixture_root/host-replay-plan-out" 2>&1 || { cat "$fixture_root/host-replay-plan-out" >&2; exit 1; }
+"$nagarectl_bin" --context freshlocal host apply "$fixture_root/host-update-replay" --yes \
+  > "$fixture_root/host-replay-apply-out" 2>&1 || { cat "$fixture_root/host-replay-apply-out" >&2; exit 1; }
+test "$(grep -Fc 'host activate' "$XDG_STATE_HOME/ssh.log")" -eq 1
+printf 'reviewed host input update and replay preserved the already committed closure without activation\n'
 cat > "$XDG_STATE_HOME/remote-kubeconfig.yaml" <<'EOF'
 apiVersion: v1
 kind: Config
@@ -992,6 +1035,32 @@ case "$*" in
 esac
 EOF
 chmod +x "$fixture_root/bin/socat" "$fixture_root/bin/kubectl"
+
+# Inherited delivery inputs need the same v2 receipt authority as CLI flags.
+printf 'AGE-SECRET-KEY-1PUBLIC-FIXTURE-CANARY\n' > "$fixture_root/host-key"
+NAGARE_HOST_AGE_KEY_FILE="$fixture_root/host-key" \
+  "$nagarectl_bin" --context freshlocal host plan --save-plan "$fixture_root/inherited-key-review" \
+  > "$fixture_root/inherited-key-plan-out" 2>&1 || { cat "$fixture_root/inherited-key-plan-out" >&2; exit 1; }
+python3 - "$fixture_root/inherited-key-review" "$XDG_STATE_HOME/nagare/freshlocal/inventory/native" <<'PYKEY'
+import json,pathlib,sys
+root=pathlib.Path(sys.argv[1]); plans=[]
+for path in root.rglob('*'):
+    if not path.is_file(): continue
+    raw=path.read_bytes()
+    assert b'AGE-SECRET-KEY-1PUBLIC-FIXTURE-CANARY' not in raw, path
+    try: value=json.loads(raw)
+    except (ValueError,UnicodeError): continue
+review=json.loads((root/'review.json').read_text())
+for operation in review['operations']:
+    if operation['operation']['executor'] != 'HostExecutor': continue
+    path=pathlib.Path(sys.argv[2])/(operation['nativeDigest']+'.json')
+    raw=path.read_bytes()
+    assert b'AGE-SECRET-KEY-1PUBLIC-FIXTURE-CANARY' not in raw, path
+    plans.append(json.loads(raw))
+assert plans, 'no retained native credential plan'
+assert all(p['version']==2 and p['credentialReceiptRequired'] for p in plans), plans
+PYKEY
+printf 'inherited host credential input requires v2 activation receipt without exposing key bytes\n'
 cat > "$fixture_root/bin/helm" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail

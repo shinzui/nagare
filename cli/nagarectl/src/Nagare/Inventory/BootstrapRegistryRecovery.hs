@@ -310,7 +310,7 @@ mkBootstrapRegistryRecovery store bundle registryHost inspectHost units recoverD
                       bytes <- maybe [] pure (Map.lookup digest (reviewBundleNative source))
                       plan <- either (const []) pure (eitherDecodeStrict' bytes)
                       guard
-                        ( hostPlanVersion plan == 1
+                        ( supportedHostPlanVersion plan
                             && hostPlanOperation plan == plannedOperationId operation
                             && hostPlanInputDigest plan == plannedInputDigest operation
                             && hostPlanContext plan == reviewContextBinding document ^. #identity

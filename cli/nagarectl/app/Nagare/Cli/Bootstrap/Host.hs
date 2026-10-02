@@ -1,6 +1,7 @@
 -- | Bootstrap / Host. Executable-private CLI boundary.
 module Nagare.Cli.Bootstrap.Host
   ( buildHostStageCandidate
+  , buildHostTransitionCandidate
   , buildKubeconfigStageCandidate
   , buildKubeconfigStageCandidateWithRecovery
   )
@@ -10,6 +11,7 @@ import Control.Exception (IOException, try)
 import Data.Aeson qualified as Aeson
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
+import Data.Foldable (for_)
 import Data.Generics.Labels ()
 import Data.List (delete)
 import Data.List.NonEmpty qualified as NE
@@ -84,7 +86,24 @@ buildHostStageCandidate ::
   PlatformWorkspace ->
   ResourceInventory.ScopeSnapshot ->
   IO (Maybe ResourceInventory.CompositionCandidate)
-buildHostStageCandidate active _ snapshot
+buildHostStageCandidate = buildHostCandidate False
+
+-- | An explicit host review can replace the accepted same-payload inputs.
+-- Bootstrap retains its strict unchanged-host prerequisite behavior.
+buildHostTransitionCandidate ::
+  ActiveTarget ->
+  PlatformWorkspace ->
+  ResourceInventory.ScopeSnapshot ->
+  IO (Maybe ResourceInventory.CompositionCandidate)
+buildHostTransitionCandidate = buildHostCandidate True
+
+buildHostCandidate ::
+  Bool ->
+  ActiveTarget ->
+  PlatformWorkspace ->
+  ResourceInventory.ScopeSnapshot ->
+  IO (Maybe ResourceInventory.CompositionCandidate)
+buildHostCandidate transition active _ snapshot
   | active ^. #profile . #mode /= Cloud = pure Nothing
   | otherwise = do
       hostRoot <- hostConfigDir (active ^. #contextName)
@@ -107,6 +126,10 @@ buildHostStageCandidate active _ snapshot
           lockDigest = InventoryDigest.contentDigest lock
           acceptedScope = snd <$> Map.lookup owner (ResourceInventory.snapshotScopes snapshot)
           systemId = Resource.mintResourceId owner key role
+      when transition $ for_ acceptedScope $ \prior -> do
+        inputs <- either dieT pure (InventoryHost.hostExecutionInputsFromScopes [prior])
+        unless (maybe False (lockDigest `elem`) inputs) $
+          dieT "host plan cannot change the accepted flake.lock; in-place payload upgrades are unsupported"
       ageKeyPath <- lookupEnv "NAGARE_HOST_AGE_KEY_FILE"
       ageKeyDigest <- case ageKeyPath of
         Just keyPath -> do
@@ -119,13 +142,13 @@ buildHostStageCandidate active _ snapshot
             case inputs of
               Just reviewed
                 | length reviewed `elem` [2, 3]
-                    && configurationDigest `elem` reviewed
-                    && lockDigest `elem` reviewed ->
+                    && (configurationDigest `elem` reviewed && lockDigest `elem` reviewed) ->
                     case delete lockDigest (delete configurationDigest reviewed) of
                       [] -> pure Nothing
                       [digest] -> pure (Just digest)
                       _ -> dieT "accepted host has invalid credential input binding"
-              _ -> dieT "accepted host configuration differs from the selected context; use a reviewed host transition"
+              Just reviewed | transition && length reviewed == 2 -> pure Nothing
+              _ -> dieT "accepted host configuration differs from the selected context; use a reviewed host transition with the accepted age-key file when credentials are bound"
       let specDigest =
             InventoryDigest.contentDigest
               ( TE.encodeUtf8
@@ -185,10 +208,10 @@ buildHostStageCandidate active _ snapshot
           )
       case Map.lookup owner (ResourceInventory.snapshotScopes snapshot) of
         Just (_, prior)
-          | ResourceWire.encodeCanonicalScope prior /= ResourceWire.encodeCanonicalScope scope ->
+          | not transition && ResourceWire.encodeCanonicalScope prior /= ResourceWire.encodeCanonicalScope scope ->
               dieT "accepted host configuration differs from the selected context; use a reviewed host transition"
-        Just _ -> pure Nothing
-        Nothing ->
+        Just _ | not transition -> pure Nothing
+        _ ->
           Just
             <$> either
               (dieT . T.pack . show)

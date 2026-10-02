@@ -473,6 +473,8 @@ These ownership, identity, review, storage, migration, and controller-delegation
 
 ## Progress
 
+Host command coverage now includes explicit same-payload configuration and credential reviews under EP-153. Independent native execution closed the ClickHouse transient-verification defect on `e6255e6f`: the same read failure occurred, the bounded read-only retry recovered, and the data effect ran once. Final host candidate review, remaining command coverage, complete native evidence and non-publishing release acceptance remain open.
+
 **Current implementation checkpoint (2026-10-02).** EP-158 public command proofs
 now cover exact Cloudflare host/path and explicit zone-owner purge, plus retained
 Google/Cloudflare DNS collection and no-resend recovery. Independent review closed

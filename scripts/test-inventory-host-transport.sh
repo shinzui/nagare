@@ -47,6 +47,9 @@ emit_state() { printf '%s %s %s\n' "$1" "$2" "$3"; }
 
 # Source the actual function, not a maintained test copy of its logic.
 eval "$(sed -n '/^tailnet_fresh_closure() {/,/^}/p' "${script_dir}/inventory-host-transport.sh")"
+eval "$(sed -n '/^credential_receipt_path() {/,/^}/p' "${script_dir}/inventory-host-transport.sh")"
+eval "$(sed -n '/^credential_activation_ready() {/,/^}/p' "${script_dir}/inventory-host-transport.sh")"
+eval "$(sed -n '/^previous_key_matches() {/,/^}/p' "${script_dir}/inventory-host-transport.sh")"
 eval "$(sed -n '/^activate() {/,/^}/p' "${script_dir}/inventory-host-transport.sh")"
 
 HOST_PHYSICAL=gce://replacement

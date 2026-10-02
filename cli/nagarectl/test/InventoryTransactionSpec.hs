@@ -1543,7 +1543,7 @@ inventoryTransactionTests =
               plan = HostActivationPlan 1 (ok (mkOperationId "op-transport-test"))
                 (contentDigest "host") (fixtureBinding ^. #identity) (ok (mkName "host"))
                 (ok (mkPhysicalIdentity "gce://projects/project/zones/zone/instances/123"))
-                "deploy@host" (contentDigest "config") (contentDigest "lock") Nothing
+                "deploy@host" (contentDigest "config") (contentDigest "lock") Nothing Nothing False
                 "/nix/store/old-test-closure" "/nix/store/accepted-test-closure" "activation"
               inspect job = runRegistryUnitTransport helper
                 [("NAGARE_TEST_PREFIX", prefix), ("NAGARE_TEST_JQ", jq),
@@ -2616,7 +2616,7 @@ preparedRegistryFixture store = do
       hostPlan operation = HostActivationPlan 1 (plannedOperationId operation)
         (plannedInputDigest operation) (fixtureBinding ^. #identity)
         (ok (mkName "host")) (ok (mkPhysicalIdentity "gce://projects/project/zones/zone/instances/123"))
-        "deploy@host" (contentDigest "configuration") (contentDigest "lock") Nothing
+        "deploy@host" (contentDigest "configuration") (contentDigest "lock") Nothing Nothing False
         "/nix/store/old-test-closure" "/nix/store/accepted-test-closure" "activation"
       kubernetes = mkKubernetesAdapter (Map.singleton controllerId (controllerMember, nativeObject))
         (KubernetesAdapterOps (fixtureBinding ^. #identity)

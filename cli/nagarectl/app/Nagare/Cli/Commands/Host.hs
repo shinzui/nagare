@@ -6,16 +6,22 @@ module Nagare.Cli.Commands.Host
   )
 where
 
+import Control.Exception (bracket)
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy.Char8 qualified as LBC
+import Data.Foldable (for_)
 import Data.Generics.Labels ()
+import Data.Map qualified as Map
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Nagare.Cli.Bootstrap.Foundation (foundationStageTarget)
 import Nagare.Cli.Bootstrap.Host
   ( buildHostStageCandidate
+  , buildHostTransitionCandidate
   , buildKubeconfigStageCandidateWithRecovery
   )
+import Nagare.Cli.Inventory.Planning (inventoryPlanRegistry)
+import Nagare.Cli.Inventory.Workflow (runInventoryApply)
 import Nagare.Cli.Options
   ( ClusterCommand (..)
   , HostCommand (..)
@@ -58,7 +64,9 @@ import Nagare.Host.Config
   , renderHostModule
   , renderHostSummary
   )
+import Nagare.Inventory.Adapter qualified as Adapter
 import Nagare.Inventory.Command qualified as Inventory
+import Nagare.Inventory.Plan qualified as Plan
 import Nagare.Ops.ClusterGuard
   ( clusterGuardObservationsValue
   , clusterGuardVerdict
@@ -68,6 +76,8 @@ import Nagare.Ops.ClusterGuard
   )
 import Nagare.Ops.Probe (ProbeStatus (StatusOk), renderInventory)
 import Nagare.Ops.Status (probeCertificatePolicy)
+import Nagare.Resource.Inventory qualified as ResourceInventory
+import Nagare.Resource.Types qualified as Resource
 import Nagare.Target (Mode (Local), contextNameText)
 import Nagare.Version (BuildVersion (BuildVersion))
 import System.Directory
@@ -75,7 +85,7 @@ import System.Directory
   , doesFileExist
   , makeAbsolute
   )
-import System.Environment (getEnvironment)
+import System.Environment (getEnvironment, lookupEnv, setEnv, unsetEnv)
 import System.Exit (exitFailure)
 import System.FilePath ((</>))
 import System.IO (stderr)
@@ -87,27 +97,44 @@ import System.Process
 
 runHost :: Maybe String -> HostCommand -> IO ()
 runHost globalContext = \case
-  HostPlaceAgeKey options -> do
-    active <- activeTarget (options ^. #context <|> globalContext)
-    guardLegacyMutationInventory "host place-age-key" active
-    let context = active ^. #contextName
-        profile = active ^. #profile
-    when (profile ^. #mode == Local) $
-      dieT "host age-key placement uses GCP IAP and is unavailable for local contexts"
-    (_, workspace) <- resolvePlatformWorkspace context
-    parentEnv <- getEnvironment
-    let iapHelper = workspace ^. #scriptsDir </> "iap-ssh.sh"
-        transport childEnv arguments =
-          readCreateProcessWithExitCode ((proc iapHelper arguments) {env = Just childEnv}) ""
-    placeAgeKeyWith transport parentEnv (contextNameText context) profile (options ^. #keyFile) (options ^. #force)
-      >>= either dieT pure
-    TIO.putStrLn
-      ( "Host age key for context '"
-          <> contextNameText context
-          <> "' is ready on instance '"
-          <> profile ^. #instanceName
-          <> "'."
+  HostApply directory yes -> do
+    bundle <- Plan.loadReviewBundle directory >>= either dieT pure
+    owner <- either dieT pure (Resource.mkScopeId Resource.Platform "host")
+    let document = Plan.reviewBundleDocument bundle
+        otherScopesUnchanged = Map.delete owner (Plan.reviewBaseRevisions document) == Map.delete owner (Plan.reviewDesiredRevisions document)
+    unless
+      ( otherScopesUnchanged
+          && all ((== ResourceInventory.HostExecutor) . Adapter.plannedExecutor . Plan.reviewPlannedOperation) (Plan.reviewOperations document)
+          && Map.null (Plan.reviewRetentions document)
+          && Map.null (Plan.reviewCollections document)
+          && Map.null (Plan.reviewMigrations document)
       )
+      $ dieT "host apply requires a host-only review without retirement, collection, or migration"
+    runInventoryApply globalContext directory yes
+  HostPlan output keyFile replace -> runHostReview globalContext output keyFile replace
+  HostPlaceAgeKey options -> case options ^. #savePlan of
+    Just output -> runHostReview (options ^. #context <|> globalContext) output (Just (options ^. #keyFile)) (options ^. #force)
+    Nothing -> do
+      active <- activeTarget (options ^. #context <|> globalContext)
+      guardLegacyMutationInventory "host place-age-key" active
+      let context = active ^. #contextName
+          profile = active ^. #profile
+      when (profile ^. #mode == Local) $
+        dieT "host age-key placement uses GCP IAP and is unavailable for local contexts"
+      (_, workspace) <- resolvePlatformWorkspace context
+      parentEnv <- getEnvironment
+      let iapHelper = workspace ^. #scriptsDir </> "iap-ssh.sh"
+          transport childEnv arguments =
+            readCreateProcessWithExitCode ((proc iapHelper arguments) {env = Just childEnv}) ""
+      placeAgeKeyWith transport parentEnv (contextNameText context) profile (options ^. #keyFile) (options ^. #force)
+        >>= either dieT pure
+      TIO.putStrLn
+        ( "Host age key for context '"
+            <> contextNameText context
+            <> "' is ready on instance '"
+            <> profile ^. #instanceName
+            <> "'."
+        )
   HostPath commandContext -> do
     active <- activeTarget (commandContext <|> globalContext)
     root <- hostConfigDir (active ^. #contextName)
@@ -253,3 +280,27 @@ runCluster globalContext = \case
     case probe ^. #status of
       StatusOk -> pure ()
       _ -> exitFailure
+
+-- | Save authority first; generic inventory apply/resume owns all effects.
+runHostReview :: Maybe String -> FilePath -> Maybe FilePath -> Bool -> IO ()
+runHostReview selected output keyFile replace = do
+  active <- activeTarget selected
+  when (active ^. #profile . #mode == Local) $
+    dieT "reviewed NixOS host transitions require a cloud context"
+  inheritedKey <- lookupEnv "NAGARE_HOST_AGE_KEY_FILE"
+  let selectedKey = keyFile <|> inheritedKey
+  when (replace && isNothing selectedKey) $
+    dieT "replacing an age key requires an explicit local key file"
+  (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+  snapshot <- Inventory.loadTargetSnapshot active
+  let additions =
+        [("NAGARE_HOST_REPLACE_AGE_KEY", if replace then "1" else "0"), ("NAGARE_HOST_REVIEW_CREDENTIAL", if isJust selectedKey then "1" else "0")]
+          <> maybe [] (\path -> [("NAGARE_HOST_AGE_KEY_FILE", path)]) selectedKey
+      restore previous = for_ previous $ \(key, value) -> maybe (unsetEnv key) (setEnv key) value
+  bracket (mapM (\(key, _) -> (\value -> (key, value)) <$> lookupEnv key) additions) restore $ \_ -> do
+    for_ additions (uncurry setEnv)
+    candidate <-
+      buildHostTransitionCandidate active workspace snapshot
+        >>= maybe (dieT "selected context has no NixOS host transition") pure
+    Inventory.planInventoryCandidateWith (inventoryPlanRegistry active workspace) active candidate output
+  TIO.putStrLn "Host review saved; use inventory apply with this directory. Credential reviews require the same NAGARE_HOST_AGE_KEY_FILE at apply/resume."

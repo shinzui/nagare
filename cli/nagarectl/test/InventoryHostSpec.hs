@@ -1,6 +1,9 @@
 module InventoryHostSpec (inventoryHostTests) where
 
+import Data.Aeson qualified as Aeson
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString.Char8 qualified as BC
+import Data.Foldable (for_)
 import Data.Generics.Labels ()
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
@@ -29,7 +32,46 @@ inventoryHostTests :: TestTree
 inventoryHostTests =
   testGroup
     "host inventory adapter"
-    [ testCase "host declaration includes system, durable mount, and explicit activation" $ do
+    [ testCase "legacy host plan bytes omit replacement authority" $ do
+        case Aeson.toJSON activationPlan of
+          Aeson.Object fields -> KeyMap.lookup "previousAgeKeyDigest" fields @?= Nothing
+          _ -> assertFailure "host plan is not an object"
+        Aeson.eitherDecode (Aeson.encode activationPlan) @?= Right activationPlan
+    , testCase "credential preparation pins previous digest for host update and verification" $
+        withSystemTempDirectory "host-credential-plan" $ \temporary -> do
+          let executable = temporary </> "transport"
+              oldKey = contentDigest "previous-key"
+              newKey = contentDigest "next-key"
+              runtime =
+                HostRuntimeConfig
+                  executable
+                  []
+                  (ok (mkContextId "dev"))
+                  (name "dev-nagare")
+                  "example-project"
+                  "us-west1-a"
+                  "dev-nagare"
+                  "deploy@dev-nagare"
+                  (contentDigest "configuration")
+                  (contentDigest "lock")
+                  (Just newKey)
+                  True
+              response =
+                "{\"tag\":\"HostTransportPreparedCredential\",\"contents\":[\"gce://example-project/us-west1-a/dev-nagare\",\"/fixture/old\",\"/fixture/new\",\""
+                  <> Data.Text.unpack (digestText oldKey)
+                  <> "\"]}"
+          writeFile executable ("#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '" <> response <> "'\n")
+          setFileMode executable 0o700
+          for_ [UpdateResource, VerifyResource] $ \action -> do
+            prepared <- hostPreparePlan (mkHostRuntimeOps runtime) (operation {plannedAction = action}) >>= expectRight
+            hostPlanPreviousAgeKeyDigest prepared @?= Just oldKey
+            hostPlanCredentialReceiptRequired prepared @?= True
+            hostPlanVersion prepared @?= 2
+            supportedHostPlanVersion prepared @?= True
+            supportedHostPlanVersion (prepared {hostPlanVersion = 1}) @?= False
+            hostPlanAgeKeyDigest prepared @?= Just newKey
+            Aeson.eitherDecode (Aeson.encode prepared) @?= Right prepared
+    , testCase "host declaration includes system, durable mount, and explicit activation" $ do
         declaration <- expectRight (compileHostScope hostBundle)
         case scopeBundles declaration of
           [ResourceBundle declared _ _ _ declaredOperations _] -> do
@@ -263,6 +305,8 @@ activationPlan =
     , hostPlanConfigurationDigest = contentDigest "configuration"
     , hostPlanLockDigest = contentDigest "lock"
     , hostPlanAgeKeyDigest = Nothing
+    , hostPlanPreviousAgeKeyDigest = Nothing
+    , hostPlanCredentialReceiptRequired = False
     , hostPlanExpectedOldClosure = "/nix/store/old"
     , hostPlanNewClosure = "/nix/store/new"
     , hostPlanActivationId = "activation-01"
