@@ -247,7 +247,7 @@ F01 and F11 retain their [earlier independent closure](mp23-verification.md). F0
 
 ## F06
 
-**Journal appends retain excessive serial cloud-command cost** — P1; **Partial**; owner EP-156.
+**Journal appends retain excessive serial cloud-command cost** — P1; **Closed**; owner EP-156.
 
 **Locations:** cli/nagarectl/src/Nagare/Inventory/Execute.hs: appendEvent; cli/nagarectl/src/Nagare/Inventory/Store.hs; cli/nagarectl/src/Nagare/Inventory/Store/ObjectOps.hs.
 
@@ -269,7 +269,7 @@ F01 and F11 retain their [earlier independent closure](mp23-verification.md). F0
 
 **Required verification:** Retain append and resume command-count regressions, preserve conditional writes/lost-ack recovery, then pass EP-156 cold/warm real GCS timing gate. Record append/provider/replay timings separately; no closure from one batched cp.
 
-**Verification:** Not closed. Awaiting the checks above.
+**Verification:** Independently Closed (2026-10-02). The finite real native production-driver measurement now separates registry construction (1.930s), one real GCS journal batch (6.244s), six individual journal PUTs (0.084–0.098s), their conditional head advances (0.097–0.140s), claim/finalization writes (0.102/0.165s), and real provider processes (58 kubectl calls totaling 19.323s, including one create and 9.949s completion wait). The instrumented production registry/driver restores known content and preserves 30 prior scopes, source A and neighbor B. This complements the retained three-pair 61/500-event cold/warm acceptance and independently passed conditional-write/lost-ack/replay regressions. Individual ObjectOps IO timings and provider sums are explicitly distinguished from whole-command elapsed time and installed binary execution; no disjoint decomposition is fabricated. See [independent evidence](mp23-independent-verification-2026-10-02.md).
 
 ## F07
 
@@ -289,7 +289,7 @@ F01 and F11 retain their [earlier independent closure](mp23-verification.md). F0
 
 ## F08
 
-**Unchanged host bootstrap depends on transient key-file environment and source root** — P2; **Partial**; owner EP-156.
+**Unchanged host bootstrap depends on transient key-file environment and source root** — P2; **Closed**; owner EP-156.
 
 **Locations:** cli/nagarectl/app/Main.hs: buildHostStageCandidate.
 
@@ -303,7 +303,7 @@ F01 and F11 retain their [earlier independent closure](mp23-verification.md). F0
 
 **Required verification:** After accepting a credential-bound host, clear delivery-only environment and replan; also use another operator root with identical host bytes. Require unchanged/verify-only result while intentional configuration or credential change still refuses/reviews correctly.
 
-**Verification:** Not closed. Awaiting the checks above.
+**Verification:** Independently Closed (2026-10-02). Installed ec2e1cd4 runs from a never-used config/state/cache root with the delivery-only key variable absent and byte-identical host inputs. Missing credential refuses in 46.167s; explicit recovery succeeds in 8.100s and reaches the original Ready node. The read-only cluster review finishes in 351.077s under the unchanged 360s bound, preserving all six accepted prerequisite revisions and proposing no host/cloud-foundation/Pulumi operations. Shared history and global contexts remain exact; no apply runs. The independently executed public bootstrap fixture also rejects changed host inputs and changed existing credential bytes. See [independent evidence](mp23-independent-verification-2026-10-02.md).
 
 ## F09
 

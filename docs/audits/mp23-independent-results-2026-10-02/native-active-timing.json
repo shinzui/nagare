@@ -1,0 +1,142 @@
+{
+  "reviewDigest": "41b2b9f47c4e3878a252e545f26ad77bd4ff49d33025417af013de78a3dedead",
+  "objectVersion": "1790972107623803",
+  "receiptVersion": "1790972113079629",
+  "existingScopesPreserved": 30,
+  "operations": 2,
+  "newScratchDatabase": "mp23-pg-a_restore_mp23timedv5",
+  "context": "ep150-preview",
+  "project": "tan-ng-labs",
+  "planSeconds": 36.404,
+  "applySeconds": 44.317,
+  "restoreJobUid": "64a749d7-7366-4aa2-919a-889cacae9d99",
+  "restorePodUid": "d6b2b721-2e66-491b-bf1c-983be2abee15",
+  "downloadAndRestoreExitCodes": [
+    0,
+    0
+  ],
+  "rows": {
+    "source": "1|mp23-after-backup",
+    "neighbor": "1|mp23-untouched-app-b",
+    "restored": "1|mp23-after-backup"
+  },
+  "existingSourceAndNeighborUidsPreserved": true,
+  "automaticCronJobHistoryCleanup": [
+    {
+      "kind": "Job",
+      "name": "nagare-dbbackup-mp23-pg-a-29847077",
+      "uid": "ccae825b-1b05-4c91-a4b7-24b1cccbaaeb"
+    },
+    {
+      "kind": "Pod",
+      "name": "nagare-dbbackup-mp23-pg-a-29847077-98fnf",
+      "uid": "acbbebe5-3ade-49f9-ac39-d9d3c800c0ae"
+    }
+  ],
+  "executionBoundary": "instrumented production registry/driver with ObjectOps timing; not installed binary execution",
+  "head": {
+    "generation": 813,
+    "sequence": 687,
+    "activeTransaction": null,
+    "executorClaim": null
+  },
+  "acceptedScopeCount": 31,
+  "signedV5RecoveryPoint": "2026-10-02T20:15:01Z",
+  "sourceClusterUnavailable": false,
+  "historicalScheduleChange": false,
+  "preparerRevision": "ec2e1cd434855b86b16a6ffe8b0a0da24458668e",
+  "originalV4ProducerRemainsAbsent": true,
+  "instrumentedBinarySha256": "6ca51f8d85f0b52926377f3f56b0ec5939d1c617ac5f2447987cafe2f7f18cdf",
+  "timing": {
+    "processSeconds": 44.317,
+    "stages": [
+      {
+        "seconds": 2.146001,
+        "stage": "remote-setup"
+      },
+      {
+        "seconds": 0.275995,
+        "stage": "open-store"
+      },
+      {
+        "seconds": 6.0397,
+        "stage": "load-published-review"
+      },
+      {
+        "seconds": 1.930215,
+        "stage": "registry-construction"
+      },
+      {
+        "seconds": 0.254999,
+        "stage": "read-review-snapshot"
+      },
+      {
+        "seconds": 31.923991,
+        "stage": "apply-reviewed"
+      },
+      {
+        "seconds": 0.200237,
+        "stage": "read-final-head"
+      }
+    ],
+    "journalBatches": [
+      {
+        "prefix": "journal",
+        "seconds": 6.244232
+      }
+    ],
+    "claimConditionalPutSeconds": 0.102216,
+    "appends": [
+      {
+        "sequence": 681,
+        "state": "Pending",
+        "journalPutSeconds": 0.090949,
+        "conditionalHeadAdvanceSeconds": 0.103727
+      },
+      {
+        "sequence": 682,
+        "state": "IntentRecorded",
+        "journalPutSeconds": 0.097814,
+        "conditionalHeadAdvanceSeconds": 0.108792
+      },
+      {
+        "sequence": 683,
+        "state": "Completed",
+        "journalPutSeconds": 0.083566,
+        "conditionalHeadAdvanceSeconds": 0.116487
+      },
+      {
+        "sequence": 684,
+        "state": "IntentRecorded",
+        "journalPutSeconds": 0.091822,
+        "conditionalHeadAdvanceSeconds": 0.096708
+      },
+      {
+        "sequence": 685,
+        "state": "Completed",
+        "journalPutSeconds": 0.092776,
+        "conditionalHeadAdvanceSeconds": 0.107282
+      },
+      {
+        "sequence": 686,
+        "state": "Completed",
+        "journalPutSeconds": 0.086556,
+        "conditionalHeadAdvanceSeconds": 0.140477
+      }
+    ],
+    "finalizationConditionalPutSeconds": 0.16489,
+    "providerProcesses": {
+      "kubectl": {
+        "count": 58,
+        "sumProcessSeconds": 19.323208
+      },
+      "gcloud": {
+        "count": 3,
+        "sumProcessSeconds": 1.974796
+      }
+    },
+    "providerCreateSeconds": 0.239825,
+    "providerCompletionWaitSeconds": 9.94914,
+    "measurementBoundary": "ObjectOps durations measure individual IO calls; provider sums include context guards/readiness. They are not a disjoint wall-clock decomposition or isolated whole-append function timings."
+  }
+}

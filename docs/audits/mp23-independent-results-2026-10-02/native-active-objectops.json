@@ -1,0 +1,576 @@
+[
+  {
+    "key": "format.json",
+    "method": "get",
+    "phase": "open-store",
+    "seconds": 0.275612
+  },
+  {
+    "key": "reviews/41b2b9f47c4e3878a252e545f26ad77bd4ff49d33025417af013de78a3dedead.json",
+    "method": "get",
+    "phase": "load-published-review",
+    "seconds": 0.208485
+  },
+  {
+    "key": "scopes/ca3de517219d8170427440bcd13cc90222d55e7f4d9bdfa6b536184dd6b1b587.json",
+    "method": "get",
+    "phase": "load-published-review",
+    "seconds": 0.377391
+  },
+  {
+    "key": "scopes/526b22f68b9b4236273dbeb1d50a3378b6a788895166e25749fe6f602d1fd160.json",
+    "method": "get",
+    "phase": "load-published-review",
+    "seconds": 0.248056
+  },
+  {
+    "key": "scopes/a6dc41ef5ff942e5608e3b5eb89d9456245fc7f4ddb42c890b82dd0386fd5679.json",
+    "method": "get",
+    "phase": "load-published-review",
+    "seconds": 0.32518
+  },
+  {
+    "key": "scopes/727f7fddfac42ff87240de7852c4a2aa899075111ae6bc8e15f4b76cf29ac2b4.json",
+    "method": "get",
+    "phase": "load-published-review",
+    "seconds": 0.164434
+  },
+  {
+    "key": "scopes/accb866ab683014c1b1ef71a2db6812734368ed2ba376d3fae0f2fc4a29cd08f.json",
+    "method": "get",
+    "phase": "load-published-review",
+    "seconds": 0.235316
+  },
+  {
+    "key": "scopes/b9f3ecb7af759820236bda749ff3e91f210608e886c4ffc82318a09f77306872.json",
+    "method": "get",
+    "phase": "load-published-review",
+    "seconds": 0.198758
+  },
+  {
+    "key": "scopes/0bfb82ae6d55dbd4885fb62deb846d9a9e4a760da2104cae06f7f21454ffa531.json",
+    "method": "get",
+    "phase": "load-published-review",
+    "seconds": 0.142453
+  },
+  {
+    "key": "scopes/dbf32e69f0167acb24d9f8e6e1487d4dff66b946bdd9694aea60b36b66f13cfb.json",
+    "method": "get",
+    "phase": "load-published-review",
+    "seconds": 0.229361
+  },
+  {
+    "key": "scopes/a1e35c7da686d92fd08f25f56f47fdb60ffedd2832790c97a857b52d145efd33.json",
+    "method": "get",
+    "phase": "load-published-review",
+    "seconds": 0.143089
+  },
+  {
+    "key": "scopes/3f809745e315bf91719283a1552e7ee2c4d5b485533f2a1922c44a348f0afbdc.json",
+    "method": "get",
+    "phase": "load-published-review",
+    "seconds": 0.14644
+  },
+  {
+    "key": "scopes/2b74f7f8e5a9381510b2f5d9711ede12ed073887be837c34eaaecbf087e3518d.json",
+    "method": "get",
+    "phase": "load-published-review",
+    "seconds": 0.31259
+  },
+  {
+    "key": "scopes/2e361cc21bd64d0704a15c462beaff35c1ee2ba80aa48b84deeabde117ebb639.json",
+    "method": "get",
+    "phase": "load-published-review",
+    "seconds": 0.145058
+  },
+  {
+    "key": "scopes/265157e0f27f7c9b45f1d54e23d9b499c30f2f4eac1beae149333e8546171ee8.json",
+    "method": "get",
+    "phase": "load-published-review",
+    "seconds": 0.308086
+  },
+  {
+    "key": "scopes/228061939cf069a5c3f3c62f5e97296a31319b7198f8d4d2bee58737e7422d5b.json",
+    "method": "get",
+    "phase": "load-published-review",
+    "seconds": 0.120613
+  },
+  {
+    "key": "scopes/08d3163be47f32f0747a255ad45e18875bf9f462e6f1a480207540b83eea0e64.json",
+    "method": "get",
+    "phase": "load-published-review",
+    "seconds": 0.137196
+  },
+  {
+    "key": "scopes/d7d6a5233ad8fc6a0bf76083b3bbf4254e6f1cc0959eabfdb9f3a026d298179d.json",
+    "method": "get",
+    "phase": "load-published-review",
+    "seconds": 0.156664
+  },
+  {
+    "key": "scopes/ccccc05f4108e2daea94e44209d3d225f7fd60efd04ec1b34d8fcf9546a60903.json",
+    "method": "get",
+    "phase": "load-published-review",
+    "seconds": 0.134851
+  },
+  {
+    "key": "scopes/bd5eb9ec48926912791171fd9a7fc19bb2536e54f7ac7004dabcc407e5551dd2.json",
+    "method": "get",
+    "phase": "load-published-review",
+    "seconds": 0.112933
+  },
+  {
+    "key": "scopes/7df73c98f924c24cfcf2b7d7046cff16541e3f333b0f3e73b227ec82365a727a.json",
+    "method": "get",
+    "phase": "load-published-review",
+    "seconds": 0.171165
+  },
+  {
+    "key": "scopes/9002ce40135beb12f8ba7fc367b534269e2087f68451f7aa9d2900850e0ca48f.json",
+    "method": "get",
+    "phase": "load-published-review",
+    "seconds": 0.122038
+  },
+  {
+    "key": "scopes/eacc96c95cf9566bd4bd6acff51992f06998e545b5c38e193647fc14fb571364.json",
+    "method": "get",
+    "phase": "load-published-review",
+    "seconds": 0.183911
+  },
+  {
+    "key": "scopes/4cfc999fc1d06572a37edd9b944b2aa92b6bac497cda8fc29a9495be133cdd81.json",
+    "method": "get",
+    "phase": "load-published-review",
+    "seconds": 0.250199
+  },
+  {
+    "key": "scopes/e9fd98a35da6a469750780907381031b56c32ed4351c038ce4aee2ff4f70921e.json",
+    "method": "get",
+    "phase": "load-published-review",
+    "seconds": 0.190735
+  },
+  {
+    "key": "scopes/2cfe3400c01ce796a115a4ba4132c46b066b700309a0bf886e2afc01d492673a.json",
+    "method": "get",
+    "phase": "load-published-review",
+    "seconds": 0.128608
+  },
+  {
+    "key": "scopes/c1210ad6f0e1edc00dd470473052da52f19a91b09565d8ecd0de70beea631abb.json",
+    "method": "get",
+    "phase": "load-published-review",
+    "seconds": 0.175531
+  },
+  {
+    "key": "scopes/393e870f79197161ca2a91ebc75ea7d70f47b376b28d6ac8e407bd60ed84c8cc.json",
+    "method": "get",
+    "phase": "load-published-review",
+    "seconds": 0.118375
+  },
+  {
+    "key": "scopes/ab6773162feb2866f4e4031b9f47d71a772376d8d1918047baefb864f039d8fd.json",
+    "method": "get",
+    "phase": "load-published-review",
+    "seconds": 0.095685
+  },
+  {
+    "key": "scopes/08e53d8d460d07994ad05707f785864fefdf95131f2ad44b56a59d92b01486f4.json",
+    "method": "get",
+    "phase": "load-published-review",
+    "seconds": 0.116787
+  },
+  {
+    "key": "scopes/7ad35f0c90974d87da1259be27db7d7ad0ffe665582ff699b49d4bce8a40d8c0.json",
+    "method": "get",
+    "phase": "load-published-review",
+    "seconds": 0.097136
+  },
+  {
+    "key": "scopes/716c36e227fac28b79bf0036702d1fcc5b4f1572acffa4c7e5101a32fedb91c8.json",
+    "method": "get",
+    "phase": "load-published-review",
+    "seconds": 0.11646
+  },
+  {
+    "key": "scopes/4b47fcf0510f9d5d0c76c0734bc6ac3575a3150076aa83de764f006defda131c.json",
+    "method": "get",
+    "phase": "load-published-review",
+    "seconds": 0.13257
+  },
+  {
+    "key": "native/8ffaefdd6199377c08e8cb1e12f4a30442308e1c10395c0fc74aba1c0b144fa3.json",
+    "method": "get",
+    "phase": "load-published-review",
+    "seconds": 0.106708
+  },
+  {
+    "key": "native/121a9c3c0623359d5cdd28b9aca0eb7c551ad077d07c37b15784c9962145b26f.json",
+    "method": "get",
+    "phase": "load-published-review",
+    "seconds": 0.145815
+  },
+  {
+    "key": "head.json",
+    "method": "get",
+    "phase": "registry-construction",
+    "seconds": 0.114054
+  },
+  {
+    "key": "scopes/e933702a215302687a4dbd4dcef6ea649dfad4caa21819b9c215f5e28196e598.json",
+    "method": "get",
+    "phase": "registry-construction",
+    "seconds": 0.113092
+  },
+  {
+    "key": "scopes/729004d96f6104d33c0aaf7c5ab22508df2ffaf5e2a2c1ecda500a5413f85208.json",
+    "method": "get",
+    "phase": "registry-construction",
+    "seconds": 0.103593
+  },
+  {
+    "key": "reviews/c231eadd085cb0090aa76f0c0a316d9f989768a1bce7471d3ece00b7a36fea1c.json",
+    "method": "get",
+    "phase": "registry-construction",
+    "seconds": 0.166303
+  },
+  {
+    "key": "reviews/cae6f4ad9ada268e94206fd6665875f731e88b6a2b35c34c76d79c4b86206b77.json",
+    "method": "get",
+    "phase": "registry-construction",
+    "seconds": 0.102061
+  },
+  {
+    "key": "scopes/ba326d063c68c4fda3b7ad13368ae92d4c8dc49156beec735a6af7d155c2ff6e.json",
+    "method": "get",
+    "phase": "registry-construction",
+    "seconds": 0.098954
+  },
+  {
+    "key": "reviews/09d87edc10d38d0124aa6cbc5a8608a3cd72b0ef5294c788e5375ef7d904012e.json",
+    "method": "get",
+    "phase": "registry-construction",
+    "seconds": 0.116512
+  },
+  {
+    "key": "reviews/6bc9ae1a81b7b6ccbfabfece05260ecc5ac144f31dd53d0c1823c0ee15a16686.json",
+    "method": "get",
+    "phase": "registry-construction",
+    "seconds": 0.135276
+  },
+  {
+    "key": "scopes/6a1b8cd506463d00c0c25d925e5ddca8666a7a9e14d76d0d74d9dd6653402b56.json",
+    "method": "get",
+    "phase": "registry-construction",
+    "seconds": 0.144648
+  },
+  {
+    "key": "reviews/bc659e295b49fdd837e35d6a223bec229904831deb7d00aedaad648cea6df4ca.json",
+    "method": "get",
+    "phase": "registry-construction",
+    "seconds": 0.312726
+  },
+  {
+    "key": "native/7b2d6415debba43bef7561213b829ca7717156e03d4b9f7376ee09eaac628583.json",
+    "method": "get",
+    "phase": "registry-construction",
+    "seconds": 0.15166
+  },
+  {
+    "key": "native/fbf25f9a2ec866c4831ea124c880c176ec5f52062253c9f3e324e4b061470392.json",
+    "method": "get",
+    "phase": "registry-construction",
+    "seconds": 0.121403
+  },
+  {
+    "key": "head.json",
+    "method": "get",
+    "phase": "read-review-snapshot",
+    "seconds": 0.132501
+  },
+  {
+    "key": "reviews/41b2b9f47c4e3878a252e545f26ad77bd4ff49d33025417af013de78a3dedead.json",
+    "method": "get",
+    "phase": "read-review-snapshot",
+    "seconds": 0.121266
+  },
+  {
+    "key": "head.json",
+    "method": "get",
+    "phase": "apply-reviewed",
+    "seconds": 0.1028
+  },
+  {
+    "key": "head.json",
+    "method": "get",
+    "phase": "apply-reviewed",
+    "seconds": 0.116512
+  },
+  {
+    "condition": "IfGenerationMatches (Generation 1790972677533895)",
+    "key": "head.json",
+    "method": "put",
+    "outcome": "PutWritten (Generation 1790973866798799)",
+    "phase": "apply-reviewed",
+    "seconds": 0.102216,
+    "publicationSha256": "3d429df27c4bbad52b09aebac39beede005e78361c64fdab2ae67074b35cea1b",
+    "sequence": 681,
+    "state": null
+  },
+  {
+    "key": "head.json",
+    "method": "get",
+    "phase": "apply-reviewed",
+    "seconds": 0.126015
+  },
+  {
+    "key": "journal/00000000000000000680.json",
+    "method": "get",
+    "phase": "apply-reviewed",
+    "seconds": 0.100411
+  },
+  {
+    "condition": "IfAbsent",
+    "key": "journal/00000000000000000681.json",
+    "method": "put",
+    "outcome": "PutWritten (Generation 1790973867121319)",
+    "phase": "apply-reviewed",
+    "seconds": 0.090949,
+    "publicationSha256": "b39190b06d90acb4b5391afa44b26a474cbf4dba5a7f81752157b9208dd358cd",
+    "sequence": 681,
+    "state": "Pending"
+  },
+  {
+    "condition": "IfGenerationMatches (Generation 1790973866798799)",
+    "key": "head.json",
+    "method": "put",
+    "outcome": "PutWritten (Generation 1790973867219909)",
+    "phase": "apply-reviewed",
+    "seconds": 0.103727,
+    "publicationSha256": "f2c37aed039274b742eccc48c4bfbfb7c916429a3352ce1bcbcf656e93054a2a",
+    "sequence": 682,
+    "state": null
+  },
+  {
+    "key": "head.json",
+    "method": "get",
+    "phase": "apply-reviewed",
+    "seconds": 0.106151
+  },
+  {
+    "key": "journal",
+    "method": "batch",
+    "phase": "apply-reviewed",
+    "seconds": 6.244232
+  },
+  {
+    "key": "head.json",
+    "method": "get",
+    "phase": "apply-reviewed",
+    "seconds": 0.107087
+  },
+  {
+    "key": "journal/00000000000000000681.json",
+    "method": "get",
+    "phase": "apply-reviewed",
+    "seconds": 0.101055
+  },
+  {
+    "condition": "IfAbsent",
+    "key": "journal/00000000000000000682.json",
+    "method": "put",
+    "outcome": "PutWritten (Generation 1790973876219225)",
+    "phase": "apply-reviewed",
+    "seconds": 0.097814,
+    "publicationSha256": "6adab16d55e516d22f17170e86e78547184d1369cbc9947cf9ab5b259f3e0674",
+    "sequence": 682,
+    "state": "IntentRecorded"
+  },
+  {
+    "condition": "IfGenerationMatches (Generation 1790973867219909)",
+    "key": "head.json",
+    "method": "put",
+    "outcome": "PutWritten (Generation 1790973876320842)",
+    "phase": "apply-reviewed",
+    "seconds": 0.108792,
+    "publicationSha256": "7453a6a848aafc5f14a1a586819ea02572b0085610953bff3a02b2314c0d0b1e",
+    "sequence": 683,
+    "state": null
+  },
+  {
+    "key": "head.json",
+    "method": "get",
+    "phase": "apply-reviewed",
+    "seconds": 0.120623
+  },
+  {
+    "key": "head.json",
+    "method": "get",
+    "phase": "apply-reviewed",
+    "seconds": 0.11101
+  },
+  {
+    "key": "journal/00000000000000000682.json",
+    "method": "get",
+    "phase": "apply-reviewed",
+    "seconds": 0.099834
+  },
+  {
+    "condition": "IfAbsent",
+    "key": "journal/00000000000000000683.json",
+    "method": "put",
+    "outcome": "PutWritten (Generation 1790973891189448)",
+    "phase": "apply-reviewed",
+    "seconds": 0.083566,
+    "publicationSha256": "263b7fc4ec0b5065d0288383c57ec3919609007a01982fc61a2836398b53df6a",
+    "sequence": 683,
+    "state": "Completed"
+  },
+  {
+    "condition": "IfGenerationMatches (Generation 1790973876320842)",
+    "key": "head.json",
+    "method": "put",
+    "outcome": "PutWritten (Generation 1790973891302557)",
+    "phase": "apply-reviewed",
+    "seconds": 0.116487,
+    "publicationSha256": "4fc904957aeaff1787c83d28fff5f2b2f214113fbcaa2ce85bd02fbee08860e0",
+    "sequence": 684,
+    "state": null
+  },
+  {
+    "key": "head.json",
+    "method": "get",
+    "phase": "apply-reviewed",
+    "seconds": 0.108085
+  },
+  {
+    "key": "journal/00000000000000000683.json",
+    "method": "get",
+    "phase": "apply-reviewed",
+    "seconds": 0.112718
+  },
+  {
+    "condition": "IfAbsent",
+    "key": "journal/00000000000000000684.json",
+    "method": "put",
+    "outcome": "PutWritten (Generation 1790973893203865)",
+    "phase": "apply-reviewed",
+    "seconds": 0.091822,
+    "publicationSha256": "f42da8388f8e288c335ce53372f2fe5ec2e65f8f4675478a89267c4a4efbfbea",
+    "sequence": 684,
+    "state": "IntentRecorded"
+  },
+  {
+    "condition": "IfGenerationMatches (Generation 1790973891302557)",
+    "key": "head.json",
+    "method": "put",
+    "outcome": "PutWritten (Generation 1790973893291115)",
+    "phase": "apply-reviewed",
+    "seconds": 0.096708,
+    "publicationSha256": "222c92429dbfb90f31a404bbdcd14c2c46dc12cbede1bc2e1a6c9c164e7f7e87",
+    "sequence": 685,
+    "state": null
+  },
+  {
+    "key": "head.json",
+    "method": "get",
+    "phase": "apply-reviewed",
+    "seconds": 0.113435
+  },
+  {
+    "key": "head.json",
+    "method": "get",
+    "phase": "apply-reviewed",
+    "seconds": 0.102255
+  },
+  {
+    "key": "journal/00000000000000000684.json",
+    "method": "get",
+    "phase": "apply-reviewed",
+    "seconds": 0.109163
+  },
+  {
+    "condition": "IfAbsent",
+    "key": "journal/00000000000000000685.json",
+    "method": "put",
+    "outcome": "PutWritten (Generation 1790973897189989)",
+    "phase": "apply-reviewed",
+    "seconds": 0.092776,
+    "publicationSha256": "c8269a7ba4dff449c40fbe85f765ed1784c3b4ef15333b1f7f1d25833609df32",
+    "sequence": 685,
+    "state": "Completed"
+  },
+  {
+    "condition": "IfGenerationMatches (Generation 1790973893291115)",
+    "key": "head.json",
+    "method": "put",
+    "outcome": "PutWritten (Generation 1790973897296453)",
+    "phase": "apply-reviewed",
+    "seconds": 0.107282,
+    "publicationSha256": "a5be5409d46fb3a29b68e3c080035b3af43b575bc49f8f08f68cb1fdfd788370",
+    "sequence": 686,
+    "state": null
+  },
+  {
+    "key": "head.json",
+    "method": "get",
+    "phase": "apply-reviewed",
+    "seconds": 0.103379
+  },
+  {
+    "key": "head.json",
+    "method": "get",
+    "phase": "apply-reviewed",
+    "seconds": 0.195286
+  },
+  {
+    "key": "journal/00000000000000000685.json",
+    "method": "get",
+    "phase": "apply-reviewed",
+    "seconds": 0.188687
+  },
+  {
+    "condition": "IfAbsent",
+    "key": "journal/00000000000000000686.json",
+    "method": "put",
+    "outcome": "PutWritten (Generation 1790973897880944)",
+    "phase": "apply-reviewed",
+    "seconds": 0.086556,
+    "publicationSha256": "7ae500b27a600f02a214b34c26b265c75eb00c572c7efcda5fd01a35bf64b6ef",
+    "sequence": 686,
+    "state": "Completed"
+  },
+  {
+    "condition": "IfGenerationMatches (Generation 1790973897296453)",
+    "key": "head.json",
+    "method": "put",
+    "outcome": "PutWritten (Generation 1790973898010970)",
+    "phase": "apply-reviewed",
+    "seconds": 0.140477,
+    "publicationSha256": "04da959dc55808d0e3ad2ecd7ee4467cbbe99de7afc0b49815a7dce09a397e4d",
+    "sequence": 687,
+    "state": null
+  },
+  {
+    "key": "head.json",
+    "method": "get",
+    "phase": "apply-reviewed",
+    "seconds": 0.112717
+  },
+  {
+    "condition": "IfGenerationMatches (Generation 1790973898010970)",
+    "key": "head.json",
+    "method": "put",
+    "outcome": "PutWritten (Generation 1790973898276711)",
+    "phase": "apply-reviewed",
+    "seconds": 0.16489,
+    "publicationSha256": "adbd68e95467788d40b9c2dd17b7f7720e37ca41c9f3d4e7b7396c54dc91de4d",
+    "sequence": 687,
+    "state": null
+  },
+  {
+    "key": "head.json",
+    "method": "get",
+    "phase": "read-final-head",
+    "seconds": 0.199362
+  }
+]

@@ -1,0 +1,60 @@
+{
+  "steps": [
+    {
+      "label": "before",
+      "exit": 0,
+      "seconds": 3.427
+    },
+    {
+      "label": "credential-plan",
+      "exit": 1,
+      "seconds": 46.167
+    },
+    {
+      "label": "credential-recovery",
+      "exit": 0,
+      "seconds": 8.1
+    },
+    {
+      "label": "node",
+      "exit": 0,
+      "seconds": 0.55
+    },
+    {
+      "label": "cluster-plan",
+      "exit": 0,
+      "seconds": 351.077
+    },
+    {
+      "label": "after",
+      "exit": 0,
+      "seconds": 3.256
+    }
+  ],
+  "reviewOperations": 206,
+  "reviewDigest": "89b4585064a140ba1646f51b0145cfd904941bd97f782e14e2b811f97bb94f29",
+  "globalContextsUnchanged": true,
+  "sharedStatusUnchanged": true,
+  "localInventoryAbsent": true,
+  "copiedMarkerOrJournalOrCredential": false,
+  "clusterApply": false,
+  "nodeUid": "d3745745-a1e2-4a07-9479-2832b893d7dc",
+  "candidate": "ec2e1cd434855b86b16a6ffe8b0a0da24458668e",
+  "deliveryOnlyKeyVariableAbsent": true,
+  "acceptedPrerequisiteScopesPreserved": [
+    "cloud-foundation",
+    "cloud",
+    "host-image-build",
+    "host-image",
+    "host",
+    "kubeconfig"
+  ],
+  "originalPayloadPreserved": "nagare-0.4.0-6082dbd6aac0-d80d7bc92f2ada26",
+  "publicChangedHostAndCredentialRefusals": "passed",
+  "sameHostInputHashes": {
+    "flake.lock": "334326dff5401b91ff36920431a86e6486527943ded4fe0d55246c8015d8cfd8",
+    "secrets.yaml": "c62cf5bfa3c2574f277a9bbaed23a6b0d750041fab5e3791ea5b83741f034968",
+    "host.nix": "d3b1a10864908976799b8f750f77e57f56044471b574932bc032c7ef29652b29",
+    "flake.nix": "b3b585703b7e19efd38fdae33351d522d2f442a76d8b3dbf18e531749ccac0db"
+  }
+}

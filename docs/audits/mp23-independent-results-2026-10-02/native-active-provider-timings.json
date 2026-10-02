@@ -1,0 +1,852 @@
+[
+  {
+    "phase": "instrumented-apply",
+    "tool": "gcloud",
+    "args": [
+      "config",
+      "config-helper",
+      "--format=json",
+      "--min-expiry=120s",
+      "--quiet"
+    ],
+    "exit": 0,
+    "seconds": 0.517163
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "gcloud",
+    "args": [
+      "storage",
+      "buckets",
+      "describe",
+      "gs://tan-ng-labs-ep150-pmkjjpp-state",
+      "--raw",
+      "--format=value(projectNumber)"
+    ],
+    "exit": 0,
+    "seconds": 0.810312
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "gcloud",
+    "args": [
+      "projects",
+      "describe",
+      "tan-ng-labs",
+      "--format=value(projectNumber)"
+    ],
+    "exit": 0,
+    "seconds": 0.647321
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "config",
+      "current-context"
+    ],
+    "exit": 0,
+    "seconds": 0.125462
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "get",
+      "nodes",
+      "-o",
+      "json",
+      "--request-timeout=10s"
+    ],
+    "exit": 0,
+    "seconds": 0.898981
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "--context",
+      "ep150-preview",
+      "--request-timeout=10s",
+      "get",
+      "job.batch",
+      "nagare-dbrestore-mp23-pg-a-mp23timedv5",
+      "--namespace",
+      "personal",
+      "-o",
+      "json",
+      "--ignore-not-found"
+    ],
+    "exit": 0,
+    "seconds": 0.177308
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "config",
+      "current-context"
+    ],
+    "exit": 0,
+    "seconds": 0.037338
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "get",
+      "nodes",
+      "-o",
+      "json",
+      "--request-timeout=10s"
+    ],
+    "exit": 0,
+    "seconds": 0.177717
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "--context",
+      "ep150-preview",
+      "--request-timeout=10s",
+      "get",
+      "statefulset.apps",
+      "mp23-pg-a",
+      "--namespace",
+      "personal",
+      "-o",
+      "json",
+      "--ignore-not-found"
+    ],
+    "exit": 0,
+    "seconds": 0.143789
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "config",
+      "current-context"
+    ],
+    "exit": 0,
+    "seconds": 0.038779
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "get",
+      "nodes",
+      "-o",
+      "json",
+      "--request-timeout=10s"
+    ],
+    "exit": 0,
+    "seconds": 0.197499
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "--context",
+      "ep150-preview",
+      "--request-timeout=10s",
+      "get",
+      "persistentvolumeclaim",
+      "nagare-db-mp23-pg-a-data",
+      "--namespace",
+      "personal",
+      "-o",
+      "json",
+      "--ignore-not-found"
+    ],
+    "exit": 0,
+    "seconds": 0.142228
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "config",
+      "current-context"
+    ],
+    "exit": 0,
+    "seconds": 0.037239
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "get",
+      "nodes",
+      "-o",
+      "json",
+      "--request-timeout=10s"
+    ],
+    "exit": 0,
+    "seconds": 0.240342
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "--context",
+      "ep150-preview",
+      "--request-timeout=10s",
+      "get",
+      "job.batch",
+      "nagare-dbrestore-mp23-pg-a-mp23timedv5",
+      "--namespace",
+      "personal",
+      "-o",
+      "json",
+      "--ignore-not-found"
+    ],
+    "exit": 0,
+    "seconds": 0.178037
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "config",
+      "current-context"
+    ],
+    "exit": 0,
+    "seconds": 0.036262
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "get",
+      "nodes",
+      "-o",
+      "json",
+      "--request-timeout=10s"
+    ],
+    "exit": 0,
+    "seconds": 0.27566
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "--context",
+      "ep150-preview",
+      "--request-timeout=10s",
+      "get",
+      "statefulset.apps",
+      "mp23-pg-a",
+      "--namespace",
+      "personal",
+      "-o",
+      "json",
+      "--ignore-not-found"
+    ],
+    "exit": 0,
+    "seconds": 0.145746
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "config",
+      "current-context"
+    ],
+    "exit": 0,
+    "seconds": 0.036682
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "get",
+      "nodes",
+      "-o",
+      "json",
+      "--request-timeout=10s"
+    ],
+    "exit": 0,
+    "seconds": 0.514127
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "--context",
+      "ep150-preview",
+      "--request-timeout=10s",
+      "get",
+      "persistentvolumeclaim",
+      "nagare-db-mp23-pg-a-data",
+      "--namespace",
+      "personal",
+      "-o",
+      "json",
+      "--ignore-not-found"
+    ],
+    "exit": 0,
+    "seconds": 0.148183
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "config",
+      "current-context"
+    ],
+    "exit": 0,
+    "seconds": 0.035415
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "get",
+      "nodes",
+      "-o",
+      "json",
+      "--request-timeout=10s"
+    ],
+    "exit": 0,
+    "seconds": 0.175098
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "--context",
+      "ep150-preview",
+      "--request-timeout=10s",
+      "create",
+      "--field-manager=nagare-inventory",
+      "-f",
+      "-"
+    ],
+    "exit": 0,
+    "seconds": 0.239825
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "--context",
+      "ep150-preview",
+      "--request-timeout=10s",
+      "wait",
+      "--for=condition=complete",
+      "job/nagare-dbrestore-mp23-pg-a-mp23timedv5",
+      "--namespace",
+      "personal",
+      "--timeout=300s"
+    ],
+    "exit": 0,
+    "seconds": 9.94914
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "config",
+      "current-context"
+    ],
+    "exit": 0,
+    "seconds": 0.038686
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "get",
+      "nodes",
+      "-o",
+      "json",
+      "--request-timeout=10s"
+    ],
+    "exit": 0,
+    "seconds": 0.346092
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "--context",
+      "ep150-preview",
+      "--request-timeout=10s",
+      "get",
+      "job.batch",
+      "nagare-dbrestore-mp23-pg-a-mp23timedv5",
+      "--namespace",
+      "personal",
+      "-o",
+      "json",
+      "--ignore-not-found"
+    ],
+    "exit": 0,
+    "seconds": 0.175148
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "config",
+      "current-context"
+    ],
+    "exit": 0,
+    "seconds": 0.036065
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "get",
+      "nodes",
+      "-o",
+      "json",
+      "--request-timeout=10s"
+    ],
+    "exit": 0,
+    "seconds": 0.255581
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "--context",
+      "ep150-preview",
+      "--request-timeout=10s",
+      "get",
+      "statefulset.apps",
+      "mp23-pg-a",
+      "--namespace",
+      "personal",
+      "-o",
+      "json",
+      "--ignore-not-found"
+    ],
+    "exit": 0,
+    "seconds": 0.142953
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "config",
+      "current-context"
+    ],
+    "exit": 0,
+    "seconds": 0.037646
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "get",
+      "nodes",
+      "-o",
+      "json",
+      "--request-timeout=10s"
+    ],
+    "exit": 0,
+    "seconds": 0.309771
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "--context",
+      "ep150-preview",
+      "--request-timeout=10s",
+      "get",
+      "persistentvolumeclaim",
+      "nagare-db-mp23-pg-a-data",
+      "--namespace",
+      "personal",
+      "-o",
+      "json",
+      "--ignore-not-found"
+    ],
+    "exit": 0,
+    "seconds": 0.142247
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "config",
+      "current-context"
+    ],
+    "exit": 0,
+    "seconds": 0.035884
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "get",
+      "nodes",
+      "-o",
+      "json",
+      "--request-timeout=10s"
+    ],
+    "exit": 0,
+    "seconds": 0.291021
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "--context",
+      "ep150-preview",
+      "--request-timeout=10s",
+      "get",
+      "job.batch",
+      "nagare-dbrestore-mp23-pg-a-mp23timedv5",
+      "--namespace",
+      "personal",
+      "-o",
+      "json",
+      "--ignore-not-found"
+    ],
+    "exit": 0,
+    "seconds": 0.164764
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "config",
+      "current-context"
+    ],
+    "exit": 0,
+    "seconds": 0.035844
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "get",
+      "nodes",
+      "-o",
+      "json",
+      "--request-timeout=10s"
+    ],
+    "exit": 0,
+    "seconds": 0.191357
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "--context",
+      "ep150-preview",
+      "--request-timeout=10s",
+      "get",
+      "statefulset.apps",
+      "mp23-pg-a",
+      "--namespace",
+      "personal",
+      "-o",
+      "json",
+      "--ignore-not-found"
+    ],
+    "exit": 0,
+    "seconds": 0.142469
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "config",
+      "current-context"
+    ],
+    "exit": 0,
+    "seconds": 0.038273
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "get",
+      "nodes",
+      "-o",
+      "json",
+      "--request-timeout=10s"
+    ],
+    "exit": 0,
+    "seconds": 0.17035
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "--context",
+      "ep150-preview",
+      "--request-timeout=10s",
+      "get",
+      "persistentvolumeclaim",
+      "nagare-db-mp23-pg-a-data",
+      "--namespace",
+      "personal",
+      "-o",
+      "json",
+      "--ignore-not-found"
+    ],
+    "exit": 0,
+    "seconds": 0.140048
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "config",
+      "current-context"
+    ],
+    "exit": 0,
+    "seconds": 0.037303
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "get",
+      "nodes",
+      "-o",
+      "json",
+      "--request-timeout=10s"
+    ],
+    "exit": 0,
+    "seconds": 0.169567
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "--context",
+      "ep150-preview",
+      "--request-timeout=10s",
+      "get",
+      "job.batch",
+      "nagare-dbrestore-mp23-pg-a-mp23timedv5",
+      "--namespace",
+      "personal",
+      "-o",
+      "json",
+      "--ignore-not-found"
+    ],
+    "exit": 0,
+    "seconds": 0.182306
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "config",
+      "current-context"
+    ],
+    "exit": 0,
+    "seconds": 0.039208
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "get",
+      "nodes",
+      "-o",
+      "json",
+      "--request-timeout=10s"
+    ],
+    "exit": 0,
+    "seconds": 0.169715
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "--context",
+      "ep150-preview",
+      "--request-timeout=10s",
+      "get",
+      "statefulset.apps",
+      "mp23-pg-a",
+      "--namespace",
+      "personal",
+      "-o",
+      "json",
+      "--ignore-not-found"
+    ],
+    "exit": 0,
+    "seconds": 0.157175
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "config",
+      "current-context"
+    ],
+    "exit": 0,
+    "seconds": 0.04272
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "get",
+      "nodes",
+      "-o",
+      "json",
+      "--request-timeout=10s"
+    ],
+    "exit": 0,
+    "seconds": 0.254453
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "--context",
+      "ep150-preview",
+      "--request-timeout=10s",
+      "get",
+      "persistentvolumeclaim",
+      "nagare-db-mp23-pg-a-data",
+      "--namespace",
+      "personal",
+      "-o",
+      "json",
+      "--ignore-not-found"
+    ],
+    "exit": 0,
+    "seconds": 0.149039
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "config",
+      "current-context"
+    ],
+    "exit": 0,
+    "seconds": 0.044238
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "get",
+      "nodes",
+      "-o",
+      "json",
+      "--request-timeout=10s"
+    ],
+    "exit": 0,
+    "seconds": 0.179239
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "--context",
+      "ep150-preview",
+      "--request-timeout=10s",
+      "get",
+      "job.batch",
+      "nagare-dbrestore-mp23-pg-a-mp23timedv5",
+      "--namespace",
+      "personal",
+      "-o",
+      "json",
+      "--ignore-not-found"
+    ],
+    "exit": 0,
+    "seconds": 0.173164
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "config",
+      "current-context"
+    ],
+    "exit": 0,
+    "seconds": 0.035843
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "get",
+      "nodes",
+      "-o",
+      "json",
+      "--request-timeout=10s"
+    ],
+    "exit": 0,
+    "seconds": 0.171978
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "--context",
+      "ep150-preview",
+      "--request-timeout=10s",
+      "get",
+      "statefulset.apps",
+      "mp23-pg-a",
+      "--namespace",
+      "personal",
+      "-o",
+      "json",
+      "--ignore-not-found"
+    ],
+    "exit": 0,
+    "seconds": 0.144735
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "config",
+      "current-context"
+    ],
+    "exit": 0,
+    "seconds": 0.036521
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "get",
+      "nodes",
+      "-o",
+      "json",
+      "--request-timeout=10s"
+    ],
+    "exit": 0,
+    "seconds": 0.546482
+  },
+  {
+    "phase": "instrumented-apply",
+    "tool": "kubectl",
+    "args": [
+      "--context",
+      "ep150-preview",
+      "--request-timeout=10s",
+      "get",
+      "persistentvolumeclaim",
+      "nagare-db-mp23-pg-a-data",
+      "--namespace",
+      "personal",
+      "-o",
+      "json",
+      "--ignore-not-found"
+    ],
+    "exit": 0,
+    "seconds": 0.144466
+  }
+]

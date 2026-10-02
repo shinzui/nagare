@@ -247,3 +247,45 @@ inputs. The disposable-prerelease decision removes obsolete missing-byte-store
 compatibility as a release gate; cold legacy fallback may still search original
 archives. That documented limit is preserved, without claiming constant scope
 decode cost or rewriting legacy history.
+
+## Independent native cost and fresh-root closure
+
+F06 now has the missing [real native active measurement](mp23-independent-results-2026-10-02/native-active-timing.json).
+Installed ec2 prepares one reviewed isolated restore from the accepted v5 receipt.
+An [audit-only harness](mp23-reproductions/Mp23NativeActiveTiming.hs) then invokes
+the production app registry and transaction driver with timing wrappers around
+real ObjectOps and kubectl processes. [Binary and worktree input hashes](mp23-independent-results-2026-10-02/native-active-source-bindings.json)
+bind this instrumented execution; it is not an installed-binary timing claim.
+The process takes 44.317s, including 31.924s in apply, 1.930s registry construction
+and one 6.244s GCS journal batch. Six journal PUTs take 0.084–0.098s each; their
+conditional head advances take 0.097–0.140s. Claim and finalization PUTs take
+0.102/0.165s. [Individual IO calls](mp23-independent-results-2026-10-02/native-active-objectops.json)
+and [provider process timings](mp23-independent-results-2026-10-02/native-active-provider-timings.json)
+remain separate: 58 kubectl calls total 19.323s, including one 0.240s create and
+9.949s completion wait; three gcloud setup calls total 1.975s. These are individual
+call durations/sums, not a fabricated disjoint wall-clock decomposition.
+
+The new isolated target returns the known row. All 30 prior scope revisions and
+source/neighbor data identities remain exact; generation 813/sequence 687 is idle
+with 31 scopes. The automatic CronJob's normal history limit removes one old,
+completed, unaccepted v4 producer Job/Pod during these checks; the proof records
+those exact identities rather than claiming an unchanged set of ephemeral Jobs.
+Together with the retained real 61/500-event three-pair cold/warm budgets and
+independently passing append/conditional-write/lost-ack/replay regressions, this
+closes F06's stated excessive serial cloud-command defect.
+
+F08 independently closes through [installed fresh-root evidence](mp23-independent-results-2026-10-02/fresh-root-host-ec2e1cd4.json).
+No journal, marker or credential is copied; all original host input hashes match
+and the delivery-only age-key variable is absent. Missing credential refusal,
+explicit recovery and original Ready-node verification pass. The read-only
+cluster plan takes 351.077s under 360s, with exact prerequisite revisions and no
+host/foundation/Pulumi operations. Shared status and global contexts remain
+unchanged; no cluster apply occurs. The [independent public regression output](mp23-independent-results-2026-10-02/fresh-root-public.txt)
+also proves altered host inputs and altered existing credential bytes refuse.
+
+Independent execution of `scripts/test-release-evidence-public.py` against the
+built d1f2f9ec release-gate source, and `scripts/test-inventory-release-index.py`,
+both passes. The public path accepts complete synthetic evidence and rejects
+missing assets, stale bindings, missing required Redis assertions and expanded
+deferrals before a forge request. This verifies EP-157's gate implementation;
+it does not supply final native candidate evidence or authorize publication.
