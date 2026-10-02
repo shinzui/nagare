@@ -129,3 +129,22 @@ The release identity is global to the repository and tag. A deployment context
 may reference it but does not own or mutate its publication record. Complete
 inventory evidence in the release archive and native tagged release gates
 remain [ExecPlan 150](../plans/150-integrate-resource-inventories-into-upgrades-and-release-verification.md) acceptance work.
+
+
+## Amendment — 2026-10-02: complete candidate-bound inventory evidence
+
+Assembly and checked publication require the aggregate inventory index and its public inputs,
+including both local and cloud scenarios, exact supported/deferred command coverage, and full
+native output/rehearsal manifests for every supported system. Required scenario assertions cover
+the supported ownership, recovery, access, data and provider behavior. Hash validity alone cannot
+make an incomplete scenario acceptable. The publisher independently revalidates these bindings
+before any provider call, including on retry.
+
+Evidence collected from an immutable candidate cannot be committed into that same revision.
+Therefore manual release rehearsal selects two exact commits: the candidate supplying all builds
+and native rehearsals, and the later evidence commit supplying only public projected scenario
+records under `docs/release-evidence/<candidate-revision>/`. Tag publication always builds the tag's
+commit and selects the evidence commit through an explicit repository variable. Both paths validate
+all scenario/operator/payload identities against the candidate; selecting a newer evidence commit
+never changes the released source. Missing evidence refuses final assembly. Dispatch remains
+non-publishing, and no new authority to create tags or admit production data follows from acceptance.

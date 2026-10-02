@@ -255,12 +255,24 @@ in
   '';
 
   release-consistency-source = pkgs.runCommand "release-consistency-source"
-    { nativeBuildInputs = [ pkgs.bash pkgs.git pkgs.jq ]; src = src; }
+    { nativeBuildInputs = [ pkgs.bash pkgs.git pkgs.jq pkgs.python3 ]; src = src; }
     ''
       cp -R "$src" source
       chmod -R u+w source
       cd source
       bash ./scripts/test-release.sh
+      touch "$out"
+    '';
+
+  release-inventory-public = pkgs.runCommand "release-inventory-public"
+    { nativeBuildInputs = [ pkgs.bash pkgs.git pkgs.jq pkgs.python3 ]; src = src; }
+    ''
+      export HOME="$TMPDIR/release-home"
+      mkdir -p "$HOME"
+      cp -R "$src" source
+      chmod -R u+w source
+      cd source
+      python3 scripts/test-release-evidence-public.py --nagarectl ${nagarePackages.nagarectl}/bin/nagarectl
       touch "$out"
     '';
 }

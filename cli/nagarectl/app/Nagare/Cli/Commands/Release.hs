@@ -27,6 +27,7 @@ import Nagare.Inventory.Artifact
   , ArtifactKind (ReleasePayloadArtifact)
   )
 import Nagare.Inventory.Digest qualified as InventoryDigest
+import Nagare.Inventory.ReleaseEvidence (inventoryEvidenceAssetNames, validateInventoryReleaseEvidence)
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Resource.Wire qualified as ResourceWire
 import Nagare.Version (parsePlatformVersion)
@@ -44,11 +45,6 @@ import System.Process (readProcessWithExitCode)
 runReleasePublish :: Text -> Text -> FilePath -> Bool -> Maybe (Integer, Integer, Text) -> IO ()
 runReleasePublish repository version directory yes cleanup = do
   _ <- either (dieT . renderVersionError) pure (parsePlatformVersion version)
-  let evidenceName = "nagare-inventory-evidence-v" <> T.unpack version <> ".json"
-  evidenceExists <- doesFileExist (directory </> evidenceName)
-  when evidenceExists $ do
-    linked <- pathIsSymbolicLink (directory </> evidenceName)
-    when linked (dieT "inventory evidence attachment may not be a symbolic link")
   let tag = "v" <> version
       manifestName = "nagare-release-" <> T.unpack version <> ".json"
       notesName = "nagare-" <> T.unpack tag <> ".md"
@@ -61,7 +57,7 @@ runReleasePublish repository version directory yes cleanup = do
         , "clone-free-aarch64-darwin.json"
         , "SHA256SUMS"
         ]
-          <> [evidenceName | evidenceExists]
+          <> inventoryEvidenceAssetNames version
   tagType <- exactGitObjectType ("refs/tags/" <> T.unpack tag)
   unless (tagType == "tag") (dieT "release requires an annotated Git tag")
   tagObject <- exactGitRevision ("refs/tags/" <> T.unpack tag)
@@ -69,6 +65,10 @@ runReleasePublish repository version directory yes cleanup = do
   headCommit <- exactGitRevision "HEAD"
   unless (headCommit == commit) (dieT "release tag does not identify the checked-out commit")
   assets <- forM productNames $ \name -> do
+    exists <- doesPathExist (directory </> name)
+    unless exists (dieT ("missing required release asset: " <> T.pack name))
+    linked <- pathIsSymbolicLink (directory </> name)
+    when linked (dieT "release assets may not be symbolic links")
     attempted <- try (BS.readFile (directory </> name))
     bytes <-
       either
@@ -104,41 +104,7 @@ runReleasePublish repository version directory yes cleanup = do
         )
         (dieT "assembled release manifest does not bind this version, tag, and commit")
     _ -> dieT "assembled release manifest is not an object"
-  forM_ (Map.lookup evidenceName byName) $ \evidenceBytes -> do
-    evidence <-
-      either
-        (dieT . ("invalid inventory evidence: " <>) . T.pack)
-        pure
-        (Aeson.eitherDecodeStrict' evidenceBytes :: Either String Aeson.Value)
-    let field key (Aeson.Object fields) = AesonMap.lookup key fields
-        field _ _ = Nothing
-        payload = field "payload" evidence
-        fromPayload key = payload >>= field key
-        system = case fromPayload "system" of
-          Just (Aeson.String systemName) -> Just systemName
-          _ -> Nothing
-        expectedDigest = do
-          Aeson.Object manifestFields <- pure manifest
-          Aeson.Object digests <- AesonMap.lookup "payloadDigests" manifestFields
-          selected <- system
-          AesonMap.lookup (AesonKey.fromText selected) digests
-        validRun = case field "run" evidence >>= field "id" of
-          Just (Aeson.String runToken) -> T.length runToken == 64
-          _ -> False
-        hasReceipts = case field "componentReceipts" evidence of
-          Just (Aeson.Array values) -> not (null values)
-          _ -> False
-        validEvidence =
-          field "schemaVersion" evidence == Just (Aeson.Number 1)
-            && fromPayload "version" == Just (Aeson.String version)
-            && fromPayload "sourceRevision" == Just (Aeson.String commit)
-            && isJust expectedDigest
-            && fromPayload "digest" == expectedDigest
-            && validRun
-            && hasReceipts
-            && (field "coverage" evidence >>= field "complete") == Just (Aeson.Bool True)
-            && (field "finalObservation" evidence >>= field "complete") == Just (Aeson.Bool True)
-    unless validEvidence (dieT "inventory evidence does not bind the complete release candidate")
+  either dieT pure (validateInventoryReleaseEvidence version commit byName)
   sumsText <- either (dieT . T.pack . show) pure (TE.decodeUtf8' sumsBytes)
   listed <- forM (T.lines sumsText) $ \line -> do
     let (digest, suffix) = T.breakOn "  " line

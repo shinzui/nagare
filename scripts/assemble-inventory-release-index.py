@@ -11,6 +11,20 @@ from pathlib import Path
 
 
 HEX = re.compile(r"^[0-9a-f]{64}$")
+DEFERRED_ROUTES = ["DbCommand.DbPruneScheduledBackups", "DbCommand.DbRestore.--into-live",
+                   "DbCommand.DbShell", "StorageCommand.StorageRestore.--into-live"]
+RECOVERY_ONLY_ROUTES = ["DbCommand.DbRecoverScheduledPrune"]
+COMMON_SCENARIO_CHECKS = {
+    "collision-refusal", "adoption", "drift-classification", "convergence-noop-removal",
+    "independent-scope-preservation", "secret-read-refusal", "interrupted-recovery",
+    "postgresql-backup-restore", "redis-backup-restore", "clickhouse-backup-restore",
+    "volume-backup-restore", "source-unavailable-recovery", "backup-freshness",
+    "retained-data", "access-grant-revoke",
+}
+MODE_SCENARIO_CHECKS = {
+    "local": {"retained-postgresql-rename"},
+    "cloud": {"shared-history-takeover", "google-cdn"},
+}
 SENSITIVE_KEY = re.compile(r"password|credential|access.?token|private.?key|secret", re.I)
 
 
@@ -89,6 +103,9 @@ def scenario(mode: str, directory: Path, version: str, revision: str,
             and is_hex(health.get("fixtureDigest"))
             and isinstance(health.get("checks"), list) and bool(health["checks"]),
             f"{mode} health evidence is missing or stale")
+    require(all(isinstance(check, str) for check in health["checks"])
+            and COMMON_SCENARIO_CHECKS | MODE_SCENARIO_CHECKS[mode] <= set(health["checks"]),
+            f"{mode} health evidence lacks required supported assertions")
     payload = evidence.get("payload", {})
     run = evidence.get("run", {})
     require(evidence.get("schemaVersion") == 1 and payload.get("version") == version
@@ -163,6 +180,10 @@ def main() -> None:
             and all(isinstance(coverage.get(key), int) and coverage[key] > 0 for key in
                     ("registeredRoutes", "recipes", "libraryCalls")),
             "command coverage is incomplete or stale")
+    require(coverage.get("deferredRoutes") == DEFERRED_ROUTES
+            and coverage.get("recoveryOnlyRoutes") == RECOVERY_ONLY_ROUTES,
+            "command coverage changes the supported/deferred release contract")
+    reject_sensitive(coverage, "coverage")
     coverage_digest = digest(args.coverage_result)
     native = []
     for system in sorted(systems):
@@ -170,6 +191,8 @@ def main() -> None:
         rehearsal_path = args.native_dir / f"clone-free-{system}.json"
         output = read_json(output_path)
         rehearsal = read_json(rehearsal_path)
+        reject_sensitive(output, f"{system}.output")
+        reject_sensitive(rehearsal, f"{system}.rehearsal")
         require(output.get("version") == version and output.get("revision") == revision
                 and output.get("system") == system
                 and output.get("outputs", {}).get("nagarectl", {}).get("narHash", "").startswith("sha256-")

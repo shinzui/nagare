@@ -2,14 +2,17 @@
 """Exercise the complete candidate gate and representative missing/stale inputs."""
 
 import hashlib
+import runpy
 import json
 import subprocess
+import shutil
 import sys
 import tempfile
 from pathlib import Path
 
 
 ASSEMBLER = Path(__file__).with_name("assemble-inventory-release-index.py")
+CONTRACT = runpy.run_path(str(ASSEMBLER))
 REVISION = "fixture-revision"
 VERSION = "0.4.0"
 SYSTEMS = ["x86_64-linux", "aarch64-darwin"]
@@ -63,7 +66,10 @@ with tempfile.TemporaryDirectory(prefix="nagare-inventory-index-test.") as tempo
            "sourceRevision": REVISION, "candidateDigest": HEX_A,
            "registeredRoutes": 1, "recipes": 1, "libraryCalls": 1,
            "pending": [], "pendingRecipes": [],
-           "incompleteCatalogueRows": [], "errors": []})
+           "incompleteCatalogueRows": [], "errors": [],
+           "deferredRoutes": ["DbCommand.DbPruneScheduledBackups", "DbCommand.DbRestore.--into-live",
+                              "DbCommand.DbShell", "StorageCommand.StorageRestore.--into-live"],
+           "recoveryOnlyRoutes": ["DbCommand.DbRecoverScheduledPrune"]})
     for system in SYSTEMS:
         write(root / "native" / f"nix-output-{system}.json",
               {"version": VERSION, "revision": REVISION, "system": system,
@@ -84,7 +90,8 @@ with tempfile.TemporaryDirectory(prefix="nagare-inventory-index-test.") as tempo
         write(directory / f"{mode}-health.json",
               {"schemaVersion": 1, "mode": mode, "context": target["context"],
                "cluster": target["expectedCluster"], "operatorRevision": REVISION,
-               "fixtureDigest": HEX_A, "healthy": True, "checks": ["ready"]})
+               "fixtureDigest": HEX_A, "healthy": True,
+               "checks": sorted(CONTRACT["COMMON_SCENARIO_CHECKS"] | CONTRACT["MODE_SCENARIO_CHECKS"][mode])})
         write(directory / "inventory-evidence.json",
               {"schemaVersion": 1,
                "payload": {"version": VERSION, "sourceRevision": REVISION,
@@ -98,6 +105,11 @@ with tempfile.TemporaryDirectory(prefix="nagare-inventory-index-test.") as tempo
                "finalObservation": {"complete": True},
                "coverage": {"complete": True, "resultDigest": sha(root / "coverage.json")},
                "tools": {"operator": {"revision": REVISION}}})
+
+    if len(sys.argv) == 3 and sys.argv[1] == "--write-fixture":
+        shutil.copytree(root, Path(sys.argv[2]))
+        print("Wrote synthetic complete release-index inputs")
+        raise SystemExit(0)
 
     run(root, True)
     index = read(root / "index.json")
@@ -129,6 +141,27 @@ with tempfile.TemporaryDirectory(prefix="nagare-inventory-index-test.") as tempo
     write(coverage_path, changed)
     run(root, False, "command coverage is incomplete or stale")
     coverage_path.write_bytes(coverage_original)
+
+    changed = read(coverage_path)
+    changed["deferredRoutes"].append("CdnCommand.CdnPurge")
+    write(coverage_path, changed)
+    run(root, False, "supported/deferred release contract")
+    coverage_path.write_bytes(coverage_original)
+
+    changed = read(coverage_path)
+    del changed["recoveryOnlyRoutes"]
+    write(coverage_path, changed)
+    run(root, False, "supported/deferred release contract")
+    coverage_path.write_bytes(coverage_original)
+
+    health_path = root / "cloud/cloud-health.json"
+    health_original = health_path.read_bytes()
+    for missing in ("redis-backup-restore", "source-unavailable-recovery", "google-cdn"):
+        changed = read(health_path)
+        changed["checks"].remove(missing)
+        write(health_path, changed)
+        run(root, False, "lacks required supported assertions")
+        health_path.write_bytes(health_original)
 
     local_evidence = root / "local/inventory-evidence.json"
     local_original = local_evidence.read_bytes()

@@ -12,6 +12,15 @@ on:
         default: "0.4.0"
         type: string
 
+      candidate_revision:
+        description: Exact candidate commit (defaults to the dispatched commit)
+        required: false
+        type: string
+      evidence_revision:
+        description: Exact commit containing docs/release-evidence/CANDIDATE (required for full assembly)
+        required: false
+        type: string
+
 permissions:
   contents: read
 
@@ -27,6 +36,8 @@ jobs:
       version: ${{ steps.candidate.outputs.version }}
       tag: ${{ steps.candidate.outputs.tag }}
       publish: ${{ steps.candidate.outputs.publish }}
+      revision: ${{ steps.candidate.outputs.revision }}
+      evidence_revision: ${{ steps.candidate.outputs.evidence_revision }}
     steps:
       - name: Resolve version and publication mode
         id: candidate
@@ -34,8 +45,16 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           REF_NAME: ${{ github.ref_name }}
           INPUT_VERSION: ${{ inputs.version }}
+          INPUT_REVISION: ${{ inputs.candidate_revision }}
+          EVIDENCE_REVISION: ${{ inputs.evidence_revision || vars.NAGARE_INVENTORY_EVIDENCE_REVISION }}
         run: |
           set -euo pipefail
+          revision="${INPUT_REVISION:-$GITHUB_SHA}"
+          if [[ "$EVENT_NAME" == "push" ]]; then revision="$GITHUB_SHA"; fi
+          [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || { echo 'candidate must be an exact commit'; exit 1; }
+          [[ -z "$EVIDENCE_REVISION" || "$EVIDENCE_REVISION" =~ ^[0-9a-f]{40}$ ]] || { echo 'evidence must be an exact commit'; exit 1; }
+          printf 'revision=%s\n' "$revision" >> "$GITHUB_OUTPUT"
+          printf 'evidence_revision=%s\n' "$EVIDENCE_REVISION" >> "$GITHUB_OUTPUT"
           if [[ "$EVENT_NAME" == "push" ]]; then
             {
               printf 'version=%s\n' "${REF_NAME#v}"
@@ -66,6 +85,7 @@ jobs:
       - name: Check out the exact candidate
         uses: actions/checkout@v6
         with:
+          ref: ${{ needs.prepare.outputs.revision }}
           fetch-depth: 0
 
       - name: Install Nix
@@ -116,7 +136,7 @@ jobs:
           SYSTEM: ${{ matrix.system }}
         run: |
           set -euo pipefail
-          flake_ref="git+file://$GITHUB_WORKSPACE?rev=$GITHUB_SHA"
+          flake_ref="git+file://$GITHUB_WORKSPACE?rev=$(git rev-parse HEAD)"
           ./scripts/rehearse-clone-free-release.sh \
             --version "$VERSION" \
             --flake-ref "$flake_ref" \
@@ -160,6 +180,7 @@ jobs:
       - name: Check out the exact candidate
         uses: actions/checkout@v6
         with:
+          ref: ${{ needs.prepare.outputs.revision }}
           fetch-depth: 0
 
       - name: Download native artifacts
@@ -168,10 +189,25 @@ jobs:
           pattern: nagare-release-*
           path: native-artifacts
 
+      - name: Require independently collected scenario evidence
+        env:
+          EVIDENCE_REVISION: ${{ needs.prepare.outputs.evidence_revision }}
+        run: test -n "$EVIDENCE_REVISION" || { echo 'Full assembly requires evidence_revision; native artifacts remain available.'; exit 1; }
+
+      - name: Read immutable public scenario evidence
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.evidence_revision }}
+          path: scenario-evidence
+          sparse-checkout: docs/release-evidence
+
       - name: Assemble deterministic release attachments
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
-        run: ./scripts/assemble-release.sh --version "$VERSION" --input-root native-artifacts --output-dir dist
+          REVISION: ${{ needs.prepare.outputs.revision }}
+        run: |
+          ./scripts/assemble-release.sh --version "$VERSION" --input-root native-artifacts \
+            --inventory-evidence "scenario-evidence/docs/release-evidence/$REVISION" --output-dir dist
 
       - name: Upload assembled release attachments
         uses: actions/upload-artifact@v7

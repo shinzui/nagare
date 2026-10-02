@@ -47,6 +47,11 @@ provenance:
       at: 2026-10-02T18:53:10Z
       mode: "update"
       note: "Record critical intranet upgrade readiness and backup recovery acceptance with a one-hour recovery-point objective"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-02T20:11:06Z
+      mode: "implement"
+      note: "Enforce complete supported-contract evidence during non-publishing release acceptance"
 ---
 
 # Gate the inventory release on complete immutable evidence
@@ -81,6 +86,8 @@ Early schema handoff (2026-09-27): `scripts/assemble-inventory-release-index.py`
 Support-boundary schema checkpoint (2026-09-28): The command audit emits an exact `deferredRoutes` set for interactive maintenance, scheduled pruning, and live database/volume overwrite, plus `recoveryOnlyRoutes` for historical partial-prune recovery. The public evidence assembler now requires those exact fields; its fixture accepts the declared set and rejects a missing deferred set. `bash scripts/test-managed-resource-evidence.sh` and the audit fixture pass. This binds the operator-approved reduction to the coverage asset without treating still-pending supported commands as complete. M1 remains open for complete supported coverage, native-system inputs, and matching local/cloud candidate evidence.
 
 
+Implementation checkpoint (2026-10-02): Assembly now requires the complete local/cloud evidence directory and emits the aggregate index plus all public inputs as checksummed attachments. `Nagare.Inventory.ReleaseEvidence` independently checks the exact supported/deferred contract, candidate/native/scenario digests, required supported health assertions and secret-safe records before publication review reaches a provider. The workflow accepts separately pinned candidate and evidence commits, solving the self-reference problem without rebuilding a changed candidate. The public CLI regression passed complete review plus missing-index, semantically incomplete engine proof with recomputed hashes, changed target and undocumented-exclusion refusals. Python index and shell assembly regressions pass. These are implementation fixtures, not final native release evidence; M1 remains open pending independent review and matching complete inputs, and M2 remains open.
+
 ## Surprises & Discoveries
 
 
@@ -88,6 +95,8 @@ The previous one-run projector cannot stand in for both scenario modes. The earl
 
 
 ## Decision Log
+
+2026-10-02: Keep candidate source and later public-evidence commits separate and exact. Native builds use only the sealed candidate, while assembly checks the later evidence against that candidate's payloads. Require the aggregate index and its inputs again at the public publisher boundary; checksums alone do not establish complete supported-contract proof.
 
 2026-10-02 (critical intranet): Apply the parent production data-protection requirement before real company data is admitted. Preserve candidate-bound backup/restored-content evidence, make recovery-point/time assumptions explicit, and distinguish foundation acceptance from the separate supported-upgrade gate. Do not extend the disposable prerelease exception to production state.
 
@@ -114,7 +123,7 @@ This plan replaces part of [EP-150](150-integrate-resource-inventories-into-upgr
 
 [ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md) requires complete ownership and reviewed effects. [ADR 6](../adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md) permits this first release to start with fresh contexts while rejecting in-place platform version changes after admission. [ADR 4](../adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md) keeps operator state outside immutable payloads. [ADR 7](../adr/0007-publish-immutable-nix-releases-from-validated-tags.md) requires immutable release evidence. The operator's 2026-09-28 MP-23 decision reduces the supported feature set while retaining full validation, typed ownership, and cross-tool journal/state. General live overwrite, new custom interactive mutating maintenance, and generalized scheduled pruning are explicitly deferred. Refusal does not complete a retained feature; deferred routes need tested admission guards and recovery compatibility. Earlier no-reduction instructions are superseded.
 
-cli/nagarectl/src/Nagare/Inventory/Adapters/GitHubRelease.hs and GitHubReleaseRuntime.hs, cli/nagarectl/test/InventoryPublicationSpec.hs, scripts/assemble-managed-resource-evidence.sh, scripts/assemble-release.sh, scripts/test-managed-resource-evidence.sh, scripts/test-release.sh, release.json, and .github/workflows/release.yml own publication/evidence. The workflow already calls checked `release publish`; EP-150's prose claiming it still uses softprops is historical. Inventory evidence is currently optional at assembly, and the workflow assembly invocation does not supply it. The existing projector binds one rehearsal/private export to a candidate; require both local and cloud evidence through an explicit aggregate/index rather than treating one as both.
+cli/nagarectl/src/Nagare/Inventory/Adapters/GitHubRelease.hs and GitHubReleaseRuntime.hs, cli/nagarectl/test/InventoryPublicationSpec.hs, scripts/assemble-managed-resource-evidence.sh, scripts/assemble-release.sh, scripts/test-managed-resource-evidence.sh, scripts/test-release.sh, release.json, and .github/workflows/release.yml own publication/evidence. The workflow already calls checked `release publish`; EP-150's prose claiming it still uses softprops is historical. Inventory evidence is mandatory at assembly and checked publication; the workflow supplies public evidence from a separately pinned evidence commit. The existing projector binds one rehearsal/private export to a candidate; require both local and cloud evidence through an explicit aggregate/index rather than treating one as both.
 
 
 ## Plan of Work
@@ -125,7 +134,7 @@ Add negative assembly cases for an undocumented exclusion, a still-enabled defer
 
 **Early schema, late final acceptance.** Before EP-155/156 collect expensive native runs, implement/check the existing evidence index against representative local/cloud/native/coverage manifests and its missing-input tests with their producers. Bind the agreed schema and identity fields in those runners; do not redesign the evidence format after final provider proof. Final candidate assembly remains last, after complete matching evidence exists. Reuse the existing publisher and projector.
 
-The early index interface is `python3 scripts/assemble-inventory-release-index.py --release-metadata release.json --release-manifest FILE --native-dir DIR --coverage-result FILE --local-dir DIR --cloud-dir DIR --output FILE`. Each scenario directory contains the generic saved-review `target.json`, a public `<mode>-health.json` with schemaVersion/mode/context/cluster/operatorRevision/fixtureDigest/healthy/checks, and the public projector result named `inventory-evidence.json`. EP-155 already writes the local health shape; EP-156 must write its cloud counterpart with the same identity fields and cloud-specific checks. The index checks the target's canonical digest against the projected run and each native output/rehearsal against the same release revision and system payload. Its output is a candidate-bound index for the later release assembler, not yet an attachment or publication grant.
+The early index interface is `python3 scripts/assemble-inventory-release-index.py --release-metadata release.json --release-manifest FILE --native-dir DIR --coverage-result FILE --local-dir DIR --cloud-dir DIR --output FILE`. Each scenario directory contains the generic saved-review `target.json`, a public `<mode>-health.json` with schemaVersion/mode/context/cluster/operatorRevision/fixtureDigest/healthy/checks, and the public projector result named `inventory-evidence.json`. EP-155 already writes the local health shape; EP-156 must write its cloud counterpart with the same identity fields and cloud-specific checks. The index checks the target's canonical digest against the projected run and each native output/rehearsal against the same release revision and system payload. Its output is a candidate-bound index for the later release assembler, an attachment validated again by the checked publisher, never a publication grant.
 
 **Closure discipline (2026-09-27).** Consume the existing child assertions and finite command catalogue. The final rehearsal must report each missing or failing existing assertion with its owner. Reuse matching targeted evidence only under the recorded candidate/fixture binding; collect the required final manifests for the same release candidate. A newly noticed implementation defect still blocks its existing assertion, while a new feature/provider/security guarantee is a product-scope proposal, not an automatic new release condition. The parent execution-log audit is explanatory history and is not another evidence artifact or release gate.
 

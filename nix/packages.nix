@@ -12,7 +12,7 @@
       nagare = nagarePackages.nagare;
       release-tools = pkgs.symlinkJoin {
         name = "nagare-release-tools";
-        paths = [ pkgs.coreutils pkgs.jq ];
+        paths = [ pkgs.coreutils pkgs.jq pkgs.python3 ];
       };
       default = nagarePackages.nagarectl;
     };

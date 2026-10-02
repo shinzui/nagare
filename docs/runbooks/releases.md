@@ -27,23 +27,47 @@ records a mutation-free reviewed preview. CI repeats the rehearsal natively on e
 
 ## Rehearse CI without publishing
 
-Run the GitHub `Release` workflow manually with the candidate version. Manual dispatch has read-only
-repository permission, builds the Linux and Apple Silicon outputs, uploads one artifact per native
-system, and cannot enter the publish job. Download the two artifacts and assemble them locally:
+Seal the candidate commit before collecting local/cloud inventory evidence. Save only public
+projected evidence under `docs/release-evidence/<candidate-40-character-revision>/`: `coverage.json`
+and `local/` plus `cloud/`, each containing `target.json`, `<mode>-health.json`, and
+`inventory-evidence.json`. Commit these results after the candidate; do not modify the candidate to
+embed evidence about itself. Private exports, credentials and native plans remain outside this tree.
+
+Run the GitHub `Release` workflow manually with the candidate version, `candidate_revision` and
+`evidence_revision`, both exact 40-character commits. The evidence commit supplies the public tree;
+all native builds and rehearsals use the candidate commit. Manual dispatch has read-only repository
+permission and cannot enter the publish job. Omitting the evidence revision permits native artifact
+collection but makes final assembly fail. Download the two native artifacts and assemble them locally:
 
 ```bash
 ./scripts/assemble-release.sh \
   --version X.Y.Z \
   --input-root native-artifacts \
+  --inventory-evidence docs/release-evidence/CANDIDATE_REVISION \
   --output-dir dist
 ```
 
 Confirm the shared manifest and notes were byte-identical, both native output manifests are present,
-and `sha256sum -c dist/SHA256SUMS` (or `shasum -a 256 -c`) succeeds.
+and checksums pass from inside `dist` (`sha256sum -c SHA256SUMS`, or `shasum -a 256 -c`).
+Assembly and the checked publisher require a complete inventory index, its public input files,
+exact supported/deferred command coverage, full native rehearsals, and both scenario modes bound to
+the candidate payloads. The health assertions cover collision/adoption, drift, convergence/removal,
+owner preservation, secret-read refusal, interrupted recovery, each supported database engine and
+volume backup/restore, source-unavailable recovery, freshness, retained data and access. Local proof
+also covers retained PostgreSQL rename; cloud proof covers shared-history takeover and Google CDN.
+Reuse of engine evidence follows the scenario plans' declared transport boundary; an assertion must
+point to actual accepted proof. Missing assertions or changed identities fail even when checksums
+have been recomputed. A healthy fixture alone is insufficient.
+
+Foundation release acceptance does not approve critical intranet adoption: that also requires the
+supported inventory upgrade/recovery gate, the agreed one-hour recovery-point objective, and agreed
+recovery-time and retention targets. Preserve those limits in the production handoff.
 
 ## Publish
 
-After review, a maintainer explicitly creates and pushes the signed annotated tag:
+After review and explicit publication authorization, configure repository variable
+`NAGARE_INVENTORY_EVIDENCE_REVISION` to the exact reviewed evidence commit. From the sealed candidate
+commit, a maintainer explicitly creates and pushes the signed annotated tag:
 
 ```bash
 git tag -s vX.Y.Z -m 'Nagare vX.Y.Z'
@@ -72,6 +96,9 @@ and attaches:
 - `nagare-vX.Y.Z.md`;
 - `nix-output-x86_64-linux.json` and `nix-output-aarch64-darwin.json`;
 - `clone-free-x86_64-linux.json` and `clone-free-aarch64-darwin.json`;
+- `nagare-inventory-evidence-vX.Y.Z.json`, the candidate-bound aggregate index;
+- `nagare-platform-metadata-vX.Y.Z.json`, `inventory-coverage.json`, and both scenarios’
+  `inventory-{local,cloud}-{target,health,evidence}.json` public inputs;
 - `SHA256SUMS`.
 
 Verify the release page, checksums, manifest revision, native systems, and the documented command
