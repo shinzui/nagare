@@ -3796,10 +3796,15 @@ ops state calls =
 reviewedReleaseCleanup :: IO ()
 reviewedReleaseCleanup = do
   let owner = ok (mkScopeId Application "release-cleanup")
+      dataOwner = ok (mkScopeId Standalone "release-cleanup-database")
       key = ok (mkLogicalKey "web")
+      dataKey = ok (mkLogicalKey "database")
       serviceId = mintResourceId owner key (ok (mkName "service"))
       releaseId = mintResourceId owner key (ok (mkName "release-history"))
       routeId = mintResourceId owner key (ok (mkName "domain-mapping"))
+      databaseId = mintResourceId dataOwner dataKey (ok (mkName "statefulset"))
+      pvcId = mintResourceId dataOwner dataKey (ok (mkName "pvc"))
+      backupId = mintResourceId dataOwner dataKey (ok (mkName "backup-job"))
       serviceValue = object
         ["apiVersion" .= ("v1" :: Text), "kind" .= ("Service" :: Text),
          "metadata" .= object ["name" .= ("web" :: Text), "namespace" .= ("personal" :: Text)]]
@@ -3816,6 +3821,20 @@ reviewedReleaseCleanup = do
            ["apiVersion" .= ("serving.knative.dev/v1" :: Text),
             "kind" .= ("Service" :: Text), "name" .= ("web" :: Text),
             "namespace" .= ("personal" :: Text)]]]
+      databaseValue = object
+        ["apiVersion" .= ("apps/v1" :: Text), "kind" .= ("StatefulSet" :: Text),
+         "metadata" .= object ["name" .= ("pg-main" :: Text), "namespace" .= ("personal" :: Text)],
+         "spec" .= object ["replicas" .= (1 :: Int)]]
+      pvcValue = object
+        ["apiVersion" .= ("v1" :: Text), "kind" .= ("PersistentVolumeClaim" :: Text),
+         "metadata" .= object ["name" .= ("pg-main-data" :: Text), "namespace" .= ("personal" :: Text)],
+         "spec" .= object ["accessModes" .= ["ReadWriteOnce" :: Text]]]
+      backupValue = object
+        ["apiVersion" .= ("batch/v1" :: Text), "kind" .= ("Job" :: Text),
+         "metadata" .= object ["name" .= ("pg-main-backup" :: Text), "namespace" .= ("personal" :: Text)],
+         "spec" .= object ["template" .= object ["spec" .= object
+           ["restartPolicy" .= ("Never" :: Text), "containers" .=
+             [object ["name" .= ("backup" :: Text), "image" .= ("busybox:1.36" :: Text)]]]]]]
       bind selectedId value policy =
         let bytes = ok (canonicalValue value)
          in ok (bindKubernetesObject (input
@@ -3824,6 +3843,17 @@ reviewedReleaseCleanup = do
       (service, serviceBytes) = bind serviceId serviceValue DeleteWhenUnreferenced
       (oldRelease, releaseBytes) = bind releaseId releaseValue Retain
       (unboundRoute, routeBytes) = bind routeId routeValue DeleteWhenUnreferenced
+      bindData selectedId value policy dataPolicy =
+        let bytes = ok (canonicalValue value)
+         in ok (bindKubernetesObject (input
+              { resourceId = selectedId, ownerScope = dataOwner, inputObject = value,
+                objectDigest = contentDigest bytes, lifecyclePolicy = policy,
+                inputDataPolicy = dataPolicy }))
+      durable = Durable (RecoveryIntent (ok (mkName "archive"))
+        (mkSecretRef (ok (mkName "restore-key")) (ok (mkName "v1")) :| []))
+      (database, databaseBytes) = bindData databaseId databaseValue Retain Stateless
+      (pvc, pvcBytes) = bindData pvcId pvcValue Retain durable
+      (backup, backupBytes) = bindData backupId backupValue Retain Stateless
       route = unboundRoute {dependencies = [OrderedAfter serviceId]}
       release = oldRelease
         { lifecycle = DeleteWhenUnreferenced, dependencies = [OrderedAfter serviceId] }
@@ -3834,6 +3864,10 @@ reviewedReleaseCleanup = do
       currentSpecs = Map.fromList [(serviceId, (service, serviceBytes)),
         (releaseId, (release, releaseBytes)),
         (routeId, (route, routeBytes))]
+      dataSpecs = Map.fromList [(databaseId, (database, databaseBytes)),
+        (pvcId, (pvc, pvcBytes)), (backupId, (backup, backupBytes))]
+      dataScope = ok (mkScopeDeclaration dataOwner
+        [ResourceBundle [Managed database, Managed pvc, Managed backup] [] [] [] [] []])
       scopeFor historyMember = ok (mkScopeDeclaration owner
         [ResourceBundle [Managed service, Managed historyMember, Managed route] [] [] [] [] []])
       oldScope = scopeFor legacyRelease
@@ -3842,10 +3876,17 @@ reviewedReleaseCleanup = do
       physicalFor selectedId
         | selectedId == serviceId = ok (mkPhysicalIdentity "web-uid")
         | selectedId == releaseId = ok (mkPhysicalIdentity "history-uid")
+        | selectedId == databaseId = ok (mkPhysicalIdentity "database-uid")
+        | selectedId == pvcId = ok (mkPhysicalIdentity "pvc-uid")
+        | selectedId == backupId = ok (mkPhysicalIdentity "backup-uid")
         | otherwise = ok (mkPhysicalIdentity "route-uid")
+      dataIds = [databaseId, pvcId, backupId]
   states <- newIORef (Map.fromList [(serviceId, KubernetesAbsent absence),
     (releaseId, KubernetesAbsent absence),
-    (routeId, KubernetesAbsent absence)])
+    (routeId, KubernetesAbsent absence),
+    (databaseId, KubernetesAbsent absence),
+    (pvcId, KubernetesAbsent absence),
+    (backupId, KubernetesAbsent absence)])
   store <- newMemoryStore
   let runtime = KubernetesAdapterOps
         { kubernetesContext = ok (mkContextId "release-cleanup")
@@ -3881,19 +3922,32 @@ reviewedReleaseCleanup = do
   _ <- initializeStore store binding "release-cleanup" >>= expectRight
   emptyHistory <- loadInventoryHistory store >>= expectRight
   let initial = ok (composeInventory (snapshot emptyHistory)
-        (ReplaceScope oldScope :| []))
-      oldRegistry = registry oldSpecs
+        (ReplaceScope oldScope :| [ReplaceScope dataScope]))
+      oldRegistry = registry (Map.union oldSpecs dataSpecs)
   initialFacts <- observations oldRegistry initial emptyHistory
   _ <- reviewAndApply oldRegistry initial emptyHistory noLifecycleDecisions initialFacts
   accepted <- loadInventoryHistory store >>= expectRight
+  let acceptedData = Map.lookup dataOwner (historyAccepted accepted)
+      stableData = do
+        history <- loadInventoryHistory store >>= expectRight
+        Map.lookup dataOwner (historyAccepted history) @?= acceptedData
+        current <- readIORef states
+        forM_ dataIds $ \selectedId ->
+          Map.lookup selectedId current @?= Just (KubernetesPresent
+            (physicalFor selectedId) "5" (Just selectedId)
+            (contentDigest (snd (dataSpecs Map.! selectedId))))
+  assertBool "database scope was not accepted"
+    (Map.member dataOwner (historyAccepted accepted))
+  stableData
   let update = ok (composeInventory (snapshot accepted)
         (ReplaceScope newScope :| []))
-      newRegistry = registry currentSpecs
+      newRegistry = registry (Map.union currentSpecs dataSpecs)
   updateFacts <- observations newRegistry update accepted
   updated <- reviewAndApply newRegistry update accepted noLifecycleDecisions updateFacts
   map plannedAction (proposalOperations updated) @?= [UpdateResource]
   map (NE.toList . plannedResources) (proposalOperations updated) @?= [[releaseId]]
   updatedHistory <- loadInventoryHistory store >>= expectRight
+  stableData
   let retirement = ok (composeInventory (snapshot updatedHistory)
         (RetireScope owner RetainResources :| []))
   retirementFacts <- observations newRegistry retirement updatedHistory
@@ -3901,6 +3955,7 @@ reviewedReleaseCleanup = do
   retired <- reviewAndApply newRegistry retirement updatedHistory retirementDecisions retirementFacts
   proposalOperations retired @?= []
   retained <- loadInventoryHistory store >>= expectRight
+  stableData
   let collection selectedId history = ok (composeInventory (snapshot history)
         (CollectRetained selectedId :| []))
       attempt selectedId history = do
@@ -3913,16 +3968,19 @@ reviewedReleaseCleanup = do
   _ <- reviewAndApply newRegistry historyCollection retained
     (ok historyDecision) historyFacts
   afterHistory <- loadInventoryHistory store >>= expectRight
+  stableData
   (_, _, stillBlocked) <- attempt serviceId afterHistory
   assertBool "route dependency allowed premature Service collection" (isLeft stillBlocked)
   (routeCollection, routeFacts, routeDecision) <- attempt routeId afterHistory
   _ <- reviewAndApply newRegistry routeCollection afterHistory
     (ok routeDecision) routeFacts
   afterRoute <- loadInventoryHistory store >>= expectRight
+  stableData
   (serviceCollection, serviceFacts, serviceDecision) <- attempt serviceId afterRoute
   _ <- reviewAndApply newRegistry serviceCollection afterRoute
     (ok serviceDecision) serviceFacts
   final <- loadInventoryHistory store >>= expectRight
+  stableData
   Map.null (historyRetained final) @?= True
   Map.keys (headCollected (historyHead final)) @?= sort [serviceId, releaseId, routeId]
 
