@@ -50,7 +50,7 @@ Implementation owner: existing session `01a0e893-337f-7b82-ac5d-16f41bf5ce21` (I
 | [F20](#f20) | P1 | Knative collection cannot orphan controller descendants | Closed | EP-153 / EP-156 |
 | [F21](#f21) | P1 | HTTP redirect automatically resubmits reviewed CDN purge | Closed | EP-158 |
 | [F22](#f22) | P1 | ClickHouse restore fails after a transient read-only verification refusal | Closed | EP-160 |
-| [F23](#f23) | P1 | Credential review can delegate to an older receipt-unaware host transport | Verifying | EP-153 / EP-154 |
+| [F23](#f23) | P1 | Credential review can delegate to an older receipt-unaware host transport | Closed | EP-153 / EP-154 |
 
 F01 and F11 retain their [earlier independent closure](mp23-verification.md). F02, F03, F04, F05, F06, F07, F08 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). Other entries retain their status shown above.
 
@@ -611,7 +611,7 @@ F22 is Closed; final release-candidate binding remains a separate gate.
 
 ## F23
 
-**Credential review can delegate to an older receipt-unaware host transport** — P1; **Verifying**; owners EP-153 / EP-154.
+**Credential review can delegate to an older receipt-unaware host transport** — P1; **Closed**; owners EP-153 / EP-154.
 
 **Independent source evidence (2026-10-02):** Revision `c4d219e4` correctly
 binds explicit and inherited key files to v2 receipt-required plans when its
@@ -630,3 +630,16 @@ credential semantics from that protocol, refuse legacy prepared responses, and
 preserve old v1 plan behavior. Independently run changed/stale payload refusal,
 service-failure/retry, inherited-key review and current-v2 success regressions.
 No in-place payload upgrade or old-payload credential authority is implied.
+
+**Independent closure (2026-10-02):** Repair `1b0d5a61` passes the exact
+outer-version runtime regression for prepare, inspect and activate, including
+legacy-response downgrade refusal. The actual accepted `6082dbd6` payload shell
+independently refuses all three protocol-v2 actions before target sourcing or
+provider work. The extracted current preparation function emits credential
+authority with protocol v2 alone, without an environment marker and even when
+the key already matches. Six real helper/transport service-failure retries and
+the existing transport identity/fresh-login fixture pass independently; the
+installed c4 public regression covers explicit and inherited key review.
+[F23 evidence](mp23-independent-results-2026-10-02/host-protocol-f23-1b0d5a61.json).
+No native new credential activation on the legacy payload is claimed; fresh
+host timer/expiry acceptance remains F15.

@@ -482,3 +482,9 @@ even with recomputed asset hashes. The health fixture digest and canonical targe
 digest remain intentionally distinct. Native receipt-required host activation
 on the old accepted cloud payload remains unclaimed; F23 requires a versioned
 transport refusal before a fresh supported-payload credential proof.
+
+[F23 now closes independently](mp23-independent-results-2026-10-02/host-protocol-f23-1b0d5a61.json):
+exact outer protocol-v2 regression, actual old-payload early refusal for all three
+actions, protocol-derived current preparation, service-failure retries and
+existing explicit/inherited review checks pass. Fresh native host credential
+refresh remains a separate F15 requirement.

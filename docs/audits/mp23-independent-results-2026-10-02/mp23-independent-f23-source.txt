@@ -1,0 +1,5 @@
+nagarectl
+  host inventory adapter
+    credential preparation pins previous digest for host update and verification: OK (0.61s)
+
+All 1 tests passed (0.61s)

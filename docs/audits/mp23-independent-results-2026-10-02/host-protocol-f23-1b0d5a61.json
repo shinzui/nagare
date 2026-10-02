@@ -1,0 +1,59 @@
+{
+  "sourceRepair": "1b0d5a61444dea9f61b6075559a3d8f3ffbf3032",
+  "legacyPayload": "nagare-0.4.0-6082dbd6aac0-d80d7bc92f2ada26",
+  "legacyTransportSha256": "34073461c290fc8da476a54d62d2f092c1dec61980a5312c8d6d786f174dd8e5",
+  "actions": [
+    {
+      "action": "prepare",
+      "exit": 2,
+      "stderr": "unsupported host transport version"
+    },
+    {
+      "action": "inspect",
+      "exit": 2,
+      "stderr": "unsupported host transport version"
+    },
+    {
+      "action": "activate",
+      "exit": 2,
+      "stderr": "unsupported host transport version"
+    }
+  ],
+  "providerCalls": 0,
+  "providerBoundary": "actual old shell checks version before sourcing target environment or any provider function; request contains no credential bytes",
+  "scope": "old-payload refusal only; no native credential activation",
+  "currentV2Prepare": {
+    "sourceSha256": "c2c416eaf63ee539ca15024a6ed843ceb2b90a66d667cbf9ab20158a89141056",
+    "result": {
+      "tag": "HostTransportPreparedCredential",
+      "contents": [
+        "gce://fixture",
+        "/fixture/old",
+        "/fixture/new",
+        null
+      ]
+    },
+    "extractedProductionFunction": true,
+    "environmentCredentialMarkerAbsent": true,
+    "matchingKey": true,
+    "providerStubs": true
+  },
+  "independentTests": [
+    {
+      "log": "mp23-independent-f23-source.txt",
+      "sha256": "d90b4935764df26472b1a82197dee4486aa4f131ad1cc75a336b8a3dbb8fb18a",
+      "result": "passed"
+    },
+    {
+      "log": "mp23-independent-f23-key-recovery.txt",
+      "sha256": "9f7f036dea4c52d2cec8fd7901e37e099e57b728b6a270629f1830f1b6ad9224",
+      "result": "passed"
+    },
+    {
+      "log": "mp23-independent-f23-transport.txt",
+      "sha256": "81b7808e94342867d5e67e131128c0956d174846e2431ca8bba68fc5d978b14a",
+      "result": "passed"
+    }
+  ],
+  "inheritedCredentialReview": "Installed c4 public foundation regression independently passes explicit and inherited key review; source repair changes only transport protocol boundary."
+}

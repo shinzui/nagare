@@ -43,7 +43,8 @@
     "F19",
     "F20",
     "F21",
-    "F22"
+    "F22",
+    "F23"
   ],
   "tests": {
     "objectGroup": {
@@ -207,7 +208,11 @@
     "docs/audits/mp23-independent-results-2026-10-02/readiness-original-history-e6255e6f.json": "072a28406151057e7183a2382ea422be59468601a326e33df2cfd02a669e2638",
     "docs/audits/mp23-independent-results-2026-10-02/foundation-historical-audit-e6255e6f.json": "deca2109a54ea12c13768db89dc836d57231821f2dbf4fabbefafdd5fe9015d3"
   },
-  "F23": "Verifying: credential transport protocol version must reject old receipt-unaware payload before provider IO",
+  "F23": {
+    "status": "Closed",
+    "repair": "1b0d5a61444dea9f61b6075559a3d8f3ffbf3032",
+    "evidence": "docs/audits/mp23-independent-results-2026-10-02/host-protocol-f23-1b0d5a61.json"
+  },
   "freshRootEngineRecovery": {
     "result": "passed with explicit manual/simulated limits",
     "evidence": "docs/audits/mp23-independent-results-2026-10-02/source-unavailable-engines-e6255e6f.json"
