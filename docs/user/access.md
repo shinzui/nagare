@@ -142,6 +142,8 @@ accepted auth scope, a published image resource, and an explicit image tag:
 ```bash
 nagarectl deploy -f nagare/Config.hs --tag TAG --image-resource RESOURCE_ID --save-plan ./protected-review
 nagarectl inventory apply ./protected-review
+nagarectl access portal sync --save-plan ./access-sync-review
+nagarectl inventory apply ./access-sync-review --yes
 ```
 
 The review includes a contribution to the auth owner's backend map and a

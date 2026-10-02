@@ -120,6 +120,33 @@ Private exports made with `inventory export --out "$PRIVATE_EXPORT"` contain
 native credentials and recovery material. Keep them private. Export is evidence
 preservation, not permission to replace live shared history with an older copy.
 
+## Synchronize a newly protected backend
+
+After applying a reviewed application that adds or removes a protected host,
+review and apply `access portal sync`. The backend map and Shomei settings come
+from all accepted contributions; synchronization rolls the accepted Shomei and
+access-enforcer workloads after those maps. Both processes load their settings at
+startup. The rollout preserves their images and names; it does not upgrade the
+admitted platform payload.
+
+```bash
+nagarectl --context "$CONTEXT" access portal sync --save-plan "$SYNC_REVIEW"
+nagarectl --context "$CONTEXT" inventory apply "$SYNC_REVIEW" --yes
+```
+
+Verify actual request behavior separately from DomainMapping readiness. A new
+protected host must no longer return “no backend configured”; document requests
+redirect to sign-in and API requests return 401. Browser authentication additionally
+needs working HTTPS because its session cookies are Secure. The current fresh
+fixture has no HTTPS listener, so browser sign-in is unaccepted even if the HTTP
+route and En grant/revoke checks pass.
+
+The bounded native access proof uses the stable endpoint
+`http://127.0.0.1:19463`. Its fault-injection proxy has stopped; a direct local En
+port-forward can expose that same endpoint for ordinary inspection. Keep that URL
+for its accepted relationship scope. Use the context's private read-write key
+through environment input, never in command arguments or a saved review.
+
 ## Known cloud timings
 
 These are observed installed-command times, not service-level promises. The

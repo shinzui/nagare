@@ -234,7 +234,7 @@ generation :: ScopeGeneration
 generation = ok (mkScopeGeneration 1)
 
 fixtures :: [ScopeDeclaration]
-fixtures = [clusterScope, authScope, app "one", app "two"]
+fixtures = [clusterScope, authScope, bootstrapScope, app "one", app "two"]
   where
     cluster = ok (mkResourceId "platform:cluster/cluster/local")
     clusterOwner = ok (mkScopeId Platform "cluster")
@@ -279,6 +279,39 @@ fixtures = [clusterScope, authScope, app "one", app "two"]
                 []
                 [BackendMapGrant cluster, ShomeiSettingsGrant cluster (ok (mkName "example.test"))]
             ]
+        )
+    -- An admitted bootstrap marker remains in ordinary application/access
+    -- reviews. Its presence alone must not select a new bootstrap verification.
+    bootstrapOwner = ok (mkScopeId Platform "bootstrap-stamp")
+    bootstrapId = mintResourceId bootstrapOwner (ok (mkLogicalKey "bootstrap")) (ok (mkName "version"))
+    bootstrapObject =
+      object
+        [ "apiVersion" .= ("v1" :: Text)
+        , "kind" .= ("ConfigMap" :: Text)
+        , "metadata" .= object ["name" .= ("nagare-platform-version" :: Text), "namespace" .= ("nagare-system" :: Text)]
+        ]
+    bootstrapResource =
+      fst
+        ( ok
+            ( bindKubernetesObject
+                KubernetesInput
+                  { resourceId = bootstrapId
+                  , ownerScope = bootstrapOwner
+                  , clusterId = cluster
+                  , inputObject = bootstrapObject
+                  , objectDigest = contentDigest (ok (canonicalValue bootstrapObject))
+                  , lifecyclePolicy = Retain
+                  , inputDataPolicy = Stateless
+                  , inputSensitivity = Public
+                  , sourceLocation = SourceLocation "generated:bootstrap" "platform-version"
+                  }
+            )
+        )
+    bootstrapScope =
+      ok
+        ( mkScopeDeclaration
+            bootstrapOwner
+            [ResourceBundle [Managed (bootstrapResource {dependencies = [OrderedAfter authId]})] [] [] [] [] []]
         )
     app label =
       let owner = ok (mkScopeId Application label)

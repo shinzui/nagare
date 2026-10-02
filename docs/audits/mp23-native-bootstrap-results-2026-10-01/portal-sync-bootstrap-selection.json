@@ -1,0 +1,23 @@
+{
+  "previousCandidate": "f321bd30af19638ead401e66666f021419903b09",
+  "previousInstalledLocalGatePassed": true,
+  "cloudPlanningResult": {
+    "exit": 1,
+    "seconds": 13.418
+  },
+  "cloudRefusal": "unchanged auth siblings have no bound native object under global bootstrap verification",
+  "cloudReviewSaved": false,
+  "cloudAdmitted": false,
+  "cloudProviderEffects": false,
+  "counterfactual": "updated typed public access fixture includes an accepted bootstrap marker and unchanged En Service; installed f321bd30 reproduces identical PrepareRefused",
+  "sourceRepair": "bootstrap verification is requested only when candidate changes select the marker declaration; original bootstrap verification and unconverged selected-scope verification remain",
+  "sourcePublicFixturePassed": true,
+  "neighborRevisionsPreserved": true,
+  "providerWriteBound": 3,
+  "installedRepairPending": true,
+  "safeUseAccepted": false,
+  "cliTestsPassed": 1012,
+  "cliTestSeconds": 50.25,
+  "structuralStylePassed": true,
+  "genuineBootstrapVerificationRegressionPassed": true
+}

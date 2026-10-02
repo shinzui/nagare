@@ -260,7 +260,13 @@ print(json.dumps({'metadata':{'uid':uid,'annotations':{
         portal_review = json.loads((portal / "review.json").read_bytes())
         assert len(portal_review["operations"]) == 3
         assert all(operation["operation"]["executor"] == "KubernetesExecutor" for operation in portal_review["operations"])
+        auth_maps = {item["resource"] for item in json.loads((root / "maps.json").read_text())}
+        assert all(set(operation["operation"]["resources"]) <= auth_maps for operation in portal_review["operations"])
+        before_sync = head()
         run("inventory", "apply", portal, "--yes")
+        before_neighbors = {json.dumps(row["scope"], sort_keys=True): row["revision"] for row in before_sync["accepted"] if row["scope"] != {"kind": "Platform", "name": "auth"}}
+        after_sync = {json.dumps(row["scope"], sort_keys=True): row["revision"] for row in head()["accepted"]}
+        assert all(after_sync[scope] == revision for scope, revision in before_neighbors.items())
         assert json.loads(settings_path.read_text())["data"] == desired_settings
         assert backend_path.read_bytes() == backend_before
         assert set((root / "map-writes").read_text().splitlines()) == {"nagare-shomei-settings", "shomei", "nagare-access"}

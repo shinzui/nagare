@@ -859,7 +859,15 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
   if null errors then Right (map addDependencies preliminary <> map snd declaredOperations) else Left (NE.fromList errors)
   where
     desiredDeclarations = Map.fromList [(declarationId declaration, declaration) | declaration <- inventoryDeclarations (candidateInventory candidate)]
-    bootstrapReview = any isBootstrapMarker (Map.elems desiredDeclarations)
+    -- Accepted markers remain in the composed inventory during ordinary
+    -- application/access reviews. Only selecting a marker requests the
+    -- bootstrap-wide verification needed before publishing that marker.
+    bootstrapReview = any isBootstrapMarker
+      [ declaration
+      | ReplaceScope scope <- NE.toList (candidateChanges candidate)
+      , bundle <- scopeBundles scope
+      , declaration <- bundle ^. #declarations
+      ]
     isBootstrapMarker (Managed resource) = resource ^. #source . #file == "generated:bootstrap"
     isBootstrapMarker _ = False
     oldDeclarations = Map.fromList [(declarationId declaration, declaration) | declaration <- historyDeclarations history]
