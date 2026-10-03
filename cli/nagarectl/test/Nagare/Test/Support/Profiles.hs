@@ -2,11 +2,14 @@
 module Nagare.Test.Support.Profiles
   ( initProfile
   , tnbProfile
+  , hourlyGcsBackup
   )
 where
 
+import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.Dsl.Prelude hiding ((<.>))
 import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (..))
+import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
 import Nagare.Target
   ( InventoryStoreKind (InventoryStoreLocal)
   , Mode (Cloud)
@@ -94,3 +97,7 @@ tnbProfile =
     , acmeDirectory = "production"
     , platformVersion = Nothing
     }
+
+-- | The default scheduled backup target used by database compiler fixtures.
+hourlyGcsBackup :: DatabaseBackupTarget
+hourlyGcsBackup = DatabaseBackupTarget (GcsBackend "project" "bucket") HourlyRecoveryPoint

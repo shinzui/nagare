@@ -64,7 +64,7 @@ import Nagare.Inventory.ScheduledPrune
   , recoverScheduledPruneCandidate
   )
 import Nagare.Inventory.ScheduledStore (StoredObject (..))
-import Nagare.Inventory.Status (DriftCategory (ImmutableReplacementRequired), classifyDrift, findingCategory, loadAcceptedNative, loadRetainedNative, signedScheduledBackups)
+import Nagare.Inventory.Status (DriftCategory (ImmutableReplacementRequired), classifyDrift, findingCategory, loadAcceptedNative, loadRetainedNative)
 import Nagare.Inventory.Store
 import Nagare.Inventory.TaskLifecycle (compileTaskSuspensionScope, retireSuspendedTaskScope, taskSuspended)
 import Nagare.Inventory.VolumePrune (VolumePruneRequest (..), compileVolumePruneScope, volumePruneJobCredentialPin)
@@ -3179,21 +3179,6 @@ inventoryKubernetesTests =
           (not (BC.isInfixOf "pruning" (snd (updatedNative Map.! backupId))))
         compileBackupPruneRemovalScope "pg-main" "personal" (DatabaseBackupTarget backend HourlyRecoveryPoint) updated updatedNative
           @?= Right (updated, updatedNative)
-        -- A context objective change is the same bounded CronJob-only update:
-        -- the current hourly schedule moves to the daily one and back.
-        let dailyTarget = DatabaseBackupTarget backend DailyRecoveryPoint
-            (dailySafeScope, dailySafeNative) = ok (compileStandaloneDatabase direct dailyTarget)
-            (dailyScope, dailyNative) = ok (compileBackupPruneRemovalScope "pg-main" "personal" dailyTarget updated updatedNative)
-        Map.delete backupId dailyNative @?= Map.delete backupId updatedNative
-        Map.lookup backupId dailyNative @?= Map.lookup backupId dailySafeNative
-        scopeBundles dailyScope @?= scopeBundles dailySafeScope
-        assertBool "daily schedule lacks its signed objective" (BC.isInfixOf "recoveryPoint" (snd (dailyNative Map.! backupId)))
-        compileBackupPruneRemovalScope "pg-main" "personal" (DatabaseBackupTarget backend HourlyRecoveryPoint) dailyScope dailyNative
-          @?= Right (updated, updatedNative)
-        -- inventory status reports the signed schedule's retention boundary.
-        let safeMembers = [member | bundle <- scopeBundles safeScope, Managed member <- declarations bundle]
-        signedScheduledBackups safeMembers safeMembers @?= [backupId]
-        signedScheduledBackups safeMembers (filter ((/= backupId) . (^. #identity)) safeMembers) @?= []
         assertBool
           "mismatched accepted bytes were accepted"
           ( isLeft

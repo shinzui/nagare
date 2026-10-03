@@ -6,6 +6,7 @@ where
 
 import Nagare.Dsl.Prelude hiding ((<.>))
 import Nagare.Test.Backup.Escrow (signingKeyEscrowTests)
+import Nagare.Test.Backup.Objective (backupObjectiveTests)
 import Nagare.Test.Backup.Paths (backupPathTests)
 import Nagare.Test.Backup.Prune (backupPruneTests)
 import Nagare.Test.Backup.Rendering (backupRendererTests)
@@ -17,6 +18,6 @@ import Test.Tasty (TestTree, testGroup)
 backupRestoreTests :: [TestTree]
 backupRestoreTests =
   [ testGroup "pure path / extension / schedule" backupPathTests
-  , testGroup "Job / CronJob renderers" (backupRendererTests <> scheduledReceiptTests <> signingKeyEscrowTests <> backupUploadTests <> backupPruneTests)
+  , testGroup "Job / CronJob renderers" (backupRendererTests <> scheduledReceiptTests <> signingKeyEscrowTests <> backupObjectiveTests <> backupUploadTests <> backupPruneTests)
   , testGroup "restore" restoreDownloadTests
   ]

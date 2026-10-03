@@ -11,7 +11,6 @@ import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Yaml qualified as Yaml
-import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.Dsl.Database (mkDatabaseName)
 import Nagare.Dsl.Load (loadApplication, loadBroker)
 import Nagare.Dsl.Prelude
@@ -23,10 +22,8 @@ import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Broker
 import Nagare.Inventory.Adapters.BrokerRuntime (parseDescription, parseList)
 import Nagare.Inventory.Application (compileApplicationDatabases, reviewedTaskImages)
-import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (..))
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), compileFoundation)
 import Nagare.Inventory.DataService (NativeDataKind (..), acceptedFoundationNamespace, brokerNativeOwned, brokerTopicChangeRequiresReview, compileStandaloneBroker, dataCommandNativeOwned, databaseNativeOwned, standaloneRetirementScope)
-import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Environment (acceptedBuildChannelMember, acceptedEnvChannelValues, acceptedSecretChannelValues, compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
 import Nagare.Inventory.Journal (mkOperationId)
@@ -40,6 +37,7 @@ import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (DeleteWh
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
+import Nagare.Test.Support.Profiles (hourlyGcsBackup)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
@@ -801,7 +799,7 @@ inventoryApplicationTests =
               Map.fromList
                 [(database ^. #name, recovery) | database <- app ^. #databases]
             source = SourceLocation "test" "application"
-            backend = (DatabaseBackupTarget (GcsBackend "project" "bucket") HourlyRecoveryPoint)
+            backend = hourlyGcsBackup
         (bundles, native) <-
           either
             (fail . show)

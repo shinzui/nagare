@@ -48,11 +48,9 @@ import Nagare.Inventory.Adapters.Cdn (DnsAdapterOps (..), DnsObservation (..), d
 import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps (..), KubernetesMutation (..), KubernetesState (..), mkKubernetesAdapter)
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), mkKubernetesRuntimeOps)
 import Nagare.Inventory.Application (ApplicationScopeInput (..), CloudflareCdnBinding (..), GoogleCdnBinding (..), ReviewedCdnBinding (..), ServiceAction (..), acceptedAccessBinding, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationDeployment, compileApplicationScope, compileApplicationService, compileApplicationTasks, compileApplicationWorkers, compileServiceActionScope, compileStandaloneService, compileStandaloneServiceWithBrokers, compileStandaloneServiceWithDependencies, compileStandaloneServiceWithRelease, compileStandaloneServiceWithReleaseAndBuild, compileStandaloneWorker, compileStandaloneWorkerWithDependencies, compileStandaloneWorkerWithDependenciesAndBuild, databaseRecoveryBindings, hostnameClaimOwned, legacyApplicationReleaseImport, nativeWorkloadOwned, recordReviewedStandaloneOverrides, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
-import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (..))
 import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
 import Nagare.Inventory.Command (convergeInventoryCandidateWith, loadTargetSnapshot, openTargetStore)
 import Nagare.Inventory.DataService (NativeDataKind (..), compileStandaloneBroker, compileStandaloneDatabase, compileStatefulSetRestartScope)
-import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Environment (compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeSecretChannel)
 import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
@@ -72,6 +70,7 @@ import Nagare.Resource.Types qualified as Resource
 import Nagare.Resource.Wire (canonicalValue, decodeScope, encodeCanonicalScope)
 import Nagare.Static.Release (StaticRelease (..), StaticReleaseLog (..), addRelease, emptyReleaseLog, renderReleaseConfigMapWith)
 import Nagare.Target (ActiveTarget (..), InventoryStoreKind (..), Mode (..), PulumiBackendKind (..), TargetProfile (..), mkContextName)
+import Nagare.Test.Support.Profiles (hourlyGcsBackup, tnbProfile)
 import System.Directory (doesFileExist)
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (..))
@@ -396,38 +395,7 @@ testEnv =
     }
 
 testProfile :: TargetProfile
-testProfile =
-  TargetProfile
-    { project = "tan-nb-exp"
-    , region = "us-west1"
-    , zone = "us-west1-a"
-    , registryHost = "us-west1-docker.pkg.dev"
-    , artifactRegistryId = "nagare"
-    , imageBucket = "tan-nb-exp-nagare-images"
-    , backupBucket = "tan-nb-exp-nagare-backups"
-    , nixCacheEnabled = False
-    , nixCacheBucket = "tan-nb-exp-nagare-nix-cache"
-    , baseDomain = "apps.example.com"
-    , externalDomainTlsEnabled = False
-    , instanceName = "nagare-01"
-    , serviceAccountId = "nagare-node"
-    , machineType = "e2-standard-2"
-    , bootDiskType = "pd-balanced"
-    , bootDiskSizeGb = "100"
-    , dataDiskSizeGb = "100"
-    , targetPlatform = "linux/amd64"
-    , mode = Cloud
-    , localObjectStore = ""
-    , pulumiBackend = PulumiBackendLocal
-    , pulumiBackendUrl = ""
-    , pulumiBackendMember = Nothing
-    , inventoryStore = InventoryStoreLocal
-    , inventoryStoreUrl = ""
-    , backupRecoveryPoint = HourlyRecoveryPoint
-    , acmeEmail = "ops@example.com"
-    , acmeDirectory = "production"
-    , platformVersion = Nothing
-    }
+testProfile = tnbProfile & #acmeEmail .~ "ops@example.com"
 
 -- Run separately with NAGARE_EP148_TEST_COMMAND=1: XDG_STATE_HOME is process
 -- global, so the temporary command store must not race the parallel suite.
@@ -787,7 +755,7 @@ nativeApplicationReview = do
               , scopeEnvSecrets = Map.empty
               , scopeBuildSecrets = Set.empty
               , scopeWorkerVolumeRecovery = Map.empty
-              , scopeDatabaseBackup = (DatabaseBackupTarget (GcsBackend "project" "bucket") HourlyRecoveryPoint)
+              , scopeDatabaseBackup = hourlyGcsBackup
               , scopeRelease = (emptyReleaseLog, release)
               , scopeHookEffects = Map.empty
               , scopeInputOverrides =
@@ -1860,7 +1828,7 @@ renderTests =
               , scopeEnvSecrets = Map.empty
               , scopeBuildSecrets = Set.empty
               , scopeWorkerVolumeRecovery = Map.empty
-              , scopeDatabaseBackup = (DatabaseBackupTarget (GcsBackend "project" "bucket") HourlyRecoveryPoint)
+              , scopeDatabaseBackup = hourlyGcsBackup
               , scopeRelease = (emptyReleaseLog, release)
               , scopeHookEffects = Map.empty
               , scopeInputOverrides =
