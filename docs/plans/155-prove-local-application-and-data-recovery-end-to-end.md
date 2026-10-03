@@ -72,6 +72,11 @@ provenance:
       at: 2026-10-03T20:36:19Z
       mode: "implement"
       note: "F37: execute-time no-effect abandonment (d9aed800), reviewed field takeover (1df735a6); C2 adoption/drift/storage notes"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-03T22:41:09Z
+      mode: "implement"
+      note: "F41: durable local MinIO and offline escrow verification; 44ff0fd7 C2 checkpoint"
 ---
 
 # Prove local application and data recovery end to end

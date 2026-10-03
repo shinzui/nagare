@@ -38,6 +38,11 @@ provenance:
       at: 2026-09-17T21:10:30Z
       mode: "implement"
       note: "Record completed cloud-auth rollout and narrow EP-4 to seven-day sizing"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-03T22:41:09Z
+      mode: "implement"
+      note: "F41: durable local MinIO and offline escrow verification; 44ff0fd7 C2 checkpoint"
 ---
 
 # Bound and harden cluster workloads

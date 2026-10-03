@@ -67,6 +67,11 @@ provenance:
       at: 2026-10-03T13:56:59Z
       mode: "implement"
       note: "D1 pending-upload freshness and signing-key escrow, D6 configurable objective, D2 volume scope"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-03T22:41:09Z
+      mode: "implement"
+      note: "F41: durable local MinIO and offline escrow verification; 44ff0fd7 C2 checkpoint"
 ---
 
 # Complete scheduled receipts and explicit retention limits
