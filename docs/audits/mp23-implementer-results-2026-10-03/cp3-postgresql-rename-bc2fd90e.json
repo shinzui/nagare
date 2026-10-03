@@ -1,0 +1,230 @@
+{
+  "recordedBy": "implementer (claude-opus-5-5, session nagare-phase-b); not independent verification",
+  "recordedAt": "2026-10-03",
+  "assertion": "MP-23 B5 / IR-24 case 3: a retained standalone PostgreSQL is renamed through one reviewed migration (create, back up, fence, transfer, verify, switch, admit, retain); known rows survive; every old incarnation stays retained with its UID; an unrelated auth signing key keeps its identity; neighbors are untouched",
+  "sourceRevisions": {
+    "apply": "development binary from 040040dd plus the kubernetesSpecsFromReview change committed in bc2fd90e",
+    "observationRecovery": "development binary from bc2fd90e (inventory store materialize-native)"
+  },
+  "binary": "development cabal build, not an installed candidate",
+  "cluster": {
+    "colimaProfile": "nagare-mp23-cp3",
+    "node": "k3d-nagare-local-server-0",
+    "context": "local",
+    "operatorRoot": "/private/tmp/nagare-mp23-cp3.1EQ78L"
+  },
+  "coordination": "cp3 claim taken 2026-10-03T15:38:24Z by nagare-phase-b and released with activeTransaction null",
+  "database": {
+    "source": "mp23-b5-rename-src",
+    "destination": "mp23-b5-renamed",
+    "namespace": "personal",
+    "scope": "standalone:database-mp23-b5-rename-src",
+    "knownRows": [
+      "1|b5-rename-row-1",
+      "2|b5-rename-row-2",
+      "3|b5-rename-row-3"
+    ]
+  },
+  "steps": [
+    {
+      "command": "db create postgres mp23-b5-rename-src --size 1Gi --recovery-backup b5-rename --recovery-key-version v1 --save-plan DIR; inventory apply DIR --yes",
+      "review": "da315a09d31ef85c7a84aff61e723889f75e36a1f5c5aaf7ad63040cbb568a87",
+      "result": "converged; three rows seeded"
+    },
+    {
+      "command": "db rename postgres mp23-b5-rename-src mp23-b5-renamed --size 1Gi --recovery-backup b5-rename --recovery-key-version v1 --save-plan DIR",
+      "review": "1cc30c88bbcf1bdb0d3d891bd8bcee788ed19295baf4415e195bbf359a6d8d18",
+      "operations": "72 = 9 members x 8 MigrateResource stages"
+    },
+    {
+      "command": "inventory apply DIR --yes (first attempt)",
+      "result": "refused before admission: kubernetesSpecsFromReview could not decode rename bundles; activeTransaction null and every UID unchanged afterwards; fixed in bc2fd90e"
+    },
+    {
+      "command": "inventory apply DIR --yes",
+      "started": "15:45:41Z",
+      "finished": "15:46:51Z",
+      "result": "converged tx-1cc30c88bbcf1bdb0d3d891bd8bcee788ed19295baf4415e195bbf359a6d8d18"
+    },
+    {
+      "observation": "inventory status then failed context-wide: observation native bytes missing for the renamed members (publication skipped migration bundles; fixed in bc2fd90e)"
+    },
+    {
+      "command": "inventory store materialize-native (three batches, 57 reviews)",
+      "result": "head generation unchanged at 9563; inventory status healthy: 277 resources, retained 13, collected 8"
+    }
+  ],
+  "verified": {
+    "rowsOnRenamedPod": [
+      "1|b5-rename-row-1",
+      "2|b5-rename-row-2",
+      "3|b5-rename-row-3"
+    ],
+    "oldStatefulSet": "uid 154dd116-8936-4cc2-ab3c-b59e0d33714b, replicas 0, nagare.dev/migration-fence set; Pod absent",
+    "oldBackupCronJob": "uid 0a75c5c8-ad8c-4119-8646-7ea854846648, suspend true, nagare.dev/migration-fence set",
+    "newBackupCronJob": "suspend false",
+    "renamedConnectionSettings": "DATABASE_URL host mp23-b5-renamed.personal.svc.cluster.local; POSTGRES_DB mp23_b5_rename_src (values not recorded)",
+    "transferJobsRemaining": 0,
+    "oldIncarnationUidsUnchanged": true,
+    "authSigningKey": {
+      "before": {
+        "uid": "44ac7f89-807f-4727-8063-18cc57c15428",
+        "resourceVersion": "2579",
+        "dataSha256": "ed45827d88ad669cb12e82dd0b136f506f4cfe932d90f7bfd9ea6271123d9672"
+      },
+      "after": {
+        "uid": "44ac7f89-807f-4727-8063-18cc57c15428",
+        "resourceVersion": "2579",
+        "dataSha256": "ed45827d88ad669cb12e82dd0b136f506f4cfe932d90f7bfd9ea6271123d9672"
+      }
+    },
+    "neighborStatefulSetsAndPvcsUnchanged": true,
+    "statusFindings": {
+      "converged": 9
+    },
+    "statusRetained": {
+      "retained-orphan": 9
+    },
+    "collectionScreening": "every old incarnation is blocked by active-incarnation; collection of a migrated-away incarnation sharing a live ResourceId is not supported",
+    "activeTransaction": null
+  },
+  "before": [
+    {
+      "kind": "StatefulSet",
+      "name": "mp23-b5-rename-src",
+      "uid": "154dd116-8936-4cc2-ab3c-b59e0d33714b"
+    },
+    {
+      "kind": "Service",
+      "name": "mp23-b5-rename-src",
+      "uid": "cc8a0d44-b4d2-4bc8-8eec-c2a8d61136b0"
+    },
+    {
+      "kind": "PersistentVolumeClaim",
+      "name": "nagare-db-mp23-b5-rename-src-data",
+      "uid": "f059e6fc-bb85-4d3b-959f-ef4bd3487ad9"
+    },
+    {
+      "kind": "Secret",
+      "name": "nagare-db-mp23-b5-rename-src",
+      "uid": "81738c7d-9d94-4b2b-8d14-edd9cddbbe65"
+    },
+    {
+      "kind": "Secret",
+      "name": "nagare-dbbackup-mp23-b5-rename-src-signing",
+      "uid": "3fd6e75e-e573-40ba-8e4c-a07089a6d5d9"
+    },
+    {
+      "kind": "CronJob",
+      "name": "nagare-dbbackup-mp23-b5-rename-src",
+      "uid": "0a75c5c8-ad8c-4119-8646-7ea854846648"
+    },
+    {
+      "kind": "ServiceAccount",
+      "name": "nagare-dbbackup-mp23-b5-rename-src",
+      "uid": "d8ee58ac-af90-402d-a28f-8b6c2639d26f"
+    },
+    {
+      "kind": "Role",
+      "name": "nagare-dbbackup-mp23-b5-rename-src",
+      "uid": "6c36552e-b4b3-474b-883d-f4b6959fc392"
+    },
+    {
+      "kind": "RoleBinding",
+      "name": "nagare-dbbackup-mp23-b5-rename-src",
+      "uid": "a8a963ad-c901-4e05-8ff4-5a01280c90c5"
+    }
+  ],
+  "after": [
+    {
+      "kind": "StatefulSet",
+      "name": "mp23-b5-rename-src",
+      "uid": "154dd116-8936-4cc2-ab3c-b59e0d33714b"
+    },
+    {
+      "kind": "StatefulSet",
+      "name": "mp23-b5-renamed",
+      "uid": "402269c0-6710-44c1-a206-7d6ce02c7205"
+    },
+    {
+      "kind": "Service",
+      "name": "mp23-b5-rename-src",
+      "uid": "cc8a0d44-b4d2-4bc8-8eec-c2a8d61136b0"
+    },
+    {
+      "kind": "Service",
+      "name": "mp23-b5-renamed",
+      "uid": "80225cca-9e4c-444c-a670-ca1fccb53cd5"
+    },
+    {
+      "kind": "PersistentVolumeClaim",
+      "name": "nagare-db-mp23-b5-rename-src-data",
+      "uid": "f059e6fc-bb85-4d3b-959f-ef4bd3487ad9"
+    },
+    {
+      "kind": "PersistentVolumeClaim",
+      "name": "nagare-db-mp23-b5-renamed-data",
+      "uid": "a44a59e5-7706-44bf-a27f-de5a84c73c44"
+    },
+    {
+      "kind": "Secret",
+      "name": "nagare-db-mp23-b5-rename-src",
+      "uid": "81738c7d-9d94-4b2b-8d14-edd9cddbbe65"
+    },
+    {
+      "kind": "Secret",
+      "name": "nagare-db-mp23-b5-renamed",
+      "uid": "ae094cb9-3995-43bd-ae66-acfcb64f775b"
+    },
+    {
+      "kind": "Secret",
+      "name": "nagare-dbbackup-mp23-b5-rename-src-signing",
+      "uid": "3fd6e75e-e573-40ba-8e4c-a07089a6d5d9"
+    },
+    {
+      "kind": "Secret",
+      "name": "nagare-dbbackup-mp23-b5-renamed-signing",
+      "uid": "182c8921-c713-43bf-8b07-4d3a8d9382b1"
+    },
+    {
+      "kind": "CronJob",
+      "name": "nagare-dbbackup-mp23-b5-rename-src",
+      "uid": "0a75c5c8-ad8c-4119-8646-7ea854846648"
+    },
+    {
+      "kind": "CronJob",
+      "name": "nagare-dbbackup-mp23-b5-renamed",
+      "uid": "d865f09d-9577-437d-ad07-a6c88c9d75fa"
+    },
+    {
+      "kind": "ServiceAccount",
+      "name": "nagare-dbbackup-mp23-b5-rename-src",
+      "uid": "d8ee58ac-af90-402d-a28f-8b6c2639d26f"
+    },
+    {
+      "kind": "ServiceAccount",
+      "name": "nagare-dbbackup-mp23-b5-renamed",
+      "uid": "3010ec33-6628-4613-8e39-bba1362e2487"
+    },
+    {
+      "kind": "Role",
+      "name": "nagare-dbbackup-mp23-b5-rename-src",
+      "uid": "6c36552e-b4b3-474b-883d-f4b6959fc392"
+    },
+    {
+      "kind": "Role",
+      "name": "nagare-dbbackup-mp23-b5-renamed",
+      "uid": "0271b098-a97e-4ec0-a009-a964792a4f17"
+    },
+    {
+      "kind": "RoleBinding",
+      "name": "nagare-dbbackup-mp23-b5-rename-src",
+      "uid": "a8a963ad-c901-4e05-8ff4-5a01280c90c5"
+    },
+    {
+      "kind": "RoleBinding",
+      "name": "nagare-dbbackup-mp23-b5-renamed",
+      "uid": "947e850e-637d-4bac-8df4-517fa4cc4b83"
+    }
+  ]
+}

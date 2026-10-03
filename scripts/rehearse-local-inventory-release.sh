@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-fixture="$repo_root/fixtures/inventory-release/local/health.json"
+fixture="$repo_root/fixtures/inventory-release/local/scenario.json"
 generic_runner="$repo_root/scripts/rehearse-managed-resources.sh"
 
 usage() {
@@ -90,7 +90,7 @@ jq -e '.schemaVersion == 1 and .mode == "local" and .clusterPrefix == "k3d-"
         .objectStoreDeployment, .objectStoreService, .objectStoreBucketJob]
     | all(type == "string" and test("^[a-z0-9-]+$")))
   and .registryUrl == "http://k3d-registry.localhost:5000/v2/"' "$fixture" >/dev/null \
-  || die "checked-in health fixture has an unsupported contract"
+  || die "checked-in scenario fixture has an unsupported health contract"
 [[ "$cluster" == k3d-* ]] || die "the local release fixture requires a k3d cluster"
 knative_ns="$(jq -er .knativeNamespace "$fixture")"
 knative_webhook="$(jq -er .knativeWebhook "$fixture")"
