@@ -1,0 +1,15 @@
+nagarectl
+  host inventory adapter
+    reviewed VM power
+      lost acknowledgement recovers same instance without another request:     OK
+      already stopped verifies without power request:                          OK
+      foreign instance refuses before effect and during recovery:              OK
+      incomplete power outcome never authorizes automatic retry:               OK
+      retained completion survives opposite transition and fresh planning:     OK
+      lost receipt acknowledgement recovers without repeating provider effect: OK
+      malformed receipt refuses planning and execution:                        OK
+      operation ID is immutable and unrelated scope declarations survive:      OK
+  inventory transactions
+    complete backup restores and incomplete backup is refused:                 OK
+
+All 9 tests passed (0.02s)

@@ -488,3 +488,26 @@ exact outer protocol-v2 regression, actual old-payload early refusal for all thr
 actions, protocol-derived current preparation, service-failure retries and
 existing explicit/inherited review checks pass. Fresh native host credential
 refresh remains a separate F15 requirement.
+
+The [independent VM command checkpoint](mp23-independent-results-2026-10-02/vm-power-public-3905012e.json)
+passes the complete public foundation fixture and nine focused power/receipt/store
+tests at `3905012e`. Lost acknowledgement recovers without a second power request;
+start works with SSH and Kubernetes denied. Immutable completion survives a later
+opposite power state, and both power and CDN purge receipts survive private store
+backup/restore. Static review also confirms migration retains both prefixes.
+This checkpoint is public recorded-provider proof; installed native stop/start
+and its data/identity preservation checks are still separate.
+
+The [installed 390 cp3 gate](mp23-independent-results-2026-10-02/installed-local-gate-3905012e.json)
+passes 213 verification operations, preserves all 29 scope content digests and
+finds 57 ready or succeeded Pods. The accepted local payload remains unchanged.
+The [native VM power proof](mp23-independent-results-2026-10-02/native-vm-power-3905012e.json)
+then stops and starts the exact accepted ep150 instance once each. A new review
+for the completed start ID has zero operations and performs no second request.
+All 44 unselected scope revisions, 112 Kubernetes UID/generation pairs and five
+known data sentinels remain exact. The final shared head is idle at 1006/836.
+Off-host commands use no SSH connection or Kubernetes command; local `ssh -V`
+tool-version checks are recorded separately. Initial API and PostgreSQL recovery
+readiness delays resolve on read-only probes after start. This proves bounded
+workload recovery as well as the power state. Compute's name-based transition
+after numeric-ID preflight remains non-atomic against arbitrary external writers.

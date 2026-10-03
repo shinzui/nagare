@@ -1,0 +1,92 @@
+{
+  "candidate": "3905012e36d45358608343b5ea70ebc9cf45511c",
+  "context": {
+    "identity": "ep150-preview",
+    "project": "tan-ng-labs"
+  },
+  "numericInstanceId": "865479739011671762",
+  "stop": "TERMINATED",
+  "start": "RUNNING",
+  "priorScopesPreserved": 44,
+  "nativeIdentitiesPreserved": 112,
+  "knownContentsExact": {
+    "pg-source": "1|mp23-after-backup",
+    "pg-neighbor": "1|mp23-untouched-app-b",
+    "clickhouse": "1\tindependent-cloud-ch-v1\n2\tindependent-cloud-ch-after",
+    "redis": "independent-cloud-redis-after-v2",
+    "volume": "independent-cloud-volume-after"
+  },
+  "computeCliInvocations": [
+    "describe",
+    "describe",
+    "describe",
+    "describe",
+    "stop",
+    "describe",
+    "describe",
+    "describe",
+    "describe",
+    "start",
+    "describe"
+  ],
+  "head": {
+    "generation": 1002,
+    "sequence": 834,
+    "activeTransaction": null,
+    "executorClaim": null
+  },
+  "limits": [
+    "Native normal stop/start and completed request replay; provider lost-ack handling tested separately in public fixture",
+    "Compute transition is name-based after numeric identity preflight, not atomic numeric-ID CAS",
+    "Power RUNNING alone does not establish workload readiness; independent post-start queries and identities provide bounded workload evidence"
+  ],
+  "offHostCommandsUsedNoSshConnectionOrKubectl": true,
+  "localSshVersionProbeBoundary": "Three initial sentinel-denied ssh invocations were investigated and were exactly -V. Only exact local -V is then delegated; any host connection or kubectl remains denied.",
+  "replay": {
+    "reviewDigest": "0f966e2053ccf20d4ec865edcddba807bc2598cc85c619edfa08f56334ac4f64",
+    "operationCount": 0,
+    "result": {
+      "exit": 0,
+      "seconds": 12.939
+    },
+    "newPowerRequests": 0
+  },
+  "headAfterReplay": {
+    "generation": 1006,
+    "sequence": 836,
+    "activeTransaction": null,
+    "executorClaim": null
+  },
+  "timings": {
+    "stop-plan": {
+      "exit": 0,
+      "seconds": 21.28
+    },
+    "stop-apply": {
+      "exit": 0,
+      "seconds": 138.926
+    },
+    "start-plan": {
+      "exit": 0,
+      "seconds": 26.39
+    },
+    "start-apply": {
+      "exit": 0,
+      "seconds": 35.453
+    },
+    "replay-plan": {
+      "exit": 0,
+      "seconds": 19.626
+    },
+    "replay-apply": {
+      "exit": 0,
+      "seconds": 12.939
+    }
+  },
+  "reviewDigests": {
+    "stop": "789609496cb5a5948a1525d6a1346147fa8595c9a64e8cf5d14deae7027e8009",
+    "start": "4205f13b7d66b9f4978d1ac4a0c1d56341a18491fec413b4118d650871daf982",
+    "replay": "0f966e2053ccf20d4ec865edcddba807bc2598cc85c619edfa08f56334ac4f64"
+  },
+  "startupBoundary": "First post-start query saw API not ready; then PostgreSQL recovery mode. Read-only readiness/data rechecks succeeded without another power request or any recovery mutation."
+}

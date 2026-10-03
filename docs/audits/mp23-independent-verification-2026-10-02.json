@@ -108,7 +108,9 @@
     "docs/audits/mp23-independent-results-2026-10-02/local-platform-candidate-a027d1f6.json": "89e0c61e788045f86c4705fd3590dae02f2faeb0e72258f5610b031fcb1867d1",
     "docs/audits/mp23-independent-results-2026-10-02/scheduled-gcs-tests.txt": "dc403d005d98cdb2d6c8964a28b8aa4a482d2b2b0075f70e040891e558a3aa9d",
     "docs/audits/mp23-independent-results-2026-10-02/scheduled-gcs-ingestion-a027d1f6.json": "1f60c7fb6e2f0489cc7010fcc324cefda6988e3be2f62f5147eee9f6f8ef5610",
-    "docs/audits/mp23-independent-results-2026-10-02/public-cdn-disable.txt": "46c8dadd22a87a3b6635a03a90894e9a5a95560782a01d08fb90591bbd36be28"
+    "docs/audits/mp23-independent-results-2026-10-02/public-cdn-disable.txt": "46c8dadd22a87a3b6635a03a90894e9a5a95560782a01d08fb90591bbd36be28",
+    "docs/audits/mp23-independent-results-2026-10-02/native-vm-power-3905012e.json": "af3bcb405b8d066511d883d0fa8d6fc73ae5b76edb295f913520b6f998473ff1",
+    "docs/audits/mp23-independent-results-2026-10-02/installed-local-gate-3905012e.json": "f598db19003c3ebe10f0791c47c4f10f6e31c2882cbfae8ee2d86aa6dadbcecb"
   },
   "scheduledGcsReview": {
     "candidate": "a027d1f632d50ee4cf853127e7932ab94c09aaf1",
@@ -220,5 +222,16 @@
   "c4LocalAndReleaseGates": {
     "local": "docs/audits/mp23-independent-results-2026-10-02/installed-local-gate-c4d219e4.json",
     "public": "docs/audits/mp23-independent-results-2026-10-02/host-and-release-public-c4-32d59ee0.json"
+  },
+  "vmPowerPublic": {
+    "candidate": "3905012e36d45358608343b5ea70ebc9cf45511c",
+    "evidence": "docs/audits/mp23-independent-results-2026-10-02/vm-power-public-3905012e.json",
+    "nativePowerMutationPerformed": false
+  },
+  "vmPowerNative": {
+    "candidate": "3905012e36d45358608343b5ea70ebc9cf45511c",
+    "evidence": "docs/audits/mp23-independent-results-2026-10-02/native-vm-power-3905012e.json",
+    "localGate": "docs/audits/mp23-independent-results-2026-10-02/installed-local-gate-3905012e.json",
+    "result": "passed with numeric-ID/name-based API boundary"
   }
 }

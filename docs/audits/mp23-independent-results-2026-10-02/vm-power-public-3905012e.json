@@ -1,0 +1,35 @@
+{
+  "sourceCandidate": "3905012e36d45358608343b5ea70ebc9cf45511c",
+  "kind": "independent built public fixture and production library tests; no native VM mutation",
+  "publicFixture": "mp23-independent-foundation-3905012e.txt",
+  "tests": "mp23-independent-vm-receipt-tests.txt",
+  "assertions": [
+    "Saved stop review refuses changed numeric ID before effect",
+    "Original stop recovers lost acknowledgement without resend",
+    "Start works while SSH and Kubernetes are denied",
+    "Repeated immutable start intent requires no repeated provider effect",
+    "Historical completion survives later opposite power state",
+    "Lost receipt acknowledgement recovers from durable immutable bytes",
+    "Malformed completion receipt refuses",
+    "Filesystem backup/restore preserves exact vm-power and cdn-purge receipt bytes"
+  ],
+  "sourceHashes": {
+    "scripts/test-bootstrap-foundation-public.sh": "7dd4ee3df2c57fe75c8efbc5b247d4dba4a311e20ca4039cb3856efd2a1d08fc",
+    "cli/nagarectl/src/Nagare/Inventory/VmPower.hs": "8dbecabd08518ac77f1a61557fb6b20092d59c7971f9c9677d589d4637aae8e0",
+    "cli/nagarectl/app/Nagare/Cli/Inventory/VmPower.hs": "1a356b8263a47619fec991c4361828153fb9e0b664877e39861ca7a341d6dc79",
+    "cli/nagarectl/src/Nagare/Inventory/Store.hs": "96af1fbc0990f77ceaf5b62e22042f6a55817960eb027f9aa02d38fcf85680c9",
+    "cli/nagarectl/test/InventoryVmPowerSpec.hs": "11b12078a9461cb6c014bf10c7f76bef98fa92dc473be6b53c4cdfdedd8898be",
+    "cli/nagarectl/test/InventoryTransactionSpec.hs": "0b0daf03c670ea9f623368f528541b71ab151046f9df7ead5c2f10c9f99d702f",
+    "cli/nagarectl/dist-newstyle/build/aarch64-osx/ghc-9.12.4/nagarectl-0.4.0/x/nagarectl/build/nagarectl/nagarectl": "d4e031b78ba24428cf4a6d0ad3c99f311f4f89947fb916a0d65575ef745767fe"
+  },
+  "logHashes": {
+    "mp23-independent-foundation-3905012e.txt": "d18a46d1f6147714da6aa4e70c7b52d4616b41072bd8dad3c4465bc365e24f5d",
+    "mp23-independent-vm-receipt-tests.txt": "aca95906a937c9ab9637c1dd7fbf6aaf59c1fd19a48dbe3163b936ad65721f85"
+  },
+  "sourceReview": {
+    "result": "no blocking findings after immutable receipt repair",
+    "storeExportRestoreMigration": "all store keys retained; no receipt-prefix whitelist",
+    "offHostPreparation": "Pulumi verification/power only, no collection/retirement/migration, preserves static version/project/ADC guard",
+    "boundary": "name-based Compute action after numeric identity checks is not an atomic numeric-ID CAS"
+  }
+}
