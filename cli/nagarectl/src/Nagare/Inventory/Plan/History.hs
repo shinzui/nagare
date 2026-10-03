@@ -208,16 +208,29 @@ loadInventoryHistory store = do
         unless
           (scopeId declaration == retainedOwner retained)
           (Left (StoreInvalidObject key "retained scope owner mismatch"))
+        -- A contribution target (for example the access backend map) exists only
+        -- in composition. Consumers that contribute to it retire before its owner,
+        -- so composing the owner scope alone reproduces the retained member (F40).
+        let composedAlone =
+              either
+                (const [])
+                id
+                (composedDeclarations (Map.singleton (scopeId declaration) declaration))
         managed <-
           maybe
             (Left (StoreInvalidObject key "retained resource declaration is missing"))
             Right
             ( listToMaybe
-                [ resource
-                | bundle <- scopeBundles declaration
-                , Managed resource <- bundle ^. #declarations
-                , resource ^. #identity == resourceId
-                ]
+                ( [ resource
+                  | bundle <- scopeBundles declaration
+                  , Managed resource <- bundle ^. #declarations
+                  , resource ^. #identity == resourceId
+                  ]
+                    <> [ resource
+                       | Managed resource <- composedAlone
+                       , resource ^. #identity == resourceId
+                       ]
+                )
             )
         unless
           (managed ^. #owner == retainedOwner retained)

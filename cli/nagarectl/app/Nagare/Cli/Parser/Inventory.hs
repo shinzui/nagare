@@ -62,7 +62,7 @@ inventoryCmd =
               (info (InventoryMigrate <$> strOption (long "input" <> metavar "FILE") <*> strOption (long "out" <> metavar "DIRECTORY") <**> helper) (progDesc "Review exact source and destination migration incarnations"))
             <> command
               "retire"
-              (info (InventoryRetire <$> strOption (long "scope" <> metavar "KIND:NAME") <*> strOption (long "out" <> metavar "DIRECTORY") <**> helper) (progDesc "Review retention of an accepted scope without deleting its resources"))
+              (info (InventoryRetire <$> ((NE.:|) <$> strOption (long "scope" <> metavar "KIND:NAME" <> help "Scope to retire; repeat to retire mutually dependent scopes together") <*> many (strOption (long "scope" <> metavar "KIND:NAME" <> internal))) <*> strOption (long "out" <> metavar "DIRECTORY") <**> helper) (progDesc "Review retention of accepted scopes without deleting their resources"))
             <> command
               "gc"
               (info (InventoryGc <$> (flag' () (long "plan" <> help "Write a read-only collection assessment") *> strOption (long "out" <> metavar "DIRECTORY")) <**> helper) (progDesc "Screen retained resources for later collection review"))

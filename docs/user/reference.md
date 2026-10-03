@@ -133,6 +133,14 @@ stateless Kubernetes resources, use a later `inventory collect --resource
 RESOURCE_ID --out REVIEW` and separate reviewed apply after checking that no
 consumer still depends on the retained resource.
 
+`nagarectl inventory retire --scope KIND:NAME --out REVIEW` reviews retention of
+a whole accepted scope: every member stays live and retained, and nothing is
+deleted. Repeat `--scope` to retire scopes that depend on each other in one
+review (Knative Serving, Kourier and the certificate controller, for example).
+A scope that still has consumers outside the review refuses with
+`dangling-reference`; retire those consumers first. Contributed targets the
+scope owns, such as the access backend map, are retained with it.
+
 ## Cloud context variables (also `nagare.target.env`)
 
 Each context `.env` file uses the same flat schema as the git-ignored

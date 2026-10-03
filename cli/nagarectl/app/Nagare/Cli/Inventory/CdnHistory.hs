@@ -13,6 +13,7 @@ import Control.Monad (forM)
 import Data.Generics.Labels ()
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (catMaybes)
 import Data.Text qualified as T
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Dsl.Prelude
@@ -45,7 +46,7 @@ historicalCloudflareBindings =
     )
 
 reviewedHistoricalCdn :: InventoryStore -> ReviewBundle -> IO (Map ResourceId ManagedResource)
-reviewedHistoricalCdn store bundle = fmap (Map.filter ((== CdnExecutor) . (^. #executor)) . Map.fromList) $ forM selected $ \(resourceId, proof) -> do
+reviewedHistoricalCdn store bundle = fmap (Map.filter ((== CdnExecutor) . (^. #executor)) . Map.fromList . catMaybes) $ forM selected $ \(resourceId, proof) -> do
   let digest = revisionDigest (retentionRevision proof)
   bytes <-
     readObject store (scopeKey digest)
@@ -54,15 +55,17 @@ reviewedHistoricalCdn store bundle = fmap (Map.filter ((== CdnExecutor) . (^. #e
   unless (contentDigest bytes == digest) (dieT "historical CDN owner scope digest differs")
   scope <- either (dieT . T.pack . show) pure (decodeScope bytes)
   unless (scopeId scope == retentionOwner proof) (dieT "historical CDN owner differs from the review")
-  resource <- case [ member
-                   | item <- scopeBundles scope
-                   , Managed member <- item ^. #declarations
-                   , member ^. #identity == resourceId
-                   , member ^. #owner == scopeId scope
-                   ] of
-    [member] -> pure member
-    _ -> dieT "historical CDN resource is absent or ambiguous"
-  pure (resourceId, resource)
+  -- A composed contribution target (for example the access backend map) is
+  -- not a raw bundle member and is never a CDN record; skip it (F40).
+  case [ member
+       | item <- scopeBundles scope
+       , Managed member <- item ^. #declarations
+       , member ^. #identity == resourceId
+       , member ^. #owner == scopeId scope
+       ] of
+    [member] -> pure (Just (resourceId, member))
+    [] -> pure Nothing
+    _ -> dieT "historical CDN resource is ambiguous"
   where
     document = reviewBundleDocument bundle
     -- Retirement can have no operations, so select original proof authority.

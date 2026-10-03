@@ -496,6 +496,7 @@ test-suite nagarectl-test
     InventoryCloudSpec
     InventoryCloudflareSpec
     InventoryCompanionCollectionSpec
+    InventoryContributionRetirementSpec
     InventoryControllerCollectionSpec
     InventoryEffectfulCollectionSpec
     InventoryEffectfulSpec

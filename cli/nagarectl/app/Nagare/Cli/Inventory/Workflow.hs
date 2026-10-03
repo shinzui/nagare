@@ -233,12 +233,14 @@ acceptedMigrationNative active candidate history = do
     (dieT "migration source needs an installed immutable provider observation contract")
   pure (oldKubernetes, oldHelm)
 
-runInventoryRetire :: Maybe String -> String -> FilePath -> IO ()
-runInventoryRetire mctx rawScope output = do
+-- | Mutually dependent scopes (for example Knative Serving and its networking
+-- layers) can only retire together, so the review accepts several scopes.
+runInventoryRetire :: Maybe String -> NE.NonEmpty String -> FilePath -> IO ()
+runInventoryRetire mctx rawScopes output = do
   active <- activeTarget mctx
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
-  owner <- either dieT pure (parseScope (T.pack rawScope))
-  Inventory.planInventoryRetirementWith (inventoryPlanRegistry active workspace) active owner output
+  owners <- traverse (either dieT pure . parseScope . T.pack) rawScopes
+  Inventory.planInventoryRetirementsWith (inventoryPlanRegistry active workspace) (const (Right ())) active owners output
   where
     parseScope scopeText = case T.splitOn ":" scopeText of
       [kind, name] -> do

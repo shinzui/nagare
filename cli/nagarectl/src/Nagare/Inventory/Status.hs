@@ -35,12 +35,15 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
+import Nagare.Inventory.BackendMap (compileContributedBackendMaps, compileContributedShomeiSettings)
 import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
+import Nagare.Inventory.Components.Foundation (compileContributedNamespaces)
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
 import Nagare.Inventory.Journal
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
 import Nagare.Inventory.ObservationNative
 import Nagare.Inventory.Plan
+import Nagare.Inventory.Plan.Types (historyDeclarations)
 import Nagare.Inventory.Store
 import Nagare.Inventory.Store qualified as Store
 import Nagare.Resource.Inventory
@@ -440,12 +443,37 @@ loadNativeFor ::
 loadNativeFor retainedOnly selection store history inventory
   | not (any needsNative relevantMembers) = pure (Right (Map.empty, Map.empty))
   | otherwise = do
+      stored <- loadStored
+      pure $ do
+        (kubernetes, helm) <- stored
+        generated <- generatedContributions
+        pure (Map.union kubernetes generated, helm)
+  where
+    loadStored = do
       direct <- loadObservationNativeChecked store currentMembers
       case direct of
         Right native -> pure (Right (observationKubernetes native, observationHelm native))
         Left (ObservationNativeInvalid reason) -> pure (Left reason)
         Left (ObservationNativeMissing _) -> legacy
-  where
+    -- Contributed namespaces, the access backend map and Shomei settings are
+    -- composed targets with a typed spec; no review stores their bytes, but the
+    -- accepted or retained spec determines them exactly (F40).
+    generatedContributions = do
+      let historical =
+            (if retainedOnly then [] else historyDeclarations history)
+              <> [Managed old | (_, (_, old)) <- Map.toAscList (historyRetained history)]
+      compiled <-
+        Map.unions
+          <$> sequence
+            [ compileContributedNamespaces historical
+            , compileContributedBackendMaps historical
+            , compileContributedShomeiSettings historical
+            ]
+      pure (Map.filterWithKey (\resource (member, _) -> selected resource && current resource member) compiled)
+    current resource member
+      | Just (_, old) <- Map.lookup resource (historyRetained history) =
+          old == member && (retainedOnly || Map.notMember resource desired)
+      | otherwise = not retainedOnly && Map.lookup resource desired == Just member
     -- Accepted/retained declarations bind these bytes. They do not authorize
     -- an effect: apply/recovery still validates its original mutation envelope.
     selected resource = maybe True (Set.member resource) selection

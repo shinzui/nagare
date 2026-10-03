@@ -18,10 +18,12 @@ import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Plan
+import Nagare.Inventory.Plan.Types (historyDeclarations)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy (RetirementIntent (..))
 import Nagare.Resource.Types
@@ -133,15 +135,21 @@ decideRetirement candidate history observations =
         resourceId
         ApproveRetirement
         (lifecycleObservationDigest binding resourceId fact)
-    | RetireScope owner RetainResources <- NE.toList (candidateChanges candidate)
-    , Just (_, scope) <- [Map.lookup owner (historyAccepted history)]
-    , bundle <- scopeBundles scope
-    , Managed resource <- bundle ^. #declarations
+    | Managed resource <- historyDeclarations history
+    , Set.member (resource ^. #owner) retiring
     , let resourceId = resource ^. #identity
     , Just fact <- [Map.lookup resourceId (observationMap observations)]
     ]
   where
     binding = inventoryBinding (candidateInventory candidate)
+    -- Composed history includes contribution targets the retiring scope owns
+    -- (for example the access backend map), which its raw bundles do not list.
+    retiring =
+      Set.fromList
+        [ owner
+        | RetireScope owner RetainResources <- NE.toList (candidateChanges candidate)
+        , Map.member owner (historyAccepted history)
+        ]
 
 decideCollection ::
   CompositionCandidate ->

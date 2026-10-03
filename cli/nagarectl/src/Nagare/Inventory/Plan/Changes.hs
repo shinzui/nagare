@@ -339,11 +339,11 @@ buildRetentionProofs candidate (LifecycleDecisions _ decisions _) history observ
                 _ -> Nothing
             ]
         ]
+    -- Admission counts removed members over composed history, which includes
+    -- contribution targets owned by the scope; prove exactly that set (F40).
     selected =
       [ (resource ^. #identity, resource)
-      | (_, (_, scope)) <- Map.toAscList (historyAccepted history)
-      , bundle <- scopeBundles scope
-      , Managed resource <- bundle ^. #declarations
+      | Managed resource <- historyDeclarations history
       , Set.notMember (resource ^. #identity) desired
       , Set.member (resource ^. #owner) selectedScopes
       ]

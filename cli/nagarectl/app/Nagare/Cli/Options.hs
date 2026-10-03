@@ -339,7 +339,7 @@ data Command
   | InventoryPlan FilePath [String] FilePath
   | InventoryAdopt FilePath FilePath
   | InventoryMigrate FilePath FilePath
-  | InventoryRetire String FilePath
+  | InventoryRetire (NE.NonEmpty String) FilePath
   | InventoryGc FilePath
   | InventoryCollect (NE.NonEmpty String) FilePath Bool
   | InventoryApply FilePath Bool

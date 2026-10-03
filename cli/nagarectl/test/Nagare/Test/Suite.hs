@@ -22,6 +22,7 @@ import InventoryCdnSpec (inventoryCdnTests)
 import InventoryCloudCollectionSpec (cloudCollectionTests)
 import InventoryCloudSpec (inventoryCloudTests)
 import InventoryCompanionCollectionSpec (inventoryCompanionCollectionTests)
+import InventoryContributionRetirementSpec (inventoryContributionRetirementTests)
 import InventoryControllerCollectionSpec (controllerCollectionTests)
 import InventoryEffectfulCollectionSpec (inventoryEffectfulCollectionTests, runCollectionResumeProbe)
 import InventoryEffectfulSpec (inventoryEffectfulTests, runEffectfulResumeProbe)
@@ -190,6 +191,7 @@ main = do
             , inventoryTests
             , inventoryApplicationUpdateRecoveryTests
             , inventoryRefusedPreflightRecoveryTests
+            , inventoryContributionRetirementTests
             , inventoryRedisRestoreRecoveryTests
             , inventoryPreviewRecoveryTests
             , inventoryTransactionTests
