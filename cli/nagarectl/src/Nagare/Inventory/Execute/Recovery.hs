@@ -17,7 +17,7 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter
-  ( Adapter (adapterIdentity, adapterRecover, adapterVersion)
+  ( Adapter (adapterIdentity, adapterPreflight, adapterRecover, adapterVersion)
   , AdapterRecovery (recoveryPrepare)
   , AdapterRegistry
   , OperationAction (VerifyResource)
@@ -275,10 +275,18 @@ recordOperatorRecovery store registry input takeOver = do
               pure (failure "recovery-review" "decision file review digest differs from transaction")
           | not (recoverableState (Map.lookup operationId (operationStates transaction events)))
           , not
-              ( recoveryAction input == StopIncompleteApplication
+              ( recoveryAction input `elem` [StopIncompleteApplication, AbandonRefusedOperation]
                   && Map.findWithDefault Pending operationId (operationStates transaction events) == Pending
               ) ->
               pure (failure "recovery-state" "operation has no uncertain effect to resolve")
+          | recoveryAction input == AbandonRefusedOperation
+          , Map.findWithDefault Pending operationId (operationStates transaction events) /= Pending ->
+              pure (failure "recovery-state" "only an operation with no recorded intent can be abandoned after a refused preflight")
+          | recoveryAction input == AbandonRefusedOperation
+          , any
+              (\(other, state) -> other /= operationId && recoverableState (Just state))
+              (Map.toList (operationStates transaction events)) ->
+              pure (failure "recovery-prerequisite" "resolve every uncertain operation before abandoning a refused one")
           | Just (OperatorResolved marker) <- Map.lookup operationId (operationStates transaction events)
           , Just (native, Nothing) <- bootstrapRecoveryMarker marker
           , recoveryAction input /= RecoverBootstrapRegistry native ->
@@ -303,6 +311,7 @@ recordOperatorRecovery store registry input takeOver = do
                                  `elem` [ AbandonPartialPrune
                                         , AbandonPartialVolumeRestore
                                         , AbandonPartialDatabaseRestore
+                                        , AbandonRefusedOperation
                                         ]
                                  || ( recoveryAction input == RecoverFencedBackup
                                         && isJust (rollbackProof transaction operationId events)
@@ -424,6 +433,11 @@ recordOperatorRecovery store registry input takeOver = do
                                 "data-fence-capability"
                                 "active data fence differs from the private reviewed member"
                             )
+                    Right selection
+                      | recoveryAction input == AbandonRefusedOperation ->
+                          if isJust selection
+                            then pure (failure "data-fence-capability" "a fenced operation cannot be abandoned after a refused preflight")
+                            else abandonRefused lock (reviewPlannedOperation reviewOperation) adapter prepared
                     Right selection -> do
                       let operation = reviewPlannedOperation reviewOperation
                       let previous = Map.lookup operationId (operationStates transaction events)
@@ -553,6 +567,33 @@ recordOperatorRecovery store registry input takeOver = do
                                   "operator selected adapter-proved safe retry"
                               pure (first (\err -> AdmissionError "journal" (showText err) :| []) (() <$ appended))
                         _ -> pure (failure "unsupported-recovery" "adapter did not prove the operator's requested action")
+    -- F35: an operation whose preflight refused after admission never recorded
+    -- intent, so it cannot have taken effect. Re-run the same preflight under
+    -- the lock; only a current refusal ends the transaction. Completed earlier
+    -- effects keep their journal identities and stay unaccepted.
+    abandonRefused ::
+      forall s.
+      LockedStore s ->
+      PlannedOperation ->
+      Adapter ->
+      PreparedNative ->
+      IO (Either (NonEmpty AdmissionError) ())
+    abandonRefused lock operation adapter prepared = do
+      preflight <- withAdapterEnv transaction operation (adapterPreflight adapter operation prepared)
+      case preflight of
+        Right () -> pure (failure "recovery-state" "operation preflight passes now; resume the transaction instead")
+        Left reason -> do
+          appended <-
+            appendEvent
+              lock
+              transaction
+              (Just operationId)
+              (OperatorResolved "abandoned-refused-operation")
+              ( "operation abandoned after a fresh preflight refusal ("
+                  <> reason
+                  <> "); completed earlier effects remain unaccepted until a separate reviewed recovery"
+              )
+          pure (first (\err -> AdmissionError "journal" (showText err) :| []) (() <$ appended))
     runBootstrapThroughDriver ::
       forall s.
       LockedStore s ->

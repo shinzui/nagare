@@ -151,6 +151,19 @@ observation changes while retaining UID, configuration, field ownership and a
 fresh conditional resourceVersion. Existing saved reviews keep their original
 strict comparison semantics.
 
+When `inventory apply` or `resume` stops with `KnownNoEffect "adapter preflight
+refused"`, a later operation found its target changed after admission. The usual
+cause is an object that appeared at an address the review creates. If the
+conflicting object is legitimately someone else's, do not delete it to make
+progress. Use `abandon-refused-operation` on the stopped operation instead. The
+adapter reruns the same preflight under the lock, and only a refusal at that
+moment ends the transaction; if the preflight passes again, resume instead. Every
+other operation must have a settled outcome first. Effects that completed before
+the refusal keep their identities in the journal but are not accepted, so the
+scope returns to its last converged revision and its partial objects remain
+unresolved until a separate reviewed recovery. Save a new review, for example
+with a fresh restore ID, rather than replaying the old one (finding F35).
+
 If recovery also needs takeover, add `--take-over` after establishing that the
 original executor stopped. Supported terminal scratch-restore abandonment leaves
 the partial scratch database/PVC available for a separate reviewed recovery; it

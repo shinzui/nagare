@@ -75,6 +75,7 @@ data RecoveryAction
   | AbandonPartialVolumeRestore
   | AbandonPartialDatabaseRestore
   | StopIncompleteApplication
+  | AbandonRefusedOperation
   | RecoverBootstrapRegistry !ContentDigest
   deriving stock (Eq, Show)
 
@@ -108,6 +109,7 @@ instance FromJSON OperatorRecoveryInput where
       "abandon-partial-volume-restore" -> pure AbandonPartialVolumeRestore
       "abandon-partial-database-restore" -> pure AbandonPartialDatabaseRestore
       "stop-incomplete-application" -> pure StopIncompleteApplication
+      "abandon-refused-operation" -> pure AbandonRefusedOperation
       _
         | Just native <- T.stripPrefix "recover-bootstrap-registry:" action ->
             RecoverBootstrapRegistry <$> either (fail . T.unpack) pure (mkContentDigest native)

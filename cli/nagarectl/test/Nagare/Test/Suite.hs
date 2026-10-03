@@ -42,6 +42,7 @@ import InventoryObservationSpec (inventoryObservationTests)
 import InventoryPostgresRenameSpec (inventoryPostgresRenameTests)
 import InventoryPreviewRecoverySpec (inventoryPreviewRecoveryTests)
 import InventoryPublicationSpec (inventoryPublicationTests)
+import InventoryRefusedPreflightRecoverySpec
 import InventorySpec (inventoryTests)
 import InventoryStatusSpec (inventoryStatusTests)
 import InventoryTransactionSpec
@@ -183,6 +184,7 @@ main = do
             , inventoryObjectOpsTests
             , inventoryTests
             , inventoryApplicationUpdateRecoveryTests
+            , inventoryRefusedPreflightRecoveryTests
             , inventoryPreviewRecoveryTests
             , inventoryTransactionTests
             , dataFenceTests

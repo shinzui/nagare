@@ -625,6 +625,8 @@ recoverInventoryWithFactory registryFor target transactionToken operationToken d
       TIO.putStrLn "Terminal volume restore review abandoned; unaccepted scratch PVC remains unresolved until a separate reviewed recovery; use a fresh restore ID"
     AbandonPartialDatabaseRestore ->
       TIO.putStrLn "Terminal database restore review abandoned; unaccepted scratch database remains unresolved until a separate reviewed recovery; use a fresh restore ID"
+    AbandonRefusedOperation ->
+      TIO.putStrLn "Refused operation abandoned and its review ended without convergence; completed earlier effects remain unaccepted; inspect inventory status before saving a new review"
     RecoverFencedBackup ->
       TIO.putStrLn "Reviewed recovery backup proved and original restore review abandoned; inspect inventory status before saving a new review"
     ForwardFencedRelease -> do
